@@ -1057,10 +1057,10 @@ final class FolderPickerView: UIView {
             button.tag = index
             button.configure(title: folder.title, unreadState: unreadStates[index], animated: false)
             button.addTarget(self, action: #selector(folderPressed(_:)), for: .touchUpInside)
-            let longPress = UILongPressGestureRecognizer(target: self, action: #selector(folderLongPressed(_:)))
-            longPress.minimumPressDuration = 0.3
-            longPress.allowableMovement = 8
-            if !folders.isEmpty { button.addGestureRecognizer(longPress) }
+            let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(folderLongPressed(_:)))
+            // A text-only segment has no shape of its own to cast the platter shadow.
+            press.castsShadow = false
+            if !folders.isEmpty { button.addGestureRecognizer(press) }
             buttonStack.addArrangedSubview(button)
             let width = button.widthAnchor.constraint(equalToConstant: naturalSegmentWidths[index])
             width.isActive = true
@@ -1289,7 +1289,7 @@ final class FolderPickerView: UIView {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: lowering)
     }
 
-    @objc private func folderLongPressed(_ gesture: UILongPressGestureRecognizer) {
+    @objc private func folderLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
         guard gesture.state == .began,
               let button = gesture.view as? FolderButton,
               folders.indices.contains(button.tag)

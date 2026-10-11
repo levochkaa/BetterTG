@@ -23,8 +23,10 @@ scope. None of the states below claims complete Telegram parity.
   levochkaa/TDLibKit (native models plus the generated compat layer in `BetterTG/Shared`), Lottie 4.6.1, libwebp 1.6.0,
   FFmpeg 9.0 through `Packages/FFmpegBridge`, SwiftMath 1.7.3. Production code has no MobileVLCKit, TDLibKitDynamic or
   SwiftUI/hosting/representable UI.
-- Next: CustomContextMenu gestures for every menu source, the liquid morph for menu buttons, then post-merge
-  revalidation. F2 is fixed in `88253af`.
+- Context-menu gestures from CustomContextMenu are ported for every menu source (commit
+  `feature(context-menu): port the system menu touch model`); see "Context-menu gestures" below. F2 is fixed in
+  `89f1c14`.
+- Next: the liquid morph for menu buttons, then post-merge revalidation.
 - Audit cursor: every area is `pending` after the merge. Start with the Stage 0 resolution sites below and the astra code
   ported to TDLibKit 2, then follow the full path action → state/ownership → TDLib → update → UI/cleanup per area.
 
@@ -96,13 +98,45 @@ All three histories are reachable from `codex/parity`. `main` and both source br
 | ID | Pri | Finding | State |
 | --- | --- | --- | --- |
 | F1 | P1 | Forwarding into Saved Messages reported "Telegram returned a different topic" although TDLib delivered it (Saved Messages topic vs empty destination topic); the forward stayed pending for a duplicate retry | fixed `15701d2`, Simulator smoke |
-| F2 | P2 | Forward to shows its search field initially; identity requires it hidden like the main list | fixed `88253af`: pages scroll search out after the first page; Simulator smoke shows hidden search, pull-to-reveal and folder switching |
+| F2 | P2 | Forward to shows its search field initially; identity requires it hidden like the main list | fixed `89f1c14`: pages scroll search out after the first page; Simulator smoke shows hidden search, pull-to-reveal and folder switching |
 | F3 | P2 | Context-menu item casing is mixed (reply/edit/copy/delete vs Forward/Select) | queued |
 | F4 | P2 | Astra profile editor status uses `navigationItem.prompt`, which classic chrome does not render | queued |
 | F5 | P2 | Forum search renewal after client restoration lost its probe with the UISearchController UI | queued: new probe for the classic search field |
 | F6 | P2 | Reaction strip stickers load through the active client rather than the menu's captured client | queued |
 | F7 | P2 | From M2: native-model deep `Hashable` cost in timeline diffing is unmeasured; `ChatVM._loadMessages` skips astra `replacingExisting` for already shown cursor messages; client activation keeps the previous client published until the async replacement exists; `ComposerTextProbe` lost its JSON round trip; new astra strings are not localized | queued for revalidation |
 | F8 | P2 | During the F2 smoke, a tap sequence in Forward to (pull to reveal search, tap a folder, tap Close) ended in a real group chat without a pending forward; nothing was sent. A controlled repeat switched folders correctly | unreproduced; watch hit testing of the Forward to folder picker after search reveal |
+| F9 | P1 | The old message press reset every ancestor recognizer by toggling `isEnabled` when it began, up to the window's system gates and the glass flex pan. Applied to the chat list, it left the table's `_UISwipeDismissalGestureRecognizer` recognizing every later tap (logged `st=3`), so rows stopped opening chats after a chat-preview menu | fixed in the gesture slice: the press relies on UIKit exclusivity, and ChatView no longer lets the message press recognize simultaneously; Simulator smoke opens the chat after a preview menu |
+
+### Context-menu gestures — 2026-10-12
+
+Source: `/Users/lev/Developer/CustomContextMenu` (UIKitCore iOS 27.0 24A434): `App/MenuMotion.swift`,
+`App/MenuTouchRecognizer.swift`, `App/CustomMenu.swift`, `App/NativeUIKit.swift`, `Tests/InteractionChecks.swift`,
+`Research/Interaction/README.md`. Constants are taken from the source, none tuned by eye.
+
+| Area | Port | BetterTG adaptation |
+| --- | --- | --- |
+| Motion model | `ContextMenuMotion`, `ContextMenuSpring`, `ContextMenuTouchSession` verbatim: press progress and scale, radial rubber band 15 / 0.2, preview offset clamped toward the menu, closed-form spring, release rules | `platterOffset` also clamps for a menu above the preview |
+| Press before open | `ContextMenuPressGestureRecognizer` on messages, chat rows, avatars and folder tabs: progress after 0.15 s, 20 pt allowable movement, hold 0.4 s (0.325 s on iPad), growth by 8 pt on the long side and shadow 0.3 / radius 20 on a 0.6 / 0.4 s spring at up to 120 Hz; release 0.85 / 0.35 s; Reduce Motion keeps scale 1 | The effect runs on the source view instead of a pre-presented overlay; `presentTelegramContextMenu` takes the grown view over and restores its base transform. Folder tabs (`.menuOnly`) settle back when the menu opens and cast no shadow (text only). Replaces the Telegram 0.1 / 0.26 s recognizer, the 0.3 s long presses and the 0.98 shrink |
+| Open menu touches | One `ContextMenuTouchRecognizer` on the menu root (cancels and delays nothing) plus the opening finger: preview pan after 10 pt with rubber band only while the finger is off the menu and spring back on release; dismissal tap 45 pt / 1.5 s; outside finger hands off to scrubbing; 0.15 s selection delay for touches that begin on the menu; release outcomes A–N | Touches in the reaction strip, in the selectable quote text and in the scrollable chat preview stay with those views. The opening finger still scrubs reactions |
+| Native calls | `ContextMenuNativeAnimation`: `UIViewSpringAnimationBehavior` pan behavior (0.15 / 0.996, tracking 0.8 / 0.4 smoothed 0.08, release 0.85 / 0.5) and highlight behaviors, `_animateUsingSpringBehavior:tracking:` inside 48–120 Hz reason 0x100026, each selector-checked with the public `UIView.animate(springDuration:bounce:)` fallback | The menu glass stays BetterTG's `UIGlassEffect`; `_UIViewGlass` is not used |
+| Highlight | Shared highlight: frame 1 / 0.12 s, alpha 1 / 0.3 s, appears in place below 0.05 presentation opacity, inset 10 with radius min(menu radius − 10, h / 2), selection haptic on every change | Menu radius 30 keeps the existing 20 pt highlight |
+| Escape | Escape key and `accessibilityPerformEscape` dismiss; the dim view is a VoiceOver Close element; focus moves into the menu | The menu root takes focus only when nothing is focused; otherwise the focused view's controller carries the Escape command, so the composer keeps its keyboard |
+| Menu look | Unchanged: Telegram spring appearance, reactions strip, quote selection, submenus, keyboard-window hosting | — |
+
+Proofs:
+
+- Deterministic: `-ui-probe-context-menu-interaction` (`ContextMenuInteractionProbe`, DEBUG only) passed on iPhone 18 Pro
+  iOS 27.0: 10,201 rubber-band vectors, native pan trace and preview centers, press samples, hold durations, 60/120 Hz
+  spring independence and momentum, 12 native release cases, selection delay; private spring behavior available.
+- Simulator smoke (iPhone 18 Pro, iOS 27.0, idb): chat-row preview opens on hold and stays open on release (A); outside
+  tap dismisses (M); row tap after a preview menu opens the chat (F9); message menu with reactions, tap on copy runs
+  copy (N, pasteboard checked); tap on the preview edge dismisses (E); a slow drag from the message onto reply opens the
+  menu under the same finger and selects reply (G); Escape with the keyboard up dismisses the menu and keeps the
+  keyboard; avatar menu, outside drag over 45 pt (J) and preview move 30 pt (K) keep it open; folder-tab menu, row
+  touch dragged off the menu keeps it open (F); folder taps and list scrolling still work.
+- Not proven: B, C, D, H, I in the UI (probe only); preview pan visuals mid-drag; VoiceOver escape; 120 Hz and haptics on
+  a physical device; the iOS 26 fallback path at runtime (selector checks only). Device-interaction multi-touch was
+  rejected by automatic approval review because AGENTS.md forbids MCP simulator validation.
 
 ## BetterTG identity (user decisions)
 
@@ -153,7 +187,7 @@ Appendix A). Post-merge audit is `pending` for every row until revalidated on `c
 | P1 | Chats, folders, archive, search, edit/reorder | partial | reviewed, list/mutation repairs | pending; store-based list kept |
 | P1 | Timeline stability and performance | partial | reviewed, A22/A39/A49 repairs | pending |
 | P2 | Shell/navigation polish | implemented shell/list breadth | A32/A37 unresolved | pending |
-| P0 | Context-menu gestures from CustomContextMenu | queued | — | next |
+| P0 | Context-menu gestures from CustomContextMenu | ported 10-12 for all sources | — | probe + Simulator smoke; F9 fixed |
 | P1 | Liquid morph of menu buttons | queued | — | next |
 
 ## Appendix A — astra revalidation ledger

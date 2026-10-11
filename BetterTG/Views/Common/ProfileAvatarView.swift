@@ -45,9 +45,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         extractedContentView.addSubview(imageView)
         isUserInteractionEnabled = true
 
-        let longPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(longPressed(_:)))
-        longPressGesture.minimumPressDuration = 0.3
-        addGestureRecognizer(longPressGesture)
+        addGestureRecognizer(ContextMenuPressGestureRecognizer(target: self, action: #selector(longPressed(_:))))
 
         NSLayoutConstraint.activate([
             placeholderView.topAnchor.constraint(equalTo: extractedContentView.topAnchor),
@@ -208,7 +206,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         return icon
     }
 
-    @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
+    @objc private func longPressed(_ gesture: ContextMenuPressGestureRecognizer) {
         guard gesture.state == .began, let hostController = nearestViewController else { return }
         loadHighResolutionPreview()
         hostController.presentTelegramContextMenu(sourceView: self, actions: [

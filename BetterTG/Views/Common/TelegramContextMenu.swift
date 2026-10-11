@@ -18,6 +18,10 @@ private enum TelegramContextMenuLayout {
     static let minimumMenuWidth = CGFloat(220)
     static let maximumMenuWidth = CGFloat(240)
     static let sectionSeparatorHeight = CGFloat(20)
+    static let menuCornerRadius = CGFloat(30)
+    /// The shared highlight is inset like the system's largeItemContentShape: 10 pt on each side, with the
+    /// menu radius less that inset, capped at half the row height.
+    static let highlightInset = CGFloat(10)
 }
 
 // MARK: - TelegramContextMenuAction
@@ -189,12 +193,12 @@ extension UIViewController {
     }
 
     /// A `.menuOnly` menu sits `menuSpacing` above `menuAnchorView`, or above the source when there is none.
+    /// A `ContextMenuPressGestureRecognizer` passed as `gesture` hands its grown source over to the menu and
+    /// keeps driving it: the same finger scrubs the actions and pans the preview.
     @discardableResult func presentTelegramContextMenu(
         sourceView: UIView,
         actions: [TelegramContextMenuAction],
         tracking gesture: UIGestureRecognizer? = nil,
-        sourceBaseTransform: CGAffineTransform? = nil,
-        performsInitialFeedback: Bool = true,
         presentationStyle: TelegramContextMenuPresentationStyle = .message,
         previewController: UIViewController? = nil,
         menuAnchorView: UIView? = nil,
@@ -207,11 +211,20 @@ extension UIViewController {
               TelegramContextMenuController.activeController == nil,
               let sourceWindow = sourceView.window
         else { return false }
+        let pressGesture = gesture as? ContextMenuPressGestureRecognizer
+        let sourceTransform: CGAffineTransform?
+        if presentationStyle == .menuOnly {
+            // Without a preview the source stays in place, so it settles back instead of being taken over.
+            sourceTransform = pressGesture?.pressBaseTransform(of: sourceView)
+            pressGesture?.releasePress()
+        } else {
+            sourceTransform = pressGesture?.handOffPress(of: sourceView)
+        }
         let controller = TelegramContextMenuController(
             sourceView: sourceView,
             actions: actions,
             trackingGesture: gesture,
-            sourceTransform: sourceBaseTransform ?? sourceView.transform,
+            sourceTransform: sourceTransform ?? sourceView.transform,
             presentationStyle: presentationStyle,
             previewController: previewController,
             menuAnchorView: menuAnchorView,
@@ -220,18 +233,7 @@ extension UIViewController {
             quoteSelection: quoteSelection,
             owner: self, onDismiss: onDismiss,
         )
-        if performsInitialFeedback {
-            UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.75)
-            if presentationStyle != .menuOnly {
-                UIView.animate(
-                    withDuration: 0.12,
-                    delay: 0,
-                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
-                ) {
-                    sourceView.transform = sourceView.transform.scaledBy(x: 0.98, y: 0.98)
-                }
-            }
-        }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         controller.show(in: sourceWindow)
         return true
     }
@@ -240,7 +242,15 @@ extension UIViewController {
 // MARK: - TelegramContextMenuRootView
 
 private final class TelegramContextMenuRootView: UIView {
+    override var canBecomeFirstResponder: Bool { true }
+
+    /// Also reached while the quote text inside the menu holds focus.
+    override var keyCommands: [UIKeyCommand]? {
+        [UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escapePressed))]
+    }
+
     var onDetached: (() -> Void)?
+    var onEscape: (() -> Void)?
 
     private var wasAttached = false
 
@@ -248,6 +258,71 @@ private final class TelegramContextMenuRootView: UIView {
         super.didMoveToWindow()
         if window != nil { wasAttached = true }
         else if wasAttached { onDetached?() }
+    }
+
+    override func accessibilityPerformEscape() -> Bool {
+        onEscape?()
+        return onEscape != nil
+    }
+
+    @objc private func escapePressed() {
+        onEscape?()
+    }
+}
+
+// MARK: - TelegramContextMenuDismissView
+
+/// The dimmed background. Touches go to the menu's touch session; VoiceOver can still dismiss through it.
+private final class TelegramContextMenuDismissView: UIView {
+    var onActivate: (() -> Void)?
+
+    override func accessibilityActivate() -> Bool {
+        onActivate?()
+        return onActivate != nil
+    }
+}
+
+// MARK: - TelegramContextMenuPassthroughView
+
+/// Carries the preview pan offset, so the native tracking spring moves it independently of the preview's own
+/// transition. Touches outside the preview fall through.
+private final class TelegramContextMenuPassthroughView: UIView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let view = super.hitTest(point, with: event)
+        return view === self ? nil : view
+    }
+}
+
+// MARK: - TelegramContextMenuFirstResponder
+
+@MainActor private enum TelegramContextMenuFirstResponder {
+    fileprivate weak static var found: UIResponder?
+
+    static func current() -> UIResponder? {
+        found = nil
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.reportTelegramContextMenuFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil,
+        )
+        let responder = found
+        found = nil
+        // Without a focused responder the action reaches the window or the application instead.
+        return responder?.isFirstResponder == true ? responder : nil
+    }
+}
+
+private extension UIResponder {
+    @objc func reportTelegramContextMenuFirstResponder() {
+        TelegramContextMenuFirstResponder.found = self
+    }
+}
+
+private extension UIViewController {
+    /// Escape while a context menu is open and focus stays outside it, such as in the composer.
+    @objc func dismissTelegramContextMenuWithEscape() {
+        TelegramContextMenuController.activeController?.dismissWithEscape()
     }
 }
 
@@ -281,7 +356,8 @@ private final class TelegramContextMenuController: UIViewController {
     private var actions: [TelegramContextMenuAction]
     private var parentActions = [[TelegramContextMenuAction]]()
     private let backgroundEffectView = UIVisualEffectView(effect: nil)
-    private let dimView = UIView()
+    private let dimView = TelegramContextMenuDismissView()
+    private let previewPanView = TelegramContextMenuPassthroughView()
     private let previewContainer = UIView()
     private let menuEffectView: UIVisualEffectView = {
         let effect = UIGlassEffect(style: .regular)
@@ -301,15 +377,39 @@ private final class TelegramContextMenuController: UIViewController {
     private var originalContentCornerRadius = CGFloat.zero
     private weak var presentationHostView: UIView?
     private var actionButtons = [TelegramContextMenuActionButton]()
-    private weak var trackedButton: TelegramContextMenuActionButton?
     private var hasAnimatedIn = false
     private var isDismissing = false
     private var isPerformingAction = false
-
-    private lazy var menuSelectionGesture = UILongPressGestureRecognizer(
+    /// One touch at a time, as in the system menu: the finger that opened the menu or a later touch on it.
+    private var touchSession: ContextMenuTouchSession?
+    private var touchSessionIsInitiating = false
+    private var touchPoint = CGPoint.zero
+    private var panOffset = CGPoint.zero
+    private var selectionDelayWork: DispatchWorkItem?
+    private var highlightedIndex: Int?
+    private let selectionFeedback = UISelectionFeedbackGenerator()
+    private let panBehavior = ContextMenuNativeAnimation.makePanBehavior()
+    private let highlightFrameBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.12)
+    private let highlightAlphaBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.3)
+    private weak var escapeCommandOwner: UIViewController?
+    private lazy var touchRecognizer = ContextMenuTouchRecognizer(
         target: self,
-        action: #selector(menuSelectionGestureChanged(_:)),
+        action: #selector(menuTouchChanged(_:)),
     )
+    private lazy var escapeCommand: UIKeyCommand = {
+        let command = UIKeyCommand(
+            input: UIKeyCommand.inputEscape,
+            modifierFlags: [],
+            action: #selector(UIViewController.dismissTelegramContextMenuWithEscape),
+        )
+        command.wantsPriorityOverSystemBehavior = true
+        return command
+    }()
+
+    /// Model frame of the preview including the pan, like the system's platterView.frame checks.
+    private var previewFrame: CGRect {
+        presentationStyle == .menuOnly ? .zero : previewContainer.convert(previewContainer.bounds, to: view)
+    }
 
     init(
         sourceView: UIView,
@@ -359,6 +459,8 @@ private final class TelegramContextMenuController: UIViewController {
     override func loadView() {
         let root = TelegramContextMenuRootView()
         root.onDetached = { [weak self] in self?.finishDismissal() }
+        root.onEscape = { [weak self] in self?.dismissWithEscape() }
+        root.accessibilityViewIsModal = true
         view = root
     }
 
@@ -394,7 +496,14 @@ private final class TelegramContextMenuController: UIViewController {
         endAppearanceTransition()
         view.setNeedsLayout()
         view.layoutIfNeeded()
+        beginInitiatingTouchSession()
+        installEscape()
         animateIn()
+        UIAccessibility.post(notification: .screenChanged, argument: actionButtons.first)
+    }
+
+    fileprivate func dismissWithEscape() {
+        dismissMenu(completion: nil)
     }
 
     private func configureViews() {
@@ -410,8 +519,15 @@ private final class TelegramContextMenuController: UIViewController {
             ? .clear
             : UIColor.black.withAlphaComponent(0.18)
         dimView.alpha = 0
-        dimView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(dismissMenu)))
+        dimView.isAccessibilityElement = true
+        dimView.accessibilityTraits = .button
+        dimView.accessibilityLabel = L10n.telegram("Common.Close")
+        dimView.onActivate = { [weak self] in self?.dismissMenu(completion: nil) }
         view.addSubview(dimView)
+
+        previewPanView.frame = view.bounds
+        previewPanView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(previewPanView)
 
         previewContainer.layer.shadowColor = UIColor.black.cgColor
         previewContainer.layer.shadowOpacity = 0.24
@@ -420,7 +536,7 @@ private final class TelegramContextMenuController: UIViewController {
         previewContainer.clipsToBounds = presentationStyle == .chatPreview
         previewContainer.layer.cornerCurve = .continuous
         previewContainer.layer.cornerRadius = presentationStyle == .chatPreview ? 24 : 0
-        view.addSubview(previewContainer)
+        previewPanView.addSubview(previewContainer)
 
         if let previewController {
             addChild(previewController)
@@ -457,15 +573,15 @@ private final class TelegramContextMenuController: UIViewController {
             selectableTextViews = [textView]
         }
 
-        menuEffectView.layer.cornerRadius = 30
+        menuEffectView.layer.cornerRadius = TelegramContextMenuLayout.menuCornerRadius
         menuEffectView.layer.cornerCurve = .continuous
-        menuEffectView.cornerConfiguration = .corners(radius: 30)
+        menuEffectView
+            .cornerConfiguration = .corners(radius: .fixed(Double(TelegramContextMenuLayout.menuCornerRadius)))
         menuEffectView.clipsToBounds = true
         menuEffectView.alpha = 0
         view.addSubview(menuEffectView)
 
         selectionHighlightView.backgroundColor = .contextMenuSelectionHighlight
-        selectionHighlightView.layer.cornerRadius = 20
         selectionHighlightView.layer.cornerCurve = .continuous
         selectionHighlightView.alpha = 0
         selectionHighlightView.isUserInteractionEnabled = false
@@ -489,9 +605,7 @@ private final class TelegramContextMenuController: UIViewController {
             menuStack.bottomAnchor.constraint(equalTo: menuEffectView.contentView.bottomAnchor),
         ])
 
-        menuSelectionGesture.minimumPressDuration = 0
-        menuSelectionGesture.cancelsTouchesInView = true
-        menuEffectView.addGestureRecognizer(menuSelectionGesture)
+        view.addGestureRecognizer(touchRecognizer)
 
         rebuildActions()
         reactionStrip.isHidden = reactionsProvider == nil
@@ -514,7 +628,8 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     private func rebuildActions() {
-        updateTrackedButton(at: nil)
+        touchSession?.highlighted = nil
+        setHighlight(nil)
         actionButtons.removeAll()
         for child in menuStack.arrangedSubviews {
             menuStack.removeArrangedSubview(child)
@@ -525,7 +640,10 @@ private final class TelegramContextMenuController: UIViewController {
                 menuStack.addArrangedSubview(TelegramContextMenuSectionDivider())
             }
             let button = TelegramContextMenuActionButton(action: action)
-            button.addTarget(self, action: #selector(actionPressed(_:)), for: .touchUpInside)
+            button.onActivate = { [weak self, weak button] in
+                guard let self, let button else { return }
+                perform(button)
+            }
             button.heightAnchor.constraint(equalToConstant: TelegramContextMenuLayout.actionHeight).isActive = true
             menuStack.addArrangedSubview(button)
             actionButtons.append(button)
@@ -818,7 +936,9 @@ private final class TelegramContextMenuController: UIViewController {
 
     private func dismissMenu(completion: (() -> Void)? = nil) {
         guard !isDismissing else { return }
+        finishTracking()
         isDismissing = true
+        removeEscape()
         selectableTextViews.forEach { $0.setContextQuoteAction(nil) }
         selectableTextViews.removeAll()
         reactionTask?.cancel()
@@ -866,6 +986,7 @@ private final class TelegramContextMenuController: UIViewController {
         guard !didFinishDismissal else { return }
         didFinishDismissal = true
         isDismissing = true
+        removeEscape()
         sourceView?.transform = sourceTransform
         reactionStrip.prepareForReuse()
         if let previewView, let extractedSource { extractedSource.putBackContextMenuContent(previewView) }
@@ -878,6 +999,7 @@ private final class TelegramContextMenuController: UIViewController {
         endAppearanceTransition()
         presentationHostView = nil
         if Self.activeController === self { Self.activeController = nil }
+        UIAccessibility.post(notification: .screenChanged, argument: sourceView)
         let action = dismissCompletion
         let callback = onDismiss
         dismissCompletion = nil
@@ -900,10 +1022,6 @@ private final class TelegramContextMenuController: UIViewController {
 
     @objc private func dismissMenu() {
         dismissMenu(completion: nil)
-    }
-
-    @objc private func actionPressed(_ sender: TelegramContextMenuActionButton) {
-        perform(sender)
     }
 
     private func perform(_ button: TelegramContextMenuActionButton) {
@@ -945,95 +1063,210 @@ private final class TelegramContextMenuController: UIViewController {
         UIAccessibility.post(notification: .layoutChanged, argument: actionButtons.first)
     }
 
+    // MARK: Touch tracking
+
+    /// The finger that opened the menu keeps scrubbing; pan hysteresis and the release rules restart here, as
+    /// in the system menu when the press turns into an open menu.
+    private func beginInitiatingTouchSession() {
+        guard let trackingGesture, trackingGesture.state == .began || trackingGesture.state == .changed else { return }
+        let point = trackingGesture.location(in: view)
+        touchPoint = point
+        touchSession = ContextMenuTouchSession(origin: .initiatingPreview, start: point, time: CACurrentMediaTime())
+        touchSessionIsInitiating = true
+        selectionFeedback.prepare()
+    }
+
     @objc private func trackingGestureChanged(_ gesture: UIGestureRecognizer) {
-        switch gesture.state {
-        case .changed:
-            updateTrackedButton(at: gesture.location(in: view))
+        guard touchSessionIsInitiating, touchSession != nil else { return }
+        let time = (gesture as? ContextMenuPressGestureRecognizer)?.timestamp ?? CACurrentMediaTime()
+        trackTouch(at: gesture.location(in: view), time: time, state: gesture.state)
+    }
+
+    @objc private func menuTouchChanged(_ recognizer: ContextMenuTouchRecognizer) {
+        guard !isDismissing else { return }
+        let point = view.convert(recognizer.point, from: nil)
+        if recognizer.state == .began {
+            guard touchSession == nil, let origin = touchOrigin(at: point) else { return }
+            touchSession = ContextMenuTouchSession(origin: origin, start: point, time: recognizer.timestamp)
+            touchSessionIsInitiating = false
+            selectionFeedback.prepare()
+        }
+        guard touchSession != nil, !touchSessionIsInitiating else { return }
+        trackTouch(at: point, time: recognizer.timestamp, state: recognizer.state)
+    }
+
+    /// `nil` leaves the touch to the view under it: reactions, quote selection in the message text and the
+    /// scrollable chat preview keep their own gestures.
+    private func touchOrigin(at point: CGPoint) -> ContextMenuTouchSession.Origin? {
+        if !reactionStrip.isHidden, reactionStrip.frame.contains(point) { return nil }
+        if menuEffectView.frame.contains(point) { return .menu }
+        guard previewFrame.contains(point) else { return .outside }
+        if presentationStyle == .chatPreview { return nil }
+        if selectableTextViews.contains(where: { $0.convert($0.bounds, to: view).contains(point) }) { return nil }
+        return .preview
+    }
+
+    private func trackTouch(at point: CGPoint, time: TimeInterval, state: UIGestureRecognizer.State) {
+        guard touchSession != nil, !isDismissing else { return }
+        touchPoint = point
+        touchSession?.move(to: point, insidePreview: previewFrame.contains(point))
+        // The preview keeps its last position while the finger is over the menu.
+        if let anchor = touchSession?.panAnchor, !menuEffectView.frame.contains(point) {
+            let offset = ContextMenuMotion.platterOffset(
+                location: point,
+                anchor: anchor,
+                menuIsBelow: targetMenuFrame.midY >= targetPreviewFrame.midY,
+            )
+            setPan(offset, tracking: true)
+        }
+        if touchSessionIsInitiating, !reactionStrip.isHidden {
+            reactionStrip.updateTracking(at: reactionStrip.convert(point, from: view))
+        }
+        switch state {
         case .ended:
-            if reactionStrip.selectTrackedReaction() { return }
-            if let trackedButton {
-                perform(trackedButton)
+            if touchSessionIsInitiating, reactionStrip.selectTrackedReaction() { return }
+            // The selection delay fails on touch end, so the action under the finger counts.
+            let index = actionIndex(at: point)
+            touchSession?.highlighted = index
+            setHighlight(index)
+            let release = touchSession?.release(at: time) ?? .keepOpen
+            finishTracking()
+            switch release {
+            case .select(let index) where actionButtons.indices.contains(index):
+                perform(actionButtons[index])
+            case .dismiss:
+                dismissMenu(completion: nil)
+            case .keepOpen, .select:
+                break
             }
         case .cancelled, .failed:
-            updateTrackedButton(at: nil)
+            finishTracking()
         default:
-            break
+            updateSelection(at: point, time: time)
         }
     }
 
-    @objc private func menuSelectionGestureChanged(_ gesture: UILongPressGestureRecognizer) {
-        switch gesture.state {
-        case .began, .changed:
-            updateTrackedButton(at: gesture.location(in: view))
-        case .ended:
-            if let trackedButton {
-                perform(trackedButton)
-            } else {
-                updateTrackedButton(at: nil)
-            }
-        case .cancelled, .failed:
-            updateTrackedButton(at: nil)
-        default:
-            break
-        }
+    private func finishTracking() {
+        touchSession = nil
+        touchSessionIsInitiating = false
+        selectionDelayWork?.cancel()
+        selectionDelayWork = nil
+        // Released, the tracked velocity carries into the 0.85 / 0.5 s spring back.
+        if panOffset != .zero { setPan(.zero, tracking: false) }
+        setHighlight(nil)
+        reactionStrip.updateTracking(at: nil)
     }
 
-    private func updateTrackedButton(at location: CGPoint?) {
-        reactionStrip.updateTracking(at: location.map { reactionStrip.convert($0, from: view) })
-        let button = location.flatMap { point in
-            actionButtons.first { $0.convert($0.bounds, to: view).contains(point) }
-        }
-        guard trackedButton !== button else { return }
-        let previousButton = trackedButton
-        trackedButton = button
-        updateSelectionHighlight(to: button)
-        if button != nil, previousButton != nil {
-            UISelectionFeedbackGenerator().selectionChanged()
-        }
+    private func actionIndex(at point: CGPoint) -> Int? {
+        guard menuEffectView.frame.contains(point) else { return nil }
+        return actionButtons.firstIndex { $0.convert($0.bounds, to: view).contains(point) }
     }
 
-    /// Telegram's highlight: it moves while it is still fading out, so a quick drag across a divider slides it
-    /// to the next item; only a highlight that has fully faded appears in place.
-    private func updateSelectionHighlight(to button: TelegramContextMenuActionButton?) {
+    private func setPan(_ offset: CGPoint, tracking: Bool) {
+        panOffset = offset
+        let center = CGPoint(x: view.bounds.midX + offset.x, y: view.bounds.midY + offset.y)
+        ContextMenuNativeAnimation.animate(
+            behavior: panBehavior,
+            tracking: tracking,
+            fallbackDampingRatio: tracking ? 0.8 : 0.85,
+            fallbackResponse: tracking ? 0.4 : 0.5,
+        ) { [previewPanView] in previewPanView.center = center }
+    }
+
+    /// Touches that begin on the menu wait for the 0.15 s selection delay before highlighting.
+    private func updateSelection(at point: CGPoint, time: TimeInterval) {
+        guard let session = touchSession else { return }
+        guard session.allowsHighlight(at: time) else {
+            scheduleSelectionDelay(after: ContextMenuMotion.selectionDelay - (time - session.startTime))
+            return
+        }
+        let index = actionIndex(at: point)
+        touchSession?.highlighted = index
+        setHighlight(index)
+    }
+
+    private func scheduleSelectionDelay(after delay: TimeInterval) {
+        guard selectionDelayWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            selectionDelayWork = nil
+            updateSelection(at: touchPoint, time: CACurrentMediaTime())
+        }
+        selectionDelayWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay), execute: work)
+    }
+
+    /// The system's shared highlight (`highlightItemAtIndexPath:` 0x1c482dba0, `unHighlightItemAtIndexPath:`
+    /// 0x1c482d9d8): it slides between actions on a 1 / 0.12 s frame spring and fades on a 1 / 0.3 s spring, and
+    /// one that is effectively invisible appears in place.
+    private func setHighlight(_ index: Int?) {
+        guard index != highlightedIndex else { return }
+        highlightedIndex = index
+        let highlight = selectionHighlightView
+        guard let index, actionButtons.indices.contains(index) else {
+            ContextMenuNativeAnimation.animate(
+                behavior: highlightAlphaBehavior,
+                tracking: false,
+                fallbackDampingRatio: 1,
+                fallbackResponse: 0.3,
+            ) { highlight.alpha = 0 }
+            return
+        }
         menuEffectView.layoutIfNeeded()
-        guard let button else {
-            guard selectionHighlightView.alpha != 0 else { return }
-            UIView.animate(
-                withDuration: 0.16,
-                delay: 0,
-                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
-            ) {
-                self.selectionHighlightView.alpha = 0
-            }
-            return
-        }
-
-        let targetFrame = button.convert(
-            button.bounds.insetBy(dx: TelegramContextMenuLayout.contentVerticalInset, dy: 0),
-            to: menuEffectView.contentView,
+        let button = actionButtons[index]
+        let rect = button.convert(button.bounds, to: menuEffectView.contentView)
+            .insetBy(dx: TelegramContextMenuLayout.highlightInset, dy: 0)
+        let radius = min(
+            TelegramContextMenuLayout.menuCornerRadius - TelegramContextMenuLayout.highlightInset,
+            rect.height / 2,
         )
-        let isOnScreen = (selectionHighlightView.layer.presentation()?.opacity ?? 0) > 0
-        if selectionHighlightView.alpha == 0, !isOnScreen {
-            UIView.performWithoutAnimation {
-                self.selectionHighlightView.frame = targetFrame
-            }
-            UIView.animate(
-                withDuration: 0.2,
-                delay: 0,
-                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
-            ) {
-                self.selectionHighlightView.alpha = 1
-            }
-            return
+        let place = {
+            highlight.frame = rect
+            highlight.layer.cornerRadius = radius
         }
-        UIView.animate(
-            withDuration: 0.16,
-            delay: 0,
-            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
-        ) {
-            self.selectionHighlightView.frame = targetFrame
-            self.selectionHighlightView.alpha = 1
+        if (highlight.layer.presentation() ?? highlight.layer).opacity < 0.05 {
+            UIView.performWithoutAnimation(place)
+        } else {
+            ContextMenuNativeAnimation.animate(
+                behavior: highlightFrameBehavior,
+                tracking: false,
+                fallbackDampingRatio: 1,
+                fallbackResponse: 0.12,
+                place,
+            )
         }
+        ContextMenuNativeAnimation.animate(
+            behavior: highlightAlphaBehavior,
+            tracking: false,
+            fallbackDampingRatio: 1,
+            fallbackResponse: 0.3,
+        ) { highlight.alpha = 1 }
+        selectionFeedback.selectionChanged()
+        selectionFeedback.prepare()
+    }
+
+    // MARK: Escape
+
+    /// Escape reaches the menu's root view when nothing else holds focus. Otherwise the focused view keeps it,
+    /// so the keyboard stays up, and its view controller carries the command while the menu is open.
+    private func installEscape() {
+        if let responder = TelegramContextMenuFirstResponder.current() {
+            var next: UIResponder? = responder
+            while let current = next, !(current is UIViewController) {
+                next = current.next
+            }
+            guard let controller = next as? UIViewController else { return }
+            controller.addKeyCommand(escapeCommand)
+            escapeCommandOwner = controller
+        } else {
+            view.becomeFirstResponder()
+        }
+    }
+
+    private func removeEscape() {
+        escapeCommandOwner?.removeKeyCommand(escapeCommand)
+        escapeCommandOwner = nil
+        if view.isFirstResponder { view.resignFirstResponder() }
     }
 }
 
@@ -1121,6 +1354,7 @@ private final class TelegramContextMenuActionButton: UIControl {
     // MARK: Internal
 
     let menuAction: TelegramContextMenuAction
+    var onActivate: (() -> Void)?
 
     // MARK: Private
 
@@ -1175,6 +1409,7 @@ private final class TelegramContextMenuActionButton: UIControl {
             ))
         }
         NSLayoutConstraint.activate(constraints)
+        isAccessibilityElement = true
         accessibilityLabel = action.title
         accessibilityTraits = .button
     }
@@ -1182,129 +1417,10 @@ private final class TelegramContextMenuActionButton: UIControl {
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
-}
 
-// MARK: - TelegramContextGestureRecognizer
-
-/// Telegram's context gesture starts showing press progress before activation and
-/// yields immediately to a real drag. This keeps scrolling responsive while making
-/// a stationary hold feel immediate.
-final class TelegramContextGestureRecognizer: UIGestureRecognizer {
-    // MARK: Internal
-
-    var onPressingChanged: ((Bool) -> Void)?
-    var feedbackDelay: TimeInterval = 0.1
-    var activationDelay: TimeInterval = 0.26
-    var allowableMovement: CGFloat = 12
-
-    // MARK: Private
-
-    private var feedbackWorkItem: DispatchWorkItem?
-    private var activationWorkItem: DispatchWorkItem?
-    private var initialLocation: CGPoint?
-    private var feedbackStarted = false
-    private var activated = false
-
-    override func reset() {
-        super.reset()
-        feedbackWorkItem?.cancel()
-        activationWorkItem?.cancel()
-        feedbackWorkItem = nil
-        activationWorkItem = nil
-        initialLocation = nil
-        feedbackStarted = false
-        activated = false
-    }
-
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-        super.touchesBegan(touches, with: event)
-        guard touches.count == 1, numberOfTouches == 1, let touch = touches.first, let view else {
-            cancelBeforeActivation()
-            return
-        }
-        initialLocation = touch.location(in: view)
-
-        let feedback = DispatchWorkItem { [weak self] in
-            guard let self, state == .possible else { return }
-            feedbackStarted = true
-            onPressingChanged?(true)
-        }
-        feedbackWorkItem = feedback
-        DispatchQueue.main.asyncAfter(deadline: .now() + feedbackDelay, execute: feedback)
-
-        let activation = DispatchWorkItem { [weak self] in
-            guard let self, state == .possible else { return }
-            if !feedbackStarted {
-                feedbackStarted = true
-                onPressingChanged?(true)
-            }
-            activated = true
-            cancelCompetingParentGestures()
-            state = .began
-        }
-        activationWorkItem = activation
-        DispatchQueue.main.asyncAfter(deadline: .now() + activationDelay, execute: activation)
-    }
-
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
-        super.touchesMoved(touches, with: event)
-        guard let touch = touches.first, let view, let initialLocation else { return }
-        let location = touch.location(in: view)
-        if state == .possible,
-           hypot(location.x - initialLocation.x, location.y - initialLocation.y) > allowableMovement
-        {
-            cancelBeforeActivation()
-        } else if state == .began || state == .changed {
-            state = .changed
-        }
-    }
-
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
-        super.touchesEnded(touches, with: event)
-        feedbackWorkItem?.cancel()
-        activationWorkItem?.cancel()
-        if state == .began || state == .changed {
-            state = .ended
-        } else {
-            cancelBeforeActivation()
-        }
-    }
-
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
-        super.touchesCancelled(touches, with: event)
-        feedbackWorkItem?.cancel()
-        activationWorkItem?.cancel()
-        if state == .began || state == .changed {
-            state = .cancelled
-        } else {
-            cancelBeforeActivation()
-        }
-    }
-
-    private func cancelCompetingParentGestures() {
-        var ancestor = view
-        while let currentView = ancestor {
-            for gesture in currentView.gestureRecognizers ?? [] where gesture !== self {
-                switch gesture.state {
-                case .began, .changed, .possible:
-                    gesture.isEnabled = false
-                    gesture.isEnabled = true
-                default:
-                    break
-                }
-            }
-            ancestor = currentView.superview
-        }
-    }
-
-    private func cancelBeforeActivation() {
-        feedbackWorkItem?.cancel()
-        activationWorkItem?.cancel()
-        if feedbackStarted, !activated {
-            feedbackStarted = false
-            onPressingChanged?(false)
-        }
-        state = .failed
+    override func accessibilityActivate() -> Bool {
+        onActivate?()
+        return onActivate != nil
     }
 }
 

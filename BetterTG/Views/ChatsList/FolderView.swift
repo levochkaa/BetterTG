@@ -387,9 +387,15 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.verticalScrollIndicatorInsets.bottom = showsStandaloneSearch ? 0 : 58
         tableView.prefetchDataSource = self
         tableView.register(ChatListCell.self, forCellReuseIdentifier: ChatListCell.reuseIdentifier)
-        let longPressGesture = UILongPressGestureRecognizer(target: self, action: #selector(chatLongPressed(_:)))
-        longPressGesture.minimumPressDuration = 0.3
-        tableView.addGestureRecognizer(longPressGesture)
+        let pressGesture = ContextMenuPressGestureRecognizer(target: self, action: #selector(chatLongPressed(_:)))
+        pressGesture.pressedViewProvider = { [weak self] gesture in
+            guard let self,
+                  let indexPath = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+                  let cell = tableView.cellForRow(at: indexPath) as? ChatListCell
+            else { return nil }
+            return cell.contextPreviewView
+        }
+        tableView.addGestureRecognizer(pressGesture)
         configureDataSource()
         rebuildChatIndex()
         updateSnapshot(animated: false)
@@ -872,7 +878,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         return actions
     }
 
-    @objc private func chatLongPressed(_ gesture: UILongPressGestureRecognizer) {
+    @objc private func chatLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
         guard gesture.state == .began else { return }
         let point = gesture.location(in: tableView)
         guard let indexPath = tableView.indexPathForRow(at: point),

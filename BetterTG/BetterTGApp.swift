@@ -24,6 +24,7 @@ import UIKit
             MediaDraftOutcomeProbe.runDebugProbeIfRequested()
             ChatComposerEditProbe.runDebugProbeIfRequested()
             ComposerTextProbe.runDebugProbeIfRequested()
+            ContextMenuInteractionProbe.runDebugProbeIfRequested()
             ChatComposerRestorationProbe.runDebugProbeIfRequested()
             ChatClientRestorationProbe.runDebugProbeIfRequested()
             ChatViewportRestorationProbe.runDebugProbeIfRequested()

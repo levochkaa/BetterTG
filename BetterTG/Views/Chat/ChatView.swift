@@ -199,38 +199,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         private var viewportCompletionProbe: ChatViewportCompletionProbe?
     #endif
 
-    private lazy var messageContextGesture: TelegramContextGestureRecognizer = {
-        let gesture = TelegramContextGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
-        gesture.onPressingChanged = { [weak self, weak gesture] pressing in
-            guard let self, let gesture else { return }
-            guard !isSelectingMessages else {
-                restorePressedMessageSource()
-                return
-            }
-            if pressing {
-                let point = gesture.location(in: collectionView)
-                guard let indexPath = collectionView.indexPathForItem(at: point),
-                      let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
-                else { return }
-                pressedMessageSourceView = cell.contextPreviewView
-                pressedMessageSourceTransform = cell.contextPreviewView.transform
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.72)
-                UIView.animate(
-                    withDuration: 0.16,
-                    delay: 0,
-                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
-                ) {
-                    cell.contextPreviewView.transform = self.pressedMessageSourceTransform.scaledBy(x: 0.98, y: 0.98)
-                }
-            } else {
-                restorePressedMessageSource()
-            }
+    private lazy var messageContextGesture: ContextMenuPressGestureRecognizer = {
+        let gesture = ContextMenuPressGestureRecognizer(target: self, action: #selector(messageLongPressed(_:)))
+        gesture.pressedViewProvider = { [weak self] gesture in
+            guard let self, !isSelectingMessages else { return nil }
+            let point = gesture.location(in: collectionView)
+            guard let indexPath = collectionView.indexPathForItem(at: point),
+                  case .message = dataSource.itemIdentifier(for: indexPath),
+                  let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+            else { return nil }
+            return cell.contextPreviewView
         }
+        gesture.onPressCancelled = { [weak self] in self?.retryClientRestoration() }
         return gesture
     }()
-
-    private weak var pressedMessageSourceView: UIView?
-    private var pressedMessageSourceTransform = CGAffineTransform.identity
 
     var navigationClientSource: TdUpdateSource? {
         location.accountID.map { TdUpdateSource(accountID: $0, clientID: location.clientID) }
@@ -677,12 +659,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer,
     ) -> Bool {
-        if gestureRecognizer === messageContextGesture || otherGestureRecognizer === messageContextGesture {
-            if gestureRecognizer is UIPanGestureRecognizer || otherGestureRecognizer is UIPanGestureRecognizer {
-                return false
-            }
-        }
-        return true
+        // The message press is exclusive: when it begins, UIKit fails the history tap and pans still possible.
+        gestureRecognizer !== messageContextGesture && otherGestureRecognizer !== messageContextGesture
     }
 
     /// Telegram uses a two-finger vertical selection pan. UIKit owns gesture tracking,
@@ -1023,7 +1001,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
               !selfSizingAnchorRestoreScheduled else { return false }
         guard isViewLoaded else { return true }
         return !collectionView.isTracking && !collectionView.isDragging && !collectionView.isDecelerating
-            && pressedMessageSourceView == nil && composerView.clientRestorationState() != nil
+            && !messageContextGesture.isPressing && composerView.clientRestorationState() != nil
     }
 
     private func prepareClientMetadata(_ source: TdUpdateSource) {
@@ -3823,7 +3801,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(alert, animated: true)
     }
 
-    @objc private func messageLongPressed(_ gesture: TelegramContextGestureRecognizer) {
+    @objc private func messageLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
         guard gesture.state == .began, !isSelectingMessages else { return }
         cancelHistoryPanGesture()
         let point = gesture.location(in: collectionView)
@@ -3832,15 +3810,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
               let message = message(for: displayedMessageID),
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
         else { return }
-        let baseTransform = pressedMessageSourceView === cell.contextPreviewView
-            ? pressedMessageSourceTransform
-            : cell.contextPreviewView.transform
-        let presented = presentTelegramContextMenu(
+        presentTelegramContextMenu(
             sourceView: cell.contextPreviewView,
             actions: menu(for: message),
             tracking: gesture,
-            sourceBaseTransform: baseTransform,
-            performsInitialFeedback: false,
             reactionsProvider: contextReactionsProvider(for: message),
             quoteSelection: message.properties.canBeReplied && message.properties.canBeCopied && !chatVM.isReadOnlyTopic
                 && formattedText(from: message.message.content)?.text.isEmpty == false
@@ -3854,9 +3827,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 : nil,
             onDismiss: { [weak self] in self?.retryClientRestoration() },
         )
-        if !presented {
-            restorePressedMessageSource()
-        }
     }
 
     @objc private func historyTapped(_: UITapGestureRecognizer) {
@@ -3869,20 +3839,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard panGesture.state == .began || panGesture.state == .changed else { return }
         panGesture.isEnabled = false
         panGesture.isEnabled = true
-    }
-
-    private func restorePressedMessageSource() {
-        defer { retryClientRestoration() }
-        guard let sourceView = pressedMessageSourceView else { return }
-        let transform = pressedMessageSourceTransform
-        pressedMessageSourceView = nil
-        UIView.animate(
-            withDuration: 0.16,
-            delay: 0,
-            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
-        ) {
-            sourceView.transform = transform
-        }
     }
 
     private func menu(for message: CustomMessage) -> [TelegramContextMenuAction] {
