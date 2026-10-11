@@ -181,10 +181,7 @@ class TelegramContextMenuExtractableView: UIView {
 // swiftformat:enable preferFinalClasses
 
 extension UIViewController {
-    var isPresentingTelegramContextMenu: Bool {
-        TelegramContextMenuController.activeController?.owner === self
-    }
-
+    /// A `.menuOnly` menu sits `menuSpacing` above `menuAnchorView`, or above the source when there is none.
     @discardableResult func presentTelegramContextMenu(
         sourceView: UIView,
         actions: [TelegramContextMenuAction],
@@ -193,8 +190,8 @@ extension UIViewController {
         performsInitialFeedback: Bool = true,
         presentationStyle: TelegramContextMenuPresentationStyle = .message,
         previewController: UIViewController? = nil,
-        reactionsProvider: TelegramContextReactionsProvider? = nil,
-        quoteSelection: TelegramContextQuoteSelection? = nil,
+        menuAnchorView: UIView? = nil,
+        menuSpacing: CGFloat = 4,
     ) -> Bool {
         guard !actions.isEmpty,
               TelegramContextMenuController.activeController == nil,
@@ -207,8 +204,8 @@ extension UIViewController {
             sourceTransform: sourceBaseTransform ?? sourceView.transform,
             presentationStyle: presentationStyle,
             previewController: previewController,
-            reactionsProvider: reactionsProvider,
-            quoteSelection: quoteSelection,
+            menuAnchorView: menuAnchorView,
+            menuSpacing: menuSpacing,
         )
         if performsInitialFeedback {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.75)
@@ -257,6 +254,8 @@ private final class TelegramContextMenuController: UIViewController {
     // MARK: Private
 
     private weak var sourceView: UIView?
+    private weak var menuAnchorView: UIView?
+    private let menuSpacing: CGFloat
     private let sourceTransform: CGAffineTransform
     private let presentationStyle: TelegramContextMenuPresentationStyle
     private let previewController: UIViewController?
@@ -306,10 +305,12 @@ private final class TelegramContextMenuController: UIViewController {
         sourceTransform: CGAffineTransform,
         presentationStyle: TelegramContextMenuPresentationStyle,
         previewController: UIViewController?,
-        reactionsProvider: TelegramContextReactionsProvider?,
-        quoteSelection: TelegramContextQuoteSelection?,
+        menuAnchorView: UIView?,
+        menuSpacing: CGFloat,
     ) {
         self.sourceView = sourceView
+        self.menuAnchorView = menuAnchorView
+        self.menuSpacing = menuSpacing
         self.sourceTransform = sourceTransform
         self.actions = actions
         self.trackingGesture = trackingGesture
@@ -606,9 +607,12 @@ private final class TelegramContextMenuController: UIViewController {
                 max(horizontalInset, sourceFrame.midX - menuWidth / 2),
                 view.bounds.width - horizontalInset - menuWidth,
             )
+            let anchorFrame = menuAnchorView.map { anchor in
+                view.convert(anchor.convert(anchor.bounds, to: nil), from: nil)
+            } ?? sourceFrame
             targetMenuFrame = CGRect(
                 x: menuX,
-                y: max(verticalInset, sourceFrame.minY - 4 - menuHeight),
+                y: max(verticalInset, anchorFrame.minY - menuSpacing - menuHeight),
                 width: menuWidth,
                 height: menuHeight,
             )
@@ -784,7 +788,7 @@ private final class TelegramContextMenuController: UIViewController {
     private func menuTransitionOffset(contentTravelY: CGFloat) -> CGPoint {
         let contentFrame = presentationStyle == .menuOnly ? sourceFrame : targetPreviewFrame
         let direction: CGFloat = contentFrame.minY < targetMenuFrame.minY ? -1 : 1
-        let spacing: CGFloat = presentationStyle == .menuOnly ? 4 : 10
+        let spacing: CGFloat = presentationStyle == .menuOnly ? menuSpacing : 10
         return CGPoint(
             x: presentationStyle == .menuOnly ? sourceFrame.midX - targetMenuFrame.midX : 0,
             y: -contentTravelY + direction * targetMenuFrame.height / 2 - spacing,

@@ -798,6 +798,8 @@ final class FolderPickerView: UIView {
     private static let liftDuration: TimeInterval = 0.3
     private static let restingTintFadeDuration: TimeInterval = 0.2
     private static let selectionTint = UIColor.label.withAlphaComponent(0.08)
+    /// The blur above the folder strip.
+    private static let controlTopInset: CGFloat = 8
 
     // MARK: Internal
 
@@ -994,7 +996,7 @@ final class FolderPickerView: UIView {
             liftedContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
             liftedContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             liftedContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
-            controlEffectView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            controlEffectView.topAnchor.constraint(equalTo: topAnchor, constant: Self.controlTopInset),
             controlEffectView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 16),
             controlEffectView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
             controlEffectView.heightAnchor.constraint(equalToConstant: 42),
@@ -1294,6 +1296,8 @@ final class FolderPickerView: UIView {
             actions: folderActions(for: folder),
             tracking: gesture,
             presentationStyle: .menuOnly,
+            menuAnchorView: controlEffectView,
+            menuSpacing: Self.controlTopInset / 2,
         )
         button.accessibilityHint = L10n.betterTG("Accessibility.FolderActions", folder.name)
     }
