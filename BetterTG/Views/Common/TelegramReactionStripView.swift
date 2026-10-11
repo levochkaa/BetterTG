@@ -9,6 +9,8 @@ struct TelegramContextMenuReaction {
     let type: ReactionType
     let isChosen: Bool
     let sticker: Sticker?
+    /// The client that resolved `sticker`; its file ids belong to that client's account.
+    let client: TDLibClient
     let handler: () -> Void
 }
 
@@ -138,8 +140,7 @@ private final class TelegramReactionStripButton: UIControl {
             let animation = CustomEmojiInlineView()
             animation.isUserInteractionEnabled = false
             animation.onFirstFrameReady = { [weak self] in self?.emoji.isHidden = true }
-            // The context menu belongs to the active account; its reaction stickers load through that client.
-            animation.configure(sticker: sticker, client: TDLib.shared.activeClient)
+            animation.configure(sticker: sticker, client: reaction.client)
             addSubview(animation)
             self.animation = animation
         }

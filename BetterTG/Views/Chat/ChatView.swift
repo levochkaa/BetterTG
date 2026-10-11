@@ -4263,6 +4263,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                             in: message.reactions,
                         ),
                         sticker: type.customEmojiID.flatMap { stickers[$0] },
+                        client: client,
                     ) { [
                         weak self,
                         weak message,
