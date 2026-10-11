@@ -1971,11 +1971,12 @@ final class TelegramContactDetailsViewController: UIViewController {
                 ))),
                 Fixture(name: "animated-emoji", messageID: 910, content: .messageAnimatedEmoji(MessageAnimatedEmoji(
                     animatedEmoji: AnimatedEmoji(
+                        sticker: nil,
+                        stickerWidth: 100,
+                        stickerHeight: 100,
                         fitzpatrickType: 0,
                         sound: nil,
-                        sticker: nil,
-                        stickerHeight: 100,
-                        stickerWidth: 100,
+                        isRegularEmoji: false,
                     ),
                     emoji: "🎉",
                 ))),

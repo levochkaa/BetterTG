@@ -70,7 +70,10 @@ enum TelegramContextMenuPresentationStyle: Equatable {
 private enum TelegramContextMenuKeyboardHost {
     // MARK: Internal
 
-    static func visibleKeyboardWindow(for sourceWindow: UIWindow) -> UIWindow? {
+    static func visibleKeyboardWindow(for sourceWindow: UIWindow, sourceView: UIView?) -> UIWindow? {
+        guard let owner = sourceView?.nearestViewController?.viewIfLoaded,
+              owner.keyboardLayoutGuide.layoutFrame.height > owner.safeAreaInsets.bottom + 1
+        else { return nil }
         if let scene = sourceWindow.windowScene,
            let keyboardWindow = remoteKeyboardWindow(in: scene),
            !keyboardWindow.isHidden
@@ -192,6 +195,8 @@ extension UIViewController {
         previewController: UIViewController? = nil,
         menuAnchorView: UIView? = nil,
         menuSpacing: CGFloat = 4,
+        reactionsProvider: TelegramContextReactionsProvider? = nil,
+        quoteSelection: TelegramContextQuoteSelection? = nil,
     ) -> Bool {
         guard !actions.isEmpty,
               TelegramContextMenuController.activeController == nil,
@@ -206,6 +211,8 @@ extension UIViewController {
             previewController: previewController,
             menuAnchorView: menuAnchorView,
             menuSpacing: menuSpacing,
+            reactionsProvider: reactionsProvider,
+            quoteSelection: quoteSelection,
         )
         if performsInitialFeedback {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.75)
@@ -307,6 +314,8 @@ private final class TelegramContextMenuController: UIViewController {
         previewController: UIViewController?,
         menuAnchorView: UIView?,
         menuSpacing: CGFloat,
+        reactionsProvider: TelegramContextReactionsProvider?,
+        quoteSelection: TelegramContextQuoteSelection?,
     ) {
         self.sourceView = sourceView
         self.menuAnchorView = menuAnchorView
@@ -749,6 +758,7 @@ private final class TelegramContextMenuController: UIViewController {
                     self.previewView?.layer.cornerCurve = .continuous
                 }
             }
+            self.reactionStrip.alpha = 1
         }
     }
 
@@ -836,6 +846,7 @@ private final class TelegramContextMenuController: UIViewController {
                     ? self.targetPreviewFrame.width / 2
                     : self.originalContentCornerRadius
             }
+            self.reactionStrip.alpha = 0
         } completion: { _ in
             self.sourceView?.transform = self.sourceTransform
             self.reactionStrip.prepareForReuse()

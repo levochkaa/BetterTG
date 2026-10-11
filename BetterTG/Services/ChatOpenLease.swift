@@ -19,8 +19,8 @@ final class ChatOpenLease {
     private var active = true
 
     init(key: ChatOpenLeaseKey, coordinator: ChatOpenLeaseCoordinator) {
-        self.releaseAction = {
-            Task { @MainActor [weak coordinator] in
+        self.releaseAction = { [weak coordinator] in
+            Task { @MainActor [coordinator] in
                 coordinator?.release(key: key)
             }
         }

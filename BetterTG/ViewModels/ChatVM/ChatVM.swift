@@ -1485,7 +1485,10 @@ import UIKit
         let client = client
         let accountID = accountID
         Task {
-            _ = try? await td.viewMessages(
+            guard TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            _ = try? await client.viewMessages(
                 chatId: chatID,
                 forceRead: true,
                 messageIds: ids,

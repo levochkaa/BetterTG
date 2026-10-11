@@ -3,18 +3,6 @@
 import Foundation
 import TDLibKit
 
-extension TDNativeAnimatedEmoji {
-    init(fitzpatrickType: Int, sound: TDNativeFile?, sticker: TDNativeSticker?, stickerHeight: Int, stickerWidth: Int) {
-        self.init(
-            sticker: sticker,
-            stickerWidth: stickerWidth,
-            stickerHeight: stickerHeight,
-            fitzpatrickType: fitzpatrickType,
-            sound: sound,
-        )
-    }
-}
-
 extension TDNativeAudio {
     init(
         albumCoverMinithumbnail: TDNativeMinithumbnail?,
@@ -466,5 +454,378 @@ extension TDNativeInputTextQuote {
 extension TDNativeInputThumbnail {
     init(height: Int, thumbnail: TDNativeInputFile, width: Int) {
         self.init(thumbnail: thumbnail, width: width, height: height)
+    }
+}
+
+extension TDNativeInputVideoNote {
+    init(duration: Int, length: Int, thumbnail: TDNativeInputThumbnail?, videoNote: TDNativeInputFile) {
+        self.init(videoNote: videoNote, thumbnail: thumbnail, duration: duration, length: length)
+    }
+}
+
+extension TDNativeLiveLocation {
+    init(heading: Int, livePeriod: Int, location: TDNativeLocation, proximityAlertRadius: Int) {
+        self.init(
+            location: location,
+            livePeriod: livePeriod,
+            heading: heading,
+            proximityAlertRadius: proximityAlertRadius,
+        )
+    }
+}
+
+extension TDNativeLocalFile {
+    init(
+        canBeDeleted: Bool,
+        canBeDownloaded: Bool,
+        downloadOffset: Int64,
+        downloadedPrefixSize: Int64,
+        downloadedSize: Int64,
+        isDownloadingActive: Bool,
+        isDownloadingCompleted: Bool,
+        path: String,
+    ) {
+        self.init(
+            path: path,
+            canBeDownloaded: canBeDownloaded,
+            canBeDeleted: canBeDeleted,
+            isDownloadingActive: isDownloadingActive,
+            isDownloadingCompleted: isDownloadingCompleted,
+            downloadOffset: downloadOffset,
+            downloadedPrefixSize: downloadedPrefixSize,
+            downloadedSize: downloadedSize,
+        )
+    }
+}
+
+extension TDNativeLocation {
+    init(horizontalAccuracy: Double, latitude: Double, longitude: Double) {
+        self.init(latitude: latitude, longitude: longitude, horizontalAccuracy: horizontalAccuracy)
+    }
+}
+
+extension TDNativeMessage {
+    init(
+        authorSignature: String,
+        autoDeleteIn: Double,
+        canBeSaved: Bool,
+        chatId: Int64,
+        containsUnreadMention: Bool,
+        containsUnreadPollVotes: Bool,
+        content: TDNativeMessageContent,
+        date: Int,
+        editDate: Int,
+        effectId: Int64,
+        ephemeralMessageId: Int,
+        factCheck: TDNativeFactCheck?,
+        forwardInfo: TDNativeMessageForwardInfo?,
+        guestBotCallerId: TDNativeMessageSender?,
+        hasTimestampedMedia: Bool,
+        id: Int64,
+        importInfo: TDNativeMessageImportInfo?,
+        interactionInfo: TDNativeMessageInteractionInfo?,
+        isChannelPost: Bool,
+        isFromOffline: Bool,
+        isOutgoing: Bool,
+        isPaidGramSuggestedPost: Bool,
+        isPaidStarSuggestedPost: Bool,
+        isPinned: Bool,
+        mediaAlbumId: Int64,
+        paidMessageStarCount: Int64,
+        receiverId: TDNativeMessageSender?,
+        replyMarkup: TDNativeReplyMarkup?,
+        replyTo: TDNativeMessageReplyTo?,
+        restrictionInfo: TDNativeRestrictionInfo?,
+        schedulingState: TDNativeMessageSchedulingState?,
+        selfDestructIn: Double,
+        selfDestructType: TDNativeMessageSelfDestructType?,
+        senderBoostCount: Int,
+        senderBusinessBotUserId: Int64,
+        senderId: TDNativeMessageSender,
+        senderTag: String,
+        sendingState: TDNativeMessageSendingState?,
+        suggestedPostInfo: TDNativeSuggestedPostInfo?,
+        summaryLanguageCode: String,
+        topicId: TDNativeMessageTopic?,
+        unreadReactions: [TDNativeUnreadReaction],
+        viaBotUserId: Int64,
+        ephemeralContent: TDNativeEphemeralMessageContent?,
+        chatInstance: Int64,
+    ) {
+        self.init(
+            id: id,
+            senderId: senderId,
+            receiverId: receiverId,
+            chatId: chatId,
+            sendingState: sendingState,
+            schedulingState: schedulingState,
+            isOutgoing: isOutgoing,
+            isPinned: isPinned,
+            isFromOffline: isFromOffline,
+            canBeSaved: canBeSaved,
+            hasTimestampedMedia: hasTimestampedMedia,
+            isChannelPost: isChannelPost,
+            isPaidStarSuggestedPost: isPaidStarSuggestedPost,
+            isPaidGramSuggestedPost: isPaidGramSuggestedPost,
+            containsUnreadMention: containsUnreadMention,
+            containsUnreadPollVotes: containsUnreadPollVotes,
+            date: date,
+            editDate: editDate,
+            forwardInfo: forwardInfo,
+            importInfo: importInfo,
+            interactionInfo: interactionInfo,
+            unreadReactions: unreadReactions,
+            factCheck: factCheck,
+            suggestedPostInfo: suggestedPostInfo,
+            replyTo: replyTo,
+            topicId: topicId,
+            selfDestructType: selfDestructType,
+            selfDestructIn: selfDestructIn,
+            autoDeleteIn: autoDeleteIn,
+            viaBotUserId: viaBotUserId,
+            guestBotCallerId: guestBotCallerId,
+            senderBusinessBotUserId: senderBusinessBotUserId,
+            senderBoostCount: senderBoostCount,
+            senderTag: senderTag,
+            paidMessageStarCount: paidMessageStarCount,
+            authorSignature: authorSignature,
+            mediaAlbumId: mediaAlbumId,
+            effectId: effectId,
+            restrictionInfo: restrictionInfo,
+            summaryLanguageCode: summaryLanguageCode,
+            content: content,
+            ephemeralContent: ephemeralContent,
+            replyMarkup: replyMarkup,
+            ephemeralMessageId: ephemeralMessageId,
+            chatInstance: chatInstance,
+        )
+    }
+}
+
+extension TDNativeMessageDice {
+    init(
+        emoji: String,
+        finalState: TDNativeDiceStickers?,
+        initialState: TDNativeDiceStickers?,
+        successAnimationFrameNumber: Int,
+        value: Int,
+    ) {
+        self.init(
+            initialState: initialState,
+            finalState: finalState,
+            emoji: emoji,
+            value: value,
+            successAnimationFrameNumber: successAnimationFrameNumber,
+        )
+    }
+}
+
+extension TDNativeMessageDocument {
+    init(caption: TDNativeFormattedText, document: TDNativeDocument) {
+        self.init(document: document, caption: caption)
+    }
+}
+
+extension TDNativeMessageForwardInfo {
+    init(
+        date: Int,
+        origin: TDNativeMessageOrigin,
+        publicServiceAnnouncementType: String,
+        source: TDNativeForwardSource?,
+    ) {
+        self.init(
+            origin: origin,
+            date: date,
+            source: source,
+            publicServiceAnnouncementType: publicServiceAnnouncementType,
+        )
+    }
+}
+
+extension TDNativeMessageLiveLocation {
+    init(expiresIn: Int, location: TDNativeLiveLocation) {
+        self.init(location: location, expiresIn: expiresIn)
+    }
+}
+
+extension TDNativeMessagePoll {
+    init(canAddOption: Bool, description: TDNativeFormattedText, media: TDNativePollMedia?, poll: TDNativePoll) {
+        self.init(poll: poll, description: description, media: media, canAddOption: canAddOption)
+    }
+}
+
+extension TDNativeMessageReaction {
+    init(
+        isChosen: Bool,
+        recentSenderIds: [TDNativeMessageSender],
+        totalCount: Int,
+        type: TDNativeReactionType,
+        usedSenderId: TDNativeMessageSender?,
+    ) {
+        self.init(
+            type: type,
+            totalCount: totalCount,
+            isChosen: isChosen,
+            usedSenderId: usedSenderId,
+            recentSenderIds: recentSenderIds,
+        )
+    }
+}
+
+extension TDNativeMessageReactions {
+    init(
+        areTags: Bool,
+        canGetAddedReactions: Bool,
+        paidReactors: [TDNativePaidReactor],
+        reactions: [TDNativeMessageReaction],
+    ) {
+        self.init(
+            reactions: reactions,
+            areTags: areTags,
+            paidReactors: paidReactors,
+            canGetAddedReactions: canGetAddedReactions,
+        )
+    }
+}
+
+extension TDNativeMessageReplyToMessage {
+    init(
+        chatId: Int64,
+        checklistTaskId: Int,
+        content: TDNativeMessageContent?,
+        messageId: Int64,
+        origin: TDNativeMessageOrigin?,
+        originSendDate: Int,
+        pollOptionId: String,
+        quote: TDNativeTextQuote?,
+    ) {
+        self.init(
+            chatId: chatId,
+            messageId: messageId,
+            quote: quote,
+            checklistTaskId: checklistTaskId,
+            pollOptionId: pollOptionId,
+            origin: origin,
+            originSendDate: originSendDate,
+            content: content,
+        )
+    }
+}
+
+extension TDNativeMessageText {
+    init(
+        linkPreview: TDNativeLinkPreview?,
+        linkPreviewOptions: TDNativeLinkPreviewOptions?,
+        text: TDNativeFormattedText,
+    ) {
+        self.init(text: text, linkPreview: linkPreview, linkPreviewOptions: linkPreviewOptions)
+    }
+}
+
+extension TDNativePhotoSize {
+    init(height: Int, photo: TDNativeFile, progressiveSizes: [Int], type: String, width: Int) {
+        self.init(type: type, photo: photo, width: width, height: height, progressiveSizes: progressiveSizes)
+    }
+}
+
+extension TDNativePoll {
+    init(
+        allowsMultipleAnswers: Bool,
+        allowsRevoting: Bool,
+        canGetVoters: Bool,
+        canSeeResults: Bool,
+        closeDate: Int,
+        countryCodes: [String],
+        id: Int64,
+        isAnonymous: Bool,
+        isClosed: Bool,
+        membersOnly: Bool,
+        openPeriod: Int,
+        optionOrder: [Int],
+        options: [TDNativePollOption],
+        question: TDNativeFormattedText,
+        recentVoterIds: [TDNativeMessageSender],
+        totalVoterCount: Int,
+        type: TDNativePollType,
+        voteRestrictionReason: TDNativePollVoteRestrictionReason?,
+    ) {
+        self.init(
+            id: id,
+            question: question,
+            options: options,
+            totalVoterCount: totalVoterCount,
+            recentVoterIds: recentVoterIds,
+            canGetVoters: canGetVoters,
+            canSeeResults: canSeeResults,
+            isAnonymous: isAnonymous,
+            allowsMultipleAnswers: allowsMultipleAnswers,
+            allowsRevoting: allowsRevoting,
+            membersOnly: membersOnly,
+            countryCodes: countryCodes,
+            optionOrder: optionOrder,
+            type: type,
+            openPeriod: openPeriod,
+            closeDate: closeDate,
+            isClosed: isClosed,
+            voteRestrictionReason: voteRestrictionReason,
+        )
+    }
+}
+
+extension TDNativePollOption {
+    init(
+        additionDate: Int,
+        author: TDNativeMessageSender?,
+        id: String,
+        isBeingChosen: Bool,
+        isChosen: Bool,
+        media: TDNativePollMedia?,
+        recentVoterIds: [TDNativeMessageSender],
+        text: TDNativeFormattedText,
+        votePercentage: Int,
+        voterCount: Int,
+    ) {
+        self.init(
+            id: id,
+            text: text,
+            media: media,
+            voterCount: voterCount,
+            votePercentage: votePercentage,
+            recentVoterIds: recentVoterIds,
+            isChosen: isChosen,
+            isBeingChosen: isBeingChosen,
+            author: author,
+            additionDate: additionDate,
+        )
+    }
+}
+
+extension TDNativeRemoteFile {
+    init(id: String, isUploadingActive: Bool, isUploadingCompleted: Bool, uniqueId: String, uploadedSize: Int64) {
+        self.init(
+            id: id,
+            uniqueId: uniqueId,
+            isUploadingActive: isUploadingActive,
+            isUploadingCompleted: isUploadingCompleted,
+            uploadedSize: uploadedSize,
+        )
+    }
+}
+
+extension TDNativeTextEntity {
+    init(length: Int, offset: Int, type: TDNativeTextEntityType) {
+        self.init(offset: offset, length: length, type: type)
+    }
+}
+
+extension TDNativeTextQuote {
+    init(isManual: Bool, position: Int, text: TDNativeFormattedText) {
+        self.init(text: text, position: position, isManual: isManual)
+    }
+}
+
+extension TDNativeUnreadReaction {
+    init(isBig: Bool, senderId: TDNativeMessageSender, type: TDNativeReactionType) {
+        self.init(type: type, senderId: senderId, isBig: isBig)
     }
 }

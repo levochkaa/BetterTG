@@ -134,6 +134,7 @@ import UIKit
             case .richTextHashtag(let value): child(value.text)
             case .richTextCashtag(let value): child(value.text)
             case .richTextBankCardNumber(let value): child(value.text)
+            case .richTextTonAddress(let value): child(value.text)
             case .richTextBotCommand(let value): child(value.text)
             case .richTextIcon(let value):
                 result.append(NSAttributedString(string: value.document.fileName, attributes: attributes))

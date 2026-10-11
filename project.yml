@@ -41,9 +41,6 @@ packages:
   TDLibKit:
     url: https://github.com/levochkaa/TDLibKit.git
     exactVersion: 2.0.0-tdlib-1.8.68-c15d3f5a
-  MobileVLCKit:
-    url: https://github.com/levochkaa/MobileVLCKit
-    exactVersion: 3.7.3
 targets:
   BetterTG:
     type: application

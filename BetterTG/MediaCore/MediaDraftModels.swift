@@ -519,6 +519,7 @@ enum MediaDraftTextEntityType: Codable, Hashable {
     case textEntityTypeEmailAddress
     case textEntityTypePhoneNumber
     case textEntityTypeBankCardNumber
+    case textEntityTypeTonAddress
     case textEntityTypeBold
     case textEntityTypeItalic
     case textEntityTypeUnderline
@@ -544,6 +545,7 @@ enum MediaDraftTextEntityType: Codable, Hashable {
         case textEntityTypeEmailAddress
         case textEntityTypePhoneNumber
         case textEntityTypeBankCardNumber
+        case textEntityTypeTonAddress
         case textEntityTypeBold
         case textEntityTypeItalic
         case textEntityTypeUnderline
@@ -579,6 +581,8 @@ enum MediaDraftTextEntityType: Codable, Hashable {
             .textEntityTypePhoneNumber
         case .textEntityTypeBankCardNumber:
             .textEntityTypeBankCardNumber
+        case .textEntityTypeTonAddress:
+            .textEntityTypeTonAddress
         case .textEntityTypeBold:
             .textEntityTypeBold
         case .textEntityTypeItalic:
@@ -631,6 +635,8 @@ enum MediaDraftTextEntityType: Codable, Hashable {
                 .textEntityTypePhoneNumber
             case .textEntityTypeBankCardNumber:
                 .textEntityTypeBankCardNumber
+            case .textEntityTypeTonAddress:
+                .textEntityTypeTonAddress
             case .textEntityTypeBold:
                 .textEntityTypeBold
             case .textEntityTypeItalic:
@@ -684,6 +690,8 @@ enum MediaDraftTextEntityType: Codable, Hashable {
                 .textEntityTypePhoneNumber
             case .textEntityTypeBankCardNumber:
                 .textEntityTypeBankCardNumber
+            case .textEntityTypeTonAddress:
+                .textEntityTypeTonAddress
             case .textEntityTypeBold:
                 .textEntityTypeBold
             case .textEntityTypeItalic:
@@ -736,6 +744,8 @@ enum MediaDraftTextEntityType: Codable, Hashable {
             try container.encode(Kind.textEntityTypePhoneNumber, forKey: .type)
         case .textEntityTypeBankCardNumber:
             try container.encode(Kind.textEntityTypeBankCardNumber, forKey: .type)
+        case .textEntityTypeTonAddress:
+            try container.encode(Kind.textEntityTypeTonAddress, forKey: .type)
         case .textEntityTypeBold:
             try container.encode(Kind.textEntityTypeBold, forKey: .type)
         case .textEntityTypeItalic:

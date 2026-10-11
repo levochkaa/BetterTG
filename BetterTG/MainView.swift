@@ -790,6 +790,13 @@ enum FolderMenuAction {
 /// scroll under UIKit's liquid lens (`LiquidLens`). A tap lifts the lens and carries it to the tapped folder,
 /// a page swipe moves it with the swipe, and where UIKit has no lens a glass selection moves instead.
 final class FolderPickerView: UIView {
+    // MARK: Internal
+
+    struct Item: Equatable {
+        let id: Int
+        let title: String
+    }
+
     // MARK: Private
 
     private static let springDuration: TimeInterval = 0.4
@@ -800,13 +807,6 @@ final class FolderPickerView: UIView {
     private static let selectionTint = UIColor.label.withAlphaComponent(0.08)
     /// The blur above the folder strip.
     private static let controlTopInset: CGFloat = 8
-
-    // MARK: Internal
-
-    struct Item: Equatable {
-        let id: Int
-        let title: String
-    }
 
     var onSelection: ((Int) -> Void)?
     var onReselection: ((Int) -> Void)?
@@ -980,6 +980,10 @@ final class FolderPickerView: UIView {
                 stack.bottomAnchor.constraint(equalTo: layer.bottomAnchor),
             ])
         }
+        controlContainer.onViewportWidthChange = { [weak self] in
+            self?.updateResolvedWidths()
+            self?.layoutSelection(animated: false)
+        }
 
         let separator = UIView()
         separator.translatesAutoresizingMaskIntoConstraints = false
@@ -1043,12 +1047,12 @@ final class FolderPickerView: UIView {
         selectedSegmentWidthConstraints.removeAll()
         buttons.removeAll()
         selectedButtons.removeAll()
-        naturalSegmentWidths = folders.indices.map { index in
-            naturalSegmentWidth(for: folders[index], unreadState: unreadStates[index])
+        naturalSegmentWidths = items.indices.map { index in
+            naturalSegmentWidth(for: items[index], unreadState: unreadStates[index])
         }
         resolvedSegmentWidths = naturalSegmentWidths
         stripWidthConstraint.constant = naturalSegmentWidths.reduce(0, +)
-        for (index, folder) in folders.enumerated() {
+        for (index, folder) in items.enumerated() {
             let button = FolderButton(type: .system)
             button.tag = index
             button.configure(title: folder.title, unreadState: unreadStates[index], animated: false)
@@ -1066,7 +1070,7 @@ final class FolderPickerView: UIView {
             guard lens != nil else { continue }
             let selectedButton = FolderButton(type: .system)
             selectedButton.isUserInteractionEnabled = false
-            selectedButton.configure(title: folder.name, unreadState: unreadStates[index], animated: false)
+            selectedButton.configure(title: folder.title, unreadState: unreadStates[index], animated: false)
             selectedButtonStack.addArrangedSubview(selectedButton)
             let selectedWidth = selectedButton.widthAnchor.constraint(equalToConstant: naturalSegmentWidths[index])
             selectedWidth.isActive = true
@@ -1081,11 +1085,11 @@ final class FolderPickerView: UIView {
     }
 
     private func updateButtonContents(animated: Bool) {
-        guard folders.count == buttons.count, unreadStates.count == buttons.count else { return }
-        for copies in [buttons, selectedButtons] where copies.count == folders.count {
+        guard items.count == buttons.count, unreadStates.count == buttons.count else { return }
+        for copies in [buttons, selectedButtons] where copies.count == items.count {
             for index in copies.indices {
                 copies[index].configure(
-                    title: folders[index].name,
+                    title: items[index].title,
                     unreadState: unreadStates[index],
                     animated: animated,
                 )
@@ -1199,12 +1203,12 @@ final class FolderPickerView: UIView {
     /// The selected folder's frame in the strip, or the frame between two folders during a page swipe.
     private func selectionFrame() -> CGRect? {
         if let interactiveSelection,
-           let fromIndex = folders.firstIndex(where: { $0.id == interactiveSelection.fromID }),
-           let toIndex = folders.firstIndex(where: { $0.id == interactiveSelection.toID }),
+           let fromIndex = items.firstIndex(where: { $0.id == interactiveSelection.fromID }),
+           let toIndex = items.firstIndex(where: { $0.id == interactiveSelection.toID }),
            buttons.indices.contains(fromIndex), buttons.indices.contains(toIndex)
         {
-            let fromFrame = buttons[fromIndex].convert(buttons[fromIndex].bounds, to: stripView)
-            let toFrame = buttons[toIndex].convert(buttons[toIndex].bounds, to: stripView)
+            let fromFrame = segmentFrame(at: fromIndex)
+            let toFrame = segmentFrame(at: toIndex)
             let fraction = interactiveSelection.fraction
             return CGRect(
                 x: fromFrame.minX + (toFrame.minX - fromFrame.minX) * fraction,
@@ -1213,9 +1217,9 @@ final class FolderPickerView: UIView {
                 height: stripView.bounds.height,
             )
         }
-        guard let index = folders.firstIndex(where: { $0.id == selectedID }), buttons.indices.contains(index)
+        guard let index = items.firstIndex(where: { $0.id == selectedID }), buttons.indices.contains(index)
         else { return nil }
-        return buttons[index].convert(buttons[index].bounds, to: stripView)
+        return segmentFrame(at: index)
     }
 
     private func updateButtonAppearance() {

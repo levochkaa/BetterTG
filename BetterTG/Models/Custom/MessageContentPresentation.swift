@@ -340,7 +340,8 @@ struct MessageContentPresentation {
             return service(title: "New game score", symbolName: "trophy")
         case .messageManagedBotCreated:
             return service(title: "Managed bot created", symbolName: "cpu")
-        case .messagePaymentRefunded, .messagePaymentSuccessful, .messagePaymentSuccessfulBot:
+        case .messagePaymentRefunded, .messagePaymentSuccessful, .messagePaymentSuccessfulBot,
+             .messageTonConnectRequest, .messageTonWalletTransfer:
             return excludedPaidContent(title: "Payment message")
         case .messageGiftedPremium, .messagePremiumGiftCode:
             return excludedPaidContent(title: "Premium gift")

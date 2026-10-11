@@ -107,6 +107,7 @@ enum RichMessageText {
         case .richTextHashtag(let value): return text(value.text)
         case .richTextCashtag(let value): return text(value.text)
         case .richTextBankCardNumber(let value): return text(value.text)
+        case .richTextTonAddress(let value): return text(value.text)
         case .richTextBotCommand(let value): return text(value.text)
         case .richTextFixed(let value): return text(value.text)
         case .richTextMentionName(let value): return text(value.text)
