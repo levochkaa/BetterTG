@@ -133,24 +133,6 @@ extension TDNativeChatNotificationSettings {
     }
 }
 
-extension TDNativeChatPhotoInfo {
-    init(
-        big: TDNativeFile,
-        hasAnimation: Bool,
-        isPersonal: Bool,
-        minithumbnail: TDNativeMinithumbnail?,
-        small: TDNativeFile,
-    ) {
-        self.init(
-            small: small,
-            big: big,
-            minithumbnail: minithumbnail,
-            hasAnimation: hasAnimation,
-            isPersonal: isPersonal,
-        )
-    }
-}
-
 extension TDNativeChatPosition {
     init(isPinned: Bool, list: TDNativeChatList, order: Int64, source: TDNativeChatSource?) {
         self.init(list: list, order: order, isPinned: isPinned, source: source)
@@ -642,6 +624,17 @@ extension TDNativeMessageForwardInfo {
     }
 }
 
+extension TDNativeMessageInteractionInfo {
+    init(
+        forwardCount: Int,
+        reactions: TDNativeMessageReactions?,
+        replyInfo: TDNativeMessageReplyInfo?,
+        viewCount: Int,
+    ) {
+        self.init(viewCount: viewCount, forwardCount: forwardCount, replyInfo: replyInfo, reactions: reactions)
+    }
+}
+
 extension TDNativeMessageLiveLocation {
     init(expiresIn: Int, location: TDNativeLiveLocation) {
         self.init(location: location, expiresIn: expiresIn)
@@ -651,6 +644,94 @@ extension TDNativeMessageLiveLocation {
 extension TDNativeMessagePoll {
     init(canAddOption: Bool, description: TDNativeFormattedText, media: TDNativePollMedia?, poll: TDNativePoll) {
         self.init(poll: poll, description: description, media: media, canAddOption: canAddOption)
+    }
+}
+
+extension TDNativeMessageProperties {
+    init(
+        canAddOffer: Bool,
+        canAddTasks: Bool,
+        canBeApproved: Bool,
+        canBeCopied: Bool,
+        canBeCopiedToSecretChat: Bool,
+        canBeDeclined: Bool,
+        canBeDeletedForAllUsers: Bool,
+        canBeDeletedOnlyForSelf: Bool,
+        canBeEdited: Bool,
+        canBeForwarded: Bool,
+        canBePaid: Bool,
+        canBePinned: Bool,
+        canBeReplied: Bool,
+        canBeRepliedInAnotherChat: Bool,
+        canBeSaved: Bool,
+        canBeSharedInStory: Bool,
+        canDeleteReactions: Bool,
+        canEditMedia: Bool,
+        canEditSchedulingState: Bool,
+        canEditSuggestedPostInfo: Bool,
+        canGetAuthor: Bool,
+        canGetEmbeddingCode: Bool,
+        canGetLink: Bool,
+        canGetMediaTimestampLinks: Bool,
+        canGetMessageThread: Bool,
+        canGetPollVoteStatistics: Bool,
+        canGetReadDate: Bool,
+        canGetStatistics: Bool,
+        canGetVideoAdvertisements: Bool,
+        canGetViewers: Bool,
+        canMarkTasksAsDone: Bool,
+        canRecognizeSpeech: Bool,
+        canReportChat: Bool,
+        canReportReactions: Bool,
+        canReportSupergroupSpam: Bool,
+        canSetFactCheck: Bool,
+        customEmojiIds: [Int64],
+        hasProtectedContentByCurrentUser: Bool,
+        hasProtectedContentByOtherUser: Bool,
+        needShowStatistics: Bool,
+    ) {
+        self.init(
+            canAddOffer: canAddOffer,
+            canAddTasks: canAddTasks,
+            canBeApproved: canBeApproved,
+            canBeCopied: canBeCopied,
+            canBeCopiedToSecretChat: canBeCopiedToSecretChat,
+            canBeDeclined: canBeDeclined,
+            canBeDeletedOnlyForSelf: canBeDeletedOnlyForSelf,
+            canBeDeletedForAllUsers: canBeDeletedForAllUsers,
+            canBeEdited: canBeEdited,
+            canBeForwarded: canBeForwarded,
+            canBePaid: canBePaid,
+            canBePinned: canBePinned,
+            canBeReplied: canBeReplied,
+            canBeRepliedInAnotherChat: canBeRepliedInAnotherChat,
+            canBeSaved: canBeSaved,
+            canBeSharedInStory: canBeSharedInStory,
+            canDeleteReactions: canDeleteReactions,
+            canEditMedia: canEditMedia,
+            canEditSchedulingState: canEditSchedulingState,
+            canEditSuggestedPostInfo: canEditSuggestedPostInfo,
+            canGetAuthor: canGetAuthor,
+            canGetEmbeddingCode: canGetEmbeddingCode,
+            canGetLink: canGetLink,
+            canGetMediaTimestampLinks: canGetMediaTimestampLinks,
+            canGetMessageThread: canGetMessageThread,
+            canGetPollVoteStatistics: canGetPollVoteStatistics,
+            canGetReadDate: canGetReadDate,
+            canGetStatistics: canGetStatistics,
+            canGetVideoAdvertisements: canGetVideoAdvertisements,
+            canGetViewers: canGetViewers,
+            canMarkTasksAsDone: canMarkTasksAsDone,
+            canRecognizeSpeech: canRecognizeSpeech,
+            canReportChat: canReportChat,
+            canReportReactions: canReportReactions,
+            canReportSupergroupSpam: canReportSupergroupSpam,
+            canSetFactCheck: canSetFactCheck,
+            customEmojiIds: customEmojiIds,
+            hasProtectedContentByCurrentUser: hasProtectedContentByCurrentUser,
+            hasProtectedContentByOtherUser: hasProtectedContentByOtherUser,
+            needShowStatistics: needShowStatistics,
+        )
     }
 }
 
@@ -719,6 +800,12 @@ extension TDNativeMessageText {
         text: TDNativeFormattedText,
     ) {
         self.init(text: text, linkPreview: linkPreview, linkPreviewOptions: linkPreviewOptions)
+    }
+}
+
+extension TDNativeMinithumbnail {
+    init(data: Data, height: Int, width: Int) {
+        self.init(width: width, height: height, data: data)
     }
 }
 
@@ -812,6 +899,32 @@ extension TDNativeRemoteFile {
     }
 }
 
+extension TDNativeScopeNotificationSettings {
+    init(
+        disableMentionNotifications: Bool,
+        disablePinnedMessageNotifications: Bool,
+        muteFor: Int,
+        muteStories: Bool,
+        showPreview: Bool,
+        showStoryPoster: Bool,
+        soundId: Int64,
+        storySoundId: Int64,
+        useDefaultMuteStories: Bool,
+    ) {
+        self.init(
+            muteFor: muteFor,
+            soundId: soundId,
+            showPreview: showPreview,
+            useDefaultMuteStories: useDefaultMuteStories,
+            muteStories: muteStories,
+            storySoundId: storySoundId,
+            showStoryPoster: showStoryPoster,
+            disablePinnedMessageNotifications: disablePinnedMessageNotifications,
+            disableMentionNotifications: disableMentionNotifications,
+        )
+    }
+}
+
 extension TDNativeTextEntity {
     init(length: Int, offset: Int, type: TDNativeTextEntityType) {
         self.init(offset: offset, length: length, type: type)
@@ -824,8 +937,122 @@ extension TDNativeTextQuote {
     }
 }
 
+extension TDNativeThumbnail {
+    init(file: TDNativeFile, format: TDNativeThumbnailFormat, height: Int, width: Int) {
+        self.init(format: format, width: width, height: height, file: file)
+    }
+}
+
 extension TDNativeUnreadReaction {
     init(isBig: Bool, senderId: TDNativeMessageSender, type: TDNativeReactionType) {
         self.init(type: type, senderId: senderId, isBig: isBig)
+    }
+}
+
+extension TDNativeUpdateDeleteMessages {
+    init(chatId: Int64, fromCache: Bool, isPermanent: Bool, messageIds: [Int64]) {
+        self.init(chatId: chatId, messageIds: messageIds, isPermanent: isPermanent, fromCache: fromCache)
+    }
+}
+
+extension TDNativeUpdateForumTopic {
+    init(
+        chatId: Int64,
+        draftMessage: TDNativeDraftMessage?,
+        forumTopicId: Int,
+        isPinned: Bool,
+        lastReadInboxMessageId: Int64,
+        lastReadOutboxMessageId: Int64,
+        notificationSettings: TDNativeChatNotificationSettings,
+        unreadMentionCount: Int,
+        unreadPollVoteCount: Int,
+        unreadReactionCount: Int,
+    ) {
+        self.init(
+            chatId: chatId,
+            forumTopicId: forumTopicId,
+            isPinned: isPinned,
+            lastReadInboxMessageId: lastReadInboxMessageId,
+            lastReadOutboxMessageId: lastReadOutboxMessageId,
+            unreadMentionCount: unreadMentionCount,
+            unreadReactionCount: unreadReactionCount,
+            unreadPollVoteCount: unreadPollVoteCount,
+            notificationSettings: notificationSettings,
+            draftMessage: draftMessage,
+        )
+    }
+}
+
+extension TDNativeUpdateMessageEdited {
+    init(chatId: Int64, editDate: Int, messageId: Int64, replyMarkup: TDNativeReplyMarkup?) {
+        self.init(chatId: chatId, messageId: messageId, editDate: editDate, replyMarkup: replyMarkup)
+    }
+}
+
+extension TDNativeUpdateMessageSendFailed {
+    init(error: TDNativeError, message: TDNativeMessage, oldMessageId: Int64) {
+        self.init(message: message, oldMessageId: oldMessageId, error: error)
+    }
+}
+
+extension TDNativeUser {
+    init(
+        accentColorId: Int,
+        activeStoryState: TDNativeActiveStoryState?,
+        addedToAttachmentMenu: Bool,
+        backgroundCustomEmojiId: Int64,
+        emojiStatus: TDNativeEmojiStatus?,
+        firstName: String,
+        haveAccess: Bool,
+        id: Int64,
+        isCloseFriend: Bool,
+        isContact: Bool,
+        isMutualContact: Bool,
+        isPremium: Bool,
+        isSupport: Bool,
+        languageCode: String,
+        lastName: String,
+        paidMessageStarCount: Int64,
+        phoneNumber: String,
+        profileAccentColorId: Int,
+        profileBackgroundCustomEmojiId: Int64,
+        profilePhoto: TDNativeProfilePhoto?,
+        restrictionInfo: TDNativeRestrictionInfo?,
+        restrictsNewChats: Bool,
+        status: TDNativeUserStatus,
+        type: TDNativeUserType,
+        upgradedGiftColors: TDNativeUpgradedGiftColors?,
+        usernames: TDNativeUsernames?,
+        verificationStatus: TDNativeVerificationStatus?,
+    ) {
+        self.init(
+            id: id,
+            firstName: firstName,
+            lastName: lastName,
+            usernames: usernames,
+            phoneNumber: phoneNumber,
+            status: status,
+            profilePhoto: profilePhoto,
+            accentColorId: accentColorId,
+            backgroundCustomEmojiId: backgroundCustomEmojiId,
+            upgradedGiftColors: upgradedGiftColors,
+            profileAccentColorId: profileAccentColorId,
+            profileBackgroundCustomEmojiId: profileBackgroundCustomEmojiId,
+            emojiStatus: emojiStatus,
+            isContact: isContact,
+            isMutualContact: isMutualContact,
+            isCloseFriend: isCloseFriend,
+            verificationStatus: verificationStatus,
+            isPremium: isPremium,
+            isSupport: isSupport,
+            restrictionInfo: restrictionInfo,
+            activeStoryState: activeStoryState,
+            restrictsNewChats: restrictsNewChats,
+            paidMessageStarCount: paidMessageStarCount,
+            haveAccess: haveAccess,
+            type: type,
+            languageCode: languageCode,
+            addedToAttachmentMenu: addedToAttachmentMenu,
+        )
     }
 }

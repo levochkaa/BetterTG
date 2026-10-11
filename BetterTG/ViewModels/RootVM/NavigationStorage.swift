@@ -3,12 +3,14 @@
 import TDLibKit
 import UIKit
 
-@MainActor final class NavigationStorage: NSObject, UINavigationControllerDelegate {
+@MainActor final class NavigationStorage: NSObject {
     // MARK: Internal
 
     static let shared = NavigationStorage()
 
     let navigationController = TelegramNavigationController()
+
+    private var clientRestoration: NavigationClientRestoration?
 
     var viewControllers: [UIViewController] {
         navigationController.viewControllers
@@ -18,7 +20,10 @@ import UIKit
         super.init()
         navigationController.navigationBar.prefersLargeTitles = false
         navigationController.navigationBar.isTranslucent = true
-        navigationController.delegate = self
+        // TelegramNavigationController stays its own delegate for classic chrome and reports each shown screen.
+        navigationController.onDidShow = { [weak self] _ in
+            DispatchQueue.main.async { [weak self] in self?.retryClientRestoration() }
+        }
         self.clientRestoration = NavigationClientRestoration(
             readiness: TDLib.shared.readyClientChanges,
             currentSource: { TDLib.shared.activeUpdateSource },
@@ -37,17 +42,6 @@ import UIKit
 
     func retryClientRestoration() {
         clientRestoration?.retry()
-    }
-
-    func navigationController(
-        _ navigationController: UINavigationController,
-        didShow _: UIViewController,
-        animated _: Bool,
-    ) {
-        #if DEBUG
-            ClassicNavigationDiagnostics.didShow(navigationController)
-        #endif
-        DispatchQueue.main.async { [weak self] in self?.retryClientRestoration() }
     }
 
     @discardableResult func setRoot(_ controller: UIViewController) -> UINavigationController {

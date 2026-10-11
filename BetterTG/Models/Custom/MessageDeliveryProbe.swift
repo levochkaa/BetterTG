@@ -25,7 +25,7 @@ import UIKit
 
     @MainActor private final class NativeRows {
         let collection: NativeCollection
-        let chat = RootChatInsertionProbe.chat(
+        let chat = ProbeFixtures.chat(
             .init(isPinned: false, list: .chatListMain, order: 1, source: nil),
             id: 100,
         )
@@ -70,7 +70,7 @@ import UIKit
             cell.configure(
                 message: message,
                 chat: chat,
-                highlighted: false,
+                highlightedMessageID: nil,
                 client: client,
                 pollInteractionStore: polls,
                 canAddReactions: false,

@@ -29,6 +29,13 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     private var lastWidth = CGFloat.zero
     private var isApplyingValue = false
     private lazy var emojiRenderer = ComposerCustomEmojiRenderer(textView: self)
+    private var isApplyingUserText = false
+
+    var permitsClientRestoration: Bool {
+        markedTextRange == nil && !isApplyingUserText && !isPresentingEditMenu && !isTracking && !isDragging &&
+            !isDecelerating
+            && !(gestureRecognizers ?? []).contains { $0.state == .began || $0.state == .changed }
+    }
 
     init(placeholder: String) {
         self.placeholder = placeholder
@@ -92,6 +99,11 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         insertTelegramText(NSAttributedString(string: ""))
     }
 
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        onUserInteraction?()
+        super.touchesBegan(touches, with: event)
+    }
+
     override func editMenu(for textRange: UITextRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
         guard let selected = text(in: textRange), !selected.isEmpty else {
             return UIMenu(children: suggestedActions)
@@ -117,20 +129,24 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         return super.canPerformAction(action, withSender: sender)
     }
 
-    override func paste(_ sender: Any?) {
+    override func paste(_: Any?) {
         if let data = UIPasteboard.general.data(forPasteboardType: TelegramEmojiPasteboardPayload.type),
            let payload = try? JSONDecoder().decode(TelegramEmojiPasteboardPayload.self, from: data)
         {
-            let value =
+            // BetterTG's own companion payload is the only trusted source of custom emoji identity.
+            let external =
                 if let item = UIPasteboard.general.items.first,
                 let raw = item[UTType.rtf.identifier],
                 let rtf = (raw as? Data) ?? (raw as? String)?.data(using: .utf8),
-                let formatted = try? NSAttributedString(data: rtf, documentAttributes: nil) {
-                    NSMutableAttributedString(attributedString: formatted)
+                let formatted = try? NSAttributedString(data: rtf, documentAttributes: nil),
+                formatted.string == payload.text {
+                    formatted
                 } else {
-                    NSMutableAttributedString(string: payload.text, attributes: defaultAttributes())
+                    NSAttributedString(string: payload.text)
                 }
+            let value = NSMutableAttributedString(attributedString: ComposerText.importing(external))
             payload.apply(to: value)
+            ComposerText.setCustomEmoji(TelegramCustomEmojiRun.extract(from: value), in: value)
             insertTelegramText(value)
             return
         }
@@ -150,17 +166,21 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     }
 
     func insertEmoji(_ emoji: String, customID: Int64? = nil) {
-        let value = NSMutableAttributedString(string: emoji, attributes: defaultAttributes())
-        if let customID { value.addAttribute(
-            .telegramCustomEmoji,
-            value: NSNumber(value: customID),
-            range: NSRange(location: 0, length: value.length),
-        ) }
+        let value = NSMutableAttributedString(attributedString: ComposerText
+            .importing(NSAttributedString(string: emoji)))
+        if let customID {
+            ComposerText.setCustomEmoji(
+                [TelegramCustomEmojiRun(id: customID, range: NSRange(location: 0, length: value.length))],
+                in: value,
+            )
+        }
         insertTelegramText(value)
     }
 
+    func receivePastedImages(_ images: [UIImage]) { onPasteImages?(Array(images.prefix(10))) }
+
     func setAttributedText(_ value: AttributedString) {
-        let value = value.telegramNSAttributedString
+        let value = ComposerText.uiKit(value)
         guard attributedText != value else { return }
         isApplyingValue = true
         let selection = selectedRange
@@ -172,6 +192,7 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
             location: min(selection.location, value.length),
             length: min(selection.length, max(0, value.length - selection.location)),
         )
+        typingAttributes = ComposerText.typingAttributes(in: attributedText, at: selectedRange.location)
         emojiRenderer.update()
         updatePlaceholder()
         invalidateIntrinsicContentSize()
@@ -193,7 +214,27 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         isScrollEnabled = intrinsicContentSize.height >= 240
         guard !isApplyingValue else { return }
         emojiRenderer.update()
-        onTextChange?(AttributedString(telegramText: attributedText))
+        onUserInteraction?()
+        onTextChange?(ComposerText.value(attributedText))
+        onInteractionSettled?()
+    }
+
+    func textViewDidChangeSelection(_: UITextView) {
+        if markedTextRange == nil {
+            typingAttributes = ComposerText.typingAttributes(in: attributedText, at: selectedRange.location)
+        }
+        onInteractionSettled?()
+    }
+
+    func textView(_: UITextView, willPresentEditMenuWith _: any UIEditMenuInteractionAnimating) {
+        isPresentingEditMenu = true
+    }
+
+    func textView(_: UITextView, willDismissEditMenuWith animator: any UIEditMenuInteractionAnimating) {
+        animator.addCompletion { [weak self] in
+            self?.isPresentingEditMenu = false
+            self?.onInteractionSettled?()
+        }
     }
 
     func textView(
@@ -201,44 +242,74 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         shouldChangeTextIn range: NSRange,
         replacementText replacement: String,
     ) -> Bool {
-        typingAttributes = defaultAttributes()
+        guard ComposerText.isValid(range, in: text as NSString) else { return false }
+        typingAttributes = ComposerText.typingAttributes(in: attributedText, at: range.location)
+        // A custom emoji is one atomic glyph: a partial edit replaces the whole emoji.
         var atomicRange = range
         for emoji in TelegramCustomEmojiRun.extract(from: textStorage) {
             if range.length > 0, NSIntersectionRange(range, emoji.range).length > 0 {
                 atomicRange = NSUnionRange(atomicRange, emoji.range)
             }
         }
-        if atomicRange != range {
+        guard atomicRange == range else {
             selectedRange = atomicRange
-            insertTelegramText(NSAttributedString(string: replacement, attributes: defaultAttributes()))
+            insertTelegramText(NSAttributedString(string: replacement))
             return false
         }
-        guard isPastingText else { return true }
-        defer { isPastingText = false }
-        guard let item = UIPasteboard.general.items.first,
-              let rawRTF = item[UTType.rtf.identifier],
-              let data = (rawRTF as? String)?.data(using: .utf8)
-              ?? rawRTF as? Data,
-              let pasted = try? NSAttributedString(data: data, documentAttributes: nil)
-        else { return true }
+        return true
+    }
 
-        let updated = NSMutableAttributedString(attributedString: textView.attributedText)
-        updated.replaceCharacters(in: range, with: pasted)
-        textView.attributedText = updated
-        textViewDidChange(textView)
-        return false
+    func receivePastedText(_ text: NSAttributedString) {
+        let wasApplyingUserText = isApplyingUserText
+        isApplyingUserText = true
+        defer {
+            isApplyingUserText = wasApplyingUserText
+            onInteractionSettled?()
+        }
+        if markedTextRange != nil { unmarkText() }
+        guard ComposerText.isValid(selectedRange, in: self.text as NSString) else { return }
+        let pasted = ComposerText.importing(text)
+        let updated = NSMutableAttributedString(attributedString: attributedText)
+        updated.replaceCharacters(in: selectedRange, with: pasted)
+        applyUserText(updated, selection: NSRange(location: selectedRange.location + pasted.length, length: 0))
+    }
+
+    func toggleFormatting(_ type: TextEntityType) {
+        guard markedTextRange == nil else { return }
+        let updated = NSMutableAttributedString(attributedString: attributedText)
+        ComposerText.toggle(type, in: updated, range: selectedRange)
+        applyUserText(updated, selection: selectedRange)
     }
 
     private func insertTelegramText(_ value: NSAttributedString) {
         guard isEditable else { return }
+        if markedTextRange != nil { unmarkText() }
         let range = selectedRange
-        textStorage.replaceCharacters(in: range, with: value)
-        selectedRange = NSRange(location: range.location + value.length, length: 0)
-        typingAttributes = defaultAttributes()
+        guard ComposerText.isValid(range, in: text as NSString) else { return }
+        let updated = NSMutableAttributedString(attributedString: attributedText)
+        updated.replaceCharacters(in: range, with: value)
+        applyUserText(updated, selection: NSRange(location: range.location + value.length, length: 0))
+    }
+
+    private func applyUserText(_ value: NSAttributedString, selection: NSRange) {
+        guard !attributedText.isEqual(to: value) else { return }
+        let wasApplyingUserText = isApplyingUserText
+        isApplyingUserText = true
+        defer {
+            isApplyingUserText = wasApplyingUserText
+            onInteractionSettled?()
+        }
+        let previous = NSAttributedString(attributedString: attributedText!)
+        let previousSelection = selectedRange
+        undoManager?.registerUndo(withTarget: self) { target in
+            target.applyUserText(previous, selection: previousSelection)
+        }
+        textStorage.setAttributedString(value)
+        selectedRange = selection
         textViewDidChange(self)
     }
 
-    private func formattingAction(title: String, key: NSAttributedString.Key, value: Any) -> UIAction {
+    private func formattingAction(title: String, type: TextEntityType) -> UIAction {
         UIAction(title: title) { [weak self] _ in
             self?.toggleFormatting(type)
         }

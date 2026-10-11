@@ -129,10 +129,16 @@ struct MessageTextSpoilerPresentation {
     private let source: TdUpdateSource?
     private var valid = true
 
-    init(text: FormattedText, source: TdUpdateSource?) {
+    /// Scoped states reveal only through `reveal()`. An unscoped state belongs to a caller that records
+    /// the reveal itself and passes it back in as `revealed`.
+    var isScoped: Bool { source != nil }
+    var isValid: Bool { valid }
+
+    init(text: FormattedText, source: TdUpdateSource?, revealed: Bool = false) {
         self.original = text
         self.presentation = MessageTextSpoilerPresentation(text)
         self.source = source
+        self.revealed = source == nil && revealed
     }
 
     @discardableResult func reveal() -> Bool {

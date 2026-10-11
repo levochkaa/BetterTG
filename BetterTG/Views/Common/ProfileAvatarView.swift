@@ -22,6 +22,8 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
     private var sourceMinithumbnailData: Data?
     private var sourceUsesPeerPhotoForSavedMessages = false
     private var sourceOrigin: TDImageOrigin?
+    /// The client that produced `sourceOrigin`; profile and chat lookups from the avatar menu use it.
+    private var sourceClient: TDLibClient?
     private var sourceAccountUserID: Int64?
     private var placeholder: TelegramAvatarPlaceholder?
     private var representedAccountID: UUID?
@@ -104,6 +106,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         sourceMinithumbnailData = minithumbnail?.data
         sourceUsesPeerPhotoForSavedMessages = usesPeerPhotoForSavedMessages
         sourceOrigin = .captured(client: client, accountID: accountID)
+        sourceClient = client
         sourceAccountUserID = accountUserID ?? (sourceOrigin?.isCurrent == true
             ? TDLib.shared.activeAccount?.userID
             : nil)
@@ -123,6 +126,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         sourceMinithumbnailData = nil
         sourceUsesPeerPhotoForSavedMessages = false
         sourceOrigin = nil
+        sourceClient = nil
         sourceAccountUserID = nil
         placeholder = nil
         representedAccountID = nil
@@ -236,8 +240,8 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
 
     private func loadHighResolutionPreview() {
         guard let placeholder, displayedIcon(for: placeholder) == .none,
-              let accountID = sourceAccountID ?? TDLib.shared.activeAccountID else { return }
-        let client = sourceClient ?? td
+              let origin = sourceOrigin, origin.isCurrent, let client = sourceClient
+        else { return }
         let peerID = placeholder.peerID
         let file = highResolutionFile
         highResolutionTask?.cancel()
@@ -250,14 +254,12 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
                 } else {
                     try? await client.getChat(chatId: peerID).photo?.big
                 }
-            guard let self, !Task.isCancelled, self.placeholder?.peerID == peerID,
-                  TDLib.shared.activeAccountID == accountID, TDLib.shared.activeClient.id == client.id,
+            guard let self, !Task.isCancelled, self.placeholder?.peerID == peerID, origin.isCurrent,
                   let resolvedFile else { return }
             imageView.load(
                 file: resolvedFile,
                 maximumPixelSize: 1280,
-                accountID: accountID,
-                client: client,
+                origin: origin,
                 preservingImage: true,
                 transitionDuration: 0.2,
             )
@@ -265,9 +267,10 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
     }
 
     private func openPeer(from host: UIViewController?, search: Bool) {
-        guard let host, let peerID = placeholder?.peerID,
-              let accountID = sourceAccountID ?? TDLib.shared.activeAccountID else { return }
-        let client = sourceClient ?? td
+        guard let host, let peerID = placeholder?.peerID, let origin = sourceOrigin, origin.isCurrent,
+              let client = sourceClient
+        else { return }
+        let accountID = origin.source.accountID
         Task { [weak host] in
             let chatID: Int64
             if peerID > 0 {
@@ -277,8 +280,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
                 chatID = peerID
             }
             guard let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client),
-                  TDLib.shared.activeAccountID == accountID, TDLib.shared.activeClient.id == client.id,
-                  let host, let navigation = host.navigationController else { return }
+                  origin.isCurrent, let host, let navigation = host.navigationController else { return }
             if search {
                 let controller = ChatViewController(customChat: chat)
                 navigation.pushViewController(controller, animated: true)

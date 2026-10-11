@@ -184,6 +184,10 @@ class TelegramContextMenuExtractableView: UIView {
 // swiftformat:enable preferFinalClasses
 
 extension UIViewController {
+    var isPresentingTelegramContextMenu: Bool {
+        TelegramContextMenuController.activeController?.owner === self
+    }
+
     /// A `.menuOnly` menu sits `menuSpacing` above `menuAnchorView`, or above the source when there is none.
     @discardableResult func presentTelegramContextMenu(
         sourceView: UIView,
@@ -197,6 +201,7 @@ extension UIViewController {
         menuSpacing: CGFloat = 4,
         reactionsProvider: TelegramContextReactionsProvider? = nil,
         quoteSelection: TelegramContextQuoteSelection? = nil,
+        onDismiss: (() -> Void)? = nil,
     ) -> Bool {
         guard !actions.isEmpty,
               TelegramContextMenuController.activeController == nil,
@@ -213,6 +218,7 @@ extension UIViewController {
             menuSpacing: menuSpacing,
             reactionsProvider: reactionsProvider,
             quoteSelection: quoteSelection,
+            owner: self, onDismiss: onDismiss,
         )
         if performsInitialFeedback {
             UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.75)
@@ -316,6 +322,8 @@ private final class TelegramContextMenuController: UIViewController {
         menuSpacing: CGFloat,
         reactionsProvider: TelegramContextReactionsProvider?,
         quoteSelection: TelegramContextQuoteSelection?,
+        owner: UIViewController,
+        onDismiss: (() -> Void)?,
     ) {
         self.sourceView = sourceView
         self.menuAnchorView = menuAnchorView
@@ -327,6 +335,8 @@ private final class TelegramContextMenuController: UIViewController {
         self.previewController = previewController
         self.reactionsProvider = reactionsProvider
         self.quoteSelection = quoteSelection
+        self.owner = owner
+        self.onDismiss = onDismiss
         super.init(nibName: nil, bundle: nil)
         trackingGesture?.addTarget(self, action: #selector(trackingGestureChanged(_:)))
         NotificationCenter.default.addObserver(
@@ -340,6 +350,7 @@ private final class TelegramContextMenuController: UIViewController {
 
     deinit {
         reactionTask?.cancel()
+        NotificationCenter.default.removeObserver(self)
         trackingGesture?.removeTarget(self, action: #selector(trackingGestureChanged(_:)))
     }
 
@@ -811,6 +822,7 @@ private final class TelegramContextMenuController: UIViewController {
         selectableTextViews.forEach { $0.setContextQuoteAction(nil) }
         selectableTextViews.removeAll()
         reactionTask?.cancel()
+        dismissCompletion = completion
         let returnFrame = sourceFrameAtBaseTransform()
         animateMenuOut(returnFrame: returnFrame)
         UIView.animate(
@@ -847,23 +859,31 @@ private final class TelegramContextMenuController: UIViewController {
                     : self.originalContentCornerRadius
             }
             self.reactionStrip.alpha = 0
-        } completion: { _ in
-            self.sourceView?.transform = self.sourceTransform
-            self.reactionStrip.prepareForReuse()
-            if let previewView = self.previewView, let extractedSource = self.extractedSource {
-                extractedSource.putBackContextMenuContent(previewView)
-            }
-            self.previewController?.willMove(toParent: nil)
-            self.previewController?.view.removeFromSuperview()
-            self.previewController?.removeFromParent()
-            self.sourceView?.alpha = 1
-            self.beginAppearanceTransition(false, animated: false)
-            self.view.removeFromSuperview()
-            self.endAppearanceTransition()
-            self.presentationHostView = nil
-            Self.activeController = nil
-            completion?()
-        }
+        } completion: { _ in self.finishDismissal() }
+    }
+
+    private func finishDismissal() {
+        guard !didFinishDismissal else { return }
+        didFinishDismissal = true
+        isDismissing = true
+        sourceView?.transform = sourceTransform
+        reactionStrip.prepareForReuse()
+        if let previewView, let extractedSource { extractedSource.putBackContextMenuContent(previewView) }
+        previewController?.willMove(toParent: nil)
+        previewController?.view.removeFromSuperview()
+        previewController?.removeFromParent()
+        sourceView?.alpha = 1
+        beginAppearanceTransition(false, animated: false)
+        view.removeFromSuperview()
+        endAppearanceTransition()
+        presentationHostView = nil
+        if Self.activeController === self { Self.activeController = nil }
+        let action = dismissCompletion
+        let callback = onDismiss
+        dismissCompletion = nil
+        onDismiss = nil
+        action?()
+        callback?()
     }
 
     private func sourceFrameAtBaseTransform() -> CGRect {

@@ -20,9 +20,17 @@ extension RootVM {
                 }
             }
             .store(in: &cancellables)
+        TDLib.shared
+            .activeClientChanges
+            .sink { [weak self] _ in
+                self?.listAuthority.invalidate()
+                self?.scopeSettingsLoading.invalidate()
+            }
+            .store(in: &cancellables)
         nc.publisher(&cancellables, for: .authorizationStateReady) { [weak self] _ in
             guard let self else { return }
-            loggedIn = true
+            synchronizeAuthorization()
+            guard loggedIn else { return }
             loadScopeNotificationSettings()
             ensureBaseChatLists()
             allFolders.forEach { self.loadMoreChats(in: $0) }
@@ -37,8 +45,8 @@ extension RootVM {
         ]) { [weak self] _ in
             self?.synchronizeAuthorization()
         }
-        nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] update in
-            guard let self else { return }
+        nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { event in
+            let update = event.value
             SelectedDocumentFileStore.complete(
                 accountID: event.source.accountID,
                 chatID: update.message.chatId,
@@ -65,16 +73,28 @@ extension RootVM {
                 )
             }
         }
-        nc.publisher(&cancellables, for: .updateScopeNotificationSettings) { [weak self] update in
-            guard let self else { return }
+        nc.scopedPublisher(&cancellables, for: .updateScopeNotificationSettings) { [weak self] event in
+            guard let self, acceptsListUpdate(event.source) else { return }
+            let update = event.value
+            scopeSettingsLoading.invalidate(scope: update.scope)
             var updatedSettings = scopeNotificationSettings
             updatedSettings[update.scope] = update.notificationSettings
-            owner.scopeNotificationSettings = updatedSettings
+            scopeNotificationSettings = updatedSettings
         }
         nc.scopedPublisher(&cancellables, for: .updateUnreadChatCount) { [weak self] event in
             guard let self, acceptsListUpdate(event.source) else { return }
             FolderUnreadStore.shared.update(event.value, clientID: event.source.clientID)
         }
+    }
+
+    private func acceptsListUpdate(_ source: TdUpdateSource) -> Bool {
+        listAuthority.accepts(source, ownerAccountID: activeAccountID, activeSource: TDLib.shared.activeUpdateSource)
+    }
+
+    private func synchronizeAuthorization() {
+        // Legacy void auth notifications are wakeups, never authority for the
+        // account that happens to own this root when main-queue delivery occurs.
+        loggedIn = activeAccountID == TDLib.shared.activeAccountID && TDLib.shared.isActiveAccountReady
     }
 
     func restoreChatListContext() {
@@ -84,16 +104,20 @@ extension RootVM {
         folderLoadTasks = [:]
         folderConfigurationTask?.cancel()
         folderConfigurationGeneration = UUID()
+        listAuthority.invalidate()
+        scopeSettingsLoading.invalidate()
         let accountChanged = activeAccountID != store.accountID
         activeAccountID = store.accountID
-        loggedIn = TDLib.shared.isActiveAccountReady
+        synchronizeAuthorization()
         scopeNotificationSettings = [:]
         folders = []
         archive = nil
         if accountChanged { currentFolder = nil }
         ensureBaseChatLists()
         if store.folderConfiguration != nil { loadFolderConfiguration() }
-        if loggedIn { allFolders.forEach { self.loadMoreChats(in: $0) } }
+        guard loggedIn else { return }
+        loadScopeNotificationSettings()
+        allFolders.forEach { self.loadMoreChats(in: $0) }
     }
 
     func ensureBaseChatLists() {
@@ -182,9 +206,6 @@ extension RootVM {
                 folder.chats = updated.sorted {
                     $0.position.order == $1.position.order ? $0.id > $1.id : $0.position.order > $1.position.order
                 }
-            }
-            for (id, position) in insertions {
-                applyChatPosition(id: id, position: position)
             }
         }
     }

@@ -26,23 +26,34 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
             image.cancel()
         }
 
-        func configure(_ message: Message, selected: Bool) {
+        func configure(_ message: Message, selected: Bool, client: TDLibClient) {
             switch message.content {
-            case .messagePhoto(let value): image.load(photo: value.photo, preferredSize: .mBox, maximumPixelSize: 160)
+            case .messagePhoto(let value): image.load(
+                    photo: value.photo,
+                    preferredSize: .mBox,
+                    maximumPixelSize: 160,
+                    client: client,
+                )
             case .messageVideo(let value):
                 if let thumbnail = value.video.thumbnail { image.load(
                     file: thumbnail.file,
                     placeholderData: value.video.minithumbnail?.data,
                     maximumPixelSize: 160,
+                    client: client,
                 ) }
             case .messageAnimation(let value):
                 if let thumbnail = value.animation.thumbnail { image.load(
                     file: thumbnail.file,
                     placeholderData: value.animation.minithumbnail?.data,
                     maximumPixelSize: 160,
+                    client: client,
                 ) }
             case .messageSticker(let value):
-                if let thumbnail = value.sticker.thumbnail { image.load(file: thumbnail.file, maximumPixelSize: 160) }
+                if let thumbnail = value.sticker.thumbnail { image.load(
+                    file: thumbnail.file,
+                    maximumPixelSize: 160,
+                    client: client,
+                ) }
             default: image.cancel()
             }
             updateSelection(selected)
@@ -58,6 +69,7 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
     private let layout = UICollectionViewFlowLayout()
     private lazy var collection = UICollectionView(frame: .zero, collectionViewLayout: layout)
     private var messages = [Message]()
+    private var client: TDLibClient?
     private var selectedIndex = 0
     private var pagingPosition = CGFloat.zero
     private var isScrubbing = false
@@ -108,7 +120,8 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
         }
     }
 
-    func configure(messages: [Message], selectedIndex: Int) {
+    func configure(messages: [Message], selectedIndex: Int, client: TDLibClient) {
+        self.client = client
         isUpdatingLayout = true
         defer { isUpdatingLayout = false }
         let changed = self.messages.map(\.id) != messages.map(\.id)
@@ -146,7 +159,11 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
             withReuseIdentifier: "thumbnail",
             for: indexPath,
         ) as! ThumbnailCell
-        cell.configure(messages[indexPath.item], selected: indexPath.item == selectedIndex)
+        if let client { cell.configure(
+            messages[indexPath.item],
+            selected: indexPath.item == selectedIndex,
+            client: client,
+        ) }
         cell.accessibilityLabel = "Media \(indexPath.item + 1)"
         return cell
     }

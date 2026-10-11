@@ -14,7 +14,7 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
     private let imageView = TDImageLoadingView()
     private let bodyTextView = MessageTextContentView()
 
-    init(preview: LinkPreview) {
+    init(preview: LinkPreview, client: TDLibClient) {
         self.preview = preview
         super.init(frame: .zero)
         layer.cornerRadius = 5
@@ -61,6 +61,7 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
         if !preview.description.text.isEmpty {
             bodyTextView.configure(
                 formattedText: preview.description,
+                client: client,
                 statusText: "",
                 statusColor: .secondaryLabel,
                 maximumWidth: Utils.maxMessageContentWidth - 24,
@@ -75,7 +76,7 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
             imageView.contentMode = .scaleAspectFill
             imageView.clipsToBounds = true
             imageView.layer.cornerRadius = 4
-            imageView.load(file: media.file, placeholderData: media.placeholder, maximumPixelSize: 720)
+            imageView.load(file: media.file, placeholderData: media.placeholder, maximumPixelSize: 720, client: client)
             if preview.showLargeMedia {
                 if preview.showMediaAboveDescription { content.addArrangedSubview(imageView) }
                 content.addArrangedSubview(text)

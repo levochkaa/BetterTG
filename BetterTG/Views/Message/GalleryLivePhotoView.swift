@@ -130,11 +130,10 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
         spinner.center = CGPoint(x: liveButton.frame.maxX + 18, y: liveButton.center.y)
     }
 
-    func configure(_ content: MessagePhoto) {
+    func configure(_ content: MessagePhoto, client: TDLibClient) {
         prepareForReuse()
-        preview.load(photo: content.photo, preferredSize: .yBox, maximumPixelSize: 2048)
+        preview.load(photo: content.photo, preferredSize: .yBox, maximumPixelSize: 2048, client: client)
         guard let motion = content.video, !content.isSecret else { return }
-        let client = TDLib.shared.activeClient
         let requestGeneration = generation
         retry = { [weak self] in self?.load(video: motion.video, client: client, generation: requestGeneration) }
         retry?()

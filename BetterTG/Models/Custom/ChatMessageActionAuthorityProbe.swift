@@ -73,11 +73,11 @@ import UIKit
             contentAction = action
             cell.configure(
                 message: renderValue?.makeRenderOnlyMessage() ?? message,
-                chat: RootChatInsertionProbe.chat(
+                chat: ProbeFixtures.chat(
                     .init(isPinned: false, list: .chatListMain, order: 1, source: nil),
                     id: 100,
                 ),
-                highlighted: false, client: client, pollInteractionStore: polls,
+                highlightedMessageID: nil, client: client, pollInteractionStore: polls,
                 canAddReactions: canAddReactions, selectionActive: isSelecting, selected: isSelected,
                 onSwipeToReply: { [weak self] in _ = self?.invoke(authority, .reply) },
                 onSelectionToggle: { [weak self] in _ = self?.invoke(authority, .selection) },
@@ -595,6 +595,7 @@ import UIKit
             canReportReactions: false,
             canReportSupergroupSpam: false,
             canSetFactCheck: false,
+            customEmojiIds: [],
             hasProtectedContentByCurrentUser: false,
             hasProtectedContentByOtherUser: false,
             needShowStatistics: false,

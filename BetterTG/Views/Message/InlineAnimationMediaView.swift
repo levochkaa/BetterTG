@@ -47,15 +47,15 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
         updatePlayback()
     }
 
-    func configure(animation: Animation, displaySize: CGSize) {
+    func configure(animation: Animation, displaySize: CGSize, client: TDLibClient) {
         prepareForReuse()
         widthConstraint.constant = displaySize.width
         heightConstraint.constant = displaySize.height
         NSLayoutConstraint.activate([widthConstraint, heightConstraint])
         if let thumbnail = animation.thumbnail {
-            thumbnailView.load(file: thumbnail.file, placeholderData: animation.minithumbnail?.data)
+            thumbnailView.load(file: thumbnail.file, placeholderData: animation.minithumbnail?.data, client: client)
         } else {
-            thumbnailView.loadPlaceholder(data: animation.minithumbnail?.data)
+            thumbnailView.loadPlaceholder(data: animation.minithumbnail?.data, client: client)
         }
         let file = animation.animation
         if file.local.isDownloadingCompleted, !file.local.path.isEmpty {
@@ -63,7 +63,6 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
             return
         }
         let generation = generation
-        let client = TDLib.shared.activeClient
         downloadTask = Task { [weak self] in
             guard let downloaded = try? await client.downloadFile(
                 fileId: file.id, limit: 0, offset: 0, priority: 2, synchronous: true,

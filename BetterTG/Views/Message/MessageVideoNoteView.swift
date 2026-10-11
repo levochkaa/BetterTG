@@ -138,21 +138,48 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         progressLayer.setAffineTransform(CGAffineTransform(rotationAngle: -.pi / 2))
     }
 
-    func configure(
-        videoNote: VideoNote,
-        isSecret: Bool,
-        chatID: Int64,
-        messageID: Int64,
-    ) {
-        if self.chatID == chatID, self.messageID == messageID,
-           self.videoNote?.video.id == videoNote.video.id, self.isSecret == isSecret
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil { setPlaybackVisible(false) }
+        concealIfCaptureUnavailable()
+    }
+
+    private static func isSecret(_ message: Message) -> Bool {
+        guard case .messageVideoNote(let value) = message.content else { return false }
+        return value.isSecret
+    }
+
+    func configure(message: Message, client: TDLibClient, context: MediaGalleryPlaybackContext?) {
+        let acceptsContext = context.map { $0.isCurrent && $0.location.matches(message: message) }
+            ?? !Self.isSecret(message)
+        configure(
+            message: message,
+            backend: acceptsContext
+                ? VideoNotePlaybackBackend.captured(client: client, context: context)
+                : nil,
+        )
+        guard backend?.isCurrent() == true, !isRevoked else { return }
+        if !isSecret, let thumbnail = videoNote?.thumbnail {
+            thumbnailView.load(file: thumbnail.file, placeholderData: videoNote?.minithumbnail?.data, client: client)
+        }
+    }
+
+    func configure(message: Message, backend: VideoNotePlaybackBackend?) {
+        guard case .messageVideoNote(let value) = message.content else {
+            prepareForReuse()
+            return
+        }
+        // A reconfigure of the same note keeps its playback, progress and download.
+        if let current = self.message, current.chatId == message.chatId, current.id == message.id,
+           videoNote?.video.id == value.videoNote.video.id, isSecret == value.isSecret,
+           self.backend?.isCurrent() == true, backend?.isCurrent() == true
         {
-            self.videoNote = videoNote
-            update(file: videoNote.video)
+            videoNote = value.videoNote
+            self.message = message
+            update(file: value.videoNote.video)
             return
         }
         prepareForReuse()
-        guard case .messageVideoNote(let value) = message.content else { return }
         let videoNote = value.videoNote
         self.videoNote = videoNote
         self.message = message
@@ -198,9 +225,6 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         progressLayer.strokeEnd = 0
         progressLayer.isHidden = true
         hasStartedPlayback = false
-        if let fileID {
-            Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
-        }
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -403,6 +427,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             file.local.isDownloadingCompleted,
             !file.local.path.isEmpty
         else { return }
+        ownsDownload = false
         guard representedPath != file.local.path else { return }
         representedPath = file.local.path
         player.load(url: URL(filePath: file.local.path), autoplay: false, loops: false)

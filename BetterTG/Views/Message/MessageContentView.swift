@@ -34,15 +34,10 @@ final class MessageMediaView: UIView {
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
         onTap: @escaping ([Message], Int64) -> Void,
     ) -> Bool {
-        if case .messageVideoNote(let video) = message.message.content,
+        if case .messageVideoNote = message.message.content,
            let existing = contentView as? VideoNotePlaybackView
         {
-            existing.configure(
-                videoNote: video.videoNote,
-                isSecret: video.isSecret,
-                chatID: message.message.chatId,
-                messageID: message.id,
-            )
+            existing.configure(message: message.message, client: client, context: mediaRevealSession?.context)
             return true
         }
         prepareForReuse()
@@ -78,7 +73,7 @@ final class MessageMediaView: UIView {
             switch message.message.content {
             case .messagePhoto(let photo):
                 let photoView = SinglePhotoView()
-                photoView.configure(photo: photo.photo, isLivePhoto: photo.video != nil) { onTap(
+                photoView.configure(photo: photo.photo, isLivePhoto: photo.video != nil, client: client) { onTap(
                     [message.message],
                     message.id,
                 ) }
@@ -98,7 +93,14 @@ final class MessageMediaView: UIView {
                     width: CGFloat(animation.animation.width),
                     height: CGFloat(animation.animation.height),
                 ))
-                if telegramAnimationUsesFFmpeg(animation.animation) {
+                if let owner = videoPlaybackOwners[message.id], owner.matches(message: message.message) {
+                    let inlineView = InlineVideoMediaView()
+                    inlineView.configure(
+                        owner: owner,
+                        size: CGSize(width: animation.animation.width, height: animation.animation.height),
+                    ) { onTap([message.message], message.id) }
+                    view = inlineView
+                } else if telegramAnimationUsesFFmpeg(animation.animation) {
                     let animationView = FFmpegAnimatedVideoView()
                     animationView.configure(
                         file: animation.animation.animation,
@@ -111,7 +113,7 @@ final class MessageMediaView: UIView {
                     view = animationView
                 } else {
                     let animationView = InlineAnimationMediaView()
-                    animationView.configure(animation: animation.animation, displaySize: displaySize)
+                    animationView.configure(animation: animation.animation, displaySize: displaySize, client: client)
                     view = animationView
                 }
             case .messageSticker(let sticker):
@@ -220,6 +222,8 @@ final class MessageMediaView: UIView {
 
     func prepareForReuse() {
         alpha = 1
+        transitionGeneration = UUID()
+        revealSubscription = nil
         (contentView as? ReusableMediaView)?.prepareForReuse()
         contentView?.removeFromSuperview()
         contentView = nil
@@ -346,7 +350,7 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
 
     // MARK: Internal
 
-    func configure(photo: Photo, isLivePhoto: Bool = false, onTap: @escaping () -> Void) {
+    func configure(photo: Photo, isLivePhoto: Bool = false, client: TDLibClient, onTap: @escaping () -> Void) {
         self.onTap = onTap
         livePhotoBadge.isHidden = !isLivePhoto
         accessibilityLabel = isLivePhoto ? "Open Live Photo" : "Open photo"
@@ -623,7 +627,7 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         case .messagePhoto(let photo):
             playIcon.isHidden = true
             livePhotoBadge.isHidden = photo.video == nil
-            imageView.load(photo: photo.photo, preferredSize: .yBox)
+            imageView.load(photo: photo.photo, preferredSize: .yBox, client: client)
         case .messageVideo(let video):
             playIcon.isHidden = false
             if let thumbnail = video.video.thumbnail {
@@ -929,7 +933,6 @@ final class TDImageLoadingView: UIImageView {
     private var renderGeneration = UUID()
     private var hasFullImage = false
     private var imageTransitionDuration: TimeInterval = 0
-    private var downloadTask: Task<Void, Never>?
     private var decodeTask: Task<Void, Never>?
     private var placeholderTask: Task<Void, Never>?
     private var cancellable: AnyCancellable?
@@ -999,17 +1002,24 @@ final class TDImageLoadingView: UIImageView {
             placeholderData: placeholderData,
             maximumPixelSize: maximumPixelSize,
             origin: .captured(client: client, accountID: accountID),
+            preservingImage: preservingImage,
+            transitionDuration: transitionDuration,
         )
     }
 
+    /// `preservingImage` keeps the current image until the new one decodes; `transitionDuration` cross-fades it.
     func load(
         file: File,
         placeholderData: Data? = nil,
         maximumPixelSize: Int = 960,
         origin: TDImageOrigin?,
+        preservingImage: Bool = false,
+        transitionDuration: TimeInterval = 0,
     ) {
         cancel()
         imageTransitionDuration = transitionDuration
+        if !preservingImage { image = nil }
+        guard let origin, admit(origin) else { return }
         let request = RequestIdentity(
             accountID: origin.source.accountID,
             clientID: origin.source.clientID,
@@ -1019,30 +1029,19 @@ final class TDImageLoadingView: UIImageView {
         )
         representedRequest = request
         renderGeneration = request.generation
-        if !preservingImage { image = nil }
         hasFullImage = false
         if let cached = TDImageThumbnailPipeline.shared.cachedImage(for: request.thumbnailKey.cacheKey) {
             apply(UIImage(cgImage: cached.image), asFullImageFor: request)
             return
         }
         if !preservingImage { preparePlaceholder(placeholderData, for: request) }
-        update(file: file, for: request)
-        downloadTask = Task { [weak self] in
-            let downloaded = try? await client.downloadFile(
-                fileId: file.id,
-                limit: 0,
-                offset: 0,
-                priority: 1,
-                synchronous: true,
-            )
-            guard let self,
-                  !Task.isCancelled,
-                  TDLib.shared.activeAccountID == accountID,
-                  TDLib.shared.activeClient.id == client.id,
-                  let downloaded
-            else { return }
-            update(file: downloaded, for: request)
-        }
+        let download = origin.request(fileID: file.id)
+        fileRequest = download
+        download.start(
+            file: file,
+            onFile: { [weak self] in self?.update(file: $0, for: request) },
+            onInvalidated: { [weak self] in self?.invalidate() },
+        )
     }
 
     func loadPlaceholder(data: Data?, maximumPixelSize: Int = 960, client: TDLibClient) {
@@ -1179,17 +1178,16 @@ final class TDImageLoadingView: UIImageView {
         hasFullImage = true
         placeholderTask?.cancel()
         placeholderTask = nil
-        let result = UIImage(cgImage: prepared.image)
         if imageTransitionDuration > 0, image != nil {
             UIView.transition(
                 with: self,
                 duration: imageTransitionDuration,
                 options: [.transitionCrossDissolve, .allowAnimatedContent, .beginFromCurrentState],
             ) {
-                self.image = result
+                self.image = decoded
             }
         } else {
-            image = result
+            image = decoded
         }
     }
 }

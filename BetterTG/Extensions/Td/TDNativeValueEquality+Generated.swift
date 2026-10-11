@@ -98,6 +98,7 @@ extension TDNativeAnimatedEmoji: @retroactive Hashable {
         guard lhs.stickerHeight == rhs.stickerHeight else { return false }
         guard lhs.fitzpatrickType == rhs.fitzpatrickType else { return false }
         guard lhs.sound == rhs.sound else { return false }
+        guard lhs.isRegularEmoji == rhs.isRegularEmoji else { return false }
         return true
     }
 
@@ -107,6 +108,7 @@ extension TDNativeAnimatedEmoji: @retroactive Hashable {
         hasher.combine(stickerHeight)
         hasher.combine(fitzpatrickType)
         hasher.combine(sound)
+        hasher.combine(isRegularEmoji)
     }
 }
 
@@ -4859,6 +4861,10 @@ extension TDNativeInternalLinkType: @retroactive Hashable {
             lhs == rhs
         case (.internalLinkTypeTheme(let lhs), .internalLinkTypeTheme(let rhs)):
             lhs == rhs
+        case (.internalLinkTypeTonConnect(let lhs), .internalLinkTypeTonConnect(let rhs)):
+            lhs == rhs
+        case (.internalLinkTypeTonWalletTransfer(let lhs), .internalLinkTypeTonWalletTransfer(let rhs)):
+            lhs == rhs
         case (.internalLinkTypeUnknownDeepLink(let lhs), .internalLinkTypeUnknownDeepLink(let rhs)):
             lhs == rhs
         case (.internalLinkTypeUpgradedGift(let lhs), .internalLinkTypeUpgradedGift(let rhs)):
@@ -5023,23 +5029,29 @@ extension TDNativeInternalLinkType: @retroactive Hashable {
         case .internalLinkTypeTheme(let value):
             hasher.combine(50)
             hasher.combine(value)
-        case .internalLinkTypeUnknownDeepLink(let value):
+        case .internalLinkTypeTonConnect(let value):
             hasher.combine(51)
             hasher.combine(value)
-        case .internalLinkTypeUpgradedGift(let value):
+        case .internalLinkTypeTonWalletTransfer(let value):
             hasher.combine(52)
             hasher.combine(value)
-        case .internalLinkTypeUserPhoneNumber(let value):
+        case .internalLinkTypeUnknownDeepLink(let value):
             hasher.combine(53)
             hasher.combine(value)
-        case .internalLinkTypeUserToken(let value):
+        case .internalLinkTypeUpgradedGift(let value):
             hasher.combine(54)
             hasher.combine(value)
-        case .internalLinkTypeVideoChat(let value):
+        case .internalLinkTypeUserPhoneNumber(let value):
             hasher.combine(55)
             hasher.combine(value)
-        case .internalLinkTypeWebApp(let value):
+        case .internalLinkTypeUserToken(let value):
             hasher.combine(56)
+            hasher.combine(value)
+        case .internalLinkTypeVideoChat(let value):
+            hasher.combine(57)
+            hasher.combine(value)
+        case .internalLinkTypeWebApp(let value):
+            hasher.combine(58)
             hasher.combine(value)
         }
     }
@@ -5655,6 +5667,44 @@ extension TDNativeInternalLinkTypeTheme: @retroactive Hashable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(themeName)
+    }
+}
+
+// MARK: - TDNativeInternalLinkTypeTonConnect + @retroactive Hashable
+
+extension TDNativeInternalLinkTypeTonConnect: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.version == rhs.version else { return false }
+        guard lhs.dappClientId == rhs.dappClientId else { return false }
+        guard lhs.connectRequest == rhs.connectRequest else { return false }
+        guard lhs.returnStrategy == rhs.returnStrategy else { return false }
+        guard lhs.rpcRequest == rhs.rpcRequest else { return false }
+        guard lhs.traceId == rhs.traceId else { return false }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(version)
+        hasher.combine(dappClientId)
+        hasher.combine(connectRequest)
+        hasher.combine(returnStrategy)
+        hasher.combine(rpcRequest)
+        hasher.combine(traceId)
+    }
+}
+
+// MARK: - TDNativeInternalLinkTypeTonWalletTransfer + @retroactive Hashable
+
+extension TDNativeInternalLinkTypeTonWalletTransfer: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.receiver == rhs.receiver else { return false }
+        guard lhs.gramAmount == rhs.gramAmount else { return false }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(receiver)
+        hasher.combine(gramAmount)
     }
 }
 
@@ -7482,6 +7532,10 @@ extension TDNativeMessageContent: @retroactive Hashable {
             lhs == rhs
         case (.messageGiveawayPrizeStars(let lhs), .messageGiveawayPrizeStars(let rhs)):
             lhs == rhs
+        case (.messageTonWalletTransfer(let lhs), .messageTonWalletTransfer(let rhs)):
+            lhs == rhs
+        case (.messageTonConnectRequest(let lhs), .messageTonConnectRequest(let rhs)):
+            lhs == rhs
         case (.messageGift(let lhs), .messageGift(let rhs)):
             lhs == rhs
         case (.messageUpgradedGift(let lhs), .messageUpgradedGift(let rhs)):
@@ -7770,79 +7824,85 @@ extension TDNativeMessageContent: @retroactive Hashable {
         case .messageGiveawayPrizeStars(let value):
             hasher.combine(79)
             hasher.combine(value)
-        case .messageGift(let value):
+        case .messageTonWalletTransfer(let value):
             hasher.combine(80)
             hasher.combine(value)
-        case .messageUpgradedGift(let value):
+        case .messageTonConnectRequest(let value):
             hasher.combine(81)
             hasher.combine(value)
-        case .messageRefundedUpgradedGift(let value):
+        case .messageGift(let value):
             hasher.combine(82)
             hasher.combine(value)
-        case .messageUpgradedGiftPurchaseOffer(let value):
+        case .messageUpgradedGift(let value):
             hasher.combine(83)
             hasher.combine(value)
-        case .messageUpgradedGiftPurchaseOfferRejected(let value):
+        case .messageRefundedUpgradedGift(let value):
             hasher.combine(84)
             hasher.combine(value)
-        case .messagePaidMessagesRefunded(let value):
+        case .messageUpgradedGiftPurchaseOffer(let value):
             hasher.combine(85)
             hasher.combine(value)
-        case .messagePaidMessagePriceChanged(let value):
+        case .messageUpgradedGiftPurchaseOfferRejected(let value):
             hasher.combine(86)
             hasher.combine(value)
-        case .messageDirectMessagePriceChanged(let value):
+        case .messagePaidMessagesRefunded(let value):
             hasher.combine(87)
             hasher.combine(value)
-        case .messageChecklistTasksDone(let value):
+        case .messagePaidMessagePriceChanged(let value):
             hasher.combine(88)
             hasher.combine(value)
-        case .messageChecklistTasksAdded(let value):
+        case .messageDirectMessagePriceChanged(let value):
             hasher.combine(89)
             hasher.combine(value)
-        case .messageSuggestedPostApprovalFailed(let value):
+        case .messageChecklistTasksDone(let value):
             hasher.combine(90)
             hasher.combine(value)
-        case .messageSuggestedPostApproved(let value):
+        case .messageChecklistTasksAdded(let value):
             hasher.combine(91)
             hasher.combine(value)
-        case .messageSuggestedPostDeclined(let value):
+        case .messageSuggestedPostApprovalFailed(let value):
             hasher.combine(92)
             hasher.combine(value)
-        case .messageSuggestedPostPaid(let value):
+        case .messageSuggestedPostApproved(let value):
             hasher.combine(93)
             hasher.combine(value)
-        case .messageSuggestedPostRefunded(let value):
+        case .messageSuggestedPostDeclined(let value):
             hasher.combine(94)
             hasher.combine(value)
-        case .messageContactRegistered:
+        case .messageSuggestedPostPaid(let value):
             hasher.combine(95)
-        case .messageUsersShared(let value):
+            hasher.combine(value)
+        case .messageSuggestedPostRefunded(let value):
             hasher.combine(96)
             hasher.combine(value)
-        case .messageChatShared(let value):
+        case .messageContactRegistered:
             hasher.combine(97)
-            hasher.combine(value)
-        case .messageBotWriteAccessAllowed(let value):
+        case .messageUsersShared(let value):
             hasher.combine(98)
             hasher.combine(value)
-        case .messageWebAppDataSent(let value):
+        case .messageChatShared(let value):
             hasher.combine(99)
             hasher.combine(value)
-        case .messageWebAppDataReceived(let value):
+        case .messageBotWriteAccessAllowed(let value):
             hasher.combine(100)
             hasher.combine(value)
-        case .messagePassportDataSent(let value):
+        case .messageWebAppDataSent(let value):
             hasher.combine(101)
             hasher.combine(value)
-        case .messagePassportDataReceived(let value):
+        case .messageWebAppDataReceived(let value):
             hasher.combine(102)
             hasher.combine(value)
-        case .messageProximityAlertTriggered(let value):
+        case .messagePassportDataSent(let value):
             hasher.combine(103)
             hasher.combine(value)
-        case .messageUnsupported:
+        case .messagePassportDataReceived(let value):
             hasher.combine(104)
+            hasher.combine(value)
+        case .messageProximityAlertTriggered(let value):
+            hasher.combine(105)
+            hasher.combine(value)
+        case .messageUnsupported:
+            hasher.combine(106)
         }
     }
 }
@@ -8811,6 +8871,7 @@ extension TDNativeMessageProperties: @retroactive Hashable {
         guard lhs.canReportReactions == rhs.canReportReactions else { return false }
         guard lhs.canReportSupergroupSpam == rhs.canReportSupergroupSpam else { return false }
         guard lhs.canSetFactCheck == rhs.canSetFactCheck else { return false }
+        guard lhs.customEmojiIds == rhs.customEmojiIds else { return false }
         guard lhs.hasProtectedContentByCurrentUser == rhs.hasProtectedContentByCurrentUser else { return false }
         guard lhs.hasProtectedContentByOtherUser == rhs.hasProtectedContentByOtherUser else { return false }
         guard lhs.needShowStatistics == rhs.needShowStatistics else { return false }
@@ -8854,6 +8915,7 @@ extension TDNativeMessageProperties: @retroactive Hashable {
         hasher.combine(canReportReactions)
         hasher.combine(canReportSupergroupSpam)
         hasher.combine(canSetFactCheck)
+        hasher.combine(customEmojiIds)
         hasher.combine(hasProtectedContentByCurrentUser)
         hasher.combine(hasProtectedContentByOtherUser)
         hasher.combine(needShowStatistics)
@@ -9331,6 +9393,50 @@ extension TDNativeMessageText: @retroactive Hashable {
         hasher.combine(text)
         hasher.combine(linkPreview)
         hasher.combine(linkPreviewOptions)
+    }
+}
+
+// MARK: - TDNativeMessageTonConnectRequest + @retroactive Hashable
+
+extension TDNativeMessageTonConnectRequest: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.sessionId == rhs.sessionId else { return false }
+        guard lhs.state == rhs.state else { return false }
+        guard lhs.dappName == rhs.dappName else { return false }
+        guard lhs.topic == rhs.topic else { return false }
+        guard lhs.traceId == rhs.traceId else { return false }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(sessionId)
+        hasher.combine(state)
+        hasher.combine(dappName)
+        hasher.combine(topic)
+        hasher.combine(traceId)
+    }
+}
+
+// MARK: - TDNativeMessageTonWalletTransfer + @retroactive Hashable
+
+extension TDNativeMessageTonWalletTransfer: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.senderUserId == rhs.senderUserId else { return false }
+        guard lhs.transactionId == rhs.transactionId else { return false }
+        guard lhs.peerAddress == rhs.peerAddress else { return false }
+        guard lhs.amount == rhs.amount else { return false }
+        guard lhs.comment == rhs.comment else { return false }
+        guard lhs.isCommentEncrypted == rhs.isCommentEncrypted else { return false }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(senderUserId)
+        hasher.combine(transactionId)
+        hasher.combine(peerAddress)
+        hasher.combine(amount)
+        hasher.combine(comment)
+        hasher.combine(isCommentEncrypted)
     }
 }
 
@@ -11227,6 +11333,8 @@ extension TDNativeRichText: @retroactive Hashable {
             lhs == rhs
         case (.richTextBankCardNumber(let lhs), .richTextBankCardNumber(let rhs)):
             lhs == rhs
+        case (.richTextTonAddress(let lhs), .richTextTonAddress(let rhs)):
+            lhs == rhs
         case (.richTextBotCommand(let lhs), .richTextBotCommand(let rhs)):
             lhs == rhs
         case (.richTextFixed(let lhs), .richTextFixed(let rhs)):
@@ -11308,53 +11416,56 @@ extension TDNativeRichText: @retroactive Hashable {
         case .richTextBankCardNumber(let value):
             hasher.combine(13)
             hasher.combine(value)
-        case .richTextBotCommand(let value):
+        case .richTextTonAddress(let value):
             hasher.combine(14)
             hasher.combine(value)
-        case .richTextFixed(let value):
+        case .richTextBotCommand(let value):
             hasher.combine(15)
             hasher.combine(value)
-        case .richTextMentionName(let value):
+        case .richTextFixed(let value):
             hasher.combine(16)
             hasher.combine(value)
-        case .richTextUrl(let value):
+        case .richTextMentionName(let value):
             hasher.combine(17)
             hasher.combine(value)
-        case .richTextEmailAddress(let value):
+        case .richTextUrl(let value):
             hasher.combine(18)
             hasher.combine(value)
-        case .richTextPhoneNumber(let value):
+        case .richTextEmailAddress(let value):
             hasher.combine(19)
             hasher.combine(value)
-        case .richTextCustomEmoji(let value):
+        case .richTextPhoneNumber(let value):
             hasher.combine(20)
             hasher.combine(value)
-        case .richTextIcon(let value):
+        case .richTextCustomEmoji(let value):
             hasher.combine(21)
             hasher.combine(value)
-        case .richTextMathematicalExpression(let value):
+        case .richTextIcon(let value):
             hasher.combine(22)
             hasher.combine(value)
-        case .richTextButton(let value):
+        case .richTextMathematicalExpression(let value):
             hasher.combine(23)
             hasher.combine(value)
-        case .richTextDiff(let value):
+        case .richTextButton(let value):
             hasher.combine(24)
             hasher.combine(value)
-        case .richTextReference(let value):
+        case .richTextDiff(let value):
             hasher.combine(25)
             hasher.combine(value)
-        case .richTextReferenceLink(let value):
+        case .richTextReference(let value):
             hasher.combine(26)
             hasher.combine(value)
-        case .richTextAnchor(let value):
+        case .richTextReferenceLink(let value):
             hasher.combine(27)
             hasher.combine(value)
-        case .richTextAnchorLink(let value):
+        case .richTextAnchor(let value):
             hasher.combine(28)
             hasher.combine(value)
-        case .richTexts(let value):
+        case .richTextAnchorLink(let value):
             hasher.combine(29)
+            hasher.combine(value)
+        case .richTexts(let value):
+            hasher.combine(30)
             hasher.combine(value)
         }
     }
@@ -11746,6 +11857,21 @@ extension TDNativeRichTextSuperscript: @retroactive Hashable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(text)
+    }
+}
+
+// MARK: - TDNativeRichTextTonAddress + @retroactive Hashable
+
+extension TDNativeRichTextTonAddress: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.text == rhs.text else { return false }
+        guard lhs.address == rhs.address else { return false }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(text)
+        hasher.combine(address)
     }
 }
 
@@ -12465,6 +12591,7 @@ extension TDNativeThemeSettings: @retroactive Hashable {
         guard lhs.background == rhs.background else { return false }
         guard lhs.outgoingMessageFill == rhs.outgoingMessageFill else { return false }
         guard lhs.animateOutgoingMessageFill == rhs.animateOutgoingMessageFill else { return false }
+        guard lhs.hasOutgoingMessageAccentColor == rhs.hasOutgoingMessageAccentColor else { return false }
         guard lhs.outgoingMessageAccentColor == rhs.outgoingMessageAccentColor else { return false }
         return true
     }
@@ -12475,7 +12602,169 @@ extension TDNativeThemeSettings: @retroactive Hashable {
         hasher.combine(background)
         hasher.combine(outgoingMessageFill)
         hasher.combine(animateOutgoingMessageFill)
+        hasher.combine(hasOutgoingMessageAccentColor)
         hasher.combine(outgoingMessageAccentColor)
+    }
+}
+
+// MARK: - TDNativeTonConnectConnectItem + @retroactive Hashable
+
+extension TDNativeTonConnectConnectItem: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.tonConnectConnectItemAddress(let lhs), .tonConnectConnectItemAddress(let rhs)):
+            lhs == rhs
+        case (.tonConnectConnectItemProof(let lhs), .tonConnectConnectItemProof(let rhs)):
+            lhs == rhs
+        default:
+            false
+        }
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        switch self {
+        case .tonConnectConnectItemAddress(let value):
+            hasher.combine(0)
+            hasher.combine(value)
+        case .tonConnectConnectItemProof(let value):
+            hasher.combine(1)
+            hasher.combine(value)
+        }
+    }
+}
+
+// MARK: - TDNativeTonConnectConnectItemAddress + @retroactive Hashable
+
+extension TDNativeTonConnectConnectItemAddress: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.network == rhs.network else { return false }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(network)
+    }
+}
+
+// MARK: - TDNativeTonConnectConnectItemProof + @retroactive Hashable
+
+extension TDNativeTonConnectConnectItemProof: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.payload == rhs.payload else { return false }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(payload)
+    }
+}
+
+// MARK: - TDNativeTonConnectConnectRequest + @retroactive Hashable
+
+extension TDNativeTonConnectConnectRequest: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.manifestUrl == rhs.manifestUrl else { return false }
+        guard lhs.items == rhs.items else { return false }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(manifestUrl)
+        hasher.combine(items)
+    }
+}
+
+// MARK: - TDNativeTonConnectRequestState + @retroactive Hashable
+
+extension TDNativeTonConnectRequestState: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.tonConnectRequestStatePending(let lhs), .tonConnectRequestStatePending(let rhs)):
+            lhs == rhs
+        case (.tonConnectRequestStateAccepted, .tonConnectRequestStateAccepted):
+            true
+        case (.tonConnectRequestStateRejected, .tonConnectRequestStateRejected):
+            true
+        default:
+            false
+        }
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        switch self {
+        case .tonConnectRequestStatePending(let value):
+            hasher.combine(0)
+            hasher.combine(value)
+        case .tonConnectRequestStateAccepted:
+            hasher.combine(1)
+        case .tonConnectRequestStateRejected:
+            hasher.combine(2)
+        }
+    }
+}
+
+// MARK: - TDNativeTonConnectRequestStatePending + @retroactive Hashable
+
+extension TDNativeTonConnectRequestStatePending: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.expirationDate == rhs.expirationDate else { return false }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(expirationDate)
+    }
+}
+
+// MARK: - TDNativeTonWalletTransferReceiver + @retroactive Hashable
+
+extension TDNativeTonWalletTransferReceiver: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.tonWalletTransferReceiverUser(let lhs), .tonWalletTransferReceiverUser(let rhs)):
+            lhs == rhs
+        case (.tonWalletTransferReceiverAddress(let lhs), .tonWalletTransferReceiverAddress(let rhs)):
+            lhs == rhs
+        default:
+            false
+        }
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        switch self {
+        case .tonWalletTransferReceiverUser(let value):
+            hasher.combine(0)
+            hasher.combine(value)
+        case .tonWalletTransferReceiverAddress(let value):
+            hasher.combine(1)
+            hasher.combine(value)
+        }
+    }
+}
+
+// MARK: - TDNativeTonWalletTransferReceiverAddress + @retroactive Hashable
+
+extension TDNativeTonWalletTransferReceiverAddress: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.address == rhs.address else { return false }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(address)
+    }
+}
+
+// MARK: - TDNativeTonWalletTransferReceiverUser + @retroactive Hashable
+
+extension TDNativeTonWalletTransferReceiverUser: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.username == rhs.username else { return false }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(username)
     }
 }
 
@@ -13139,6 +13428,7 @@ extension TDNativeUsernames: @retroactive Hashable {
         guard lhs.disabledUsernames == rhs.disabledUsernames else { return false }
         guard lhs.editableUsername == rhs.editableUsername else { return false }
         guard lhs.collectibleUsernames == rhs.collectibleUsernames else { return false }
+        guard lhs.secondaryUsername == rhs.secondaryUsername else { return false }
         return true
     }
 
@@ -13147,6 +13437,7 @@ extension TDNativeUsernames: @retroactive Hashable {
         hasher.combine(disabledUsernames)
         hasher.combine(editableUsername)
         hasher.combine(collectibleUsernames)
+        hasher.combine(secondaryUsername)
     }
 }
 

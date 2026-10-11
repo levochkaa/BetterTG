@@ -51,6 +51,7 @@ struct VideoPlaybackAttachmentToken: Hashable {
     let cornerRadius: CGFloat
     let maskedCorners: CACornerMask
 
+    private let capturedSnapshot: UIView?
     private let sourceBounds: CGRect
     private let visibleSourceRect: CGRect
     private var sourceContentMode = UIView.ContentMode.scaleAspectFill
@@ -106,7 +107,7 @@ struct VideoPlaybackAttachmentToken: Hashable {
                         contentMode: imageView.contentMode,
                     )
                     .offsetBy(dx: -cropRect.minX, dy: -cropRect.minY)
-                    self.snapshotView = MediaGalleryImageTransitionView(image: image, imageFrame: contentFrame)
+                    self.capturedSnapshot = MediaGalleryImageTransitionView(image: image, imageFrame: contentFrame)
                 } else {
                     customSnapshot.frame = sourceView.bounds
                     customSnapshot.layoutIfNeeded()
@@ -117,7 +118,7 @@ struct VideoPlaybackAttachmentToken: Hashable {
                     let imageView = UIImageView(image: image)
                     imageView.contentMode = .scaleToFill
                     imageView.clipsToBounds = true
-                    self.snapshotView = imageView
+                    self.capturedSnapshot = imageView
                 }
             } else {
                 self.capturedSnapshot = sourceView.resizableSnapshotView(
@@ -860,6 +861,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     fileprivate let transitionSource: MediaGalleryTransitionTarget?
     fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
 
+    fileprivate let playbackContext: MediaGalleryPlaybackContext?
+    fileprivate let mediaRevealSession: MediaRevealSession?
+    fileprivate let pictureInPictureCoordinator: GalleryPictureInPictureCoordinator
+
     private let emptyKeyboardView = UIView(frame: .zero)
 
     private var onRequestNewerMessages: (() -> Void)?
@@ -967,7 +972,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             totalMessageCount: totalMessageCount,
             routeIsCurrent: contextIsCurrent,
             paginationIsCurrent: paginationIsCurrent,
-            onOpenMessageID: onOpenMessageID,
+            onPrepareOpenMessageID: onPrepareOpenMessageID,
+            openInChatTransitionSourceProvider: openInChatTransitionSourceProvider,
+            onOpenMessageTransitionCompleted: onOpenMessageTransitionCompleted,
             onRequestMoreMessages: onRequestMoreMessages,
             onGalleryRestored: onGalleryRestored,
             transitionSourceProvider: transitionSourceProvider,
@@ -1825,10 +1832,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         thumbnailStrip.isHidden = albumIndices.count <= 1
         thumbnailHeightConstraint.constant = albumIndices.count <= 1 ? 0 : 52
         guard let first = albumIndices.first else { return }
-        if changedAlbum || commitSelection {
+        if changedAlbum || commitSelection, let client = playbackContext?.client {
             thumbnailStrip.configure(
                 messages: albumIndices.map { messages[$0] },
                 selectedIndex: albumIndices.firstIndex(of: index) ?? 0,
+                client: client,
             )
         }
         thumbnailStrip.updatePagingPosition(pagingPosition - CGFloat(first))
@@ -6177,19 +6185,23 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     let totalMessageCount: Int?
     let routeIsCurrent: (() -> Bool)?
     let paginationIsCurrent: (() -> Bool)?
-    let onOpenMessageID: ((Int64) -> Void)?
+    let onPrepareOpenMessageID: ((Int64) async -> Bool)?
+    let openInChatTransitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
+    let onOpenMessageTransitionCompleted: ((Int64) -> Void)?
     let onRequestMoreMessages: (() -> Void)?
     let onGalleryRestored: ((MediaGalleryViewController) -> Void)?
     let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
 
     func applyRouteBindings(to gallery: MediaGalleryViewController) {
         guard routeIsCurrent?() ?? true else { return }
-        gallery.onOpenMessageID = onOpenMessageID.map { action in
-            { messageID in
-                guard context.isCurrent, routeIsCurrent?() ?? true else { return }
-                action(messageID)
+        gallery.onPrepareOpenMessageID = onPrepareOpenMessageID.map { action in
+            { @MainActor messageID in
+                guard context.isCurrent, routeIsCurrent?() ?? true else { return false }
+                return await action(messageID)
             }
         }
+        gallery.openInChatTransitionSourceProvider = openInChatTransitionSourceProvider
+        gallery.onOpenMessageTransitionCompleted = onOpenMessageTransitionCompleted
         gallery.paginationIsCurrent = paginationIsCurrent
         guard paginationIsCurrent?() ?? true else { return }
         gallery.onRequestMoreMessages = onRequestMoreMessages.map { action in
@@ -6542,7 +6554,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             Task {
                 let result: String
                 do {
-                    try verifyRestorationBindings()
+                    try await verifyRestorationBindings()
                     try await verifyContextRevocation(sameAccount: false, pendingStart: false)
                     try await verifyContextRevocation(sameAccount: true, pendingStart: true)
                     try verifyRestoreCompletions()
@@ -6564,7 +6576,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             }
         }
 
-        private static func verifyRestorationBindings() throws {
+        private static func verifyRestorationBindings() async throws {
             let fixture = makeProbeFixture(topic: .messageTopicForum(.init(forumTopicId: 42)))
             let coordinator = fixture.coordinator
             let owner = fixture.owner
@@ -6579,7 +6591,10 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             weak var boundGallery = fixture.gallery
             fixture.gallery.contextIsCurrent = { routeExists }
             fixture.gallery.paginationIsCurrent = { tab == .media }
-            fixture.gallery.onOpenMessageID = { opened = $0 }
+            fixture.gallery.onPrepareOpenMessageID = { messageID in
+                opened = messageID
+                return true
+            }
             fixture.gallery.onGalleryRestored = { gallery in boundGallery = gallery
             rebinds += 1
             }
@@ -6598,7 +6613,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
                   let request = coordinator.beginRestore(owner: owner, completion: { completions.append($0) }),
                   let restored = coordinator.makeRestoredGallery(owner: owner, request: request)
             else { throw ProbeFailure.invariant("normal dismissed restoration") }
-            restored.onOpenMessageID?(fixture.message.id)
+            _ = await restored.onPrepareOpenMessageID?(fixture.message.id)
             restored.onRequestMoreMessages?()
             guard restored.playbackContext === fixture.context,
                   restored.restorationSnapshot?.context.location.topic == fixture.message.topicId,
@@ -6616,7 +6631,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
                   let changedGallery = coordinator.makeRestoredGallery(owner: owner, request: changedRequest)
             else { throw ProbeFailure.invariant("changed-tab frozen restoration") }
             guard changedGallery.onRequestMoreMessages == nil, rebinds == 1,
-                  changedGallery.onOpenMessageID != nil,
+                  changedGallery.onPrepareOpenMessageID != nil,
                   changedGallery.selectedMessageID == fixture.message.id
             else { throw ProbeFailure.invariant("changed tab rebound unrelated history") }
             coordinator.complete(changedRequest, result: true)
@@ -6626,7 +6641,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             guard let routeRequest = coordinator.beginRestore(owner: owner, completion: { completions.append($0) }),
                   let routeGallery = coordinator.makeRestoredGallery(owner: owner, request: routeRequest),
                   fixture.context.isCurrent, routeGallery.playbackContext === fixture.context,
-                  routeGallery.onOpenMessageID == nil, routeGallery.onRequestMoreMessages == nil
+                  routeGallery.onPrepareOpenMessageID == nil, routeGallery.onRequestMoreMessages == nil
             else { throw ProbeFailure.invariant("route loss revoked valid playback authority") }
             coordinator.complete(routeRequest, result: true)
         }
@@ -6919,37 +6934,81 @@ final class MediaGalleryCell: UICollectionViewCell {
             return
         }
         let view: UIView & GalleryMediaView
-        switch message.content {
-        case .messagePhoto(let photo):
-            if photo.video != nil, !photo.isSecret {
-                let livePhoto = GalleryLivePhotoView()
-                livePhoto.configure(photo)
-                view = livePhoto
-            } else {
-                let imageView = ZoomableGalleryImageView()
-                imageView.configure(photo: photo.photo)
-                view = imageView
-            }
-        case .messageAnimation(let animation):
-            if telegramAnimationUsesFFmpeg(animation.animation) {
-                let animationView = FFmpegAnimatedVideoView(frame: .zero)
-                animationView.configure(
-                    file: animation.animation.animation,
-                    thumbnail: animation.animation.thumbnail,
-                    displaySize: nil,
-                    onTap: nil,
-                )
-                view = animationView
-            } else {
-                let player = GalleryFilePlayerView()
-                player.configure(
-                    file: animation.animation.animation,
-                    thumbnail: animation.animation.thumbnail,
-                    minithumbnail: animation.animation.minithumbnail,
-                    canPlay: true,
-                    loops: true,
-                )
-                view = player
+        if !canDisplay {
+            view = MediaConcealmentView(message: message, onTap: onReveal)
+        } else {
+            guard let playbackContext, playbackContext.isCurrent, let client = playbackContext.client else { return }
+            switch message.content {
+            case .messagePhoto(let photo):
+                if photo.video != nil, !photo.isSecret {
+                    let livePhoto = GalleryLivePhotoView()
+                    livePhoto.configure(photo, client: client)
+                    view = livePhoto
+                } else {
+                    let imageView = ZoomableGalleryImageView()
+                    imageView.configure(photo: photo.photo, client: client)
+                    view = imageView
+                }
+            case .messageAnimation(let animation):
+                if telegramAnimationUsesFFmpeg(animation.animation) {
+                    let animationView = FFmpegAnimatedVideoView(frame: .zero)
+                    animationView.configure(
+                        file: animation.animation.animation,
+                        client: client,
+                        thumbnail: animation.animation.thumbnail,
+                        displaySize: nil,
+                        onTap: nil,
+                    )
+                    view = animationView
+                } else {
+                    let player = GalleryFilePlayerView()
+                    player.configure(
+                        file: animation.animation.animation,
+                        thumbnail: animation.animation.thumbnail,
+                        minithumbnail: animation.animation.minithumbnail,
+                        canPlay: false,
+                        loops: true,
+                        vodRanges: playbackContext.vodRanges,
+                        previewContext: playbackContext,
+                    )
+                    view = player
+                }
+            case .messageVideo:
+                view = ZoomableGalleryImageView()
+            case .messageSticker(let sticker):
+                if sticker.sticker.format == .stickerFormatTgs {
+                    let stickerView = TGSStickerView(frame: .zero)
+                    stickerView.configure(
+                        file: sticker.sticker.sticker,
+                        client: client,
+                        thumbnail: sticker.sticker.thumbnail,
+                        displaySize: nil,
+                        onTap: nil,
+                    )
+                    view = stickerView
+                } else if sticker.sticker.format == .stickerFormatWebp {
+                    let stickerView = AnimatedWebPView(frame: .zero)
+                    stickerView.configure(
+                        file: sticker.sticker.sticker,
+                        client: client,
+                        thumbnail: sticker.sticker.thumbnail,
+                        displaySize: nil,
+                        onTap: nil,
+                    )
+                    view = stickerView
+                } else {
+                    let stickerView = FFmpegAnimatedVideoView(frame: .zero)
+                    stickerView.configure(
+                        file: sticker.sticker.sticker,
+                        client: client,
+                        thumbnail: sticker.sticker.thumbnail,
+                        displaySize: nil,
+                        onTap: nil,
+                    )
+                    view = stickerView
+                }
+            default:
+                view = ZoomableGalleryImageView()
             }
         }
         contentMediaView = view

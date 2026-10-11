@@ -28,7 +28,7 @@ import UIKit
         init(restoration: ForumTopicsRestorationState? = nil) {
             self.source = TdUpdateSource(accountID: restoration?.location.accountID ?? UUID(), clientID: client.id)
             self.current = source
-            let chat = RootChatInsertionProbe.chat(
+            let chat = ProbeFixtures.chat(
                 .init(isPinned: false, list: .chatListMain, order: 1, source: nil),
                 id: 7,
             )

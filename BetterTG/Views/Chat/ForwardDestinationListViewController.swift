@@ -405,7 +405,7 @@ private final class ForwardDestinationCell: UITableViewCell {
     func configure(
         chat: Chat,
         enabled: Bool,
-        client _: TDLibClient,
+        client: TDLibClient,
     ) {
         let title: String =
             if case .chatTypePrivate(let peer) = chat.type,
@@ -443,6 +443,7 @@ private final class ForwardDestinationCell: UITableViewCell {
                 letters: firstLetter.map { [$0] } ?? [],
                 isDeleted: false,
             ),
+            client: client,
         )
     }
 

@@ -4,6 +4,9 @@ import UIKit
 
 final class TelegramNavigationController: UINavigationController, UIGestureRecognizerDelegate,
 UINavigationControllerDelegate {
+    /// Called after every completed push, pop or replacement, once classic chrome is settled.
+    var onDidShow: ((UIViewController) -> Void)?
+
     private var chromeStates = [ObjectIdentifier: TelegramNavigationChromeState]()
 
     override func viewDidLoad() {
@@ -46,8 +49,9 @@ UINavigationControllerDelegate {
     }
 
     func navigationController(
-        _: UINavigationController, didShow _: UIViewController, animated _: Bool,
+        _: UINavigationController, didShow controller: UIViewController, animated _: Bool,
     ) {
+        defer { onDidShow?(controller) }
         // Headers travel inside the same view as their content, so UIKit also
         // owns their exact push/pop and interactive-cancellation geometry.
         let retained = Set(viewControllers.map(ObjectIdentifier.init))

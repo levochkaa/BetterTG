@@ -80,7 +80,7 @@ import UIKit
                 throw Failure(description: "no scene")
             }
             self.window = UIWindow(windowScene: scene)
-            self.navigation = ClassicNavigation.controller(rootViewController: UIViewController())
+            self.navigation = TelegramNavigationController(rootViewController: UIViewController())
             self.current = first
             ready.send(first)
             window.frame = CGRect(x: -10000, y: 0, width: 390, height: 844)
@@ -89,7 +89,7 @@ import UIKit
         }
 
         func snapshot() -> PeerProfileMemberTagAuthorization.Snapshot {
-            let permissions = RootChatInsertionProbe.chat(.init(
+            let permissions = ProbeFixtures.chat(.init(
                 isPinned: false,
                 list: .chatListMain,
                 order: 1,

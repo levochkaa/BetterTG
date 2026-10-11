@@ -449,15 +449,16 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                 try? report.write(to: reportURL, atomically: true, encoding: .utf8)
             }
             record("Preparing physical camera; no messages will be sent")
-            let observation = capture.statePublisher.sink { state in
-                if case .failed(let message) = state { print("Camera-switch probe capture failure: \(message)") }
+            let observation = capture.statePublisher.sink { update in
+                if case .failed(let message) = update.state { print("Camera-switch probe capture failure: \(message)") }
             }
             defer { observation.cancel()
             capture.stopCapture()
             }
             do {
                 try await Task.sleep(for: .seconds(1))
-                try await capture.prepare(position: .front, generation: UUID())
+                let generation = UUID()
+                try await capture.prepare(position: .front, generation: generation)
                 try await capture.startRecording()
                 record("Front recording")
                 try await Task.sleep(for: .seconds(2))
@@ -467,7 +468,10 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                 _ = try await capture.switchCamera()
                 record("Front recording again")
                 try await Task.sleep(for: .seconds(2))
-                let asset = try await capture.stopRecording()
+                guard let asset = try await capture.stopRecording(generation: generation) else {
+                    record("FAIL: another finish owner closed the recording")
+                    return
+                }
                 record("PASS: two camera switches, validated duration=\(asset.duration), length=\(asset.length)")
                 try? FileManager.default.removeItem(at: asset.url)
             } catch {

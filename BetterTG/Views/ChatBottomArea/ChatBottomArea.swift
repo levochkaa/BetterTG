@@ -191,8 +191,44 @@ final class ChatComposerView: UIView {
         updateRecordingGesturePresentation()
     }
 
+    static func restorationSelection(_ selection: NSRange, length: Int) -> NSRange {
+        let start = min(selection.location, length)
+        return NSRange(location: start, length: min(selection.length, length - start))
+    }
+
     func insertEmoji(_ emoji: String, customID: Int64? = nil) {
         textView.insertEmoji(emoji, customID: customID)
+    }
+
+    func clientRestorationState() -> ClientViewState? {
+        guard textView.permitsClientRestoration, !voiceGestureIsTracking, !voiceGestureIsArmed,
+              voiceGestureArmTask == nil, !videoNoteState.isActive, !videoNoteTrimEditing, !videoNoteTrimSaving
+        else { return nil }
+        return ClientViewState(
+            selection: textView.selectedRange, wasFocused: isInputFocused, recordingMode: selectedMediaRecordingMode,
+        )
+    }
+
+    func restoreClientViewState(_ state: ClientViewState, focus: Bool) {
+        selectedMediaRecordingMode = state.recordingMode
+        let length = textView.attributedText.length
+        textView.selectedRange = Self.restorationSelection(state.selection, length: length)
+        updateActionButton()
+        func containsOtherResponder(_ view: UIView) -> Bool {
+            view !== textView && view.isFirstResponder || view.subviews.contains(where: containsOtherResponder)
+        }
+        if focus, state.wasFocused, let window = textView.window, !containsOtherResponder(window) {
+            textView.becomeFirstResponder()
+        }
+    }
+
+    func retireClientView() {
+        draftTask?.cancel()
+        typingTask?.cancel()
+        onInteractionSettled = nil
+        onUserInteraction = nil
+        onPasteImages = nil
+        if textView.isFirstResponder { textView.resignFirstResponder() }
     }
 
     func focusInput() {
@@ -1358,9 +1394,11 @@ final class ChatComposerView: UIView {
 
     @objc private func cancelReplyOrEdit() {
         chatVM.pendingForward = nil
-        chatVM.cancelReply()
-        chatVM.editCustomMessage = nil
-        chatVM.editMessageText = ""
+        if chatVM.editCustomMessage != nil {
+            chatVM.cancelMessageEditing()
+        } else {
+            chatVM.cancelReply()
+        }
     }
 
     @objc private func actionTapped(_ sender: UIButton) {

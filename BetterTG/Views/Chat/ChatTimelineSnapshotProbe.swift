@@ -21,7 +21,7 @@ import UIKit
         let source: TdUpdateSource
         let location: ChatLocation
         let polls = MessagePollInteractionStore()
-        let chat = RootChatInsertionProbe.chat(
+        let chat = ProbeFixtures.chat(
             .init(isPinned: false, list: .chatListMain, order: 1, source: nil), id: 100,
         )
         let collection: UICollectionView
@@ -91,7 +91,8 @@ import UIKit
                         )
                         authorities[id] = authority
                         cell.configure(
-                            message: row.renderedMessage, chat: chat, highlighted: row.inputs.highlighted,
+                            message: row.renderedMessage, chat: chat,
+                            highlightedMessageID: row.inputs.highlightedMessageID,
                             client: row.client, pollInteractionStore: row.polls, canAddReactions: false,
                             selectionActive: row.inputs.selectionActive, selected: row.inputs.selected,
                             onSwipeToReply: nil,
@@ -183,7 +184,7 @@ import UIKit
                         rows[item] = .message(ChatTimelineMessageRow(
                             canonical: model, value: .init(model),
                             inputs: .init(
-                                highlighted: demand.highlight,
+                                highlightedMessageID: demand.highlight ? model.message.id : nil,
                                 selectionActive: selecting,
                                 selected: selected.contains(id),
                                 showsProfileImage: false,

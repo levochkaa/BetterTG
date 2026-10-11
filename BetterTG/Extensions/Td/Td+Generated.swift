@@ -253,9 +253,9 @@ func update(
         case .updateStoryListChatCount(let updateStoryListChatCount):
             notificationCenter.postTdUpdate(name: .updateStoryListChatCount, object: updateStoryListChatCount, source: source)
         case .updateStoryStealthMode(let updateStoryStealthMode):
-            nc.post(name: .updateStoryStealthMode, object: updateStoryStealthMode)
+            notificationCenter.postTdUpdate(name: .updateStoryStealthMode, object: updateStoryStealthMode, source: source)
         case .updateAllowedBotUsernamePremiumSuffixes(let updateAllowedBotUsernamePremiumSuffixes):
-            nc.post(name: .updateAllowedBotUsernamePremiumSuffixes, object: updateAllowedBotUsernamePremiumSuffixes)
+            notificationCenter.postTdUpdate(name: .updateAllowedBotUsernamePremiumSuffixes, object: updateAllowedBotUsernamePremiumSuffixes, source: source)
         case .updateTrustedMiniAppBots(let updateTrustedMiniAppBots):
             notificationCenter.postTdUpdate(name: .updateTrustedMiniAppBots, object: updateTrustedMiniAppBots, source: source)
         case .updateOption(let updateOption):
@@ -315,15 +315,15 @@ func update(
         case .updateOwnedStarCount(let updateOwnedStarCount):
             notificationCenter.postTdUpdate(name: .updateOwnedStarCount, object: updateOwnedStarCount, source: source)
         case .updateOwnedGramCount(let updateOwnedGramCount):
-            nc.post(name: .updateOwnedGramCount, object: updateOwnedGramCount)
+            notificationCenter.postTdUpdate(name: .updateOwnedGramCount, object: updateOwnedGramCount, source: source)
         case .updateTonWalletState(let updateTonWalletState):
-            nc.post(name: .updateTonWalletState, object: updateTonWalletState)
+            notificationCenter.postTdUpdate(name: .updateTonWalletState, object: updateTonWalletState, source: source)
         case .updateTonWalletGaslessTransfersInfo(let updateTonWalletGaslessTransfersInfo):
-            nc.post(name: .updateTonWalletGaslessTransfersInfo, object: updateTonWalletGaslessTransfersInfo)
+            notificationCenter.postTdUpdate(name: .updateTonWalletGaslessTransfersInfo, object: updateTonWalletGaslessTransfersInfo, source: source)
         case .updateTonWalletTonConnectSession(let updateTonWalletTonConnectSession):
-            nc.post(name: .updateTonWalletTonConnectSession, object: updateTonWalletTonConnectSession)
+            notificationCenter.postTdUpdate(name: .updateTonWalletTonConnectSession, object: updateTonWalletTonConnectSession, source: source)
         case .updateTonWalletTonConnectSessionDisconnectRequired(let updateTonWalletTonConnectSessionDisconnectRequired):
-            nc.post(name: .updateTonWalletTonConnectSessionDisconnectRequired, object: updateTonWalletTonConnectSessionDisconnectRequired)
+            notificationCenter.postTdUpdate(name: .updateTonWalletTonConnectSessionDisconnectRequired, object: updateTonWalletTonConnectSessionDisconnectRequired, source: source)
         case .updateChatRevenueAmount(let updateChatRevenueAmount):
             notificationCenter.postTdUpdate(name: .updateChatRevenueAmount, object: updateChatRevenueAmount, source: source)
         case .updateStarRevenueStatus(let updateStarRevenueStatus):

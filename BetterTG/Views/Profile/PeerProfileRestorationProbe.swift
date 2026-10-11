@@ -315,7 +315,7 @@ import UIKit
     }
 
     private static func chat(title: String) -> CustomChat {
-        RootChatInsertionProbe.chat(
+        ProbeFixtures.chat(
             .init(isPinned: false, list: .chatListMain, order: 1, source: nil),
             title: title,
             id: 8,

@@ -29,7 +29,7 @@
             let message = RichNotificationMediaPrewarmerProbe.message(
                 RichNotificationMediaPrewarmerProbe.content(.photo), chatID: -7,
             )
-            let chat = RootChatInsertionProbe.chat(
+            let chat = ProbeFixtures.chat(
                 .init(isPinned: false, list: .chatListMain, order: 1, source: nil),
                 id: -7,
             )

@@ -373,7 +373,7 @@ ClientRestorableNavigationEntry {
             replayedReadiness = true
         }
         defer { readiness.cancel() }
-        let chat = RootChatInsertionProbe.chat(
+        let chat = ProbeFixtures.chat(
             .init(isPinned: false, list: .chatListMain, order: 1, source: nil),
             title: "Retained profile",
             id: 8,
@@ -746,6 +746,7 @@ ClientRestorableNavigationEntry {
         actionStack.addArrangedSubview(administratorsActionButton)
         updateActionAvailability()
 
+        if let tab = restoration?.tab { selectedSharedTab = tab }
         sharedTabs.translatesAutoresizingMaskIntoConstraints = false
         sharedTabs.configure(
             items: SharedTab.allCases.map { .init(id: $0.rawValue, title: $0.title) },
@@ -969,6 +970,13 @@ ClientRestorableNavigationEntry {
         gallery.onPrepareOpenMessageID = onPrepareGalleryReturn
         gallery.openInChatTransitionSourceProvider = galleryReturnTarget
         gallery.onOpenMessageTransitionCompleted = onGalleryReturnCompleted
+        gallery.onGalleryRestored = { [weak self] restoredGallery in
+            guard let self, contextIsCurrent, currentSharedTab == originatingTab else { return }
+            activeMediaGallery = restoredGallery
+            restoredGallery
+                .updateMessages(sortedSharedMessages.filter { self.sharedMessageRefresh?.allows($0.id) == true })
+            restoredGallery.updateTotalMessageCount(sharedTotalMessageCount)
+        }
         activeMediaGallery = gallery
         (navigationController ?? self).present(gallery, animated: true)
     }
@@ -1494,7 +1502,7 @@ ClientRestorableNavigationEntry {
             if let user = customChat.user {
                 user.id == accountUserID
             } else {
-                peerProfileCanChangeInfo(status: customChat.group?.status ?? customChat.supergroup?.status)
+                infoPermission.canChangeInfo
             }
         navigationItem.rightBarButtonItem = canEdit
             ? UIBarButtonItem(

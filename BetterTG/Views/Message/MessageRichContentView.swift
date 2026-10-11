@@ -144,6 +144,7 @@ final class MessageRichContentView: UIView, MessageSupplementView {
         let view = MessageTextContentView()
         view.configure(
             formattedText: rich.formatted,
+            client: client,
             statusText: "",
             statusColor: .secondaryLabel,
             maximumWidth: max(1, width),
@@ -585,7 +586,8 @@ final class MessageRichContentView: UIView, MessageSupplementView {
         let image = TDImageLoadingView()
         image.contentMode = .scaleAspectFill
         image.isUserInteractionEnabled = false
-        if let preview { image.load(file: preview, placeholderData: placeholder, maximumPixelSize: 900) }
+        if let preview { image.load(file: preview, placeholderData: placeholder, maximumPixelSize: 900, client: client)
+        }
         images.append(image)
         pin(image, to: button)
         button.heightAnchor

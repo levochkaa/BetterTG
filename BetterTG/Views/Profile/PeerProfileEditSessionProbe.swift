@@ -91,7 +91,7 @@ import UIKit
             }
             self.window = UIWindow(windowScene: scene)
             self.navigation = classicNavigation
-                ? ClassicNavigation.controller(rootViewController: UIViewController())
+                ? TelegramNavigationController(rootViewController: UIViewController())
                 : UINavigationController(rootViewController: UIViewController())
             window.frame = CGRect(x: -10000, y: 0, width: 390, height: 844)
             self.current = first

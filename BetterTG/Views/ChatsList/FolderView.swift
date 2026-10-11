@@ -478,6 +478,17 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }
     }
 
+    func clientRestorationViewport() -> ChatListViewportSnapshot {
+        guard isViewLoaded, didSetInitialSearchOffset else {
+            return clientViewportRestoration.pending ?? ChatListViewportSnapshot(
+                chatID: nil,
+                rowMinYRelativeToViewport: 0,
+                offsetFromTop: initialSearchScrollOffset,
+            )
+        }
+        return .capture(tableView: tableView) { dataSource.itemIdentifier(for: $0) }
+    }
+
     func tableView(_: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
         let client = actionAuthority.client
         let authority = actionAuthority
@@ -686,9 +697,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             }
         }
         isApplyingSnapshot = true
+        let applyToken = clientViewportRestoration.beginApply()
         dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
             guard let self else { return }
             isApplyingSnapshot = false
+            clientViewportRestoration.completeApply(applyToken)
+            if !didSetInitialSearchOffset { view.setNeedsLayout() }
             let retainedIDs = Set(dataSource.snapshot().itemIdentifiers).union(folder.chats.map(\.id))
             chatsByID = chatsByID.filter { retainedIDs.contains($0.key) }
             loadMoreChatsIfNeeded()

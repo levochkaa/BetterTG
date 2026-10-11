@@ -67,9 +67,16 @@ import UIKit
     @Published var onlineStatus = ""
     @Published var memberCount = 0
     @Published var onlineMemberCount = 0
-    @Published var editCustomMessage: CustomMessage?
+    @Published private(set) var editCustomMessage: CustomMessage? {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
     @Published var pendingForward: PendingMessageForward?
-    @Published var replyMessage: CustomMessage?
+
+    @Published var replyMessage: CustomMessage? {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
     @Published private(set) var replyQuote: InputTextQuote?
     @Published private(set) var replyInputOverride: InputMessageReplyTo?
     @Published private(set) var replyFallbackPresentation: MessageReplyPresentation?
@@ -3353,6 +3360,25 @@ import UIKit
         bufferedDeletedMessageIDs.formUnion(messageIDs)
     }
 
+    func refreshAllMessagesForumTopicsIfNeeded() {
+        guard isAllMessagesForum else {
+            allMessagesTopicReads?.synchronize([])
+            return
+        }
+        guard let reader = allMessagesForumReader() else { return }
+        let composerTopics: [MessageTopic?] = [
+            .messageTopicForum(.init(forumTopicId: 1)), // General is only the base composer's default.
+            replyMessage?.message.chatId == chatID ? replyMessage?.message.topicId : nil,
+            editCustomMessage?.message.chatId == chatID ? editCustomMessage?.message.topicId : nil,
+            activeVoiceRecordingContext?.destinationTopic, activeVoiceRecordingDraft?.sendTopic,
+            restoredVideoRecordingDraft?.sendTopic, recordingVideoTopicDemand,
+            pendingVoiceNote?.sendTopic, pendingVideoNote?.sendTopic,
+        ] + outgoingVoiceNotes.values.map(\.sendTopic) + outgoingVideoNotes.values.map(\.sendTopic)
+        reader.synchronize(ChatForumTopicReads.demandedIDs(
+            chatID: chatID, messages: messages.flatMap(\.sourceMessages), composerTopics: composerTopics,
+        ))
+    }
+
     private func sendPendingForward(_ forward: PendingMessageForward) async {
         guard locationContextIsCurrent, let accountID else { return }
         do {
@@ -3376,6 +3402,225 @@ import UIKit
                 }
             if ambiguous, pendingForward?.id == forward.id { pendingForward = nil }
             sendErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func refreshAllMessagesForumDeliveryStates(topicID: Int? = nil) {
+        let current = isAllMessagesForum && locationContextIsCurrent && !allMessagesTopicReadsRetired
+        for message in messages {
+            let raw = message.deliverySourceMessage
+            if let topicID {
+                guard raw.chatId == location.chatID,
+                      raw.topicId == .messageTopicForum(.init(forumTopicId: topicID)) else { continue }
+            }
+            let projection = current ? allMessagesTopicReads?.receipt(for: raw) : nil
+            message.updateDeliveryState(
+                permitsFinalStatus: projection?.permitsFinalStatus == true,
+                readOutbox: projection?.readOutbox,
+                topic: projection?.topic,
+            )
+        }
+    }
+
+    private func preserveVoiceRecordingCheckpoint() {
+        stopVoiceRecordingPreviewPlayback()
+        guard recordingVoiceNote else { return }
+
+        switch voiceRecordingInteractionState {
+        case .holding, .locked:
+            updateVoiceRecordingDuration()
+            voiceRecordingInteractionState = .locked
+            if canPauseVoiceRecording {
+                closeVoiceRecordingSegment(sendAfterPreparation: false)
+            } else {
+                finishVoiceRecording(
+                    sendWhenReady: false,
+                    pendingMessage: "Voice recording stopped before a preview could be created.",
+                )
+            }
+        case .preview:
+            // A disappearing trim control may never deliver its final touch event.
+            // Commit the current range and let an already-running save finish.
+            if voiceRecordingTrimIsUpdating, voiceRecordingTrimTask == nil,
+               let draft = activeVoiceRecordingDraft
+            {
+                updateVoiceRecordingTrim(
+                    start: draft.effectiveRange.lowerBound,
+                    end: draft.effectiveRange.upperBound,
+                    updatedEnd: false,
+                    finished: true,
+                )
+            }
+        case .idle, .pausing, .resuming:
+            // Owned persistence work must finish. Its continuation observes suspension.
+            break
+        }
+    }
+
+    private func configureMessageRefresh(seedIDs: [Int64], visibleIDs: [Int64]) {
+        let client = client
+        let location = location
+        guard let accountID = location.accountID else { return }
+        let source = TdUpdateSource(accountID: accountID, clientID: client.id)
+        messageRefresh = ChatHistoryRestorationRefresh(
+            location: location, source: source, seedIDs: seedIDs, visibleIDs: visibleIDs,
+            currentSource: { [weak self] in
+                self?.locationContextIsCurrent == true ? TDLib.shared.activeUpdateSource : nil
+            },
+            read: { try await client.getMessage(chatId: location.chatID, messageId: $0) },
+            hydrate: { [weak self] message in
+                guard let self else {
+                    return ChatHistoryMessageValue(CustomMessage(message: message, properties: .default))
+                }
+                return await ChatHistoryMessageValue(getCustomMessage(from: message))
+            },
+            retriesPartialRaces: true,
+            deliver: { [weak self] in self?.applyMessageRefresh($0) },
+        )
+    }
+
+    private func applyMessageRefresh(_ delivery: ChatHistoryRestorationRefresh.Delivery) {
+        guard locationContextIsCurrent, delivery.source == TDLib.shared.activeUpdateSource else { return }
+        switch delivery.result {
+        case .message(let value):
+            let oldID = messageReplacementIDs.removeValue(forKey: delivery.messageID) ?? delivery.messageID
+            let replacement = value.makeMessage()
+            if let previous = messages.first(where: { $0.sourceMessages.contains { $0.id == oldID } }) {
+                preservePresentationState(from: previous, in: replacement)
+                replaceSourceMessage(oldID: oldID, with: replacement)
+            } else {
+                mergeIncomingMessages([replacement])
+            }
+        case .missing:
+            removeMessagesFromTimeline([delivery.messageID])
+        case .retry:
+            break // Keep display seeds and raw pagination state while offline.
+        }
+    }
+
+    private func driveMessageRefresh() {
+        guard locationContextIsCurrent, !restorationWaitsForViewport, messageRefreshTask == nil,
+              let refresh = messageRefresh,
+              refresh.remainingCount > 0 || latestRestorationCursor != nil && !latestRestorationFailed
+        else { return }
+        messageRefreshTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                messageRefreshTask = nil
+                if !Task.isCancelled, refresh.remainingCount > 0 { driveMessageRefresh() }
+            }
+            while !Task.isCancelled, locationContextIsCurrent {
+                if await refresh.refreshNextBatch() { continue }
+                guard !latestRestorationFailed, var cursor = latestRestorationCursor,
+                      let token = refresh.beginLatestRead() else { break }
+                guard let page = await loadHistory(fromMessageId: cursor.fromMessageID, limit: 30, offset: 0),
+                      !Task.isCancelled, locationContextIsCurrent
+                else {
+                    latestRestorationFailed = !refresh.failLatestRead(token: token)
+                    if latestRestorationFailed { break }
+                    continue
+                }
+                guard cursor.accept(rawPage: page, requestedFromMessageID: cursor.fromMessageID),
+                      refresh.enqueueLatest(page, token: token)
+                else {
+                    latestRestorationFailed = !refresh.failLatestRead(token: token)
+                    if latestRestorationFailed { break }
+                    continue
+                }
+                latestRestorationCursor = cursor.isComplete ? nil : cursor
+            }
+        }
+    }
+
+    private func settleMessageMutation(_ id: Int64, owner: ChatHistoryRestorationRefresh.MutationOwner) {
+        // Reaction and pin work may overlap for one wrapper. The last owner
+        // releases it on success, failure or cancellation, never mid-operation.
+        messageRefresh?.setMutationBlocked(false, messageID: id, owner: owner)
+        driveMessageRefresh()
+    }
+
+    private func composerRestorationState() -> ChatComposerRestorationState {
+        ChatComposerRestorationState(
+            location: location,
+            revision: composerRevision,
+            text: text,
+            edit: editCustomMessage.map { .init(target: .init($0), text: editMessageText) },
+            replyMessage: replyMessage.map(ChatComposerRestorationState.MessageValue.init),
+            replyTo: getMessageReplyTo(from: replyMessage),
+            images: displayedImages,
+            documents: displayedDocuments,
+            sendError: sendErrorMessage,
+            draftError: draftErrorMessage,
+        )
+    }
+
+    private func seedComposerRestoration(_ seed: ChatComposerRestorationState) {
+        markComposerDirty()
+        text = seed.text
+        editCustomMessage = seed.edit?.target.makeMessage()
+        editMessageText = seed.edit?.text ?? ""
+        replyMessage = seed.replyMessage?.makeMessage()
+        replyInputOverride = seed.replyTo
+        replyQuote = inputQuote(from: seed.replyTo)
+        replyFallbackPresentation = replyMessage == nil
+            ? seed.replyTo.map { MessageReplyPresentation.fallback(for: $0, currentChatID: chatID) }
+            : nil
+        displayedImages = seed.images
+        displayedDocuments = seed.documents
+        sendErrorMessage = seed.sendError
+        draftErrorMessage = seed.draftError
+    }
+
+    private func editMessage(_ attempt: ChatComposerEditState.Attempt) async throws {
+        let message = attempt.message
+        let context = try resolveEditContext(for: message)
+        try Task.checkCancellation()
+        switch message.content {
+        case .messageText:
+            _ = try await client.editMessageText(
+                chatId: context.chatID,
+                inputMessageContent:
+                .inputMessageText(
+                    .init(
+                        clearDraft: false,
+                        linkPreviewOptions: nil,
+                        text: attempt.text,
+                    ),
+                ),
+                messageId: message.id,
+                replyMarkup: nil,
+            )
+        case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageVideo, .messageVoiceNote:
+            _ = try await client.editMessageCaption(
+                caption: attempt.text,
+                chatId: context.chatID,
+                messageId: message.id,
+                replyMarkup: nil,
+                showCaptionAboveMedia: false,
+            )
+        default:
+            throw ChatSendContextError.chatPermissionDenied
+        }
+    }
+
+    private func setEditMessageText(from message: Message?) {
+        switch message?.content {
+        case .messageText(let messageText):
+            editMessageText = ComposerText.attributed(messageText.text)
+        case .messagePhoto(let messagePhoto):
+            editMessageText = ComposerText.attributed(messagePhoto.caption)
+        case .messageVoiceNote(let messageVoiceNote):
+            editMessageText = ComposerText.attributed(messageVoiceNote.caption)
+        case .messageAnimation(let messageAnimation):
+            editMessageText = ComposerText.attributed(messageAnimation.caption)
+        case .messageAudio(let messageAudio):
+            editMessageText = ComposerText.attributed(messageAudio.caption)
+        case .messageDocument(let messageDocument):
+            editMessageText = ComposerText.attributed(messageDocument.caption)
+        case .messageVideo(let messageVideo):
+            editMessageText = ComposerText.attributed(messageVideo.caption)
+        default:
+            break
         }
     }
 

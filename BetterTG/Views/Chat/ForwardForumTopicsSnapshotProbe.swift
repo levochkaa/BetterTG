@@ -63,7 +63,7 @@ import UIKit
         init() throws {
             guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
             else { throw Failure(description: "no window scene") }
-            let chat = RootChatInsertionProbe.chat(.init(isPinned: false, list: .chatListMain, order: 1, source: nil))
+            let chat = ProbeFixtures.chat(.init(isPinned: false, list: .chatListMain, order: 1, source: nil))
                 .chat
             let prepared = try PreparedMessageForward(
                 request: .init(sourceChatID: 8, messageIDs: [1]), canForward: true,
@@ -78,7 +78,7 @@ import UIKit
             controller.probeReadPage = { [reads] query, cursor in try await reads.read(query, cursor) }
             controller.probeError = { [reads] in reads.errors.append($0) }
             controller.probeSnapshotCompletion = { [reads] in reads.completions.append($0) }
-            controller.onToggle = { [reads] in reads.selections.append(($0.info.forumTopicId, $1)) }
+            controller.onSelect = { [reads] in reads.selections.append(($0.info.forumTopicId, true)) }
             self.navigation = UINavigationController(rootViewController: UIViewController())
             navigation.pushViewController(controller, animated: false)
             self.window = UIWindow(windowScene: scene)

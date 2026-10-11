@@ -11,8 +11,12 @@ enum MessageContentAction {
     case openDocument(URL)
     case openContact(Contact)
     case openLocation(location: Location, title: String)
-    case submitPollAnswer(messageID: Int64, optionIDs: [Int])
+    case submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission)
     case richContentLayoutChanged
+
+    @MainActor func rejectPollSubmission(in store: MessagePollInteractionStore?) {
+        if case .submitPollAnswer(_, _, let submission) = self { store?.failSubmission(submission) }
+    }
 }
 
 // MARK: - MessagePollInteractionStore
@@ -230,6 +234,7 @@ final class MessageStructuredContentView: UIView {
         client: TDLibClient,
         pollInteractionStore: MessagePollInteractionStore,
         richContentState: MessageRichContentState? = nil,
+        textSpoilers: MessageTextSpoilerStore? = nil,
         onAction: @escaping (MessageContentAction) -> Void,
     ) -> Bool {
         prepareForReuse()
@@ -257,7 +262,7 @@ final class MessageStructuredContentView: UIView {
             case .location(let location):
                 LocationMessageContentView(content: location, onAction: onAction)
             case .linkPreview(let preview):
-                MessageLinkPreviewView(preview: preview)
+                MessageLinkPreviewView(preview: preview, client: client)
             case .none:
                 nil
             case .poll(let poll):

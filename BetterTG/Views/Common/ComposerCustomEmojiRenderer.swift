@@ -61,7 +61,7 @@ import UIKit
                         item?.ready = true
                         self?.layout()
                     }
-                    item.view.configure(sticker: sticker)
+                    item.view.configure(sticker: sticker, client: client)
                     item.configured = true
                 }
                 layout()

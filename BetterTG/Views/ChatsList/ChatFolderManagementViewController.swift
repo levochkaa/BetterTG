@@ -455,6 +455,15 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
 
 final class ChatFolderChatSelectionViewController: UITableViewController, UISearchResultsUpdating,
 TelegramNavigationSearchProvider {
+    private struct CandidatePresentation: Equatable {
+        let title: String
+        let subtitle: String?
+    }
+
+    #if DEBUG
+        private(set) var candidatePresentationReloadsForProbe = 0
+    #endif
+
     // MARK: Private
 
     private let session: FolderFlowSession

@@ -138,7 +138,8 @@ private final class TelegramReactionStripButton: UIControl {
             let animation = CustomEmojiInlineView()
             animation.isUserInteractionEnabled = false
             animation.onFirstFrameReady = { [weak self] in self?.emoji.isHidden = true }
-            animation.configure(sticker: sticker)
+            // The context menu belongs to the active account; its reaction stickers load through that client.
+            animation.configure(sticker: sticker, client: TDLib.shared.activeClient)
             addSubview(animation)
             self.animation = animation
         }

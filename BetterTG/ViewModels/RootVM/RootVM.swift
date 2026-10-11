@@ -32,6 +32,8 @@ enum Route {
     var folderLoadTasks = [Int: Task<Void, Never>]()
     var folderConfigurationTask: Task<Void, Never>?
     var folderConfigurationGeneration = UUID()
+    let listAuthority = RootListAuthority()
+    let scopeSettingsLoading = RootScopeSettingsLoading()
 
     @Published var loggedIn = false
 
@@ -88,51 +90,98 @@ enum Route {
         }
     }
 
+    func captureListRequest() -> (RootListAuthority.Ticket, TDLibClient)? {
+        guard let ticket = listAuthority.capture(
+            ownerAccountID: activeAccountID, activeSource: TDLib.shared.activeUpdateSource,
+        ) else { return nil }
+        let client = td
+        guard client.id == ticket.source.clientID else { return nil }
+        return (ticket, client)
+    }
+
+    func acceptsListRequest(_ ticket: RootListAuthority.Ticket) -> Bool {
+        !Task.isCancelled && listAuthority.accepts(
+            ticket, ownerAccountID: activeAccountID, activeSource: TDLib.shared.activeUpdateSource,
+        )
+    }
+
     func getCustomChatForNavigation(from id: Int64, client: TDLibClient) async -> CustomChat? {
-        await hydrateChat(id: id, list: nil, client: client, projection: nil)
+        // Navigation hydrates only through the client that owns this root. A result that
+        // completes after an account or client switch is discarded.
+        guard let (ticket, _) = captureListRequest(), ticket.source.clientID == client.id,
+              let chat = try? await client.getChat(chatId: id), acceptsListRequest(ticket)
+        else { return nil }
+        let position = chat.positions.first ?? ChatPosition(
+            isPinned: false,
+            list: .chatListMain,
+            order: 0,
+            source: nil,
+        )
+        guard let result = await getCustomChat(from: chat, position: position, client: client),
+              acceptsListRequest(ticket)
+        else { return nil }
+        return result
     }
 
     private func getCustomChat(
         from chat: Chat,
         position: ChatPosition,
         client: TDLibClient,
-        projection: RootChatProjection.Lease?,
     ) async -> CustomChat? {
-        guard let (ticket, _) = captureListRequest(), ticket.source.clientID == client.id else { return nil }
-        let lease = projection ?? chatProjection.begin(chatID: id)
-        defer { if projection == nil { chatProjection.finish(lease) } }
-        guard lease.isValid else { return nil }
-        let rawRevision = chatProjection.revision
-        guard let chat = try? await client.getChat(chatId: id), lease.isValid,
-              acceptsListRequest(ticket) else { return nil }
-        let position = list.map { RootChatInsertion.position(in: chat.positions, for: $0) }
-            ?? chat.positions.first ?? ChatPosition(isPinned: false, list: .chatListMain, order: 0, source: nil)
-        let peerRevision = chatProjection.revision
-        let type: CustomChat.CustomChatType
         switch chat.type {
         case .chatTypePrivate(let privateChat):
-            lease.watchUser(privateChat.userId)
             guard let user = try? await client.getUser(userId: privateChat.userId) else { return nil }
-            if case .userTypeBot = user.type { type = .bot(user) } else { type = .user(user) }
-        case .chatTypeSupergroup(let peer):
-            guard let group = try? await client.getSupergroup(supergroupId: peer.supergroupId) else { return nil }
-            type = .supergroup(group)
-        case .chatTypeBasicGroup(let peer):
-            guard let group = try? await client.getBasicGroup(basicGroupId: peer.basicGroupId) else { return nil }
-            type = .group(group)
+            switch user.type {
+            case .userTypeRegular:
+                return CustomChat(
+                    chat: chat,
+                    position: position,
+                    unreadCount: chat.unreadCount,
+                    type: .user(user),
+                    lastMessage: chat.lastMessage,
+                    draftMessage: chat.draftMessage,
+                )
+            case .userTypeBot:
+                return CustomChat(
+                    chat: chat,
+                    position: position,
+                    unreadCount: chat.unreadCount,
+                    type: .bot(user),
+                    lastMessage: chat.lastMessage,
+                    draftMessage: chat.draftMessage,
+                )
+            case .userTypeDeleted, .userTypeUnknown:
+                return CustomChat(
+                    chat: chat,
+                    position: position,
+                    unreadCount: chat.unreadCount,
+                    type: .user(user),
+                    lastMessage: chat.lastMessage,
+                    draftMessage: chat.draftMessage,
+                )
+            }
+        case .chatTypeSupergroup(let type):
+            guard let group = try? await client.getSupergroup(supergroupId: type.supergroupId) else { return nil }
+            return CustomChat(
+                chat: chat,
+                position: position,
+                unreadCount: chat.unreadCount,
+                type: .supergroup(group),
+                lastMessage: chat.lastMessage,
+                draftMessage: chat.draftMessage,
+            )
+        case .chatTypeBasicGroup(let type):
+            guard let group = try? await client.getBasicGroup(basicGroupId: type.basicGroupId) else { return nil }
+            return CustomChat(
+                chat: chat,
+                position: position,
+                unreadCount: chat.unreadCount,
+                type: .group(group),
+                lastMessage: chat.lastMessage,
+                draftMessage: chat.draftMessage,
+            )
         default:
             return nil
         }
-        guard lease.isValid, acceptsListRequest(ticket) else { return nil }
-        let result = CustomChat(
-            chat: chat,
-            position: position,
-            unreadCount: chat.unreadCount,
-            type: type,
-            lastMessage: chat.lastMessage,
-            draftMessage: chat.draftMessage,
-        )
-        lease.track(result, raw: rawRevision, peer: peerRevision)
-        return list != nil && result.position.order == 0 ? nil : result
     }
 }

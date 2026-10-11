@@ -7,7 +7,8 @@ import UIKit
 
 @MainActor final class ChatTimelineMessageRow {
     struct Inputs: Equatable {
-        let highlighted: Bool
+        /// The highlighted source message, so an album highlights only that item.
+        let highlightedMessageID: Int64?
         let selectionActive: Bool
         let selected: Bool
         let showsProfileImage: Bool

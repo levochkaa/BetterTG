@@ -68,8 +68,8 @@
                 }
                 self.window = UIWindow(windowScene: scene)
                 window.frame = CGRect(x: -10000, y: 0, width: 390, height: 844)
-                let folder = RootChatInsertionProbe.folder()
-                folder.chats = [RootChatInsertionProbe.chat(
+                let folder = ProbeFixtures.folder()
+                folder.chats = [ProbeFixtures.chat(
                     .init(isPinned: false, list: .chatListMain, order: .init(1), source: nil),
                     title: "Fixture Chat",
                 )]
@@ -204,13 +204,14 @@
                     disabledUsernames: [],
                     editableUsername: $0,
                     collectibleUsernames: [],
+                    secondaryUsername: "",
                 ) },
                 verificationStatus: nil,
             )
         }
 
         private static func pickerChat(id: Int64, title: String = "", user: User? = nil) -> CustomChat {
-            RootChatInsertionProbe.chat(
+            ProbeFixtures.chat(
                 .init(isPinned: false, list: .chatListMain, order: 1, source: nil), title: title, id: id, user: user,
             )
         }
@@ -668,7 +669,7 @@
                 "pre-dispatch rollover sent or wedged",
             )
 
-            let folder = RootChatInsertionProbe.folder()
+            let folder = ProbeFixtures.folder()
             guard case .folder(_, let definition) = folder.type
                 else { throw Failure(description: "bad folder fixture") }
             let mutations: [FolderFlowSession.Mutation] = [

@@ -378,21 +378,9 @@ import TDLibKit
         observeCurrentUpdate(.updateForumTopic) { [weak self] update in
             guard let self,
                   contextIsCurrent,
-                  update.chatId == location.chatID,
-                  let index = topics.firstIndex(where: { $0.info.forumTopicId == update.forumTopicId })
+                  update.chatId == location.chatID
             else { return }
-            let previous = topics[index]
-            let needsFullTopic = previous.isPinned != update.isPinned
-                || previous.lastReadInboxMessageId != update.lastReadInboxMessageId
-                || previous.draftMessage?.date != update.draftMessage?.date
-            // getForumTopic itself emits updateForumTopic. Apply the supplied
-            // fields first so the echoed update cannot request the topic again.
-            // New topic discovery belongs to updateForumTopicInfo / pagination.
-            topics[index] = previous.replacing(update: update)
-            if needsFullTopic {
-                // Only the full topic supplies unreadCount and sort order.
-                refreshTopic(id: update.forumTopicId)
-            }
+            acceptScalarUpdate(update)
         }
         observeCurrentUpdate(.updateNewMessage) { [weak self] update in
             guard let self,
@@ -587,6 +575,15 @@ import TDLibKit
               case .messageTopicForum(let topic) = message.topicId
         else { return }
         refreshTopic(id: topic.forumTopicId)
+    }
+
+    private func sortTopics() {
+        topics = pinnedOrder.applying(to: topics.sorted { lhs, rhs in
+            if lhs.order != rhs.order {
+                return lhs.order > rhs.order
+            }
+            return lhs.info.forumTopicId < rhs.info.forumTopicId
+        })
     }
 }
 

@@ -304,46 +304,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        alpha = 1
-        transform = .identity
-        isUserInteractionEnabled = true
-        resumeHistoryScrolling()
-        setMessageHighlighted(nil)
-        NSLayoutConstraint.deactivate(highlightConstraints)
-        highlightConstraints = []
-        highlightOverlay.removeFromSuperview()
-        avatarView.prepareForReuse()
-        mediaView.prepareForReuse()
-        structuredContentView.prepareForReuse()
-        textView.prepareForReuse()
-        reactionView.prepareForReuse()
-        forwardView.prepareForReuse()
-        replyView.prepareForReuse()
-        forwardView.isHidden = true
-        replyView.isHidden = true
-        textView.isHidden = true
-        mediaView.isHidden = true
-        structuredContentView.isHidden = true
-        reactionView.isHidden = true
-        timestampLabel.isHidden = true
-        mediaTimestampLabel.isHidden = true
-        onSwipeToReply = nil
-        onMediaTap = nil
-        onSelectionToggle = nil
-        onSelfSizingHeightChange = nil
-        representedGalleryMessageIDs.removeAll()
-        mediaTransitionGeneration = UUID()
-        swipeToReplyRecognizer.isEnabled = false
-        selectionActive = false
-        selectionOutgoing = false
-        selectionCentered = false
-        selectionControl.isHidden = true
-        selectionIndicatorView.isHidden = true
-        selectionIndicatorView.setSelected(false)
-        accessibilityTraits.remove(.selected)
-        accessibilityCustomActions = nil
-        resetSwipeToReply(animated: false)
-        bubbleContentNeedsMeasurement = true
+        #if DEBUG
+            probeReuseCount += 1
+        #endif
+        resetUnavailableContent()
     }
 
     override func layoutSubviews() {
@@ -414,6 +378,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         accessibilityIdentifier = nil
         accessibilityTraits = []
         resumeHistoryScrolling()
+        setMessageHighlighted(nil)
+        NSLayoutConstraint.deactivate(highlightConstraints)
+        highlightConstraints = []
+        highlightOverlay.removeFromSuperview()
         avatarView.prepareForReuse()
         avatarView.isHidden = true
         mediaView.prepareForReuse()
@@ -573,6 +541,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         timelineRowID: UUID? = nil,
         showsProfileImage: Bool? = nil,
     ) {
+        // A reconfigure of the same message animates only its highlight change.
+        let reconfiguresSameMessage = timelineDisplayedID == message.displayedID && window != nil
         self.timelineRowID = timelineRowID
         timelineDisplayedID = message.displayedID
         let showsProfileImage = showsProfileImage ?? chat.shouldShowProfileImage
@@ -697,7 +667,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             onTap: mediaAction,
         )
         mediaView.isHidden = !hasMedia
-        setMessageHighlighted(highlightedMessageID)
+        setMessageHighlighted(highlightedMessageID, animated: reconfiguresSameMessage)
 
         let previewBelowText: Bool =
             if case .linkPreview(let preview) = presentation.supplement {
@@ -727,6 +697,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             client: client,
             pollInteractionStore: pollInteractionStore,
             richContentState: message.richContentState,
+            textSpoilers: textSpoilers,
             onAction: onContentAction,
         )
         structuredContentView.isHidden = !hasStructuredContent
@@ -741,10 +712,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             textView.onRevealSpoilers = { [weak message] in message?.spoilersRevealed = true }
             textView.configure(
                 formattedText: formatted,
+                client: client,
                 statusText: previewBelowText ? "" : timestampText,
                 statusColor: timestampColor,
                 maximumWidth: maximumTextWidth(for: bounds.width),
                 spoilersRevealed: message.spoilersRevealed,
+                spoilerState: textSpoilers.states[textSourceID],
             )
         } else {
             textView.prepareForReuse()
@@ -787,28 +760,25 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             avatarView.isHidden = true
         }
 
-        let isRichMessage =
-            if case .richMessage = presentation.supplement {
-                true
-            } else {
-                false
-            }
         let isVideoNoteMessage =
             if case .messageVideoNote = message.message.content {
                 true
             } else {
                 false
             }
-        isAccessibilityElement = selectionActive || (!isVideoNoteMessage && !isRichMessage)
-        let accessibilityContent =
-            if structuredContentView.handlesAlbumCaptions {
-                message.album.map { MessageContentPresentation.make($0).summary }.joined(separator: ", ")
+        let isRichMessage =
+            if case .richMessage = presentation.supplement {
+                true
             } else {
-                displayedFormattedText
-                    .map { TelegramSpoilers.accessibilityText($0, revealed: message.spoilersRevealed) }
-                    ?? presentation.summary
+                false
             }
-        accessibilityLabel = [
+        isAccessibilityElement = selectionActive || (!isVideoNoteMessage && !isRichMessage)
+        let accessibilityStates = structuredContentView.handlesAlbumCaptions
+            ? message.album.compactMap { textSpoilers.states[$0.id] }
+            : [textSpoilers.states[textSourceID]].compactMap(\.self)
+        let accessibilityAlbum = structuredContentView.handlesAlbumCaptions ? message.album : []
+        let fallbackAccessibilityContent = MessageTextSpoilerPresentation.summary(for: message.message)
+        let prefix = [
             message.forwardPresentation?.accessibilityDescription,
             message.replyPresentation?.accessibilityDescription,
         ]
@@ -818,12 +788,19 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             delivery.spoken,
         ]
         var metadataAccessibilityActions = [UIAccessibilityCustomAction]()
-        if let formatted = displayedFormattedText, !message.spoilersRevealed,
-           !TelegramSpoilers.ranges(in: formatted).isEmpty
+        for (index, source) in message.sourceMessages.enumerated()
+            where !MediaRevealPermit.allows(source, permit: mediaRevealSession?.permit(for: source))
         {
-            metadataAccessibilityActions.append(UIAccessibilityCustomAction(name: "Reveal spoiler") { [weak self] _ in
-                self?.textView.revealSpoilers() ?? false
-            })
+            if MediaRevealSession.Key(message: source)?.isSecret == false {
+                metadataAccessibilityActions.append(UIAccessibilityCustomAction(
+                    name: message.sourceMessages.count > 1
+                        ? "Reveal media spoiler \(index + 1)"
+                        : "Reveal media spoiler",
+                ) { _ in
+                    onMediaTap(message.sourceMessages, source.id)
+                    return true
+                })
+            }
         }
         if let reply = message.replyPresentation {
             if reply.isManualQuote, !message.isReplyQuoteExpanded {
@@ -875,7 +852,44 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             accessibilityTraits.remove(.selected)
             accessibilityValue = nil
         }
-        accessibilityCustomActions = metadataAccessibilityActions
+        refreshSpoilerAccessibility = { [weak self] in
+            guard let self else { return }
+            var content = accessibilityAlbum.isEmpty
+                ?
+                (accessibilityStates.first
+                    .map { $0.presentation.accessibilityText(revealed: $0.revealed) } ?? fallbackAccessibilityContent)
+                : accessibilityAlbum.map { MessageTextSpoilerPresentation.summary(
+                    for: $0,
+                    revealed: self.textSpoilers.states[$0.id]?.revealed == true,
+                ) }
+                .joined(separator: ", ")
+            let concealed = message.sourceMessages.filter {
+                !MediaRevealPermit.allows($0, permit: mediaRevealSession?.permit(for: $0))
+            }
+            if !concealed.isEmpty {
+                // Captions have independent A10 grants; do not project raw media metadata through the cell.
+                let captions = accessibilityStates.map { $0.presentation.accessibilityText(revealed: $0.revealed) }
+                content = (concealed.map {
+                    MediaRevealSession.Key(message: $0)?.isSecret == true ? "Protected media" : "Media spoiler"
+                } + captions).joined(separator: ", ")
+            }
+            updateSpoilerAccessibility(
+                content: content,
+                prefix: prefix,
+                suffix: suffix,
+                states: accessibilityStates,
+                actions: metadataAccessibilityActions,
+            )
+        }
+        for state in accessibilityStates {
+            state.changes.sink { [weak self] in self?.refreshSpoilerAccessibility?() }.store(in: &spoilerSubscriptions)
+        }
+        mediaRevealSession?.revisionsChanged
+            .sink { [weak self] _ in
+                self?.refreshSpoilerAccessibility?()
+            }
+            .store(in: &spoilerSubscriptions)
+        refreshSpoilerAccessibility?()
         updateBubbleContentInsets()
 
         bubbleContentNeedsMeasurement = true

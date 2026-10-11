@@ -41,6 +41,8 @@ enum ComposerText {
 
     struct Scope: AttributeScope {
         let entities: EntityAttribute
+        /// Derived from custom emoji entities in `refresh`; the composer's emoji renderer reads it.
+        let customEmoji: TelegramCustomEmojiAttribute
         let uiKit: AttributeScopes.UIKitAttributes
     }
 
@@ -181,7 +183,14 @@ enum ComposerText {
             }
             if types.contains(.textEntityTypeSpoiler) { visual[.backgroundColor] = UIColor.systemGray }
             for type in types {
-                if case .textEntityTypeTextUrl(let link) = type, let url = URL(string: link.url) { visual[.link] = url }
+                switch type {
+                case .textEntityTypeTextUrl(let link):
+                    if let url = URL(string: link.url) { visual[.link] = url }
+                case .textEntityTypeCustomEmoji(let emoji):
+                    visual[.telegramCustomEmoji] = NSNumber(value: emoji.customEmojiId)
+                default:
+                    break
+                }
             }
             visual[key] = Entities(entities)
             text.setAttributes(visual, range: range)
@@ -215,6 +224,28 @@ enum ComposerText {
                 default: true
                 }
             } + [entity]
+        }
+        refresh(text)
+    }
+
+    /// Gives each run its own custom emoji entity. Runs inside code keep plain text, as in Telegram.
+    static func setCustomEmoji(_ emojis: [TelegramCustomEmojiRun], in text: NSMutableAttributedString) {
+        for emoji in emojis where emoji.id != 0 && emoji.range.length > 0 {
+            guard isValid(emoji.range, in: text.string as NSString),
+                  !runs(text, in: emoji.range).contains(where: { values($0.0).contains { isExclusive($0.type) } })
+            else { continue }
+            let entity = Entity(
+                .textEntityTypeCustomEmoji(.init(customEmojiId: emoji.id)),
+                originalText: (text.string as NSString).substring(with: emoji.range),
+            )
+            transform(text, in: emoji.range) { current in
+                current.filter {
+                    switch $0.type {
+                    case .textEntityTypeCustomEmoji, .textEntityTypeMentionName, .textEntityTypeTextUrl: false
+                    default: true
+                    }
+                } + [entity]
+            }
         }
         refresh(text)
     }
