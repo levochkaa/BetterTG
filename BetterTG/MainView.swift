@@ -786,9 +786,19 @@ enum FolderMenuAction {
 
 // MARK: - FolderPickerView
 
-/// Telegram's iOS 26 folder strip: a clipped scrolling lens with a continuously
-/// moving selection capsule and content-sized (or evenly filled) tabs.
+/// Telegram's iOS 26 folder strip: an interactive glass capsule of content-sized (or evenly filled) tabs that
+/// scroll under UIKit's liquid lens (`LiquidLens`). A tap lifts the lens and carries it to the tapped folder,
+/// a page swipe moves it with the swipe, and where UIKit has no lens a glass selection moves instead.
 final class FolderPickerView: UIView {
+    // MARK: Private
+
+    private static let springDuration: TimeInterval = 0.4
+    /// The least time the lens stays lifted after a tap, so that it crosses the strip as a lens, as Telegram's
+    /// folder tabs do.
+    private static let liftDuration: TimeInterval = 0.3
+    private static let restingTintFadeDuration: TimeInterval = 0.2
+    private static let selectionTint = UIColor.label.withAlphaComponent(0.08)
+
     // MARK: Internal
 
     struct Item: Equatable {
@@ -803,28 +813,43 @@ final class FolderPickerView: UIView {
     // MARK: Private
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    /// Where the lifted lens is drawn: it holds the capsule and does not clip.
+    private let liftedContainer = UIView()
     private let controlEffectView: UIVisualEffectView = {
         let effect = UIGlassEffect(style: .regular)
-        effect.isInteractive = false
+        effect.isInteractive = true
         return UIVisualEffectView(effect: effect)
     }()
 
     private let controlContainer = FolderPickerScrollView()
+    /// The scrolled content: the folders, the lens and the selected copies the lens shows.
+    private let stripView = UIView()
+    private let selectedLabelsView = UIView()
+    /// The selected folder's background, which the lens cuts to its shape at rest.
+    private let restingTintView = UIView()
+    private let selectedButtonStack = UIStackView()
+    private let labelsView = UIView()
     private let buttonStack = UIStackView()
     private let selectionEffectView: UIVisualEffectView = {
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = false
-        effect.tintColor = UIColor.label.withAlphaComponent(0.08)
+        effect.tintColor = FolderPickerView.selectionTint
         return UIVisualEffectView(effect: effect)
     }()
 
+    private var lens: LiquidLens?
+    private var isLifted = false
+    private var lowering: DispatchWorkItem?
+    private var stripWidthConstraint: NSLayoutConstraint!
     private var folders = [CustomFolder]()
     private var items = [Item]()
     private var selectedID: Int?
     private var naturalSegmentWidths = [CGFloat]()
     private var resolvedSegmentWidths = [CGFloat]()
     private var segmentWidthConstraints = [NSLayoutConstraint]()
+    private var selectedSegmentWidthConstraints = [NSLayoutConstraint]()
     private var buttons = [FolderButton]()
+    private var selectedButtons = [FolderButton]()
     private var unreadStates = [FolderUnreadState]()
     private var interactiveSelection: (fromID: Int, toID: Int, fraction: CGFloat)?
 
@@ -870,10 +895,12 @@ final class FolderPickerView: UIView {
 
     func select(id: Int?, animated: Bool = true) {
         let selectionChanged = selectedID != id
+        // A cancelled page swipe returns the selection from where the swipe left it.
+        let wasInteractive = interactiveSelection != nil
         selectedID = id
         interactiveSelection = nil
         updateButtonAppearance()
-        layoutSelection(animated: animated && selectionChanged)
+        layoutSelection(animated: animated && (selectionChanged || wasInteractive))
         if selectionChanged {
             scrollSelectedSegmentIntoView(animated: animated)
         }
@@ -904,12 +931,15 @@ final class FolderPickerView: UIView {
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
 
+        liftedContainer.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(liftedContainer)
+
         controlEffectView.translatesAutoresizingMaskIntoConstraints = false
         controlEffectView.layer.cornerCurve = .continuous
         controlEffectView.layer.cornerRadius = 21
         controlEffectView.cornerConfiguration = .capsule()
         controlEffectView.clipsToBounds = true
-        addSubview(controlEffectView)
+        liftedContainer.addSubview(controlEffectView)
 
         controlContainer.translatesAutoresizingMaskIntoConstraints = false
         controlContainer.showsHorizontalScrollIndicator = false
@@ -920,20 +950,33 @@ final class FolderPickerView: UIView {
         controlContainer.layer.cornerCurve = .continuous
         controlEffectView.contentView.addSubview(controlContainer)
 
-        selectionEffectView.isUserInteractionEnabled = false
-        selectionEffectView.layer.cornerCurve = .continuous
-        selectionEffectView.clipsToBounds = true
-        controlContainer.addSubview(selectionEffectView)
-
-        buttonStack.translatesAutoresizingMaskIntoConstraints = false
-        buttonStack.axis = .horizontal
-        buttonStack.alignment = .fill
-        buttonStack.distribution = .fill
-        buttonStack.spacing = 0
-        controlContainer.addSubview(buttonStack)
-        controlContainer.onViewportWidthChange = { [weak self] in
-            self?.updateResolvedWidths()
-            self?.layoutSelection(animated: false)
+        stripView.translatesAutoresizingMaskIntoConstraints = false
+        controlContainer.addSubview(stripView)
+        // The lens takes the two layers over, so they follow the strip by their autoresizing masks and keep no
+        // constraints to it.
+        for layer in [selectedLabelsView, labelsView] {
+            layer.frame = stripView.bounds
+            layer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            stripView.addSubview(layer)
+        }
+        selectedLabelsView.isUserInteractionEnabled = false
+        selectedLabelsView.accessibilityElementsHidden = true
+        restingTintView.frame = selectedLabelsView.bounds
+        restingTintView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        restingTintView.backgroundColor = Self.selectionTint
+        selectedLabelsView.addSubview(restingTintView)
+        for (stack, layer) in [(selectedButtonStack, selectedLabelsView), (buttonStack, labelsView)] {
+            stack.translatesAutoresizingMaskIntoConstraints = false
+            stack.axis = .horizontal
+            stack.alignment = .fill
+            stack.distribution = .fill
+            stack.spacing = 0
+            layer.addSubview(stack)
+            NSLayoutConstraint.activate([
+                stack.topAnchor.constraint(equalTo: layer.topAnchor),
+                stack.leadingAnchor.constraint(equalTo: layer.leadingAnchor),
+                stack.bottomAnchor.constraint(equalTo: layer.bottomAnchor),
+            ])
         }
 
         let separator = UIView()
@@ -941,11 +984,16 @@ final class FolderPickerView: UIView {
         separator.backgroundColor = .separator
         addSubview(separator)
 
+        stripWidthConstraint = stripView.widthAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             blurView.topAnchor.constraint(equalTo: topAnchor),
             blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
             blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            liftedContainer.topAnchor.constraint(equalTo: topAnchor),
+            liftedContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            liftedContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            liftedContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
             controlEffectView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             controlEffectView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 16),
             controlEffectView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
@@ -960,30 +1008,45 @@ final class FolderPickerView: UIView {
                 constant: -3,
             ),
             controlContainer.bottomAnchor.constraint(equalTo: controlEffectView.contentView.bottomAnchor, constant: -3),
-            buttonStack.topAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.topAnchor),
-            buttonStack.leadingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.leadingAnchor),
-            buttonStack.trailingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.trailingAnchor),
-            buttonStack.bottomAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.bottomAnchor),
-            buttonStack.heightAnchor.constraint(equalTo: controlContainer.frameLayoutGuide.heightAnchor),
+            stripView.topAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.topAnchor),
+            stripView.leadingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.leadingAnchor),
+            stripView.trailingAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.trailingAnchor),
+            stripView.bottomAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.bottomAnchor),
+            stripView.heightAnchor.constraint(equalTo: controlContainer.frameLayoutGuide.heightAnchor),
+            stripWidthConstraint,
             separator.topAnchor.constraint(equalTo: topAnchor),
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
         ])
+
+        lens = LiquidLens(liftedContainer: liftedContainer, liftedContent: selectedLabelsView, punchout: labelsView)
+        if lens == nil {
+            selectedLabelsView.removeFromSuperview()
+            selectionEffectView.isUserInteractionEnabled = false
+            selectionEffectView.layer.cornerCurve = .continuous
+            selectionEffectView.clipsToBounds = true
+            stripView.insertSubview(selectionEffectView, belowSubview: labelsView)
+        }
     }
 
     private func rebuildControl() {
-        for arrangedSubview in buttonStack.arrangedSubviews {
-            buttonStack.removeArrangedSubview(arrangedSubview)
-            arrangedSubview.removeFromSuperview()
+        for stack in [buttonStack, selectedButtonStack] {
+            for arrangedSubview in stack.arrangedSubviews {
+                stack.removeArrangedSubview(arrangedSubview)
+                arrangedSubview.removeFromSuperview()
+            }
         }
         segmentWidthConstraints.removeAll()
+        selectedSegmentWidthConstraints.removeAll()
         buttons.removeAll()
-        naturalSegmentWidths = items.indices.map { index in
-            naturalSegmentWidth(for: items[index], unreadState: unreadStates[index])
+        selectedButtons.removeAll()
+        naturalSegmentWidths = folders.indices.map { index in
+            naturalSegmentWidth(for: folders[index], unreadState: unreadStates[index])
         }
         resolvedSegmentWidths = naturalSegmentWidths
-        for (index, folder) in items.enumerated() {
+        stripWidthConstraint.constant = naturalSegmentWidths.reduce(0, +)
+        for (index, folder) in folders.enumerated() {
             let button = FolderButton(type: .system)
             button.tag = index
             button.configure(title: folder.title, unreadState: unreadStates[index], animated: false)
@@ -997,6 +1060,16 @@ final class FolderPickerView: UIView {
             width.isActive = true
             segmentWidthConstraints.append(width)
             buttons.append(button)
+            // Under the lens the selected copy shows through.
+            guard lens != nil else { continue }
+            let selectedButton = FolderButton(type: .system)
+            selectedButton.isUserInteractionEnabled = false
+            selectedButton.configure(title: folder.name, unreadState: unreadStates[index], animated: false)
+            selectedButtonStack.addArrangedSubview(selectedButton)
+            let selectedWidth = selectedButton.widthAnchor.constraint(equalToConstant: naturalSegmentWidths[index])
+            selectedWidth.isActive = true
+            selectedSegmentWidthConstraints.append(selectedWidth)
+            selectedButtons.append(selectedButton)
         }
         layoutIfNeeded()
         updateResolvedWidths()
@@ -1006,13 +1079,15 @@ final class FolderPickerView: UIView {
     }
 
     private func updateButtonContents(animated: Bool) {
-        guard items.count == buttons.count, unreadStates.count == buttons.count else { return }
-        for index in buttons.indices {
-            buttons[index].configure(
-                title: items[index].title,
-                unreadState: unreadStates[index],
-                animated: animated,
-            )
+        guard folders.count == buttons.count, unreadStates.count == buttons.count else { return }
+        for copies in [buttons, selectedButtons] where copies.count == folders.count {
+            for index in copies.indices {
+                copies[index].configure(
+                    title: folders[index].name,
+                    unreadState: unreadStates[index],
+                    animated: animated,
+                )
+            }
         }
         naturalSegmentWidths = items.indices.map { index in
             naturalSegmentWidth(for: items[index], unreadState: unreadStates[index])
@@ -1056,8 +1131,12 @@ final class FolderPickerView: UIView {
         for (constraint, width) in zip(segmentWidthConstraints, widths) {
             constraint.constant = width
         }
+        for (constraint, width) in zip(selectedSegmentWidthConstraints, widths) {
+            constraint.constant = width
+        }
+        stripWidthConstraint.constant = widths.reduce(0, +)
         controlContainer.alwaysBounceHorizontal = widths.reduce(0, +) > availableWidth + 0.5
-        buttonStack.layoutIfNeeded()
+        controlContainer.layoutIfNeeded()
     }
 
     private func segmentFrame(at index: Int) -> CGRect {
@@ -1072,33 +1151,26 @@ final class FolderPickerView: UIView {
     }
 
     private func layoutSelection(animated: Bool) {
-        guard !buttons.isEmpty else {
-            selectionEffectView.alpha = 0
+        let frame = selectionFrame()
+        if let lens {
+            // A lifted lens is clear glass, as the system's is.
+            let restingAlpha: CGFloat = isLifted ? 0 : 1
+            if restingTintView.alpha != restingAlpha {
+                if animated {
+                    UIView.animate(
+                        withDuration: Self.restingTintFadeDuration,
+                        delay: 0,
+                        options: [.beginFromCurrentState, .allowUserInteraction],
+                    ) {
+                        self.restingTintView.alpha = restingAlpha
+                    }
+                } else {
+                    restingTintView.alpha = restingAlpha
+                }
+            }
+            lens.place(frame, isLifted: isLifted, springDuration: animated ? Self.springDuration : nil)
             return
         }
-        let frame: CGRect? = {
-            if let interactiveSelection,
-               let fromIndex = items.firstIndex(where: { $0.id == interactiveSelection.fromID }),
-               let toIndex = items.firstIndex(where: { $0.id == interactiveSelection.toID }),
-               buttons.indices.contains(fromIndex), buttons.indices.contains(toIndex)
-            {
-                let fromFrame = segmentFrame(at: fromIndex)
-                let toFrame = segmentFrame(at: toIndex)
-                let fraction = interactiveSelection.fraction
-                return CGRect(
-                    x: fromFrame.minX + (toFrame.minX - fromFrame.minX) * fraction,
-                    y: 0,
-                    width: fromFrame.width + (toFrame.width - fromFrame.width) * fraction,
-                    height: controlContainer.bounds.height,
-                )
-            } else if let index = items.firstIndex(where: { $0.id == selectedID }),
-                      buttons.indices.contains(index)
-            {
-                return segmentFrame(at: index)
-            } else {
-                return nil
-            }
-        }()
         guard let frame else {
             selectionEffectView.alpha = 0
             return
@@ -1122,7 +1194,39 @@ final class FolderPickerView: UIView {
         )
     }
 
+    /// The selected folder's frame in the strip, or the frame between two folders during a page swipe.
+    private func selectionFrame() -> CGRect? {
+        if let interactiveSelection,
+           let fromIndex = folders.firstIndex(where: { $0.id == interactiveSelection.fromID }),
+           let toIndex = folders.firstIndex(where: { $0.id == interactiveSelection.toID }),
+           buttons.indices.contains(fromIndex), buttons.indices.contains(toIndex)
+        {
+            let fromFrame = buttons[fromIndex].convert(buttons[fromIndex].bounds, to: stripView)
+            let toFrame = buttons[toIndex].convert(buttons[toIndex].bounds, to: stripView)
+            let fraction = interactiveSelection.fraction
+            return CGRect(
+                x: fromFrame.minX + (toFrame.minX - fromFrame.minX) * fraction,
+                y: 0,
+                width: fromFrame.width + (toFrame.width - fromFrame.width) * fraction,
+                height: stripView.bounds.height,
+            )
+        }
+        guard let index = folders.firstIndex(where: { $0.id == selectedID }), buttons.indices.contains(index)
+        else { return nil }
+        return buttons[index].convert(buttons[index].bounds, to: stripView)
+    }
+
     private func updateButtonAppearance() {
+        if lens != nil {
+            // The lens shows the selected copies, so every folder keeps its plain title.
+            for button in buttons {
+                button.updateAppearance(titleColor: UIColor.label.withAlphaComponent(0.68))
+            }
+            for button in selectedButtons {
+                button.updateAppearance(titleColor: .label)
+            }
+            return
+        }
         for (index, button) in buttons.enumerated() {
             let selectedAlpha: CGFloat =
                 if let interactiveSelection,
@@ -1154,9 +1258,29 @@ final class FolderPickerView: UIView {
             scrollSelectedSegmentIntoView(animated: true)
             onReselection?(folder.id)
         } else {
+            lift()
             select(id: folder.id, animated: true)
             onSelection?(folder.id)
+            lower(after: Self.liftDuration)
         }
+    }
+
+    private func lift() {
+        lowering?.cancel()
+        lowering = nil
+        isLifted = lens != nil
+    }
+
+    private func lower(after delay: TimeInterval) {
+        lowering?.cancel()
+        let lowering = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.lowering = nil
+            isLifted = false
+            layoutSelection(animated: true)
+        }
+        self.lowering = lowering
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: lowering)
     }
 
     @objc private func folderLongPressed(_ gesture: UILongPressGestureRecognizer) {
@@ -1254,6 +1378,7 @@ private final class FolderPickerScrollView: UIScrollView {
 
 // MARK: - FolderButton
 
+/// A folder does not dim while pressed: the lens and the interactive capsule answer the touch.
 private final class FolderButton: UIButton {
     // MARK: Private
 
@@ -1261,12 +1386,6 @@ private final class FolderButton: UIButton {
     private static let badgeFont = UIFont.systemFont(ofSize: 14, weight: .semibold)
     private static let activeBadgeTextColor = UIColor { traits in
         traits.userInterfaceStyle == .dark ? .black : .white
-    }
-
-    // MARK: Internal
-
-    override var isHighlighted: Bool {
-        didSet { contentStack.alpha = isHighlighted ? 0.55 : 1 }
     }
 
     private let contentStack = UIStackView()
