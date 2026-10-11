@@ -703,7 +703,7 @@ private final class TelegramContextMenuController: UIViewController {
     private func animateIn() {
         guard !hasAnimatedIn else { return }
         hasAnimatedIn = true
-        menuEffectView.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
+        animateMenuIn()
         UIView.animate(
             withDuration: 0.34,
             delay: 0,
@@ -745,10 +745,50 @@ private final class TelegramContextMenuController: UIViewController {
                     self.previewView?.layer.cornerCurve = .continuous
                 }
             }
-            self.menuEffectView.alpha = 1
-            self.menuEffectView.transform = .identity
-            self.reactionStrip.alpha = 1
         }
+    }
+
+    /// Telegram's actions animation: the menu springs out of its source, starting at its edge next to the
+    /// content and travelling with it, and a menu-only source also centres it on the source.
+    private func animateMenuIn() {
+        let contentTravelY = presentationStyle == .menuOnly ? 0 : targetPreviewFrame.midY - sourceFrame.midY
+        let offset = menuTransitionOffset(contentTravelY: contentTravelY)
+        let layer = menuEffectView.layer
+        menuEffectView.alpha = 1
+        layer.addTelegramAnimation(keyPath: "opacity", from: 0, to: 1, duration: 0.05, isRemovedOnCompletion: true)
+        layer.addTelegramSpring(keyPath: "transform.scale", from: 0.01, to: 1)
+        layer.addTelegramSpring(
+            keyPath: "position",
+            from: NSValue(cgPoint: offset),
+            to: NSValue(cgPoint: .zero),
+            isAdditive: true,
+        )
+    }
+
+    private func animateMenuOut(returnFrame: CGRect) {
+        let contentTravelY = presentationStyle == .menuOnly ? 0 : targetPreviewFrame.midY - returnFrame.midY
+        let offset = menuTransitionOffset(contentTravelY: contentTravelY)
+        let layer = menuEffectView.layer
+        let presentation = layer.presentation()
+        let scale = (presentation?.value(forKeyPath: "transform.scale") as? NSNumber)?.doubleValue ?? 1
+        layer.addTelegramAnimation(keyPath: "opacity", from: presentation?.opacity ?? layer.opacity, to: 0)
+        layer.addTelegramAnimation(keyPath: "transform.scale", from: scale, to: 0.01)
+        layer.addTelegramAnimation(
+            keyPath: "position",
+            from: NSValue(cgPoint: .zero),
+            to: NSValue(cgPoint: offset),
+            isAdditive: true,
+        )
+    }
+
+    private func menuTransitionOffset(contentTravelY: CGFloat) -> CGPoint {
+        let contentFrame = presentationStyle == .menuOnly ? sourceFrame : targetPreviewFrame
+        let direction: CGFloat = contentFrame.minY < targetMenuFrame.minY ? -1 : 1
+        let spacing: CGFloat = presentationStyle == .menuOnly ? 4 : 10
+        return CGPoint(
+            x: presentationStyle == .menuOnly ? sourceFrame.midX - targetMenuFrame.midX : 0,
+            y: -contentTravelY + direction * targetMenuFrame.height / 2 - spacing,
+        )
     }
 
     private func dismissMenu(completion: (() -> Void)? = nil) {
@@ -758,6 +798,7 @@ private final class TelegramContextMenuController: UIViewController {
         selectableTextViews.removeAll()
         reactionTask?.cancel()
         let returnFrame = sourceFrameAtBaseTransform()
+        animateMenuOut(returnFrame: returnFrame)
         UIView.animate(
             withDuration: 0.24,
             delay: 0,
@@ -791,9 +832,6 @@ private final class TelegramContextMenuController: UIViewController {
                     ? self.targetPreviewFrame.width / 2
                     : self.originalContentCornerRadius
             }
-            self.menuEffectView.alpha = 0
-            self.reactionStrip.alpha = 0
-            self.menuEffectView.transform = CGAffineTransform(scaleX: 0.96, y: 0.96)
         } completion: { _ in
             self.sourceView?.transform = self.sourceTransform
             self.reactionStrip.prepareForReuse()
@@ -913,22 +951,22 @@ private final class TelegramContextMenuController: UIViewController {
         guard trackedButton !== button else { return }
         let previousButton = trackedButton
         trackedButton = button
-        updateSelectionHighlight(from: previousButton, to: button)
+        updateSelectionHighlight(to: button)
         if button != nil, previousButton != nil {
             UISelectionFeedbackGenerator().selectionChanged()
         }
     }
 
-    private func updateSelectionHighlight(
-        from previousButton: TelegramContextMenuActionButton?,
-        to button: TelegramContextMenuActionButton?,
-    ) {
+    /// Telegram's highlight: it moves while it is still fading out, so a quick drag across a divider slides it
+    /// to the next item; only a highlight that has fully faded appears in place.
+    private func updateSelectionHighlight(to button: TelegramContextMenuActionButton?) {
         menuEffectView.layoutIfNeeded()
         guard let button else {
+            guard selectionHighlightView.alpha != 0 else { return }
             UIView.animate(
-                withDuration: 0.08,
+                withDuration: 0.16,
                 delay: 0,
-                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+                options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
             ) {
                 self.selectionHighlightView.alpha = 0
             }
@@ -939,51 +977,75 @@ private final class TelegramContextMenuController: UIViewController {
             button.bounds.insetBy(dx: TelegramContextMenuLayout.contentVerticalInset, dy: 0),
             to: menuEffectView.contentView,
         )
-        let crossesSectionDivider: Bool = {
-            guard let previousButton,
-                  let previousIndex = actionButtons.firstIndex(where: { $0 === previousButton }),
-                  let nextIndex = actionButtons.firstIndex(where: { $0 === button })
-            else { return false }
-            let lower = min(previousIndex, nextIndex)
-            let upper = max(previousIndex, nextIndex)
-            guard lower != upper else { return false }
-            return actions[(lower + 1)...upper].contains(where: \.startsNewSection)
-        }()
-
-        if previousButton == nil || selectionHighlightView.alpha < 0.01 || crossesSectionDivider {
-            let placeAndReveal = {
+        let isOnScreen = (selectionHighlightView.layer.presentation()?.opacity ?? 0) > 0
+        if selectionHighlightView.alpha == 0, !isOnScreen {
+            UIView.performWithoutAnimation {
                 self.selectionHighlightView.frame = targetFrame
-                UIView.animate(
-                    withDuration: 0.08,
-                    delay: 0,
-                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
-                ) {
-                    self.selectionHighlightView.alpha = 1
-                }
             }
-            if crossesSectionDivider, selectionHighlightView.alpha > 0.01 {
-                UIView.animate(
-                    withDuration: 0.06,
-                    delay: 0,
-                    options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
-                ) {
-                    self.selectionHighlightView.alpha = 0
-                } completion: { _ in
-                    placeAndReveal()
-                }
-            } else {
-                placeAndReveal()
-            }
-        } else {
             UIView.animate(
-                withDuration: 0.1,
+                withDuration: 0.2,
                 delay: 0,
                 options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
             ) {
-                self.selectionHighlightView.frame = targetFrame
                 self.selectionHighlightView.alpha = 1
             }
+            return
         }
+        UIView.animate(
+            withDuration: 0.16,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
+        ) {
+            self.selectionHighlightView.frame = targetFrame
+            self.selectionHighlightView.alpha = 1
+        }
+    }
+}
+
+// MARK: - Telegram layer animations
+
+private extension CALayer {
+    /// Telegram's `animateSpring`: a mass-5, stiffness-900 spring sped up to settle within `duration`.
+    func addTelegramSpring(
+        keyPath: String,
+        from: Any,
+        to: Any,
+        duration: CFTimeInterval = 0.42,
+        damping: CGFloat = 104,
+        isAdditive: Bool = false,
+    ) {
+        let animation = CASpringAnimation(keyPath: keyPath)
+        animation.mass = 5
+        animation.stiffness = 900
+        animation.damping = damping
+        animation.duration = animation.settlingDuration
+        animation.speed = Float(animation.duration / duration)
+        animation.timingFunction = CAMediaTimingFunction(name: .linear)
+        animation.fromValue = from
+        animation.toValue = to
+        animation.isAdditive = isAdditive
+        animation.fillMode = .forwards
+        add(animation, forKey: isAdditive ? nil : keyPath)
+    }
+
+    /// Telegram's dismissal curve. The final value stays until the menu is removed.
+    func addTelegramAnimation(
+        keyPath: String,
+        from: Any,
+        to: Any,
+        duration: CFTimeInterval = 0.2,
+        isAdditive: Bool = false,
+        isRemovedOnCompletion: Bool = false,
+    ) {
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.duration = duration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        animation.fromValue = from
+        animation.toValue = to
+        animation.isAdditive = isAdditive
+        animation.isRemovedOnCompletion = isRemovedOnCompletion
+        animation.fillMode = .forwards
+        add(animation, forKey: isAdditive ? nil : keyPath)
     }
 }
 
