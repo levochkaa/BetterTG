@@ -62,6 +62,16 @@ struct MessageForwardDestination: Hashable {
             nil
         }
     }
+
+    /// TDLib files a message sent to the unscoped self chat under a Saved Messages topic; that is the
+    /// requested destination, as in a regular send.
+    @MainActor func accepts(_ message: Message) -> Bool {
+        guard message.chatId == chatID else { return false }
+        if message.topicId == topic { return true }
+        guard topic == nil, chatID == TDLib.shared.activeAccount?.userID else { return false }
+        if case .messageTopicSavedMessages = message.topicId { return true }
+        return false
+    }
 }
 
 // MARK: - MessageForwardMode
@@ -367,9 +377,8 @@ enum MessageForwardingError: LocalizedError, Equatable {
                 expected: prepared.request.messageIDs.count,
             )
         }
-        guard messages.allSatisfy({ message in
-            message.chatId == destination.chatID && message.topicId == destination.topic
-        }) else { throw MessageForwardingError.destinationUnavailable("Telegram returned a different topic.") }
+        guard messages.allSatisfy({ destination.accepts($0) })
+        else { throw MessageForwardingError.destinationUnavailable("Telegram returned a different topic.") }
         return sentCount
     }
 
@@ -424,8 +433,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
             replyTo: nil,
             topicId: destination.topic,
         )
-        guard message.chatId == destination.chatID,
-              message.topicId == destination.topic
+        guard destination.accepts(message)
         else { throw MessageForwardingError.destinationUnavailable("Telegram returned a different topic.") }
         return message
     }
