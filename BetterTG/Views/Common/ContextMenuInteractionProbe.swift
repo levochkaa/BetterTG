@@ -205,6 +205,15 @@ import UIKit
         )
         menuTouch.move(to: CGPoint(x: 201, y: 585), insidePreview: false)
         check(!menuTouch.panning && menuTouch.panAnchor == nil, "menu touch below pan hysteresis")
+        // A lifted preview can put the menu under the finger that opened it; resting there selects nothing.
+        var resting = ContextMenuTouchSession(origin: .initiatingPreview, start: CGPoint(x: 201, y: 622), time: 0)
+        resting.move(to: CGPoint(x: 203, y: 624), insidePreview: false)
+        check(
+            !resting.allowsHighlight(at: 1) && !resting.selectsOnRelease && resting.release(at: 1) == .keepOpen,
+            "resting opening finger selects nothing",
+        )
+        resting.move(to: CGPoint(x: 201, y: 640), insidePreview: false)
+        check(resting.allowsHighlight(at: 1) && resting.selectsOnRelease, "moved opening finger scrubs")
         return failures
     }
 }

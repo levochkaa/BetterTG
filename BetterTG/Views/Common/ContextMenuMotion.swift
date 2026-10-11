@@ -130,6 +130,11 @@ struct ContextMenuTouchSession {
     private(set) var panAnchor: CGPoint?
     var highlighted: Int?
 
+    /// Whether the action under the finger at release counts.
+    var selectsOnRelease: Bool { origin == .menu || hasHandedOff }
+
+    private var hasHandedOff: Bool { maxDistance > ContextMenuMotion.panHysteresis }
+
     init(origin: Origin, start: CGPoint, time: TimeInterval) {
         self.origin = origin
         self.start = start
@@ -149,8 +154,13 @@ struct ContextMenuTouchSession {
         if panning, panAnchor == nil, insidePreview { panAnchor = point }
     }
 
+    /// Touches that begin on the menu wait for the selection delay; on release the action under them counts. Every
+    /// other touch, including the finger that opened the menu, reaches the actions through the scrubbing handoff,
+    /// which needs the finger to move past its hysteresis first. A finger resting where a lifted preview put the
+    /// menu under it therefore selects nothing. The handoff hysteresis is not read back in the source; it uses the
+    /// PreviewPlatterPan value, and all 12 native release cases move well past it.
     func allowsHighlight(at time: TimeInterval) -> Bool {
-        origin != .menu || time - startTime >= ContextMenuMotion.selectionDelay
+        origin == .menu ? time - startTime >= ContextMenuMotion.selectionDelay : hasHandedOff
     }
 
     func release(at time: TimeInterval) -> Release {

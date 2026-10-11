@@ -1293,13 +1293,15 @@ private final class TelegramContextMenuController: UIViewController {
             setPan(offset, tracking: true)
         }
         if touchSessionIsInitiating, !reactionStrip.isHidden {
-            reactionStrip.updateTracking(at: reactionStrip.convert(point, from: view))
+            // Reactions follow the same handoff: a resting finger picks none.
+            let tracksReactions = touchSession?.selectsOnRelease == true
+            reactionStrip.updateTracking(at: tracksReactions ? reactionStrip.convert(point, from: view) : nil)
         }
         switch state {
         case .ended:
             if touchSessionIsInitiating, reactionStrip.selectTrackedReaction() { return }
-            // The selection delay fails on touch end, so the action under the finger counts.
-            let index = actionIndex(at: point)
+            // The selection delay fails on touch end, so the action under the finger counts once the touch may select.
+            let index = touchSession?.selectsOnRelease == true ? actionIndex(at: point) : nil
             touchSession?.highlighted = index
             setHighlight(index)
             let release = touchSession?.release(at: time) ?? .keepOpen
@@ -1350,7 +1352,9 @@ private final class TelegramContextMenuController: UIViewController {
     private func updateSelection(at point: CGPoint, time: TimeInterval) {
         guard let session = touchSession else { return }
         guard session.allowsHighlight(at: time) else {
-            scheduleSelectionDelay(after: ContextMenuMotion.selectionDelay - (time - session.startTime))
+            if session.origin == .menu {
+                scheduleSelectionDelay(after: ContextMenuMotion.selectionDelay - (time - session.startTime))
+            }
             return
         }
         let index = actionIndex(at: point)
