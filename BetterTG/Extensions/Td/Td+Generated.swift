@@ -253,7 +253,9 @@ func update(
         case .updateStoryListChatCount(let updateStoryListChatCount):
             notificationCenter.postTdUpdate(name: .updateStoryListChatCount, object: updateStoryListChatCount, source: source)
         case .updateStoryStealthMode(let updateStoryStealthMode):
-            notificationCenter.postTdUpdate(name: .updateStoryStealthMode, object: updateStoryStealthMode, source: source)
+            nc.post(name: .updateStoryStealthMode, object: updateStoryStealthMode)
+        case .updateAllowedBotUsernamePremiumSuffixes(let updateAllowedBotUsernamePremiumSuffixes):
+            nc.post(name: .updateAllowedBotUsernamePremiumSuffixes, object: updateAllowedBotUsernamePremiumSuffixes)
         case .updateTrustedMiniAppBots(let updateTrustedMiniAppBots):
             notificationCenter.postTdUpdate(name: .updateTrustedMiniAppBots, object: updateTrustedMiniAppBots, source: source)
         case .updateOption(let updateOption):
@@ -313,7 +315,15 @@ func update(
         case .updateOwnedStarCount(let updateOwnedStarCount):
             notificationCenter.postTdUpdate(name: .updateOwnedStarCount, object: updateOwnedStarCount, source: source)
         case .updateOwnedGramCount(let updateOwnedGramCount):
-            notificationCenter.postTdUpdate(name: .updateOwnedGramCount, object: updateOwnedGramCount, source: source)
+            nc.post(name: .updateOwnedGramCount, object: updateOwnedGramCount)
+        case .updateTonWalletState(let updateTonWalletState):
+            nc.post(name: .updateTonWalletState, object: updateTonWalletState)
+        case .updateTonWalletGaslessTransfersInfo(let updateTonWalletGaslessTransfersInfo):
+            nc.post(name: .updateTonWalletGaslessTransfersInfo, object: updateTonWalletGaslessTransfersInfo)
+        case .updateTonWalletTonConnectSession(let updateTonWalletTonConnectSession):
+            nc.post(name: .updateTonWalletTonConnectSession, object: updateTonWalletTonConnectSession)
+        case .updateTonWalletTonConnectSessionDisconnectRequired(let updateTonWalletTonConnectSessionDisconnectRequired):
+            nc.post(name: .updateTonWalletTonConnectSessionDisconnectRequired, object: updateTonWalletTonConnectSessionDisconnectRequired)
         case .updateChatRevenueAmount(let updateChatRevenueAmount):
             notificationCenter.postTdUpdate(name: .updateChatRevenueAmount, object: updateChatRevenueAmount, source: source)
         case .updateStarRevenueStatus(let updateStarRevenueStatus):
@@ -515,6 +525,7 @@ extension TdNotification {
     static var updateChatActiveStories: TdNotification<TDNativeUpdateChatActiveStories> { .init(.updateChatActiveStories) }
     static var updateStoryListChatCount: TdNotification<TDNativeUpdateStoryListChatCount> { .init(.updateStoryListChatCount) }
     static var updateStoryStealthMode: TdNotification<TDNativeUpdateStoryStealthMode> { .init(.updateStoryStealthMode) }
+    static var updateAllowedBotUsernamePremiumSuffixes: TdNotification<TDNativeUpdateAllowedBotUsernamePremiumSuffixes> { .init(.updateAllowedBotUsernamePremiumSuffixes) }
     static var updateTrustedMiniAppBots: TdNotification<TDNativeUpdateTrustedMiniAppBots> { .init(.updateTrustedMiniAppBots) }
     static var updateOption: TdNotification<TDNativeUpdateOption> { .init(.updateOption) }
     static var updateStickerSet: TdNotification<TDNativeUpdateStickerSet> { .init(.updateStickerSet) }
@@ -545,6 +556,10 @@ extension TdNotification {
     static var updateActiveLiveLocationMessages: TdNotification<TDNativeUpdateActiveLiveLocationMessages> { .init(.updateActiveLiveLocationMessages) }
     static var updateOwnedStarCount: TdNotification<TDNativeUpdateOwnedStarCount> { .init(.updateOwnedStarCount) }
     static var updateOwnedGramCount: TdNotification<TDNativeUpdateOwnedGramCount> { .init(.updateOwnedGramCount) }
+    static var updateTonWalletState: TdNotification<TDNativeUpdateTonWalletState> { .init(.updateTonWalletState) }
+    static var updateTonWalletGaslessTransfersInfo: TdNotification<TDNativeUpdateTonWalletGaslessTransfersInfo> { .init(.updateTonWalletGaslessTransfersInfo) }
+    static var updateTonWalletTonConnectSession: TdNotification<TDNativeUpdateTonWalletTonConnectSession> { .init(.updateTonWalletTonConnectSession) }
+    static var updateTonWalletTonConnectSessionDisconnectRequired: TdNotification<TDNativeUpdateTonWalletTonConnectSessionDisconnectRequired> { .init(.updateTonWalletTonConnectSessionDisconnectRequired) }
     static var updateChatRevenueAmount: TdNotification<TDNativeUpdateChatRevenueAmount> { .init(.updateChatRevenueAmount) }
     static var updateStarRevenueStatus: TdNotification<TDNativeUpdateStarRevenueStatus> { .init(.updateStarRevenueStatus) }
     static var updateGramRevenueStatus: TdNotification<TDNativeUpdateGramRevenueStatus> { .init(.updateGramRevenueStatus) }
@@ -707,6 +722,7 @@ extension Foundation.Notification.Name {
     static let updateChatActiveStories = Self("updateChatActiveStories")
     static let updateStoryListChatCount = Self("updateStoryListChatCount")
     static let updateStoryStealthMode = Self("updateStoryStealthMode")
+    static let updateAllowedBotUsernamePremiumSuffixes = Self("updateAllowedBotUsernamePremiumSuffixes")
     static let updateTrustedMiniAppBots = Self("updateTrustedMiniAppBots")
     static let updateOption = Self("updateOption")
     static let updateStickerSet = Self("updateStickerSet")
@@ -737,6 +753,10 @@ extension Foundation.Notification.Name {
     static let updateActiveLiveLocationMessages = Self("updateActiveLiveLocationMessages")
     static let updateOwnedStarCount = Self("updateOwnedStarCount")
     static let updateOwnedGramCount = Self("updateOwnedGramCount")
+    static let updateTonWalletState = Self("updateTonWalletState")
+    static let updateTonWalletGaslessTransfersInfo = Self("updateTonWalletGaslessTransfersInfo")
+    static let updateTonWalletTonConnectSession = Self("updateTonWalletTonConnectSession")
+    static let updateTonWalletTonConnectSessionDisconnectRequired = Self("updateTonWalletTonConnectSessionDisconnectRequired")
     static let updateChatRevenueAmount = Self("updateChatRevenueAmount")
     static let updateStarRevenueStatus = Self("updateStarRevenueStatus")
     static let updateGramRevenueStatus = Self("updateGramRevenueStatus")
