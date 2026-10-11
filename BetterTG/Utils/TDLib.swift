@@ -438,7 +438,7 @@ final class TDLib: @unchecked Sendable {
     private func configureIfNeeded(client: TDLibClient, accountID: UUID) {
         guard configuredClientIDs.insert(client.id).inserted else { return }
         log("TDLib requested client parameters for account \(accountID.uuidString)")
-        Task {
+        Task { [self] in
             do {
                 let directory = try registry.databaseDirectory(for: accountID)
                 // TDLib defers pre-authentication setOption responses until it receives these parameters.
@@ -468,7 +468,7 @@ final class TDLib: @unchecked Sendable {
     }
 
     private func fetchAccountMetadata(client: TDLibClient, accountID: UUID) {
-        Task {
+        Task { [self] in
             do {
                 let me = try await client.getMe()
                 DispatchQueue.main.async { [weak self] in
