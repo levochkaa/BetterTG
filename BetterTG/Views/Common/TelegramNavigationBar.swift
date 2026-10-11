@@ -32,6 +32,9 @@ final class TelegramListNavigationBar: UIView {
 
     var isSearchActive: Bool { searchView.isActive }
     var hasMarkedText: Bool { searchView.hasMarkedText }
+    #if DEBUG
+    var probeSearchField: UISearchTextField { searchView.probeField }
+    #endif
 
     init(
         title: String,

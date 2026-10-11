@@ -35,6 +35,7 @@ import UIKit
     var probePreparationTask: Task<Void, Never>? { preparationTask }
     var probeActor: Int64? { actorID }
     var probePages: ForumTopicsRestorationState { restorationState().pages }
+    var probeSearchField: UISearchTextField { navigationBarView.probeSearchField }
     func probeRetryEvent() { retryClientRestoration() }
     #endif
 

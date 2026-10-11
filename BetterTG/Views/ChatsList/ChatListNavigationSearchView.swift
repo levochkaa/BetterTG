@@ -26,6 +26,9 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
 
     var isActive: Bool { searchField.isFirstResponder }
     var hasMarkedText: Bool { searchField.markedTextRange != nil }
+    #if DEBUG
+    var probeField: UISearchTextField { searchField }
+    #endif
 
     init(placeholder: String = L10n.telegram("DialogList.SearchLabel")) {
         self.placeholder = placeholder
