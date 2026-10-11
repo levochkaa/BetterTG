@@ -908,6 +908,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var captionHeightConstraint: NSLayoutConstraint!
     private let closeButton = UIButton(type: .system)
     private let moreButton = UIButton(type: .system)
+    private var moreActions = [TelegramContextMenuAction]()
     private let moreActivityIndicator = UIActivityIndicatorView(style: .medium)
     private let shareButton = UIButton(type: .system)
     private let shareActivityIndicator = UIActivityIndicatorView(style: .medium)
@@ -1678,7 +1679,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         moreButton.setImage(UIImage(systemName: "ellipsis", withConfiguration: symbol), for: .normal)
         moreButton.accessibilityLabel = "More actions"
         moreButton.accessibilityIdentifier = "gallery-more-actions"
-        moreButton.showsMenuAsPrimaryAction = true
+        moreButton.addTarget(self, action: #selector(showMoreActions), for: .touchUpInside)
         shareButton.setImage(UIImage(systemName: "square.and.arrow.up", withConfiguration: symbol), for: .normal)
         shareButton.accessibilityLabel = "Share"
         shareButton.accessibilityIdentifier = "gallery-share"
@@ -2358,44 +2359,50 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         deleteButton.isHidden = !canDelete
         moreButton.isHidden = !canOpen && !canForward && !canSave && !canDelete
         guard canOpen || canForward || canSave || canDelete else {
-            moreButton.menu = nil
+            moreActions = []
             return
         }
-        var actions = [UIAction]()
+        var actions = [TelegramContextMenuAction]()
         if canOpen {
-            actions.append(UIAction(
+            actions.append(TelegramContextMenuAction(
                 title: "Open in Chat",
                 image: UIImage(systemName: "bubble.left.and.text.bubble.right"),
-            ) { [weak self] _ in
+            ) { [weak self] in
                 self?.openSelectedMessageInChat()
             })
         }
         if canForward {
-            actions.append(UIAction(
+            actions.append(TelegramContextMenuAction(
                 title: "Forward",
                 image: UIImage(systemName: "arrowshape.turn.up.right"),
-            ) { [weak self] _ in
+            ) { [weak self] in
                 self?.forwardSelectedMedia()
             })
         }
         if let saveAsset, saveAsset.photosKind != nil, let title = saveAsset.saveActionTitle {
-            actions.append(UIAction(
+            actions.append(TelegramContextMenuAction(
                 title: title,
                 image: UIImage(systemName: "square.and.arrow.down"),
-            ) { [weak self] _ in
+            ) { [weak self] in
                 self?.exportSelectedMedia(.saveToPhotos)
             })
         }
         if canDelete {
-            actions.append(UIAction(
+            actions.append(TelegramContextMenuAction(
                 title: "Delete",
                 image: UIImage(systemName: "trash"),
-                attributes: .destructive,
-            ) { [weak self] _ in
+                isDestructive: true,
+            ) { [weak self] in
                 self?.deleteSelectedMedia()
             })
         }
-        moreButton.menu = UIMenu(children: actions)
+        moreActions = actions
+    }
+
+    /// The same custom menu as the rest of the app, morphing out of the button.
+    @objc private func showMoreActions() {
+        guard presentedViewController == nil, !moreActions.isEmpty else { return }
+        presentTelegramContextMenu(sourceView: moreButton, actions: moreActions, presentationStyle: .sourceMorph)
     }
 
     private func openSelectedMessageInChat() {

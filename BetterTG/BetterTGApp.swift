@@ -178,6 +178,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             MessageReactionDebugProbe.runIfRequested(in: window)
             PinnedMessageDebugProbe.runIfRequested(in: window)
             ForumTopicDebugProbe.runIfRequested(in: window)
+            ContextMenuLiquidMorphProbe.runIfRequested(in: window)
         #endif
 
         for context in connectionOptions.urlContexts {

@@ -67,6 +67,17 @@ enum TelegramContextMenuPresentationStyle: Equatable {
     case avatar
     case chatPreview
     case menuOnly
+    /// A button's menu without a preview. It opens in the button's place and morphs out of it with UIKit's liquid
+    /// morph (Telegram 58ce7d6688, f44a25a649); without the runtime, with Reduce Motion or when the button has left
+    /// the window, it opens next to the button with the Telegram spring.
+    case sourceMorph
+
+    var showsPreview: Bool {
+        switch self {
+        case .avatar, .chatPreview, .message: true
+        case .menuOnly, .sourceMorph: false
+        }
+    }
 }
 
 // MARK: - TelegramContextMenuKeyboardHost
@@ -207,13 +218,14 @@ extension UIViewController {
         quoteSelection: TelegramContextQuoteSelection? = nil,
         onDismiss: (() -> Void)? = nil,
     ) -> Bool {
+        // A menu that is still closing (a liquid morph settles for up to 1.6 s) does not block the next one.
         guard !actions.isEmpty,
-              TelegramContextMenuController.activeController == nil,
+              TelegramContextMenuController.activeController?.isOpen != true,
               let sourceWindow = sourceView.window
         else { return false }
         let pressGesture = gesture as? ContextMenuPressGestureRecognizer
         let sourceTransform: CGAffineTransform?
-        if presentationStyle == .menuOnly {
+        if !presentationStyle.showsPreview {
             // Without a preview the source stays in place, so it settles back instead of being taken over.
             sourceTransform = pressGesture?.pressBaseTransform(of: sourceView)
             pressGesture?.releasePress()
@@ -333,6 +345,12 @@ private final class TelegramContextMenuController: UIViewController {
 
     fileprivate static var activeController: TelegramContextMenuController?
 
+    /// Menus replaced by a newer one while they still close; each stays alive until its close completes.
+    private static var closingControllers = [TelegramContextMenuController]()
+
+    /// End of the visible close motion of a liquid morph, recorded at about 0.7 s (Telegram 7c2cfd6a1f).
+    private static let liquidMorphCloseMotionDuration: TimeInterval = 0.7
+
     fileprivate weak var owner: UIViewController?
 
     private var onDismiss: (() -> Void)?
@@ -406,9 +424,23 @@ private final class TelegramContextMenuController: UIViewController {
         return command
     }()
 
+    /// Decided when the menu opens and kept for its lifetime, like Telegram's `hasActiveLiquidMorph`.
+    private lazy var usesLiquidMorph = presentationStyle == .sourceMorph
+        && ContextMenuLiquidMorph.isSupported
+        && !UIAccessibility.isReduceMotionEnabled
+    private var liquidMorph: ContextMenuLiquidMorph?
+    private var morphSourcePreview: UITargetedPreview?
+    private var isMorphPresenting = false
+    /// Hides the button for the menu's lifetime; UIKit's own suppression ends when the opening morph completes.
+    private var sourceVisibilityAssertion: AnyObject?
+    /// Keeps the closed menu hidden after UIKit's morph cleanup puts it back on screen fully open.
+    private var menuVisibilityAssertion: AnyObject?
+
+    fileprivate var isOpen: Bool { !isDismissing }
+
     /// Model frame of the preview including the pan, like the system's platterView.frame checks.
     private var previewFrame: CGRect {
-        presentationStyle == .menuOnly ? .zero : previewContainer.convert(previewContainer.bounds, to: view)
+        presentationStyle.showsPreview ? previewContainer.convert(previewContainer.bounds, to: view) : .zero
     }
 
     init(
@@ -485,8 +517,13 @@ private final class TelegramContextMenuController: UIViewController {
             )
         #endif
         presentationHostView = hostView
+        if let previous = Self.activeController, previous !== self {
+            Self.closingControllers.append(previous)
+        }
         Self.activeController = self
         loadViewIfNeeded()
+        // A dark gallery keeps a dark menu even when the window is light.
+        view.overrideUserInterfaceStyle = sourceView?.traitCollection.userInterfaceStyle ?? .unspecified
         view.frame = hostView.bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         // Added last above the app/keyboard content. Leave the normal layer
@@ -515,9 +552,9 @@ private final class TelegramContextMenuController: UIViewController {
 
         dimView.frame = view.bounds
         dimView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        dimView.backgroundColor = presentationStyle == .menuOnly
-            ? .clear
-            : UIColor.black.withAlphaComponent(0.18)
+        dimView.backgroundColor = presentationStyle.showsPreview
+            ? UIColor.black.withAlphaComponent(0.18)
+            : .clear
         dimView.alpha = 0
         dimView.isAccessibilityElement = true
         dimView.accessibilityTraits = .button
@@ -546,7 +583,7 @@ private final class TelegramContextMenuController: UIViewController {
             previewController.didMove(toParent: self)
             previewView = previewController.view
             sourceView?.alpha = 0
-        } else if presentationStyle != .menuOnly, let sourceView {
+        } else if presentationStyle.showsPreview, let sourceView {
             let extractedView: UIView?
             if let source = sourceView as? TelegramContextMenuExtractableView {
                 extractedSource = source
@@ -754,6 +791,26 @@ private final class TelegramContextMenuController: UIViewController {
                 width: menuWidth,
                 height: menuHeight,
             )
+        case .sourceMorph:
+            // Telegram f44a25a649: a morphing menu takes the button's place, its top edge on the button's top edge
+            // (bottom on bottom for a button in the lower half) and its left or right edge on the button's edge in
+            // that half of the screen. Without the morph it opens next to the button.
+            targetPreviewFrame = .zero
+            let growsDown = sourceFrame.midY < view.bounds.midY
+            let alignedX = sourceFrame.midX < view.bounds.midX ? sourceFrame.minX : sourceFrame.maxX - menuWidth
+            let proposedY =
+                switch (usesLiquidMorph, growsDown) {
+                case (true, true): sourceFrame.minY
+                case (true, false): sourceFrame.maxY - menuHeight
+                case (false, true): sourceFrame.maxY + menuSpacing
+                case (false, false): sourceFrame.minY - menuSpacing - menuHeight
+                }
+            targetMenuFrame = CGRect(
+                x: min(max(horizontalInset, alignedX), view.bounds.width - horizontalInset - menuWidth),
+                y: min(max(verticalInset, proposedY), max(verticalInset, maximumBottom - menuHeight)),
+                width: menuWidth,
+                height: menuHeight,
+            )
         }
 
         if presentationStyle == .message {
@@ -801,7 +858,7 @@ private final class TelegramContextMenuController: UIViewController {
                 if hasAnimatedIn {
                     targetPreviewFrame
                 } else {
-                    presentationStyle == .menuOnly ? .zero : sourceFrame
+                    presentationStyle.showsPreview ? sourceFrame : .zero
                 }
         }
         menuEffectView.frame = targetMenuFrame
@@ -845,7 +902,7 @@ private final class TelegramContextMenuController: UIViewController {
     private func animateIn() {
         guard !hasAnimatedIn else { return }
         hasAnimatedIn = true
-        animateMenuIn()
+        if !startLiquidMorphIn() { animateMenuIn() }
         UIView.animate(
             withDuration: 0.34,
             delay: 0,
@@ -853,11 +910,11 @@ private final class TelegramContextMenuController: UIViewController {
             initialSpringVelocity: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
         ) {
-            if self.presentationStyle != .menuOnly {
+            if self.presentationStyle.showsPreview {
                 self.backgroundEffectView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
             }
             self.dimView.alpha = 1
-            if self.presentationStyle != .menuOnly {
+            if self.presentationStyle.showsPreview {
                 if self.presentationStyle == .message {
                     self.previewContainer.center = CGPoint(
                         x: self.targetPreviewFrame.midX,
@@ -894,7 +951,7 @@ private final class TelegramContextMenuController: UIViewController {
     /// Telegram's actions animation: the menu springs out of its source, starting at its edge next to the
     /// content and travelling with it, and a menu-only source also centres it on the source.
     private func animateMenuIn() {
-        let contentTravelY = presentationStyle == .menuOnly ? 0 : targetPreviewFrame.midY - sourceFrame.midY
+        let contentTravelY = presentationStyle.showsPreview ? targetPreviewFrame.midY - sourceFrame.midY : 0
         let offset = menuTransitionOffset(contentTravelY: contentTravelY)
         let layer = menuEffectView.layer
         menuEffectView.alpha = 1
@@ -909,7 +966,7 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     private func animateMenuOut(returnFrame: CGRect) {
-        let contentTravelY = presentationStyle == .menuOnly ? 0 : targetPreviewFrame.midY - returnFrame.midY
+        let contentTravelY = presentationStyle.showsPreview ? targetPreviewFrame.midY - returnFrame.midY : 0
         let offset = menuTransitionOffset(contentTravelY: contentTravelY)
         let layer = menuEffectView.layer
         let presentation = layer.presentation()
@@ -925,12 +982,100 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     private func menuTransitionOffset(contentTravelY: CGFloat) -> CGPoint {
-        let contentFrame = presentationStyle == .menuOnly ? sourceFrame : targetPreviewFrame
+        let contentFrame = presentationStyle.showsPreview ? targetPreviewFrame : sourceFrame
         let direction: CGFloat = contentFrame.minY < targetMenuFrame.minY ? -1 : 1
-        let spacing: CGFloat = presentationStyle == .menuOnly ? menuSpacing : 10
+        let spacing: CGFloat = presentationStyle.showsPreview ? 10 : menuSpacing
         return CGPoint(
-            x: presentationStyle == .menuOnly ? sourceFrame.midX - targetMenuFrame.midX : 0,
+            x: presentationStyle.showsPreview ? 0 : sourceFrame.midX - targetMenuFrame.midX,
             y: -contentTravelY + direction * targetMenuFrame.height / 2 - spacing,
+        )
+    }
+
+    // MARK: Liquid morph
+
+    private func makeMenuPreview() -> UITargetedPreview {
+        let parameters = UIPreviewParameters()
+        parameters.backgroundColor = .clear
+        parameters.visiblePath = UIBezierPath(
+            roundedRect: menuEffectView.bounds,
+            cornerRadius: TelegramContextMenuLayout.menuCornerRadius,
+        )
+        return UITargetedPreview(view: menuEffectView, parameters: parameters)
+    }
+
+    /// Telegram 58ce7d6688 `LensTransitionContainer.animateIn`: the button morphs into the menu, and an assertion
+    /// keeps the button hidden until the menu closes.
+    private func startLiquidMorphIn() -> Bool {
+        guard usesLiquidMorph, let sourceView, sourceView.window != nil, view.window != nil,
+              !sourceView.bounds.isEmpty
+        else { return false }
+        let parameters = UIPreviewParameters()
+        parameters.backgroundColor = .clear
+        // A plain icon button has no shape of its own; its capsule hit area is the shape that morphs.
+        let path = UIBezierPath(
+            roundedRect: sourceView.bounds,
+            cornerRadius: min(sourceView.bounds.width, sourceView.bounds.height) / 2,
+        )
+        parameters.visiblePath = path
+        parameters.shadowPath = path
+        guard let source = ContextMenuLiquidMorph.sourcePreview(for: sourceView, parameters: parameters) else {
+            return false
+        }
+        menuEffectView.alpha = 1
+        let morph = ContextMenuLiquidMorph()
+        let attachment = source.target.container.convert(source.target.center, to: view)
+        isMorphPresenting = true
+        let started = morph.animate(
+            from: source,
+            to: makeMenuPreview(),
+            attachment: attachment,
+            in: view,
+            sourceIdentity: sourceView,
+            alongsideAnimations: { [weak self] in
+                self?.sourceVisibilityAssertion = ContextMenuLiquidMorph.sourceVisibilityAssertion(for: source.view)
+            },
+            completion: { [weak self] in
+                // A close that took over this opening owns the menu from then on.
+                self?.isMorphPresenting = false
+            },
+        )
+        guard started else {
+            isMorphPresenting = false
+            menuEffectView.alpha = 0
+            return false
+        }
+        liquidMorph = morph
+        morphSourcePreview = source
+        return true
+    }
+
+    /// Telegram 11a469d1f8 and 7c2cfd6a1f `LensTransitionContainer.animateOut`: the menu morphs back into the
+    /// button's current position, taking over an opening that is still running; an assertion keeps the closed
+    /// menu hidden through UIKit's cleanup. Returns false when the button has left the window.
+    private func startLiquidMorphOut() -> Bool {
+        let interruptsPresentation = isMorphPresenting
+        isMorphPresenting = false
+        guard let morph = liquidMorph, let sourceView, sourceView.window != nil, menuEffectView.window != nil,
+              let source = morphSourcePreview,
+              let destination = ContextMenuLiquidMorph.sourcePreview(
+                  for: source.view,
+                  parameters: source.parameters,
+                  usePresentationTransform: true,
+              )
+        else { return false }
+        let menu = makeMenuPreview()
+        let attachment = destination.target.container.convert(destination.target.center, to: view)
+        return morph.animate(
+            from: menu,
+            to: destination,
+            attachment: attachment,
+            in: view,
+            sourceIdentity: sourceView,
+            interruptingCurrent: interruptsPresentation,
+            alongsideAnimations: { [weak self] in
+                self?.menuVisibilityAssertion = ContextMenuLiquidMorph.sourceVisibilityAssertion(for: menu.view)
+            },
+            completion: { [weak self] in self?.finishDismissal() },
         )
     }
 
@@ -943,6 +1088,22 @@ private final class TelegramContextMenuController: UIViewController {
         selectableTextViews.removeAll()
         reactionTask?.cancel()
         dismissCompletion = completion
+        if liquidMorph != nil {
+            if startLiquidMorphOut() {
+                // UIKit reports the close only once every spring settles, about 1.6 s after it starts; the motion
+                // ends at about 0.7 s (Telegram 7c2cfd6a1f). Touches pass through and the action runs then.
+                view.isUserInteractionEnabled = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.liquidMorphCloseMotionDuration) { [weak self] in
+                    self?.performDismissCompletion()
+                }
+                return
+            }
+            // The button left the window: fade the menu out at once.
+            UIView.animate(withDuration: 0.15) {
+                self.menuEffectView.alpha = 0
+            } completion: { _ in self.finishDismissal() }
+            return
+        }
         let returnFrame = sourceFrameAtBaseTransform()
         animateMenuOut(returnFrame: returnFrame)
         UIView.animate(
@@ -987,25 +1148,37 @@ private final class TelegramContextMenuController: UIViewController {
         didFinishDismissal = true
         isDismissing = true
         removeEscape()
+        // The menu goes transparent before its visibility assertion ends, so UIKit's cleanup never shows it open.
+        menuEffectView.alpha = 0
+        menuVisibilityAssertion = nil
+        sourceVisibilityAssertion = nil
+        liquidMorph = nil
+        morphSourcePreview = nil
         sourceView?.transform = sourceTransform
         reactionStrip.prepareForReuse()
         if let previewView, let extractedSource { extractedSource.putBackContextMenuContent(previewView) }
         previewController?.willMove(toParent: nil)
         previewController?.view.removeFromSuperview()
         previewController?.removeFromParent()
-        sourceView?.alpha = 1
+        if presentationStyle.showsPreview { sourceView?.alpha = 1 }
         beginAppearanceTransition(false, animated: false)
         view.removeFromSuperview()
         endAppearanceTransition()
         presentationHostView = nil
         if Self.activeController === self { Self.activeController = nil }
+        Self.closingControllers.removeAll { $0 === self }
         UIAccessibility.post(notification: .screenChanged, argument: sourceView)
-        let action = dismissCompletion
         let callback = onDismiss
-        dismissCompletion = nil
         onDismiss = nil
-        action?()
+        performDismissCompletion()
         callback?()
+    }
+
+    /// Runs the chosen action once: when the menu is gone, or when a liquid morph close has visibly finished.
+    private func performDismissCompletion() {
+        let action = dismissCompletion
+        dismissCompletion = nil
+        action?()
     }
 
     private func sourceFrameAtBaseTransform() -> CGRect {

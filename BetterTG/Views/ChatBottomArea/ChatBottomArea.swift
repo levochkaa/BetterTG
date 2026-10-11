@@ -715,7 +715,6 @@ final class ChatComposerView: UIView {
             UIImage.SymbolConfiguration(pointSize: 24, weight: .regular),
             forImageIn: .normal,
         )
-        attachmentButton.showsMenuAsPrimaryAction = true
         attachmentButton.accessibilityLabel = L10n.telegram("VoiceOver.AttachMedia")
         textView.backgroundColor = .clear
         inputRow.addArrangedSubview(attachmentButton)
@@ -855,26 +854,7 @@ final class ChatComposerView: UIView {
     }
 
     private func configureActions() {
-        attachmentButton.menu = UIMenu(children: [
-            UIAction(
-                title: L10n.telegram("Attachment.SelectFromGallery"),
-                image: UIImage(systemName: "photo"),
-            ) { [weak self] _ in
-                self?.onPickPhotos?()
-            },
-            UIAction(
-                title: L10n.telegram("Common.TakePhoto"),
-                image: UIImage(systemName: "camera.fill"),
-            ) { [weak self] _ in
-                self?.onTakePhoto?()
-            },
-            UIAction(title: "Attach Files", image: UIImage(systemName: "doc.fill")) { [weak self] _ in
-                self?.onPickFiles?()
-            },
-            UIAction(title: "Emoji, Stickers & GIFs", image: UIImage(systemName: "face.smiling")) { [weak self] _ in
-                self?.onPickEmojiMedia?()
-            },
-        ])
+        attachmentButton.addTarget(self, action: #selector(showAttachmentActions), for: .touchUpInside)
         closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)
         cancelRecordingButton.addTarget(self, action: #selector(cancelRecording), for: .touchUpInside)
         recordingPauseResumeButton.addTarget(self, action: #selector(toggleRecordingPause), for: .touchUpInside)
@@ -889,6 +869,34 @@ final class ChatComposerView: UIView {
         textView.onPasteImages = { [weak self] in self?.onPasteImages?($0) }
         textView.onInteractionSettled = { [weak self] in self?.onInteractionSettled?() }
         textView.onUserInteraction = { [weak self] in self?.onUserInteraction?() }
+    }
+
+    /// The same custom menu as the rest of the app, morphing out of the button.
+    @objc private func showAttachmentActions() {
+        nearestViewController?.presentTelegramContextMenu(
+            sourceView: attachmentButton,
+            actions: [
+                TelegramContextMenuAction(
+                    title: L10n.telegram("Attachment.SelectFromGallery"),
+                    image: UIImage(systemName: "photo"),
+                ) { [weak self] in self?.onPickPhotos?() },
+                TelegramContextMenuAction(
+                    title: L10n.telegram("Common.TakePhoto"),
+                    image: UIImage(systemName: "camera.fill"),
+                ) { [weak self] in self?.onTakePhoto?() },
+                TelegramContextMenuAction(
+                    title: "Attach Files",
+                    image: UIImage(systemName: "doc.fill"),
+                ) { [weak self] in
+                    self?.onPickFiles?()
+                },
+                TelegramContextMenuAction(
+                    title: "Emoji, Stickers & GIFs",
+                    image: UIImage(systemName: "face.smiling"),
+                ) { [weak self] in self?.onPickEmojiMedia?() },
+            ],
+            presentationStyle: .sourceMorph,
+        )
     }
 
     private func setReplyPreviewVisible(_ visible: Bool, animated: Bool) {
