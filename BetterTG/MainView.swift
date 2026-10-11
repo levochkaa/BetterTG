@@ -1390,7 +1390,7 @@ private final class FolderButton: UIButton {
 
     private let contentStack = UIStackView()
     private let folderTitleLabel = UILabel()
-    private let unreadBadgeLabel = FolderUnreadBadgeLabel()
+    private let unreadBadgeView = FolderUnreadBadgeView()
     private var unreadHasUnmuted = false
     private var resolvedTitleColor = UIColor.label
 
@@ -1418,23 +1418,23 @@ private final class FolderButton: UIButton {
             : nil
         unreadHasUnmuted = unreadState.hasUnmuted
 
-        let wasHidden = unreadBadgeLabel.isHidden
-        unreadBadgeLabel.text = "\(unreadState.count)"
+        let wasHidden = unreadBadgeView.isHidden
+        unreadBadgeView.text = "\(unreadState.count)"
         let shouldHide = unreadState.count == 0
         updateAppearance(titleColor: resolvedTitleColor)
 
         guard animated, wasHidden != shouldHide else {
-            unreadBadgeLabel.isHidden = shouldHide
-            unreadBadgeLabel.alpha = shouldHide ? 0 : 1
-            unreadBadgeLabel.transform = shouldHide
+            unreadBadgeView.isHidden = shouldHide
+            unreadBadgeView.alpha = shouldHide ? 0 : 1
+            unreadBadgeView.transform = shouldHide
                 ? CGAffineTransform(scaleX: 0.4, y: 0.4)
                 : .identity
             return
         }
         if !shouldHide {
-            unreadBadgeLabel.isHidden = false
-            unreadBadgeLabel.alpha = 0
-            unreadBadgeLabel.transform = CGAffineTransform(scaleX: 0.4, y: 0.4)
+            unreadBadgeView.isHidden = false
+            unreadBadgeView.alpha = 0
+            unreadBadgeView.transform = CGAffineTransform(scaleX: 0.4, y: 0.4)
         }
         UIView.animate(
             withDuration: 0.32,
@@ -1443,12 +1443,12 @@ private final class FolderButton: UIButton {
             initialSpringVelocity: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
         ) {
-            self.unreadBadgeLabel.alpha = shouldHide ? 0 : 1
-            self.unreadBadgeLabel.transform = shouldHide
+            self.unreadBadgeView.alpha = shouldHide ? 0 : 1
+            self.unreadBadgeView.transform = shouldHide
                 ? CGAffineTransform(scaleX: 0.4, y: 0.4)
                 : .identity
         } completion: { _ in
-            self.unreadBadgeLabel.isHidden = shouldHide
+            self.unreadBadgeView.isHidden = shouldHide
         }
     }
 
@@ -1456,11 +1456,11 @@ private final class FolderButton: UIButton {
         resolvedTitleColor = titleColor
         folderTitleLabel.textColor = titleColor
         if unreadHasUnmuted {
-            unreadBadgeLabel.backgroundColor = .label
-            unreadBadgeLabel.textColor = Self.activeBadgeTextColor
+            unreadBadgeView.backgroundColor = .label
+            unreadBadgeView.textColor = Self.activeBadgeTextColor
         } else {
-            unreadBadgeLabel.backgroundColor = .tertiarySystemFill
-            unreadBadgeLabel.textColor = .secondaryLabel
+            unreadBadgeView.backgroundColor = .tertiarySystemFill
+            unreadBadgeView.textColor = .secondaryLabel
         }
     }
 
@@ -1473,31 +1473,76 @@ private final class FolderButton: UIButton {
 
         folderTitleLabel.font = Self.titleFont
         folderTitleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-        unreadBadgeLabel.font = Self.badgeFont
-        unreadBadgeLabel.textAlignment = .center
-        unreadBadgeLabel.layer.cornerRadius = 9
-        unreadBadgeLabel.clipsToBounds = true
-        unreadBadgeLabel.isHidden = true
-        unreadBadgeLabel.alpha = 0
+        unreadBadgeView.font = Self.badgeFont
+        unreadBadgeView.isHidden = true
+        unreadBadgeView.alpha = 0
 
         contentStack.addArrangedSubview(folderTitleLabel)
-        contentStack.addArrangedSubview(unreadBadgeLabel)
+        contentStack.addArrangedSubview(unreadBadgeView)
         addSubview(contentStack)
         NSLayoutConstraint.activate([
             contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),
             contentStack.centerYAnchor.constraint(equalTo: centerYAnchor),
             contentStack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
             contentStack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
-            unreadBadgeLabel.heightAnchor.constraint(equalToConstant: 18),
         ])
     }
 }
 
-// MARK: - FolderUnreadBadgeLabel
+// MARK: - FolderUnreadBadgeView
 
-private final class FolderUnreadBadgeLabel: UILabel {
+/// The capsule is a separate view behind a clear label: a `UILabel` with its own background colour draws as
+/// a solid blob of its text colour here, hiding the count.
+private final class FolderUnreadBadgeView: UIView {
+    // MARK: Private
+
+    private static let height: CGFloat = 18
+
     override var intrinsicContentSize: CGSize {
-        let contentSize = super.intrinsicContentSize
-        return CGSize(width: max(18, contentSize.width + 8), height: 18)
+        CGSize(width: max(Self.height, countLabel.intrinsicContentSize.width + 8), height: Self.height)
+    }
+
+    private let countLabel = UILabel()
+
+    // MARK: Internal
+
+    var text: String? {
+        get { countLabel.text }
+        set {
+            guard countLabel.text != newValue else { return }
+            countLabel.text = newValue
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    var textColor: UIColor {
+        get { countLabel.textColor }
+        set { countLabel.textColor = newValue }
+    }
+
+    var font: UIFont {
+        get { countLabel.font }
+        set {
+            countLabel.font = newValue
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        layer.cornerRadius = Self.height / 2
+        clipsToBounds = true
+        countLabel.translatesAutoresizingMaskIntoConstraints = false
+        countLabel.textAlignment = .center
+        addSubview(countLabel)
+        NSLayoutConstraint.activate([
+            countLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            countLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
