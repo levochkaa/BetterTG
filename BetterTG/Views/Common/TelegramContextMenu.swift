@@ -1,6 +1,5 @@
 // TelegramContextMenu.swift
 
-import ObjectiveC.runtime
 import UIKit
 
 // MARK: - TelegramContextMenuLayout
@@ -71,13 +70,9 @@ enum TelegramContextMenuPresentationStyle: Equatable {
 private enum TelegramContextMenuKeyboardHost {
     // MARK: Internal
 
-    static func visibleKeyboardWindow(for sourceWindow: UIWindow, sourceView: UIView?) -> UIWindow? {
-        guard let owner = sourceView?.nearestViewController?.viewIfLoaded,
-              owner.keyboardLayoutGuide.layoutFrame.height > owner.safeAreaInsets.bottom + 1
-        else { return nil }
-        if #available(iOS 16.0, *),
-           let screen = sourceWindow.windowScene?.screen,
-           let keyboardWindow = remoteKeyboardWindow(on: screen),
+    static func visibleKeyboardWindow(for sourceWindow: UIWindow) -> UIWindow? {
+        if let scene = sourceWindow.windowScene,
+           let keyboardWindow = remoteKeyboardWindow(in: scene),
            !keyboardWindow.isHidden
         {
             return keyboardWindow
@@ -96,28 +91,19 @@ private enum TelegramContextMenuKeyboardHost {
 
     // MARK: Private
 
-    @available(iOS 16.0, *) private static func remoteKeyboardWindow(on screen: UIScreen) -> UIWindow? {
-        guard let keyboardClass = NSClassFromString("UIRemoteKeyboardWindow"),
-              let method = class_getClassMethod(
-                  keyboardClass,
-                  NSSelectorFromString("remoteKeyboardWindowForScreen:create:"),
-              )
+    /// The keyboard lives in a `UIRemoteKeyboardWindow` of an internal keyboard scene, so it is absent from
+    /// `UIWindowScene.windows`; Telegram reaches it through the window scene's keyboard scene delegate.
+    /// `+[UIRemoteKeyboardWindow remoteKeyboardWindowForScreen:create:]` traps on iOS 27 in a binary linked
+    /// against the iOS 27 SDK.
+    private static func remoteKeyboardWindow(in scene: UIWindowScene) -> UIWindow? {
+        let delegateSelector = NSSelectorFromString("keyboardSceneDelegate")
+        let windowSelector = NSSelectorFromString("keyboardWindow")
+        guard scene.responds(to: delegateSelector),
+              let keyboardSceneDelegate = scene.perform(delegateSelector)?.takeUnretainedValue() as? NSObject,
+              keyboardSceneDelegate.responds(to: windowSelector)
         else { return nil }
-
-        typealias GetKeyboardWindow = @convention(c) (
-            AnyClass,
-            Selector,
-            UIScreen,
-            Bool,
-        ) -> UIWindow?
-        let implementation = method_getImplementation(method)
-        let getKeyboardWindow = unsafeBitCast(implementation, to: GetKeyboardWindow.self)
-        return getKeyboardWindow(
-            keyboardClass,
-            NSSelectorFromString("remoteKeyboardWindowForScreen:create:"),
-            screen,
-            false,
-        )
+        // `nil` until the scene has a keyboard, and whenever the keyboard UI is hosted out of process.
+        return keyboardSceneDelegate.perform(windowSelector)?.takeUnretainedValue() as? UIWindow
     }
 }
 
