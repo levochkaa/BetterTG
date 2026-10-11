@@ -6,7 +6,11 @@
 import Foundation
 import TDLibKit
 
-func update(_ update: TDNativeUpdate) {
+func update(
+    _ update: TDNativeUpdate,
+    source: TdUpdateSource? = nil,
+    notificationCenter: NotificationCenter = nc
+) {
     switch update {
         case .updateAuthorizationState(let updateAuthorizationState):
             notificationCenter.postTdUpdate(name: .updateAuthorizationState, object: updateAuthorizationState, source: source)
@@ -19,9 +23,9 @@ func update(_ update: TDNativeUpdate) {
         case .updateMessageSendFailed(let updateMessageSendFailed):
             notificationCenter.postTdUpdate(name: .updateMessageSendFailed, object: updateMessageSendFailed, source: source)
         case .updateMessageContent(let updateMessageContent):
-            nc.post(name: .updateMessageContent, object: updateMessageContent)
+            notificationCenter.postTdUpdate(name: .updateMessageContent, object: updateMessageContent, source: source)
         case .updateMessageEphemeralContent(let updateMessageEphemeralContent):
-            nc.post(name: .updateMessageEphemeralContent, object: updateMessageEphemeralContent)
+            notificationCenter.postTdUpdate(name: .updateMessageEphemeralContent, object: updateMessageEphemeralContent, source: source)
         case .updateMessageEdited(let updateMessageEdited):
             notificationCenter.postTdUpdate(name: .updateMessageEdited, object: updateMessageEdited, source: source)
         case .updateMessageIsPinned(let updateMessageIsPinned):
@@ -111,9 +115,9 @@ func update(_ update: TDNativeUpdate) {
         case .updateChatBlockList(let updateChatBlockList):
             notificationCenter.postTdUpdate(name: .updateChatBlockList, object: updateChatBlockList, source: source)
         case .updateChatHasScheduledMessages(let updateChatHasScheduledMessages):
-            nc.post(name: .updateChatHasScheduledMessages, object: updateChatHasScheduledMessages)
+            notificationCenter.postTdUpdate(name: .updateChatHasScheduledMessages, object: updateChatHasScheduledMessages, source: source)
         case .updateChatHasWelcomeMessages(let updateChatHasWelcomeMessages):
-            nc.post(name: .updateChatHasWelcomeMessages, object: updateChatHasWelcomeMessages)
+            notificationCenter.postTdUpdate(name: .updateChatHasWelcomeMessages, object: updateChatHasWelcomeMessages, source: source)
         case .updateChatFolders(let updateChatFolders):
             notificationCenter.postTdUpdate(name: .updateChatFolders, object: updateChatFolders, source: source)
         case .updateChatOnlineMemberCount(let updateChatOnlineMemberCount):
@@ -133,9 +137,9 @@ func update(_ update: TDNativeUpdate) {
         case .updateQuickReplyShortcuts(let updateQuickReplyShortcuts):
             notificationCenter.postTdUpdate(name: .updateQuickReplyShortcuts, object: updateQuickReplyShortcuts, source: source)
         case .updateQuickReplyShortcutMessages(let updateQuickReplyShortcutMessages):
-            nc.post(name: .updateQuickReplyShortcutMessages, object: updateQuickReplyShortcutMessages)
+            notificationCenter.postTdUpdate(name: .updateQuickReplyShortcutMessages, object: updateQuickReplyShortcutMessages, source: source)
         case .updateChatWelcomeMessages(let updateChatWelcomeMessages):
-            nc.post(name: .updateChatWelcomeMessages, object: updateChatWelcomeMessages)
+            notificationCenter.postTdUpdate(name: .updateChatWelcomeMessages, object: updateChatWelcomeMessages, source: source)
         case .updateForumTopicInfo(let updateForumTopicInfo):
             notificationCenter.postTdUpdate(name: .updateForumTopicInfo, object: updateForumTopicInfo, source: source)
         case .updateForumTopic(let updateForumTopic):
@@ -157,9 +161,9 @@ func update(_ update: TDNativeUpdate) {
         case .updateChatAction(let updateChatAction):
             notificationCenter.postTdUpdate(name: .updateChatAction, object: updateChatAction, source: source)
         case .updatePendingMessage(let updatePendingMessage):
-            nc.post(name: .updatePendingMessage, object: updatePendingMessage)
+            notificationCenter.postTdUpdate(name: .updatePendingMessage, object: updatePendingMessage, source: source)
         case .updateStopMessageDraft(let updateStopMessageDraft):
-            nc.post(name: .updateStopMessageDraft, object: updateStopMessageDraft)
+            notificationCenter.postTdUpdate(name: .updateStopMessageDraft, object: updateStopMessageDraft, source: source)
         case .updateCommunity(let updateCommunity):
             notificationCenter.postTdUpdate(name: .updateCommunity, object: updateCommunity, source: source)
         case .updateUserStatus(let updateUserStatus):
@@ -177,9 +181,9 @@ func update(_ update: TDNativeUpdate) {
         case .updateBasicGroupFullInfo(let updateBasicGroupFullInfo):
             notificationCenter.postTdUpdate(name: .updateBasicGroupFullInfo, object: updateBasicGroupFullInfo, source: source)
         case .updateSupergroupFullInfo(let updateSupergroupFullInfo):
-            nc.post(name: .updateSupergroupFullInfo, object: updateSupergroupFullInfo)
+            notificationCenter.postTdUpdate(name: .updateSupergroupFullInfo, object: updateSupergroupFullInfo, source: source)
         case .updateCommunityFullInfo(let updateCommunityFullInfo):
-            nc.post(name: .updateCommunityFullInfo, object: updateCommunityFullInfo)
+            notificationCenter.postTdUpdate(name: .updateCommunityFullInfo, object: updateCommunityFullInfo, source: source)
         case .updateServiceNotification(let updateServiceNotification):
             notificationCenter.postTdUpdate(name: .updateServiceNotification, object: updateServiceNotification, source: source)
         case .updateNewOauthRequest(let updateNewOauthRequest):

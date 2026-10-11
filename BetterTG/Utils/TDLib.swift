@@ -52,7 +52,8 @@ final class TDLib: @unchecked Sendable {
     private var lifecycleSuspended = false
     private var wantsForegroundOwnership = true
     private let clientLock = NSLock()
-    private var storedActiveClient: TDLibClient?
+    private var storedActiveClient: ClientSnapshot?
+    private var activationGeneration: UUID?
     private var started = false
     private var configuredClientIDs = Set<Int32>()
     private var retiringClientIDs = Set<Int32>()
@@ -78,7 +79,7 @@ final class TDLib: @unchecked Sendable {
         guard let storedActiveClient else {
             preconditionFailure("TDLib was accessed before account bootstrap completed")
         }
-        return storedActiveClient
+        return storedActiveClient.client
     }
 
     var deleteMessageUpdates: AnyPublisher<UpdateDeleteMessages, Never> {
@@ -321,13 +322,12 @@ final class TDLib: @unchecked Sendable {
     private func activeClientSnapshot() -> ClientSnapshot? {
         clientLock.lock()
         defer { clientLock.unlock() }
-        guard let client = storedActiveClient, let activeAccountID else { return nil }
-        return ClientSnapshot(client: client, accountID: activeAccountID)
+        return storedActiveClient
     }
 
-    private func setActiveClient(_ client: TDLibClient) {
+    private func setActiveClient(_ client: TDLibClient, accountID: UUID) {
         clientLock.lock()
-        storedActiveClient = client
+        storedActiveClient = ClientSnapshot(client: client, accountID: accountID)
         clientLock.unlock()
     }
 
@@ -335,27 +335,44 @@ final class TDLib: @unchecked Sendable {
         isActiveAccountReady = false
         let accountID = account.id
         let manager = manager
-        Task { [weak self] in
-            guard let self else { return }
+        let generation = UUID()
+        activationGeneration = generation
+        // TDLibKit 2 creates clients asynchronously. Until the new client exists, the previous
+        // account/client pair stays published as one snapshot so no source mixes two epochs.
+        Task { @MainActor [weak self] in
+            let client: TDLibClient
             do {
-                let client = try await manager.createClient()
-                setActiveClient(client)
-                activeVODRanges = TDLibVODRangeCoordinator(
-                    accountID: accountID.uuidString,
-                    client: .live(client),
-                    updates: fileUpdates.eraseToAnyPublisher(),
-                )
-
-                if notify {
-                    nc.post(name: .activeTelegramAccountChanged, object: account.id)
-                    nc.post(name: .telegramAccountsChanged)
-                }
-
-                for await incomingUpdate in client.updates {
-                    await handle(incomingUpdate, from: client, accountID: accountID)
-                }
+                client = try await manager.createClient()
             } catch {
                 log("TDLib client activation failed: \(error.localizedDescription)")
+                return
+            }
+            guard let self, activationGeneration == generation, self.manager === manager,
+                  activeAccountID == accountID
+            else {
+                try? await client.close()
+                return
+            }
+            let source = TdUpdateSource(accountID: accountID, clientID: client.id)
+            setActiveClient(client, accountID: accountID)
+            authorizationState.activate(source)
+            clientReadiness.activate(source)
+            let mediaUpdates = TDLibMediaUpdateStreams(source: source)
+            self.mediaUpdates = mediaUpdates
+            activeVODRanges = TDLibVODRangeCoordinator(
+                accountID: accountID.uuidString,
+                client: .live(client),
+                updates: mediaUpdates.fileUpdates,
+            )
+            activeClientChangesSubject.send(source)
+
+            if notify {
+                nc.post(name: .activeTelegramAccountChanged, object: account.id)
+                nc.post(name: .telegramAccountsChanged)
+            }
+
+            for await incomingUpdate in client.updates {
+                handle(incomingUpdate, from: client, accountID: accountID)
             }
         }
     }
@@ -409,7 +426,8 @@ final class TDLib: @unchecked Sendable {
     }
 
     private func isActive(client: TDLibClient, accountID: UUID) -> Bool {
-        activeAccountID == accountID && activeClientSnapshot()?.client.id == client.id
+        guard activeAccountID == accountID, let snapshot = activeClientSnapshot() else { return false }
+        return snapshot.accountID == accountID && snapshot.client.id == client.id
     }
 
     private func configureIfNeeded(client: TDLibClient, accountID: UUID) {
@@ -437,14 +455,6 @@ final class TDLib: @unchecked Sendable {
                 )
                 try await AppLocalization.shared.configureTDLibClient(client, databaseDirectory: directory)
                 AppLocalization.shared.clientDidConfigure(client)
-                let state = try await client.getAuthorizationState()
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, isActive(client: client, accountID: accountID) else { return }
-                    if case .authorizationStateWaitTdlibParameters = state {
-                        return
-                    }
-                    UpdateAuthorizationState(state)
-                }
             } catch {
                 configuredClientIDs.remove(client.id)
                 log("TDLib client parameter configuration failed: \(error.localizedDescription)")

@@ -2,7 +2,7 @@
 
 #if DEBUG
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
 
     @MainActor enum RichNotificationTargetProbe {
         private struct Failure: Swift.Error, CustomStringConvertible { let description: String }
@@ -62,8 +62,8 @@
             let variants: [(RichNotificationPeerKind, ChatType, Int64)] = [
                 (.privateChat, .chatTypePrivate(.init(userId: 77)), 77),
                 (.basicGroup, .chatTypeBasicGroup(.init(basicGroupId: 77)), -77),
-                (.supergroup, .chatTypeSupergroup(.init(isChannel: false, supergroupId: 77)), -1_000_000_000_077),
-                (.supergroup, .chatTypeSupergroup(.init(isChannel: true, supergroupId: 77)), -1_000_000_000_077),
+                (.supergroup, .chatTypeSupergroup(.init(supergroupId: 77, isChannel: false)), -1_000_000_000_077),
+                (.supergroup, .chatTypeSupergroup(.init(supergroupId: 77, isChannel: true)), -1_000_000_000_077),
             ]
             for (kind, type, chatID) in variants {
                 let current = RichNotificationTarget(
@@ -133,20 +133,26 @@
                     && target.notification(in: [matchingPush], groupChatID: -1_000_000_000_077) == nil,
                 "notification selection used unrelated-last or low-bit fallback",
             )
-            let fullMessage = TDLibKitDynamic.Notification(
-                date: 1, id: 4, isSilent: false,
+            let fullMessage = TDNativeNotification(
+                id: 4,
+                date: 1,
+                isSilent: false,
                 type: .notificationTypeNewMessage(.init(
                     message: MessageDeliveryProbe.fixture(id: target.messageID, chatID: 77), showPreview: true,
                 )),
             )
-            let hiddenMessage = TDLibKitDynamic.Notification(
-                date: 1, id: 5, isSilent: false,
+            let hiddenMessage = TDNativeNotification(
+                id: 5,
+                date: 1,
+                isSilent: false,
                 type: .notificationTypeNewMessage(.init(
                     message: MessageDeliveryProbe.fixture(id: target.messageID, chatID: 77), showPreview: false,
                 )),
             )
-            let wrongChat = TDLibKitDynamic.Notification(
-                date: 1, id: 6, isSilent: false,
+            let wrongChat = TDNativeNotification(
+                id: 6,
+                date: 1,
+                isSilent: false,
                 type: .notificationTypeNewMessage(.init(
                     message: MessageDeliveryProbe.fixture(id: target.messageID, chatID: 78), showPreview: true,
                 )),
@@ -164,12 +170,19 @@
             )
         }
 
-        private static func push(id: Int, messageID: Int64) -> TDLibKitDynamic.Notification {
-            .init(date: 1, id: id, isSilent: false, type: .notificationTypeNewPushMessage(.init(
-                content: .pushMessageContentText(.init(isPinned: false, text: "probe")),
-                isOutgoing: false, messageId: messageID,
-                senderId: .messageSenderUser(.init(userId: 77)), senderName: "Probe",
-            )))
+        private static func push(id: Int, messageID: Int64) -> TDNativeNotification {
+            .init(
+                id: id,
+                date: 1,
+                isSilent: false,
+                type: .notificationTypeNewPushMessage(.init(
+                    messageId: messageID,
+                    senderId: .messageSenderUser(.init(userId: 77)),
+                    senderName: "Probe",
+                    isOutgoing: false,
+                    content: .pushMessageContentText(.init(text: "probe", isPinned: false)),
+                )),
+            )
         }
 
         private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {

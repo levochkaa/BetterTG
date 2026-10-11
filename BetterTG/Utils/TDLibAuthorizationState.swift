@@ -1,7 +1,7 @@
 // TDLibAuthorizationState.swift
 
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 
 /// Synchronous, replaying delivery on TDLib's main-queue admission path.
 /// A nil state waits for this client's first update; nil snapshot revokes ownership.

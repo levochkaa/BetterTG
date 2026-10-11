@@ -404,10 +404,15 @@ final class ChatComposerView: UIView {
         } else if videoNoteState.isActive, let videoNoteReplyFallback {
             showsReplyPreview = true
             closeReplyButton.isHidden = true
-            replySnippet.configure(presentation: videoNoteReplyFallback, expanded: false) { [weak self] _ in
-                guard let self, let target = videoNoteReplyFallback.navigationTarget else { return }
-                onNavigateToMessage?(target)
-            }
+            replySnippet
+                .configure(
+                    presentation: videoNoteReplyFallback,
+                    expanded: false,
+                    client: chatVM.client,
+                ) { [weak self] _ in
+                    guard let self, let target = videoNoteReplyFallback.navigationTarget else { return }
+                    onNavigateToMessage?(target)
+                }
         } else if targetText.characters.isEmpty,
                   let pendingReplyID = chatVM.pendingVideoReplyMessageID,
                   chatVM.hasPendingVideoNote
@@ -1031,6 +1036,7 @@ final class ChatComposerView: UIView {
             forImageIn: .normal,
         )
         actionButton.isEnabled = !isFinalizingVoice && !isFinalizingVideo && !isSendingComposer
+            && (chatVM.editCustomMessage == nil || chatVM.canEditMessage)
         actionButton.alpha = actionButton.isEnabled ? 1 : 0.55
         let canBeginRecordingGesture = !chatVM.startingVoiceNote
             && !chatVM.loadingVoiceDraft

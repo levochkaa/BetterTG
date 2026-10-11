@@ -2,7 +2,7 @@
 
 import Combine
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 /// Authority comes from the client that supplied a file, never from its numeric ID.
 @MainActor struct TDImageOrigin {

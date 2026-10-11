@@ -1,7 +1,7 @@
 // ChatForumTopicReads.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 /// One metadata owner for the base forum timeline and its composer. Canceled
 /// TDLib continuations still occupy a transport slot until their callback returns.

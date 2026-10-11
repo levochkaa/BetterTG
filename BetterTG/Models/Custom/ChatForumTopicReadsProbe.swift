@@ -2,7 +2,7 @@
 
 #if DEBUG
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 @MainActor enum ChatForumTopicReadsProbe {
     @MainActor final class Transport {

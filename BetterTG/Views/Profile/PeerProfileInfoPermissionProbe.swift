@@ -2,7 +2,7 @@
 
 #if DEBUG
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
 
     @MainActor enum PeerProfileInfoPermissionProbe {
         private struct Failure: Swift.Error, CustomStringConvertible {
@@ -63,8 +63,8 @@
 
         private static func verifyPolicyAndUpdates() throws {
             let basic = ChatType.chatTypeBasicGroup(.init(basicGroupId: 7))
-            let group = ChatType.chatTypeSupergroup(.init(isChannel: false, supergroupId: 7))
-            let channel = ChatType.chatTypeSupergroup(.init(isChannel: true, supergroupId: 7))
+            let group = ChatType.chatTypeSupergroup(.init(supergroupId: 7, isChannel: false))
+            let channel = ChatType.chatTypeSupergroup(.init(supergroupId: 7, isChannel: true))
             let member = ChatMemberStatus.chatMemberStatusMember(.init(memberUntilDate: 0))
             let creator = ChatMemberStatus.chatMemberStatusCreator(.init(isAnonymous: false, isMember: true))
             let cases: [(String, ChatType, Bool, ChatMemberStatus?, Bool)] = [
@@ -157,7 +157,7 @@
             let replacement = TdUpdateSource(accountID: source.accountID, clientID: 82)
             let actorID: Int64 = 11
             let member = ChatMemberStatus.chatMemberStatusMember(.init(memberUntilDate: 0))
-            let group = ChatType.chatTypeSupergroup(.init(isChannel: false, supergroupId: 7))
+            let group = ChatType.chatTypeSupergroup(.init(supergroupId: 7, isChannel: false))
             func snapshot(
                 allowed: Bool = true, chatID: Int64 = 17, userID: Int64? = nil,
             ) -> PeerProfileInfoEditAuthorization.Snapshot {
@@ -264,25 +264,52 @@
 
         private static func restricted(_ allowed: Bool, isMember: Bool = true) -> ChatMemberStatus {
             .chatMemberStatusRestricted(.init(
-                isMember: isMember, permissions: permissions(allowed), restrictedUntilDate: 0,
+                isMember: isMember,
+                restrictedUntilDate: 0,
+                permissions: permissions(allowed),
             ))
         }
 
         private static func permissions(_ allowed: Bool) -> ChatPermissions {
             .init(
-                canAddLinkPreviews: false, canChangeInfo: allowed, canCreateTopics: false, canEditTag: false,
-                canInviteUsers: false, canPinMessages: false, canReactToMessages: false, canSendAudios: false,
-                canSendBasicMessages: false, canSendDocuments: false, canSendOtherMessages: false, canSendPhotos: false,
-                canSendPolls: false, canSendVideoNotes: false, canSendVideos: false, canSendVoiceNotes: false,
+                canSendBasicMessages: false,
+                canSendAudios: false,
+                canSendDocuments: false,
+                canSendPhotos: false,
+                canSendVideos: false,
+                canSendVideoNotes: false,
+                canSendVoiceNotes: false,
+                canSendPolls: false,
+                canSendOtherMessages: false,
+                canAddLinkPreviews: false,
+                canReactToMessages: false,
+                canEditTag: false,
+                canChangeInfo: allowed,
+                canInviteUsers: false,
+                canPinMessages: false,
+                canCreateTopics: false,
             )
         }
 
         private static func administrator(_ allowed: Bool) -> ChatMemberStatus {
             .chatMemberStatusAdministrator(.init(canBeEdited: false, rights: .init(
-                canChangeInfo: allowed, canDeleteMessages: false, canDeleteStories: false, canEditMessages: false,
-                canEditStories: false, canInviteUsers: false, canManageChat: false, canManageDirectMessages: false,
-                canManageTags: false, canManageTopics: false, canManageVideoChats: false, canPinMessages: false,
-                canPostMessages: false, canPostStories: false, canPromoteMembers: false, canRestrictMembers: false,
+                canManageChat: false,
+                canChangeInfo: allowed,
+                canPostMessages: false,
+                canEditMessages: false,
+                canDeleteMessages: false,
+                canInviteUsers: false,
+                canRestrictMembers: false,
+                canPinMessages: false,
+                canManageTopics: false,
+                canPromoteMembers: false,
+                canManageVideoChats: false,
+                canPostStories: false,
+                canEditStories: false,
+                canDeleteStories: false,
+                canManageDirectMessages: false,
+                canManageTags: false,
+                canSendWelcomeMessages: false,
                 isAnonymous: false,
             )))
         }

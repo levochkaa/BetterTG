@@ -3,7 +3,7 @@
 #if DEBUG
     import Combine
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
 
     @MainActor enum RootListAuthorityProbe {
         static func runDebugProbeIfRequested() {

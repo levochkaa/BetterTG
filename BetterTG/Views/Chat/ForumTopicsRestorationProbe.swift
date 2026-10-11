@@ -2,7 +2,7 @@
 
 #if DEBUG
     import Combine
-    import TDLibKitDynamic
+    import TDLibKit
     import UIKit
 
     @MainActor enum ForumTopicsRestorationProbe {

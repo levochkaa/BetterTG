@@ -175,12 +175,14 @@ final class TDImageThumbnailPipeline: @unchecked Sendable {
 // MARK: - TDImagePrefetcher
 
 enum TDImagePrefetcher {
-    static func prefetch(file: File?, maximumPixelSize: Int) async {
-        guard let file, !Task.isCancelled else { return }
-        let client = td
+    /// Prefetches with the caller's captured client and drops work after an account or client switch.
+    @MainActor static func prefetch(file: File?, maximumPixelSize: Int, client: TDLibClient) async {
+        guard let file, !Task.isCancelled,
+              let source = TDLib.shared.activeUpdateSource, source.clientID == client.id
+        else { return }
         let key = TDImageThumbnailKey(
-            accountID: TDLib.shared.activeAccountID,
-            clientID: client.id,
+            accountID: source.accountID,
+            clientID: source.clientID,
             fileID: file.id,
             maximumPixelSize: maximumPixelSize,
         )
@@ -201,6 +203,7 @@ enum TDImagePrefetcher {
                 )
             }
         guard !Task.isCancelled,
+              TDLib.shared.activeUpdateSource == source,
               let resolvedFile,
               resolvedFile.local.isDownloadingCompleted,
               !resolvedFile.local.path.isEmpty

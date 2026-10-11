@@ -1,5 +1,6 @@
 // MessageTextView.swift
 
+import Combine
 import TDLibKit
 import UIKit
 
@@ -298,6 +299,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate {
     private func installCustomEmoji(
         requests: [CustomEmojiRequest],
         stickers: [Int64: Sticker],
+        client: TDLibClient,
     ) {
         let generation = customEmojiGeneration
         for request in requests {

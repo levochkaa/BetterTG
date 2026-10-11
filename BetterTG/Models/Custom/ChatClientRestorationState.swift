@@ -1,6 +1,6 @@
 // ChatClientRestorationState.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - ChatHistoryMessageValue
@@ -564,7 +564,7 @@ struct ChatHistoryLatestRefreshCursor {
             // object to Td.cpp send_result (1400-1401), producing this exact error.
             // Permission/400 errors, transport failures and decode errors retry.
             result =
-                if let error = error as? TDLibKit.Error,
+                if let error = error as? TDLibError,
                 error.code == 404, error.message == "Not Found" {
                     .missing
                 } else {

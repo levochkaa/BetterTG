@@ -3,7 +3,7 @@
 #if DEBUG
     import Combine
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
 
     @MainActor enum AnimatedFileDemandProbe {
         private enum Failure: Swift.Error { case check(String) }

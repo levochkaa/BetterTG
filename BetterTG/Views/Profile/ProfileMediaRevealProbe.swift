@@ -2,7 +2,7 @@
 
 #if DEBUG
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 @MainActor enum ProfileMediaRevealProbe {
@@ -261,29 +261,84 @@ import UIKit
         let mini = Minithumbnail(data: png, height: 24, width: 24)
         let content: MessageContent = video
             ? .messageVideo(.init(
-                alternativeVideos: [], caption: caption, cover: nil, hasSpoiler: spoiler, isSecret: secret,
-                showCaptionAboveMedia: false, startTimestamp: 0, storyboards: [], video: .init(
-                    duration: 1, fileName: "private.mp4", hasStickers: false, height: 24, mimeType: "video/mp4",
-                    minithumbnail: mini, supportsStreaming: false, thumbnail: nil, video: file, width: 24,
+                video: .init(
+                    duration: 1,
+                    width: 24,
+                    height: 24,
+                    fileName: "private.mp4",
+                    mimeType: "video/mp4",
+                    hasStickers: false,
+                    supportsStreaming: false,
+                    minithumbnail: mini,
+                    thumbnail: nil,
+                    video: file,
                 ),
+                alternativeVideos: [],
+                storyboards: [],
+                cover: nil,
+                startTimestamp: 0,
+                caption: caption,
+                showCaptionAboveMedia: false,
+                hasSpoiler: spoiler,
+                isSecret: secret,
             ))
             : .messagePhoto(.init(
-                caption: caption, hasSpoiler: spoiler, isSecret: secret, photo: .init(
+                photo: .init(
                     hasStickers: false, minithumbnail: mini,
                     sizes: [.init(height: 24, photo: file, progressiveSizes: [], type: "y", width: 24)],
-                ), showCaptionAboveMedia: false, video: nil,
+                ),
+                video: nil,
+                caption: caption,
+                showCaptionAboveMedia: false,
+                hasSpoiler: spoiler,
+                isSecret: secret,
             ))
         return Message(
-            authorSignature: "", autoDeleteIn: 0, canBeSaved: true, chatId: 0,
-            containsUnreadMention: false, containsUnreadPollVotes: false, content: content,
-            date: 0, editDate: revision, effectId: 0, ephemeralMessageId: 0, factCheck: nil, forwardInfo: nil,
-            guestBotCallerId: nil, hasTimestampedMedia: false, id: id, importInfo: nil, interactionInfo: nil,
-            isChannelPost: false, isFromOffline: false, isOutgoing: true, isPaidGramSuggestedPost: false,
-            isPaidStarSuggestedPost: false, isPinned: false, mediaAlbumId: 0, paidMessageStarCount: 0,
-            receiverId: nil, replyMarkup: nil, replyTo: nil, restrictionInfo: nil, schedulingState: nil,
-            selfDestructIn: 0, selfDestructType: nil, senderBoostCount: 0, senderBusinessBotUserId: 0,
-            senderId: .messageSenderUser(.init(userId: 1)), senderTag: "", sendingState: nil,
-            suggestedPostInfo: nil, summaryLanguageCode: "", topicId: nil, unreadReactions: [], viaBotUserId: 0,
+            id: id,
+            senderId: .messageSenderUser(.init(userId: 1)),
+            receiverId: nil,
+            chatId: 0,
+            sendingState: nil,
+            schedulingState: nil,
+            isOutgoing: true,
+            isPinned: false,
+            isFromOffline: false,
+            canBeSaved: true,
+            hasTimestampedMedia: false,
+            isChannelPost: false,
+            isPaidStarSuggestedPost: false,
+            isPaidGramSuggestedPost: false,
+            containsUnreadMention: false,
+            containsUnreadPollVotes: false,
+            date: 0,
+            editDate: revision,
+            forwardInfo: nil,
+            importInfo: nil,
+            interactionInfo: nil,
+            unreadReactions: [],
+            factCheck: nil,
+            suggestedPostInfo: nil,
+            replyTo: nil,
+            topicId: nil,
+            selfDestructType: nil,
+            selfDestructIn: 0,
+            autoDeleteIn: 0,
+            viaBotUserId: 0,
+            guestBotCallerId: nil,
+            senderBusinessBotUserId: 0,
+            senderBoostCount: 0,
+            senderTag: "",
+            paidMessageStarCount: 0,
+            authorSignature: "",
+            mediaAlbumId: 0,
+            effectId: 0,
+            restrictionInfo: nil,
+            summaryLanguageCode: "",
+            content: content,
+            ephemeralContent: nil,
+            replyMarkup: nil,
+            ephemeralMessageId: 0,
+            chatInstance: 0,
         )
     }
 

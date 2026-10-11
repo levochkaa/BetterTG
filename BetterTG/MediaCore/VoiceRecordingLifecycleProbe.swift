@@ -3,7 +3,7 @@
 #if DEBUG
     import AVFoundation
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
     import UIKit
 
     @MainActor enum VoiceRecordingLifecycleProbe {

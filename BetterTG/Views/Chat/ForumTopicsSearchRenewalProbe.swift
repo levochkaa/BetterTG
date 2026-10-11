@@ -2,7 +2,7 @@
 
 #if DEBUG
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 /// The production controller and UIKit field/snapshot run against isolated VMs.
@@ -53,18 +53,15 @@ import UIKit
             )
         }
 
-        init(actor: Int64? = 70) throws {
+        init(actor: Int64? = 70) {
             self.actor = actor
             self.accountID = account
             self.source = .init(accountID: account, clientID: 101)
             ready.send(source)
-            self.chat = RootChatInsertionProbe.chat(.init(isPinned: false, list: .chatListMain, order: 1, source: nil))
-            // Generated TD models are immutable. Change only this fixture's flag.
-            let data = try JSONEncoder().encode(chat.chat)
-            var json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-            json["view_as_topics"] = true
-            json["viewAsTopics"] = true
-            chat.chat = try JSONDecoder().decode(Chat.self, from: JSONSerialization.data(withJSONObject: json))
+            self.chat = RootChatInsertionProbe.chat(
+                .init(isPinned: false, list: .chatListMain, order: 1, source: nil),
+                viewAsTopics: true,
+            )
         }
 
         func move(_ id: Int32) {
@@ -93,7 +90,7 @@ import UIKit
         weak var previousKey: UIWindow?
 
         init(actor: Int64? = 70, covered: Bool = false) throws {
-            self.owner = try Owner(actor: actor)
+            self.owner = Owner(actor: actor)
             guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first
             else { throw Failure(description: "missing window scene") }
             self.previousKey = scene.windows.first(where: \.isKeyWindow)

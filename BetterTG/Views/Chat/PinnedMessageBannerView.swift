@@ -7,6 +7,7 @@ import UIKit
 
 final class PinnedMessageBannerView: UIView {
     private struct RenderedContent: Equatable {
+        let clientID: Int32?
         let chatID: Int64
         let messageID: Int64
         let preview: String
@@ -162,6 +163,7 @@ final class PinnedMessageBannerView: UIView {
         let preview = Self.previewText(for: message)
         let thumbnail = MessageReplyThumbnail.make(for: message.content)
         let content = RenderedContent(
+            clientID: client?.id,
             chatID: message.chatId,
             messageID: message.id,
             preview: preview,

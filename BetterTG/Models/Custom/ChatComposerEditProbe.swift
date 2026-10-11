@@ -2,7 +2,7 @@
 
 #if DEBUG
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
 
     @MainActor enum ChatComposerEditProbe {
         private struct Failure: Swift.Error, CustomStringConvertible {
@@ -133,9 +133,12 @@
             try require(!state.isCurrent(deliveryRace), "caller delivery fence missing")
 
             let photo = fixture(content: .messagePhoto(.init(
-                caption: .init(entities: [], text: "old caption"), hasSpoiler: false, isSecret: false,
                 photo: .init(hasStickers: false, minithumbnail: nil, sizes: []),
-                showCaptionAboveMedia: false, video: nil,
+                video: nil,
+                caption: .init(entities: [], text: "old caption"),
+                showCaptionAboveMedia: false,
+                hasSpoiler: false,
+                isSecret: false,
             )))
             state.changeSession()
             guard case .edit(let emptyCaption) = state.prepare(message: photo, text: "") else {
@@ -162,17 +165,51 @@
 
         private static func fixture(content: MessageContent) -> Message {
             Message(
-                authorSignature: "", autoDeleteIn: 0, canBeSaved: true, chatId: 100,
-                containsUnreadMention: false, containsUnreadPollVotes: false, content: content,
-                date: 1, editDate: 0, effectId: 0, ephemeralMessageId: 0, factCheck: nil,
-                forwardInfo: nil, guestBotCallerId: nil, hasTimestampedMedia: false, id: 42,
-                importInfo: nil, interactionInfo: nil, isChannelPost: false, isFromOffline: false,
-                isOutgoing: true, isPaidGramSuggestedPost: false, isPaidStarSuggestedPost: false,
-                isPinned: false, mediaAlbumId: 0, paidMessageStarCount: 0, receiverId: nil,
-                replyMarkup: nil, replyTo: nil, restrictionInfo: nil, schedulingState: nil,
-                selfDestructIn: 0, selfDestructType: nil, senderBoostCount: 0, senderBusinessBotUserId: 0,
-                senderId: .messageSenderUser(.init(userId: 1)), senderTag: "", sendingState: nil,
-                suggestedPostInfo: nil, summaryLanguageCode: "", topicId: nil, unreadReactions: [], viaBotUserId: 0,
+                id: 42,
+                senderId: .messageSenderUser(.init(userId: 1)),
+                receiverId: nil,
+                chatId: 100,
+                sendingState: nil,
+                schedulingState: nil,
+                isOutgoing: true,
+                isPinned: false,
+                isFromOffline: false,
+                canBeSaved: true,
+                hasTimestampedMedia: false,
+                isChannelPost: false,
+                isPaidStarSuggestedPost: false,
+                isPaidGramSuggestedPost: false,
+                containsUnreadMention: false,
+                containsUnreadPollVotes: false,
+                date: 1,
+                editDate: 0,
+                forwardInfo: nil,
+                importInfo: nil,
+                interactionInfo: nil,
+                unreadReactions: [],
+                factCheck: nil,
+                suggestedPostInfo: nil,
+                replyTo: nil,
+                topicId: nil,
+                selfDestructType: nil,
+                selfDestructIn: 0,
+                autoDeleteIn: 0,
+                viaBotUserId: 0,
+                guestBotCallerId: nil,
+                senderBusinessBotUserId: 0,
+                senderBoostCount: 0,
+                senderTag: "",
+                paidMessageStarCount: 0,
+                authorSignature: "",
+                mediaAlbumId: 0,
+                effectId: 0,
+                restrictionInfo: nil,
+                summaryLanguageCode: "",
+                content: content,
+                ephemeralContent: nil,
+                replyMarkup: nil,
+                ephemeralMessageId: 0,
+                chatInstance: 0,
             )
         }
     }

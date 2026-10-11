@@ -2,7 +2,7 @@
 
 #if DEBUG
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 @MainActor enum TDImageLoadingProbe {
@@ -206,7 +206,9 @@ import UIKit
         f.startReply?.resume(returning: file(path: url.path))
         f.startReply = nil
         await drain()
-        try require(view.loadedPath == nil && view.image != nil, "old RPC crossed empty-photo replacement")
+        // Placeholders decode off the main thread through TDImageThumbnailPipeline.
+        try await until("empty-photo placeholder") { view.image != nil }
+        try require(view.loadedPath == nil, "old RPC crossed empty-photo replacement")
         var decodeReply: CheckedContinuation<UIImage?, Never>?
         view.debugDecode = { _, _ in await withCheckedContinuation { decodeReply = $0 } }
         view.load(file: file(path: url.path, id: 10), origin: origin)

@@ -173,7 +173,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
                 origin: sourceOrigin,
             )
         } else {
-            imageView.loadPlaceholder(data: minithumbnailData, maximumPixelSize: 160)
+            imageView.loadPlaceholder(data: minithumbnailData, maximumPixelSize: 160, origin: sourceOrigin)
         }
     }
 

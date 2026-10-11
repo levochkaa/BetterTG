@@ -1,5 +1,6 @@
 // ForumTopicState.swift
 
+import Foundation
 import TDLibKit
 
 // MARK: - ForumTopicPageCursor

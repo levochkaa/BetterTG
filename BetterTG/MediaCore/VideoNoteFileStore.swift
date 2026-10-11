@@ -49,7 +49,7 @@ struct VideoNoteSendDraft: Codable, ChatDraftSendScoped {
     let replyMessageID: Int64?
     let replyTo: InputMessageReplyTo?
     var sendTopic: MessageTopic? = nil
-    let thumbnailFileURL: URL?
+    var thumbnailFileURL: URL?
     let thumbnailHeight: Int?
     let thumbnailWidth: Int?
     var temporaryMessageID: Int64?

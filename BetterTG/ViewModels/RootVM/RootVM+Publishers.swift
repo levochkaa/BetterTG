@@ -1,6 +1,7 @@
 // RootVM+Publishers.swift
 
 import Combine
+import Foundation
 import TDLibKit
 
 extension RootVM {
@@ -47,9 +48,8 @@ extension RootVM {
         ]) { [weak self] _ in
             self?.synchronizeAuthorization()
         }
-        nc.publisher(&cancellables, for: .updateChatReadInbox) { [weak self] update in
-            guard let self else { return }
-            for folder in allFolders {
+        observeListUpdate(.updateChatReadInbox, projecting: Update.updateChatReadInbox) { owner, update in
+            for folder in owner.allFolders {
                 guard let chat = folder.chats.first(where: { $0.id == update.chatId }) else { continue }
                 chat.unreadCount = update.unreadCount
                 folder.chatDidChange.send(update.chatId)
@@ -197,38 +197,32 @@ extension RootVM {
 
     func updateChatPosition(_ update: UpdateChatPosition) {
         defer { refreshChat(id: update.chatId) }
-        guard let folder = allFolders.first(where: { $0.chatList == update.position.list }) else { return }
-        guard update.position.order != 0 else {
-            folder.chats.removeAll(where: { $0.id == update.chatId })
-            return
-        }
-        if let chat = folder.chats.first(where: { $0.id == update.chatId }) {
-            chat.position = update.position
-            folder.chatDidChange.send(update.chatId)
-        } else {
-            addChatIfNeeded(id: update.chatId, position: update.position)
-        }
+        applyChatPosition(id: update.chatId, position: update.position)
     }
 
     func updateChatDraftMessage(_ update: UpdateChatDraftMessage) {
         for folder in allFolders {
-            guard let chat = folder.chats.first(where: { $0.id == update.chatId }),
-                  let position = update.positions.first(folder.chatList)
-            else { continue }
-            chat.draftMessage = update.draftMessage
-            chat.position = position
-            folder.chatDidChange.send(update.chatId)
+            if let chat = folder.chats.first(where: { $0.id == update.chatId }) {
+                chat.draftMessage = update.draftMessage
+                folder.chatDidChange.send(update.chatId)
+            }
+            applyChatPosition(
+                id: update.chatId,
+                position: RootChatInsertion.position(in: update.positions, for: folder.chatList),
+            )
         }
     }
 
     func updateChatLastMessage(_ update: UpdateChatLastMessage) {
         for folder in allFolders {
-            guard let chat = folder.chats.first(where: { $0.id == update.chatId }),
-                  let position = update.positions.first(folder.chatList)
-            else { continue }
-            chat.lastMessage = update.lastMessage
-            chat.position = position
-            folder.chatDidChange.send(update.chatId)
+            if let chat = folder.chats.first(where: { $0.id == update.chatId }) {
+                chat.lastMessage = update.lastMessage
+                folder.chatDidChange.send(update.chatId)
+            }
+            applyChatPosition(
+                id: update.chatId,
+                position: RootChatInsertion.position(in: update.positions, for: folder.chatList),
+            )
         }
     }
 
@@ -276,7 +270,10 @@ extension RootVM {
             let projected = projection.project(latest, after: revision)
             for folder in allFolders {
                 guard let chat = folder.chats.first(where: { $0.id == id }) else { continue }
-                chat.chat = latest
+                chat.chat = projected
+                chat.unreadCount = projected.unreadCount
+                chat.lastMessage = projected.lastMessage
+                chat.draftMessage = projected.draftMessage
                 folder.chatDidChange.send(id)
             }
         }

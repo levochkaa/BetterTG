@@ -1,7 +1,7 @@
 // ForumTopicsRestorationState.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - ForumTopicPageRequest
 

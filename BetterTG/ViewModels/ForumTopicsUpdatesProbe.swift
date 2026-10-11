@@ -2,7 +2,7 @@
 
 #if DEBUG
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 @MainActor enum ForumTopicsUpdatesProbe {
@@ -328,7 +328,7 @@ import UIKit
             ), isPinned: result.isPinned, lastMessage: lastID.map { lastMessage(id: $0, topicID: id) },
             lastReadInboxMessageId: inbox,
             lastReadOutboxMessageId: outbox,
-            notificationSettings: result.notificationSettings, order: TdInt64(order), unreadCount: unreadCount,
+            notificationSettings: result.notificationSettings, order: Int64(order), unreadCount: unreadCount,
             unreadMentionCount: mentions, unreadPollVoteCount: 0, unreadReactionCount: 0,
         )
     }
@@ -526,22 +526,55 @@ import UIKit
 
     private static func lastMessage(id: Int64, topicID: Int) -> Message {
         Message(
-            authorSignature: "", autoDeleteIn: 0, canBeSaved: true, chatId: 7,
-            containsUnreadMention: false, containsUnreadPollVotes: false,
+            id: id,
+            senderId: .messageSenderUser(.init(userId: 1)),
+            receiverId: nil,
+            chatId: 7,
+            sendingState: nil,
+            schedulingState: nil,
+            isOutgoing: false,
+            isPinned: false,
+            isFromOffline: false,
+            canBeSaved: true,
+            hasTimestampedMedia: false,
+            isChannelPost: false,
+            isPaidStarSuggestedPost: false,
+            isPaidGramSuggestedPost: false,
+            containsUnreadMention: false,
+            containsUnreadPollVotes: false,
+            date: 1,
+            editDate: 0,
+            forwardInfo: nil,
+            importInfo: nil,
+            interactionInfo: nil,
+            unreadReactions: [],
+            factCheck: nil,
+            suggestedPostInfo: nil,
+            replyTo: nil,
+            topicId: .messageTopicForum(.init(forumTopicId: topicID)),
+            selfDestructType: nil,
+            selfDestructIn: 0,
+            autoDeleteIn: 0,
+            viaBotUserId: 0,
+            guestBotCallerId: nil,
+            senderBusinessBotUserId: 0,
+            senderBoostCount: 0,
+            senderTag: "",
+            paidMessageStarCount: 0,
+            authorSignature: "",
+            mediaAlbumId: 0,
+            effectId: 0,
+            restrictionInfo: nil,
+            summaryLanguageCode: "",
             content: .messageText(.init(
                 linkPreview: nil,
                 linkPreviewOptions: nil,
                 text: .init(entities: [], text: "probe"),
             )),
-            date: 1, editDate: 0, effectId: 0, ephemeralMessageId: 0, factCheck: nil, forwardInfo: nil,
-            guestBotCallerId: nil, hasTimestampedMedia: false, id: id, importInfo: nil, interactionInfo: nil,
-            isChannelPost: false, isFromOffline: false, isOutgoing: false, isPaidGramSuggestedPost: false,
-            isPaidStarSuggestedPost: false, isPinned: false, mediaAlbumId: 0, paidMessageStarCount: 0,
-            receiverId: nil, replyMarkup: nil, replyTo: nil, restrictionInfo: nil, schedulingState: nil,
-            selfDestructIn: 0, selfDestructType: nil, senderBoostCount: 0, senderBusinessBotUserId: 0,
-            senderId: .messageSenderUser(.init(userId: 1)), senderTag: "", sendingState: nil,
-            suggestedPostInfo: nil, summaryLanguageCode: "", topicId: .messageTopicForum(.init(forumTopicId: topicID)),
-            unreadReactions: [], viaBotUserId: 0,
+            ephemeralContent: nil,
+            replyMarkup: nil,
+            ephemeralMessageId: 0,
+            chatInstance: 0,
         )
     }
 

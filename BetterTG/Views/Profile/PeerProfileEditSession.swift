@@ -1,7 +1,7 @@
 // PeerProfileEditSession.swift
 
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - PeerProfileEditSession

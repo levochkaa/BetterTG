@@ -1,7 +1,7 @@
 // ChatComposerEditState.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 @MainActor final class ChatComposerEditState {
     enum Submission {

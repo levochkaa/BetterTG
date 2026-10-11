@@ -1,7 +1,7 @@
 // RootChatInsertion.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 /// Serializes membership intents while peer metadata is being hydrated. The
 /// captured client/root ticket remains the authority for every asynchronous read.
@@ -88,6 +88,7 @@ import TDLibKitDynamic
         if let chat = folder.chats.first(where: { $0.id == chatID }) {
             retire(key)
             chat.position = position
+            folder.chatDidChange.send(chatID)
             return
         }
         if let entry = pending[key], entry.folder === folder {

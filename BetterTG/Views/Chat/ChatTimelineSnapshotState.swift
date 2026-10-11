@@ -1,6 +1,6 @@
 // ChatTimelineSnapshotState.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - ChatTimelineMessageRow

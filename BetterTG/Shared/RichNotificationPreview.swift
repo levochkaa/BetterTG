@@ -1,7 +1,7 @@
 // RichNotificationPreview.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - RichNotificationPreview
 
@@ -112,7 +112,7 @@ enum RichNotificationPreviewPolicy {
     /// A push thumbnail omits spoiler/self-destruct evidence. Only an exact full
     /// Message can authorize its media or a generated caption/body override.
     static func select(
-        notification: TDLibKitDynamic.Notification,
+        notification: TDNativeNotification,
         target: RichNotificationTarget,
         chatID: Int64,
         isCurrent: () -> Bool,

@@ -1,6 +1,6 @@
 // ChatMessageActionAuthority.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 /// A rendered action owns its cell binding and payload, never a replacement row.

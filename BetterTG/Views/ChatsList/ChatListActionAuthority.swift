@@ -1,6 +1,6 @@
 // ChatListActionAuthority.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - ChatListActionAuthority

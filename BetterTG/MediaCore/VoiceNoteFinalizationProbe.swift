@@ -3,7 +3,7 @@
 #if DEBUG
     import AVFoundation
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
 
     enum VoiceNoteFinalizationProbe {
         private struct Failure: Swift.Error, CustomStringConvertible {

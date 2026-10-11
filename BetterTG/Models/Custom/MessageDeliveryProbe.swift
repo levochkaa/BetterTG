@@ -2,7 +2,7 @@
 
 #if DEBUG
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 @MainActor enum MessageDeliveryProbe {
@@ -139,10 +139,10 @@ import UIKit
 
     private static var failure: MessageSendingState {
         .messageSendingStateFailed(.init(
-            canRetry: true,
             error: .init(code: 400, message: "probe"),
-            needAnotherReplyQuote: false,
+            canRetry: true,
             needAnotherSender: false,
+            needAnotherReplyQuote: false,
             needDropReply: false,
             requiredPaidMessageStarCount: 0,
             retryAfter: 0,
@@ -195,55 +195,59 @@ import UIKit
         state: MessageSendingState? = nil,
         topic: MessageTopic? = nil,
         content: MessageContent? = nil,
+        interactionInfo: MessageInteractionInfo? = nil,
+        unreadReactions: [UnreadReaction] = [],
     ) -> Message {
         Message(
-            authorSignature: "",
-            autoDeleteIn: 0,
-            canBeSaved: true,
+            id: id,
+            senderId: .messageSenderUser(.init(userId: 1)),
+            receiverId: nil,
             chatId: chatID,
+            sendingState: state,
+            schedulingState: nil,
+            isOutgoing: outgoing,
+            isPinned: false,
+            isFromOffline: false,
+            canBeSaved: true,
+            hasTimestampedMedia: false,
+            isChannelPost: channel,
+            isPaidStarSuggestedPost: false,
+            isPaidGramSuggestedPost: false,
             containsUnreadMention: false,
             containsUnreadPollVotes: false,
+            date: Int(max(1, id)),
+            editDate: 0,
+            forwardInfo: nil,
+            importInfo: nil,
+            interactionInfo: interactionInfo,
+            unreadReactions: unreadReactions,
+            factCheck: nil,
+            suggestedPostInfo: nil,
+            replyTo: nil,
+            topicId: topic,
+            selfDestructType: nil,
+            selfDestructIn: 0,
+            autoDeleteIn: 0,
+            viaBotUserId: 0,
+            guestBotCallerId: nil,
+            senderBusinessBotUserId: 0,
+            senderBoostCount: 0,
+            senderTag: "",
+            paidMessageStarCount: 0,
+            authorSignature: "",
+            mediaAlbumId: Int64(album),
+            effectId: 0,
+            restrictionInfo: nil,
+            summaryLanguageCode: "",
             content: content ?? .messageText(.init(
                 linkPreview: nil,
                 linkPreviewOptions: nil,
                 text: .init(entities: [], text: "message"),
             )),
-            date: Int(max(1, id)),
-            editDate: 0,
-            effectId: 0,
-            ephemeralMessageId: 0,
-            factCheck: nil,
-            forwardInfo: nil,
-            guestBotCallerId: nil,
-            hasTimestampedMedia: false,
-            id: id,
-            importInfo: nil,
-            interactionInfo: nil,
-            isChannelPost: channel,
-            isFromOffline: false,
-            isOutgoing: outgoing,
-            isPaidGramSuggestedPost: false,
-            isPaidStarSuggestedPost: false,
-            isPinned: false,
-            mediaAlbumId: TdInt64(album),
-            paidMessageStarCount: 0,
-            receiverId: nil,
+            ephemeralContent: nil,
             replyMarkup: nil,
-            replyTo: nil,
-            restrictionInfo: nil,
-            schedulingState: nil,
-            selfDestructIn: 0,
-            selfDestructType: nil,
-            senderBoostCount: 0,
-            senderBusinessBotUserId: 0,
-            senderId: .messageSenderUser(.init(userId: 1)),
-            senderTag: "",
-            sendingState: state,
-            suggestedPostInfo: nil,
-            summaryLanguageCode: "",
-            topicId: topic,
-            unreadReactions: [],
-            viaBotUserId: 0,
+            ephemeralMessageId: 0,
+            chatInstance: 0,
         )
     }
 
@@ -931,12 +935,12 @@ import UIKit
             for mode in 0...2 {
                 let content: MessageContent? = mode == 2
                     ? .messagePhoto(.init(
+                        photo: .init(hasStickers: false, minithumbnail: nil, sizes: []),
+                        video: nil,
                         caption: .init(entities: [], text: ""),
+                        showCaptionAboveMedia: false,
                         hasSpoiler: false,
                         isSecret: false,
-                        photo: .init(hasStickers: false, minithumbnail: nil, sizes: []),
-                        showCaptionAboveMedia: false,
-                        video: nil,
                     ))
                     : nil
                 let value = fixture(id: 31, state: raw, content: content)

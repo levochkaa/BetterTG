@@ -1,7 +1,7 @@
 // ChatClientRestorationProbe.swift
 
 #if DEBUG
-    import TDLibKitDynamic
+    import TDLibKit
     import UIKit
 
     @MainActor enum ChatClientRestorationProbe {
@@ -161,8 +161,8 @@
                     maximum = max(maximum, active)
                     defer { active -= 1 }
                     await Task.yield()
-                    if id == 3 { throw TDLibKit.Error(code: 404, message: "Not Found") }
-                    if id == 2, fail { throw TDLibKit.Error(code: 500, message: "network unavailable") }
+                    if id == 3 { throw TDLibError(code: 404, message: "Not Found") }
+                    if id == 2, fail { throw TDLibError(code: 500, message: "network unavailable") }
                     return fixture(id: id)
                 },
                 deliver: { deliveries.append($0) },
@@ -337,7 +337,7 @@
                 location: location, source: source, seedIDs: [], visibleIDs: [], currentSource: { source },
                 read: { id in
                     reads.append(id)
-                    if fail { throw TDLibKit.Error(code: 500, message: "offline") }
+                    if fail { throw TDLibError(code: 500, message: "offline") }
                     return fixture(id: id, text: "read-\(reads.count)")
                 },
                 hydrate: { message in
@@ -477,7 +477,7 @@
                     if attempts == 1 || cancelDuringRead {
                         deferred.retryFailures() // Ready/manual retry while a batch owns the worker.
                         if cancelDuringRead { deferred.cancel() }
-                        throw TDLibKit.Error(code: 500, message: "interrupted")
+                        throw TDLibError(code: 500, message: "interrupted")
                     }
                     return fixture(id: id)
                 }, retriesPartialRaces: true,
@@ -624,22 +624,55 @@
             id: Int64, album: Int64 = 0, text: String = "message", topic: MessageTopic? = nil,
         ) -> Message {
             Message(
-                authorSignature: "", autoDeleteIn: 0, canBeSaved: true, chatId: 100,
-                containsUnreadMention: false, containsUnreadPollVotes: false,
+                id: id,
+                senderId: .messageSenderUser(.init(userId: 1)),
+                receiverId: nil,
+                chatId: 100,
+                sendingState: nil,
+                schedulingState: nil,
+                isOutgoing: true,
+                isPinned: false,
+                isFromOffline: false,
+                canBeSaved: true,
+                hasTimestampedMedia: false,
+                isChannelPost: false,
+                isPaidStarSuggestedPost: false,
+                isPaidGramSuggestedPost: false,
+                containsUnreadMention: false,
+                containsUnreadPollVotes: false,
+                date: Int(id),
+                editDate: 0,
+                forwardInfo: nil,
+                importInfo: nil,
+                interactionInfo: nil,
+                unreadReactions: [],
+                factCheck: nil,
+                suggestedPostInfo: nil,
+                replyTo: nil,
+                topicId: topic,
+                selfDestructType: nil,
+                selfDestructIn: 0,
+                autoDeleteIn: 0,
+                viaBotUserId: 0,
+                guestBotCallerId: nil,
+                senderBusinessBotUserId: 0,
+                senderBoostCount: 0,
+                senderTag: "",
+                paidMessageStarCount: 0,
+                authorSignature: "",
+                mediaAlbumId: Int64(album),
+                effectId: 0,
+                restrictionInfo: nil,
+                summaryLanguageCode: "",
                 content: .messageText(.init(
                     linkPreview: nil,
                     linkPreviewOptions: nil,
                     text: .init(entities: [], text: text),
                 )),
-                date: Int(id), editDate: 0, effectId: 0, ephemeralMessageId: 0, factCheck: nil,
-                forwardInfo: nil, guestBotCallerId: nil, hasTimestampedMedia: false, id: id,
-                importInfo: nil, interactionInfo: nil, isChannelPost: false, isFromOffline: false,
-                isOutgoing: true, isPaidGramSuggestedPost: false, isPaidStarSuggestedPost: false,
-                isPinned: false, mediaAlbumId: TdInt64(album), paidMessageStarCount: 0, receiverId: nil,
-                replyMarkup: nil, replyTo: nil, restrictionInfo: nil, schedulingState: nil,
-                selfDestructIn: 0, selfDestructType: nil, senderBoostCount: 0, senderBusinessBotUserId: 0,
-                senderId: .messageSenderUser(.init(userId: 1)), senderTag: "", sendingState: nil,
-                suggestedPostInfo: nil, summaryLanguageCode: "", topicId: topic, unreadReactions: [], viaBotUserId: 0,
+                ephemeralContent: nil,
+                replyMarkup: nil,
+                ephemeralMessageId: 0,
+                chatInstance: 0,
             )
         }
     }

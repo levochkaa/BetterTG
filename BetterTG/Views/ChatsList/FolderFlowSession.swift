@@ -1,7 +1,7 @@
 // FolderFlowSession.swift
 
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 /// Local editor state outlives a native client, but an issued action scope never does.

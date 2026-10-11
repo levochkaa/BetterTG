@@ -2,7 +2,7 @@
 
 import Combine
 import Foundation
-@preconcurrency import TDLibKitDynamic
+@preconcurrency import TDLibKit
 
 // MARK: - TDLibMediaUpdateStreams
 

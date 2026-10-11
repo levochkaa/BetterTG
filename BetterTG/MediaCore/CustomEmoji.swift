@@ -20,10 +20,6 @@ actor CustomEmojiStickerRepository {
     private var stickersByKey = [CacheKey: Sticker]()
     private var missingKeys = Set<CacheKey>()
 
-    func stickers(for identifiers: [Int64]) async -> [Int64: Sticker] {
-        await stickers(for: identifiers, client: td)
-    }
-
     func stickers(
         for identifiers: [Int64],
         client: TDLibClient,

@@ -23,7 +23,11 @@ import TDLibKit
 """
 
 UPDATE_FUNC = """
-func update(_ update: TDNativeUpdate) {
+func update(
+    _ update: TDNativeUpdate,
+    source: TdUpdateSource? = nil,
+    notificationCenter: NotificationCenter = nc
+) {
     switch update {
 """
 

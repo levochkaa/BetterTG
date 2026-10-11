@@ -1,7 +1,7 @@
 // ForumTopicsSnapshotState.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 /// Cell models belong to the diffable transaction, not the independently advancing VM.
 /// Keep outgoing rows until UIKit finishes; coalesce only the next transaction.

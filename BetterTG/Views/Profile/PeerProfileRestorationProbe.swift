@@ -2,7 +2,7 @@
 
 #if DEBUG
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 @MainActor enum PeerProfileRestorationProbe {
@@ -416,21 +416,55 @@ import UIKit
 
     private static func message(id: Int64) -> Message {
         Message(
-            authorSignature: "", autoDeleteIn: 0, canBeSaved: true, chatId: 8,
-            containsUnreadMention: false, containsUnreadPollVotes: false,
+            id: id,
+            senderId: .messageSenderUser(.init(userId: 1)),
+            receiverId: nil,
+            chatId: 8,
+            sendingState: nil,
+            schedulingState: nil,
+            isOutgoing: false,
+            isPinned: false,
+            isFromOffline: false,
+            canBeSaved: true,
+            hasTimestampedMedia: false,
+            isChannelPost: false,
+            isPaidStarSuggestedPost: false,
+            isPaidGramSuggestedPost: false,
+            containsUnreadMention: false,
+            containsUnreadPollVotes: false,
+            date: Int(id),
+            editDate: 0,
+            forwardInfo: nil,
+            importInfo: nil,
+            interactionInfo: nil,
+            unreadReactions: [],
+            factCheck: nil,
+            suggestedPostInfo: nil,
+            replyTo: nil,
+            topicId: nil,
+            selfDestructType: nil,
+            selfDestructIn: 0,
+            autoDeleteIn: 0,
+            viaBotUserId: 0,
+            guestBotCallerId: nil,
+            senderBusinessBotUserId: 0,
+            senderBoostCount: 0,
+            senderTag: "",
+            paidMessageStarCount: 0,
+            authorSignature: "",
+            mediaAlbumId: 0,
+            effectId: 0,
+            restrictionInfo: nil,
+            summaryLanguageCode: "",
             content: .messageText(.init(
                 linkPreview: nil,
                 linkPreviewOptions: nil,
                 text: .init(entities: [], text: "accepted"),
             )),
-            date: Int(id), editDate: 0, effectId: 0, ephemeralMessageId: 0, factCheck: nil, forwardInfo: nil,
-            guestBotCallerId: nil, hasTimestampedMedia: false, id: id, importInfo: nil, interactionInfo: nil,
-            isChannelPost: false, isFromOffline: false, isOutgoing: false, isPaidGramSuggestedPost: false,
-            isPaidStarSuggestedPost: false, isPinned: false, mediaAlbumId: 0, paidMessageStarCount: 0,
-            receiverId: nil, replyMarkup: nil, replyTo: nil, restrictionInfo: nil, schedulingState: nil,
-            selfDestructIn: 0, selfDestructType: nil, senderBoostCount: 0, senderBusinessBotUserId: 0,
-            senderId: .messageSenderUser(.init(userId: 1)), senderTag: "", sendingState: nil,
-            suggestedPostInfo: nil, summaryLanguageCode: "", topicId: nil, unreadReactions: [], viaBotUserId: 0,
+            ephemeralContent: nil,
+            replyMarkup: nil,
+            ephemeralMessageId: 0,
+            chatInstance: 0,
         )
     }
 }

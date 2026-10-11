@@ -1193,7 +1193,8 @@ ClientRestorableNavigationEntry {
               infoPermission.updateStatus(
                   update.supergroup.status,
                   chatType: .chatTypeSupergroup(.init(
-                      isChannel: update.supergroup.isChannel, supergroupId: update.supergroup.id,
+                      supergroupId: update.supergroup.id,
+                      isChannel: update.supergroup.isChannel,
                   )), source: source,
               )
         else { return }

@@ -667,7 +667,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         let scope = actionAuthority.scope(owner: self)
         guard scope.isCurrent, case .folder(let info, let definition) = folder.type else { return }
         let controller = ChatFolderChatSelectionViewController(
-            rootVM: rootVM,
+            session: .live(rootVM: rootVM, authority: actionAuthority),
             title: L10n.telegram("ChatList.AddChatsToFolder"),
             selectedChatIDs: Set(definition.includedChatIds),
         ) { selector, selectedChatIDs in
@@ -738,22 +738,25 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             preferredStyle: .alert,
         )
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        alert
-            .addAction(UIAlertAction(
-                title: L10n.telegram("ChatList.RemoveFolderAction"),
-                style: .destructive,
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    do {
-                        _ = try await td.deleteChatFolder(chatFolderId: info.id, leaveChatIds: [])
-                        if self?.rootVM.currentFolder == folder.id {
-                            self?.rootVM.currentFolder = self?.rootVM.folders.first(where: { $0.id == 0 })?.id
-                        }
-                    } catch {
-                        self?.presentFolderError(error)
+        alert.addAction(UIAlertAction(
+            title: L10n.telegram("ChatList.RemoveFolderAction"),
+            style: .destructive,
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                do {
+                    _ = try await scope.perform {
+                        try await client.deleteChatFolder(chatFolderId: info.id, leaveChatIds: [])
                     }
+                    guard scope.isCurrent else { return }
+                    if self?.rootVM.currentFolder == folder.id {
+                        self?.rootVM.currentFolder = self?.rootVM.folders.first(where: { $0.id == 0 })?.id
+                    }
+                } catch {
+                    guard scope.isCurrent else { return }
+                    self?.presentFolderError(error)
                 }
-            })
+            }
+        })
         present(alert, animated: true)
     }
 

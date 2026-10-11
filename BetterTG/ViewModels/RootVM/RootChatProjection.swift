@@ -1,7 +1,7 @@
 // RootChatProjection.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 /// A current-value projection, retained only by active reads. Repeated updates
 /// replace fields; they never append to a feed journal.
@@ -52,41 +52,53 @@ import TDLibKitDynamic
             let colors = accent.flatMap { $0.revision > boundary ? $0.value : nil }
             let read = unread.flatMap { $0.revision > boundary ? $0.value : nil }
             return Chat(
-                accentColorId: colors?.accentColorId ?? base.accentColorId,
-                actionBar: base.actionBar, availableReactions: base.availableReactions, background: base.background,
-                backgroundCustomEmojiId: colors?.backgroundCustomEmojiId ?? base.backgroundCustomEmojiId,
-                blockList: base.blockList, businessBotManageBar: base.businessBotManageBar,
-                canBeDeletedForAllUsers: base.canBeDeletedForAllUsers,
-                canBeDeletedOnlyForSelf: base.canBeDeletedOnlyForSelf,
-                canBeReported: base.canBeReported, chatLists: base.chatLists, clientData: base.clientData,
-                defaultDisableNotification: base.defaultDisableNotification,
-                draftMessage: draft.map { $0.replacing(base.draftMessage, after: boundary) } ?? base.draftMessage,
-                emojiStatus: base.emojiStatus, hasProtectedContent: base.hasProtectedContent,
-                hasScheduledMessages: base.hasScheduledMessages,
                 id: base.id,
-                isMarkedAsUnread: marked?.replacing(base.isMarkedAsUnread, after: boundary) ?? base.isMarkedAsUnread,
-                isTranslatable: base.isTranslatable,
-                lastMessage: last.map { $0.replacing(base.lastMessage, after: boundary) } ?? base.lastMessage,
-                lastReadInboxMessageId: read?.lastReadInboxMessageId ?? base.lastReadInboxMessageId,
-                lastReadOutboxMessageId: readOutbox?.replacing(base.lastReadOutboxMessageId, after: boundary)
-                    ?? base.lastReadOutboxMessageId,
-                messageAutoDeleteTime: base.messageAutoDeleteTime,
-                messageSenderId: base.messageSenderId,
-                notificationSettings: notifications?.replacing(base.notificationSettings, after: boundary) ?? base
-                    .notificationSettings,
-                pendingJoinRequests: base.pendingJoinRequests, permissions: base.permissions,
+                type: base.type,
+                title: title?.replacing(base.title, after: boundary) ?? base.title,
                 photo: photo.map { $0.replacing(base.photo, after: boundary) } ?? base.photo,
-                positions: positions(over: base.positions, after: boundary),
+                accentColorId: colors?.accentColorId ?? base.accentColorId,
+                backgroundCustomEmojiId: colors?.backgroundCustomEmojiId ?? base.backgroundCustomEmojiId,
+                upgradedGiftColors: colors.map(\.upgradedGiftColors) ?? base.upgradedGiftColors,
                 profileAccentColorId: colors?.profileAccentColorId ?? base.profileAccentColorId,
                 profileBackgroundCustomEmojiId: colors?.profileBackgroundCustomEmojiId ?? base
                     .profileBackgroundCustomEmojiId,
-                replyMarkupMessageId: base.replyMarkupMessageId, theme: base.theme,
-                title: title?.replacing(base.title, after: boundary) ?? base.title, type: base.type,
-                unreadCount: read?.unreadCount ?? base.unreadCount, unreadMentionCount: base.unreadMentionCount,
-                unreadPollVoteCount: base.unreadPollVoteCount, unreadReactionCount: base.unreadReactionCount,
-                upgradedGiftColors: colors.map(\.upgradedGiftColors) ?? base.upgradedGiftColors,
-                videoChat: base.videoChat,
+                permissions: base.permissions,
+                lastMessage: last.map { $0.replacing(base.lastMessage, after: boundary) } ?? base.lastMessage,
+                positions: positions(over: base.positions, after: boundary),
+                chatLists: base.chatLists,
+                messageSenderId: base.messageSenderId,
+                blockList: base.blockList,
+                hasProtectedContent: base.hasProtectedContent,
+                isTranslatable: base.isTranslatable,
+                isMarkedAsUnread: marked?.replacing(base.isMarkedAsUnread, after: boundary) ?? base.isMarkedAsUnread,
                 viewAsTopics: topics?.replacing(base.viewAsTopics, after: boundary) ?? base.viewAsTopics,
+                hasScheduledMessages: base.hasScheduledMessages,
+                hasWelcomeMessages: base.hasWelcomeMessages,
+                canBeDeletedOnlyForSelf: base.canBeDeletedOnlyForSelf,
+                canBeDeletedForAllUsers: base.canBeDeletedForAllUsers,
+                canBeReported: base.canBeReported,
+                defaultDisableNotification: base.defaultDisableNotification,
+                unreadCount: read?.unreadCount ?? base.unreadCount,
+                lastReadInboxMessageId: read?.lastReadInboxMessageId ?? base.lastReadInboxMessageId,
+                lastReadOutboxMessageId: readOutbox?.replacing(base.lastReadOutboxMessageId, after: boundary)
+                    ?? base.lastReadOutboxMessageId,
+                unreadMentionCount: base.unreadMentionCount,
+                unreadReactionCount: base.unreadReactionCount,
+                unreadPollVoteCount: base.unreadPollVoteCount,
+                notificationSettings: notifications?.replacing(base.notificationSettings, after: boundary) ?? base
+                    .notificationSettings,
+                availableReactions: base.availableReactions,
+                messageAutoDeleteTime: base.messageAutoDeleteTime,
+                emojiStatus: base.emojiStatus,
+                background: base.background,
+                theme: base.theme,
+                actionBar: base.actionBar,
+                businessBotManageBar: base.businessBotManageBar,
+                videoChat: base.videoChat,
+                pendingJoinRequests: base.pendingJoinRequests,
+                replyMarkupMessageId: base.replyMarkupMessageId,
+                draftMessage: draft.map { $0.replacing(base.draftMessage, after: boundary) } ?? base.draftMessage,
+                clientData: base.clientData,
             )
         }
     }
@@ -248,6 +260,7 @@ import TDLibKitDynamic
                 guard visited.insert(ObjectIdentifier(chat)).inserted,
                       chat.chat.lastReadOutboxMessageId != update.lastReadOutboxMessageId else { continue }
                 chat.chat = delta.applying(to: chat.chat, after: 0)
+                folder.chatDidChange.send(chat.id)
             }
         }
     }

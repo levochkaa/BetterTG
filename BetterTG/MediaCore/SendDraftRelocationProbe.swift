@@ -4,7 +4,7 @@
     import CoreGraphics
     import Foundation
     import ImageIO
-    import TDLibKitDynamic
+    import TDLibKit
     import UniformTypeIdentifiers
 
     enum SendDraftRelocationProbe {

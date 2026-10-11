@@ -2,7 +2,7 @@
 
 #if DEBUG
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
 
     @MainActor enum RichNotificationMediaPrewarmerProbe {
         enum Kind { case photo, video, animation, videoNote, document, sticker }
@@ -170,71 +170,71 @@
             switch kind {
             case .photo:
                 return .messagePhoto(.init(
-                    caption: caption,
-                    hasSpoiler: spoiler,
-                    isSecret: secret,
                     photo: .init(
                         hasStickers: false,
                         minithumbnail: mini,
                         sizes: [.init(height: 16, photo: file, progressiveSizes: [], type: "x", width: 16)],
                     ),
-                    showCaptionAboveMedia: false,
                     video: nil,
+                    caption: caption,
+                    showCaptionAboveMedia: false,
+                    hasSpoiler: spoiler,
+                    isSecret: secret,
                 ))
             case .video:
                 return .messageVideo(.init(
-                    alternativeVideos: [],
-                    caption: caption,
-                    cover: nil,
-                    hasSpoiler: spoiler,
-                    isSecret: secret,
-                    showCaptionAboveMedia: false,
-                    startTimestamp: 0,
-                    storyboards: [],
                     video: .init(
                         duration: 1,
-                        fileName: "probe",
-                        hasStickers: false,
+                        width: 16,
                         height: 16,
+                        fileName: "probe",
                         mimeType: "video/mp4",
-                        minithumbnail: mini,
+                        hasStickers: false,
                         supportsStreaming: false,
+                        minithumbnail: mini,
                         thumbnail: thumbnail,
                         video: file,
-                        width: 16,
                     ),
+                    alternativeVideos: [],
+                    storyboards: [],
+                    cover: nil,
+                    startTimestamp: 0,
+                    caption: caption,
+                    showCaptionAboveMedia: false,
+                    hasSpoiler: spoiler,
+                    isSecret: secret,
                 ))
             case .animation:
                 return .messageAnimation(.init(
                     animation: .init(
-                        animation: file,
                         duration: 1,
-                        fileName: "probe",
-                        hasStickers: false,
+                        width: 16,
                         height: 16,
+                        fileName: "probe",
                         mimeType: "video/mp4",
+                        hasStickers: false,
                         minithumbnail: mini,
                         thumbnail: thumbnail,
-                        width: 16,
+                        animation: file,
                     ),
                     caption: caption,
+                    showCaptionAboveMedia: false,
                     hasSpoiler: spoiler,
                     isSecret: secret,
-                    showCaptionAboveMedia: false,
                 ))
             case .videoNote:
                 return .messageVideoNote(.init(
-                    isSecret: secret,
-                    isViewed: false,
                     videoNote: .init(
                         duration: 1,
+                        waveform: Data(),
                         length: 16,
                         minithumbnail: mini,
-                        speechRecognitionResult: nil,
                         thumbnail: thumbnail,
+                        speechRecognitionResult: nil,
                         video: file,
-                        waveform: Data(),
                     ),
+                    isViewed: false,
+                    isSecret: secret,
                 ))
             case .document:
                 return .messageDocument(.init(caption: caption, document: .init(
@@ -245,17 +245,20 @@
                     thumbnail: thumbnail,
                 )))
             case .sticker:
-                return .messageSticker(.init(isPremium: false, sticker: .init(
-                    emoji: "",
-                    format: .stickerFormatWebp,
-                    fullType: .stickerFullTypeRegular(.init(premiumAnimation: nil)),
-                    height: 16,
-                    id: 1,
-                    setId: 0,
-                    sticker: file,
-                    thumbnail: thumbnail,
-                    width: 16,
-                )))
+                return .messageSticker(.init(
+                    sticker: .init(
+                        id: 1,
+                        setId: 0,
+                        width: 16,
+                        height: 16,
+                        emoji: "",
+                        format: .stickerFormatWebp,
+                        fullType: .stickerFullTypeRegular(.init(premiumAnimation: nil)),
+                        thumbnail: thumbnail,
+                        sticker: file,
+                    ),
+                    isPremium: false,
+                ))
             }
         }
 
@@ -268,49 +271,51 @@
             autoDeleteIn: Double = 0,
         ) -> Message {
             .init(
-                authorSignature: "",
-                autoDeleteIn: autoDeleteIn,
-                canBeSaved: true,
+                id: id,
+                senderId: .messageSenderUser(.init(userId: 1)),
+                receiverId: nil,
                 chatId: chatID,
+                sendingState: nil,
+                schedulingState: nil,
+                isOutgoing: false,
+                isPinned: false,
+                isFromOffline: false,
+                canBeSaved: true,
+                hasTimestampedMedia: false,
+                isChannelPost: false,
+                isPaidStarSuggestedPost: false,
+                isPaidGramSuggestedPost: false,
                 containsUnreadMention: false,
                 containsUnreadPollVotes: false,
-                content: content,
                 date: 0,
                 editDate: 0,
-                effectId: 0,
-                ephemeralMessageId: 0,
-                factCheck: nil,
                 forwardInfo: nil,
-                guestBotCallerId: nil,
-                hasTimestampedMedia: false,
-                id: id,
                 importInfo: nil,
                 interactionInfo: nil,
-                isChannelPost: false,
-                isFromOffline: false,
-                isOutgoing: false,
-                isPaidGramSuggestedPost: false,
-                isPaidStarSuggestedPost: false,
-                isPinned: false,
-                mediaAlbumId: 0,
-                paidMessageStarCount: 0,
-                receiverId: nil,
-                replyMarkup: nil,
-                replyTo: nil,
-                restrictionInfo: nil,
-                schedulingState: nil,
-                selfDestructIn: destructionIn,
-                selfDestructType: destruction,
-                senderBoostCount: 0,
-                senderBusinessBotUserId: 0,
-                senderId: .messageSenderUser(.init(userId: 1)),
-                senderTag: "",
-                sendingState: nil,
-                suggestedPostInfo: nil,
-                summaryLanguageCode: "",
-                topicId: nil,
                 unreadReactions: [],
+                factCheck: nil,
+                suggestedPostInfo: nil,
+                replyTo: nil,
+                topicId: nil,
+                selfDestructType: destruction,
+                selfDestructIn: destructionIn,
+                autoDeleteIn: autoDeleteIn,
                 viaBotUserId: 0,
+                guestBotCallerId: nil,
+                senderBusinessBotUserId: 0,
+                senderBoostCount: 0,
+                senderTag: "",
+                paidMessageStarCount: 0,
+                authorSignature: "",
+                mediaAlbumId: 0,
+                effectId: 0,
+                restrictionInfo: nil,
+                summaryLanguageCode: "",
+                content: content,
+                ephemeralContent: nil,
+                replyMarkup: nil,
+                ephemeralMessageId: 0,
+                chatInstance: 0,
             )
         }
 

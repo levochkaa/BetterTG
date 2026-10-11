@@ -2,7 +2,7 @@
 
 import CoreGraphics
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 // MARK: - GalleryPlayableMessage
 

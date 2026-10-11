@@ -67,8 +67,17 @@ import UIKit
     @Published var onlineStatus = ""
     @Published var memberCount = 0
     @Published var onlineMemberCount = 0
-    @Published var editCustomMessage: CustomMessage?
-    @Published var replyMessage: CustomMessage?
+    @Published private(set) var editCustomMessage: CustomMessage? {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
+    @Published var replyMessage: CustomMessage? {
+        didSet { queueForumTopicDemandRefresh() }
+    }
+
+    @Published private(set) var replyQuote: InputTextQuote?
+    @Published private(set) var replyInputOverride: InputMessageReplyTo?
+    @Published private(set) var replyFallbackPresentation: MessageReplyPresentation?
     @Published var highlightedMessageId: Int64?
     @Published var displayedImages = [SelectedImage]()
     @Published var displayedDocuments = [SelectedDocument]()
@@ -479,6 +488,26 @@ import UIKit
             && (activeVoiceRecordingDraft != nil || timerCount - voiceRecordingTimerBaseline >= 0.5)
     }
 
+    var canContinueVoiceRecording: Bool {
+        if let draft = activeVoiceRecordingDraft {
+            return (try? resolveFrozenMediaSendContext(
+                for: .voiceNote,
+                destination: draft.destination,
+                sendTopic: draft.sendTopic,
+                replyTo: draft.replyTo,
+            )) != nil
+        }
+        if let context = activeVoiceRecordingContext {
+            return (try? resolveFrozenMediaSendContext(
+                for: .voiceNote,
+                destination: context.draftKey,
+                sendTopic: context.destinationTopic,
+                replyTo: context.replyTo,
+            )) != nil
+        }
+        return canRecordVoiceNote
+    }
+
     var voiceRecordingPreviewPath: String? {
         guard voiceRecordingInteractionState == .preview else { return nil }
         return activeVoiceRecordingDraft?.fileURL.path()
@@ -527,6 +556,27 @@ import UIKit
         guard let draft = activeVoiceRecordingDraft else { return formattedTimerCount }
         let range = draft.effectiveRange
         return formatVoiceDuration(range.upperBound - range.lowerBound)
+    }
+
+    private var usesOrdinaryDeliveryReceipts: Bool {
+        guard location.topic == nil, !customChat.chat.viewAsTopics, !customChat.isSavedMessages else { return false }
+        if case .chatTypeSupergroup(let type) = customChat.chat.type {
+            guard let group = customChat.supergroup, group.id == type.supergroupId else { return false }
+            return !type.isChannel && !group.isForum && !group.isDirectMessagesGroup && !group.isChannel
+        }
+        return customChat.supergroup == nil
+    }
+
+    private var usesForumDeliveryReceipts: Bool {
+        guard let id = location.forumTopicID, id > 0, !customChat.isSavedMessages else { return false }
+        switch customChat.chat.type {
+        case .chatTypeSupergroup(let type):
+            guard let group = customChat.supergroup, group.id == type.supergroupId else { return false }
+            return group.isForum && !type.isChannel && !group.isChannel && !group.isDirectMessagesGroup
+        case .chatTypePrivate(let type):
+            return customChat.user?.id == type.userId && customChat.bot?.hasTopics == true
+        default: return false
+        }
     }
 
     private var pendingVideoRetryStatusMessage: String? {
@@ -583,13 +633,88 @@ import UIKit
         forumTopicsByID.values.first(where: { $0.info.isGeneral })
     }
 
-    init(
+    private var composerCanTransfer: Bool {
+        !previewing && !composerRestorationLifetime.isRetired
+            && !sendingComposerMessage && sendMessageTask == nil
+            && !loadingVoiceDraft && !startingVoiceNote && !finalizingVoiceNote
+            && !pendingVoiceDraftIsFinalizing && voiceFinalizeTask == nil
+            && !recordingVoiceNote && audioRecorder == nil && recordingVoiceNoteURL == nil
+            && voiceRecordingDraftTask == nil && voiceRecordingTrimTask == nil
+            && !voiceRecordingTrimIsUpdating && !hasPendingVoiceNote && !hasPendingVideoNote
+            && pendingVoiceNote == nil && activeVoiceRecordingDraft == nil && pendingVideoNote == nil
+            && !retryingVideoNote && videoRetryTask == nil && submittingVideoDraftIDs.isEmpty
+            && restoredVideoRecordingDraft == nil
+    }
+
+    convenience init(
         customChat: CustomChat,
         location: ChatLocation? = nil,
         forumTopic: ForumTopic? = nil,
         previewing: Bool = false,
+        client: TDLibClient? = nil,
     ) {
-        let client = td
+        self.init(
+            customChat: customChat, location: location, forumTopic: forumTopic,
+            previewing: previewing, restoration: nil, history: nil, visibleMessageIDs: [], client: client ?? td,
+        )
+    }
+
+    deinit {
+        deliveryReadTask?.cancel()
+        log("deinit \(chatID)")
+        loadingMessagesTask?.cancel()
+        messageRefreshTask?.cancel()
+        sendMessageTask?.cancel()
+        voiceFinalizeTask?.cancel()
+        voiceRecordingDraftTask?.cancel()
+        voiceRecordingTrimTask?.cancel()
+        voiceRetryAvailabilityTask?.cancel()
+        videoRetryAvailabilityTask?.cancel()
+        videoRetryTask?.cancel()
+        reactionMutationTasks.values.forEach { $0.cancel() }
+        pinnedMessageTask?.cancel()
+        forumTopicTask?.cancel()
+        draftClearTask?.cancel()
+        composerMediaDraftTask?.cancel()
+        pinMutationTasks.values.forEach { $0.cancel() }
+        voiceRecordingPreviewPlayer.stop()
+        chatInfoTask?.cancel()
+        timer?.invalidate()
+        audioRecorder?.stop()
+        MainActor.assumeIsolated {
+            allMessagesTopicReads?.retire()
+            voiceBackgroundCheckpoint.finish()
+            messageRefresh?.cancel()
+            composerRestorationLifetime.finish {
+                if audioRecorder != nil {
+                    Media.shared.endAudioSessionRecord()
+                }
+                if voiceRecordingPreviewOwnsAudioSession {
+                    Media.shared.endAudioSessionRecord()
+                }
+                if let recordingVoiceNoteURL {
+                    try? FileManager.default.removeItem(at: recordingVoiceNoteURL)
+                }
+                let outgoingDocumentURLs = Set(outgoingDocumentURLsByMessageID.values.map(\.standardizedFileURL))
+                SelectedDocumentFileStore.removeUnleased(displayedDocuments.map(\.url).filter {
+                    !outgoingDocumentURLs.contains($0.standardizedFileURL)
+                })
+                if !previewing { Media.shared.onChatDismiss() }
+            }
+        }
+        chatOpenLease.invalidate()
+    }
+
+    private init(
+        customChat: CustomChat,
+        location: ChatLocation?,
+        forumTopic: ForumTopic?,
+        previewing: Bool,
+        restoration: ChatComposerRestorationState?,
+        history: ChatHistoryRestorationState?,
+        visibleMessageIDs: [Int64],
+        client: TDLibClient,
+    ) {
         let resolvedLocation = location ?? ChatLocation.current(
             chatID: customChat.id,
             client: client,
@@ -613,13 +738,33 @@ import UIKit
         self.canAddReactions = customChat.chat.permissions.canReactToMessages
         self.maximumChosenReactionCount =
             customChat.chat.availableReactions.maximumChosenReactionCount
+        if UIApplication.shared.applicationState == .background {
+            _ = voiceRecordingLifecycle.suspend(.background)
+        }
         self.memberCount = customChat.group?.memberCount ?? customChat.supergroup?.memberCount ?? 0
         log("init \(customChat.chat.id)")
         if let user = customChat.user {
             self.onlineStatus = getOnlineStatus(from: user.status)
         }
 
+        // Install local intent before any publisher, server draft, or async load
+        // can fill the new composer. Only the one-shot factory can pass this seed.
+        if let restoration {
+            seedComposerRestoration(restoration)
+        }
+        if let history {
+            self.messages = history.makeMessages()
+            self.oldestHistoryMessageID = history.oldestHistoryMessageID
+            self.hasMoreMessages = history.hasMoreMessages
+            self.latestRestorationCursor = ChatHistoryLatestRefreshCursor(seed: history)
+            self.restorationWaitsForViewport = true
+        }
+        configureMessageRefresh(seedIDs: history?.sourceMessageIDs ?? [], visibleIDs: visibleMessageIDs)
+
         setPublishers()
+        loadDeliveryReceiptIfNeeded()
+        refreshAllMessagesForumTopicsIfNeeded()
+        refreshDeliveryStates()
         observeVoiceRecordingPreviewPlayer()
         observeVoiceRecordingInterruptions()
         loadGroupInfo()
@@ -739,39 +884,26 @@ import UIKit
         }
     }
 
-    deinit {
-        log("deinit \(chatID)")
-        loadingMessagesTask?.cancel()
-        sendMessageTask?.cancel()
-        voiceFinalizeTask?.cancel()
-        voiceRecordingDraftTask?.cancel()
-        voiceRecordingTrimTask?.cancel()
-        voiceRetryAvailabilityTask?.cancel()
-        videoRetryAvailabilityTask?.cancel()
-        videoRetryTask?.cancel()
-        reactionMutationTasks.values.forEach { $0.cancel() }
-        pinnedMessageTask?.cancel()
-        forumTopicTask?.cancel()
-        forumTopicTasks.values.forEach { $0.cancel() }
-        draftClearTask?.cancel()
-        composerMediaDraftTask?.cancel()
-        pinMutationTasks.values.forEach { $0.cancel() }
-        voiceRecordingPreviewPlayer.stop()
-        chatInfoTask?.cancel()
-        timer?.invalidate()
-        audioRecorder?.stop()
-        if let recordingVoiceNoteURL {
-            try? FileManager.default.removeItem(at: recordingVoiceNoteURL)
-        }
-        MainActor.assumeIsolated {
-            let outgoingDocumentURLs = Set(outgoingDocumentURLsByMessageID.values.map(\.standardizedFileURL))
-            SelectedDocumentFileStore.removeUnleased(displayedDocuments.map(\.url).filter {
-                !outgoingDocumentURLs.contains($0.standardizedFileURL)
-            })
-        }
-        chatOpenLease.invalidate()
-        if !previewing {
-            Media.shared.onChatDismiss()
+    static func restoringComposer(
+        from transfer: ChatComposerRestorationTransfer,
+        customChat: CustomChat,
+        location: ChatLocation,
+        forumTopic: ForumTopic? = nil,
+        history: ChatHistoryRestorationState? = nil,
+        visibleMessageIDs: [Int64] = [],
+        client: TDLibClient? = nil,
+    ) -> ChatVM? {
+        let client = client ?? td
+        guard location.chatID == customChat.id, location.clientID == client.id,
+              history.map({ $0.location.accountID == location.accountID
+                      && $0.location.chatID == location.chatID && $0.location.topic == location.topic }) ?? true
+        else { return nil }
+        return transfer.commit(to: location, currentSource: TDLib.shared.activeUpdateSource) { snapshot in
+            ChatVM(
+                customChat: customChat, location: location, forumTopic: forumTopic,
+                previewing: false, restoration: snapshot, history: history,
+                visibleMessageIDs: visibleMessageIDs, client: client,
+            )
         }
     }
 
@@ -1113,7 +1245,8 @@ import UIKit
     }
 
     func loadMessages() {
-        guard loadingMessagesTask == nil, hasMoreMessages else { return }
+        guard !restorationWaitsForViewport, latestRestorationCursor == nil,
+              loadingMessagesTask == nil, hasMoreMessages else { return }
         let fromMessageID = oldestHistoryMessageID ?? messages.last?.oldestSourceMessageID ?? 0
         loadingMessagesTask = Task { [weak self] in
             await self?._loadMessages(fromMessageID: fromMessageID)
@@ -1121,8 +1254,13 @@ import UIKit
     }
 
     func _loadMessages(fromMessageID: Int64) async {
-        defer { loadingMessagesTask = nil }
-        guard locationContextIsCurrent else { return }
+        guard !Task.isCancelled, locationContextIsCurrent else {
+            loadingMessagesTask = nil
+            return
+        }
+        let readToken = messageRefresh?.beginRead()
+        // TDLib may return a short page while it fills its local cache. Keep reading until a
+        // full page arrives, the history ends, or two reads in a row make no progress.
         var knownIDs = Set(messages.flatMap { $0.sourceMessages.map(\.id) })
         var cursor = fromMessageID
         var history = [Message]()
@@ -1134,7 +1272,14 @@ import UIKit
                 fromMessageId: cursor,
                 limit: min(100, remaining + (cursor == 0 ? 0 : 1)),
                 offset: 0,
-            ) else { return }
+            ) else {
+                loadingMessagesTask = nil
+                return
+            }
+            guard !Task.isCancelled, locationContextIsCurrent else {
+                loadingMessagesTask = nil
+                return
+            }
             guard !fetched.isEmpty else {
                 reachedEnd = true
                 break
@@ -1156,12 +1301,31 @@ import UIKit
             }
             cursor = nextCursor
         }
-        guard !Task.isCancelled, locationContextIsCurrent else { return }
-        let customMessages = await history.asyncMap { await getCustomMessage(from: $0) }
-        guard !Task.isCancelled, locationContextIsCurrent else { return }
-        messages = canonicalMessages(merging: messages, with: customMessages)
+        guard !Task.isCancelled, locationContextIsCurrent else {
+            loadingMessagesTask = nil
+            return
+        }
+        let customMessages = await history.filter { location.matches(message: $0) }.asyncMap { chatMessage in
+            await getCustomMessage(from: chatMessage)
+        }
+        guard !Task.isCancelled, locationContextIsCurrent else {
+            loadingMessagesTask = nil
+            return
+        }
+        let current = readToken.map {
+            messageRefresh?
+                .takeCurrentValues(customMessages.map(ChatHistoryMessageValue.init), token: $0)
+                .map { $0.makeMessage() } ?? []
+        } ?? customMessages
+        messages = canonicalMessages(
+            merging: messages,
+            with: current,
+            replacingExisting: true,
+        )
         oldestHistoryMessageID = cursor
         hasMoreMessages = !reachedEnd && noProgressCount < 2 && cursor != fromMessageID
+        loadingMessagesTask = nil
+        driveMessageRefresh()
     }
 
     func displayedMessageID(containing messageID: Int64) -> DisplayedMessageID? {
@@ -1343,25 +1507,35 @@ import UIKit
         }
     }
 
-    func submitPollAnswer(messageID: Int64, optionIDs: [Int]) {
+    func submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission) {
+        guard submission.messageID == messageID,
+              pollInteractionStore.currentSubmission(messageID: messageID) == submission else { return }
         guard !isReadOnlyTopic,
               locationContextIsCurrent,
               messages.contains(where: { message in
                   message.id == messageID || message.album.contains(where: { $0.id == messageID })
               })
-        else { return }
+        else {
+            pollInteractionStore.failSubmission(submission)
+            return
+        }
         let client = client
         Task {
             do {
-                guard locationContextIsCurrent else { return }
+                guard pollInteractionStore.currentSubmission(messageID: messageID) == submission else { return }
+                guard locationContextIsCurrent else {
+                    pollInteractionStore.failSubmission(submission)
+                    return
+                }
                 _ = try await client.setPollAnswer(
                     chatId: chatID,
                     messageId: messageID,
                     optionIds: optionIDs,
                 )
             } catch {
-                log("Couldn't submit poll answer for \(messageID): \(error.localizedDescription)")
-                pollInteractionStore.failSubmission(messageID: messageID)
+                if pollInteractionStore.failSubmission(submission) {
+                    log("Couldn't submit poll answer for \(messageID): \(error.localizedDescription)")
+                }
             }
         }
     }
@@ -1386,9 +1560,11 @@ import UIKit
         let messageID = message.id
         message.reactionMutationInFlight = true
         reactionMutationGenerations[messageID] = generation
+        messageRefresh?.setMutationBlocked(true, messageID: messageID, owner: .reaction)
         let client = client
         reactionMutationTasks[messageID] = Task { [weak self, weak message] in
             guard let self else { return }
+            defer { settleMessageMutation(messageID, owner: .reaction) }
             var optimistic: MessageReactions?
             var appliedOptimisticState = false
             do {
@@ -1490,7 +1666,13 @@ import UIKit
 
     func updateForumTopicInfo(_ info: ForumTopicInfo) {
         guard info.chatId == location.chatID else { return }
+        if isAllMessagesForum {
+            guard locationContextIsCurrent, let source = TDLib.shared.activeUpdateSource else { return }
+            allMessagesTopicReads?.receive(info, source: source)
+            return
+        }
         if info.forumTopicId == location.forumTopicID {
+            forumTopicInfoRevision &+= 1
             forumTopicInfo = info
         }
         if let topic = forumTopicsByID[info.forumTopicId] {
@@ -1504,65 +1686,76 @@ import UIKit
     }
 
     func refreshForumTopic(id: Int) {
-        guard isAllMessagesForum,
-              forumTopicTasks[id] == nil,
-              locationContextIsCurrent
-        else { return }
-        let client = client
-        let accountID = accountID
-        forumTopicTasks[id] = Task { [weak self] in
-            guard let self else { return }
-            defer { forumTopicTasks[id] = nil }
-            let topic = try? await client.getForumTopic(
-                chatId: location.chatID,
-                forumTopicId: id,
-            )
-            guard !Task.isCancelled,
-                  TDLib.shared.activeAccountID == accountID,
-                  TDLib.shared.activeClient.id == client.id
-            else { return }
-            guard let topic else { return }
-            forumTopicsByID[id] = topic
-            messagesDidChange.send()
-        }
+        guard let reader = allMessagesForumReader() else { return }
+        reader.request(id)
+        // Reply/draft callers install their context synchronously after requesting.
+        queueForumTopicDemandRefresh()
+    }
+
+    func receiveAllMessagesForumTopicUpdate(_ update: UpdateForumTopic, source: TdUpdateSource) {
+        guard isAllMessagesForum, locationContextIsCurrent else { return }
+        allMessagesTopicReads?.receive(update, source: source)
+    }
+
+    func retryAllMessagesForumTopics() {
+        refreshAllMessagesForumTopicsIfNeeded()
+        allMessagesTopicReads?.retryMissing()
     }
 
     func loadForumTopic() {
-        guard let forumTopicID = location.forumTopicID else { return }
+        guard let forumTopicID = location.forumTopicID, forumTopicID > 0, locationContextIsCurrent,
+              let metadataRead = forumTopicLiveUpdates.beginRead(source: TDLib.shared.activeUpdateSource),
+              let receiptRead = deliveryReceipts.beginRead(source: TDLib.shared.activeUpdateSource, location: location)
+        else { return }
         forumTopicTask?.cancel()
+        let requestID = UUID()
+        forumTopicRequestID = requestID
         let client = client
-        let accountID = accountID
+        let location = location
         let expectedComposerRevision = composerRevision
+        let expectedInfoRevision = forumTopicInfoRevision
         forumTopicTask = Task { [weak self] in
-            guard let self else { return }
+            defer {
+                if let self, forumTopicRequestID == requestID {
+                    forumTopicLiveUpdates.finishRead(metadataRead, topic: nil, source: TDLib.shared.activeUpdateSource)
+                    deliveryReceipts.finishForumRead(
+                        receiptRead, topic: nil, source: TDLib.shared.activeUpdateSource, location: location,
+                    )
+                    forumTopicRequestID = nil
+                    forumTopicTask = nil
+                }
+            }
+            guard !Task.isCancelled, self?.locationContextIsCurrent == true,
+                  self?.forumTopicRequestID == requestID else { return }
             do {
                 let topic = try await client.getForumTopic(
                     chatId: location.chatID,
                     forumTopicId: forumTopicID,
                 )
-                guard !Task.isCancelled,
-                      TDLib.shared.activeAccountID == accountID,
-                      TDLib.shared.activeClient.id == client.id
+                guard let self, !Task.isCancelled, locationContextIsCurrent, forumTopicRequestID == requestID,
+                      topic.info.chatId == location.chatID, topic.info.forumTopicId == forumTopicID
                 else { return }
-                forumTopic = topic
-                forumTopicInfo = topic.info
-                if awaitingAuthoritativeDraftClear, topic.draftMessage == nil {
+                if deliveryReceipts.finishForumRead(
+                    receiptRead, topic: topic, source: TDLib.shared.activeUpdateSource, location: location,
+                ) { refreshDeliveryStates() }
+                guard var accepted = forumTopicLiveUpdates.finishRead(
+                    metadataRead, topic: topic, source: TDLib.shared.activeUpdateSource,
+                ) else { return }
+                if forumTopicInfoRevision != expectedInfoRevision, let forumTopicInfo {
+                    accepted = accepted.replacing(info: forumTopicInfo)
+                }
+                forumTopic = accepted
+                forumTopicInfo = accepted.info
+                if awaitingAuthoritativeDraftClear, accepted.draftMessage == nil {
                     awaitingAuthoritativeDraftClear = false
                     composerIsDirty = false
                 } else if !awaitingAuthoritativeDraftClear, canWriteBasicMessages {
                     applyAuthoritativeDraft(
-                        topic.draftMessage,
+                        accepted.draftMessage,
                         expectedRevision: expectedComposerRevision,
                     )
                 }
-                forumTopicTask = nil
-            } catch {
-                guard !Task.isCancelled,
-                      TDLib.shared.activeAccountID == accountID,
-                      TDLib.shared.activeClient.id == client.id
-                else { return }
-                forumTopicTask = nil
-            }
+            } catch {} // Keep current scalar state; the existing Ready/user refresh can retry.
         }
     }
 
@@ -1608,6 +1801,7 @@ import UIKit
     }
 
     func applyPinnedMessageUpdate(messageID: Int64, isPinned: Bool) {
+        notePartialMessageUpdate([messageID])
         pinnedMessageAuthoritativeRevision &+= 1
         pinAuthoritativeRevisions[messageID, default: 0] &+= 1
         messages.first(where: { $0.id == messageID })?.isPinned = isPinned
@@ -1774,6 +1968,7 @@ import UIKit
         }
         
         customMessage.formattedText = customMessage.contentPresentation.formattedText
+        if case .messageSendingStateFailed = message.sendingState { customMessage.sendFailed = true }
         
         return customMessage
     }
@@ -2295,27 +2490,31 @@ import UIKit
         try? await cancelChatAction(in: context)
         return (context, [message])
     }
-    
-    func editMessage() async {
-        guard let message = editCustomMessage?.message else { return }
-        
-        switch message.content {
-        case .messageText:
-            _ = try? await td.editMessageText(
-                chatId: customChat.chat.id,
-                inputMessageContent:
-                .inputMessageText(
-                    .init(
-                        text: FormattedText(
-                            entities: getEntities(from: editMessageText),
-                            text: editMessageText.string,
-                        ),
-                        linkPreviewOptions: nil,
-                        clearDraft: true,
-                    ),
-                ),
-                messageId: message.id,
-                replyMarkup: nil,
+
+    func submitVideoNote(
+        _ asset: VideoNoteAsset,
+        thumbnail: VideoNoteInputThumbnailAsset? = nil,
+        originRecordingDraftID: UUID? = nil,
+        replyingTo reply: CustomMessage?,
+        storedReplyMessageID: Int64? = nil,
+        storedReplyTo: InputMessageReplyTo? = nil,
+        storedSendTopic: MessageTopic? = nil,
+    ) async -> VideoNoteSubmissionResult {
+        let sendContext: ResolvedSendContext
+        do {
+            sendContext = try isAllMessagesForum
+                ? resolveFrozenMediaSendContext(
+                    for: .videoNote,
+                    destination: location.draftKey,
+                    sendTopic: storedSendTopic,
+                    replyTo: storedReplyTo ?? getMessageReplyTo(from: reply),
+                )
+                : resolveSendContext(for: .videoNote, replyingTo: reply)
+        } catch {
+            return .retained(
+                asset,
+                originConsumed: false,
+                message: error.localizedDescription,
             )
         }
         var draft: VideoNoteSendDraft
@@ -2632,45 +2831,10 @@ import UIKit
         }
     }
 
-    func editMessage() async throws -> ResolvedSendContext {
-        guard let message = editCustomMessage?.message else {
-            throw ChatSendContextError.unexpectedDestination
-        }
-        let context = try resolveEditContext(for: message)
-        
-        switch message.content {
-        case .messageText:
-            _ = try await client.editMessageText(
-                chatId: customChat.chat.id,
-                inputMessageContent:
-                .inputMessageText(
-                    InputMessageText(
-                        clearDraft: false,
-                        linkPreviewOptions: nil,
-                        text: FormattedText(
-                            entities: getEntities(from: editMessageText),
-                            text: editMessageText.string,
-                        ),
-                    ),
-                ),
-                messageId: message.id,
-                replyMarkup: nil,
-            )
-        case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageVideo, .messageVoiceNote:
-            _ = try await client.editMessageCaption(
-                caption: FormattedText(
-                    entities: getEntities(from: editMessageText),
-                    text: editMessageText.string,
-                ),
-                chatId: customChat.chat.id,
-                messageId: message.id,
-                replyMarkup: nil,
-                showCaptionAboveMedia: false,
-            )
-        default:
-            throw ChatSendContextError.chatPermissionDenied
-        }
-        return context
+    func beginMessageEditing(_ message: CustomMessage) {
+        composerEditState.changeSession()
+        editCustomMessage = message
+        setEditMessageText(from: message.message)
     }
 
     func cancelMessageEditing() {
@@ -2679,20 +2843,19 @@ import UIKit
         editMessageText = ""
     }
 
-    func setEditMessageText(from message: Message?) {
-        switch message?.content {
-        case .messageText(let messageText):
-            editMessageText = getAttributedString(from: messageText.text)
-        case .messagePhoto(let messagePhoto):
-            editMessageText = getAttributedString(from: messagePhoto.caption)
-        case .messageVoiceNote(let messageVoiceNote):
-            editMessageText = getAttributedString(from: messageVoiceNote.caption)
-        case .messageAnimation(let messageAnimation):
-            editMessageText = getAttributedString(from: messageAnimation.caption)
-        case .messageVideo(let messageVideo):
-            editMessageText = getAttributedString(from: messageVideo.caption)
-        default:
-            break
+    func updateDraft() async {
+        guard editCustomMessage == nil else { return }
+        do {
+            let context = try resolveSendContext(
+                for: .text,
+                replyingTo: replyMessage,
+                useCurrentReplyOverride: true,
+            )
+            try await updateDraft(in: context, replyTo: context.replyTo)
+        } catch {
+            if !(error is CancellationError) {
+                log("Chat draft update failed: \(error)")
+            }
         }
     }
 
@@ -5033,7 +5196,7 @@ import UIKit
                 if let finalization {
                     // Only preflight or an explicit TDLib rejection proves that no
                     // message was accepted. Unknown post-RPC failures stay unresolved.
-                    if !didStartSend || error is TDLibKit.Error,
+                    if !didStartSend || error is TDLibError,
                        draft.enqueueStartedAt != nil, draft.temporaryMessageID == nil
                     {
                         _ = try? await VoiceNoteDraftStore.shared.markPending(

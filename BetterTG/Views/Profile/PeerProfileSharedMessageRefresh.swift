@@ -1,6 +1,6 @@
 // PeerProfileSharedMessageRefresh.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - PeerProfileSharedMessageRefresh
@@ -239,7 +239,7 @@ private extension PeerProfileViewController.SharedTab {
             switch message.content {
             case .messageGame: false
             // Unsupported content must not be misclassified as a confirmed filter removal.
-            case .messageGift, .messageGiftedPremium, .messageGiftedStars, .messageGiftedTon,
+            case .messageGift, .messageGiftedGrams, .messageGiftedPremium, .messageGiftedStars,
                  .messageInvoice, .messagePaidMedia, .messagePremiumGiftCode, .messageRichMessage, .messageUpgradedGift:
                 nil
             default:

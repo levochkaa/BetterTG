@@ -2,7 +2,7 @@
 
 import Combine
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 /// Owns only active app prewarming attempts, not a history/cache eligibility
 /// registry. Durable entries and NSE fallback require a separate evidence gate.

@@ -2,7 +2,7 @@
 
 import Combine
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 /// One configured view's file authority. File IDs are local to a TDLib client;
 /// neither queued notifications nor an RPC may bind to a replacement client.

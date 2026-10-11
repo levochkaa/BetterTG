@@ -35,6 +35,6 @@ import UIKit
     }
 
     static func summary(for message: Message) -> String {
-        MessageContentPresentation.make(message).summary
+        MessageTextSpoilerPresentation.summary(for: message)
     }
 }

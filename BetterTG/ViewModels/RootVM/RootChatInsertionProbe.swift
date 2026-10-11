@@ -2,7 +2,7 @@
 
 #if DEBUG
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
 
     @MainActor enum RootChatInsertionProbe {
         private struct Failure: Swift.Error, CustomStringConvertible { let description: String }
@@ -100,16 +100,58 @@
         static func chat(
             _ position: ChatPosition, title: String = "probe", id: Int64 = 7, user: User? = nil,
             last: Message? = nil, draft: DraftMessage? = nil, photo: ChatPhotoInfo? = nil, unread: Int = 0,
+            viewAsTopics: Bool = false,
         ) -> CustomChat {
             let raw = Chat(
-                accentColorId: -1, actionBar: nil,
-                availableReactions: .chatAvailableReactionsAll(.init(maxReactionCount: 1)),
-                background: nil, backgroundCustomEmojiId: 0, blockList: nil, businessBotManageBar: nil,
-                canBeDeletedForAllUsers: false, canBeDeletedOnlyForSelf: false, canBeReported: false,
-                chatLists: [position.list], clientData: "", defaultDisableNotification: false, draftMessage: draft,
-                emojiStatus: nil, hasProtectedContent: false, hasScheduledMessages: false, id: id,
-                isMarkedAsUnread: false, isTranslatable: false, lastMessage: last, lastReadInboxMessageId: 0,
-                lastReadOutboxMessageId: 0, messageAutoDeleteTime: 0, messageSenderId: nil,
+                id: id,
+                type: user
+                .map { .chatTypePrivate(.init(userId: $0.id)) } ?? .chatTypeBasicGroup(.init(basicGroupId: 7)),
+                title: title,
+                photo: photo,
+                accentColorId: -1,
+                backgroundCustomEmojiId: 0,
+                upgradedGiftColors: nil,
+                profileAccentColorId: -1,
+                profileBackgroundCustomEmojiId: 0,
+                permissions: .init(
+                    canSendBasicMessages: false,
+                    canSendAudios: false,
+                    canSendDocuments: false,
+                    canSendPhotos: false,
+                    canSendVideos: false,
+                    canSendVideoNotes: false,
+                    canSendVoiceNotes: false,
+                    canSendPolls: false,
+                    canSendOtherMessages: false,
+                    canAddLinkPreviews: false,
+                    canReactToMessages: false,
+                    canEditTag: false,
+                    canChangeInfo: false,
+                    canInviteUsers: false,
+                    canPinMessages: false,
+                    canCreateTopics: false,
+                ),
+                lastMessage: last,
+                positions: [position],
+                chatLists: [position.list],
+                messageSenderId: nil,
+                blockList: nil,
+                hasProtectedContent: false,
+                isTranslatable: false,
+                isMarkedAsUnread: false,
+                viewAsTopics: viewAsTopics,
+                hasScheduledMessages: false,
+                hasWelcomeMessages: false,
+                canBeDeletedOnlyForSelf: false,
+                canBeDeletedForAllUsers: false,
+                canBeReported: false,
+                defaultDisableNotification: false,
+                unreadCount: unread,
+                lastReadInboxMessageId: 0,
+                lastReadOutboxMessageId: 0,
+                unreadMentionCount: 0,
+                unreadReactionCount: 0,
+                unreadPollVoteCount: 0,
                 notificationSettings: .init(
                     disableMentionNotifications: false, disablePinnedMessageNotifications: false, muteFor: 0,
                     muteStories: false, showPreview: true, showStoryPoster: true, soundId: 0, storySoundId: 0,
@@ -117,23 +159,22 @@
                     useDefaultMuteFor: true, useDefaultMuteStories: true, useDefaultShowPreview: true,
                     useDefaultShowStoryPoster: true, useDefaultSound: true, useDefaultStorySound: true,
                 ),
-                pendingJoinRequests: nil, permissions: .init(
-                    canAddLinkPreviews: false, canChangeInfo: false, canCreateTopics: false, canEditTag: false,
-                    canInviteUsers: false, canPinMessages: false, canReactToMessages: false, canSendAudios: false,
-                    canSendBasicMessages: false, canSendDocuments: false, canSendOtherMessages: false,
-                    canSendPhotos: false, canSendPolls: false, canSendVideoNotes: false, canSendVideos: false,
-                    canSendVoiceNotes: false,
-                ),
-                photo: photo, positions: [position], profileAccentColorId: -1, profileBackgroundCustomEmojiId: 0,
-                replyMarkupMessageId: 0, theme: nil, title: title,
-                type: user
-                .map { .chatTypePrivate(.init(userId: $0.id)) } ?? .chatTypeBasicGroup(.init(basicGroupId: 7)),
-                unreadCount: unread, unreadMentionCount: 0, unreadPollVoteCount: 0, unreadReactionCount: 0,
-                upgradedGiftColors: nil, videoChat: .init(
-                    defaultParticipantId: nil,
+                availableReactions: .chatAvailableReactionsAll(.init(maxReactionCount: 1)),
+                messageAutoDeleteTime: 0,
+                emojiStatus: nil,
+                background: nil,
+                theme: nil,
+                actionBar: nil,
+                businessBotManageBar: nil,
+                videoChat: .init(
                     groupCallId: 0,
                     hasParticipants: false,
-                ), viewAsTopics: false,
+                    defaultParticipantId: nil,
+                ),
+                pendingJoinRequests: nil,
+                replyMarkupMessageId: 0,
+                draftMessage: draft,
+                clientData: "",
             )
             return CustomChat(
                 chat: raw, position: position, unreadCount: unread,
@@ -142,9 +183,9 @@
                     return .user(user)
                 } ?? .group(.init(
                     id: 7,
-                    isActive: true,
                     memberCount: 2,
                     status: .chatMemberStatusMember(.init(memberUntilDate: 0)),
+                    isActive: true,
                     upgradedToSupergroupId: 0,
                 )), lastMessage: last, draftMessage: draft,
             )

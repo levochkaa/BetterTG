@@ -1,6 +1,6 @@
 // ChatMessageRenderValue.swift
 
-import TDLibKitDynamic
+import TDLibKit
 
 /// Exact in-process rendering state. Unlike a history seed, this retains derived
 /// delivery and in-flight flags. It grants no client, route, or action authority.
@@ -21,7 +21,7 @@ struct ChatMessageRenderValue: Equatable {
     let isReplyQuoteExpanded: Bool
 
     var displayedID: DisplayedMessageID {
-        message.mediaAlbumId == 0 ? .message(message.id) : .album(message.mediaAlbumId.rawValue)
+        message.mediaAlbumId == 0 ? .message(message.id) : .album(message.mediaAlbumId)
     }
 
     var sourceMessages: [Message] {

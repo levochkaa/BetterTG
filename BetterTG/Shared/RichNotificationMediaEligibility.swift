@@ -1,6 +1,6 @@
 // RichNotificationMediaEligibility.swift
 
-import TDLibKitDynamic
+import TDLibKit
 
 /// Notification previews never inherit an in-app spoiler reveal. Full-message
 /// admission is required: MessageContent alone omits the self-destruct envelope.

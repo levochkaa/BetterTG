@@ -1,6 +1,6 @@
 // ComposerText.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 /// Composer semantics travel with the text, independently of its visual attributes.

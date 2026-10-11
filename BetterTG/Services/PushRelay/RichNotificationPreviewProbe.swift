@@ -2,7 +2,7 @@
 
 #if DEBUG
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
 
     @MainActor enum RichNotificationPreviewProbe {
         private typealias Models = RichNotificationMediaPrewarmerProbe
@@ -129,9 +129,12 @@
             }
             let ordinary = Models.message(Models.content(.photo))
             let noThumbnail = Models.message(.messagePhoto(.init(
-                caption: .init(entities: [], text: "caption"), hasSpoiler: false, isSecret: false,
                 photo: .init(hasStickers: false, minithumbnail: nil, sizes: []),
-                showCaptionAboveMedia: false, video: nil,
+                video: nil,
+                caption: .init(entities: [], text: "caption"),
+                showCaptionAboveMedia: false,
+                hasSpoiler: false,
+                isSecret: false,
             )))
             let noThumbnailSelection = await Policy.select(
                 notification: full(noThumbnail), target: target, chatID: 7, isCurrent: { true }, fetch: { nil },
@@ -245,7 +248,7 @@
                 )
             }
             var observation = Policy.Observation()
-            let replacement = Update.updateNotification(.init(notification: hidden(), notificationGroupId: 5))
+            let replacement = Update.updateNotification(.init(notificationGroupId: 5, notification: hidden()))
             try require(!observation.revokes(replacement, target: target), "unbound replacement admitted")
             try require(
                 !observation.revokes(group([pushPhoto()], chatID: 8), target: target)
@@ -259,17 +262,17 @@
             )
             try require(
                 !observation.revokes(
-                    .updateNotification(.init(notification: pushPhoto(), notificationGroupId: 5)),
+                    .updateNotification(.init(notificationGroupId: 5, notification: pushPhoto())),
                     target: target,
                 ),
                 "ordinary bound replacement denied",
             )
             try require(!observation.revokes(.updateNotification(.init(
-                notification: full(Models.message(Models.content(.photo), chatID: 8), showPreview: false),
                 notificationGroupId: 5,
+                notification: full(Models.message(Models.content(.photo), chatID: 8), showPreview: false),
             )), target: target), "bound group accepted a different full-message chat")
             try require(!observation.revokes(
-                .updateNotification(.init(notification: hidden(), notificationGroupId: 6)),
+                .updateNotification(.init(notificationGroupId: 6, notification: hidden())),
                 target: target,
             ), "wrong group revoked")
         }
@@ -279,7 +282,7 @@
             let changes: [Update] = [
                 group([hidden()]),
                 group([full(ordinary, showPreview: false)]),
-                .updateNotification(.init(notification: hidden(), notificationGroupId: 5)),
+                .updateNotification(.init(notificationGroupId: 5, notification: hidden())),
                 .updateMessageContent(.init(
                     chatId: 7,
                     messageId: target.messageID,
@@ -380,38 +383,56 @@
             )
         }
 
-        private static func full(_ message: Message, showPreview: Bool = true) -> TDLibKitDynamic.Notification {
-            .init(date: 1, id: 1, isSilent: false, type: .notificationTypeNewMessage(.init(
-                message: message, showPreview: showPreview,
-            )))
+        private static func full(_ message: Message, showPreview: Bool = true) -> TDNativeNotification {
+            .init(
+                id: 1,
+                date: 1,
+                isSilent: false,
+                type: .notificationTypeNewMessage(.init(
+                    message: message, showPreview: showPreview,
+                )),
+            )
         }
 
-        private static func hidden(id: Int = 1) -> TDLibKitDynamic.Notification {
+        private static func hidden(id: Int = 1) -> TDNativeNotification {
             push(.pushMessageContentHidden(.init(isPinned: false)), id: id)
         }
 
-        private static func pushPhoto(secret: Bool = false, id: Int = 2) -> TDLibKitDynamic.Notification {
+        private static func pushPhoto(secret: Bool = false, id: Int = 2) -> TDNativeNotification {
             guard case .messagePhoto(let value) = Models.content(.photo) else { preconditionFailure() }
             return push(.pushMessageContentPhoto(.init(
-                caption: "caption",
-                isPinned: false,
-                isSecret: secret,
                 photo: value.photo,
+                caption: "caption",
+                isSecret: secret,
+                isPinned: false,
             )), id: id)
         }
 
-        private static func push(_ content: PushMessageContent, id: Int) -> TDLibKitDynamic.Notification {
-            .init(date: 1, id: id, isSilent: false, type: .notificationTypeNewPushMessage(.init(
-                content: content, isOutgoing: false, messageId: target.messageID,
-                senderId: .messageSenderUser(.init(userId: 7)), senderName: "Probe",
-            )))
+        private static func push(_ content: PushMessageContent, id: Int) -> TDNativeNotification {
+            .init(
+                id: id,
+                date: 1,
+                isSilent: false,
+                type: .notificationTypeNewPushMessage(.init(
+                    messageId: target.messageID,
+                    senderId: .messageSenderUser(.init(userId: 7)),
+                    senderName: "Probe",
+                    isOutgoing: false,
+                    content: content,
+                )),
+            )
         }
 
-        private static func group(_ notifications: [TDLibKitDynamic.Notification], chatID: Int64 = 7) -> Update {
+        private static func group(_ notifications: [TDNativeNotification], chatID: Int64 = 7) -> Update {
             .updateNotificationGroup(.init(
-                addedNotifications: notifications, chatId: chatID, notificationGroupId: 5,
-                notificationSettingsChatId: chatID, notificationSoundId: 0,
-                removedNotificationIds: [], totalCount: notifications.count, type: .notificationGroupTypeMessages,
+                notificationGroupId: 5,
+                type: .notificationGroupTypeMessages,
+                chatId: chatID,
+                notificationSettingsChatId: chatID,
+                notificationSoundId: 0,
+                totalCount: notifications.count,
+                addedNotifications: notifications,
+                removedNotificationIds: [],
             ))
         }
 

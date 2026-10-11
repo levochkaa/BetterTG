@@ -1986,6 +1986,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if let message {
             pinnedMessageBanner.configure(
                 message: message,
+                client: chatVM.client,
                 onOpen: { [weak self] in
                     self?.scrollToMessage(id: message.id)
                 },

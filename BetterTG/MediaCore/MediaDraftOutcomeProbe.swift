@@ -2,7 +2,7 @@
 
 #if DEBUG
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
 
     enum MediaDraftOutcomeProbe {
         private struct Failure: Swift.Error, CustomStringConvertible {

@@ -1,7 +1,7 @@
 // MediaRevealSession.swift
 
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - MediaRevealSession

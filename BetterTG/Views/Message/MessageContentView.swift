@@ -80,10 +80,18 @@ final class MessageMediaView: UIView {
                 )
                 view = videoNoteView
             case .messageAnimation(let animation):
-                if telegramAnimationUsesFFmpeg(animation.animation) {
+                if let owner = videoPlaybackOwners[message.id], owner.matches(message: message.message) {
+                    let inlineView = InlineVideoMediaView()
+                    inlineView.configure(
+                        owner: owner,
+                        size: CGSize(width: animation.animation.width, height: animation.animation.height),
+                    ) { onTap([message.message], message.id) }
+                    view = inlineView
+                } else if telegramAnimationUsesFFmpeg(animation.animation) {
                     let animationView = FFmpegAnimatedVideoView()
                     animationView.configure(
                         file: animation.animation.animation,
+                        client: client,
                         thumbnail: animation.animation.thumbnail,
                         displaySize: telegramMediaDisplaySize(source: CGSize(
                             width: CGFloat(animation.animation.width),
@@ -103,6 +111,8 @@ final class MessageMediaView: UIView {
                             height: CGFloat(animation.animation.height),
                         ),
                         showsPlayIcon: true,
+                        usesFileAsThumbnailFallback: false,
+                        client: client,
                     ) { onTap([message.message], message.id) }
                     view = fileView
                 }
@@ -111,6 +121,7 @@ final class MessageMediaView: UIView {
                     let stickerView = TGSStickerView()
                     stickerView.configure(
                         file: sticker.sticker.sticker,
+                        client: client,
                         thumbnail: sticker.sticker.thumbnail,
                         displaySize: telegramMediaDisplaySize(source: CGSize(
                             width: CGFloat(sticker.sticker.width),
@@ -123,6 +134,7 @@ final class MessageMediaView: UIView {
                     let stickerView = AnimatedWebPView()
                     stickerView.configure(
                         file: sticker.sticker.sticker,
+                        client: client,
                         thumbnail: sticker.sticker.thumbnail,
                         displaySize: telegramMediaDisplaySize(source: CGSize(
                             width: CGFloat(sticker.sticker.width),
@@ -135,6 +147,7 @@ final class MessageMediaView: UIView {
                     let stickerView = FFmpegAnimatedVideoView()
                     stickerView.configure(
                         file: sticker.sticker.sticker,
+                        client: client,
                         thumbnail: sticker.sticker.thumbnail,
                         displaySize: telegramMediaDisplaySize(source: CGSize(
                             width: CGFloat(sticker.sticker.width),
@@ -151,11 +164,14 @@ final class MessageMediaView: UIView {
                         minithumbnail: nil,
                         size: CGSize(width: CGFloat(sticker.sticker.width), height: CGFloat(sticker.sticker.height)),
                         showsPlayIcon: sticker.sticker.format.typeID != TDNativeStickerFormatWebp.typeID,
+                        client: client,
                     ) { onTap([message.message], message.id) }
                     view = fileView
                 }
             case .messageVideo(let video):
-                if let videoPlaybackOwner = videoPlaybackOwners[message.id] {
+                if let videoPlaybackOwner = videoPlaybackOwners[message.id],
+                   videoPlaybackOwner.matches(message: message.message)
+                {
                     let inlineView = InlineVideoMediaView()
                     inlineView.configure(
                         owner: videoPlaybackOwner,
@@ -171,6 +187,7 @@ final class MessageMediaView: UIView {
                         size: CGSize(width: CGFloat(video.video.width), height: CGFloat(video.video.height)),
                         showsPlayIcon: true,
                         usesFileAsThumbnailFallback: false,
+                        client: client,
                     ) { onTap([message.message], message.id) }
                     view = fileView
                 }
@@ -884,27 +901,86 @@ final class TDImageLoadingView: UIImageView {
     #endif
 
     private var representedRequest: RequestIdentity?
+    private var representedOrigin: TDImageOrigin?
+    private var fileRequest: AnimatedFileDownload?
     private var renderGeneration = UUID()
     private var hasFullImage = false
-    private var downloadTask: Task<Void, Never>?
     private var decodeTask: Task<Void, Never>?
     private var placeholderTask: Task<Void, Never>?
     private var cancellable: AnyCancellable?
+
+    static func fileUpdates(
+        source: TdUpdateSource,
+        fileID: Int,
+        center: NotificationCenter = nc,
+        currentSource: @escaping () -> TdUpdateSource? = { TDLib.shared.activeUpdateSource },
+    ) -> AnyPublisher<File, Never> {
+        center.publisher(for: TdNotification<UpdateFile>.updateFile.name)
+            .compactMap { TdScopedUpdate<UpdateFile>(notification: $0) }
+            .receive(on: DispatchQueue.main)
+            .filter { $0.source == source && currentSource() == source && $0.value.file.id == fileID }
+            .map(\.value.file)
+            .eraseToAnyPublisher()
+    }
+
+    private static func decodeImage(at path: String, key: TDImageThumbnailKey) async -> UIImage? {
+        await TDImageThumbnailPipeline.shared.image(at: path, key: key).map { UIImage(cgImage: $0.image) }
+    }
 
     func load(
         photo: Photo,
         preferredSize: PhotoSizeType,
         maximumPixelSize: Int = 960,
+        client: TDLibClient,
+    ) {
+        load(
+            photo: photo,
+            preferredSize: preferredSize,
+            maximumPixelSize: maximumPixelSize,
+            origin: .captured(client: client),
+        )
+    }
+
+    func load(
+        photo: Photo,
+        preferredSize: PhotoSizeType,
+        maximumPixelSize: Int = 960,
+        origin: TDImageOrigin?,
     ) {
         let placeholderData = photo.minithumbnail?.data
         guard let size = photo.sizes.getSize(preferredSize) ?? photo.sizes.first else {
-            loadPlaceholder(data: placeholderData, maximumPixelSize: maximumPixelSize)
+            loadPlaceholder(data: placeholderData, maximumPixelSize: maximumPixelSize, origin: origin)
             return
         }
-        load(file: size.photo, placeholderData: placeholderData, maximumPixelSize: maximumPixelSize)
+        load(
+            file: size.photo,
+            placeholderData: placeholderData,
+            maximumPixelSize: maximumPixelSize,
+            origin: origin,
+        )
     }
 
-    func load(file: File, placeholderData: Data? = nil, maximumPixelSize: Int = 960) {
+    func load(
+        file: File,
+        placeholderData: Data? = nil,
+        maximumPixelSize: Int = 1280,
+        accountID: UUID? = nil,
+        client: TDLibClient,
+    ) {
+        load(
+            file: file,
+            placeholderData: placeholderData,
+            maximumPixelSize: maximumPixelSize,
+            origin: .captured(client: client, accountID: accountID),
+        )
+    }
+
+    func load(
+        file: File,
+        placeholderData: Data? = nil,
+        maximumPixelSize: Int = 960,
+        origin: TDImageOrigin?,
+    ) {
         cancel()
         image = nil
         guard let origin, admit(origin) else { return }
@@ -917,81 +993,28 @@ final class TDImageLoadingView: UIImageView {
         )
         representedRequest = request
         renderGeneration = request.generation
-        image = nil
-        hasFullImage = false
         if let cached = TDImageThumbnailPipeline.shared.cachedImage(for: request.thumbnailKey.cacheKey) {
-            apply(cached, asFullImageFor: request)
+            apply(UIImage(cgImage: cached.image), asFullImageFor: request)
             return
         }
         preparePlaceholder(placeholderData, for: request)
-        update(file: file, for: request)
-        if file.local.isDownloadingCompleted, !file.local.path.isEmpty {
-            return
-        }
-        cancellable = nc.publisher(for: .updateFile)
-            .filter { $0.file.id == file.id }
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] update in self?.update(file: update.file, for: request) }
-        downloadTask = Task { [weak self] in
-            let downloaded = try? await client.downloadFile(
-                fileId: file.id,
-                limit: 0,
-                offset: 0,
-                priority: 1,
-                synchronous: false,
-            )
-            guard let self, let downloaded else { return }
-            await MainActor.run { self.update(file: downloaded, for: request) }
-        }
-    }
-
-    func load(
-        file: File,
-        placeholderData: Data? = nil,
-        maximumPixelSize: Int = 1280,
-        accountID: UUID,
-        client: TDLibClient,
-    ) {
-        cancel()
-        let request = RequestIdentity(
-            accountID: accountID,
-            clientID: client.id,
-            fileID: file.id,
-            maximumPixelSize: maximumPixelSize,
-            generation: UUID(),
+        let download = origin.request(fileID: file.id)
+        fileRequest = download
+        download.start(
+            file: file,
+            onFile: { [weak self] in self?.update(file: $0, for: request) },
+            onInvalidated: { [weak self] in self?.invalidate() },
         )
-        representedRequest = request
-        renderGeneration = request.generation
-        image = nil
-        hasFullImage = false
-        if let cached = TDImageThumbnailPipeline.shared.cachedImage(for: request.thumbnailKey.cacheKey) {
-            apply(cached, asFullImageFor: request)
-            return
-        }
-        preparePlaceholder(placeholderData, for: request)
-        update(file: file, for: request)
-        downloadTask = Task { [weak self] in
-            let downloaded = try? await client.downloadFile(
-                fileId: file.id,
-                limit: 0,
-                offset: 0,
-                priority: 1,
-                synchronous: true,
-            )
-            guard let self,
-                  !Task.isCancelled,
-                  TDLib.shared.activeAccountID == accountID,
-                  TDLib.shared.activeClient.id == client.id,
-                  let downloaded
-            else { return }
-            update(file: downloaded, for: request)
-        }
     }
 
-    func loadPlaceholder(data: Data?, maximumPixelSize: Int = 960) {
+    func loadPlaceholder(data: Data?, maximumPixelSize: Int = 960, client: TDLibClient) {
+        loadPlaceholder(data: data, maximumPixelSize: maximumPixelSize, origin: .captured(client: client))
+    }
+
+    func loadPlaceholder(data: Data?, maximumPixelSize: Int = 960, origin: TDImageOrigin?) {
         cancel()
         image = nil
-        guard let data else { return }
+        guard let origin, admit(origin), let data else { return }
         let generation = renderGeneration
         placeholderTask = Task { [weak self] in
             let prepared = await TDImageThumbnailPipeline.shared.standalonePlaceholderImage(
@@ -1000,7 +1023,11 @@ final class TDImageLoadingView: UIImageView {
             )
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard let self, self.renderGeneration == generation, let prepared else { return }
+                guard let self,
+                      self.renderGeneration == generation,
+                      self.representedOrigin?.isCurrent == true,
+                      let prepared
+                else { return }
                 self.image = UIImage(cgImage: prepared.image)
             }
         }
@@ -1017,9 +1044,10 @@ final class TDImageLoadingView: UIImageView {
     func cancel() {
         renderGeneration = UUID()
         representedRequest = nil
+        representedOrigin = nil
         hasFullImage = false
-        downloadTask?.cancel()
-        downloadTask = nil
+        fileRequest?.cancel()
+        fileRequest = nil
         decodeTask?.cancel()
         decodeTask = nil
         placeholderTask?.cancel()
@@ -1027,6 +1055,21 @@ final class TDImageLoadingView: UIImageView {
         cancellable?.cancel()
         cancellable = nil
         loadedPath = nil
+    }
+
+    private func admit(_ origin: TDImageOrigin) -> Bool {
+        guard origin.isCurrent else { return false }
+        representedOrigin = origin
+        cancellable = origin.changes.receive(on: DispatchQueue.main).sink { [weak self] _ in
+            guard let self, representedOrigin?.isCurrent != true else { return }
+            invalidate()
+        }
+        return true
+    }
+
+    private func invalidate() {
+        cancel()
+        image = nil
     }
 
     private func update(file: File, for request: RequestIdentity) {
@@ -1037,19 +1080,31 @@ final class TDImageLoadingView: UIImageView {
               loadedPath != file.local.path
         else { return }
         let path = file.local.path
-        guard !path.isEmpty else { return }
+        let key = request.thumbnailKey
         loadedPath = path
         decodeTask?.cancel()
+        #if DEBUG
+            let debugDecode = debugDecode
+        #endif
         decodeTask = Task { [weak self] in
-            let prepared = await TDImageThumbnailPipeline.shared.image(at: path, key: request.thumbnailKey)
+            #if DEBUG
+                let decoded =
+ if let debugDecode {
+                    await debugDecode(path, key.maximumPixelSize)
+                } else {
+                    await Self.decodeImage(at: path, key: key)
+                }
+            #else
+                let decoded = await Self.decodeImage(at: path, key: key)
+            #endif
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard let self,
                       self.representedRequest == request,
-                      TDLib.shared.activeClient.id == request.clientID,
-                      let prepared
+                      self.representedOrigin?.isCurrent == true,
+                      let decoded
                 else { return }
-                self.apply(prepared, asFullImageFor: request)
+                self.apply(decoded, asFullImageFor: request)
             }
         }
     }
@@ -1071,6 +1126,7 @@ final class TDImageLoadingView: UIImageView {
             await MainActor.run {
                 guard let self,
                       self.representedRequest == request,
+                      self.representedOrigin?.isCurrent == true,
                       !self.hasFullImage,
                       let prepared
                 else { return }
@@ -1079,12 +1135,12 @@ final class TDImageLoadingView: UIImageView {
         }
     }
 
-    private func apply(_ prepared: PreparedCGImage, asFullImageFor request: RequestIdentity) {
+    private func apply(_ decoded: UIImage, asFullImageFor request: RequestIdentity) {
         guard representedRequest == request else { return }
         hasFullImage = true
         placeholderTask?.cancel()
         placeholderTask = nil
-        image = UIImage(cgImage: prepared.image)
+        image = decoded
     }
 }
 
@@ -1099,24 +1155,30 @@ enum TDMediaPrefetcher {
         case ffmpegVideo
     }
 
-    static func prefetch(message: Message, client _: TDLibClient) async {
-        let files: [(id: Int, decodeKind: DecodeKind)] =
+    @MainActor static func prefetch(
+        message: Message,
+        client: TDLibClient,
+        revealPermit: MediaRevealPermit? = nil,
+    ) async {
+        guard MediaRevealPermit.allows(message, permit: revealPermit, requiresPermit: true) else { return }
+        guard let source = TDLib.shared.activeUpdateSource, source.clientID == client.id else { return }
+        let files: [(file: File, decodeKind: DecodeKind)] =
             switch message.content {
             case .messagePhoto(let photo):
-                photo.photo.sizes.getSize(.yBox).map { [($0.photo.id, .none)] } ?? []
+                photo.photo.sizes.getSize(.yBox).map { [($0.photo, .none)] } ?? []
             case .messageAudio(let audio):
-                [audio.audio.albumCoverThumbnail?.file.id]
+                [audio.audio.albumCoverThumbnail?.file]
                     .compactMap(\.self)
                     .map { ($0, .none) }
             case .messageDocument(let document):
-                [document.document.thumbnail?.file.id]
+                [document.document.thumbnail?.file]
                     .compactMap(\.self)
                     .map { ($0, .none) }
             case .messageVoiceNote(let voice):
-                [(voice.voiceNote.voice.id, .none)]
+                [(voice.voiceNote.voice, .unpooledMedia)]
             case .messageVideoNote(let video):
-                [video.videoNote.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
-                    + [(video.videoNote.video.id, .none)]
+                [video.videoNote.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
+                    + [(video.videoNote.video, .unpooledMedia)]
             case .messageAnimation(let animation):
                 if telegramAnimationUsesFFmpeg(animation.animation) {
                     [animation.animation.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
@@ -1132,38 +1194,49 @@ enum TDMediaPrefetcher {
             case .messageDice(let dice):
                 dice.value == 0 ? stickerFiles(regularSticker(dice.initialState)) : []
             case .messageVideo(let video):
-                [video.video.thumbnail?.file.id].compactMap(\.self).map { ($0, .none) }
+                [video.video.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
             default:
                 []
             }
-        let client = td
-        let accountID = TDLib.shared.activeAccountID
-        for file in files where !Task.isCancelled {
-            let downloaded = await withTaskCancellationHandler {
-                try? await client.downloadFile(
-                    fileId: file.id,
+        for file in files {
+            guard !Task.isCancelled, TDLib.shared.activeUpdateSource == source,
+                  MediaRevealPermit.allows(message, permit: revealPermit, requiresPermit: true) else { return }
+            let downloaded: File?
+            switch file.decodeKind {
+            case .none:
+                guard let origin = TDImageOrigin.captured(client: client) else { return }
+                downloaded = await origin.request(fileID: file.file.id).completedFile(file: file.file)
+            case .ffmpegVideo, .tgs, .webP:
+                guard let request = AnimatedFileDownload(fileID: file.file.id, client: client) else { return }
+                downloaded = await request.completedFile(file: file.file)
+            case .unpooledMedia:
+                // Playback does not share this demand yet. Start prefetch without
+                // waiting for completion or cancelling another consumer's file.
+                downloaded = try? await client.downloadFile(
+                    fileId: file.file.id,
                     limit: 0,
                     offset: 0,
                     priority: 1,
-                    synchronous: true,
+                    synchronous: false,
                 )
-            } onCancel: {
-                Task { try? await client.cancelDownloadFile(fileId: file.id, onlyIfPending: true) }
             }
+            guard !Task.isCancelled, TDLib.shared.activeUpdateSource == source,
+                  MediaRevealPermit.allows(message, permit: revealPermit, requiresPermit: true) else { return }
             guard let downloaded,
                   downloaded.local.isDownloadingCompleted,
-                  !downloaded.local.path.isEmpty,
-                  !Task.isCancelled
+                  !downloaded.local.path.isEmpty
             else { continue }
             switch file.decodeKind {
             case .none:
                 let key = TDImageThumbnailKey(
-                    accountID: accountID,
-                    clientID: client.id,
-                    fileID: file.id,
+                    accountID: source.accountID,
+                    clientID: source.clientID,
+                    fileID: downloaded.id,
                     maximumPixelSize: 960,
                 )
                 _ = await TDImageThumbnailPipeline.shared.image(at: downloaded.local.path, key: key)
+            case .unpooledMedia:
+                break
             case .tgs:
                 _ = await TGSAnimationRepository.animation(at: downloaded.local.path)
             case .webP:
@@ -1185,7 +1258,7 @@ enum TDMediaPrefetcher {
         }
     }
 
-    private static func stickerFiles(_ sticker: Sticker?) -> [(id: Int, decodeKind: DecodeKind)] {
+    private static func stickerFiles(_ sticker: Sticker?) -> [(file: File, decodeKind: DecodeKind)] {
         guard let sticker else { return [] }
         return [sticker.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
             + [(sticker.sticker, decodeKind(for: sticker.format))]

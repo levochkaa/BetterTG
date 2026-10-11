@@ -2,7 +2,7 @@
 
 #if DEBUG
     import Combine
-    import TDLibKitDynamic
+    import TDLibKit
     import UIKit
 
     @MainActor enum LoginAuthorizationProbe {
@@ -94,7 +94,9 @@
             try require(!input.isEnabled && !button.isEnabled, "cold state submitted")
             relay.activate(a1)
             let password = AuthorizationState.authorizationStateWaitPassword(.init(
-                hasPassportData: false, hasRecoveryEmailAddress: false, passwordHint: "probe hint",
+                passwordHint: "probe hint",
+                hasRecoveryEmailAddress: false,
+                hasPassportData: false,
                 recoveryEmailAddressPattern: "",
             ))
             relay.update(password, source: a1)
@@ -127,8 +129,10 @@
             try require(relay.current == nil, "closed source revived after handoff")
             relay.activate(a2)
             let code = AuthorizationState.authorizationStateWaitCode(.init(codeInfo: .init(
-                nextType: nil, phoneNumber: "isolated", timeout: 10,
+                phoneNumber: "isolated",
                 type: .authenticationCodeTypeTelegramMessage(.init(length: 5)),
+                nextType: nil,
+                timeout: 10,
             )))
             relay.update(code, source: a2)
             input.text = "12345"
@@ -199,13 +203,13 @@
                 )),
                 .authorizationStateWaitOtherDeviceConfirmation(.init(link: "tg://isolated")),
                 .authorizationStateWaitRegistration(.init(termsOfService: .init(
+                    text: .init(entities: [], text: ""),
                     minUserAge: 0,
                     showPopup: false,
-                    text: .init(entities: [], text: ""),
                 ))),
                 .authorizationStateWaitPremiumPurchase(.init(
-                    premiumDayCount: 0,
                     storeProductId: "",
+                    premiumDayCount: 0,
                     supportEmailAddress: "",
                     supportEmailSubject: "",
                 )),

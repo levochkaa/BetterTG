@@ -2,7 +2,7 @@
 
 import Combine
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 /// Shared whole-image/animated-file demand. VOD ranges have a separate owner and must not
 /// enter this pool: changing downloadFile's offset/limit supersedes their request.

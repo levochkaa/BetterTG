@@ -111,6 +111,7 @@
 "ChatList.FolderAllChats" = "All Chats";
 "ChatList.Tabs.All" = "All";
 "ChatList.PeerTypeContact" = "contact";
+"ChatList.PeerTypeNonContact" = "non-contact";
 "ChatList.PeerTypeBot" = "bot";
 "ChatList.PeerTypeGroup" = "group";
 "ChatList.PeerTypeChannel" = "channel";

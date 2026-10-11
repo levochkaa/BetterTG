@@ -2,7 +2,7 @@
 
 #if DEBUG
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 @MainActor enum PeerProfileEditSessionProbe {
@@ -104,22 +104,22 @@ import UIKit
 
         static func permissions(_ allowed: Bool) -> ChatPermissions {
             .init(
+                canSendBasicMessages: false,
+                canSendAudios: false,
+                canSendDocuments: false,
+                canSendPhotos: false,
+                canSendVideos: false,
+                canSendVideoNotes: false,
+                canSendVoiceNotes: false,
+                canSendPolls: false,
+                canSendOtherMessages: false,
                 canAddLinkPreviews: false,
-                canChangeInfo: allowed,
-                canCreateTopics: false,
+                canReactToMessages: false,
                 canEditTag: false,
+                canChangeInfo: allowed,
                 canInviteUsers: false,
                 canPinMessages: false,
-                canReactToMessages: false,
-                canSendAudios: false,
-                canSendBasicMessages: false,
-                canSendDocuments: false,
-                canSendOtherMessages: false,
-                canSendPhotos: false,
-                canSendPolls: false,
-                canSendVideoNotes: false,
-                canSendVideos: false,
-                canSendVoiceNotes: false,
+                canCreateTopics: false,
             )
         }
 

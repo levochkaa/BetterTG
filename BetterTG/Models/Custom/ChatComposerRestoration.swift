@@ -1,6 +1,6 @@
 // ChatComposerRestoration.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - ChatComposerRestorationState

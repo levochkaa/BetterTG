@@ -2,7 +2,7 @@
 
 import Combine
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 /// Ownership and preparation boundary. The live model keeps its immutable TDLib
 /// client; native probes can supply isolated models and gated metadata reads.

@@ -1,7 +1,7 @@
 // PeerProfileInfoPermission.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 func peerProfileCanChangeInfo(
     chatType: ChatType,

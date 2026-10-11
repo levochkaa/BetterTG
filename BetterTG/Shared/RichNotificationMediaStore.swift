@@ -3,7 +3,7 @@
 import CryptoKit
 import Darwin
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 /// Synchronous utility-queue API; never call on main or under a session lock.
 /// Final publication alone may use request ownership -> account flock, never the

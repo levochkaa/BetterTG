@@ -2,7 +2,7 @@
 
 #if DEBUG
     import Combine
-    import TDLibKitDynamic
+    import TDLibKit
     import UIKit
 
     @MainActor enum FolderFlowSessionProbe {
@@ -201,9 +201,9 @@
                 upgradedGiftColors: nil,
                 usernames: username.map { .init(
                     activeUsernames: [$0],
-                    collectibleUsernames: [],
                     disabledUsernames: [],
                     editableUsername: $0,
+                    collectibleUsernames: [],
                 ) },
                 verificationStatus: nil,
             )
@@ -233,21 +233,49 @@
             let deleted = pickerChat(id: 101, user: pickerUser(id: 101, type: .userTypeDeleted))
             let unknown = pickerChat(id: 102, user: pickerUser(id: 102, type: .userTypeUnknown))
             let botType = UserType.userTypeBot(.init(
-                activeUserCount: 0, allowsUsersToCreateTopics: false, canBeAddedToAttachmentMenu: false,
-                canBeEdited: false, canConnectToBusiness: false, canJoinGroups: false, canManageBots: false,
-                canReadAllGroupMessages: false, hasMainWebApp: false, hasTopics: false, inlineQueryPlaceholder: "",
-                isGuard: false, isInline: false, needLocation: false, supportsGuestQueries: false,
+                canBeEdited: false,
+                canJoinGroups: false,
+                canReadAllGroupMessages: false,
+                hasMainWebApp: false,
+                hasTopics: false,
+                allowsUsersToCreateTopics: false,
+                canManageBots: false,
+                isInline: false,
+                inlineQueryPlaceholder: "",
+                supportsGuestQueries: false,
+                isGuard: false,
+                needLocation: false,
+                canConnectToBusiness: false,
+                canBeAddedToAttachmentMenu: false,
+                activeUserCount: 0,
             ))
             let channel = pickerChat(id: 113)
             channel.type = .supergroup(.init(
-                activeStoryState: nil, boostLevel: 0, date: 0, hasAutomaticTranslation: false,
-                hasDirectMessagesGroup: false, hasForumTabs: false, hasLinkedChat: false, hasLocation: false,
-                id: 113, isAdministeredDirectMessagesGroup: false, isBroadcastGroup: false, isChannel: true,
-                isDirectMessagesGroup: false, isForum: false, isSlowModeEnabled: false, joinByRequest: false,
-                joinToSendMessages: false, memberCount: 0, paidMessageStarCount: 0, restrictionInfo: nil,
-                showMessageSender: false, signMessages: false,
+                id: 113,
+                usernames: nil,
+                date: 0,
                 status: .chatMemberStatusMember(.init(memberUntilDate: 0)),
-                usernames: nil, verificationStatus: nil,
+                memberCount: 0,
+                boostLevel: 0,
+                hasAutomaticTranslation: false,
+                hasLinkedChat: false,
+                hasLocation: false,
+                signMessages: false,
+                showMessageSender: false,
+                joinToSendMessages: false,
+                joinByRequest: false,
+                isSlowModeEnabled: false,
+                isChannel: true,
+                isBroadcastGroup: false,
+                isForum: false,
+                isDirectMessagesGroup: false,
+                isAdministeredDirectMessagesGroup: false,
+                verificationStatus: nil,
+                hasDirectMessagesGroup: false,
+                hasForumTabs: false,
+                restrictionInfo: nil,
+                paidMessageStarCount: 0,
+                activeStoryState: nil,
             ))
             let cases: [(CustomChat, String, String?)] = [
                 (deleted, "Deleted Account", nil), (unknown, "Unknown User", nil),

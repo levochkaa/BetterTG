@@ -1,7 +1,7 @@
 // RichNotificationTarget.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 /// The relay identifies an ordinary cloud message, not a local or scheduled ID.
 /// Account and peer validation precede any use of a notification's content.
@@ -63,7 +63,7 @@ struct RichNotificationTarget: Equatable {
         chatID != 0 && messageChatID == chatID && messageID == self.messageID
     }
 
-    func matches(notification: TDLibKitDynamic.Notification, groupChatID: Int64) -> Bool {
+    func matches(notification: TDNativeNotification, groupChatID: Int64) -> Bool {
         guard groupChatID != 0, groupChatID == expectedChatID else { return false }
         switch notification.type {
         case .notificationTypeNewPushMessage(let value):
@@ -75,8 +75,8 @@ struct RichNotificationTarget: Equatable {
         }
     }
 
-    func notification(in notifications: [TDLibKitDynamic.Notification], groupChatID: Int64)
-    -> TDLibKitDynamic.Notification? {
+    func notification(in notifications: [TDNativeNotification], groupChatID: Int64)
+    -> TDNativeNotification? {
         notifications.last { matches(notification: $0, groupChatID: groupChatID) }
     }
 }

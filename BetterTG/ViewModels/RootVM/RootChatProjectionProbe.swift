@@ -3,7 +3,7 @@
 #if DEBUG
     import Combine
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
     import UIKit
 
     @MainActor enum RootChatProjectionProbe {
@@ -123,12 +123,12 @@
             projection.record(.updateChatLastMessage(.init(chatId: 7, lastMessage: nil, positions: [position(50)])))
             projection.record(.updateChatPhoto(.init(chatId: 7, photo: nil)))
             projection.record(.updateChatAccentColors(.init(
+                chatId: 7,
                 accentColorId: 9,
                 backgroundCustomEmojiId: 42,
-                chatId: 7,
+                upgradedGiftColors: nil,
                 profileAccentColorId: 8,
                 profileBackgroundCustomEmojiId: 43,
-                upgradedGiftColors: nil,
             )))
             projection.record(.updateChatViewAsTopics(.init(chatId: 7, viewAsTopics: true)))
             projection.record(.updateChatIsMarkedAsUnread(.init(chatId: 7, isMarkedAsUnread: true)))
@@ -550,12 +550,21 @@
         private static func user(_ name: String, bot: Bool = false) -> User {
             let type: UserType = bot
                 ? .userTypeBot(.init(
-                    activeUserCount: 0, allowsUsersToCreateTopics: false, canBeAddedToAttachmentMenu: false,
                     canBeEdited: false,
-                    canConnectToBusiness: false, canJoinGroups: false, canManageBots: false,
+                    canJoinGroups: false,
                     canReadAllGroupMessages: false,
-                    hasMainWebApp: false, hasTopics: false, inlineQueryPlaceholder: "", isGuard: false, isInline: false,
-                    needLocation: false, supportsGuestQueries: false,
+                    hasMainWebApp: false,
+                    hasTopics: false,
+                    allowsUsersToCreateTopics: false,
+                    canManageBots: false,
+                    isInline: false,
+                    inlineQueryPlaceholder: "",
+                    supportsGuestQueries: false,
+                    isGuard: false,
+                    needLocation: false,
+                    canConnectToBusiness: false,
+                    canBeAddedToAttachmentMenu: false,
+                    activeUserCount: 0,
                 ))
                 : .userTypeRegular
             return User(
@@ -599,22 +608,51 @@
                 suggestedPostInfo: nil,
             )
             let message = Message(
-                authorSignature: "", autoDeleteIn: 0, canBeSaved: true, chatId: 7, containsUnreadMention: false,
-                containsUnreadPollVotes: false,
-                content: .messageText(.init(linkPreview: nil, linkPreviewOptions: nil, text: text)), date: 1,
-                editDate: 0,
-                effectId: 0, ephemeralMessageId: 0, factCheck: nil, forwardInfo: nil, guestBotCallerId: nil,
-                hasTimestampedMedia: false,
-                id: 1, importInfo: nil, interactionInfo: nil, isChannelPost: false, isFromOffline: false,
-                isOutgoing: isOutgoing,
-                isPaidGramSuggestedPost: false, isPaidStarSuggestedPost: false, isPinned: false, mediaAlbumId: 0,
-                paidMessageStarCount: 0,
-                receiverId: nil, replyMarkup: nil, replyTo: nil, restrictionInfo: nil, schedulingState: nil,
-                selfDestructIn: 0,
-                selfDestructType: nil, senderBoostCount: 0, senderBusinessBotUserId: 0,
+                id: 1,
                 senderId: .messageSenderUser(.init(userId: 17)),
-                senderTag: "", sendingState: nil, suggestedPostInfo: nil, summaryLanguageCode: "", topicId: nil,
-                unreadReactions: [], viaBotUserId: 0,
+                receiverId: nil,
+                chatId: 7,
+                sendingState: nil,
+                schedulingState: nil,
+                isOutgoing: isOutgoing,
+                isPinned: false,
+                isFromOffline: false,
+                canBeSaved: true,
+                hasTimestampedMedia: false,
+                isChannelPost: false,
+                isPaidStarSuggestedPost: false,
+                isPaidGramSuggestedPost: false,
+                containsUnreadMention: false,
+                containsUnreadPollVotes: false,
+                date: 1,
+                editDate: 0,
+                forwardInfo: nil,
+                importInfo: nil,
+                interactionInfo: nil,
+                unreadReactions: [],
+                factCheck: nil,
+                suggestedPostInfo: nil,
+                replyTo: nil,
+                topicId: nil,
+                selfDestructType: nil,
+                selfDestructIn: 0,
+                autoDeleteIn: 0,
+                viaBotUserId: 0,
+                guestBotCallerId: nil,
+                senderBusinessBotUserId: 0,
+                senderBoostCount: 0,
+                senderTag: "",
+                paidMessageStarCount: 0,
+                authorSignature: "",
+                mediaAlbumId: 0,
+                effectId: 0,
+                restrictionInfo: nil,
+                summaryLanguageCode: "",
+                content: .messageText(.init(linkPreview: nil, linkPreviewOptions: nil, text: text)),
+                ephemeralContent: nil,
+                replyMarkup: nil,
+                ephemeralMessageId: 0,
+                chatInstance: 0,
             )
             let file = File(
                 expectedSize: 0,

@@ -33,59 +33,7 @@ extension ChatVM {
             else { return }
             updateNewMessage(update, authority: authority)
         }
-        nc.publisher(&cancellables, for: .updateDeleteMessages) { [weak self] update in
-            guard let self, update.chatId == customChat.id else { return }
-            updateDeleteMessages(update)
-        }
-        nc.publisher(&cancellables, for: .updateMessageEdited) { [weak self] update in
-            guard let self, update.chatId == customChat.id else { return }
-            updateMessageEdited(update)
-        }
-        nc.publisher(&cancellables, for: .updateMessageContent) { [weak self] update in
-            guard let self, update.chatId == customChat.id else { return }
-            refreshMessage(id: update.messageId)
-        }
-        nc.publisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] update in
-            guard let self, update.message.chatId == customChat.id else { return }
-            updateMessageSendSucceeded(update)
-        }
-        nc.publisher(&cancellables, for: .updateMessageSendFailed) { [weak self] update in
-            guard let self, update.message.chatId == customChat.id else { return }
-            updateMessageSendFailed(update)
-        }
-        nc.publisher(&cancellables, for: .updateUserStatus) { [weak self] update in
-            guard let self, update.userId == customChat.user?.id else { return }
-            onlineStatus = getOnlineStatus(from: update.status)
-        }
-        nc.publisher(&cancellables, for: .updateChatOnlineMemberCount) { [weak self] update in
-            guard let self, locationContextIsCurrent, update.chatId == chatID else { return }
-            onlineMemberCount = update.onlineMemberCount
-        }
-        nc.publisher(&cancellables, for: .updateBasicGroup) { [weak self] update in
-            guard let self, locationContextIsCurrent, update.basicGroup.id == customChat.group?.id else { return }
-            memberCount = update.basicGroup.memberCount
-        }
-        nc.publisher(&cancellables, for: .updateBasicGroupFullInfo) { [weak self] update in
-            guard let self, locationContextIsCurrent, update.basicGroupId == customChat.group?.id else { return }
-            memberCount = update.basicGroupFullInfo.members.count
-        }
-        nc.publisher(&cancellables, for: .updateSupergroup) { [weak self] update in
-            guard let self,
-                  locationContextIsCurrent,
-                  update.supergroup.id == customChat.supergroup?.id,
-                  update.supergroup.memberCount > 0
-            else { return }
-            memberCount = update.supergroup.memberCount
-        }
-        nc.publisher(&cancellables, for: .updateSupergroupFullInfo) { [weak self] update in
-            guard let self,
-                  locationContextIsCurrent,
-                  update.supergroupId == customChat.supergroup?.id,
-                  update.supergroupFullInfo.memberCount > 0
-            else { return }
-            memberCount = update.supergroupFullInfo.memberCount
-        }
-        nc.publisher(&cancellables, for: .updateUser) { [weak self] update in
+        observeCurrentUpdate(.updateDeleteMessages) { [weak self] update, authority in
             guard let self else { return }
             if update.chatId == customChat.id {
                 updateDeleteMessages(update, authority: authority)
@@ -238,6 +186,34 @@ extension ChatVM {
         observeCurrentUpdate(.updateUserStatus) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.userId == customChat.user?.id else { return }
             onlineStatus = getOnlineStatus(from: update.status)
+        }
+        observeCurrentUpdate(.updateChatOnlineMemberCount) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.chatId == chatID else { return }
+            onlineMemberCount = update.onlineMemberCount
+        }
+        observeCurrentUpdate(.updateBasicGroup) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.basicGroup.id == customChat.group?.id else { return }
+            memberCount = update.basicGroup.memberCount
+        }
+        observeCurrentUpdate(.updateBasicGroupFullInfo) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.basicGroupId == customChat.group?.id else { return }
+            memberCount = update.basicGroupFullInfo.members.count
+        }
+        observeCurrentUpdate(.updateSupergroup) { [weak self] update, _ in
+            guard let self,
+                  locationContextIsCurrent,
+                  update.supergroup.id == customChat.supergroup?.id,
+                  update.supergroup.memberCount > 0
+            else { return }
+            memberCount = update.supergroup.memberCount
+        }
+        observeCurrentUpdate(.updateSupergroupFullInfo) { [weak self] update, _ in
+            guard let self,
+                  locationContextIsCurrent,
+                  update.supergroupId == customChat.supergroup?.id,
+                  update.supergroupFullInfo.memberCount > 0
+            else { return }
+            memberCount = update.supergroupFullInfo.memberCount
         }
         observeCurrentUpdate(.updateUser) { [weak self] update, authority in
             guard let self, locationContextIsCurrent else { return }

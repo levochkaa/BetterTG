@@ -1,6 +1,6 @@
 // CustomTextField.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 import UniformTypeIdentifiers
 
@@ -86,21 +86,13 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
             return UIMenu(children: suggestedActions)
         }
         let format = UIMenu(title: L10n.telegram("TextFormat.Format"), children: [
-            formattingAction(title: L10n.telegram("TextFormat.Bold"), key: .font, value: UIFont.bold),
-            formattingAction(title: L10n.telegram("TextFormat.Italic"), key: .font, value: UIFont.italic),
-            formattingAction(title: L10n.telegram("TextFormat.Monospace"), key: .font, value: UIFont.monospaced),
+            formattingAction(title: L10n.telegram("TextFormat.Bold"), type: .textEntityTypeBold),
+            formattingAction(title: L10n.telegram("TextFormat.Italic"), type: .textEntityTypeItalic),
+            formattingAction(title: L10n.telegram("TextFormat.Monospace"), type: .textEntityTypeCode),
             UIAction(title: L10n.telegram("TextFormat.Link")) { [weak self] _ in self?.showLinkAlert() },
-            formattingAction(
-                title: L10n.telegram("TextFormat.Strikethrough"),
-                key: .strikethroughStyle,
-                value: 1,
-            ),
-            formattingAction(title: L10n.telegram("TextFormat.Underline"), key: .underlineStyle, value: 1),
-            formattingAction(
-                title: L10n.telegram("TextFormat.Spoiler"),
-                key: .backgroundColor,
-                value: UIColor.systemGray,
-            ),
+            formattingAction(title: L10n.telegram("TextFormat.Strikethrough"), type: .textEntityTypeStrikethrough),
+            formattingAction(title: L10n.telegram("TextFormat.Underline"), type: .textEntityTypeUnderline),
+            formattingAction(title: L10n.telegram("TextFormat.Spoiler"), type: .textEntityTypeSpoiler),
         ])
         var actions = suggestedActions
         actions.insert(format, at: min(1, actions.count))
@@ -240,6 +232,8 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     }
 
     private func showLinkAlert() {
+        let original = NSAttributedString(attributedString: attributedText!)
+        let range = selectedRange
         let alert = UIAlertController(
             title: L10n.telegram("TextFormat.AddLinkTitle"),
             message: nil,

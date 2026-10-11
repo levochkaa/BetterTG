@@ -2,7 +2,7 @@
 
 #if DEBUG
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 @MainActor enum PeerProfileMemberTagProbe {
@@ -102,22 +102,22 @@ import UIKit
                 chatType: .chatTypeBasicGroup(.init(basicGroupId: 9)),
                 permissions: permissions,
                 actor: .init(
+                    memberId: .messageSenderUser(.init(userId: actorReturned)),
+                    tag: "",
                     inviterUserId: 0,
                     joinedChatDate: 0,
-                    memberId: .messageSenderUser(.init(userId: actorReturned)),
                     status: allowed
                                           ? .chatMemberStatusCreator(.init(isAnonymous: false, isMember: true))
                                           : .chatMemberStatusMember(.init(memberUntilDate: 0)),
-                    tag: "",
                 ),
                 target: .init(
+                    memberId: .messageSenderUser(.init(userId: targetReturned)),
+                    tag: serverTag,
                     inviterUserId: 0,
                     joinedChatDate: 0,
-                    memberId: .messageSenderUser(.init(userId: targetReturned)),
                     status: activeTarget
                                            ? .chatMemberStatusMember(.init(memberUntilDate: 0))
                                            : .chatMemberStatusLeft,
-                    tag: serverTag,
                 ),
             )
         }

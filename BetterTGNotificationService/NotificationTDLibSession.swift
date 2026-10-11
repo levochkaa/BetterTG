@@ -57,34 +57,53 @@ final class NotificationTDLibSession: @unchecked Sendable {
     // MARK: Internal
 
     func resolve() async -> ResolvedTelegramNotification? {
-        let result = await withCheckedContinuation { continuation in
-            stateLock.lock()
-            resolutionContinuation = continuation
-            stateLock.unlock()
-
-            Task { [weak self] in
-                guard let self else { return }
-                do {
-                    let createdClient = try await manager.createClient()
-                    client = createdClient
-                    for await update in createdClient.updates {
-                        handle(update: update, client: createdClient)
-                    }
-                } catch {
-                    finish(nil, reason: "client")
+        guard let target, target.expectedChatID != nil,
+              target.matches(accountUserID: account.userID) else { return nil }
+        return await withTaskCancellationHandler {
+            var ownsSession = false
+            let result = await withCheckedContinuation { continuation in
+                guard lifetime.begin({ continuation.resume(returning: $0) }) else { return }
+                ownsSession = true
+                startClient()
+                DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 14) { [weak self] in
+                    self?.finish(nil, reason: "timeout")
                 }
             }
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 14) { [weak self] in
-                self?.finish(nil, reason: "timeout")
-            }
-            await close()
+            if ownsSession { await close() }
             return result
         } onCancel: {
             self.finish(nil, reason: "cancelled")
         }
     }
 
+    /// TDLibKit 2 creates clients asynchronously. A client that finishes creation after
+    /// retirement is never installed; `close()` shuts the manager down and closes it.
+    private func startClient() {
+        let manager = manager
+        let lifetime = lifetime
+        Task { [weak self] in
+            let client: TDLibClient
+            do {
+                client = try await manager.createClient()
+            } catch {
+                self?.finish(nil, reason: "client")
+                return
+            }
+            guard lifetime.createClient({ client.id }) else { return }
+            for await update in client.updates {
+                self?.handle(update: update, client: client)
+            }
+        }
+    }
+
     private func handle(update: Update, client: TDLibClient) {
+        guard lifetime.isCurrent(clientID: client.id) else { return }
+        if let target, lifetime.finish(deniedResult, clientID: client.id, when: {
+            previewObservation.revokes(update, target: target)
+        }) {
+            logger.log("rich_notification.tdlib_finished reason=preview_revoked")
+            return
+        }
         switch update {
         case .updateAuthorizationState(let value):
             handle(authorizationState: value.authorizationState, client: client)
@@ -108,18 +127,6 @@ final class NotificationTDLibSession: @unchecked Sendable {
             }
         default:
             break
-        }
-    }
-
-    private func matchesExpectedMessage(_ notification: TDNativeNotification) -> Bool {
-        guard let serverMessageID = metadata.serverMessageID else { return true }
-        switch notification.type {
-        case .notificationTypeNewPushMessage(let value):
-            return value.messageId >> 20 == serverMessageID
-        case .notificationTypeNewMessage(let value):
-            return value.message.id >> 20 == serverMessageID
-        default:
-            return false
         }
     }
 
@@ -166,6 +173,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
         guard isCurrent(ticket) else { return }
         do {
             let directory = try TelegramAccountRegistry().databaseDirectory(for: account.id)
+            guard isCurrent(ticket) else { return }
             _ = try await client.setTdlibParameters(
                 useTestDc: false,
                 databaseDirectory: directory.path,
@@ -218,7 +226,8 @@ final class NotificationTDLibSession: @unchecked Sendable {
 
     private func resolve(
         notification: TDNativeNotification,
-        chatID: Int64,
+        chat: Chat,
+        target: RichNotificationTarget,
         client: TDLibClient,
         ticket: Lifetime.Ticket,
     ) async -> ResolvedTelegramNotification? {
@@ -375,7 +384,8 @@ final class NotificationTDLibSession: @unchecked Sendable {
                 offset: -1,
                 limit: 3,
                 onlyLocal: false,
-            ), let message = history.messages.first(where: { $0.id == messageID }) {
+            ), isCurrent(ticket),
+            let message = history.messages.first(where: { target.matches(message: $0, chatID: chatID) }) {
                 logger.log("rich_notification.message_fetched source=chat_history")
                 RichNotificationDiagnostics.record("message_fetched", fields: ["source": "chat_history"])
                 return message
@@ -390,8 +400,8 @@ final class NotificationTDLibSession: @unchecked Sendable {
                 offset: 0,
                 limit: 10,
                 onlyLocal: false,
-            ) {
-                if let message = history.messages.first(where: matchesExpectedMessage) {
+            ), isCurrent(ticket) {
+                if let message = history.messages.first(where: { target.matches(message: $0, chatID: chatID) }) {
                     logger.log("rich_notification.message_fetched source=latest_history")
                     RichNotificationDiagnostics.record("message_fetched", fields: ["source": "latest_history"])
                     return message
@@ -473,6 +483,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
                 limit: 0,
                 synchronous: true,
             )) ?? file
+            guard isCurrent(ticket) else { return nil }
             let local = resolved.local
             if local.isDownloadingCompleted,
                let data = try? Data(contentsOf: URL(fileURLWithPath: local.path)),
@@ -569,6 +580,10 @@ final class NotificationTDLibSession: @unchecked Sendable {
     }
 
     private func close() async {
+        // Close without joining outstanding RPC tasks, and retain the process lock until closed.
+        // A client created after retirement was never installed, so shut the manager down
+        // even when claimClose() finds no installed client.
+        _ = lifetime.claimClose()
         await manager.closeClients()
     }
 }

@@ -1,7 +1,7 @@
 // RichNotificationMediaCandidate.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 struct RichNotificationMediaCandidate: Equatable {
     enum Kind: String, Codable { case photo, video, animation, videoNote, document, sticker }

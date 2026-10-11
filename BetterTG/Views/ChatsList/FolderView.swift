@@ -487,11 +487,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                   prefetchTasks[id] == nil
             else { continue }
             prefetchTasks[id] = Task { [weak self] in
+                guard authority.isCurrent, !Task.isCancelled else { return }
                 if let avatar = chat.chat.photo?.small {
-                    await TDImagePrefetcher.prefetch(file: avatar, maximumPixelSize: 160)
+                    await TDImagePrefetcher.prefetch(file: avatar, maximumPixelSize: 160, client: client)
                 }
+                guard authority.isCurrent, !Task.isCancelled else { return }
                 if chat.chat.viewAsTopics {
-                    let _: ForumTopics? = try? await td.getForumTopics(
+                    let _: ForumTopics? = try? await client.getForumTopics(
                         chatId: id,
                         limit: 30,
                         offsetDate: 0,
@@ -500,7 +502,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                         query: "",
                     )
                 } else {
-                    let _: Messages? = try? await td.getChatHistory(
+                    let _: Messages? = try? await client.getChatHistory(
                         chatId: id,
                         fromMessageId: 0,
                         limit: 30,

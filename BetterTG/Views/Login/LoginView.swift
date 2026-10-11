@@ -7,7 +7,9 @@ import UIKit
 final class LoginViewController: UIViewController {
     // MARK: Private
 
-    private var loginState = LoginState.phoneNumber
+    private let authorization: LoginAuthorizationSession
+    private let authorizationUpdates: AnyPublisher<TDLibAuthorizationState.Snapshot?, Never>
+    private let hasOtherAccounts: () -> Bool
     private var selectedCountry = PhoneNumberInfo(
         country: "RU",
         phoneNumberPrefix: "7",
@@ -172,42 +174,6 @@ final class LoginViewController: UIViewController {
             .store(in: &cancellables)
     }
 
-    private func refreshAuthorizationState() {
-        Task { [weak self] in
-            let state = try? await td.getAuthorizationState()
-            await MainActor.run {
-                guard let self else { return }
-                switch state {
-                case .authorizationStateWaitPassword(let waitPassword):
-                    self.setTwoFactorState(waitPassword)
-                case .authorizationStateWaitCode:
-                    self.setState(.code)
-                case .authorizationStateClosed, .authorizationStateClosing, .authorizationStateLoggingOut:
-                    self.showError(L10n.betterTG("Login.AuthorizationStateError"))
-                case .authorizationStateWaitPremiumPurchase:
-                    self.showError(L10n.betterTG("Login.PremiumRequired"))
-                default:
-                    break
-                }
-            }
-        }
-    }
-
-    private func setState(_ state: LoginState) {
-        loginState = state
-        inputField.text = nil
-        render()
-        inputField.becomeFirstResponder()
-        inputField.reloadInputViews()
-    }
-
-    private func setTwoFactorState(_ waitPassword: AuthorizationStateWaitPassword) {
-        inputField.placeholder = waitPassword.passwordHint.isEmpty
-            ? L10n.telegram("LoginPassword.PasswordPlaceholder")
-            : waitPassword.passwordHint
-        setState(.twoFactor)
-    }
-
     private func render() {
         let loginState = authorization.stage
         let current = authorization.capture() != nil
@@ -223,7 +189,15 @@ final class LoginViewController: UIViewController {
             switch loginState {
             case .phoneNumber: L10n.telegram("Login.PhonePlaceholder")
             case .code: L10n.telegram("Login.Code")
-            case .twoFactor: inputField.placeholder ?? L10n.telegram("LoginPassword.PasswordPlaceholder")
+            case .twoFactor:
+                if case .authorizationStateWaitPassword(let state) = authorization.snapshot?.state,
+                   !state.passwordHint.isEmpty
+                {
+                    state.passwordHint
+                } else {
+                    L10n.telegram("LoginPassword.PasswordPlaceholder")
+                }
+            case nil: ""
             }
         inputField.isEnabled = current && loginState != nil && !authorization.isBusy
         continueButton.isEnabled = inputField.isEnabled
@@ -245,7 +219,8 @@ final class LoginViewController: UIViewController {
         )
         for account in otherAccounts {
             alert.addAction(UIAlertAction(title: account.localizedTitle, style: .default) { [weak self] _ in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
+                    guard let self, authorization.permits(token) else { return }
                     do {
                         try TDLib.shared.switchToAccount(account.id)
                     } catch {

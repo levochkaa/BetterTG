@@ -2,7 +2,7 @@
 
 import Combine
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 /// Live defaults keep the captured client. Native probes inject only reads and
 /// local update/source delivery; they never change global TDLib ownership.

@@ -1,7 +1,7 @@
 // RootScopeSettingsLoading.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 
 /// Read revisions are reserved before dispatch. A newer load or accepted scope
 /// update revokes only the affected reads; account/client authority stays with

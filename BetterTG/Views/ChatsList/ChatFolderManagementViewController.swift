@@ -108,6 +108,10 @@ final class ChatFoldersViewController: UITableViewController {
             style: .destructive,
             title: L10n.telegram("ChatList.RemoveFolderAction"),
         ) { [weak self] _, _, complete in
+            guard scope.isCurrent else {
+                complete(false)
+                return
+            }
             self?.confirmRemoval(of: folder)
             complete(true)
         }
@@ -131,19 +135,15 @@ final class ChatFoldersViewController: UITableViewController {
             preferredStyle: .alert,
         )
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        alert
-            .addAction(UIAlertAction(
-                title: L10n.telegram("ChatList.RemoveFolderAction"),
-                style: .destructive,
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    do {
-                        _ = try await td.deleteChatFolder(chatFolderId: info.id, leaveChatIds: [])
-                    } catch {
-                        self?.presentFolderError(error)
-                    }
-                }
-            })
+        alert.addAction(UIAlertAction(
+            title: L10n.telegram("ChatList.RemoveFolderAction"),
+            style: .destructive,
+        ) { [weak self] _ in
+            guard let self, scope.isCurrent else { return }
+            session.mutate(.delete(info.id), owner: self) { [weak self] result in
+                if case .failure(let error) = result { self?.presentFolderError(error) }
+            }
+        })
         present(alert, animated: true)
     }
 }
@@ -401,7 +401,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         guard scope.isCurrent else { return }
         let selected = Set(excluded ? draft.excludedChatIds : draft.includedChatIds)
         let controller = ChatFolderChatSelectionViewController(
-            rootVM: rootVM,
+            session: session,
             title: excluded
                 ? L10n.telegram("ChatListFolder.ExcludeChatsTitle")
                 : L10n.telegram("ChatListFolder.IncludeChatsTitle"),
@@ -933,7 +933,35 @@ private extension CustomChat {
         let existing = displayTitle
         if !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return existing }
         switch type {
-        case .user: L10n.telegram("ChatList.PeerTypeContact")
+        case .bot(let user), .user(let user):
+            switch user.type {
+            case .userTypeDeleted: return "Deleted Account"
+            case .userTypeUnknown: return "Unknown User"
+            default: break
+            }
+            let name = [user.firstName, user.lastName]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            if !name.isEmpty { return name }
+            if let username = user.usernames?.activeUsernames.first, !username.isEmpty { return "@" + username }
+            if !user.phoneNumber.isEmpty { return user.phoneNumber }
+            if case .bot = type { return "Bot" }
+            return "User"
+        case .group: return "Untitled Group"
+        case .supergroup(let group): return group.isChannel ? "Untitled Channel" : "Untitled Group"
+        }
+    }
+
+    var folderPickerSubtitle: String? {
+        switch type {
+        case .user(let user):
+            switch user.type {
+            case .userTypeDeleted, .userTypeUnknown: nil
+            default: user.isContact
+                ? L10n.telegram("ChatList.PeerTypeContact")
+                : L10n.telegram("ChatList.PeerTypeNonContact")
+            }
         case .bot: L10n.telegram("ChatList.PeerTypeBot")
         case .group: L10n.telegram("ChatList.PeerTypeGroup")
         case .supergroup(let group):

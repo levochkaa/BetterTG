@@ -1,7 +1,7 @@
 // ChatTimelineSnapshotProbe.swift
 
 #if DEBUG
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 /// Native cells and the production transaction owner; no ChatVM or transport fixture.
@@ -328,7 +328,7 @@ import UIKit
               let cell = rows.collection.cellForItem(at: .init(item: 0, section: 0)) as? MessageCell
         else { throw Failure(description: "unarmed initial frozen rows or action") }
         try require(
-            oldRow.client === rows.client && oldRow.source == rows.source && oldRow.location == rows.location,
+            oldRow.client.id == rows.client.id && oldRow.source == rows.source && oldRow.location == rows.location,
             "row lost its exact client/source/location",
         )
         rows.enqueue(.init(ids: [albumID], restoresViewport: true, viewportRevision: 0))
@@ -511,7 +511,7 @@ import UIKit
         rows.models.removeAll { $0.displayedID == id }
         let reappearedRawID = (canonical.sourceMessages.map(\.id).max() ?? canonical.id) + 1
         let reappearing = CustomMessage(
-            message: MessageDeliveryProbe.fixture(id: reappearedRawID, album: canonical.message.mediaAlbumId.rawValue),
+            message: MessageDeliveryProbe.fixture(id: reappearedRawID, album: canonical.message.mediaAlbumId),
             formattedText: .init(entities: [], text: "new album incarnation"), properties: .default,
         )
         rows.models.insert(reappearing, at: 0)
@@ -584,7 +584,7 @@ import UIKit
         try require(
             rows.state.pending == nil && rows.state.row(for: .message(model.displayedID)) == nil
             && rows.state.active?.outgoing[.message(model.displayedID)]?.message === outgoing
-            && rows.state.active?.outgoing[.message(model.displayedID)]?.message?.client === rows.client,
+            && rows.state.active?.outgoing[.message(model.displayedID)]?.message?.client.id == rows.client.id,
             "retirement exposed rows or released active originating owners early",
         )
         try require(

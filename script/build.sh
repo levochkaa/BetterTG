@@ -812,6 +812,8 @@ if [[ "$SKIP_BUILD" == "0" ]]; then
     --schema "$TDLIBKIT_SCHEMA_PATH"
   run_with_filtered_output python3 "$ROOT_DIR/script/generate_tdlib_initializer_compat.py" \
     --schema "$TDLIBKIT_SCHEMA_PATH"
+  run_with_filtered_output python3 "$ROOT_DIR/script/generate_tdlib_value_equality.py" \
+    --schema "$TDLIBKIT_SCHEMA_PATH"
   run_with_filtered_output python3 "$ROOT_DIR/td.py" \
     --skip-resolve \
     --cloned-source-packages-dir-path "$CLONED_SOURCE_PACKAGES_DIR_PATH"
@@ -821,6 +823,7 @@ if [[ "$SKIP_BUILD" == "0" ]]; then
     "$ROOT_DIR/BetterTG/Shared/TDNativeAliases.swift" \
     "$ROOT_DIR/BetterTG/Shared/TDClient+Generated.swift" \
     "$ROOT_DIR/BetterTG/Shared/TDNativeInitializers+Generated.swift" \
+    "$ROOT_DIR/BetterTG/Extensions/Td/TDNativeValueEquality+Generated.swift" \
     "$ROOT_DIR/BetterTG/Extensions/Td/Td+Generated.swift"
 
   xcodebuild_args=(

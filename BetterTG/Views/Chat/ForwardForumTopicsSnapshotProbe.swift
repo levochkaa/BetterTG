@@ -1,7 +1,7 @@
 // ForwardForumTopicsSnapshotProbe.swift
 
 #if DEBUG
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 /// Runs the production controller, page admission, provider and selection path.

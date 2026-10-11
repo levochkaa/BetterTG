@@ -4122,7 +4122,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         guard let accountID = location.accountID,
               client.id == location.clientID,
               tdlib.activeAccountID == accountID,
-              tdlib.activeClient == client
+              tdlib.activeClient.id == client.id
         else { return nil }
         self.client = client
         self.location = location
@@ -4131,7 +4131,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         self.clientChanges = tdlib.activeClientChanges
         self.currentClientMatches = { [weak tdlib] in
             guard let tdlib, tdlib.activeAccountID == accountID else { return false }
-            return tdlib.activeClient == client
+            return tdlib.activeClient.id == client.id
         }
     }
 
@@ -6390,26 +6390,72 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
                 size: 0,
             )
             return Message(
-                authorSignature: "", autoDeleteIn: 0, canBeSaved: true, chatId: 0,
-                containsUnreadMention: false, containsUnreadPollVotes: false,
+                id: 9001,
+                senderId: .messageSenderUser(.init(userId: 1)),
+                receiverId: nil,
+                chatId: 0,
+                sendingState: nil,
+                schedulingState: nil,
+                isOutgoing: true,
+                isPinned: false,
+                isFromOffline: false,
+                canBeSaved: true,
+                hasTimestampedMedia: false,
+                isChannelPost: false,
+                isPaidStarSuggestedPost: false,
+                isPaidGramSuggestedPost: false,
+                containsUnreadMention: false,
+                containsUnreadPollVotes: false,
+                date: 0,
+                editDate: 0,
+                forwardInfo: nil,
+                importInfo: nil,
+                interactionInfo: nil,
+                unreadReactions: [],
+                factCheck: nil,
+                suggestedPostInfo: nil,
+                replyTo: nil,
+                topicId: topic,
+                selfDestructType: nil,
+                selfDestructIn: 0,
+                autoDeleteIn: 0,
+                viaBotUserId: 0,
+                guestBotCallerId: nil,
+                senderBusinessBotUserId: 0,
+                senderBoostCount: 0,
+                senderTag: "",
+                paidMessageStarCount: 0,
+                authorSignature: "",
+                mediaAlbumId: 0,
+                effectId: 0,
+                restrictionInfo: nil,
+                summaryLanguageCode: "",
                 content: .messageVideo(.init(
-                    alternativeVideos: [], caption: .init(entities: [], text: "context probe"), cover: nil,
-                    hasSpoiler: false, isSecret: false, showCaptionAboveMedia: false, startTimestamp: 0,
-                    storyboards: [],
                     video: .init(
-                        duration: 1, fileName: "context-probe.mp4", hasStickers: false, height: 16,
-                        mimeType: "video/mp4", minithumbnail: nil, supportsStreaming: false,
-                        thumbnail: nil, video: file, width: 16,
+                        duration: 1,
+                        width: 16,
+                        height: 16,
+                        fileName: "context-probe.mp4",
+                        mimeType: "video/mp4",
+                        hasStickers: false,
+                        supportsStreaming: false,
+                        minithumbnail: nil,
+                        thumbnail: nil,
+                        video: file,
                     ),
+                    alternativeVideos: [],
+                    storyboards: [],
+                    cover: nil,
+                    startTimestamp: 0,
+                    caption: .init(entities: [], text: "context probe"),
+                    showCaptionAboveMedia: false,
+                    hasSpoiler: false,
+                    isSecret: false,
                 )),
-                date: 0, editDate: 0, effectId: 0, ephemeralMessageId: 0, factCheck: nil, forwardInfo: nil,
-                guestBotCallerId: nil, hasTimestampedMedia: false, id: 9001, importInfo: nil, interactionInfo: nil,
-                isChannelPost: false, isFromOffline: false, isOutgoing: true, isPaidGramSuggestedPost: false,
-                isPaidStarSuggestedPost: false, isPinned: false, mediaAlbumId: 0, paidMessageStarCount: 0,
-                receiverId: nil, replyMarkup: nil, replyTo: nil, restrictionInfo: nil, schedulingState: nil,
-                selfDestructIn: 0, selfDestructType: nil, senderBoostCount: 0, senderBusinessBotUserId: 0,
-                senderId: .messageSenderUser(.init(userId: 1)), senderTag: "", sendingState: nil,
-                suggestedPostInfo: nil, summaryLanguageCode: "", topicId: topic, unreadReactions: [], viaBotUserId: 0,
+                ephemeralContent: nil,
+                replyMarkup: nil,
+                ephemeralMessageId: 0,
+                chatInstance: 0,
             )
         }
     }
@@ -6748,10 +6794,8 @@ final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, Galler
         fatalError("init(coder:) has not been implemented")
     }
 
-    // MARK: Internal
-
-    func configure(photo: Photo) {
-        imageView.load(photo: photo, preferredSize: .yBox, maximumPixelSize: 2048)
+    func configure(photo: Photo, client: TDLibClient) {
+        imageView.load(photo: photo, preferredSize: .yBox, maximumPixelSize: 2048, client: client)
     }
 
     func prepareForReuse() {

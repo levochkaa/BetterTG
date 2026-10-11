@@ -1,6 +1,6 @@
 // LoginAuthorizationSession.swift
 
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 @MainActor final class LoginAuthorizationSession {

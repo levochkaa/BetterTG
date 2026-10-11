@@ -1,7 +1,7 @@
 // VideoNoteRecordingPreservation.swift
 
 import Foundation
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 // MARK: - VideoNoteBackgroundLease

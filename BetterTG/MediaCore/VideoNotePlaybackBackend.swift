@@ -1,7 +1,7 @@
 // VideoNotePlaybackBackend.swift
 
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 /// One displayed message never follows a replacement TDLib client.

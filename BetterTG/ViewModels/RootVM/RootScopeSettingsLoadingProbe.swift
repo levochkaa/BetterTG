@@ -2,7 +2,7 @@
 
 #if DEBUG
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
 
     @MainActor enum RootScopeSettingsLoadingProbe {
         private struct Failure: Swift.Error, CustomStringConvertible { let description: String }

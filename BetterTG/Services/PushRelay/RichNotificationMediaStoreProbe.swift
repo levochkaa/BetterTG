@@ -2,7 +2,7 @@
 
 #if DEBUG
     import Foundation
-    import TDLibKitDynamic
+    import TDLibKit
     import UIKit
 
     enum RichNotificationMediaStoreProbe {
@@ -237,13 +237,7 @@
             candidate: RichNotificationMediaCandidate,
             producer: UUID,
         ) throws {
-            let encoder = JSONEncoder()
-            var object = try JSONSerialization.jsonObject(with: encoder.encode(chat)) as! [String: Any]
-            object["type"] = try JSONSerialization.jsonObject(with: encoder.encode(ChatType.chatTypeSecret(.init(
-                secretChatId: 1,
-                userId: 7,
-            ))))
-            let secret = try JSONDecoder().decode(Chat.self, from: JSONSerialization.data(withJSONObject: object))
+            let secret = replacingType(of: chat, with: .chatTypeSecret(ChatTypeSecret(secretChatId: 1, userId: 7)))
             try require(
                 Store
                     .Evidence(key: key, message: message, chat: secret, candidate: candidate, producerID: producer) ==
@@ -252,11 +246,66 @@
             )
         }
 
+        /// Native TDLibKit 2 views are immutable and not Codable; copy every field except the type.
+        private static func replacingType(of chat: Chat, with type: ChatType) -> Chat {
+            Chat(
+                id: chat.id,
+                type: type,
+                title: chat.title,
+                photo: chat.photo,
+                accentColorId: chat.accentColorId,
+                backgroundCustomEmojiId: chat.backgroundCustomEmojiId,
+                upgradedGiftColors: chat.upgradedGiftColors,
+                profileAccentColorId: chat.profileAccentColorId,
+                profileBackgroundCustomEmojiId: chat.profileBackgroundCustomEmojiId,
+                permissions: chat.permissions,
+                lastMessage: chat.lastMessage,
+                positions: chat.positions,
+                chatLists: chat.chatLists,
+                messageSenderId: chat.messageSenderId,
+                blockList: chat.blockList,
+                hasProtectedContent: chat.hasProtectedContent,
+                isTranslatable: chat.isTranslatable,
+                isMarkedAsUnread: chat.isMarkedAsUnread,
+                viewAsTopics: chat.viewAsTopics,
+                hasScheduledMessages: chat.hasScheduledMessages,
+                hasWelcomeMessages: chat.hasWelcomeMessages,
+                canBeDeletedOnlyForSelf: chat.canBeDeletedOnlyForSelf,
+                canBeDeletedForAllUsers: chat.canBeDeletedForAllUsers,
+                canBeReported: chat.canBeReported,
+                defaultDisableNotification: chat.defaultDisableNotification,
+                unreadCount: chat.unreadCount,
+                lastReadInboxMessageId: chat.lastReadInboxMessageId,
+                lastReadOutboxMessageId: chat.lastReadOutboxMessageId,
+                unreadMentionCount: chat.unreadMentionCount,
+                unreadReactionCount: chat.unreadReactionCount,
+                unreadPollVoteCount: chat.unreadPollVoteCount,
+                notificationSettings: chat.notificationSettings,
+                availableReactions: chat.availableReactions,
+                messageAutoDeleteTime: chat.messageAutoDeleteTime,
+                emojiStatus: chat.emojiStatus,
+                background: chat.background,
+                theme: chat.theme,
+                actionBar: chat.actionBar,
+                businessBotManageBar: chat.businessBotManageBar,
+                videoChat: chat.videoChat,
+                pendingJoinRequests: chat.pendingJoinRequests,
+                replyMarkupMessageId: chat.replyMarkupMessageId,
+                draftMessage: chat.draftMessage,
+                clientData: chat.clientData,
+            )
+        }
+
         private static func verifyCorruption(root: URL, key: Store.Key, receipt: Store.Receipt, store: Store) throws {
             let url = record(root, key: key)
             let original = try Data(contentsOf: url)
             defer { try? original.write(to: url, options: .atomic) }
-            let plist = try PropertyListSerialization.propertyList(from: original, format: nil) as! [String: Any]
+            let plist = try PropertyListSerialization.propertyList(
+                from: original,
+                // C++ interop imports these options without the Objective-C default argument.
+                options: PropertyListSerialization.ReadOptions(),
+                format: nil,
+            ) as! [String: Any]
             for field in ["schema", "digest", "key", "evidence"] {
                 var altered = plist
                 switch field {

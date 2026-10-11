@@ -2,7 +2,7 @@
 
 #if DEBUG
 import Combine
-import TDLibKitDynamic
+import TDLibKit
 import UIKit
 
 @MainActor enum ChatMessageActionAuthorityProbe {
@@ -216,7 +216,7 @@ import UIKit
         newMedia(message.sourceMessages, 70)
         try require(rows.calls == 4, "current media bridge failed")
         try require(!rows.invoke(second, .reply), "reply ignored current message permission")
-        message.properties = try replyProperties()
+        message.properties = replyProperties()
         try require(rows.invoke(second, .reply), "current reply permission failed")
         rows.isReadOnly = true
         try require(!rows.invoke(second, .reply), "read-only reply admitted")
@@ -239,16 +239,17 @@ import UIKit
             .init(isChosen: true, recentSenderIds: [], totalCount: 1, type: type, usedSenderId: nil),
         ])
         let unread = UnreadReaction(isBig: true, senderId: .messageSenderUser(.init(userId: 2)), type: type)
-        var rawFields = try JSONSerialization.jsonObject(
-            with: JSONEncoder().encode(MessageDeliveryProbe.fixture(id: 70, album: 77)),
-        ) as! [String: Any]
-        rawFields["interactionInfo"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
-            MessageInteractionInfo(forwardCount: 0, reactions: rawReactions, replyInfo: nil, viewCount: 0),
-        ))
-        rawFields["unreadReactions"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode([unread]))
-        let raw = try JSONDecoder().decode(Message.self, from: JSONSerialization.data(withJSONObject: rawFields))
+        // Native TDLibKit 2 views are immutable and not Codable; build the variant directly.
+        let raw = MessageDeliveryProbe.fixture(
+            id: 70,
+            album: 77,
+            interactionInfo: MessageInteractionInfo(
+                forwardCount: 0, reactions: rawReactions, replyInfo: nil, viewCount: 0,
+            ),
+            unreadReactions: [unread],
+        )
         let older = MessageDeliveryProbe.fixture(id: 69, album: 77)
-        let canonical = try CustomMessage(
+        let canonical = CustomMessage(
             message: raw, senderUser: sender(), replyPresentation: reply(target: 99),
             forwardPresentation: forward(target: 200), album: [raw, older], sendFailed: true,
             formattedText: .init(entities: [], text: "frozen caption"), properties: replyProperties(),
@@ -556,11 +557,48 @@ import UIKit
         )
     }
 
-    private static func replyProperties() throws -> MessageProperties {
-        var value = try JSONSerialization
-            .jsonObject(with: JSONEncoder().encode(MessageProperties.default)) as! [String: Any]
-        value["canBeReplied"] = true
-        return try JSONDecoder().decode(MessageProperties.self, from: JSONSerialization.data(withJSONObject: value))
+    private static func replyProperties() -> MessageProperties {
+        MessageProperties(
+            canAddOffer: false,
+            canAddTasks: false,
+            canBeApproved: false,
+            canBeCopied: false,
+            canBeCopiedToSecretChat: false,
+            canBeDeclined: false,
+            canBeDeletedForAllUsers: false,
+            canBeDeletedOnlyForSelf: false,
+            canBeEdited: false,
+            canBeForwarded: false,
+            canBePaid: false,
+            canBePinned: false,
+            canBeReplied: true,
+            canBeRepliedInAnotherChat: false,
+            canBeSaved: false,
+            canBeSharedInStory: false,
+            canDeleteReactions: false,
+            canEditMedia: false,
+            canEditSchedulingState: false,
+            canEditSuggestedPostInfo: false,
+            canGetAuthor: false,
+            canGetEmbeddingCode: false,
+            canGetLink: false,
+            canGetMediaTimestampLinks: false,
+            canGetMessageThread: false,
+            canGetPollVoteStatistics: false,
+            canGetReadDate: false,
+            canGetStatistics: false,
+            canGetVideoAdvertisements: false,
+            canGetViewers: false,
+            canMarkTasksAsDone: false,
+            canRecognizeSpeech: false,
+            canReportChat: false,
+            canReportReactions: false,
+            canReportSupergroupSpam: false,
+            canSetFactCheck: false,
+            hasProtectedContentByCurrentUser: false,
+            hasProtectedContentByOtherUser: false,
+            needShowStatistics: false,
+        )
     }
 
     private static func require(_ value: Bool, _ text: String) throws {

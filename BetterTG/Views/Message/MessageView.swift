@@ -1,5 +1,6 @@
 // MessageView.swift
 
+import Combine
 import TDLibKit
 import UIKit
 
@@ -573,6 +574,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             forwardView.isHidden = false
             forwardView.configure(
                 presentation: forward,
+                client: client,
                 onTap: forward.navigationTarget.map { target in
                     { onMetadataNavigate(target) }
                 },
