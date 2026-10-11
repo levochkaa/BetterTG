@@ -1,26 +1,177 @@
 # BetterTG / Telegram iOS Parity
 
+This is the checkpoint ledger for the UIKit + Combine + TDLibKit implementation. The goal prompt is
+[PARITY_PROMPT.md](PARITY_PROMPT.md); editing either file does not start or resume a goal.
+
+Implementation status and audit status are separate. Implementation: **done** (the recorded scope has its stated proof),
+**implemented breadth** (main paths exist, listed limits), **partial** (known gaps), **next**, **queued**. Audit:
+`pending`, `reviewed`, `needs-fix`, `fixed`, `runtime-blocked`. Proof kinds are source review, warning-free build,
+deterministic probe, Simulator smoke and physical device or server. A proof belongs to its SHA, scenario and environment;
+historical CLEAN, build or smoke results do not transfer to merged or changed code. Gifts, Stars, collectibles, boosts,
+Premium, ads, livestreaming and Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) are out of
+scope. None of the states below claims complete Telegram parity.
+
+## Current checkpoint — 2026-10-12
+
+- Branch `codex/parity` (worktree `/Users/lev/.codex/worktrees/parity/BetterTG`). Stage 0 is closed by this ledger
+  commit on top of `15701d2`. No push or PR.
+- References: Telegram `telegram-upstream/master` = `f1dd7a2dbd` (release-13.0.0) for behavior, TDLib logic and new
+  mechanics; classic pre-Liquid chrome baseline `8e7e5fefb1b0aba8335d8c28b62138183d61dc3d`; context-menu liquid morph
+  `58ce7d6688`, `f44a25a649`, `11a469d1f8`, `7c2cfd6a1f`; system context-menu gesture reconstruction in
+  `/Users/lev/Developer/CustomContextMenu` (UIKitCore iOS 27.0, 24A434).
+- Toolchain: Xcode 27.0 (27A266a), iOS deployment target 26.0, TDLibKit `2.0.0-tdlib-1.8.68-c15d3f5a` from
+  levochkaa/TDLibKit (native models plus the generated compat layer in `BetterTG/Shared`), Lottie 4.6.1, libwebp 1.6.0,
+  FFmpeg 9.0 through `Packages/FFmpegBridge`, SwiftMath 1.7.3. Production code has no MobileVLCKit, TDLibKitDynamic or
+  SwiftUI/hosting/representable UI.
+- Next: identity gap F2 (Forward to search starts hidden), CustomContextMenu gestures for every menu source, the liquid
+  morph for menu buttons, then post-merge revalidation.
+- Audit cursor: every area is `pending` after the merge. Start with the Stage 0 resolution sites below and the astra code
+  ported to TDLibKit 2, then follow the full path action → state/ownership → TDLib → update → UI/cleanup per area.
+
+## Stage 0 — one branch from three sources
+
+### Sources
+
+| Source | SHA | Role in the merge |
+| --- | --- | --- |
+| `main` (local, not pushed) | `bca8057` (prompt written at `24d5b2f`) | Toolchain, dependencies and current UI: Xcode 27, TDLibKit 1.8.68, liquid-lens folder picker, folder unread badges, Telegram context menu |
+| `codex/parity-continuation` | `eb4e199` (2026-09-05…06) | Parity code already on TDLibKit 2; user UI decisions |
+| `codex/a21e-previous-worker` (astra) | `0f0b479` (2026-10-02…03) | Independent revalidation: ownership/lifecycle fixes, account/client epochs, MediaCore, probes; TDLibKit 1.5.2 |
+
+The parity lines share `7b0699d`. `7875f17` is the parity-continuation merge of `7b0699d` with main's TDLibKit 2
+(`6dd705c`), before any of its UI decisions.
+
+### Merge strategy
+
+1. M1 `5af0512`: `codex/parity` from main ← parity-continuation (base `6dd705c`, five conflicting files), plus
+   TDLib 1.8.68 adaptation of parity code. Xcode 27 build, 0 warnings.
+2. M2 `2787f32`: `codex/parity-astra-tdlib2` from a21e ← `7875f17` (base `7b0699d`). Astra is ported to TDLibKit
+   2.0.0 and `Packages/TDLibKitDynamic` is removed. Xcode 26.6 build, 0 warnings. Merging `7875f17` rather than main
+   leaves the final merge a single base.
+3. M3 `945051d`: `codex/parity` ← `codex/parity-astra-tdlib2` (single base `7875f17`). Conflicts are astra
+   against parity-continuation and main's October work; the result is adapted to TDLib 1.8.68 and Xcode 27. A full
+   recompile of 334 Swift files has 0 warnings.
+4. `15701d2`: fix found by the Stage 0 smoke (F1).
+
+All three histories are reachable from `codex/parity`. `main` and both source branches are unchanged.
+
+### Merge decision ledger
+
+| Area | Taken from | Why | Carried over from the other side |
+| --- | --- | --- | --- |
+| Toolchain, packages, build scripts, TDLib API | main | Prompt rule | Astra value-equality generator for native models; parity `script/td.py` path |
+| Navigation chrome | parity-continuation `TelegramNavigationController` / `TelegramClassicNavigationChrome` | Identity: one classic bar on every screen | Astra navigation client restoration, now driven by `onDidShow` because the controller stays its own delegate. Astra `ClassicNavigation` (system bar variant), its diagnostics and probe are removed |
+| Folder picker | main liquid lens strip | Identity | Parity item model (Forward to reuses the picker), resolved-width segment frames, viewport-width relayout |
+| Context menu | main animation and scene keyboard lookup | Identity | Parity reactions strip and quote selection; parity keyboard ownership guard; astra `owner`/`onDismiss` and idempotent `finishDismissal` |
+| Chat list ownership | parity `TelegramChatListStore` (ordered TDLib update store, on-demand paging) | Removes the hydration races astra fenced; pages beyond 200 chats; matches TDLib's list model | Astra `RootListAuthority` tickets, `RootScopeSettingsLoading`, owner-checked authorization, source-scoped send/delete/unread updates, navigation hydration through the current client, folder viewport restoration. Astra `RootChatProjection`/`RootChatInsertion` and their probes are removed; probe fixtures moved to `ProbeFixtures` |
+| Timeline pipeline | astra frozen snapshot transactions, viewport authority, explicit message navigation | Concrete A22/A39/A49 defect fixes | Parity two-finger native selection, per-item album highlight (`highlightedMessageID`), animated highlight on reconfigure, gallery return (bounded wait for the committed row, immediate centering), all-chat-media gallery |
+| Composer text | astra `ComposerText` semantic entities | A25 round-trip fix | Parity custom emoji become semantic entities; `ComposerText` derives the renderer attribute and keeps it across bridging; parity copy/cut payload, paste payload, atomic emoji edits; insertion goes through astra undo |
+| Spoilers | astra `MessageTextSpoilerState`/store | Scoped reveal authority (A10) | Parity dust overlay, reveal animation, rich text, quote menu and persisted `CustomMessage.spoilersRevealed`; unscoped texts are caller-owned |
+| Media views and galleries | astra origins, scoped clients, reveal sessions, playback contexts | Account/client isolation and ownership fixes | Parity live photos, inline GIF autoplay, crossfade/preserving image loads, transition geometry (no flash), thumbnail strip, Open in Chat return hooks (restored galleries keep them) |
+| Video notes | astra `configure(message:backend:)` and download ownership | Lifecycle fixes | Parity same-note reconfigure keeps playback; parity progress/play-icon behavior |
+| Forum topics list | parity collapsed classic search UI | Identity | Astra restoration, snapshot queue, ownership and scalar-update handling now read the classic search field; astra UISearchController renewal probe removed |
+| Forward to | parity recipient flow (tap opens the chat with a pending forward) | User decision | Astra snapshot queue in topic picker, filtered by eligible topics |
+| Profiles | parity shared-media tabs and gallery hooks | Identity | Astra restoration, effective info permission (`canEdit` uses it) |
+| Voice drafts | astra canonical draft loading | Relocation via `SendDraftFileReference` never deletes | — |
+| Docs | both AGENTS/CLAUDE build notes | — | — |
+
+### Stage 0 proofs — 2026-10-12
+
+- Build: `./build.sh build`, Xcode 27.0, full app recompile after M3 (334 Swift files) with 0 warnings
+  (`.build/logs/xcodebuild/build-Debug-20261012-034326-50800-5062.log`); incremental builds after `15701d2` with 0
+  warnings. M2 built separately on Xcode 26.6 with 0 warnings.
+- Simulator smoke on `945051d` plus F1, iPhone 18 Pro, iOS 27.0 (`46AD65F9-D204-47F1-A765-B74D8322BC28`), real account; test
+  writes only in Saved Messages and the private test forum `BetterTG test`:
+  chat list and folder switching with unread badges and the lens; open chat; send text; send a photo from the library;
+  gallery paging, More menu and swipe dismissal; voice hold-to-send and playback (microphone prompt first rejects a
+  too-short clip as expected); video-note mode switch and recorder, which reports a capture failure because the
+  Simulator has no camera; Saved Messages profile with Media/Files tabs and profile gallery; message context menu with the
+  reaction strip; Forward to and the pending-forward block; forum topic list with hidden search; rich message, formulas
+  and caller-owned spoiler reveal.
+- Limits: no physical device, camera, system PiP or 120 Hz proof; no video-note playback (no reachable note); text
+  spoilers in ordinary messages, multi-account switching and probes were not run after the merge.
+
+### Stage 0 findings and follow-ups
+
+| ID | Pri | Finding | State |
+| --- | --- | --- | --- |
+| F1 | P1 | Forwarding into Saved Messages reported "Telegram returned a different topic" although TDLib delivered it (Saved Messages topic vs empty destination topic); the forward stayed pending for a duplicate retry | fixed `15701d2`, Simulator smoke |
+| F2 | P2 | Forward to shows its search field initially; identity requires it hidden like the main list | next |
+| F3 | P2 | Context-menu item casing is mixed (reply/edit/copy/delete vs Forward/Select) | queued |
+| F4 | P2 | Astra profile editor status uses `navigationItem.prompt`, which classic chrome does not render | queued |
+| F5 | P2 | Forum search renewal after client restoration lost its probe with the UISearchController UI | queued: new probe for the classic search field |
+| F6 | P2 | Reaction strip stickers load through the active client rather than the menu's captured client | queued |
+| F7 | P2 | From M2: native-model deep `Hashable` cost in timeline diffing is unmeasured; `ChatVM._loadMessages` skips astra `replacingExisting` for already shown cursor messages; client activation keeps the previous client published until the async replacement exists; `ComposerTextProbe` lost its JSON round trip; new astra strings are not localized | queued for revalidation |
+
+## BetterTG identity (user decisions)
+
+Telegram is the reference for behavior, gestures, layout logic and edge cases. Appearance follows BetterTG main.
+
+- Full-width blurred navigation and tab bars with safe area; content scrolls under them. One classic Telegram navigation
+  bar on every screen, with chat-list/chat sizes and Back button, no Liquid Glass islands, no glass button backgrounds
+  and no glass flashes during push/pop.
+- Folder picker at the bottom: Liquid Glass with liquid lens and interactive glass (`24657e8`), blur behind it, unread
+  counts (`75184a2`). Forward to uses the same picker.
+- Context menus: the custom Telegram menu with glass (`TelegramContextMenu`, `24d5b2f`), gestures from
+  CustomContextMenu.
+- Composer (`d27e495`): square and full width with the safe area when the keyboard is hidden; with the keyboard all
+  corners round and 8 pt side insets appear, animated. Non-interactive Liquid Glass. Plus-to-field spacing equals the
+  edge spacing, on both sides. With the keyboard, a linear gradient on the Telegram EdgeEffect curve sits behind the
+  composer (the inverted list cannot use the system edge effect). The glass outline does not show at the corners or under
+  the home indicator.
+- Quote comes from text selection inside the open message menu; no separate item. The reaction strip does not slide in
+  from the side.
+- Topic search starts hidden and collapses before the list scrolls, as in the main list; the same in Forward to.
+- Forward to: bottom folder picker, compact rows without last message, search in the navigation bar, no comment field or
+  send panel. Tapping a chat opens it with a "Forward message / user: text" block in the composer.
+- Regular icons, not glass variants with the background removed.
+
+## Flow status — 2026-10-12
+
+Implementation is the parity-continuation state of 2026-09-06; astra audit is the 2026-10-03 area state (details in
+Appendix A). Post-merge audit is `pending` for every row until revalidated on `codex/parity`.
+
+| Priority | Flow | Implementation (09-06) | Astra audit (10-03) | Post-merge |
+| --- | --- | --- | --- | --- |
+| P0 | Remove MobileVLCKit; local audio/video playback | partial | reviewed, A01–A04/A18/A19 repairs | pending; no VLC marker |
+| P0 | TGS stickers, animated/custom emoji | partial | reviewed, A05–A09 repairs | pending |
+| P0 | Animated WebP | partial | reviewed with animated media | pending |
+| P0 | WebM/VP9 alpha and FFmpeg playback | partial | reviewed with animated media and VOD | pending |
+| P0 | Voice notes | implemented breadth | reviewed, A11–A17/A26 repairs | pending; record/send/play smoke |
+| P0 | Video notes | implemented multi-segment breadth | reviewed, A11–A17/A26 repairs | pending; recorder smoke only, no camera |
+| P0 | VOD, range seek/refetch, PiP | partial | reviewed, A01–A04/A18/A19 repairs | pending |
+| P0 | Exhaustive message content and actions | partial | reviewed, A10/A20/A31/A43–A48 repairs | pending; TDLib 1.8.68 TON cases fall back |
+| P0 | Message reactions | implemented breadth | reviewed with content/actions | pending |
+| P0 | Pinned messages | implemented ordinary-chat breadth | reviewed with content/actions | pending |
+| P0 | Forum topics | partial | reviewed, A23c/A42/A45 repairs | pending; list/topic smoke |
+| P0 | Topic composer durable media identity | implemented write foundation | reviewed with composer | pending |
+| P0 | Forum-aware Forward destinations | implemented breadth | reviewed with content/actions | pending; F1 fixed |
+| P0 | Composer and send/delete transitions | partial | reviewed, A22/A24/A25/A49 repairs | pending |
+| P1 | Profiles, shared media, gallery | partial | reviewed, A20b/A27/A28 repairs | pending; profile/gallery smoke |
+| P1 | Multiple accounts | implemented | partial (A23/A30) | pending |
+| P1 | Chats, folders, archive, search, edit/reorder | partial | reviewed, list/mutation repairs | pending; store-based list kept |
+| P1 | Timeline stability and performance | partial | reviewed, A22/A39/A49 repairs | pending |
+| P2 | Shell/navigation polish | implemented shell/list breadth | A32/A37 unresolved | pending |
+| P0 | Context-menu gestures from CustomContextMenu | queued | — | next |
+| P1 | Liquid morph of menu buttons | queued | — | next |
+
+## Appendix A — astra revalidation ledger
+
+Verbatim ledger of `codex/a21e-previous-worker` at `0f0b479` (2026-10-02…03), headings demoted one level. File and line
+references point into that branch. Its implementation ledger and historical slices repeat the `7b0699d`-era
+ledger; Appendix B carries the newer parity-continuation copy of those flows.
+
 This file is the checkpoint ledger for the UIKit + Combine + TDLibKit implementation. Telegram references use
 `telegram-upstream/master` unless a commit is pinned. The classic pre-Liquid baseline is
 `8e7e5fefb1b0aba8335d8c28b62138183d61dc3d`, the parent of Telegram's first first-parent `Glass` commit.
 
-User-approved visual exception (2026-09-05): preserve BetterTG's existing Liquid Glass folder picker and shared context
-menus, as restored from `64625ed^`. Keep the inset scrolling glass capsule, moving glass selection and full-width background
-blur, plus the glass menu surface and rounded highlights. Future parity work must retain this presentation while extending
-actions and state handling; the classic baseline does not require replacing these two surfaces.
-
-Status values: **done** has local implementation proof, **partial** is usable with listed gaps, **next** is the next
-bounded slice, and **queued** has not started. Gifts, Stars, collectibles, boosts, Premium, ads, livestreaming, and
-Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) are intentionally out of scope.
-
-| Priority | Flow | Telegram reference | TDLib API / model | Status and proof |
 Implementation status and verification are separate. **done** means the recorded bounded scope has its stated proof;
 **implemented breadth** means the main code paths exist, with the listed verification limits; **partial** has known gaps;
 **next** identifies the next bounded slice; **queued** has not started. None implies exhaustive Telegram parity.
 Gifts, Stars, collectibles, boosts, Premium, ads, livestreaming, and Telegram infrastructure
 (Texture, SignalKit, Postbox, Display, ComponentFlow) are intentionally out of scope.
 
-## Revalidation before new features — 2026-10-02
+### Revalidation before new features — 2026-10-02
 
 The user requested a fresh `gpt-6-astra` review of the accumulated implementation previously developed with `5.6-sol`.
 The initial documentation handoff was `6b417da`; the goal subsequently started on 2026-10-02 from that clean HEAD, whose last
@@ -37,7 +188,7 @@ zero-marker scan, catalog switch or permission-denial smoke does not prove compl
 Historical slice-level Deferred/Remaining/next notes describe those slices at the time; reconcile them with later slices and
 current code before scheduling duplicate work. This section and the current checkpoint take precedence for resume ordering.
 
-### Audit workflow
+#### Audit workflow
 
 1. Read `AGENTS.md`, `CLAUDE.md`, `project.yml`, this ledger, current code, working/index diffs and committed implementation history.
    Establish the relevant implementation base from Git history. A clean working diff is not an audit of accumulated changes.
@@ -80,7 +231,7 @@ Implementation subagents use isolated worktrees, format changed Swift in one inv
 the primary integrates verified commits and validates the combined result. Do not spawn when the remaining budget cannot cover
 integration and verification. Each implementation slice must end with proof, a focused attributed commit and an updated checkpoint.
 
-### Astra audit baseline and coverage
+#### Astra audit baseline and coverage
 
 - Date/source: 2026-10-02, clean `6b417da362960e152f07ba86000b7777b636b0f5`. Pre-UIKit base is
   `67ecc4ff2287483652019b40f383d50015a35a77` (parent of `a543a0d`); VLC replacement began at `6216eee`, parent
@@ -103,7 +254,7 @@ integration and verification. Each implementation slice must end with proof, a f
 | Accounts | `TDLib`, `TelegramAccountRegistry`, root/settings/login controllers → client activation/retirement, storage, update subjects | Initial source pass at `cf885b1`: UUID databases, atomic registry, client retirement, auth routing and background ownership; A23/A30. No real add/switch/logout or notification-service handoff proof |
 | Lists/shell | `MainView`, `RootVM`, `FolderView`, `ChatFolderManagementViewController`, navigation/context-menu views | Initial source pass at `cf885b1`: frozen list payloads versus dynamic action clients A29, page/tab state and full-width safe-area constraints. Secondary surfaces/search mutations and visual matrix remain partial |
 
-### Astra findings and repair queue
+#### Astra findings and repair queue
 
 Active queue: A53b2 verified/versioned cache-only previews, then queued actual ChatView mutations. A53b1/1a deny unsafe enrichment; they do not complete cache-only parity.
 A51a `38b7d06` and A51b `6b187b0` pass isolated cache/worker native probes. Post-worker sample was idle-only, so comparable
@@ -324,7 +475,7 @@ New A31 is confined to poll in-flight ownership (`MessageStructuredContentView` 
 Pinned pre-Liquid `ChatController.swift` 3409–3440 keys in-progress poll actions and their request lifetime by message. No SignalKit
 is imported. This source pass does not prove every content's real rendering/action behavior; no polls or external apps were opened.
 
-### Range-waiter repair proof — 2026-10-02
+#### Range-waiter repair proof — 2026-10-02
 
 - Scope: A01/A02 only. Preserve range planning, source/client ownership, finite fetch limits and cancellation generations. A fresh
   UUID identifies each waiter registration; sleep cancellation exits, and a delayed old callback cannot expire a replacement.
@@ -342,7 +493,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   app-flow smoke. No database reset/removal was performed. Verify probes on an isolated Simulator and separately investigate this
   dependency/data compatibility failure; the original database remains unverified.
 
-### Isolated range and renderer-feedback proof — 2026-10-02
+#### Isolated range and renderer-feedback proof — 2026-10-02
 
 - Isolated iPhone 17 Pro / iOS 26.5 Simulator `BetterTG Astra Audit`, `59EB535C-3610-41A2-AB68-53A9467DC24B`,
   avoids B01 without modifying the original database. Each run used
@@ -370,7 +521,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   fixture's slightly unequal track ends do not cover A04's materially different durations. B01 remains unresolved.
   Both Simulators remain booted; the smoke agent disconnected its owned idb session.
 
-### Animated decoder worker repair proof — 2026-10-02
+#### Animated decoder worker repair proof — 2026-10-02
 
 - Scope: A07 only. Preserve first-frame fallback, existing frame timing/cache behavior and C-handle ownership. A native-free
   initializer creates the actor; `prepare`, frame reads/resets and `isolated deinit` run on its dedicated serial executor.
@@ -397,7 +548,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   On resume, inspect current authorization/reachable chats before selecting authenticated smoke. This user update does not close
   B01 for the original database or prove sticker playback. The later explicit continuous-work request authorizes further slices.
 
-### Voice lifecycle preservation proof — 2026-10-02
+#### Voice lifecycle preservation proof — 2026-10-02
 
 - A11 scope: navigation/permission teardown stops capture and preview without calling explicit discard. Main-actor registration
   retains canonical PCM/trim/adoption work and makes a reopened account/chat/topic route await it. A lifecycle generation rejects
@@ -424,7 +575,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   Explicit Cancel/Delete removed each agent-created draft and WAV; the recording-draft directory was empty after both deletions.
   No messages were sent, no chat rights changed, no user drafts removed, no database reset and no Simulator shutdown occurred.
 
-### Accepted TDLib update provenance proof — 2026-10-02
+#### Accepted TDLib update provenance proof — 2026-10-02
 
 - A13 worker `1eb9d23c75a335defd5a2df2274d9b6dc2504aaa` was independently reviewed and integrated as `c356513`.
   `TDLib.handle` captures account UUID/client ID into immutable notification userInfo; `td.py` generates exactly one post with
@@ -446,7 +597,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   The existing active-client gate still drops callbacks arriving after a switch; safe inactive-client outcome recovery remains open.
   A12 route/temporary-ID matching, A14 finalization leases and A18/A19 VOD/PiP are unchanged.
 
-### VOD main-track and duration-authority proof — 2026-10-02
+#### VOD main-track and duration-authority proof — 2026-10-02
 
 - A04 worker chain `23b1e49` → `61bb5e3` → `e87ef9c` was independently reviewed and integrated as
   `83103ba` → `14a01c5` → `ef8f4ba`. C selects explicit video end before audio, clips the longer audio tail and preserves persistent
@@ -481,7 +632,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   with unavailable/delayed tail ranges, seek beyond an estimate and explicit incomplete-byte-coverage assertions. Live Telegram
   streaming and active system PiP remain unverified; do not promote this bounded proof to global VOD parity.
 
-### A04 cold partial-file playback and pre-metadata buffering — 2026-10-03
+#### A04 cold partial-file playback and pre-metadata buffering — 2026-10-03
 
 - Base `4f9b3d6`; reviewed `TDLibVODFFmpegSampleBufferPlayer`, range source/DEBUG transport and new
   `TDLibVODPartialCoverageProbe`. Existing small-file proofs remain valid within their limits. A new native AVAssetWriter
@@ -517,7 +668,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   A/V sync for the large video-only fixture, physical hardware or active PiP. Reveal + update jointly precede recovery; this
   does not isolate updateFile as the sole wakeup rather than timeout/refetch. Lookahead estimate authority remains open.
 
-### Exact media-draft delivery and client streams — 2026-10-02
+#### Exact media-draft delivery and client streams — 2026-10-02
 
 - A12 worker `2ccdb9b` integrated as `847b838`: `ChatDraftDeliveryKey` freezes account/chat/send topic independently of the
   owning UI route. Stores reject simultaneous enqueue by either route or delivery, require a unique outcome candidate and consume
@@ -553,7 +704,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   preserves an unresolved enqueue, not automatic recoverability. A14 canonical finalization ownership, callbacks rejected by the inactive
   client gate, A15–A17 video lifecycle and A19 restoration remain open.
 
-### Canonical voice finalization and PiP context proof — 2026-10-02
+#### Canonical voice finalization and PiP context proof — 2026-10-02
 
 - A14 worker `a8d04c2` integrated as `bb01b8f`. Six Swift files formatted together; warning-free primary build
   `.build/logs/xcodebuild/build-Debug-20261002-155910-46801-26110.log` (14s). Worker log is copied with `worker-A14-` prefix;
@@ -592,7 +743,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `activate(notify:false)` are source-reviewed, not server/lifecycle-exercised. `pip-supported=false`: active system PiP still
   requires a capable device. Marker scan over production/dependencies is empty; no Simulator shutdown or account reset occurred.
 
-### Edit-mode safety proof — 2026-10-02
+#### Edit-mode safety proof — 2026-10-02
 
 - A24 worker `8aa914f` integrated as `b18da97`. Primary reviewed the entire policy/probe and all edit-session assignment sites.
   `ChatVM` dispatches explicitly between ordinary/invalid-edit/edit, captures the message/formatted payload, and checks session,
@@ -608,7 +759,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   success and empty media caption. It uses counters and fixtures, not a real ChatVM, keyboard, selected-attachment view or TDLib
   server edit. Production wiring/disabled action is source/build-proved only. No account data or messages were changed.
 
-### Send-draft relocation and list-action authority proof — 2026-10-02
+#### Send-draft relocation and list-action authority proof — 2026-10-02
 
 - A26 worker `2e28fad` integrated as `8519b33`; five changed Swift files formatted together. Primary wrapper build
   `.build/logs/xcodebuild/build-Debug-20261002-161828-25210-228.log` passed without warnings (12s).
@@ -652,7 +803,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   server mutation was attempted. Cold-launch attachment works; live account/dismissal mutation races still need real proof.
   Production/dependency prohibited-marker scan is empty, but these screenshots expose secondary chrome gap A32.
 
-### Effective group profile permission proof — 2026-10-02
+#### Effective group profile permission proof — 2026-10-02
 
 - A27 worker `1a78906` integrated as `b0db39f`; primary reviewed both production controllers, shared policy/authorization and
   complete probe. Basic-group admins keep all applicable rights; ordinary members use default `canChangeInfo`; restricted
@@ -677,7 +828,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   A29/A12/A26/A14/A24 regressions all pass in `astra-a27-list`, `astra-a27-drafts`, `astra-a27-relocation`, `astra-a27-voice`,
   `astra-a27-edit`. No real profile/account/message mutation. Marker scan remains empty; A32 visual chrome remains open.
 
-### Foreground root-list restoration proof — 2026-10-02
+#### Foreground root-list restoration proof — 2026-10-02
 
 - A30a worker `b8d8432`/`469bad4` integrated as `0820359`/`c5d3f8b`. Accepted-source readiness clears on activation/background;
   obsolete clients cannot announce readiness. Navigation replaces only opted-in Main entries for the same account, with exact
@@ -703,7 +854,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `groups-restored.png`, `folder-editor-restored.png`, `search-before-background.png`, `search-restored.png`;
   `search-restored-typing.png` plus AX readback records retained first-responder input. No real message/folder/account mutation.
 
-### Single video capture finish-owner proof — 2026-10-02
+#### Single video capture finish-owner proof — 2026-10-02
 
 - A17 worker `6809716` integrated as `e8a0eb1`. Capture contexts carry immutable preparation generation and one manual/automatic
   finish owner through native completion and MainActor delivery. Duplicate/competing manual Stop returns nil; it cannot convert an
@@ -722,7 +873,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/astra-a17-primary`. Fixtures are isolated; asset move simulates adoption, not the production store transfer.
   Hardware camera/microphone, full-duration limit, physical gestures, real adoption and server send remain unverified.
 
-### Composer-transfer foundation and video-preview handoff proof — 2026-10-02
+#### Composer-transfer foundation and video-preview handoff proof — 2026-10-02
 
 - A30b1 worker `946dc02` integrated as `ef558ec`. An in-memory value snapshot separates ordinary compose/edit/reply/quote intent
   from mutable CustomMessage objects; images/documents retain IDs. One-shot transfer requires exact account/chat/topic (nil remains
@@ -754,7 +905,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   regressions pass under `.build/ui-probe-evidence/astra-a16-primary`. No real messages sent, user stores changed or capture hardware
   started. Persisted-recording materialization, ChatVM submit RPC and live gestures remain unverified. Marker scan is empty.
 
-### Profile shared-history request identity — 2026-10-02
+#### Profile shared-history request identity — 2026-10-02
 
 - A28 `9cdc6b0` adds per-request authority independently of the selected filter. Tab change invalidates it before cancellation;
   every success/error/cancellation path consumes only its own ID before touching the task or UI. Existing account/client/tab checks,
@@ -768,7 +919,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/astra-a28-primary`. The controller's success/catch/reset wiring is source-reviewed; the probe does not
   construct a real profile, delay a TDLib RPC or exercise tab gestures. No real account/profile/message changes.
 
-### Terminal navigation-plan acceptance — 2026-10-02
+#### Terminal navigation-plan acceptance — 2026-10-02
 
 - A30b2 prerequisite worker `1584f4d` integrated as `1f47005`. Preparation owns no transferred files; the coordinator rechecks
   ready/source generation, controller preflight, exact stack and transition/modal barriers before a one-shot synchronous commit.
@@ -786,7 +937,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `1112227`. Visually inspected `search-restored-typing.png` records focus/cursor and selected folder; keyboard stayed hidden.
   Own query cleared with Close. No folder/message/account writes. This validates Main after the transaction change, not Chat recovery.
 
-### Poll submission attempt ownership — 2026-10-02
+#### Poll submission attempt ownership — 2026-10-02
 
 - A31 `b7de6ee` gives each accepted vote attempt an immutable token. The queued RPC checks that token and current route before
   sending; failure and deadline callbacks may clear only their own attempt. A stale callback neither cancels the replacement
@@ -802,7 +953,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   pending-choice preservation and duplicate completion. A28/A30b1/terminal-navigation regression probes also pass in
   `.build/ui-probe-evidence/astra-a31-primary`. ChatVM wiring is source-reviewed; no real vote or delayed server RPC was performed.
 
-### Video-note navigation finalization and join — 2026-10-02
+#### Video-note navigation finalization and join — 2026-10-02
 
 - A15a worker `64c47dc` integrated as `bafdde8`: navigation registers an exact account/chat/topic barrier synchronously, freezes
   capture input and joins the sole manual/automatic finish owner. A UI-independent finalizer owns native output → canonical
@@ -830,7 +981,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   No user store, real recording, camera permission or server send was touched. Physical capture, rapid-navigation gestures,
   suspension grace time and process death remain unverified.
 
-### Chat restoration history/import foundation — 2026-10-02
+#### Chat restoration history/import foundation — 2026-10-02
 
 - A30b2 worker `760f8cc` integrated as `6aa7ce4`. Detached display values preserve raw source IDs, album members, presentation
   metadata and pagination cursor without mutable wrappers or in-flight mutation flags. Reconciliation rebuilds albums by source ID.
@@ -849,7 +1000,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `astra-a23a-primary`; worker README/log copied separately. Existing pinned ChatInterfaceState references apply.
   Chat navigation is still disabled; live history, file-import controllers, anchor/focus and shared same-epoch update ordering need wiring.
 
-### Root/list account and client authority — 2026-10-02
+#### Root/list account and client authority — 2026-10-02
 
 - A23a `e1d295e` routes typed RootVM list/chat/user/unread/settings updates through accepted source checks at main delivery.
   Folder unread uses the event's client ID. List reads capture one client for every nested chat/user/group/folder RPC and check
@@ -867,7 +1018,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   results pass in `.build/ui-probe-evidence/astra-a23a-primary`. Real RootVM/RPC wiring is source-reviewed; no real account switch,
   delayed server response or account/list mutation was performed.
 
-### Chat update delivery and integrated regression — 2026-10-02
+#### Chat update delivery and integrated regression — 2026-10-02
 
 - A23b `df9eb7a` (worker `6c43e20`) binds 20 ChatVM typed subscriptions to their accepted account/client and exact chat/topic.
   Five asynchronous new/sent/failed/message/reference hydration paths recheck that authority and the nonretired owner before
@@ -887,7 +1038,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   empty placeholder. Screenshot: `astra-a23b-primary/root-search-foreground.png`. Software keyboard was hidden; text focus was
   demonstrated by input, not by keyboard pixels. This does not prove restoration of an open Chat or a real account switch.
 
-### Animated file transport authority — 2026-10-02
+#### Animated file transport authority — 2026-10-02
 
 - A05a `128ada2`: all three TGS/WebP/FFmpeg views use one configured request with captured account/client/file identity.
   Scoped notifications check the accepted origin at main delivery; download/cancel closures retain the original client.
@@ -907,7 +1058,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   A07 native worker regression and A23 Chat/Root probes also pass in `.build/ui-probe-evidence/astra-a05a-primary`.
   This does not prove real sticker playback, account switching, or all consumer origins.
 
-### Video lifecycle preservation and animated consumer origins — 2026-10-02
+#### Video lifecycle preservation and animated consumer origins — 2026-10-02
 
 - A15b1 `8b42052` (worker `2b45d35`): background/camera/audio interruptions join the immutable capture finalizer, stop input and
   preserve the canonical recording. A per-capture background lease ends once; expiration cancels only a matching unadopted writer,
@@ -931,7 +1082,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   Independent read-only A05a/A05b delta review found no new blocker. Actual multi-account animation/view-decode races, shared demand
   and nonanimated/static-image client plumbing remain outside this bounded proof.
 
-### Shared production history revisions — 2026-10-02
+#### Shared production history revisions — 2026-10-02
 
 - A30b2 phase 1 `da59789` (worker `4c9142a`) wires the history ledger into ordinary ChatVM and the optional seeded constructor.
   Complete accepted messages install their body before metadata awaits; one four-message lane hydrates metadata. Partial updates,
@@ -954,7 +1105,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   one-shot pixel anchor, then start freshness. Raw unresolved reply/forward dependencies, A22 scroll interaction epochs and other
   secondary-route restoration remain open. This phase is production wiring, not a complete A30 claim.
 
-### A06 animated-file demand — 2026-10-02
+#### A06 animated-file demand — 2026-10-02
 
 - `09fa140` replaces per-view transport cancellation with `AnimatedFileDemand`, keyed by originating account UUID, client ID and
   file ID. TGS/WebP/WebM views and animated prefetch acquire the same whole-file demand. Releasing one view or cancelled prefetch
@@ -978,7 +1129,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   client replacement, pre-start cancellation, completed cache and explicit retry. No server calls or user stores. Actual three-view
   decode callbacks/TDLib scheduler, nonanimated downloads and cross-arbitration with VOD ranges are not established by these probes.
 
-### A30b2 quiescent Chat controller — 2026-10-02
+#### A30b2 quiescent Chat controller — 2026-10-02
 
 - `494bf56` (worker `7f98a52`) enables the existing terminal navigation replacement for ordinary Chat. Captured target-client
   metadata, account/chat/topic and retained-route checks precede synchronous composer/history ownership transfer. Imports, marked
@@ -1008,7 +1159,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Pending: interrupted real provider imports, nonempty edit/reply/attachment transfer, software-keyboard transitions, active voice/video,
   ForumTopics/Archive/editors, live account switches and delayed server-history races. Full A30 remains partial.
 
-### A15b2 voice lifecycle checkpoint — 2026-10-02
+#### A15b2 voice lifecycle checkpoint — 2026-10-02
 
 - `15871f5` (worker `f12e3d1`) separates interaction, background and audio-interruption suspension. Clearing one reason cannot
   revive another or an older permission/trim/resume/preview/send intent. Background pauses preview and checkpoints the canonical
@@ -1032,7 +1183,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   It neither instantiates a real ChatVM nor emits OS audio notifications/server RPCs. Real microphone/interruption/process suspension,
   ChatVM's suspended network preflight and actual accepted send remain unverified; this does not close those runtime gaps.
 
-### A08 actual animation timeline — 2026-10-02
+#### A08 actual animation timeline — 2026-10-02
 
 - `863de36` (worker `25c412d`) replaces nominal capped FPS/count with native decoded PTS and actual EOF. Binary search selects
   frames; missing/backward/duplicate timestamps fall back to the previous decoded end. The last decoded duration determines loop
@@ -1053,7 +1204,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Proof: `.build/ui-probe-evidence/astra-a08-primary`; worker host-native FFmpeg9.0.2 evidence remains separately labelled in
   `astra-a08-worker`. No real sticker feed/TDLib download/UI playback/performance claim; no user stores or server writes.
 
-### A10 text, caption and accessibility spoilers — 2026-10-02
+#### A10 text, caption and accessibility spoilers — 2026-10-02
 
 - `2bf7428` (worker `f5c69bd`) adds display-only concealment. Immutable account/client/chat/source-message and exact formatted
   payload own cell-lifetime revelation; edit/reuse/source replacement invalidates callbacks. Hidden glyph/link/code/custom-emoji
@@ -1075,7 +1226,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   Proof `.build/ui-probe-evidence/astra-a10-primary`; worker notes separate. Actual emoji decoding, full album layout and live
   spoiler-message touch/VoiceOver smoke remain unverified. URL/clipboard actions were captured, not executed; no server writes.
 
-### A23c forum-topic delivery — 2026-10-02
+#### A23c forum-topic delivery — 2026-10-02
 
 - `78f0f8a` routes all eight ForumTopicsVM typed subscriptions through the existing `ChatUpdateDeliveryAuthority`. Queued old
   account/client updates cannot mutate current same-ID topic info or start a current-client refresh; unscoped events are rejected.
@@ -1093,7 +1244,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   Actual topic-list UI and delayed server RPC ordering are unverified. Auth/static-image subscribers, same-epoch read ordering
   and A30 ForumTopics route replacement remain separate work.
 
-### A09 inline Apple-container animation — 2026-10-02
+#### A09 inline Apple-container animation — 2026-10-02
 
 - `e9b536b` (worker `fb65e3c`) routes native `messageAnimation` through the existing gallery playback owner. Inline and gallery
   transfer the same view/layer/AVPlayerItem with attachment tokens. All visible eligible animations loop silently; ordinary videos
@@ -1119,7 +1270,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   no-flash gallery gestures and device energy remain unverified. Secret/spoiler reveal, partial-file animation playback and seamless
   caption-only edits are explicitly outside this bounded result.
 
-### A23d static-image update delivery — 2026-10-02
+#### A23d static-image update delivery — 2026-10-02
 
 - `ba0e192` captures the active account/client before the default `TDImageLoadingView` file subscription. It consumes the
   generated scoped envelope and validates both event source and current source after main-queue delivery, before decoding.
@@ -1134,7 +1285,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - This isolated proof does not instantiate an image view, decode pixels, download files or switch real accounts. Explicit
   origin propagation to legacy callers, static-image shared-demand cancellation and auth delivery remain separate gaps.
 
-### A25 composer semantic entities — 2026-10-02
+#### A25 composer semantic entities — 2026-10-02
 
 - `a022017` (worker `7b58988`) separates composer entity identity/payloads from visual attributes. Explicit scoped Swift/UIKit
   bridges and semantic fallbacks retain code/pre/language, quotes, links, mentions, custom emoji and dates across unrelated edits.
@@ -1165,7 +1316,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   source `26d5f48`, PID `94652`: `marked-model-feedback=true; UIKit-undo-redo=true`; restoration/text-spoiler regressions pass.
   This is programmatic UITextInput/undo proof, not a live software-keyboard, dictation, CJK suggestion or keyboard-shortcut test.
 
-### A22 delayed viewport authority — 2026-10-02
+#### A22 delayed viewport authority — 2026-10-02
 
 - `6869382` binds automatic latest/anchor compensation to a one-shot geometry ticket. Structural snapshot, single/bulk reconfigure,
   rotation, deferred self-sizing and reply-quote expansion consume only the newest current ticket. Capture and completion both
@@ -1214,7 +1365,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   target/quote settlement after resize. Standalone rerun PID316, fresh report12:40:56 PASS, with unchanged build/source. Preserve
   the first failure: its cause is unresolved; concurrent fixtures are not a proven cause. This is not a full clean runtime-suite claim.
 
-### A49 ChatView snapshot fallback — 2026-10-03
+#### A49 ChatView snapshot fallback — 2026-10-03
 
 - Source `41f87a5`: `ChatView.swift`1553–1559 dequeues before resolving `message(for:)` from current `chatVM.messages`.
   `messagesDidChange` defers structural apply to the main queue; visible delete adds a140ms delay after the VM removes rows.
@@ -1255,7 +1406,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   action/navigation/prefetch lookup; exclude deleting IDs from reconfigure so configure cannot revive a fading bubble.
   The provider-callback prerequisite is repaired below; rendering ownership stays separate.
 
-### A49b rendered message action authority — 2026-10-03
+#### A49b rendered message action authority — 2026-10-03
 
 - `eeb93b2` (worker `64299df`, reviewed tree `d755c225`) freezes each provider configuration's source/location, exact wrapper,
   value payload and derived metadata, cell binding and selected/chosen state. Seven callbacks resolve current live row, attached
@@ -1293,7 +1444,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Same `9961aba`/PID5348 ordinary Saved selection again passes1→2→1; Cancel restores composer/toolbar state but leaves circles
   on unselected rows, reproducing A50. Evidence `touch-selected`, `touch-selected-two`, `touch-selected-one-again`, `touch-canceled`.
 
-### A50 selection-mode exit invalidation — 2026-10-03
+#### A50 selection-mode exit invalidation — 2026-10-03
 
 - P1, bounded fix `487c0de`; actual Saved Messages at `eeb93b2`/PID90027 and `9961aba`/PID5348 shows stale unselected-row circles after Cancel.
   `ChatView.endMessageSelection` saves only selected IDs and reconfigures those after setting isSelectingMessages=false.
@@ -1311,7 +1462,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   empty composer; screenshots `a50-selection`, `a50-cancel-clean`, `a50-deselect-before`, `a50-deselect-clean` inspected.
   Structural model removal is source-reviewed, not exercised by this smoke or existing native probe; deletion race remains unverified.
 
-### A49c snapshot transaction design gate — 2026-10-03
+#### A49c snapshot transaction design gate — 2026-10-03
 
 - Source `9961aba`: all five producers must move together: structural snapshot, single/bulk reconfigure, highlight (including
   DEBUG branch) and quote. Highlight currently has no depth/completion lifecycle. Delete's140ms deadline protects only structural
@@ -1355,7 +1506,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   concurrent physical drag/history insertion/resize/keyboard remain unverified. No send/delete/forward or host focus activation.
   These are checks of the committed prerequisite, not proof of the in-progress scheduler.
 
-### A49c2 frozen timeline transactions — 2026-10-03
+#### A49c2 frozen timeline transactions — 2026-10-03
 
 - P1, `f799d29` (worker `ec68744`, reviewed tree `bac0ab6f`): all five production snapshot producers share one active
   transaction and a coalesced intent buffer. Provider rows retain exact canonical identity, immutable render values, client/source,
@@ -1420,7 +1571,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   production/dependency VLC and forbidden UI/infrastructure marker scan is empty. Source checkpoint `724bf32`; only this
   parity record changed after that build. Simulator remains booted in Saved Messages, selection exited; no host focus activation.
 
-### A23e login authorization authority — 2026-10-02
+#### A23e login authorization authority — 2026-10-02
 
 - `097b488` (worker `b5e001b`) publishes replayable accepted authorization state keyed to the account/client epoch.
   Handoff clears readiness before replacement; Login clears credentials/hint and cancels queued work. A fixed-account session
@@ -1447,7 +1598,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/astra-a23-auth-primary`; root screenshot contains private chat data and is not a shareable artifact.
   Real code/password/country actions, actual account switching and server authentication remain unverified.
 
-### A20a route-owned media concealment — 2026-10-02
+#### A20a route-owned media concealment — 2026-10-02
 
 - `05c2b49` (worker `113e443`) introduces route-owned account/client/chat authority and per-member media-revision permits.
   Keys include content kind, source file IDs, edit revision and spoiler/secret flags; download progress does not erase a reveal.
@@ -1476,7 +1627,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   profile grid, full accessibility and animation appearance remain unverified. Profile concealment is the next bounded repair.
   Same-epoch stale RPC ordering is not solved by revision permits. No real hidden/secret message was opened or consumed.
 
-### A30c Archive client recovery — 2026-10-02
+#### A30c Archive client recovery — 2026-10-02
 
 - `bb36bc7` opts Archive into the existing prepared navigation replacement. It captures query, search focus and stable
   row/pixel viewport; commit constructs a new frozen action client without rebuilding adjacent Chat routes. The shared coordinator
@@ -1499,7 +1650,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   it is not an app/build warning. Populated anchor accuracy, live hydration during dragging, late first-layout and cross-account
   navigation remain unverified; the existing generic coordinator probe is not an actual Archive-controller test.
 
-### A20b profile-grid media concealment — 2026-10-02
+#### A20b profile-grid media concealment — 2026-10-02
 
 - `d8f9b36` (worker `3f1f359`) gives shared-media cells the profile's frozen playback context and issuing reveal session.
   Thumbnail/minithumbnail loading, visible badges, accessibility and transitions require the current member revision. Concealed
@@ -1521,7 +1672,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/astra-a20b-primary`. Circular Back remains an A32 gap; the visibly truncated title is recorded as A33.
   Hardware/VoiceOver, populated-grid updates, actual spoiler gestures and full visual parity remain unverified.
 
-### A21c timed secret video-note hold authority — 2026-10-02
+#### A21c timed secret video-note hold authority — 2026-10-02
 
 - `0e4e1e1` (worker `46772f7`) replaces global open/file authority and persistent reveal with frozen account/client/message,
   one configuration token and one token per hold. Scoped content/edit/delete/file updates and client/lifecycle changes revoke
@@ -1553,7 +1704,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   cancellation and offscreen continuity retained. Active system PiP unsupported. Proofs and initial failure:
   `.build/ui-probe-evidence/astra-a21c-primary`. Worker build/ref notes remain in its `.build/video-note-hold-proof`.
 
-### A21d secret video-note scene-capture admission — 2026-10-02
+#### A21d secret video-note scene-capture admission — 2026-10-02
 
 - `fd98d02` (worker `5d141f6`) requires an attached window and inherited UIKit `sceneCaptureState == .inactive` at hold,
   metadata, download, ACK and player/pixel admission. Active/unspecified capture and detachment deny the secret hold.
@@ -1571,7 +1722,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   No real secret content opened or account write performed. Hardware recording/touch/server behavior remains unverified;
   photo/video/animation and immediate/view-once playback remain separate concealed gaps.
 
-### A30e retained folder-flow authority — 2026-10-02
+#### A30e retained folder-flow authority — 2026-10-02
 
 - `850ccf8` (worker `4a5dc84`) keeps the existing folder list/editor/selector/order controllers and their local name, rules,
   selected IDs, raw search query and ordering. `FolderFlowSession` renews only future immutable action scopes after matching
@@ -1607,7 +1758,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   Documentation checkpoint build `build-Debug-20261002-232053-99468-14280.log`: PASS11s, zero warnings; prohibited production/
   dependency marker scan empty, AGENTS/CLAUDE synchronized.
 
-### A30f1 retained profile editor and fresh save authority — 2026-10-02
+#### A30f1 retained profile editor and fresh save authority — 2026-10-02
 
 - `1e072ca` (worker `ae69e9e`) keeps the exact editor, raw fields, selection and local errors through same-account client
   replacement. A fresh immutable account/actor/client scope is reserved for each explicit Save; stale Ready cannot renew it.
@@ -1640,7 +1791,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `settled-state` sample without forcing layout; one-file format and `build-Debug-20261002-235130-62705-6888.log`: PASS8s,
   zero warnings. Agent-only `AstraLayout` was discarded via Back without Save. Private proof `.build/ui-probe-evidence/astra-a37-primary`.
 
-### A30f2 profile restoration prerequisites — 2026-10-02
+#### A30f2 profile restoration prerequisites — 2026-10-02
 
 - `9c0816b` (worker `1a39db2`) adds route-validated accepted tab/page/cursor/metadata seeds, stable message/pixel viewport,
   fitted-header timing and fresh preceding-Chat callback factory. No client-restoration activation yet.
@@ -1651,7 +1802,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   pinned current/pre `PeerInfoPaneContainerNode.swift`923–950/1209–1236, current `PeerInfoScreen.swift`5598–5620 and
   `PeerInfoScreenOpenChat.swift`1–58; pinned TDLib `td_api.tl`11710–11728 topic/filter/raw cursor. No infrastructure copied.
 
-### A30f2 activation and A38 admission review — 2026-10-02–03
+#### A30f2 activation and A38 admission review — 2026-10-02–03
 
 - `c68c1c2` (worker `35adb4d`) restores only the topmost quiescent profile with unchanged account/actor and the exact
   preceding restored Chat. Captured-client metadata reads, source/Ready/owner gates and terminal cleanup fence replacement;
@@ -1671,7 +1822,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   all unverified pixel/AX/action paths, preserve raw pagination and viewport; permanent deletion and newer partial updates
   must defeat delayed getMessage/search pages. Errors remain retryable, not fabricated deletion. No ChatVM/Root rewrite.
 
-### A38 shared-message revalidation — 2026-10-03
+#### A38 shared-message revalidation — 2026-10-03
 
 - `97ccea8` (worker `4116257`) reuses the profile-owned four-read history ledger. Every seed retains only ID/order/viewport;
   content, AX, file demand, transitions and actions await current-client admission. Scoped content/edit/delete updates revoke
@@ -1710,7 +1861,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   No Telegram infrastructure copied. Repeated live races, newly arrived head messages, rich UI, rotation/Dynamic Type and
   system PiP remain separate limits.
 
-### A30g member/admin route recovery — 2026-10-03
+#### A30g member/admin route recovery — 2026-10-03
 
 - Baseline `72d74b0` (documentation HEAD `59ca5a9`): profile topmost gate233–239 and removal954–982 discard the
   profile suffix while its Members/Admins child is visible. The child retains an immutable old client and does not participate
@@ -1762,7 +1913,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Documentation validation `build-Debug-20261003-031613-8760-19481.log`: PASS5s, full log zero warnings/errors. Forbidden
   production/dependency marker scan is empty; AGENTS/CLAUDE agree. No new Swift change in this documentation checkpoint.
 
-### A30h member-tag editor renewal: repair contract — 2026-10-03
+#### A30h member-tag editor renewal: repair contract — 2026-10-03
 
 - Source `2190c4d`, primary and independent review: `PeerProfileControlsViewControllers.swift`314–326 pushes the tag editor
   above Members. `PeerProfileMembersRestoration.swift`145–151 requires Members itself topmost, so Profile's retention gate
@@ -1787,7 +1938,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   release. Existing profile/member probes must pass. Live authorized editing remains unavailable unless naturally permitted;
   no synthetic production route or server changes to create the fixture.
 
-### A30h member-tag editor renewal: integrated proof — 2026-10-03
+#### A30h member-tag editor renewal: integrated proof — 2026-10-03
 
 - `c895a8c` (worker `68b6fae`, reviewed tree `736de4e`) keeps the existing editor/UITextField behind a separate exact
   Profile→Members→Tag hold. Generic Members parent binding and replacement gates are unchanged; stale parents remain
@@ -1813,7 +1964,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   server Save, native input-method presentation, real edit menu and cancelled interactive Back remain unverified; the historical
   permission-denial smoke is not evidence for those paths.
 
-### A39 explicit target navigation — 2026-10-03
+#### A39 explicit target navigation — 2026-10-03
 
 - `1b1429f` (worker `4fc6d02`) retires retained viewport intent when accepting explicit navigation, consults the current
   snapshot marker, and holds target/quote until snapshot, layout, window and source are valid. Pending navigation fences
@@ -1959,7 +2110,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Documentation checkpoint `build-Debug-20261003-010725-3164-28383.log`: PASS5s, zero warnings. AGENTS/CLAUDE remain identical;
   prohibited production/dependency marker scan is empty. The reusable prompt also records background-only Simulator activation.
 
-### A51 rich-notification cache work and account boundary — 2026-10-03
+#### A51 rich-notification cache work and account boundary — 2026-10-03
 
 - Baseline `1c72d3a`/production `e70a227`; unchanged product from final build `163857-71725-11058`. ETTrace runner/framework
   are absent, so one bounded native `sample` capture uses the existing binary with no temporary dependency or project patch.
@@ -2069,7 +2220,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   prohibited production/dependency marker scan is empty. Worker checkout is clean, all implementation changes are committed;
   only this ledger awaits its focused commit. Goal remains active; A53 is the next bounded implementation.
 
-### A52a exact notification correlation — 2026-10-03
+#### A52a exact notification correlation — 2026-10-03
 
 - `878e85f` replaces unrelated-last and shifted-only matching with `RichNotificationTarget`: positive exact account,
   peer kind/ID, ordinary cloud server ID in1...Int32.max, exact TDLib raw ID with zero local/scheduled bits. Invalid metadata
@@ -2099,7 +2250,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   handler necessarily runs. Canceling a Swift Task or completing close is not a callback-drain proof. A52b2 service request
   generation, builder/INInteraction donation and callback ownership remain separate from the session-only repair.
 
-### A52b1 session publication and teardown authority — 2026-10-03
+#### A52b1 session publication and teardown authority — 2026-10-03
 
 - `90d324d` (worker `8c11665`, reviewed tree `c87a5863`) introduces one locked session lifetime for continuation,
   client bootstrap and at most one configure/process/resolve role. Tickets are reserved before spawning and reject a
@@ -2147,7 +2298,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   prohibited-marker scan empty; AGENTS/CLAUDE match. Primary implementation and worker are committed and clean; this
   proof ledger is the final focused documentation commit. Goal stays active; next implementation is A52b2 above.
 
-### A52b2 request-owned content completion — 2026-10-03
+#### A52b2 request-owned content completion — 2026-10-03
 
 - `559a762` adds a shared production request coordinator: UUID owns original content, handler and optional task. Replacement
   and expiry retire that record; cancellation and exact-handler delivery run outside the lock. Reentrant handlers/cancellation
@@ -2169,7 +2320,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   Actual NSE/APNs/builder donation remains unverified; an entered synchronous builder may delay expiry, and a system donation
   already started cannot be revoked. The coordinator probe performs no RPC/account/cache/donation effects.
 
-### A53 notification media concealment — source finding 2026-10-03
+#### A53 notification media concealment — source finding 2026-10-03
 
 - At `38b7d06`, `RichNotificationCacheCoordinator.cacheMedia` accepts incoming photo/video/animation through its local
   `mediaCandidate`, which lacks both `isSecret` and `hasSpoiler` guards. Positive server message IDs in cloud private/group/
@@ -2242,7 +2393,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   invalidation even without an active job. Missing/evicted evidence must reject late commits. Existing raw JPEGs remain unread;
   full Message media eligibility alone must not be treated as showPreview permission. Unseen server edits/settings stay unverified.
 
-### A53b1 explicit preview evidence — 2026-10-03
+#### A53b1 explicit preview evidence — 2026-10-03
 
 - `805494f` (worker `ee6482e`, exact reviewed tree `33dcf2fa`) separates denied/unresolved/allowed media. Every media push
   requires the exact full Message, even if it carries a thumbnail. Full envelope self-destruct and media secret/spoiler flags
@@ -2275,7 +2426,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   rewriting, new notifications or donation fixtures. Pre-Liquid `ChatMessageNotificationItem.swift`219–223/448 retains spoiler
   entities and hides their text for in-app notifications; this is concealment reference, not proof of remote APNs formatting.
 
-### A53b1a caption entity concealment — 2026-10-03
+#### A53b1a caption entity concealment — 2026-10-03
 
 - `cb84f9b` routes photo/video/animation/document body generation through the shared FormattedText caption gate. A spoiler
   entity returns no replacement body; eligible attachments keep their independent authority. Plain/bold captions and empty
@@ -2290,7 +2441,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   Evidence: `.build/ui-probe-evidence/astra-a52-a53/captions/`. This suppresses an unsafe generated override; it does not
   sanitize an already-unsafe original APNs payload or prove actual NSE attachment/donation behavior. Cache-v2 remains next.
 
-### A53b2 cache-v2 design gate — reviewed 2026-10-03, not implemented
+#### A53b2 cache-v2 design gate — reviewed 2026-10-03, not implemented
 
 - At `559a762`, prewarmer active leases do not cover completed entries; `RichNotificationCache` persists only JPEG bytes.
   Replace the media path with one atomic envelope per exact account/raw-chat/ordinary raw-message identity in `media-v2`.
@@ -2316,7 +2467,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   edit/delete with no active job; two store instances; eviction versus late commit; invalid identity/schema/digest; failed revoke
   without acknowledgement; and declared pre-ack versus rejected post-ack read/commit order. Legacy JPEGs stay untouched/unread.
 
-### A40 complete build-warning visibility — 2026-10-03
+#### A40 complete build-warning visibility — 2026-10-03
 
 - Fix commit: `eff2876`.
 - Full integration log `014324-25949-6943` line264 reports `Metadata extraction skipped. No AppIntents.framework dependency found`
@@ -2336,7 +2487,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   Other compact-only historical claims remain unverified;
   no broad retroactive assertion is made. Telegram/TDLib behavior unchanged; no runtime notification delivery proof claimed.
 
-### A41 static artifact cleanup dependency order — 2026-10-03
+#### A41 static artifact cleanup dependency order — 2026-10-03
 
 - Two consecutive builds `015206-28264-17404` and `015425-28980-13074` fail when cleanup deletes TDLibFramework.framework during
   Xcode's automatic lipo/copy/sign. Failed manifest `5bf934207b9f9cd20ed3f407db54958a` shows the cleanup waits only for the
@@ -2351,7 +2502,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   extension extraction does not. Final redundant bundle is absent and `codesign --verify --deep --strict` passes.
   Independent graph/source review and shell warning fixtures pass. Device/archive signing remains unverified.
 
-### A42 forum-search snapshot cell ownership — 2026-10-03
+#### A42 forum-search snapshot cell ownership — 2026-10-03
 
 - Actual source `72d74b0`/docs`cef6bdc`, audit Simulator PID `42180`: existing real forum → active search → three-character
   Cyrillic query. At02:31:53.810, UIKit throws `NSInternalInconsistencyException`: reconfigure expected the existing `ForumTopicCell`
@@ -2382,7 +2533,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Final `build-Debug-20261003-025014-56598-7723.log`: PASS4s, complete log zero warnings/errors; prohibited production/dependency
   markers absent. No whole-repository formatting or account/data reset.
 
-### A32 folder Done contrast and A36 title classification — 2026-10-02
+#### A32 folder Done contrast and A36 title classification — 2026-10-02
 
 - `1b89dbd` (worker `7a46acb`) changes only selector/order Done factories to titled `.plain` items, retaining actions,
   target, readiness gates and AX label. Native folder-flow probe now verifies all of them, including disabled action denial.
@@ -2426,7 +2577,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `ContactMultiselectionControllerNode.swift`191–215/192–216 keep explicit selection separate from live rows;
   pinned TDLib `td_api.tl`10406,11471–11476 supplies position removal/live loading semantics.
 
-### A37 focused prompt baseline — 2026-10-03
+#### A37 focused prompt baseline — 2026-10-03
 
 - `d34d012` (worker `fc815ea`) adds only a DEBUG `-ui-probe-navigation-prompt` fixture: actual classic navigation and editor,
   temporary isolated key window restored on exit, real first responder/selection, delayed public geometry and retained-stack
@@ -2449,7 +2600,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   Save or an agent-authored draft. `.build/ui-probe-evidence/astra-a37-delayed-primary` contains the bounded geometry JSON
   and pixels. This confirms transient geometry in this run, not the cause or repair of the earlier persistent clipping.
 
-### A33 definite profile-header text width — 2026-10-02
+#### A33 definite profile-header text width — 2026-10-02
 
 - `b97fa9b` changes the four centered header labels from `width <= stack.width` to definite available width. Multiline fitting
   no longer resolves the own title to a narrow 90pt region. Text alignment, fonts, line limits, self-role wording and the 96pt
@@ -2465,7 +2616,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/astra-a33-primary`. No editor/media item/server action opened. Other widths, dynamic category changes,
   long/RTL titles and scrolled-offset resizing remain unverified. Circular Back remains separate A32 work.
 
-### A43 chat-list read-receipt delivery — 2026-10-03
+#### A43 chat-list read-receipt delivery — 2026-10-03
 
 - Baseline `d8e2bb0`: `ChatListCell.deliveryState` reads the immutable Chat's outgoing read watermark, but generated
   `updateChatReadOutbox` has no subscriber. Folder rows already observe `CustomChat.objectWillChange`; missing TDLib feed,
@@ -2491,7 +2642,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   retains a lease while switching its fake source to test field ordering; production source changes still invalidate leases,
   covered by the existing retirement regression. No live peer-read, full list receipt smoke or server mutation claim.
 
-### A44 timeline delivery-state audit — 2026-10-03
+#### A44 timeline delivery-state audit — 2026-10-03
 
 - Source baseline `596e895`, independently confirmed: `MessageView.swift`514–551 builds text, standalone and media-overlay
   timestamps with only `sendFailed`; AX576 reuses that value. `CustomMessage` has no derived read state. A43 updates list
@@ -2520,7 +2671,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   quick acknowledgement, may precede failure and is not final success/read. Fullscreen gallery controls are outside this
   status repair; bubble media overlays are in scope. Source audit only; no new production code or live message send/read proof.
 
-### A44a ordinary-chat bubble delivery states — 2026-10-03
+#### A44a ordinary-chat bubble delivery states — 2026-10-03
 
 - Worker `52d7e33` integrated as `1630ee1`; DEBUG-only geometry correction `909f62b`. Add derived Equatable status with
   raw Failed/Pending precedence before any temporary-ID comparison; final outgoing ordinary messages show single/double checks
@@ -2554,7 +2705,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `045008-60058-31007` PASS6s, each after one all-changed-Swift formatting invocation. A04 range regression PID58294 also passes
   with the unique-byte-coverage backend. A04 production/probe repair is committed as `8be1c9a`.
 
-### A44b1 explicit forum-topic receipts and ChatVM echo repair — 2026-10-03
+#### A44b1 explicit forum-topic receipts and ChatVM echo repair — 2026-10-03
 
 - Worker `caf406d` integrated as `5b9b322`, independently reviewed. Exact positive `.messageTopicForum` route/account/client
   consumes its own updateForumTopic outbox watermark. Canonical raw message topic and chat must match; other topics, numeric
@@ -2588,7 +2739,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Six changed Swift files formatted together; primary `050253-84583-2008.log` PASS12s, worker `045916-78400-10799.log`
   PASS13s, complete logs zero warnings/errors. No data reset, focus activation or Simulator shutdown.
 
-### A45 forum fetch-response echo audit — 2026-10-03
+#### A45 forum fetch-response echo audit — 2026-10-03
 
 - Source `909f62b`: `ForumTopicsVM.swift:281–286` invokes refresh for every scalar topic update;341–365 cancels/replaces its
   task then calls getForumTopic, without an in-flight skip or semantic dedup. The pinned TDLib022d6020
@@ -2633,7 +2784,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   A45b now addresses older full responses overwriting a newer accepted row and page responses resurrecting hidden/renamed rows;
   it must preserve raw cursors, accepted-update overlays, semantic demand and the no-echo contract.
 
-### A45b full-result arbitration and server-search correction — 2026-10-03
+#### A45b full-result arbitration and server-search correction — 2026-10-03
 
 - `597d6f3` (worker `9ec934a`) stamps each actual page/individual dispatch. A full exact-topic row is rejected only after a
   higher ordinal has committed; a newer pending/failed request does not discard usable older data. Shared admission preserves
@@ -2662,7 +2813,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   unknown lookups must not gain invented fuzzy authority. A bounded extra unknown refresh after page omission is also recorded;
   it is not the former unbounded echo loop. A46 pin ordering remains separate.
 
-### A44b2 read foundation and safe runtime availability — 2026-10-03
+#### A44b2 read foundation and safe runtime availability — 2026-10-03
 
 - Source at `835d4bd`: all-messages `refreshForumTopic` starts one task per topic without a concurrency bound, retains its VM
   across await and publishes returned metadata without checking raw chat/topic identity. Adding an independent receipt queue
@@ -2686,7 +2837,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   from this availability check; their controlled production-component proofs and integration remain the next implementation.
 - MainView.swift formatted in one invocation; primary061118-3495-7982 PASS26s, full log zero warnings/errors.
 
-### A44b2a bounded all-messages metadata reader — 2026-10-03
+#### A44b2a bounded all-messages metadata reader — 2026-10-03
 
 - Worker `0942d9c` integrated as `4a2a190`. `ChatForumTopicReads` owns at most two outstanding reads, including canceled
   TD continuations until they actually return. Exact entry/request UUID and raw returned chat/topic guard same-ID re-demand;
@@ -2714,7 +2865,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Immutable independent review PASS. Six Swift files formatted together; primary062812-22030-25473 PASS19s, worker062426-17963-24832
   PASS7s, full logs zero warnings/errors. Earlier worker062209 emitted one DEBUG WeakMutability warning, fixed without suppression.
 
-### A44b2b exact per-topic receipts in all-messages history — 2026-10-03
+#### A44b2b exact per-topic receipts in all-messages history — 2026-10-03
 
 - Worker `76f6f73` integrated as `2190c4d`. Each existing reader entry owns `ChatDeliveryReceiptState` for its exact positive
   forum topic. Its receipt ticket starts with the same metadata request and consumes the raw response before metadata admission;
@@ -2743,7 +2894,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/astra-a44-all-messages/forum-topic-receipts-probe.txt` and `message-delivery-b2b-probe.txt`.
   Safe live all-messages availability remains blocked as above; no server preference was changed to manufacture a fixture.
 
-### A45c known server-query row lifetime — 2026-10-03
+#### A45c known server-query row lifetime — 2026-10-03
 
 - `0a4c6af` (worker `656e32c`) retains a known row only when accepted query, topic ID and name still match. Same-name info
   changes and inbox/draft refreshes no longer discard a server fuzzy match. Individual dispatch captures that name and verifies
@@ -2760,7 +2911,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   complete logs zero warnings/errors. Independent immutable review passed. Next P1 is A44b2; A46 remains the separate visible
   pinned-order gap. Unknown-topic page omission may still cause one redundant refresh, not recursive identical-echo fetching.
 
-### A47 topic-list individual read fan-out — 2026-10-03
+#### A47 topic-list individual read fan-out — 2026-10-03
 
 - Primary and independent source review at `69b0212`: `ForumTopicsVM.swift`339–344/421–429 registers distinct unknown
   same-chat topic updates; 460–501 drains every pending ID and starts individual reads without a shared outstanding limit.
@@ -2782,7 +2933,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   draining, repeated query reset with uncancellable old completions, source retirement and all A45 regressions. No live lag,
   OOM, request-count or server mutation proof yet. Queue after A30h and before P2 A46.
 
-### A47 bounded individual reads: integrated proof — 2026-10-03
+#### A47 bounded individual reads: integrated proof — 2026-10-03
 
 - `09db3f5` (worker `0f5bcd3`, reviewed tree `af57d4c`) separates the UUID-keyed outstanding transport registry from
   current-query topicID ownership. Canceled predecessors keep their slots until their exact tasks return. Each terminal
@@ -2803,7 +2954,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   passed. Queue has one record per distinct current-query demand and clears on reset/retire; no hard memory bound is claimed.
   Page requests and distinct VM instances do not share this limit. A46 remains a separate ordering repair.
 
-### A48 forwarding-topic snapshot ownership — 2026-10-03
+#### A48 forwarding-topic snapshot ownership — 2026-10-03
 
 - Source `34b7868`, `ForwardForumTopicsViewController.swift:205–212,288–331`: cell provider reads latest `topics`,
   falling back to a newly created cell on a miss. A page replaces that array and clears `loading` before an animated apply;
@@ -2849,7 +3000,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   PID75908 active-search11:51:32. Reports are fresh from newly resolved containers. Evidence under
   `.build/ui-probe-evidence/astra-a48-forward-snapshot/`; natural UIKit overlap and actual Forward delivery remain unverified.
 
-### A46 forum pinned ordering audit — 2026-10-03
+#### A46 forum pinned ordering audit — 2026-10-03
 
 - Source `cb723ab`: `ForumTopicPageState.merging` and `ForumTopicsVM.sortTopics` compare only order and topic ID;
   `ForumTopicCell` renders pin decoration/background without moving the row. A pinned topic with an older chronological
@@ -2916,7 +3067,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `astra-a46-pinned-order/forward-topics-after.png` inspected. No topic/destination chosen, pin mutation or Send. This is actual
   single-pin loaded-list proof; live multi-pin editing/reordering, permissions and delivery remain unverified.
 
-### A30d ForumTopics client recovery — 2026-10-02
+#### A30d ForumTopics client recovery — 2026-10-02
 
 - `958bc82` (worker `45c93ef`) adds prepared same-account replacement of only the stale topic-list navigation slot. Metadata
   is fetched with the captured ready client. Source/stack/account/chat/route-kind checks reject obsolete results; synchronous
@@ -2958,7 +3109,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   marked input, foreign presentation and active interaction through explicit lifecycle events. Native wiring and actual
   continued typing/clearing after foreground must be checked before marking active search fixed.
 
-### A30d active-search binding renewal — 2026-10-03
+#### A30d active-search binding renewal — 2026-10-03
 
 - `f551b40` (worker `5c65406`) retains the exact ForumTopics controller/search controller/field/table/data source and swaps
   only its immutable-client VM after current account/actor/Ready and fresh route metadata. It captures raw query at commit,
@@ -3000,7 +3151,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   Documentation build `build-Debug-20261003-042015-29687-457.log`: PASS4s, full log zero warnings/errors. Production/dependency
   forbidden-marker scan is empty; AGENTS/CLAUDE remain identical.
 
-### A23f static-image origin and shared demand — 2026-10-02
+#### A23f static-image origin and shared demand — 2026-10-02
 
 - `7426478` (worker `73bcb04`) requires an explicit originating client or frozen `TDImageOrigin` at every static-image entry.
   Admission precedes minithumbnail/cache/local decode/download. Placeholder/cache-only loads also revoke on source changes.
@@ -3032,7 +3183,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   membership through hydration. Pinned TDLib `td_api.tl`10403–10406 requires order0 removal and allows positions through last-message/draft;
   11473–11476 says `getChats` is informational, not an atomic list-state source. Bulk rebuild/settings races remain A34/A35.
 
-### A23g pending chat-list membership — 2026-10-02
+#### A23g pending chat-list membership — 2026-10-02
 
 - `1cd9ecf` (worker `551707e`) serializes pending hydration by account/client/chat/semantic list and exact destination folder.
   All four membership entry points share the production helper. Zero order and omitted lists in complete last-message/draft
@@ -3051,7 +3202,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   wiring is source-reviewed, not exercised by the helper. Pending unread/user/non-position hydration, bulk rebuild A34 and scope
   notification ordering A35 remain open. This proof establishes membership, not complete latest message/draft payload parity.
 
-### A32 explicit navigation buttons and native Back limitation — 2026-10-02
+#### A32 explicit navigation buttons and native Back limitation — 2026-10-02
 
 - `941a90a` (worker `71289be`) uses an app-owned UINavigationBar with ordinary UINavigationControllers at all seven production
   constructors. Per-instance `hidesSharedBackground` is reapplied to initial/late/replaced buttons and the previous item's native
@@ -3084,7 +3235,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   Native Back/background/history, interactive cancel, first-frame polish, RTL/dynamic widths/dark mode and native search remain open.
   Continue independent P1 list ordering while preserving this reproducible public-API limitation.
 
-### A32 native search placement — 2026-10-03
+#### A32 native search placement — 2026-10-03
 
 - `1ef0935` sets `.stacked` and disables toolbar integration only for non-nil search controllers on app-owned bars.
   Setters are idempotent; search/delegate/field identity, text/selection, active state, scrolling policy and native Back are retained.
@@ -3108,7 +3259,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   12:20:20/22+04, PASS; PID65325 active-search12:22:15 PASS. These preserve their controlled-coordinator/table proof limits;
   no additional live epoch claim.
 
-### Background Simulator launch — 2026-10-02
+#### Background Simulator launch — 2026-10-02
 
 - User requested no focus stealing during repeated smoke. `a264c4e` changes the wrapper to `open -g -a Simulator` and syncs
   AGENTS/CLAUDE. macOS `open --help` defines `-g` as no foreground activation. Boot readiness, install, app launch and idb remain
@@ -3116,7 +3267,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   zero warnings); subsequent video-note/animation/gallery smoke launches succeed through this path. On the inline-animation run,
   read-only `lsappinfo front` reports the same opaque front-application ID before and after launch; no application was activated separately.
 
-### A34 accepted list projection and refresh ownership — 2026-10-02
+#### A34 accepted list projection and refresh ownership — 2026-10-02
 
 - `4185849` (worker `85cbcec`) retains typed latest-per-field deltas only for active rebuild/hydration/refresh reads. Raw Chat,
   peer and list RPCs have separate dispatch revisions: older accepted values cannot replace a fresher response. Explicit nil
@@ -3139,7 +3290,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   All→people→All selection was exercised without opening other chats or editing folders. This does not reproduce a live delayed
   rebuild. A dedicated full-new-Chat snapshot runtime case and unobserved Chat/group fields remain outside proof.
 
-### A35 scope notification read authority — 2026-10-02
+#### A35 scope notification read authority — 2026-10-02
 
 - `67c9470` (worker `d7f2462`) reserves three typed scope revisions synchronously before dispatch. A new load replaces old
   reservations; an accepted scoped update revokes only its scope. Each current response publishes immediately, with immutable
@@ -3154,33 +3305,31 @@ is imported. This source pass does not prove every content's real rendering/acti
   regressions pass; all three files freshly written `22:41:07`. Evidence `.build/ui-probe-evidence/astra-a35-primary`.
   Combined A34 PID `44216` repeats the loader proof. No server mutations; visible mute-badge race remains source-only.
 
-## Implementation ledger
+### Implementation ledger
 
 | Priority | Flow | Telegram reference | TDLib API / model | Status and proof before revalidation |
 | --- | --- | --- | --- | --- |
 | P0 | Remove MobileVLCKit; local audio/video playback seam | `submodules/TelegramUniversalVideoContent/Sources/PlatformVideoContent.swift` at the pre-Liquid baseline | `downloadFile`, `updateFile`, `cancelDownloadFile` | **partial** — `LocalMediaPlayer` uses AVFoundation, gallery playback pauses offscreen and has thumbnail fallback, and downloaded Ogg/Opus audio is cancellably decoded by FFmpeg before AVPlayer use. A range-backed FFmpeg controller now emits owned BGRA video and interleaved float audio for generic VP9/Opus WebM without a full download, renders both tracks on one Apple media clock, and is production-routed through the persistent inline/fullscreen gallery owner. `./build.sh build` passes without warnings and `rg` finds no VLC dependency/import/API marker in `project.yml` or `BetterTG`. Persistent FFmpeg sessions span rolling windows and sample-buffer PiP uses the exact display layer; only active system PiP/device proof remains. |
-| P0 | TGS stickers and animated/custom emoji | `AnimatedStickerFrameSource.swift` gzip/rlottie path, `AnimatedStickerNode.swift` lifecycle, and pre-Liquid `MultiAnimationRenderer.swift` / `EmojiTextAttachmentView.swift` | `MessageSticker`, `TextEntityType.customEmoji`, `getCustomEmojiStickers`, `downloadFile`, `updateFile` | **partial** — timeline/gallery TGS uses bounded zlib decode, pinned Lottie 4.6.1, synchronized loops, visibility pause, parsed cache, prefetch/cancel, and thumbnail fallback. Custom-emoji entities are batch-resolved by ID, mapped from arbitrary TDLib order, overlaid on exact TextKit glyph rects, keep the native glyph until first frame, and share TGS/WebP/WebM clocks/lifecycle. `./test.sh` passes; Telegram `tiny.tgs` decodes to valid 100×100@30 JSON; current idb smoke confirms ordinary/wrapped text and timestamps remain stable. The September 5 Saved Messages test verifies two identical custom emoji in the composer and a successful send. `needsRepainting` substitution remains a separate unproved/pending detail. |
+| P0 | TGS stickers and animated/custom emoji | `AnimatedStickerFrameSource.swift` gzip/rlottie path, `AnimatedStickerNode.swift` lifecycle, and pre-Liquid `MultiAnimationRenderer.swift` / `EmojiTextAttachmentView.swift` | `MessageSticker`, `TextEntityType.customEmoji`, `getCustomEmojiStickers`, `downloadFile`, `updateFile` | **partial** — timeline/gallery TGS uses bounded zlib decode, pinned Lottie 4.6.1, synchronized loops, visibility pause, parsed cache, prefetch/cancel, and thumbnail fallback. Custom-emoji entities are batch-resolved by ID, mapped from arbitrary TDLib order, overlaid on exact TextKit glyph rects, keep the native glyph until first frame, and share TGS/WebP/WebM clocks/lifecycle. `./test.sh` passes; Telegram `tiny.tgs` decodes to valid 100×100@30 JSON; current idb smoke confirms ordinary/wrapped text and timestamps remain stable. No custom emoji exists in the reachable viewport, so visual rendering and `needsRepainting` substitution remain unproved/pending. |
 | P0 | Animated WebP | `submodules/WebPBinding/Sources/UIImage+WebP.m`; Telegram only uses its static frame fallback | `StickerFormat.webp`, `File`, `downloadFile`, `updateFile` | **partial** — direct pinned libwebp 1.6.0 demux preserves frame timing, blend/disposal canvas and premultiplied alpha; timeline/gallery share a synchronized display clock, off-main decoder, 64 MiB frame/asset caches, full-file prefetch/cancel, visibility pause, and thumbnail fallback. `./test.sh` passes; the exact metadata path decodes upstream's 4,764-byte animated fixture as 990×1050, 8 frames/0.8 s, and the first BGRA frame proves alpha 0…255. Current `./run.sh` + idb launch/chat smoke is stable; visual playback awaits a reachable WebP sticker in simulator data. |
 | P0 | WebM/VP9 alpha stickers and generic FFmpeg playback | `AnimatedStickerNode/VideoStickerFrameSource.swift`, `FFMpegMediaVideoFrameDecoder.swift`, `FFMpegAVFrame.m` | `StickerFormat.webm`, `File`, `downloadFile`, `updateFile` | **partial** — checksum-pinned FFmpeg 9.0 decodes the main VP9 stream plus Matroska `BlockAdditional` alpha stream, scales to BGRA, premultiplies alpha, and feeds synchronized timeline/gallery loops with off-main decode, 64 MiB caches, prefetch/cancel, visibility pause, and thumbnail fallback. GIF/non-Apple animation containers now route through the same renderer while MP4/MOV retain AVFoundation. The non-looping range decoder retains probe packets, decodes VP9+Opus on a named worker, copies borrowed C frames before callback return, trims seek preroll/sample tails to the exact requested interval, and supports supersession/cancel. Its renderer uses pooled IOSurface-backed BGRA buffers, packed Float32 PCM and one `AVSampleBufferRenderSynchronizer`, with bounded generation-aware queues and no `DisplayImmediately`. The rolling controller is production-routed for public, secret, streaming, non-streaming and already-cached WebM/Matroska videos while Apple containers stay on AVFoundation. `./build.sh build` and the gallery-owner idb probe pass; persistent cross-window decoder and sample-buffer PiP adapter probes pass; real-message visual proof and active PiP on a capable device remain. |
 | P0 | Voice notes: Ogg Opus, waveform, record/lock/edit/send | `ManagedAudioRecorder.swift`, `OpusBinding/Sources/opusenc/opusenc.m`, `AudioWaveform.swift`, `TGModernConversationInputMicButton.m`, and pre-Liquid `ChatRecordingPreviewInputPanelNode.swift` | `VoiceNote`, `InputMessageVoiceNote`, `resendMessages`, `updateMessageSendSucceeded/Failed`, `downloadFile` | **implemented breadth** — capture is 48 kHz mono signed-16 PCM, rejects recordings below 0.5 s, produces an exact 100×5-bit/63-byte waveform, and sends only validated Ogg/Opus. Transactional send manifests survive registration/crash races, failed sends honor TDLib resend state, multiple drafts promote, and unsupported paid/alternate-reply states cannot silently resend. Telegram's 0.19 s hold/release, slide-cancel/lock distance+velocity ordering, pre-arm/system-cancel preservation, VoiceOver lock, and scoped bottom-edge deferral are implemented. Locked Stop-and-preview closes WAV segments, validates/merges exact PCM frames off-main, derives Telegram-normalized waveform samples, and atomically owns a revisioned editable draft. The UIKit island exposes Delete, Record More, Play/Pause, hollow seekable waveform, two continuously draggable/VoiceOver-adjustable trim handles, selected duration and Send. Trim metadata is revisioned and restored; selection is at least 1s/56pt, playback and seek clamp to it, releasing either edge previews the changed edge, and Resume presents destructive-trim confirmation. Any non-full trim is materialized to a new PCM revision before Record More or Ogg promotion, recomputing exact duration/waveform. Dedicated playback has reciprocal arbitration and scoped session release. Reply/interruption ownership, cancel/send/trim generations, manifest relocation, relaunch restoration and cleanup are covered. `./test.sh` passes; idb proves exact `142→202`/`304→254.14` handle travel, hollow seek, edge preview, confirmation Cancel/Continue, revisioned append, relaunch playback, and trimmed safe-Send ordering (`1.33104s` materialized before `encoded=true`) with unchanged timeline and empty stores after Discard. Remaining voice work is encoder-quality parity/polish, not a missing requested flow. |
 | P0 | Video notes | `submodules/Camera/Sources/VideoRecorder.swift`, `CameraRoundVideoFilter.swift`, `VideoMessageCameraScreen`, `ResultPreviewView.swift` | `InputMessageVideoNote`, `InputVideoNote`, `sendMessage`, `resendMessages` | **implemented multi-segment breadth** — the writer serializes capture queues, gates pre-video audio, waits video+audio EOF, center-crops/orients and round-masks actual pixels, and validates network-optimized 400×400 H.264 High/CABAC ~1 Mbps + mono 48 kHz AAC MP4. Generation-scoped AVCapture requests microphone then camera, defaults front, rejects stale PTS, freezes device orientation per recording, cleans interruptions/background/audio ownership, soft-stops at `>59.5s`, and hard-clamps at 60s. UIKit composer tap toggles mic/video; the unchanged Telegram 0.19s arm, live/release distance+velocity ordering, pre-arm lock, system-cancel preservation and bottom-edge deferral route both modes. A child recorder keeps the composer gesture alive and shows the classic max-369pt round camera, 4pt progress, 44pt flip/flash, pinch zoom, front-screen/back-torch flash, holding/lock/cancel, locked Stop-to-preview and release-to-send. Live 1s-throttled front/back switching rejects queued old A/V, removes the capture timestamp gap from both tracks and encodes a six-frame/0.2s dissolve instead of only smoothing the preview. Single-result preview loops muted and can play/pause/delete/send; TDLib promotion uses `InputVideoNote` and preserves the snapshotted reply. Atomic manifests own adopted MP4s across crash/chat close, reconcile outcome-before-registration, expose safe no-paid retries while keeping unsupported failures discardable, and clean success/discard/permanent delete. The ordered-segment foundation owns stable-ID MP4 segments, atomically persists revisioned global trim, composes video/audio on identical boundaries, samples exactly 13 full-composition thumbnails, materializes a zero-start 1…60s export, and preserves a 0.5…1s first result for Record More. `LocalMediaPlayer` retains the full `VideoNoteCompositionResult` snapshot lease, applies `forwardPlaybackEndTime`, exact last-target-wins seeks and loops from the global trim lower bound without rebuilding the item. UIKit Record More is visible only below 59s, starts hands-free, ignores sub-0.5s Stop, appends in order while clearing prior trim, uses aggregate 59.5s soft/60s hard limits and non-destructively restores preview on capture failure. The UIKit strip decodes exactly 13 indexed JPEGs off-main with cancellation, keeps them stable across trim revisions, and overlays adjustable global handles with an epsilon-safe exact 1s minimum. Live drag keeps handles active, pauses and exact-seeks only the changed edge; terminal save blocks other actions, persists once from the captured revision and resumes from the lower bound using current playback intent. Composition playback appears before thumbnails, then advances monotonically from empty to repeated frame 0 to all 13 exact frames without disturbing trim state. Circle tap and VoiceOver activation toggle mute separately from Play/Pause; a visible mute badge and scoped playback audio session track every-loop re-mute and reciprocal Media takeover. Navigation/relaunch restores the originating chat’s draft and stored reply; final send rejects aggregate selections below 1s, materializes the selected range and transfers the durable origin explicitly. A transformed time-0 frame from that materialized MP4 becomes a quality-0.4, ≤320px, <200KB JPEG `InputThumbnail`; real-image/dimension validation falls back to nil, while valid JPEG ownership persists beside the MP4 through retry/relaunch and terminal cleanup. Recording→send adoption is idempotent by durable origin ID and adopt+begin holds one actor lease. Runtime reservations cover draft/origin/file aliases; terminal cleanup first persists a relaunch-safe tombstone, confirms recording-manifest deletion, then removes send authority. Any failure leaves both durable authorities for retry, including missing-media and registered-success recovery. Timeline video-note bubbles are circular, cancellably downloaded, thumbnail-backed, offscreen-paused and locally playable with reciprocal audio arbitration; secret notes call `openMessageContent` before hold-to-reveal. `./test.sh`/`./run.sh` pass. Probes prove 1.0s A/V, round/orientation pixels, concurrent drain, pre-video audio, crossfade/audio-retime, limits/cancel, decoded segment/PCM order, exact thumbnail times, global trim, legacy manifests, same-origin dedupe/barrier, atomic enqueue, durable/corrupt-thumbnail handling, removal-tombstone relaunch and send success/failure races. idb proves voice↔video toggles, real permission/camera-unavailable routing and exact cleanup; Simulator has no camera, so hardware capture/flip/flash remains unproved. |
 | P0 | VOD before full download, range seek/refetch, PiP | pre-Liquid `ChunkMediaPlayerV2.swift`, `ChunkMediaPlayerDirectFetchSourceImpl.swift`, and `UniversalVideoGalleryItem.swift` native PiP lifecycle | `downloadFile(offset:limit:)`, `getFileDownloadedPrefixSize`, `getFile`, `updateFile`, `cancelDownloadFile`, `updateDeleteMessages` | **partial — inline/fullscreen native VOD + owner-scoped PiP + production FFmpeg range playback**: each injected TDLib client owns its file coordinator and private update streams. Reads cap at 256 KiB, probe 512 KiB, fetch 2 MiB, reuse overlap, cancel disjoint/stale generations, distinguish cached/buffering/offline/retryable/terminal state, and never treat `expectedSize` as EOF. Refcounted leases share a source and only the last current lease cancels. FFmpeg 9 custom AVIO uses a 64 KiB buffer, exact checked seek/size callbacks, named blocking threads, shared raw-PTS A/V timeline and ≥10s packet lookahead. One persistent demux/codec/SWR session now spans soft rolling horizons within each seek generation; crossing frames are emitted whole, sparse per-track packets use a globally ordered bounded FIFO, pause retains the session, and seek/offscreen/cancel replace it terminally. Decoder reads share the source's cancellable serialization gate, retry transient displacement, retain stream-probe packets, cap allocation/read/packet work, decode bounded windows to owned BGRA and 48 kHz interleaved float frames, drain codecs/SWR at EOF, clip output to `[seek,target)`, and terminate deterministically on supersession/cancel. Apple-decodable non-secret MP4/M4V/MOV uses strict custom-scheme `AVAssetResourceLoader` metadata and serialized ≤256 KiB reads; `LocalMediaPlayer` retains the asset/delegate/lease, explicitly manages a 1s playable threshold and 10s forward buffer, preserves 0.5×–2× rate, and adopts raw AVKit pause/play/rate/EOF intent without rebuffer restart races. WebM/Matroska routes through the rolling sample-buffer controller for range-capable public media and through full-download-then-FFmpeg for secret/non-streaming media; completed files re-enter the same FFmpeg backend instead of AVPlayer. Fullscreen gallery preserves start time and exact thumbnail until first frame, exposes generation-safe fallback/Retry plus a full-width UIKit blur footer with play/pause, ±15s, duration, disjoint loaded ranges, terminal scrub, mute, rate, auto-hide and VoiceOver seeking. Serialized loader and typed FFmpeg failures distinguish buffering/offline/retrying/terminal failures; generation-guarded publisher bindings prevent canceled or replaced backends from publishing stale state. Offline/timed-out VOD preserves the playhead and retries through a fresh range session without forcing a full download, while terminal decode failures retain generation-safe full-download fallback. A message-scoped owner now retains the exact view/layer/player/resource-loader/TDLib lease across standalone timeline, grouped album tiles, fullscreen and PiP. Inline videos are muted aspect-fill with controls hidden; only the greatest-visible-area owner is active, using the real standalone or mosaic-tile frame, and inactive owners defer all local/VOD/full playback loading. Every album video owner is transferred into gallery as one account-scoped set, preventing a second neighbor player/lease when paging, and every borrowed owner returns to its exact tile. Generation-scoped attachment tokens reject stale cell callbacks after reparent, diffable pruning uses current visible child message IDs, borrowed dismissal/PiP stop returns the same item and playhead, and offscreen owners pause then release. Standalone and grouped media open and close through UIKit-only exact source transitions: the exact bubble/tile is captured synchronously before owner reparent, clipped through every ancestor into explicit window coordinates, rasterized without play/status overlays, and animated into the aspect-fit gallery rect with its corner mask. Dismiss resolves the current selected stable ID afresh; stale/reused/offscreen/deleted/PiP targets fade, generation-safe cleanup cannot mutate a reused cell, and owner return happens only after successful transition completion under the hidden source. Rotation re-centers the same selected message. Timeline, album and prefetch thumbnail paths never use the whole video as fallback. Gallery neighbors remain bounded to central ±1. Native `AVPictureInPictureController(playerLayer:)` is manual, hidden for secret/looping/noncentral/unready/unsupported media, and owned outside cells. A token-scoped movie-playback audio session restores partial failures without deactivating another owner, hands raw controls to external transport, and relinquishes on Media takeover. The singleton transfer coordinator retains active PiP across gallery dismissal, re-presents the exact account/chat/message with the same owner/session, waits for presentation teardown, and restores the exact item without flash. Pending start and stop have bounded generation/timeouts; coordinator authority is retained while AVKit remains active. Permanent deletes arrive on the injected client's private stream, revoke matching chat/message PiP and restoration, while deleted noncurrent neighbors update in place. `./build.sh build` passes without warnings. The SHA-pinned simulator decode probe emits 24 VP9 frames and 96,000 stereo-Opus sample frames with monotonic timestamps, exact post-seek output, codec/SWR tail drain, finite `downloadFile` ranges, zero full downloads, supersession and cancellation. The gallery-owner idb probe additionally proves `ffmpeg-route=true`, exact controller/playhead continuity, preserved offscreen intent, finite ranges, cleanup and the unchanged native MP4 owner path. Existing simulator proofs also cover partial cold playback, local/external controls, range cancellation, loaded ranges, offline retry, exact inline→fullscreen→inline view/item/playhead continuity, zero transfer-cancel delta, terminal lease cancellation, exact clipped/fresh standalone and album-tile geometry, single active tile arbitration, dismissal retention, delete revocation and readiness gating. This simulator reports `pip-supported=false`, so active PiP/background/system-control/restore behavior still requires a PiP-capable device proof. Persistent FFmpeg sessions and sample-buffer PiP transport/lifecycle are simulator-proved; actual system PiP/background/restore remains a physical-device proof gap. Livestreaming is excluded. |
-| P0 | Exhaustive message content and actions | pre-Liquid `ChatMessageReplyInfoNode`, `ChatMessageForwardInfoNode`, `ChatMessageSelectionNode`, `ChatMessageSelectionInputPanelNode`, `PeerSelectionController`, contact/map/poll/action nodes, and `ServiceMessageStrings` | all 104 TDLib 1.8.66 `MessageContent` cases; `MessageReplyTo`, `TextQuote`, `MessageForwardInfo`, `ForwardSource`, `getMessageProperties`, `forwardMessages`, `searchChats`, `searchChatsOnServer`, file/poll/edit/copy/reply/delete APIs | **partial — exhaustive catalog + core cards + reply provenance + real Forward/select**: the 104-case no-default catalog drives timeline/chat-list summaries, captions and accessibility. UIKit covers attachments/albums, contact, MapKit location/live expiry, poll/quiz, emoji/dice fallback, service and unsupported rows. Reply/forward metadata preserves chat-scoped IDs, source/origin, inline and ID-zero fallback, thumbnails, PSA, manual quote text/UTF-16 position and unavailable/story state. Manual quote authoring emits a bounded entity-safe `InputTextQuote`; external/story overrides survive text/photo/voice/video/draft paths. Classic reply expands 5→50 lines before navigation, exact destination text highlights after `willDisplay`, and forward taps prefer source message/chat with account-safe cross-chat routing. Context Forward expands the complete album; Select owns stable outer IDs while every action expands, de-duplicates and strictly sorts real child IDs with a 100-message cap. The classic UIKit mode uses full-row taps, a 28pt check at x=6, 42pt incoming-only shift, message-count navigation state, full-width safe-area blur actions and exact per-child TDLib capability refresh. Multi-delete revalidates revoke scope. The full-screen UIKit Forward picker supports Saved/main/archive/server discovery, multiple ordinary chats and multiple explicit topics in the same forum, sender/caption modes, secret-copy rules, per-content/topic permissions, account generations and partial outcome safety. Builds are warning-free; deterministic device proof is recorded below. Forward comments, native two-finger range selection/autoscroll, timeline spoilers, link previews and rich-message rendering are now implemented; see the September 5 follow-up below. Remaining P0: positional null-result support in pinned TDLibKit, resolved service actors/pinned targets, poll voters/media, insertion-aware/slot dice and game/story/checklist UI. |
-| P0 | Message reactions | pre-Liquid/current `ReactionButtonListComponent`, `ChatMessageReactionsFooterContentNode`, `ChatMessageBubbleItemNode` and `ChatController` reaction flow | `MessageInteractionInfo`, `MessageReactions`, `getMessageAvailableReactions`, `addMessageReaction`, `removeMessageReaction`, `updateMessageInteractionInfo`, `updateMessageUnreadReactions`, `readAllChatReactions`, `readAllForumTopicReactions` | **implemented ordinary/explicit-topic breadth** — UIKit renders TDLib emoji/custom-emoji reactions as sorted 30pt chips with 20pt icons, exact 6pt wrapping, selected/unread state, compact counts, incoming/outgoing/center alignment, VoiceOver labels/actions and offscreen-paused TGS/WebP/WebM custom emoji. Existing album reactions stay on the representative bubble. A 46pt reaction strip sits above the extracted message, prioritizes recent reactions, displays emoji/custom emoji, and supports tap or drag selection. Every add re-fetches authoritative availability, allows Premium items only for Premium accounts, excludes paid/Stars types, honors unavailability and chat maximum count; chosen non-paid reactions remain removable under new restrictions. Generation-safe optimistic state rolls back failures; normal-user interaction/unread plus chat permission/availability updates reconcile under captured account/client guards. Explicit-topic rendering/picker/mutation validates the current `ChatLocation`, and acknowledgement uses `readAllForumTopicReactions`. Deferred polish: expanded reaction grid/search, reactor list/recent avatars, disappearing-chip animation and live server mutation smoke. |
-| P0 | Pinned messages | pre-Liquid/current `ChatInterfaceStateContextMenus`, `ChatControllerLoadDisplayNode`, `ChatPinnedMessageTitlePanelNode` and message-window navigation | `Message.isPinned`, `MessageProperties.canBePinned`, `getChatPinnedMessage`, `pinChatMessage`, `unpinChatMessage`, `updateMessageIsPinned`, `updateDeleteMessages` | **implemented ordinary-chat newest-pin breadth** — initial and refreshed state comes only from account/client/generation-fenced `getChatPinnedMessage`; only confirmed 404 clears while transient failures retain the last authoritative banner. Permanent non-cache deletes and authoritative unpins clear before refetch, edits/content refresh the preview, and stale mutation/fetch/animation completions are revision-gated. Context Pin/Unpin uses freshly fetched `canBePinned`, one chat-serialized optimistic transaction and exact Saved/private/group/channel notification/scope modes. A classic full-width 50pt UIKit banner shares one background with the navigation bar, shares spoiler-safe reply thumbnail extraction, locally hides by newest message ID, resurfaces for a newer ID, preserves the inverted timeline offset, and taps through existing history-window navigation. Dynamic Type is capped to the fixed panel geometry and VoiceOver exposes separate Open/Hide controls. Forum/view-as-topics/direct-message groups, albums and sending/service messages are explicitly gated. Proof is recorded below. Deferred parity: nearest-visible pin rotation, pinned-only list/pagination, admin undo and older-pin warning detail. |
+| P0 | Exhaustive message content and actions | pre-Liquid `ChatMessageReplyInfoNode`, `ChatMessageForwardInfoNode`, `ChatMessageSelectionNode`, `ChatMessageSelectionInputPanelNode`, `PeerSelectionController`, contact/map/poll/action nodes, and `ServiceMessageStrings` | all 104 TDLib 1.8.66 `MessageContent` cases; `MessageReplyTo`, `TextQuote`, `MessageForwardInfo`, `ForwardSource`, `getMessageProperties`, `forwardMessages`, `searchChats`, `searchChatsOnServer`, file/poll/edit/copy/reply/delete APIs | **partial — exhaustive catalog + core cards + reply provenance + real Forward/select**: the 104-case no-default catalog drives timeline/chat-list summaries, captions and accessibility. UIKit covers attachments/albums, contact, MapKit location/live expiry, poll/quiz, emoji/dice fallback, service and unsupported rows. Reply/forward metadata preserves chat-scoped IDs, source/origin, inline and ID-zero fallback, thumbnails, PSA, manual quote text/UTF-16 position and unavailable/story state. Manual quote authoring emits a bounded entity-safe `InputTextQuote`; external/story overrides survive text/photo/voice/video/draft paths. Classic reply expands 5→50 lines before navigation, exact destination text highlights after `willDisplay`, and forward taps prefer source message/chat with account-safe cross-chat routing. Context Forward expands the complete album; Select owns stable outer IDs while every action expands, de-duplicates and strictly sorts real child IDs with a 100-message cap. The classic UIKit mode uses full-row taps, a 28pt check at x=6, 42pt incoming-only shift, message-count navigation state, full-width safe-area blur actions and exact per-child TDLib capability refresh. Multi-delete revalidates revoke scope. The full-screen UIKit Forward picker supports Saved/main/archive/server discovery, multiple ordinary chats and multiple explicit topics in the same forum, sender/caption modes, secret-copy rules, per-content/topic permissions, account generations and partial outcome safety. Builds are warning-free; deterministic device proof is recorded below. Remaining P0: recipient comment/forward-draft transition, drag-select/autoscroll, positional null-result support in pinned TDLibKit, link previews/spoilers, resolved service actors/pinned targets, poll voters/media, insertion-aware/slot dice and rich/game/story/checklist UI. |
+| P0 | Message reactions | pre-Liquid/current `ReactionButtonListComponent`, `ChatMessageReactionsFooterContentNode`, `ChatMessageBubbleItemNode` and `ChatController` reaction flow | `MessageInteractionInfo`, `MessageReactions`, `getMessageAvailableReactions`, `addMessageReaction`, `removeMessageReaction`, `updateMessageInteractionInfo`, `updateMessageUnreadReactions`, `readAllChatReactions`, `readAllForumTopicReactions` | **implemented ordinary/explicit-topic breadth** — UIKit renders TDLib emoji/custom-emoji reactions as sorted 30pt chips with 20pt icons, exact 6pt wrapping, selected/unread state, compact counts, incoming/outgoing/center alignment, VoiceOver labels/actions and offscreen-paused TGS/WebP/WebM custom emoji. Existing album reactions stay on the representative bubble. Context React can originate the first reaction through a non-Premium standard-emoji picker. Every add re-fetches authoritative message availability, excludes per-item Premium and paid/Stars types, honors unavailability and chat maximum count, while a chosen non-paid reaction remains removable under new restrictions. Generation-safe optimistic state rolls back failures; normal-user interaction/unread plus chat permission/availability updates reconcile under captured account/client guards. Explicit-topic rendering/picker/mutation validates the current `ChatLocation`, and acknowledgement uses `readAllForumTopicReactions`. Deferred polish: custom-emoji add grid, reactor list/recent avatars, disappearing-chip animation and live server mutation smoke. |
+| P0 | Pinned messages | pre-Liquid/current `ChatInterfaceStateContextMenus`, `ChatControllerLoadDisplayNode`, `ChatPinnedMessageTitlePanelNode` and message-window navigation | `Message.isPinned`, `MessageProperties.canBePinned`, `getChatPinnedMessage`, `pinChatMessage`, `unpinChatMessage`, `updateMessageIsPinned`, `updateDeleteMessages` | **implemented ordinary-chat newest-pin breadth** — initial and refreshed state comes only from account/client/generation-fenced `getChatPinnedMessage`; only confirmed 404 clears while transient failures retain the last authoritative banner. Permanent non-cache deletes and authoritative unpins clear before refetch, edits/content refresh the preview, and stale mutation/fetch/animation completions are revision-gated. Context Pin/Unpin uses freshly fetched `canBePinned`, one chat-serialized optimistic transaction and exact Saved/private/group/channel notification/scope modes. A classic full-width 50pt UIKit chrome-material banner sits below navigation, shares spoiler-safe reply thumbnail extraction, locally hides by newest message ID, resurfaces for a newer ID, preserves the inverted timeline offset, and taps through existing history-window navigation. Dynamic Type is capped to the fixed panel geometry and VoiceOver exposes separate Open/Hide controls. Forum/view-as-topics/direct-message groups, albums and sending/service messages are explicitly gated. Proof is recorded below. Deferred parity: nearest-visible pin rotation, pinned-only list/pagination, admin undo and older-pin warning detail. |
 | P0 | Forum topics: list, explicit writes and all-messages timeline | pre-Liquid/current `ChatListNodeLocation.swift`, `ChatMessageItemImpl.swift`, `ChatMessageDateHeader.swift`, `ChatInterfaceStateInputPanels.swift`, `ChatControllerMediaRecording.swift` and `ChatControllerLoadDisplayNode.swift` | `MessageTopic`, `ForumTopic`, `getForumTopics`, `getForumTopic`, `getChatHistory`, `getForumTopicHistory`, `updateForumTopicInfo`, `sendMessage`, `sendMessageAlbum`, `setChatDraftMessage`, `sendChatAction` | **partial — explicit-topic breadth + production all-messages composer routing** — runtime identity is `(accountID,clientID,chatID,MessageTopic?)`; exact topic list/history/search/update and immutable explicit-topic write context remain. `Chat.viewAsTopics` authoritatively selects topic list (`true`) versus base history (`false`). Base history renders stable adjacent-topic headers, preserves raw pagination/album identity and visible message+pixel anchors, and excludes headers from message-only behavior. Text/photo/edit use discovered General without reply or the replied message's exact topic, reject closed-topic replies, and always store/clear the route draft with `topic:nil`. Voice/video now snapshot that same destination+reply at recording start, persist it separately from the base draft key through preview/relaunch/retry, revalidate live metadata/permissions before enqueue, and route record/upload/cancel actions through the frozen topic. Warning-free build proof is recorded below. |
 | P0 | Topic composer durable media identity | pre-Liquid/current `ChatInterfaceState.swift`, `ChatControllerMediaRecording.swift` and thread-scoped interface-state ownership | `MessageTopic`, `InputMessageVoiceNote`, `InputMessageVideoNote`, `updateMessageSendSucceeded/Failed` | **implemented write foundation** — `ChatDraftKey(accountID,chatID,MessageTopic?)` remains the on-disk route/draft owner across voice/video recording, preview, send, retry and outcome reconciliation, while the four version-tolerant manifests persist a separate immutable `sendTopic` for all-messages General/reply routing. Runtime-only TDLib client IDs remain excluded. Stores restore/deduplicate/enqueue/discard by route destination; enqueue and chat actions use the frozen send topic and reply, with live closed/permission checks and account/client fences. Outcome files use draft UUID rather than colliding chat/message IDs. A one-time account-registry migration snapshot may claim unambiguous legacy base drafts; legacy records without `sendTopic` remain valid but cannot be guessed into an all-messages destination. Runtime proof is below. |
 | P0 | Forum-aware Forward destinations | pre-Liquid/current `ChatControllerForwardMessages.swift` and `PeerSelectionController.swift` | `getForumTopics`, `getForumTopic`, `forwardMessages(topicId:)` | **implemented breadth** — destination identity is `(chatID, MessageTopic?)`, so ordinary chats and multiple topics in one forum coexist in one selection. Forum rows drill into an exact-cursor UIKit topic picker; closed/hidden topics require creator/manage-topics authority and every content permission is rechecked at delivery. Source account/topic membership is fetched both at preparation and immediately before mutation. TDLib results must have exact count/chat/topic; transient forum metadata failures disable rather than fall through to General. Classic full-width material headers, plain Back and table-header search avoid iOS 26 floating glass. Live idb proof selected a real forum topic locally without pressing Forward. |
-| P0 | Composer and send/delete transitions | pre-Liquid chat input panel and message transition paths | `FormattedText`, `InputMessageContent`, `sendMessage`, edit/reply/delete APIs | **partial** — one UIKit floating blur island owns formatted text, emoji insertion, non-Premium installed stickers, saved GIFs, photos/camera, security-scoped multi-file documents, reply/edit and voice/video states in ordinary, explicit-topic and all-messages chats. Sends serialize to prevent duplicate rapid-tap delivery and clear UI only after TDLib acceptance. Real UIKit snapshots of visible reply/text/photo/album/document/voice/video-preview-or-retry sources follow temporary→final IDs and fly into canonical insertion; viewport anchoring remains independent. Sticker/GIF sends use exact permission/topic/reply contexts, captured draft cleanup, account-fenced search, offscreen-paused/cancelled media and no Premium/Stars results. Voice/video retry authority and document upload leases survive UI teardown. Full-bubble deletes fade+slide then collapse under a surviving anchor; no dust/particles. Custom-emoji authoring now includes a TDLib search picker, animated inline input, UTF-16 entities, adjacent-emoji separation, copy/paste and draft restoration. Remaining: public inline-GIF search. Formatted forwarding comments are implemented, retained across destination search/topic selection and sent before forwarding with retry deduplication; actual delivery still needs an end-to-end run. |
+| P0 | Composer and send/delete transitions | pre-Liquid chat input panel and message transition paths | `FormattedText`, `InputMessageContent`, `sendMessage`, edit/reply/delete APIs | **partial** — one UIKit floating blur island owns formatted text, emoji insertion, non-Premium installed stickers, saved GIFs, photos/camera, security-scoped multi-file documents, reply/edit and voice/video states in ordinary, explicit-topic and all-messages chats. Sends serialize to prevent duplicate rapid-tap delivery and clear UI only after TDLib acceptance. Real UIKit snapshots of visible reply/text/photo/album/document/voice/video-preview-or-retry sources follow temporary→final IDs and fly into canonical insertion; viewport anchoring remains independent. Sticker/GIF sends use exact permission/topic/reply contexts, captured draft cleanup, account-fenced search, offscreen-paused/cancelled media and no Premium/Stars results. Voice/video retry authority and document upload leases survive UI teardown. Full-bubble deletes fade+slide then collapse under a surviving anchor; no dust/particles. Remaining: public inline-GIF search, custom-emoji authoring and forward comment/draft. |
 | P1 | Profiles, shared media, fullscreen gallery | pre-Liquid/current `PeerInfoScreen.swift`, `PeerInfoAvatarListNode.swift`, `PeerInfoPaneContainerNode.swift`, `PeerInfoScreenOpenMessage.swift` and gallery controllers | peer/full-info/status/title/photo updates; `getUserProfilePhotos`, `getBasicGroupFullInfo`, `getSupergroupMembers`, `getChatAdministrators`, `getChatMember`, `getMessageProperties`, topic/history APIs, `downloadFile`, `forwardMessages`, `deleteMessages`, `setName`, `setBio`, `setChatTitle`, `setChatDescription`, `setChatMemberTag`; message/file APIs | **partial — live UIKit profile + shared/avatar galleries + management/actions** — account-fenced user/bot/self/group/channel profile exposes live title/status/bio/usernames/phone/member/photo state and Media/Files/Links/Audio. Separate Members/Admins lists retain server order and roles, paginate raw supergroup offsets, react to membership/full-info changes and preserve a visible-row anchor; permission-gated self/chat Edit uses changed-only sequential writes, live cached visibility and exact pre-write member-rights revalidation. User rows open a standalone tag editor whose fresh self/other-member authority matrix, stale-baseline conflict check and awaited write follow current Telegram behavior without coupling tags to administrator rights. Shared media retains the profile under exact-source append-paged gallery with cancel-safe pan, unified video chrome, scrollable formatted/spoiler-safe captions and authoritative totals. Gallery Open in Chat captures the selected identity, re-fetches it through the captured client, revalidates account/client/topic through fade-dismiss completion, then routes into the source timeline without competing reverse transitions. Save and system Share now share one original-resource export boundary with fresh copy-protection checks, full TDLib download, account/generation fences and managed temp ownership; Photos receives signature-validated still images/GIF/MP4 and WEBP sticker frame PNG without moving TDLib cache files. Forward reuses the production topic/destination/comment picker and offers selected-item versus authoritatively bounded whole-album semantics. Delete intersects fresh per-ID modes, repeats pre-write authority, commits one batch and coalesces all-media permanent updates into one terminal fade without returning deleted playback/PiP owners. Header avatar opens a real-`ChatPhoto` gallery with user/bot/self role-aware raw-offset history, group/channel current full-info photo, exact item+file transition, zoom and no-flash central muted video loop. Generic Saved Messages self now preserves upstream title/blank-status/action semantics while rendering the captured account's real avatar and gallery instead of the Saved glyph. Typed peer/full-info bursts coalesce into one render; generation fences prevent stale `getChat`/full-info resurrection; role signatures reconcile populated avatar galleries without dismissing them. Warning-free proofs are below. Remaining: promote/demote/remove management tools and exhaustive profile actions. |
-| P1 | Multiple accounts | Telegram account manager behavior without copying Postbox | separate TDLib clients and databases, authorization state, `logOut` | **implemented** — isolated TDLib clients/databases/subscriptions and persisted account registry with add/auth/switch/remove/logout. A fresh comprehensive multi-account runtime pass remains pending. |
-| P1 | Chats, folders, archive, search, edit/reorder | pre-Liquid `ChatListItem.swift`, chat list/filter controllers | chat lists/positions/folders, pin/mute/read/delete/clear/draft APIs | **partial** — main/archive/custom-folder lists now consume ordered TDLib updates and page through loadChats to explicit 404 exhaustion; folder tabs retain the approved Liquid Glass capsule over full-width background blur, and chat cells use contiguous Telegram geometry with date, delivery, unread/mute/pin state and account-backed actions. Remaining: edit/reorder/include/exclude completeness, clear history/draft parity, archive reveal gestures, richer delivery/typing states and mutation account fencing. |
 | P1 | Multiple accounts | Telegram account manager behavior without copying Postbox | separate TDLib clients and databases, authorization state, `logOut` | **partial — existing account breadth, isolation unverified** — add/auth/switch/remove/logout and client/storage paths already exist. Revalidate their production lifecycle and event/subscription ownership; animation A05/A06 and voice A13 expose cross-flow isolation gaps. Do not implement a second account shell from the old queued label. |
 | P1 | Chats, folders, archive, search, edit/reorder | pre-Liquid `ChatListItem.swift`, chat list/filter controllers | chat lists/positions/folders, pin/mute/read/delete/clear/draft APIs | **partial** — main/archive/custom-folder lists and paging already exist; folder tabs are classic full-width material, and chat cells now use contiguous Telegram geometry with date, delivery, unread/mute/pin state and account-backed actions. Remaining: edit/reorder/include/exclude completeness, clear history/draft parity, archive reveal gestures, richer delivery/typing states and mutation account fencing. |
 | P1 | Timeline stability and performance | pre-Liquid/current `ChatMessageItemImpl.swift` and `ChatMessageDateHeader.swift` history/header behavior | `getChatHistory`, `updateNewMessage`, `updateDeleteMessages`, file updates | **partial** — stable message/album/topic/date IDs, raw-history pagination cursor, cross-page album merging, message-only prefetch/read/selection and visible `messageId + pixelOffset` restoration cover structural snapshots. Composer/keyboard insets, object-driven and autonomous cell self-sizing, bulk reconfigure, Dynamic Type and rotation now capture the same anchor or latest edge; mutation depth discards stale deferred anchors and never fights active dragging. Every chat emits one stable localized date row per day with exact date→topic ordering. Remaining proof/gaps: a live pagination/album seam, software-keyboard-attached runtime proof and eliminating residual metadata work from the main actor. |
-| P2 | Shell/navigation polish | pre-Liquid navigation and `ChatListItem.swift`; approved BetterTG glass folder/menu baseline `64625ed^` | n/a | **implemented shell/list breadth** — the folder bar keeps edge-to-edge `systemChromeMaterial` through the safe area behind an inset 42pt Liquid Glass capsule and continuously moving glass selection. Shared context menus use `UIGlassEffect` with 30pt menu and 20pt highlight corners. Later folder/menu actions, unread state, localization and gestures remain. Chat-list rows retain contiguous 76pt full-width geometry with 60pt avatars at x=10 and separators from x=80. Warning-free build and real-state idb proofs are recorded below. Remaining P2: audit secondary navigation/search/action surfaces while preserving the explicit glass exception. |
+| P2 | Classic shell/navigation polish | pre-Liquid navigation/tab bars, `ChatListFilterTabContainerNode.swift` and `ChatListItem.swift` | n/a | **implemented classic shell/list breadth** — the bottom folder bar is one edge-to-edge `systemChromeMaterial` surface through the safe area; its scrollable tabs use the pre-Liquid three-point selected line instead of an inset lens/capsule. Context menus use ordinary `systemMaterial` blur and classic corners. Chat-list cards are replaced by contiguous 76pt full-width rows with 60pt avatars at x=10 and separators from x=80. Source search finds no `UIGlassEffect`, `glassEffect` or `cornerConfiguration`. Warning-free build and real-state idb proofs are below. Remaining P2: systematic audit of secondary navigation/search/action surfaces. |
 
-## Checkpoint
+### Checkpoint
 
 - Latest code `cb84f9b` closes bounded caption-entity enrichment after request owner `559a762` and explicit preview `805494f`.
   Exact reviews, warning-free builds and all seven fresh native probes pass at PID91301. Primary/worker code is committed;
@@ -3383,7 +3532,648 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Deferred feature candidate after the audit: promote/demote/remove member-management tools. Keep rights mutations independent of
   member tags; confirmed higher-priority audit findings take precedence.
 
-### Merged TDLibKit 2 parity-continuation checkpoint (`7875f17`, historical)
+### Historical implementation slices
+
+#### UIKit peer profile and shared-media slice
+
+- **P1 flow:** pre-Liquid/current peer-info header, pane and open-message behavior from `PeerInfoScreen.swift`,
+  `PeerInfoHeaderNode.swift`, `PeerInfoPaneContainerNode.swift` and `PeerInfoScreenOpenMessage.swift`, adapted to UIKit + Combine +
+  TDLibKit without Telegram infrastructure.
+- Implemented: chat title/avatar entry; user/bot/self/basic-group/supergroup/channel identity; full-info bio/description,
+  username/phone/member details; Message/Search actions; one scrollable Dynamic Type header; Media/Files/Links/Audio tabs; exact current
+  `MessageTopic` query scope and open-in-chat route; stable deduplicated pagination; empty and later-page retry without losing the cursor;
+  account/client fencing; cancellable grid thumbnail download with redisplay restart; accessibility labels and intrinsic action height.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-105649-495-22414.log`; focused source/delta review clean. Runtime PID
+  `840` exposes Profile/Back, exactly one `4 members`, 56.67pt intrinsic Message/Search actions, the four-tab group, 12 visible Media
+  tiles, `No shared files`, real Link rows and a real `.m4a` Audio row. The exact Media→Files→Links→Audio path remains alive after fixing
+  UIKit diffable snapshot reentrancy, and Back returns to the group chat. Evidence is under
+  `.build/ui-probe-evidence/profile-shared-media-*`; no media or server mutation was selected.
+- Deferred at this slice (see subsequent profile/gallery slices): avatar/video header history and fullscreen entry; edit/member/admin
+  controls; shared-media selection/actions; live metadata reconciliation; gallery caption, gesture, rotation and complete
+  save/forward/delete/open-in-chat/video-control parity.
+
+#### Profile shared-media gallery slice
+
+- **P1 flow:** peer-info media pane → production gallery from current/pre-Liquid `PeerInfoPaneContainerNode.swift` and
+  `PeerInfoScreenOpenMessage.swift`, retaining the `ChatLocation` history source and a fresh visible transition provider.
+- Implemented: Media-only gallery routing while Files/Links/Audio keep open-in-chat; exact thumbnail snapshot without the video badge;
+  represented-ID + visible-cell + account validation; profile retained beneath the modal; newest→oldest selected-ID-stable append-only
+  pages; one in-flight mutation queue; boundary retry; no reload jump; active-account fencing before cell/VOD/PiP creation; release and
+  fade on account switch; active-client permanent photo/video delete reconciliation; selected-delete forced fade. The footer is one
+  full-width `systemChromeMaterialDark` surface through the bottom safe area with plain 52×50 Close/Share and a nontruncating index.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-111604-5080-25531.log`; final source/delta review CLEAN. PID `5495`
+  opened the first profile tile as `1 of 30`, paged to the exact full `2 of 30`, then Close returned to Profile with the original
+  131×131 source tile still present. AX proves `gallery-close`, `gallery-counter`, `gallery-share` on the full-width footer; screenshot
+  `.build/ui-probe-evidence/profile-gallery-authoritative-classic-footer.png`. No Share or server mutation was performed.
+- Deferred: avatar/photo-video header history, interactive pan-dismiss, captions, save/forward/delete/open-in-chat,
+  rotation/current-item runtime proof, and deliberate near-page-boundary/error/account-switch/delete smoke.
+
+#### Unified fullscreen gallery chrome slice
+
+- **P1/P2 flow:** current/pre-Liquid gallery single-tap chrome and video-control coordination, adapted to UIKit recognizers without
+  importing Telegram transition/gesture infrastructure.
+- Implemented: controller-owned `chromeIsVisible`; edge-to-edge pager behind a full-width safe-area blur overlay; photo single tap
+  dynamically waits for nested double-tap zoom; controls/retry/seek touches are excluded; selected video disables its private tap and
+  reports controls visibility/auto-hide through its playback owner to the same footer/status state; page/reuse/dismiss/PiP bindings are
+  explicit. VoiceOver can never leave Close/Share hidden, hidden footer leaves AX, Reduce Motion is honored, and accessibility Escape
+  closes. Video controls stay exactly above the 50pt footer plus bottom safe area instead of being obscured by the overlay.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-113041-8640-9218.log`; final delta review CLEAN. PID `8944` proved
+  photo chrome `visible→hidden→visible` (`402×874` media when hidden), video single-tap exposing seek/back/play/forward/mute/rate plus
+  `gallery-close`/`2 of 30`/`gallery-share`, playing auto-hide removing both control groups from AX, and Close returning to Profile.
+  Screenshot: `.build/ui-probe-evidence/profile-gallery-unified-video-controls.png`; no Share or server mutation occurred.
+- Deferred: deliberate double-tap/pinch and VoiceOver-status runtime toggles.
+
+#### Guarded interactive gallery dismissal slice
+
+- **P1 flow:** Telegram current/pre-Liquid down-swipe gallery dismissal, adapted to the existing exact-source UIKit animator through
+  `UIPercentDrivenInteractiveTransition` without importing Telegram gesture/transition infrastructure.
+- Implemented: one-finger, positive-y, 1.2× direction lock; exact centered-page requirement; minimum photo zoom with no zoom bounce or
+  deceleration; horizontal pager cooperation; temporary pan/pinch suspension only after begin; touch exclusion for footer, every
+  `UIControl`, visible video controls and Retry; active seek/PiP/start/stop/retention rejection. Progress is translation-driven; 28% or
+  900pt/s finishes, otherwise cancel restores chrome, modal AX isolation, pager/zoom gestures and pending page/delete updates. Playback
+  owners release only from the animator's completed commit. Account switch force-finishes the interaction and pops the profile from the
+  transition completion; an unexpected cancel uses a terminal nonanimated fallback instead of leaving an invalid gallery visible.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-114920-12706-5954.log`; final delta review CLEAN. PID `12991` proved a
+  slow 70pt/1s down-pan cancels with only gallery AX and restored `gallery-close`/`1 of 30`/`gallery-share`; a 450pt/0.4s down-pan finishes
+  at Profile with the exact 131×131 source tile; horizontal swipe still reaches `2 of 30`; up-swipe remains in gallery. No Share or
+  server mutation occurred; Simulator remains booted.
+- Deferred: deliberate zoomed-photo, live seek, active PiP and external account-switch gesture rejection on capable/runtime states.
+
+#### Fullscreen gallery caption and total-count slice
+
+- **P1 flow:** current/pre-Liquid gallery caption footer, spoiler/entity interaction and absolute position index, adapted to UIKit TextKit
+  and the existing TDLib message stream.
+- Implemented: formatted photo/video/animation captions; validated UTF-16 entities; scaled bold/italic/code runs refreshed on content-size
+  changes; 44…220pt scroll container (96pt compact cap) rather than truncation; scroll position per selected message; caption-scroll hold
+  that keeps unified chrome/video controls visible until return to top. Dynamic caption height raises the 136pt video controls above
+  `50 + captionHeight`. Spoilers are opaque before reveal, redacted from AX, reveal by hit-test or AX action, then publish non-hidden
+  URL/email/phone/mention AX actions. Concealed `textUrl` destinations compare normalized scheme/host/default-port/path/query/fragment
+  and require an explicit URL confirmation when they differ. Profile listens to active-account content/edit updates, generation-serializes
+  `getMessage`, preserves topic scope, and reconfigures same-ID captions. Profile search passes TDLib `totalCount`; loaded-page appends and
+  deletes update messages before re-clamping that total.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-121611-18495-8647.log`; final source/delta review CLEAN. PID `18804`
+  exposes a real `Caption, …` label at 378×28 and `1 of 88`; captioned video proof shows scrub/transport entirely above
+  its caption, with footer below. Screenshots: `.build/ui-probe-evidence/profile-gallery-caption-entities-final.png` and
+  `.build/ui-probe-evidence/profile-gallery-caption-video-controls.png`. No entity URL, Share or server mutation was activated.
+- Runtime blockers: reachable sampled captions contain no spoiler or concealed `textUrl`, and no long caption was safely selected, so
+  reveal/confirmation/scroll-hold are source-reviewed and build-proved but not deliberately exercised on account data.
+
+#### Real profile avatar gallery slice
+
+- **P1 flow:** current/pre-Liquid `PeerInfoAvatarListNode` → `AvatarGalleryController`, adapted to UIKit and native TDLibKit models rather
+  than synthetic timeline messages.
+- Implemented: header 96pt image/button AX only when a real effective/full photo exists; a true placeholder remains image-only. User/bot
+  payload preserves effective/personal/normal/history/trailing-public roles with stable `ChatPhoto.id` dedupe, keeps raw history offset
+  independent of extra role entries, inserts later 100-photo pages before public fallback and exposes footer Retry. Group/channel use the
+  only available TDLib source, `BasicGroupFullInfo.photo` / `SupergroupFullInfo.photo`; `ChatPhotoInfo.big` is a static fallback only and
+  never fabricates an animation. A separate UIKit pager keeps stable photo IDs/current page through rotation, exact-animates the whole
+  circular header only for the current item and fades historical items. Captured-client synchronous JPEG/MP4 requests have per-file
+  generations and no global update bus; 96MB/cost-limited decoded cache; static image remains until `AVPlayerLayer` ready; animation seeks
+  to `mainFrameTimestamp`, loops muted only central, pauses/resets offscreen; nested pan activates only above 1× while pinch/double-tap
+  remains available. Late network completions require current account, visible/top profile and no competing presentation.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-124706-24968-7861.log`; final source/delta review CLEAN. Runtime PID
+  `24630` exposes `<group> profile photo` as 96×96 button, opens real `Profile photo, Mar 19, 2026` in the modal pager with plain
+  `avatar-gallery-close`, then restores the exact 96×96 source. Screenshot:
+  `.build/ui-probe-evidence/profile-avatar-gallery-final.png`; no mutation occurred.
+- Blockers/deferred: current safe group has one static photo, so user >100 pagination, animated avatar loop and zoom gestures are not
+  runtime-proved. TDLib cancellation is global per client/file; without a cross-consumer lease coordinator, offscreen deliberately
+  cancels only local await/decode/playback work and lets active transport finish into TDLib cache rather than cancel another consumer.
+
+#### Generic self avatar source slice
+
+- **P1 flow:** Telegram current/pre-Liquid generic self info opened from Saved Messages, explicitly distinct from Settings/My Profile.
+- Implemented: self is captured once only when a non-nil account user ID equals the peer. Generic self title remains `Saved Messages`,
+  presence is blank, redundant Message is hidden, and Search/Edit remain. `ProfileAvatarView` can render the real self peer file over the
+  Saved glyph only for this captured profile context. The explicit image path owns account/client/user identity, waits for the full file
+  through that client, uses no global `updateFile` bus, never cancels shared TDLib transport, and suppresses every callback after switch.
+- Header source follows effective `User.profilePhoto` then main `UserFullInfo.photo`; self `personalPhoto` is ignored and `publicPhoto`
+  never becomes current. Gallery ordering is effective current → distinct normal/history → distinct public last. Raw history offsets stay
+  server-owned, extra-role count is separate, and pages insert before public without moving the selected item. Transition to/from the
+  header requires both exact photo ID and rendered file ID; otherwise it fades. Main/personal/public role signatures trigger a full-page
+  reconcile that preserves a historical selection; reconciliation, pagination and initial open have independent UUID-owned task slots.
+  An authoritative empty set closes/resets the pager instead of preserving stale media.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-152230-76740-9666.log`; final upstream/API/task-race review CLEAN.
+  PID `74705` exposed the real cat avatar as a 96×96 `Saved Messages profile photo` button, exact `Saved Messages` title, no status and no
+  Message action; Search/Edit and shared tabs remained. It opened real `Profile photo, May 10, 2023` with `avatar-gallery-close` and no
+  mutation. Final build PID `77080` launched on the still-booted Simulator. Evidence:
+  `.build/ui-probe-evidence/profile-self-avatar-source.png` and
+  `.build/ui-probe-evidence/profile-self-avatar-gallery.png`.
+- Runtime blocker/deferred: this account exposes one current profile-photo item, so >100 pagination, distinct public fallback, live role
+  replacement, authoritative empty close and concurrent request invalidation are source-reviewed/build-proved rather than live-mutated.
+
+#### Live profile metadata slice
+
+- **P1 flow:** Telegram current/pre-Liquid signal-driven peer info data, adapted to BetterTG's active-client typed update bus and UIKit
+  state rather than one-shot controller snapshots.
+- Implemented: exact account/client and peer-ID guards for chat title/photo, user/status, basic group, supergroup and all three full-info
+  updates. User/group payloads replace `CustomChat.type` immediately; title/status/usernames/phone/member noun/count update before any
+  network round trip. Full-info payloads directly update bio/description/details/full `ChatPhoto`. Title/photo refetches use one monotonic
+  `metadataGeneration`; full-info requests and pushed payloads share `fullInfoGeneration`; cancelled/older responses cannot overwrite a
+  newer revision. First full-info hydration does not cancel a legitimate simultaneous avatar open, while later `ChatPhoto.id` changes
+  increment avatar identity, cancel initial/history tasks, clear raw offset/dedupe/total, close stale avatar gallery and remove old
+  animation authority. One run-loop-coalesced render updates title/status color/bio/details/avatar/placeholder/AX traits+hint/tap
+  availability and Dynamic Type header height together.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-130032-28652-16080.log`; final source/delta review CLEAN. PID `29034`
+  exposes the stable 96×96 `<group> profile photo`, title, `4 members`, actions, tabs and media after live subscriptions attach.
+- Runtime blocker: no deliberate server title/photo/status/full-info mutation was performed on the safe account; update transitions are
+  source-reviewed and build-proved, while the runtime smoke is a no-regression readback.
+
+#### Profile member, administrator and edit controls slice
+
+- **P1 flow:** current/pre-Liquid peer-info member/admin panes and creator/administrator edit gates, adapted to UIKit diffable tables and
+  TDLibKit without Telegram account or list infrastructure.
+- Implemented: a separate intrinsic management row with Members, Admins and permission-gated Edit. Basic groups use the complete
+  `BasicGroupFullInfo.members`; supergroups/channels expose Members only under `canGetMembers` and advance pagination by raw
+  `ChatMembers.members.count`; Administrators use `getChatAdministrators` independently of hidden-member access. Stable local
+  user/chat IDs preserve server order and unresolved fallbacks; one queued resolver batches same-ID reconfiguration through a serialized
+  diffable apply; Dynamic Type and VoiceOver include title, role and presence. Live `updateChatMember`/full-info changes debounce a fresh
+  authoritative load while retaining the first visible ID and pixel offset. Later-page failures remain visible in a table footer with
+  explicit Retry. Account changes cancel child work and atomically remove the complete navigation suffix at the owning Profile.
+- Edit captures account/user/client/chat identity. Cached creator or administrator `canChangeInfo` controls visibility, while every chat
+  submit calls `getChatMember` for that captured user immediately before `setChatTitle`/`setChatDescription`. Self edit uses
+  `setName`/`setBio`. Only changed fields are sent in sequence; successful first operations update the retry baseline, and a second-operation
+  failure reports partial success without optimistic canonical state.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-132517-34076-25539.log`; final focused audit has no remaining API/model,
+  pagination, diffable or account-lifetime finding after the atomic suffix fix. PID `33583` exposes a separate 176×56.67 Members/Admins
+  row on the real three-member basic group; Members resolves exact `<member>, Owner`, `<member>, Member · online`, `лева, Member`, while
+  Administrators independently resolves `<member>, Owner`. Screenshots:
+  `.build/ui-probe-evidence/profile-management-controls.png` and
+  `.build/ui-probe-evidence/profile-administrators-controls.png`. Edit was correctly absent for this non-admin account; no Save or other
+  server mutation was performed.
+- Runtime blocker/deferred: a safely reachable self/owned test profile was not mutated, so Edit form writes and live permission revocation
+  are source-reviewed/build-proved rather than server-proved. Member promotion/removal/admin-right editors remain a later management gap.
+
+#### Member and administrator tag editor slice
+
+- **P1 flow:** current `PeerInfoData.swift`, `PeerInfoScreenOpenMember.swift`, `ChatParticipantRightsScreen.swift` and TelegramCore
+  `Ranks.swift` rank editing, compared with pre-Liquid `ChannelAdminController.swift`, adapted as an independent UIKit + TDLibKit tag
+  operation rather than an administrator-rights mutation.
+- TDLib boundary: captured-client `getChat` plus parallel actor/target `getChatMember` reads before presentation and again immediately
+  before one awaited `setChatMemberTag`. Basic groups and non-channel supergroups are accepted; inactive targets and channels fail closed.
+  Self editing requires fresh `ChatPermissions.canEditTag`. Editing another user requires creator status or fresh
+  `AdministratorRights.canManageTags`; another creator is protected, and a non-creator may edit an administrator only when
+  `canBeEdited`. The target tag must still equal the captured baseline before the write, preventing a stale editor from overwriting a
+  concurrent change.
+- UIKit editor preserves the current tag verbatim, counts at most 16 Swift characters, rejects controls and graphic emoji, accepts empty
+  to remove the tag, and keeps transport errors visible without optimistic canonical state. Successful writes explicitly schedule an
+  authoritative member-list reload instead of relying on the bot-only `updateChatMember` delivery contract. Account/client changes cancel
+  preparation or saving and disable stale controls.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-153759-82885-28094.log`; final focused delta review CLEAN. Runtime PID
+  `83599` exposed all three real member rows as enabled buttons with disclosure chevrons and the `Shows member tag controls` hint. Tapping
+  self `лева` performed the fresh authority reads and produced `Can't Edit Tag` / `You no longer have permission to edit this member's
+  tag.`, then OK returned to Members. Screenshots:
+  `.build/ui-probe-evidence/member-tag-smoke-members.png` and
+  `.build/ui-probe-evidence/member-tag-smoke-permission-denied.png`. No text was edited, Save was never pressed and no Telegram mutation
+  occurred; Simulator remains booted.
+- Runtime blocker/deferred: this live account cannot edit a tag, so an authorized Save/remove and post-success refetch are not exercised
+  against the server. Promotion, demotion, removal and administrator-right editors are queued after the revalidation gate.
+
+#### Fullscreen gallery Open in Chat slice
+
+- **P1 flow:** Telegram current/pre-Liquid gallery context action `Open in Chat`, adapted to the existing UIKit footer and BetterTG
+  timeline-window loader without Telegram gallery/navigation infrastructure.
+- Implemented: a plain 52×50 ellipsis control alongside unchanged Close/Share on the full-width classic blur footer. The action exists
+  only when the presenting route supplies a captured account/client/source location and completion. Tap freezes a Sendable
+  chat/message/topic identity, disables the control with progress and calls `getMessage` through the captured client. Completion checks
+  action generation, selected ID, account/client, returned identity and exact topic for scoped profiles; base-chat routes intentionally
+  accept any forum topic. A permanent delete, page change or account invalidation cancels quietly. Success forces a fade instead of the
+  reverse tile transition and retains a separate navigation generation through dismissal; the completion rechecks account/client/context
+  before invoking Profile or Chat. Profile pops only after modal dismissal; Chat uses its existing `prepareMessageWindow` path when the
+  target is outside the loaded timeline. Secret-chat navigation needs no send/delete/save permission and remains allowed.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-134050-43746-25199.log`; final focused delta review CLEAN. PID `44134`
+  exposed exact footer frames `Close 4×790 52×50`, `More actions 294×790 52×50`, `Share 346×790 52×50` and the sole UIKit menu action
+  `Open in Chat`. Selecting the first profile item (`1 of 1688`) completed gallery fade and profile removal, returning to
+  the source group chat with the exact `Photo, 13:31` bubble visible. Evidence:
+  `.build/ui-probe-evidence/gallery-open-in-chat-menu.png` and
+  `.build/ui-probe-evidence/gallery-open-in-chat-result.png`; no Telegram mutation occurred.
+- Runtime blocker/deferred: the safe smoke did not switch accounts or delete the selected message during the subsecond dismissal window;
+  both races are generation-fenced and source-reviewed. Forward and Delete were subsequently recorded in their own slices below.
+
+#### Gallery Save and secured Share slice
+
+- **P1/P0 flow:** Telegram current/pre-Liquid gallery media export and camera-roll save, adapted to UIKit, TDLibKit and Photos without
+  Telegram media-box/resource infrastructure.
+- Implemented: Save and Share serialize with Open in Chat and freeze the exact selected identity. Both perform parallel captured-client
+  `getMessage`/`getMessageProperties`, require `canBeSaved`, reject both protected-content flags, paid media, self-destruct state and
+  secret one-time photo/video/animation, then resolve the original largest photo or primary video/animation/sticker `File`. A user action
+  requests full `downloadFile(limit:0,offset:0,synchronous:true)` and validates exact completion/path; cancellation only drops local
+  authority and never calls global `cancelDownloadFile`. Selection/content/delete/account changes cancel before external commit.
+- Photos uses `.addOnly`, re-fetches message/properties immediately before `performChanges`, sets `shouldMoveFile = false`, preserves
+  creation date and a separator/control-stripped filename, validates images by ImageIO signature and Apple video by MIME plus playable
+  AVAsset video track. GIF uses `.photo`, MP4 animation `.video`; WEBP sticker Save exports deterministic decoder frame 0 as PNG.
+  TGS/WEBM sticker Save remains honestly hidden. Live Photo is labeled `Save Still Photo`, and Share requires an explicit
+  `Share Still Photo` confirmation rather than silently implying paired motion. Photos commit is correctly treated as non-cancellable
+  once submitted.
+- Share now uses the same fresh protection gates instead of leaking an already-local protected path. It derives a canonical extension
+  from fixed sticker format, TDLib MIME, ImageIO signature or MIME UTType; server filename contributes only a sanitized stem. A UUID temp
+  hardlink (copy fallback) survives TDLib eviction/message deletion and is retained through `UIActivityViewController` completion before
+  idempotent cleanup.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-140818-50364-12175.log`; final focused Telegram/TDLib/Photos delta
+  review CLEAN. PID `50749` opened the real first profile photo through the secured Share preflight and displayed the system sheet with
+  managed `bettertg-photo-<message-id>` / `JPEG Image · 6 KB`; the sheet was dismissed without choosing an external destination.
+  PID `49849` exposed `Save Photo` and `Open in Chat` as the two More actions. Evidence:
+  `.build/ui-probe-evidence/gallery-save-export-menu.png` and
+  `.build/ui-probe-evidence/gallery-secured-share-sheet.png`.
+- Runtime blocker/deferred: Save was deliberately not selected because it writes to the user's Photos library and no separate destructive
+  smoke authorization was given. No reachable GIF/MP4 animation, WEBP sticker or Live Photo was exercised; those format branches are
+  source-reviewed/build-proved. Delete is implemented below.
+
+#### Gallery Forward slice
+
+- **P1 flow:** Telegram current/pre-Liquid gallery `MessageGroup` sharing, adapted to BetterTG's existing UIKit
+  `ForwardMessagesViewController`, forum topic picker, comment state and `MessageForwardingService` rather than a parallel delivery path.
+- Implemented: Forward is serialized with Open/Save/Share and captures account/client/chat/topic/selected ID before any await. A fresh
+  `getMessage` validates the source. Non-album media proceeds as one message. For an album, no loaded gallery row is trusted: exact
+  base/forum/direct-messages/Saved/thread history APIs request expanding 20/40/100 windows around the selected ID. A group is accepted
+  only when both adjacent nonmatching boundaries are present or Telegram's 10-item cap is reached. History transport failures advance to
+  the next window and finally degrade to selected-only; cancellation propagates immediately. Fresh IDs retain exact topic and server
+  order semantics through `MessageForwardRequest`.
+- Complete groups show an explicit `This Item` versus `All N Items` action sheet, so a protected/unavailable sibling never prevents the
+  user from trying the selected item. The chosen request enters the production destination search, secret-chat forced-copy rules, forum
+  topic drill-down, formatted comment, sender/caption options, partial-delivery handling and exact account fences. Gallery playback pauses
+  only while the full-screen picker is visible and resumes on Cancel; successful delivery reports recipient count in the existing footer.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-142756-56092-20725.log`; final Telegram/TDLib delta review CLEAN.
+  PID `54892` exposed the real `Forward to` picker with search, destination eligibility, Add a comment, `1 message` and disabled Forward
+  before selection; Cancel returned to the exact `1 of 1688` gallery with Close/More/Share intact. Final build PID `57324` launched on the
+  still-booted Simulator. Evidence: `.build/ui-probe-evidence/gallery-forward-picker.png`; no destination was selected and no
+  `forwardMessages` mutation occurred.
+- Runtime blocker/deferred: the reachable selected photo has no album, so the item/all choice and every topic-history variant are
+  source-reviewed/build-proved rather than live-data-proved. Deliberate delivery remains a test-account mutation gap.
+
+#### Gallery Delete slice
+
+- **P1/P0 flow:** Telegram current/pre-Liquid gallery item/group deletion and revoke-mode confirmation, adapted to one captured TDLibKit
+  client and the same authoritative album resolver as Forward.
+- Implemented: Delete is absent for secret/self-destruct media and serialized with Open/Save/Share/Forward. Single media proceeds to
+  authority checks; a proven album first offers destructive `This Item` / `All N Items`, while unresolved history safely degrades to the
+  selected item. Every chosen ID receives fresh exact-chat/topic `getMessage` plus `getMessageProperties`; permissions intersect across
+  the complete set. Confirmation exposes `Delete for Me` only when every ID supports local deletion and `Delete for Everyone` only when
+  every ID supports revoke. Immediately before commit, the same messages/properties/mode are fetched and checked again. One captured
+  `deleteMessages` call is issued; no optimistic removal, multi-call partial state or automatic retry exists. An unconfirmed post-enqueue
+  failure tells the user to inspect whether media remains.
+- The controller now observes permanent deletes for photo/animation/sticker as well as video. Per-chat ID unions coalesce rapid events
+  across diffable batches and interactive dismissal, merge owner callbacks, filter the newest pending canonical message list once and
+  adjust the authoritative total once. Video owners are marked terminal and removed before release, revoking PiP/restore and preventing
+  deleted playback from returning inline. Selected deletion uses a pre-enqueue snapshot and exactly-once forced fade; no dust/particles.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-144807-65887-7317.log`; final Telegram/TDLib lifecycle review CLEAN.
+  PID `63543` exposed destructive `Delete` above Save/Forward/Open in the real gallery menu; it was not activated. Final unified build PID
+  `66267` launched with Simulator still booted. Evidence: `.build/ui-probe-evidence/gallery-delete-action-visible.png`.
+- Runtime blocker: destructive confirmation and `deleteMessages` were deliberately not exercised without separate approval; item/all,
+  for-me/everyone, rapid-update union and video/PiP terminal branches are source-reviewed/build-proved.
+
+#### Forum notification quick-reply slice
+
+- **P0 flow:** topic-aware notification reply using TDLib `getMessage`, `getForumTopic`, `sendMessage(topicId:)` and `viewMessages`.
+- Implemented: exact account requirement; captured-client guards; authoritative message/topic fetch; closed/manage-topic and existing
+  chat/payment checks; verified same-topic reply target; exact returned chat/topic assertion; fail-closed lookup behavior.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-080453-55869-29388.log` plus focused source delta-review.
+- Deferred: deliberate test-account notification action proof and all-messages history/composer parity.
+
+#### Forum-aware Forward destination slice
+
+- **P0 flow:** pre-Liquid/current forum drill-down behavior from `ChatControllerForwardMessages` and `PeerSelectionController`, adapted
+  to UIKit + TDLibKit rather than Telegram controllers/state stores.
+- Implemented: source route proof at prepare+delivery; destination chat/topic identity; multi-chat/multi-topic selection; exact cursor
+  topic picker/search; closed/manage-topic and per-content eligibility; fail-closed forum discovery; exact forward result validation;
+  partial retention; account fences; classic full-width material navigation/search and local selection summaries.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-075614-53821-9609.log`; local selection flow and classic header evidence
+  `.build/ui-probe-evidence/forum-forward-topic-plain-final-*`; no Forward/send mutation, PID 54141 alive, Simulator booted.
+- Deferred: comment/forward-draft transition, deliberate test-account delivery and all-messages headers.
+
+#### All-messages forum timeline foundation slice
+
+- **P0/P1 flow:** base forum adjacent-topic runs and jump-free history extension from pre-Liquid/current
+  `ChatMessageItemImpl.swift` and `ChatMessageDateHeader.swift`, adapted to one inverted UIKit collection without Telegram
+  Texture/SignalKit/Postbox/Display/ComponentFlow.
+- Implemented: stable `message(id)` / `album(mediaAlbumId)` / `topicHeader(topicID,runStartMessageID)` identities; complete
+  projection rebuild for `A,A,B,B,A`; official 34pt centered 22pt topic control with 16pt General/custom/generated icon, one-line title
+  and chevron; lazy account/client-fenced `getForumTopic` cache plus `updateForumTopicInfo`; authoritative topic tap; message-only
+  read/prefetch/playback/context/selection paths; raw TDLib pagination cursor; cross-page album coalescing; permanent member-delete
+  survival; message-window reuse; and visible message + pixel-offset restoration across boundary-header insert/remove/merge.
+- Production routing follows live `Chat.viewAsTopics`. Base text/photo/edit/draft and chat-action contexts resolve to discovered General
+  or the replied message's exact topic; closed-topic replies fail closed, reply transitions cancel the prior topic action, and the base
+  draft key remains `topic:nil`. Voice/video manifests now carry a separate immutable send topic through record/pause/resume/preview,
+  relaunch, enqueue, resend and exact record/upload/cancel actions; a newer composer reply is never cleared by an older media draft.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-085723-71772-1312.log`; wrapper/idb launch PID `67526` stayed
+  alive and ordinary chats retained full composer controls. `.build/ui-probe-evidence/forum-all-messages-*` records the hierarchy scan;
+  no safe `viewAsTopics == false` forum exists in current simulator data, so live header tap remains a data-state blocker. Fresh PID
+  `71701` passed `.build/ui-probe-evidence/forum-all-messages-media-destination-*`: voice Ogg/Opus + base-draft/frozen-topic relaunch,
+  video send outcome/legacy/thumbnail/tombstone cleanup, and ordered multi-segment video recording trim/thumbnails/frozen-topic handoff.
+- Deferred: live all-messages topic-header/pagination/album seam proof on an account with a reachable forum in this mode.
+
+#### Keyboard and self-sizing timeline anchor slice
+
+- **P1 flow:** Telegram-style `messageId + pixelOffset` retention across viewport/intrinsic-size changes in the inverted UIKit history.
+- Implemented: message-cell pre-fit height notification; one coalesced visible-message anchor for autonomous self-sizing; exact anchor/latest
+  restoration around single/bulk diffable reconfigure, composer/search/selection/keyboard insets, Dynamic Type and rotation; mutation-depth
+  ownership so stale deferred size callbacks cannot overwrite a newer snapshot/inset/rotation anchor; active pan/deceleration remains untouched.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-091301-75604-22504.log`; focused delta-review clean. PID `75942`
+  retained `Video message, 0:13` at `{{53,381},{260,260}}` and `chat-date-1787342400` at `{{172,348},{58,22}}` across two
+  hierarchy-derived focus attempts (`Δx/y/w/h=0`). Simulator did not present `AXKeyboard`—likely hardware-keyboard state—so the
+  non-no-op keyboard-attached transition remains a runtime proof blocker. Evidence: `.build/ui-probe-evidence/timeline-anchor-fresh-*`.
+
+#### Delete collapse/fade/slide slice
+
+- **P0 flow:** Telegram-style restrained delete transition without dust/particles, integrated with authoritative TDLib
+  `updateDeleteMessages` and the inverted diffable timeline.
+- Implemented: ChatVM announces only bubbles whose complete source-message set disappears; visible sources become noninteractive and
+  animate 140ms opacity + directional 24pt slide + 0.98 scale; the delayed heterogeneous snapshot then performs layout collapse. Rapid
+  deletes coalesce to one deadline, cell reuse resets all presentation state, nonvisible deletes apply immediately, album-member survivors
+  stay in place, video teardown still follows `didEndDisplaying`, and the collapse anchor is restricted to IDs surviving in canonical state.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-092113-77487-3754.log`; focused source/delta review clean. No deliberate
+  server delete was performed, so visual runtime mutation proof remains deferred.
+
+#### Composer send-flight slice
+
+- **P0 flow:** pre-Liquid Telegram composer source-to-message insertion transition, adapted to real UIKit snapshots and TDLib temporary
+  IDs without Telegram transition infrastructure.
+- Implemented: synchronous capture of visible reply, formatted text, selected-photo strip, caption, active voice/video preview and
+  retry-button sources; one serialized composer text/media send; temporary→success/failure ID aliases before or after acceptance;
+  canonical album/message target lookup; 320ms staggered frame/corner/opacity flight into the real visible bubble; bounded offscreen
+  fallback; five-second/deinit/account cleanup. Voice direct/trim-preview/promotion/retry and video recorder/retry paths bind runtime-only
+  transition tokens to their durable draft IDs, accept exact returned message IDs, and cancel retained/interrupted/discarded failures.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-093342-80738-1901.log`; focused source/delta review clean. No deliberate
+  test-account send was performed, so the visible flight remains a mutation-gated runtime proof gap.
+
+#### UIKit file/document attachment slice
+
+- **P0 flow:** pre-Liquid/current attachment-menu document flow, adapted to `UIDocumentPickerViewController` and TDLib
+  `InputMessageDocument` / `sendMessageAlbum` with the existing immutable forum send context.
+- Implemented: Files menu and cancellable multi-selection; security-scoped provider copies capped at 10; account/location rejection of
+  stale picker completion; mutually exclusive photo/document strips; filename/size/remove accessibility; Dynamic Type row growth; exact
+  document permission and General/reply topic; first-item caption; homogeneous 1–10 document album; partial-result retention of only
+  unsent selections; duplicate-send serialization and composer→bubble flight. Temp ownership uses provisional persisted leases before
+  any upload await, binds outcome-before-registration aliases to TDLib IDs, protects active files from remove/replace/deinit/scavenging,
+  migrates failed IDs, and releases on global success/permanent delete even after ChatView closes. Lease paths require a generated UUID
+  prefix and exact managed parent; unleased orphans expire after 24h and abandoned leases have a 30-day recovery ceiling.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-095820-86651-17797.log`; focused source/delta review clean.
+  PID `82584` proved enabled Attach Files at `{{10,697},{250,42}}`, UIKit Recents/Search/Browse, exact Cancel AX hit and unchanged
+  composer after cancellation. Evidence: `.build/ui-probe-evidence/document-attachment-*`; no file was selected or sent.
+
+#### UIKit emoji/sticker/GIF composer slice
+
+- **P0 flow:** pre-Liquid/current emoji/sticker/GIF input panel behavior, adapted to a UIKit page sheet and TDLib-native
+  `getStickers`, `getSavedAnimations`, `InputMessageSticker` and `InputMessageAnimation`.
+- Implemented: Emoji/Stickers/GIF segmented grid; debounced search and mode-generation cancellation; account/client/chat fencing before
+  loads and selection; installed regular sticker query with every Premium sticker excluded; saved-GIF filtering; exact picker-cell AX;
+  TGS/WebP/WebM reuse with offscreen pause and GIF thumbnail cancel/restart; repeated emoji insertion with debounced route draft; exact
+  other-message permission, General/reply topic and returned-destination assertion. Sticker sends preserve typed text while clearing the
+  accepted reply through the captured draft topic with generation-fenced retry; GIF caption clears safely; both use serialized sends and
+  the insertion-flight protocol. No Premium/Stars/custom-emoji results are offered.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-102014-91617-3187.log`; focused source/delta review clean. Runtime
+  PID `90585` proved the UIKit sheet, exact three segments, 64 enabled emoji buttons, 16 non-Premium sticker buttons, 16 saved-GIF
+  buttons, offscreen-safe navigation and Done return. Evidence: `.build/ui-probe-evidence/composer-media-picker-final-*`; no
+  emoji/sticker/GIF was selected or sent.
+
+#### Forward comment/draft slice
+
+- **P0 flow:** pre-Liquid/current forward destination comment state, adapted to the existing UIKit multi-recipient/topic picker and
+  TDLib `sendMessage(InputMessageText)` followed by `forwardMessages`.
+- Implemented: expanding formatted Add a comment field retained across topic drill-down/search/retry; keyboard-layout-guide attachment
+  with interactive dismissal and safe-area toolbar switching; Dynamic Type height refresh; comment snapshot at delivery start; exact
+  basic-message/private/paid/forum/closed/admin eligibility; account/client checks immediately before mutation; exact returned topic.
+  Each destination records the delivered `FormattedText`, so a failed forward retries without duplicating an unchanged successful
+  comment, while an edited comment is a new intent. Comment failure blocks that destination's forward; ambiguous/partial forwarding keeps
+  the existing nonretry policy, and controls re-enable with the comment intact.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-102642-93175-2531.log`; focused source/delta review clean. PID `93577`
+  reached the real message context menu, but idb omitted its Forward overlay action, so safe navigation to the comment field was blocked.
+  Evidence: `.build/ui-probe-evidence/forward-comment-final-*`; no comment or forward mutation occurred.
+
+#### Date and topic boundary slice
+
+- **P1 flow:** pre-Liquid/current `ChatMessageItemImpl.swift` date/topic merge break and `ChatMessageDateHeader.swift` 34pt service
+  header ordering, adapted to stable heterogeneous UIKit diffable items.
+- Implemented: calendar-start stable IDs; 34pt inverted rows with centered 22pt localized pills; Today/Yesterday/year-aware labels and
+  header accessibility; one separator per day in ordinary and forum histories; exact visual date→topic→message ordering on simultaneous
+  boundaries; no duplicate topic header at midnight; message-only read/prefetch/selection/playback; structural pixel-anchor reuse; and
+  significant-time/locale snapshot reconfiguration so cached Today labels and timezone-derived identities cannot go stale.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-090344-73347-22038.log`; runtime hierarchy/screenshot evidence is
+  `.build/ui-probe-evidence/date-headers-*`. Fresh PID `73694` exposes `chat-date-1787860800` (`Aug 28`, 58.67×22) and
+  `chat-date-1788033600` (`Yesterday`, 76.67×22); 6pt row insets plus existing 5pt message gaps prove the exact 34pt row with zero
+  overlap, while the enabled composer remains at y=796.67.
+
+#### Writable explicit forum topic slice
+
+- **P0 flow:** pre-Liquid/current closed-topic input panel, topic placeholder, text/attachment/media recording, activity and draft
+  semantics from `ChatInterfaceStateInputPanels`, `ChatTextInputPanelNode`, `ChatController`, `ChatControllerOpenAttachmentMenu` and
+  `ChatControllerMediaRecording`, adapted to UIKit + Combine + TDLibKit without Telegram infrastructure.
+- Implemented: immutable send context; exact topic for text/photo/album/voice/video/action/draft; returned-topic assertions; same-topic
+  replies; content-specific and live closed-topic authority; dirty/stale draft fences; generation-safe clear retries; edit preservation;
+  partial-album retention; exact-location reactions/polls/delete/forward source; writable/restricted UIKit composer states and topic
+  placeholder. Base forum history is now handled by the separate all-messages resolver above.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-073123-48367-634.log`; non-mutating real-topic route and production
+  composer evidence `.build/ui-probe-evidence/forum-topic-write-final-*`; PID 48686 alive, Simulator booted.
+- Deferred: forward comment, all-messages General-or-reply resolver/run
+  headers, deliberate test-account send/draft mutation, topic-scoped pinned banner and remaining attachment types.
+
+#### Topic media draft identity slice
+
+- **P0 flow:** thread-scoped composer media ownership from pre-Liquid/current `ChatInterfaceState` and
+  `ChatControllerMediaRecording`, adapted to Codable actors + TDLibKit rather than Postbox/SignalKit.
+- Implemented: stable account/chat/full-topic key; four version-tolerant manifests; durable one-time legacy policy; exact restore,
+  deduplication, enqueue, discard, recording handoff and resolution routing; draft-UUID outcome names; voice registration barrier;
+  account/topic coordinator snapshots; stale account restore/promote guards; recorder receives the immutable destination.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-065904-41355-13754.log`; terminal probe files and run metadata
+  `.build/ui-probe-evidence/topic-draft-key-*`; PID 41675 alive after proof, Simulator booted.
+- Deferred: resolved network send context, topic text drafts/dirty generations, closed-topic write permission, exact returned-topic
+  assertions, then attachments/voice/video UI enablement and topic-aware Forward/all-messages headers.
+
+#### Classic chat list row slice
+
+- **P2/P1 flow:** pre-Liquid `ChatListItem` presentation applied to existing UIKit chat/folder data and actions.
+- Implemented: full-width 76pt rows; 60pt avatar at x=10; content/separator x=80; pinned/normal/highlight backgrounds; title/preview/date;
+  pending/failed/delivered/read state; unread/muted/marked-unread/pin accessories; capped Dynamic Type; full-state VoiceOver; full-row context
+  extraction and tap target. Existing diffable stable IDs, prefetch, search, gestures and TDLib actions remain unchanged.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-063859-35683-18833.log`; exact frame/tap evidence
+  `.build/ui-probe-evidence/classic-chat-rows-*`; first tap opens Saved Messages; PID 35152 alive; Simulator booted.
+- Deferred: typing/action preview, verified/scam/status/story adornments, archive reveal gestures and full account fencing for list mutations.
+
+#### Classic shell blur slice
+
+- **P2 flow:** full-width folder/tab chrome and context-menu material, based on pre-Liquid `ChatListFilterTabContainerNode` selection
+  geometry and classic UIKit material rather than Liquid Glass.
+- Implemented: edge-to-edge bottom blur including safe area; rectangular scroll viewport; exact three-point segment line; selected accent
+  text; ordinary system-material context menu; classic 16/10pt menu/highlight corners; all Glass-only APIs and marker strings removed.
+- Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-062914-33482-14249.log`; real account hierarchy/screenshot and long-press
+  menu evidence `.build/ui-probe-evidence/classic-shell-*`; PID 33820 alive; Simulator booted.
+- Deferred: remaining navigation/search/action surfaces still need a complete full-width/no-floating audit.
+
+#### Forum topic browsing slice
+
+- **P0 flow:** pre-Liquid/current `ChatListNodeLocation`, `ChatListNodeEntries`, `ChatListItem`, `ChatControllerContentData` and
+  `ChatControllerLoadDisplayNode`, adapted to UIKit + Combine + TDLibKit without Texture/SignalKit/Postbox/Display/ComponentFlow.
+- Implemented: account/client/chat/topic route identity; captured-client ref-counted open lease; exact topic cursors/order/hidden/search;
+  update refetch and transient retention; explicit topic history/search/read acknowledgement; target-message topic resolution; classic
+  UIKit rows with General/custom-emoji icons, pin/closed/draft/unread variants, Dynamic Type, VoiceOver and offscreen animation pause;
+  stable-ID reconfiguration; fail-closed push/forward; VM-level read-only barriers with non-mutating content access preserved.
+- Proof: warning-free build log `.build/logs/xcodebuild/build-Debug-20260831-062650-32938-29366.log`; device hierarchy/screenshot files
+  `.build/ui-probe-evidence/forum-topics-*`; `[1,42,77]`, hidden 99 absent, AX tap `(201,262)`, status
+  `Opened topic 42 · Read-only`, PID 31980 alive.
+- Deferred: all-messages topic-run headers, topic composer/writes/durable drafts, topic forwarding selection, topic actions/mutations,
+  General hidden toggle/admin controls, unread navigation and live server pagination/mutation smoke.
+
+#### Pinned message slice
+
+- **P0 flow:** pre-Liquid/current `ChatInterfaceStateContextMenus`, `ChatControllerLoadDisplayNode`,
+  `ChatPinnedMessageTitlePanelNode` and `ChatControllerNavigateToMessage`, adapted to UIKit + Combine + TDLibKit without
+  Texture/SignalKit/Postbox/Display/ComponentFlow.
+- Implemented: exact Saved/private/group/channel pin modes; fresh `canBePinned` preflight; one serialized chat mutation; optimistic
+  newest-pin state with authoritative revision rollback fences; account/client/generation guards before and after TDLib; initial and
+  refreshed `getChatPinnedMessage`; 404-only clearing; cache/permanent-delete/edit/content/isPinned reconciliation; direct-message/forum/
+  topic/album/service/sending gates; shared spoiler-safe thumbnail extraction; 50pt full-width blur banner; separate Open/Hide AX controls;
+  local hidden-ID token; newer-pin resurfacing; selection/search suppression; stale-animation rejection; inverted-history inset stability.
+- Proof: `Pinned message probe: modes=true, visibility=true, 404-only-clear=true, newest-only=true, banner-height=50, local-hide=true, navigation=true, uikit=true, swiftui=false`.
+- Deferred: nearest-visible pin rotation, pinned-only list/pagination, admin unpin undo, older-pin warning details, topic-scoped pins and
+  deliberate live server mutation proof.
+
+#### Message reactions slice
+
+- **P0 flow:** pre-Liquid/current `ReactionButtonListComponent`, `ChatMessageReactionsFooterContentNode`,
+  `ChatMessageBubbleItemNode` and `ChatController` toggle/restriction behavior, adapted without
+  Texture/SignalKit/Postbox/Display/ComponentFlow.
+- Implemented: representative-bubble standard/custom reaction rendering; Telegram count-minus-own-selection sorting; exact 30/20pt
+  geometry and 6pt wrapping; chosen/unread styling; reusable accessibility; account-keyed custom-emoji sticker cache; offscreen
+  animation pause; zero-state context picker; authoritative per-message availability; Premium/paid exclusion; maximum-count-safe
+  optimistic add/remove with rollback; chosen removal under restrictions; normal-client interaction/unread reconciliation; live
+  chat permission/max updates; account-switch fences; chat/topic reaction-read acknowledgement; read-only topic and ephemeral mutation gating.
+- Proof: `Message reaction probe: reducer=true, remove=true, add=true, max-count=true, unread=true, paid-excluded=true, wrapping-chips=true, uikit=true, swiftui=false`.
+  Device hierarchy proves the exact two-row frames/gaps and paid omission. Fresh center taps produce
+  `👍: 2, Not selected` and `❤️: 1201, Selected` while PID 11956 remains running.
+- Deferred: custom-emoji origination grid, reactor list/avatars, removal animation, forum-topic identity and live server mutation proof.
+
+#### Forward and message-selection slice
+
+- **P0 flow:** pre-Liquid/current `ChatMessageSelectionNode`, `ChatMessageSelectionInputPanelNode`,
+  `ChatControllerForwardMessages` and `PeerSelectionController` behavior, adapted to UIKit + Combine + TDLibKit without
+  Texture/SignalKit/Postbox/Display/ComponentFlow.
+- Implemented: context Select/Forward gates; whole-album direct forwarding; stable selection/reuse/accessibility; classic geometry and
+  transition timing; 100-child limit; exact per-child property/content preflight; multi-delete; Saved/main/archive/offline/server
+  destination discovery; raw-chat secret/private/group/channel eligibility; multi-recipient progress; sender/caption modes; safe
+  nonretryable treatment for unknown partial subsets; account-switch fences before every mutation.
+- Proof: `Message forwarding probe: normalized=true, limit=true, options=true, album-atomic=true, multi-recipient=true, account-scoped=true, uikit=true, swiftui=false`.
+  Device hierarchy proves `forward-probe-saved-messages` and `forward-probe-design-group` are full-width 402×62 AX controls;
+  center taps select both, enable the 66×56 Forward control and produce `Ready: 3 sorted IDs · 2 chats` without a Telegram send.
+
+#### Reply, quote and forward provenance slice
+
+- **P0 flow:** pre-Liquid/current `ChatMessageReplyInfoNode`, `ChatMessageForwardInfoNode` and bubble tap semantics, adapted without
+  AsyncDisplayKit/SignalKit/Postbox/Display/ComponentFlow.
+- Implemented: cross-chat/ID-zero/story/unavailable fallbacks; forwarded target author override; `ForwardSource` chat-first display and
+  message→chat→sender navigation; hidden-author static state; thumbnails including round video notes; 1-line ordinary and 5/50-line manual
+  quote layout; source/context accessibility and bubble custom actions; exact quote range search/highlight; external reply input and every
+  media draft restoration path; account/client guards; cache/permanent-delete and stale-generation fences.
+- Proof: `Message metadata probe: inline=true, unknown-chat=true, source-priority=true, expand-then-navigate=true, forward-navigate=true, external-input=true, utf16-quote=true, highlight=true, uikit=true, swiftui=false`.
+  Screenshots are `.build/message-metadata-final-*.png`; Simulator remains booted.
+
+#### Exhaustive MessageContent breadth slice
+
+- **P0 flow:** classic content routing based on the pre-Liquid contact/map/poll/action/animated-sticker nodes and
+  `ServiceMessageStrings`, adapted to UIKit + Combine + TDLibKit rather than Texture/SignalKit/Postbox/Display/ComponentFlow.
+- Implemented: 104-case catalog; shared summary/caption extraction; audio and document rows plus attachment albums; explicit primary-file
+  download/cancel/reconcile and thumbnail-only prefetch; details-first contact card with five vCard lines; actual MapKit snapshots and
+  absolute live-location timer; single/multi poll submission, persisted pending state, authoritative result/quiz colors and VoiceOver;
+  visibility-gated animated emoji/rolling regular dice with safe resolved fallback; centered service pills; italic unsupported placeholder;
+  explicit excluded-product fallbacks; account-captured, generation-safe prefetch.
+- Proof: the DEBUG probe instantiates production views with real TDLib model values rather than parallel mock views. Its Documents proof is
+  `MessageContent probe: tdlib=1.8.66-022d6020, exhaustive-cases=104, views=file,file,attachmentAlbum,contact,location,location,poll,poll,stickerGlyph,stickerGlyph,service,service, sized=true, poll-actions=poll:0,poll:0,1, action-proof=true, uikit=true, swiftui=false`.
+  Device screenshots are under `.build/message-content-final-postbuild-*.png`; Simulator remains booted.
+
+#### FFmpeg range controller slice
+
+- **P0 flow:** non-Apple WebM VOD controller, following pre-Liquid/current `ChunkMediaPlayerV2.swift` buffering/seek/EOF and
+  `ChunkMediaPlayerDirectFetchSourceImpl.swift` packet-lookahead behavior through TDLib `downloadFile(offset:limit:)`,
+  `getFileDownloadedPrefixSize`, `updateFile` and `cancelDownloadFile`.
+- Implemented: MainActor Combine controller; serialized 2s normalized packet horizon followed by a bounded 60s
+  decoder job; exact 1s source gate plus Apple raw sufficiency; play/pause/rate/seek/EOF; non-zero-origin and per-track intervals;
+  typed offline/retry failures; last-target-wins generations; offscreen renderer/range suspension; sparse audio degrades to silence;
+  source demand cancellation is operation-token/last-demand scoped.
+- Verification: `./build.sh` and `./test.sh` pass with Xcode 26.6. The 11.208s DEBUG fixture launched through
+  `RUN_ARGUMENTS="-media-probe-vod-ffmpeg-controller" ./run.sh` and reported deferred load, ≥1s initial gate, ≤60s window,
+  autoplay, visible buffering, stable pause, 1.5× rate, offscreen suspension/cancellation, preserved intent, last-seek-wins,
+  seek-first PTS, EOF/no-loop, offline/retry, seek clamp, zero renderer errors, finite range downloads, zero full downloads and cleanup.
+  `git diff --check` is clean.
+- Subsequent slices below record persistent session rollover and the sample-buffer PiP implementation. Active system PiP/background
+  restore remains a physical-device proof gap, subject to the new revalidation gate.
+
+#### Production FFmpeg gallery routing slice
+
+- **P0 flow:** WebM/VP9 VOD in the existing UIKit inline/fullscreen owner, following pre-Liquid `UniversalVideoGalleryItem.swift`
+  central visibility and `ChunkMediaPlayerV2.swift` backend continuity without importing Telegram infrastructure.
+- Implemented: MIME+extension routing; public range streaming; secret/non-streaming full-download handoff; cached-file FFmpeg re-entry;
+  one controller/view/lease across inline and fullscreen; mute/rate/seek/control routing; offscreen demand suspension with preserved intent;
+  first-frame/thumbnail transition fallback; typed failures; generation guards for every native and FFmpeg Combine stream; stale lease
+  invalidation; native MP4/MOV/M4V and AVPlayer PiP isolation.
+- Verification: `./build.sh build` succeeds without warnings. The combined native+FFmpeg owner probe launched through
+  `./build.sh run -- -media-probe-gallery-owner`; idb readback proves `ffmpeg-route=true`, `same-controller=true`,
+  `offscreen-intent=true`, `finite-ranges=true`, `ffmpeg-invalidate=true`, native `same-item=true`, zero full downloads for streamable
+  fixtures, exact return-to-inline continuity, terminal lease cancellation and no stale attachment callbacks.
+
+#### Persistent FFmpeg session slice
+
+- **P0 flow:** retain demux/decoder/SWR state across VOD high-water expansions, matching pre-Liquid `ChunkMediaPlayerV2.swift`,
+  `FFMpegMediaDataReaderV2` and `FFMpegFileReader` session-per-seek behavior through TDLib finite range reads.
+- Implemented: separate exact one-shot and soft streaming APIs; one open per seek-generation; authoritative Continue horizon; full crossing
+  frames; per-track emitted cursors; end-aware track completion; globally sequenced interleaved compressed-packet FIFO with hard count and
+  payload/side-data/overhead footprint bounds; cumulative session metrics and per-pump safety budgets; persistent callbacks/context;
+  terminal cancellation and close barrier; no repeated lookahead after session start.
+- Verification: SHA-pinned two-second boundary fixture proves three uneven pumps, one open, no rollover seek, monotonic A/V, no added
+  previous-end→next-start discontinuity, exact seek, persistent supersession/cancel and EOF/SWR tail. SHA-pinned sparse unequal-track
+  fixture proves video 12s plus audio packets at 0…2 and 8…10s, non-EOF first horizon, full terminal audio/video, and ordered FIFO use
+  (`25` packets / `24,113` bytes). The production controller proves eleven 1s DEBUG pumps on one session plus all prior playback states.
+
+#### Sample-buffer Picture in Picture slice
+
+- **P0 flow:** FFmpeg WebM VOD PiP using the pre-Liquid/current `NativePictureInPictureContentImpl` AVKit contract while retaining
+  BetterTG's existing UIKit owner, Combine state, TDLib range session and restore coordinator.
+- Implemented: exact layer-keyed `ContentSource`; strongly retained lock-backed playback adapter; finite current-containing range;
+  playing/buffering/paused mapping; explicit setPlaying; signed skip with past-end reset; render-size forwarding; background audio allowed;
+  pause/duration invalidation; native/sample source reconciliation; start/stop timeouts; pending-start strong retention; deletion/restore/audio
+  lifecycle; deferred failed-player teardown; forced-timeout controller retirement and exact stale-controller rejection.
+- Verification: the production gallery-owner fixture exercises the real content-source factory despite system PiP being unsupported and
+  proves sample layer/delegate identity, transport/range behavior, exact-once completion, source continuity, zero extra TDLib cancellation,
+  deferred stop-before-close, native fallback route, pending-start barrier and stale timeout callback rejection. Actual system-window PiP
+  and background restore still require a capable physical device.
+
+## Appendix B — parity-continuation ledger
+
+Verbatim ledger of `codex/parity-continuation` at `eb4e199` (through 2026-09-06), headings demoted one level.
+
+This file is the checkpoint ledger for the UIKit + Combine + TDLibKit implementation. Telegram references use
+`telegram-upstream/master` unless a commit is pinned. The classic pre-Liquid baseline is
+`8e7e5fefb1b0aba8335d8c28b62138183d61dc3d`, the parent of Telegram's first first-parent `Glass` commit.
+
+User-approved visual exception (2026-09-05): preserve BetterTG's existing Liquid Glass folder picker and shared context
+menus, as restored from `64625ed^`. Keep the inset scrolling glass capsule, moving glass selection and full-width background
+blur, plus the glass menu surface and rounded highlights. Future parity work must retain this presentation while extending
+actions and state handling; the classic baseline does not require replacing these two surfaces.
+
+Status values: **done** has local implementation proof, **partial** is usable with listed gaps, **next** is the next
+bounded slice, and **queued** has not started. Gifts, Stars, collectibles, boosts, Premium, ads, livestreaming, and
+Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) are intentionally out of scope.
+
+| Priority | Flow | Telegram reference | TDLib API / model | Status and proof |
+| --- | --- | --- | --- | --- |
+| P0 | Remove MobileVLCKit; local audio/video playback seam | `submodules/TelegramUniversalVideoContent/Sources/PlatformVideoContent.swift` at the pre-Liquid baseline | `downloadFile`, `updateFile`, `cancelDownloadFile` | **partial** — `LocalMediaPlayer` uses AVFoundation, gallery playback pauses offscreen and has thumbnail fallback, and downloaded Ogg/Opus audio is cancellably decoded by FFmpeg before AVPlayer use. A range-backed FFmpeg controller now emits owned BGRA video and interleaved float audio for generic VP9/Opus WebM without a full download, renders both tracks on one Apple media clock, and is production-routed through the persistent inline/fullscreen gallery owner. `./build.sh build` passes without warnings and `rg` finds no VLC dependency/import/API marker in `project.yml` or `BetterTG`. Persistent FFmpeg sessions span rolling windows and sample-buffer PiP uses the exact display layer; only active system PiP/device proof remains. |
+| P0 | TGS stickers and animated/custom emoji | `AnimatedStickerFrameSource.swift` gzip/rlottie path, `AnimatedStickerNode.swift` lifecycle, and pre-Liquid `MultiAnimationRenderer.swift` / `EmojiTextAttachmentView.swift` | `MessageSticker`, `TextEntityType.customEmoji`, `getCustomEmojiStickers`, `downloadFile`, `updateFile` | **partial** — timeline/gallery TGS uses bounded zlib decode, pinned Lottie 4.6.1, synchronized loops, visibility pause, parsed cache, prefetch/cancel, and thumbnail fallback. Custom-emoji entities are batch-resolved by ID, mapped from arbitrary TDLib order, overlaid on exact TextKit glyph rects, keep the native glyph until first frame, and share TGS/WebP/WebM clocks/lifecycle. `./test.sh` passes; Telegram `tiny.tgs` decodes to valid 100×100@30 JSON; current idb smoke confirms ordinary/wrapped text and timestamps remain stable. The September 5 Saved Messages test verifies two identical custom emoji in the composer and a successful send. `needsRepainting` substitution remains a separate unproved/pending detail. |
+| P0 | Animated WebP | `submodules/WebPBinding/Sources/UIImage+WebP.m`; Telegram only uses its static frame fallback | `StickerFormat.webp`, `File`, `downloadFile`, `updateFile` | **partial** — direct pinned libwebp 1.6.0 demux preserves frame timing, blend/disposal canvas and premultiplied alpha; timeline/gallery share a synchronized display clock, off-main decoder, 64 MiB frame/asset caches, full-file prefetch/cancel, visibility pause, and thumbnail fallback. `./test.sh` passes; the exact metadata path decodes upstream's 4,764-byte animated fixture as 990×1050, 8 frames/0.8 s, and the first BGRA frame proves alpha 0…255. Current `./run.sh` + idb launch/chat smoke is stable; visual playback awaits a reachable WebP sticker in simulator data. |
+| P0 | WebM/VP9 alpha stickers and generic FFmpeg playback | `AnimatedStickerNode/VideoStickerFrameSource.swift`, `FFMpegMediaVideoFrameDecoder.swift`, `FFMpegAVFrame.m` | `StickerFormat.webm`, `File`, `downloadFile`, `updateFile` | **partial** — checksum-pinned FFmpeg 9.0 decodes the main VP9 stream plus Matroska `BlockAdditional` alpha stream, scales to BGRA, premultiplies alpha, and feeds synchronized timeline/gallery loops with off-main decode, 64 MiB caches, prefetch/cancel, visibility pause, and thumbnail fallback. GIF/non-Apple animation containers now route through the same renderer while MP4/MOV retain AVFoundation. The non-looping range decoder retains probe packets, decodes VP9+Opus on a named worker, copies borrowed C frames before callback return, trims seek preroll/sample tails to the exact requested interval, and supports supersession/cancel. Its renderer uses pooled IOSurface-backed BGRA buffers, packed Float32 PCM and one `AVSampleBufferRenderSynchronizer`, with bounded generation-aware queues and no `DisplayImmediately`. The rolling controller is production-routed for public, secret, streaming, non-streaming and already-cached WebM/Matroska videos while Apple containers stay on AVFoundation. `./build.sh build` and the gallery-owner idb probe pass; persistent cross-window decoder and sample-buffer PiP adapter probes pass; real-message visual proof and active PiP on a capable device remain. |
+| P0 | Voice notes: Ogg Opus, waveform, record/lock/edit/send | `ManagedAudioRecorder.swift`, `OpusBinding/Sources/opusenc/opusenc.m`, `AudioWaveform.swift`, `TGModernConversationInputMicButton.m`, and pre-Liquid `ChatRecordingPreviewInputPanelNode.swift` | `VoiceNote`, `InputMessageVoiceNote`, `resendMessages`, `updateMessageSendSucceeded/Failed`, `downloadFile` | **implemented breadth** — capture is 48 kHz mono signed-16 PCM, rejects recordings below 0.5 s, produces an exact 100×5-bit/63-byte waveform, and sends only validated Ogg/Opus. Transactional send manifests survive registration/crash races, failed sends honor TDLib resend state, multiple drafts promote, and unsupported paid/alternate-reply states cannot silently resend. Telegram's 0.19 s hold/release, slide-cancel/lock distance+velocity ordering, pre-arm/system-cancel preservation, VoiceOver lock, and scoped bottom-edge deferral are implemented. Locked Stop-and-preview closes WAV segments, validates/merges exact PCM frames off-main, derives Telegram-normalized waveform samples, and atomically owns a revisioned editable draft. The UIKit island exposes Delete, Record More, Play/Pause, hollow seekable waveform, two continuously draggable/VoiceOver-adjustable trim handles, selected duration and Send. Trim metadata is revisioned and restored; selection is at least 1s/56pt, playback and seek clamp to it, releasing either edge previews the changed edge, and Resume presents destructive-trim confirmation. Any non-full trim is materialized to a new PCM revision before Record More or Ogg promotion, recomputing exact duration/waveform. Dedicated playback has reciprocal arbitration and scoped session release. Reply/interruption ownership, cancel/send/trim generations, manifest relocation, relaunch restoration and cleanup are covered. `./test.sh` passes; idb proves exact `142→202`/`304→254.14` handle travel, hollow seek, edge preview, confirmation Cancel/Continue, revisioned append, relaunch playback, and trimmed safe-Send ordering (`1.33104s` materialized before `encoded=true`) with unchanged timeline and empty stores after Discard. Remaining voice work is encoder-quality parity/polish, not a missing requested flow. |
+| P0 | Video notes | `submodules/Camera/Sources/VideoRecorder.swift`, `CameraRoundVideoFilter.swift`, `VideoMessageCameraScreen`, `ResultPreviewView.swift` | `InputMessageVideoNote`, `InputVideoNote`, `sendMessage`, `resendMessages` | **implemented multi-segment breadth** — the writer serializes capture queues, gates pre-video audio, waits video+audio EOF, center-crops/orients and round-masks actual pixels, and validates network-optimized 400×400 H.264 High/CABAC ~1 Mbps + mono 48 kHz AAC MP4. Generation-scoped AVCapture requests microphone then camera, defaults front, rejects stale PTS, freezes device orientation per recording, cleans interruptions/background/audio ownership, soft-stops at `>59.5s`, and hard-clamps at 60s. UIKit composer tap toggles mic/video; the unchanged Telegram 0.19s arm, live/release distance+velocity ordering, pre-arm lock, system-cancel preservation and bottom-edge deferral route both modes. A child recorder keeps the composer gesture alive and shows the classic max-369pt round camera, 4pt progress, 44pt flip/flash, pinch zoom, front-screen/back-torch flash, holding/lock/cancel, locked Stop-to-preview and release-to-send. Live 1s-throttled front/back switching rejects queued old A/V, removes the capture timestamp gap from both tracks and encodes a six-frame/0.2s dissolve instead of only smoothing the preview. Single-result preview loops muted and can play/pause/delete/send; TDLib promotion uses `InputVideoNote` and preserves the snapshotted reply. Atomic manifests own adopted MP4s across crash/chat close, reconcile outcome-before-registration, expose safe no-paid retries while keeping unsupported failures discardable, and clean success/discard/permanent delete. The ordered-segment foundation owns stable-ID MP4 segments, atomically persists revisioned global trim, composes video/audio on identical boundaries, samples exactly 13 full-composition thumbnails, materializes a zero-start 1…60s export, and preserves a 0.5…1s first result for Record More. `LocalMediaPlayer` retains the full `VideoNoteCompositionResult` snapshot lease, applies `forwardPlaybackEndTime`, exact last-target-wins seeks and loops from the global trim lower bound without rebuilding the item. UIKit Record More is visible only below 59s, starts hands-free, ignores sub-0.5s Stop, appends in order while clearing prior trim, uses aggregate 59.5s soft/60s hard limits and non-destructively restores preview on capture failure. The UIKit strip decodes exactly 13 indexed JPEGs off-main with cancellation, keeps them stable across trim revisions, and overlays adjustable global handles with an epsilon-safe exact 1s minimum. Live drag keeps handles active, pauses and exact-seeks only the changed edge; terminal save blocks other actions, persists once from the captured revision and resumes from the lower bound using current playback intent. Composition playback appears before thumbnails, then advances monotonically from empty to repeated frame 0 to all 13 exact frames without disturbing trim state. Circle tap and VoiceOver activation toggle mute separately from Play/Pause; a visible mute badge and scoped playback audio session track every-loop re-mute and reciprocal Media takeover. Navigation/relaunch restores the originating chat’s draft and stored reply; final send rejects aggregate selections below 1s, materializes the selected range and transfers the durable origin explicitly. A transformed time-0 frame from that materialized MP4 becomes a quality-0.4, ≤320px, <200KB JPEG `InputThumbnail`; real-image/dimension validation falls back to nil, while valid JPEG ownership persists beside the MP4 through retry/relaunch and terminal cleanup. Recording→send adoption is idempotent by durable origin ID and adopt+begin holds one actor lease. Runtime reservations cover draft/origin/file aliases; terminal cleanup first persists a relaunch-safe tombstone, confirms recording-manifest deletion, then removes send authority. Any failure leaves both durable authorities for retry, including missing-media and registered-success recovery. Timeline video-note bubbles are circular, cancellably downloaded, thumbnail-backed, offscreen-paused and locally playable with reciprocal audio arbitration; secret notes call `openMessageContent` before hold-to-reveal. `./test.sh`/`./run.sh` pass. Probes prove 1.0s A/V, round/orientation pixels, concurrent drain, pre-video audio, crossfade/audio-retime, limits/cancel, decoded segment/PCM order, exact thumbnail times, global trim, legacy manifests, same-origin dedupe/barrier, atomic enqueue, durable/corrupt-thumbnail handling, removal-tombstone relaunch and send success/failure races. idb proves voice↔video toggles, real permission/camera-unavailable routing and exact cleanup; Simulator has no camera, so hardware capture/flip/flash remains unproved. |
+| P0 | VOD before full download, range seek/refetch, PiP | pre-Liquid `ChunkMediaPlayerV2.swift`, `ChunkMediaPlayerDirectFetchSourceImpl.swift`, and `UniversalVideoGalleryItem.swift` native PiP lifecycle | `downloadFile(offset:limit:)`, `getFileDownloadedPrefixSize`, `getFile`, `updateFile`, `cancelDownloadFile`, `updateDeleteMessages` | **partial — inline/fullscreen native VOD + owner-scoped PiP + production FFmpeg range playback**: each injected TDLib client owns its file coordinator and private update streams. Reads cap at 256 KiB, probe 512 KiB, fetch 2 MiB, reuse overlap, cancel disjoint/stale generations, distinguish cached/buffering/offline/retryable/terminal state, and never treat `expectedSize` as EOF. Refcounted leases share a source and only the last current lease cancels. FFmpeg 9 custom AVIO uses a 64 KiB buffer, exact checked seek/size callbacks, named blocking threads, shared raw-PTS A/V timeline and ≥10s packet lookahead. One persistent demux/codec/SWR session now spans soft rolling horizons within each seek generation; crossing frames are emitted whole, sparse per-track packets use a globally ordered bounded FIFO, pause retains the session, and seek/offscreen/cancel replace it terminally. Decoder reads share the source's cancellable serialization gate, retry transient displacement, retain stream-probe packets, cap allocation/read/packet work, decode bounded windows to owned BGRA and 48 kHz interleaved float frames, drain codecs/SWR at EOF, clip output to `[seek,target)`, and terminate deterministically on supersession/cancel. Apple-decodable non-secret MP4/M4V/MOV uses strict custom-scheme `AVAssetResourceLoader` metadata and serialized ≤256 KiB reads; `LocalMediaPlayer` retains the asset/delegate/lease, explicitly manages a 1s playable threshold and 10s forward buffer, preserves 0.5×–2× rate, and adopts raw AVKit pause/play/rate/EOF intent without rebuffer restart races. WebM/Matroska routes through the rolling sample-buffer controller for range-capable public media and through full-download-then-FFmpeg for secret/non-streaming media; completed files re-enter the same FFmpeg backend instead of AVPlayer. Fullscreen gallery preserves start time and exact thumbnail until first frame, exposes generation-safe fallback/Retry plus a full-width UIKit blur footer with play/pause, ±15s, duration, disjoint loaded ranges, terminal scrub, mute, rate, auto-hide and VoiceOver seeking. Serialized loader and typed FFmpeg failures distinguish buffering/offline/retrying/terminal failures; generation-guarded publisher bindings prevent canceled or replaced backends from publishing stale state. Offline/timed-out VOD preserves the playhead and retries through a fresh range session without forcing a full download, while terminal decode failures retain generation-safe full-download fallback. A message-scoped owner now retains the exact view/layer/player/resource-loader/TDLib lease across standalone timeline, grouped album tiles, fullscreen and PiP. Inline videos are muted aspect-fill with controls hidden; only the greatest-visible-area owner is active, using the real standalone or mosaic-tile frame, and inactive owners defer all local/VOD/full playback loading. Every album video owner is transferred into gallery as one account-scoped set, preventing a second neighbor player/lease when paging, and every borrowed owner returns to its exact tile. Generation-scoped attachment tokens reject stale cell callbacks after reparent, diffable pruning uses current visible child message IDs, borrowed dismissal/PiP stop returns the same item and playhead, and offscreen owners pause then release. Standalone and grouped media open and close through UIKit-only exact source transitions: the exact bubble/tile is captured synchronously before owner reparent, clipped through every ancestor into explicit window coordinates, rasterized without play/status overlays, and animated into the aspect-fit gallery rect with its corner mask. Dismiss resolves the current selected stable ID afresh; stale/reused/offscreen/deleted/PiP targets fade, generation-safe cleanup cannot mutate a reused cell, and owner return happens only after successful transition completion under the hidden source. Rotation re-centers the same selected message. Timeline, album and prefetch thumbnail paths never use the whole video as fallback. Gallery neighbors remain bounded to central ±1. Native `AVPictureInPictureController(playerLayer:)` is manual, hidden for secret/looping/noncentral/unready/unsupported media, and owned outside cells. A token-scoped movie-playback audio session restores partial failures without deactivating another owner, hands raw controls to external transport, and relinquishes on Media takeover. The singleton transfer coordinator retains active PiP across gallery dismissal, re-presents the exact account/chat/message with the same owner/session, waits for presentation teardown, and restores the exact item without flash. Pending start and stop have bounded generation/timeouts; coordinator authority is retained while AVKit remains active. Permanent deletes arrive on the injected client's private stream, revoke matching chat/message PiP and restoration, while deleted noncurrent neighbors update in place. `./build.sh build` passes without warnings. The SHA-pinned simulator decode probe emits 24 VP9 frames and 96,000 stereo-Opus sample frames with monotonic timestamps, exact post-seek output, codec/SWR tail drain, finite `downloadFile` ranges, zero full downloads, supersession and cancellation. The gallery-owner idb probe additionally proves `ffmpeg-route=true`, exact controller/playhead continuity, preserved offscreen intent, finite ranges, cleanup and the unchanged native MP4 owner path. Existing simulator proofs also cover partial cold playback, local/external controls, range cancellation, loaded ranges, offline retry, exact inline→fullscreen→inline view/item/playhead continuity, zero transfer-cancel delta, terminal lease cancellation, exact clipped/fresh standalone and album-tile geometry, single active tile arbitration, dismissal retention, delete revocation and readiness gating. This simulator reports `pip-supported=false`, so active PiP/background/system-control/restore behavior still requires a PiP-capable device proof. Persistent FFmpeg sessions and sample-buffer PiP transport/lifecycle are simulator-proved; actual system PiP/background/restore remains a physical-device proof gap. Livestreaming is excluded. |
+| P0 | Exhaustive message content and actions | pre-Liquid `ChatMessageReplyInfoNode`, `ChatMessageForwardInfoNode`, `ChatMessageSelectionNode`, `ChatMessageSelectionInputPanelNode`, `PeerSelectionController`, contact/map/poll/action nodes, and `ServiceMessageStrings` | all 104 TDLib 1.8.66 `MessageContent` cases; `MessageReplyTo`, `TextQuote`, `MessageForwardInfo`, `ForwardSource`, `getMessageProperties`, `forwardMessages`, `searchChats`, `searchChatsOnServer`, file/poll/edit/copy/reply/delete APIs | **partial — exhaustive catalog + core cards + reply provenance + real Forward/select**: the 104-case no-default catalog drives timeline/chat-list summaries, captions and accessibility. UIKit covers attachments/albums, contact, MapKit location/live expiry, poll/quiz, emoji/dice fallback, service and unsupported rows. Reply/forward metadata preserves chat-scoped IDs, source/origin, inline and ID-zero fallback, thumbnails, PSA, manual quote text/UTF-16 position and unavailable/story state. Manual quote authoring emits a bounded entity-safe `InputTextQuote`; external/story overrides survive text/photo/voice/video/draft paths. Classic reply expands 5→50 lines before navigation, exact destination text highlights after `willDisplay`, and forward taps prefer source message/chat with account-safe cross-chat routing. Context Forward expands the complete album; Select owns stable outer IDs while every action expands, de-duplicates and strictly sorts real child IDs with a 100-message cap. The classic UIKit mode uses full-row taps, a 28pt check at x=6, 42pt incoming-only shift, message-count navigation state, full-width safe-area blur actions and exact per-child TDLib capability refresh. Multi-delete revalidates revoke scope. The full-screen UIKit Forward picker supports Saved/main/archive/server discovery, multiple ordinary chats and multiple explicit topics in the same forum, sender/caption modes, secret-copy rules, per-content/topic permissions, account generations and partial outcome safety. Builds are warning-free; deterministic device proof is recorded below. Forward comments, native two-finger range selection/autoscroll, timeline spoilers, link previews and rich-message rendering are now implemented; see the September 5 follow-up below. Remaining P0: positional null-result support in pinned TDLibKit, resolved service actors/pinned targets, poll voters/media, insertion-aware/slot dice and game/story/checklist UI. |
+| P0 | Message reactions | pre-Liquid/current `ReactionButtonListComponent`, `ChatMessageReactionsFooterContentNode`, `ChatMessageBubbleItemNode` and `ChatController` reaction flow | `MessageInteractionInfo`, `MessageReactions`, `getMessageAvailableReactions`, `addMessageReaction`, `removeMessageReaction`, `updateMessageInteractionInfo`, `updateMessageUnreadReactions`, `readAllChatReactions`, `readAllForumTopicReactions` | **implemented ordinary/explicit-topic breadth** — UIKit renders TDLib emoji/custom-emoji reactions as sorted 30pt chips with 20pt icons, exact 6pt wrapping, selected/unread state, compact counts, incoming/outgoing/center alignment, VoiceOver labels/actions and offscreen-paused TGS/WebP/WebM custom emoji. Existing album reactions stay on the representative bubble. A 46pt reaction strip sits above the extracted message, prioritizes recent reactions, displays emoji/custom emoji, and supports tap or drag selection. Every add re-fetches authoritative availability, allows Premium items only for Premium accounts, excludes paid/Stars types, honors unavailability and chat maximum count; chosen non-paid reactions remain removable under new restrictions. Generation-safe optimistic state rolls back failures; normal-user interaction/unread plus chat permission/availability updates reconcile under captured account/client guards. Explicit-topic rendering/picker/mutation validates the current `ChatLocation`, and acknowledgement uses `readAllForumTopicReactions`. Deferred polish: expanded reaction grid/search, reactor list/recent avatars, disappearing-chip animation and live server mutation smoke. |
+| P0 | Pinned messages | pre-Liquid/current `ChatInterfaceStateContextMenus`, `ChatControllerLoadDisplayNode`, `ChatPinnedMessageTitlePanelNode` and message-window navigation | `Message.isPinned`, `MessageProperties.canBePinned`, `getChatPinnedMessage`, `pinChatMessage`, `unpinChatMessage`, `updateMessageIsPinned`, `updateDeleteMessages` | **implemented ordinary-chat newest-pin breadth** — initial and refreshed state comes only from account/client/generation-fenced `getChatPinnedMessage`; only confirmed 404 clears while transient failures retain the last authoritative banner. Permanent non-cache deletes and authoritative unpins clear before refetch, edits/content refresh the preview, and stale mutation/fetch/animation completions are revision-gated. Context Pin/Unpin uses freshly fetched `canBePinned`, one chat-serialized optimistic transaction and exact Saved/private/group/channel notification/scope modes. A classic full-width 50pt UIKit banner shares one background with the navigation bar, shares spoiler-safe reply thumbnail extraction, locally hides by newest message ID, resurfaces for a newer ID, preserves the inverted timeline offset, and taps through existing history-window navigation. Dynamic Type is capped to the fixed panel geometry and VoiceOver exposes separate Open/Hide controls. Forum/view-as-topics/direct-message groups, albums and sending/service messages are explicitly gated. Proof is recorded below. Deferred parity: nearest-visible pin rotation, pinned-only list/pagination, admin undo and older-pin warning detail. |
+| P0 | Forum topics: list, explicit writes and all-messages timeline | pre-Liquid/current `ChatListNodeLocation.swift`, `ChatMessageItemImpl.swift`, `ChatMessageDateHeader.swift`, `ChatInterfaceStateInputPanels.swift`, `ChatControllerMediaRecording.swift` and `ChatControllerLoadDisplayNode.swift` | `MessageTopic`, `ForumTopic`, `getForumTopics`, `getForumTopic`, `getChatHistory`, `getForumTopicHistory`, `updateForumTopicInfo`, `sendMessage`, `sendMessageAlbum`, `setChatDraftMessage`, `sendChatAction` | **partial — explicit-topic breadth + production all-messages composer routing** — runtime identity is `(accountID,clientID,chatID,MessageTopic?)`; exact topic list/history/search/update and immutable explicit-topic write context remain. `Chat.viewAsTopics` authoritatively selects topic list (`true`) versus base history (`false`). Base history renders stable adjacent-topic headers, preserves raw pagination/album identity and visible message+pixel anchors, and excludes headers from message-only behavior. Text/photo/edit use discovered General without reply or the replied message's exact topic, reject closed-topic replies, and always store/clear the route draft with `topic:nil`. Voice/video now snapshot that same destination+reply at recording start, persist it separately from the base draft key through preview/relaunch/retry, revalidate live metadata/permissions before enqueue, and route record/upload/cancel actions through the frozen topic. Warning-free build proof is recorded below. |
+| P0 | Topic composer durable media identity | pre-Liquid/current `ChatInterfaceState.swift`, `ChatControllerMediaRecording.swift` and thread-scoped interface-state ownership | `MessageTopic`, `InputMessageVoiceNote`, `InputMessageVideoNote`, `updateMessageSendSucceeded/Failed` | **implemented write foundation** — `ChatDraftKey(accountID,chatID,MessageTopic?)` remains the on-disk route/draft owner across voice/video recording, preview, send, retry and outcome reconciliation, while the four version-tolerant manifests persist a separate immutable `sendTopic` for all-messages General/reply routing. Runtime-only TDLib client IDs remain excluded. Stores restore/deduplicate/enqueue/discard by route destination; enqueue and chat actions use the frozen send topic and reply, with live closed/permission checks and account/client fences. Outcome files use draft UUID rather than colliding chat/message IDs. A one-time account-registry migration snapshot may claim unambiguous legacy base drafts; legacy records without `sendTopic` remain valid but cannot be guessed into an all-messages destination. Runtime proof is below. |
+| P0 | Forum-aware Forward destinations | pre-Liquid/current `ChatControllerForwardMessages.swift` and `PeerSelectionController.swift` | `getForumTopics`, `getForumTopic`, `forwardMessages(topicId:)` | **implemented breadth** — destination identity is `(chatID, MessageTopic?)`, so ordinary chats and multiple topics in one forum coexist in one selection. Forum rows drill into an exact-cursor UIKit topic picker; closed/hidden topics require creator/manage-topics authority and every content permission is rechecked at delivery. Source account/topic membership is fetched both at preparation and immediately before mutation. TDLib results must have exact count/chat/topic; transient forum metadata failures disable rather than fall through to General. Classic full-width material headers, plain Back and table-header search avoid iOS 26 floating glass. Live idb proof selected a real forum topic locally without pressing Forward. |
+| P0 | Composer and send/delete transitions | pre-Liquid chat input panel and message transition paths | `FormattedText`, `InputMessageContent`, `sendMessage`, edit/reply/delete APIs | **partial** — one UIKit floating blur island owns formatted text, emoji insertion, non-Premium installed stickers, saved GIFs, photos/camera, security-scoped multi-file documents, reply/edit and voice/video states in ordinary, explicit-topic and all-messages chats. Sends serialize to prevent duplicate rapid-tap delivery and clear UI only after TDLib acceptance. Real UIKit snapshots of visible reply/text/photo/album/document/voice/video-preview-or-retry sources follow temporary→final IDs and fly into canonical insertion; viewport anchoring remains independent. Sticker/GIF sends use exact permission/topic/reply contexts, captured draft cleanup, account-fenced search, offscreen-paused/cancelled media and no Premium/Stars results. Voice/video retry authority and document upload leases survive UI teardown. Full-bubble deletes fade+slide then collapse under a surviving anchor; no dust/particles. Custom-emoji authoring now includes a TDLib search picker, animated inline input, UTF-16 entities, adjacent-emoji separation, copy/paste and draft restoration. Remaining: public inline-GIF search. Formatted forwarding comments are implemented, retained across destination search/topic selection and sent before forwarding with retry deduplication; actual delivery still needs an end-to-end run. |
+| P1 | Profiles, shared media, fullscreen gallery | pre-Liquid/current `PeerInfoScreen.swift`, `PeerInfoAvatarListNode.swift`, `PeerInfoPaneContainerNode.swift`, `PeerInfoScreenOpenMessage.swift` and gallery controllers | peer/full-info/status/title/photo updates; `getUserProfilePhotos`, `getBasicGroupFullInfo`, `getSupergroupMembers`, `getChatAdministrators`, `getChatMember`, `getMessageProperties`, topic/history APIs, `downloadFile`, `forwardMessages`, `deleteMessages`, `setName`, `setBio`, `setChatTitle`, `setChatDescription`, `setChatMemberTag`; message/file APIs | **partial — live UIKit profile + shared/avatar galleries + management/actions** — account-fenced user/bot/self/group/channel profile exposes live title/status/bio/usernames/phone/member/photo state and Media/Files/Links/Audio. Separate Members/Admins lists retain server order and roles, paginate raw supergroup offsets, react to membership/full-info changes and preserve a visible-row anchor; permission-gated self/chat Edit uses changed-only sequential writes, live cached visibility and exact pre-write member-rights revalidation. User rows open a standalone tag editor whose fresh self/other-member authority matrix, stale-baseline conflict check and awaited write follow current Telegram behavior without coupling tags to administrator rights. Shared media retains the profile under exact-source append-paged gallery with cancel-safe pan, unified video chrome, scrollable formatted/spoiler-safe captions and authoritative totals. Gallery Open in Chat captures the selected identity, re-fetches it through the captured client, revalidates account/client/topic through fade-dismiss completion, then routes into the source timeline without competing reverse transitions. Save and system Share now share one original-resource export boundary with fresh copy-protection checks, full TDLib download, account/generation fences and managed temp ownership; Photos receives signature-validated still images/GIF/MP4 and WEBP sticker frame PNG without moving TDLib cache files. Forward reuses the production topic/destination/comment picker and offers selected-item versus authoritatively bounded whole-album semantics. Delete intersects fresh per-ID modes, repeats pre-write authority, commits one batch and coalesces all-media permanent updates into one terminal fade without returning deleted playback/PiP owners. Header avatar opens a real-`ChatPhoto` gallery with user/bot/self role-aware raw-offset history, group/channel current full-info photo, exact item+file transition, zoom and no-flash central muted video loop. Generic Saved Messages self now preserves upstream title/blank-status/action semantics while rendering the captured account's real avatar and gallery instead of the Saved glyph. Typed peer/full-info bursts coalesce into one render; generation fences prevent stale `getChat`/full-info resurrection; role signatures reconcile populated avatar galleries without dismissing them. Warning-free proofs are below. Remaining: promote/demote/remove management tools and exhaustive profile actions. |
+| P1 | Multiple accounts | Telegram account manager behavior without copying Postbox | separate TDLib clients and databases, authorization state, `logOut` | **implemented** — isolated TDLib clients/databases/subscriptions and persisted account registry with add/auth/switch/remove/logout. A fresh comprehensive multi-account runtime pass remains pending. |
+| P1 | Chats, folders, archive, search, edit/reorder | pre-Liquid `ChatListItem.swift`, chat list/filter controllers | chat lists/positions/folders, pin/mute/read/delete/clear/draft APIs | **partial** — main/archive/custom-folder lists now consume ordered TDLib updates and page through loadChats to explicit 404 exhaustion; folder tabs retain the approved Liquid Glass capsule over full-width background blur, and chat cells use contiguous Telegram geometry with date, delivery, unread/mute/pin state and account-backed actions. Remaining: edit/reorder/include/exclude completeness, clear history/draft parity, archive reveal gestures, richer delivery/typing states and mutation account fencing. |
+| P1 | Timeline stability and performance | pre-Liquid/current `ChatMessageItemImpl.swift` and `ChatMessageDateHeader.swift` history/header behavior | `getChatHistory`, `updateNewMessage`, `updateDeleteMessages`, file updates | **partial** — stable message/album/topic/date IDs, raw-history pagination cursor, cross-page album merging, message-only prefetch/read/selection and visible `messageId + pixelOffset` restoration cover structural snapshots. Composer/keyboard insets, object-driven and autonomous cell self-sizing, bulk reconfigure, Dynamic Type and rotation now capture the same anchor or latest edge; mutation depth discards stale deferred anchors and never fights active dragging. Every chat emits one stable localized date row per day with exact date→topic ordering. Remaining proof/gaps: a live pagination/album seam, software-keyboard-attached runtime proof and eliminating residual metadata work from the main actor. |
+| P2 | Shell/navigation polish | pre-Liquid navigation and `ChatListItem.swift`; approved BetterTG glass folder/menu baseline `64625ed^` | n/a | **implemented shell/list breadth** — the folder bar keeps edge-to-edge `systemChromeMaterial` through the safe area behind an inset 42pt Liquid Glass capsule and continuously moving glass selection. Shared context menus use `UIGlassEffect` with 30pt menu and 20pt highlight corners. Later folder/menu actions, unread state, localization and gestures remain. Chat-list rows retain contiguous 76pt full-width geometry with 60pt avatars at x=10 and separators from x=80. Warning-free build and real-state idb proofs are recorded below. Remaining P2: audit secondary navigation/search/action surfaces while preserving the explicit glass exception. |
+
+### Checkpoint
 
 - Active continuation: `codex/parity-continuation` in worktree `31df/BetterTG`. The complete first media/parity
   history through `5d990c1` and all 44 continuation commits through `7b0699d` are retained, including member tags.
@@ -3410,7 +4200,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Generator cleanup: `td.py` moved to `script/td.py`; the wrapper, repository-root calculation, generated header and both
   agent documents use the new path. The final warning-free build exercised the relocated generator with the existing package cache.
 
-### Liquid Glass folder picker and context-menu restoration — 2026-09-05
+#### Liquid Glass folder picker and context-menu restoration — 2026-09-05
 
 - User request: restore the existing folder picker and context-menu UI from before the parity classic-shell conversion;
   retain any later behavior and action work. The exact visual regression is `64625ed`.
@@ -3431,9 +4221,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `SMOKE.md` records the exact checks and limits: separate chat/message menus were not repeated after restoration and no
   server mutation action was submitted.
 
-## Historical implementation slices
-
-### UIKit peer profile and shared-media slice
+#### UIKit peer profile and shared-media slice
 
 - **P1 flow:** pre-Liquid/current peer-info header, pane and open-message behavior from `PeerInfoScreen.swift`,
   `PeerInfoHeaderNode.swift`, `PeerInfoPaneContainerNode.swift` and `PeerInfoScreenOpenMessage.swift`, adapted to UIKit + Combine +
@@ -3447,11 +4235,10 @@ is imported. This source pass does not prove every content's real rendering/acti
   tiles, `No shared files`, real Link rows and a real `.m4a` Audio row. The exact Media→Files→Links→Audio path remains alive after fixing
   UIKit diffable snapshot reentrancy, and Back returns to the group chat. Evidence is under
   `.build/ui-probe-evidence/profile-shared-media-*`; no media or server mutation was selected.
-- Deferred at this slice (see subsequent profile/gallery slices): avatar/video header history and fullscreen entry; edit/member/admin
-  controls; shared-media selection/actions; live metadata reconciliation; gallery caption, gesture, rotation and complete
-  save/forward/delete/open-in-chat/video-control parity.
+- Deferred: avatar/video header history and fullscreen entry; edit/member/admin controls; shared-media selection/actions; live metadata
+  reconciliation; gallery caption, gesture, rotation and complete save/forward/delete/open-in-chat/video-control parity.
 
-### Profile shared-media gallery slice
+#### Profile shared-media gallery slice
 
 - **P1 flow:** peer-info media pane → production gallery from current/pre-Liquid `PeerInfoPaneContainerNode.swift` and
   `PeerInfoScreenOpenMessage.swift`, retaining the `ChatLocation` history source and a fresh visible transition provider.
@@ -3467,7 +4254,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Deferred: avatar/photo-video header history, interactive pan-dismiss, captions, save/forward/delete/open-in-chat,
   rotation/current-item runtime proof, and deliberate near-page-boundary/error/account-switch/delete smoke.
 
-### Unified fullscreen gallery chrome slice
+#### Unified fullscreen gallery chrome slice
 
 - **P1/P2 flow:** current/pre-Liquid gallery single-tap chrome and video-control coordination, adapted to UIKit recognizers without
   importing Telegram transition/gesture infrastructure.
@@ -3482,7 +4269,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   Screenshot: `.build/ui-probe-evidence/profile-gallery-unified-video-controls.png`; no Share or server mutation occurred.
 - Deferred: deliberate double-tap/pinch and VoiceOver-status runtime toggles.
 
-### Guarded interactive gallery dismissal slice
+#### Guarded interactive gallery dismissal slice
 
 - **P1 flow:** Telegram current/pre-Liquid down-swipe gallery dismissal, adapted to the existing exact-source UIKit animator through
   `UIPercentDrivenInteractiveTransition` without importing Telegram gesture/transition infrastructure.
@@ -3498,7 +4285,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   server mutation occurred; Simulator remains booted.
 - Deferred: deliberate zoomed-photo, live seek, active PiP and external account-switch gesture rejection on capable/runtime states.
 
-### Fullscreen gallery caption and total-count slice
+#### Fullscreen gallery caption and total-count slice
 
 - **P1 flow:** current/pre-Liquid gallery caption footer, spoiler/entity interaction and absolute position index, adapted to UIKit TextKit
   and the existing TDLib message stream.
@@ -3517,7 +4304,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Runtime blockers: reachable sampled captions contain no spoiler or concealed `textUrl`, and no long caption was safely selected, so
   reveal/confirmation/scroll-hold are source-reviewed and build-proved but not deliberately exercised on account data.
 
-### Real profile avatar gallery slice
+#### Real profile avatar gallery slice
 
 - **P1 flow:** current/pre-Liquid `PeerInfoAvatarListNode` → `AvatarGalleryController`, adapted to UIKit and native TDLibKit models rather
   than synthetic timeline messages.
@@ -3538,7 +4325,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   runtime-proved. TDLib cancellation is global per client/file; without a cross-consumer lease coordinator, offscreen deliberately
   cancels only local await/decode/playback work and lets active transport finish into TDLib cache rather than cancel another consumer.
 
-### Generic self avatar source slice
+#### Generic self avatar source slice
 
 - **P1 flow:** Telegram current/pre-Liquid generic self info opened from Saved Messages, explicitly distinct from Settings/My Profile.
 - Implemented: self is captured once only when a non-nil account user ID equals the peer. Generic self title remains `Saved Messages`,
@@ -3560,7 +4347,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Runtime blocker/deferred: this account exposes one current profile-photo item, so >100 pagination, distinct public fallback, live role
   replacement, authoritative empty close and concurrent request invalidation are source-reviewed/build-proved rather than live-mutated.
 
-### Live profile metadata slice
+#### Live profile metadata slice
 
 - **P1 flow:** Telegram current/pre-Liquid signal-driven peer info data, adapted to BetterTG's active-client typed update bus and UIKit
   state rather than one-shot controller snapshots.
@@ -3577,7 +4364,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Runtime blocker: no deliberate server title/photo/status/full-info mutation was performed on the safe account; update transitions are
   source-reviewed and build-proved, while the runtime smoke is a no-regression readback.
 
-### Profile member, administrator and edit controls slice
+#### Profile member, administrator and edit controls slice
 
 - **P1 flow:** current/pre-Liquid peer-info member/admin panes and creator/administrator edit gates, adapted to UIKit diffable tables and
   TDLibKit without Telegram account or list infrastructure.
@@ -3602,7 +4389,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Runtime blocker/deferred: a safely reachable self/owned test profile was not mutated, so Edit form writes and live permission revocation
   are source-reviewed/build-proved rather than server-proved. Member promotion/removal/admin-right editors remain a later management gap.
 
-### Member and administrator tag editor slice
+#### Member and administrator tag editor slice
 
 - **P1 flow:** current `PeerInfoData.swift`, `PeerInfoScreenOpenMember.swift`, `ChatParticipantRightsScreen.swift` and TelegramCore
   `Ranks.swift` rank editing, compared with pre-Liquid `ChannelAdminController.swift`, adapted as an independent UIKit + TDLibKit tag
@@ -3625,9 +4412,9 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/member-tag-smoke-permission-denied.png`. No text was edited, Save was never pressed and no Telegram mutation
   occurred; Simulator remains booted.
 - Runtime blocker/deferred: this live account cannot edit a tag, so an authorized Save/remove and post-success refetch are not exercised
-  against the server. Promotion, demotion, removal and administrator-right editors are queued after the revalidation gate.
+  against the server. Promotion, demotion, removal and administrator-right editors remain the next bounded profile-management gap.
 
-### Fullscreen gallery Open in Chat slice
+#### Fullscreen gallery Open in Chat slice
 
 - **P1 flow:** Telegram current/pre-Liquid gallery context action `Open in Chat`, adapted to the existing UIKit footer and BetterTG
   timeline-window loader without Telegram gallery/navigation infrastructure.
@@ -3646,9 +4433,9 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/gallery-open-in-chat-menu.png` and
   `.build/ui-probe-evidence/gallery-open-in-chat-result.png`; no Telegram mutation occurred.
 - Runtime blocker/deferred: the safe smoke did not switch accounts or delete the selected message during the subsecond dismissal window;
-  both races are generation-fenced and source-reviewed. Forward and Delete were subsequently recorded in their own slices below.
+  both races are generation-fenced and source-reviewed. Forward and Delete remain separate action slices.
 
-### Gallery Save and secured Share slice
+#### Gallery Save and secured Share slice
 
 - **P1/P0 flow:** Telegram current/pre-Liquid gallery media export and camera-roll save, adapted to UIKit, TDLibKit and Photos without
   Telegram media-box/resource infrastructure.
@@ -3677,7 +4464,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   smoke authorization was given. No reachable GIF/MP4 animation, WEBP sticker or Live Photo was exercised; those format branches are
   source-reviewed/build-proved. Delete is implemented below.
 
-### Gallery Forward slice
+#### Gallery Forward slice
 
 - **P1 flow:** Telegram current/pre-Liquid gallery `MessageGroup` sharing, adapted to BetterTG's existing UIKit
   `ForwardMessagesViewController`, forum topic picker, comment state and `MessageForwardingService` rather than a parallel delivery path.
@@ -3699,7 +4486,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Runtime blocker/deferred: the reachable selected photo has no album, so the item/all choice and every topic-history variant are
   source-reviewed/build-proved rather than live-data-proved. Deliberate delivery remains a test-account mutation gap.
 
-### Gallery Delete slice
+#### Gallery Delete slice
 
 - **P1/P0 flow:** Telegram current/pre-Liquid gallery item/group deletion and revoke-mode confirmation, adapted to one captured TDLibKit
   client and the same authoritative album resolver as Forward.
@@ -3720,7 +4507,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Runtime blocker: destructive confirmation and `deleteMessages` were deliberately not exercised without separate approval; item/all,
   for-me/everyone, rapid-update union and video/PiP terminal branches are source-reviewed/build-proved.
 
-### Forum notification quick-reply slice
+#### Forum notification quick-reply slice
 
 - **P0 flow:** topic-aware notification reply using TDLib `getMessage`, `getForumTopic`, `sendMessage(topicId:)` and `viewMessages`.
 - Implemented: exact account requirement; captured-client guards; authoritative message/topic fetch; closed/manage-topic and existing
@@ -3728,7 +4515,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-080453-55869-29388.log` plus focused source delta-review.
 - Deferred: deliberate test-account notification action proof and all-messages history/composer parity.
 
-### Forum-aware Forward destination slice
+#### Forum-aware Forward destination slice
 
 - **P0 flow:** pre-Liquid/current forum drill-down behavior from `ChatControllerForwardMessages` and `PeerSelectionController`, adapted
   to UIKit + TDLibKit rather than Telegram controllers/state stores.
@@ -3739,7 +4526,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/forum-forward-topic-plain-final-*`; no Forward/send mutation, PID 54141 alive, Simulator booted.
 - Deferred: comment/forward-draft transition, deliberate test-account delivery and all-messages headers.
 
-### All-messages forum timeline foundation slice
+#### All-messages forum timeline foundation slice
 
 - **P0/P1 flow:** base forum adjacent-topic runs and jump-free history extension from pre-Liquid/current
   `ChatMessageItemImpl.swift` and `ChatMessageDateHeader.swift`, adapted to one inverted UIKit collection without Telegram
@@ -3760,7 +4547,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   video send outcome/legacy/thumbnail/tombstone cleanup, and ordered multi-segment video recording trim/thumbnails/frozen-topic handoff.
 - Deferred: live all-messages topic-header/pagination/album seam proof on an account with a reachable forum in this mode.
 
-### Keyboard and self-sizing timeline anchor slice
+#### Keyboard and self-sizing timeline anchor slice
 
 - **P1 flow:** Telegram-style `messageId + pixelOffset` retention across viewport/intrinsic-size changes in the inverted UIKit history.
 - Implemented: message-cell pre-fit height notification; one coalesced visible-message anchor for autonomous self-sizing; exact anchor/latest
@@ -3771,7 +4558,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   hierarchy-derived focus attempts (`Δx/y/w/h=0`). Simulator did not present `AXKeyboard`—likely hardware-keyboard state—so the
   non-no-op keyboard-attached transition remains a runtime proof blocker. Evidence: `.build/ui-probe-evidence/timeline-anchor-fresh-*`.
 
-### Delete collapse/fade/slide slice
+#### Delete collapse/fade/slide slice
 
 - **P0 flow:** Telegram-style restrained delete transition without dust/particles, integrated with authoritative TDLib
   `updateDeleteMessages` and the inverted diffable timeline.
@@ -3782,7 +4569,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-092113-77487-3754.log`; focused source/delta review clean. No deliberate
   server delete was performed, so visual runtime mutation proof remains deferred.
 
-### Composer send-flight slice
+#### Composer send-flight slice
 
 - **P0 flow:** pre-Liquid Telegram composer source-to-message insertion transition, adapted to real UIKit snapshots and TDLib temporary
   IDs without Telegram transition infrastructure.
@@ -3794,7 +4581,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-093342-80738-1901.log`; focused source/delta review clean. No deliberate
   test-account send was performed, so the visible flight remains a mutation-gated runtime proof gap.
 
-### UIKit file/document attachment slice
+#### UIKit file/document attachment slice
 
 - **P0 flow:** pre-Liquid/current attachment-menu document flow, adapted to `UIDocumentPickerViewController` and TDLib
   `InputMessageDocument` / `sendMessageAlbum` with the existing immutable forum send context.
@@ -3809,7 +4596,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   PID `82584` proved enabled Attach Files at `{{10,697},{250,42}}`, UIKit Recents/Search/Browse, exact Cancel AX hit and unchanged
   composer after cancellation. Evidence: `.build/ui-probe-evidence/document-attachment-*`; no file was selected or sent.
 
-### UIKit emoji/sticker/GIF composer slice
+#### UIKit emoji/sticker/GIF composer slice
 
 - **P0 flow:** pre-Liquid/current emoji/sticker/GIF input panel behavior, adapted to a UIKit page sheet and TDLib-native
   `getStickers`, `getSavedAnimations`, `InputMessageSticker` and `InputMessageAnimation`.
@@ -3824,7 +4611,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   buttons, offscreen-safe navigation and Done return. Evidence: `.build/ui-probe-evidence/composer-media-picker-final-*`; no
   emoji/sticker/GIF was selected or sent.
 
-### Forward comment/draft slice
+#### Forward comment/draft slice
 
 - **P0 flow:** pre-Liquid/current forward destination comment state, adapted to the existing UIKit multi-recipient/topic picker and
   TDLib `sendMessage(InputMessageText)` followed by `forwardMessages`.
@@ -3838,7 +4625,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   reached the real message context menu, but idb omitted its Forward overlay action, so safe navigation to the comment field was blocked.
   Evidence: `.build/ui-probe-evidence/forward-comment-final-*`; no comment or forward mutation occurred.
 
-### Date and topic boundary slice
+#### Date and topic boundary slice
 
 - **P1 flow:** pre-Liquid/current `ChatMessageItemImpl.swift` date/topic merge break and `ChatMessageDateHeader.swift` 34pt service
   header ordering, adapted to stable heterogeneous UIKit diffable items.
@@ -3851,7 +4638,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `chat-date-1788033600` (`Yesterday`, 76.67×22); 6pt row insets plus existing 5pt message gaps prove the exact 34pt row with zero
   overlap, while the enabled composer remains at y=796.67.
 
-### Writable explicit forum topic slice
+#### Writable explicit forum topic slice
 
 - **P0 flow:** pre-Liquid/current closed-topic input panel, topic placeholder, text/attachment/media recording, activity and draft
   semantics from `ChatInterfaceStateInputPanels`, `ChatTextInputPanelNode`, `ChatController`, `ChatControllerOpenAttachmentMenu` and
@@ -3865,7 +4652,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Deferred: forward comment, all-messages General-or-reply resolver/run
   headers, deliberate test-account send/draft mutation, topic-scoped pinned banner and remaining attachment types.
 
-### Topic media draft identity slice
+#### Topic media draft identity slice
 
 - **P0 flow:** thread-scoped composer media ownership from pre-Liquid/current `ChatInterfaceState` and
   `ChatControllerMediaRecording`, adapted to Codable actors + TDLibKit rather than Postbox/SignalKit.
@@ -3877,7 +4664,7 @@ is imported. This source pass does not prove every content's real rendering/acti
 - Deferred: resolved network send context, topic text drafts/dirty generations, closed-topic write permission, exact returned-topic
   assertions, then attachments/voice/video UI enablement and topic-aware Forward/all-messages headers.
 
-### Classic chat list row slice
+#### Classic chat list row slice
 
 - **P2/P1 flow:** pre-Liquid `ChatListItem` presentation applied to existing UIKit chat/folder data and actions.
 - Implemented: full-width 76pt rows; 60pt avatar at x=10; content/separator x=80; pinned/normal/highlight backgrounds; title/preview/date;
@@ -3887,7 +4674,7 @@ is imported. This source pass does not prove every content's real rendering/acti
   `.build/ui-probe-evidence/classic-chat-rows-*`; first tap opens Saved Messages; PID 35152 alive; Simulator booted.
 - Deferred: typing/action preview, verified/scam/status/story adornments, archive reveal gestures and full account fencing for list mutations.
 
-### Classic shell blur slice (historical; folder/menu styling superseded 2026-09-05)
+#### Classic shell blur slice (historical; folder/menu styling superseded 2026-09-05)
 
 The Liquid Glass restoration above supersedes this slice for the folder picker and shared context menus only.
 
@@ -3900,7 +4687,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
 - Deferred at that checkpoint: remaining navigation/search/action surfaces needed an audit. The approved folder/menu glass
   surfaces are excluded from any subsequent full-width/no-floating conversion.
 
-### Forum topic browsing slice
+#### Forum topic browsing slice
 
 - **P0 flow:** pre-Liquid/current `ChatListNodeLocation`, `ChatListNodeEntries`, `ChatListItem`, `ChatControllerContentData` and
   `ChatControllerLoadDisplayNode`, adapted to UIKit + Combine + TDLibKit without Texture/SignalKit/Postbox/Display/ComponentFlow.
@@ -3914,7 +4701,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
 - Deferred: all-messages topic-run headers, topic composer/writes/durable drafts, topic forwarding selection, topic actions/mutations,
   General hidden toggle/admin controls, unread navigation and live server pagination/mutation smoke.
 
-### Pinned message slice
+#### Pinned message slice
 
 - **P0 flow:** pre-Liquid/current `ChatInterfaceStateContextMenus`, `ChatControllerLoadDisplayNode`,
   `ChatPinnedMessageTitlePanelNode` and `ChatControllerNavigateToMessage`, adapted to UIKit + Combine + TDLibKit without
@@ -3928,7 +4715,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
 - Deferred: nearest-visible pin rotation, pinned-only list/pagination, admin unpin undo, older-pin warning details, topic-scoped pins and
   deliberate live server mutation proof.
 
-### Message reactions slice
+#### Message reactions slice
 
 - **P0 flow:** pre-Liquid/current `ReactionButtonListComponent`, `ChatMessageReactionsFooterContentNode`,
   `ChatMessageBubbleItemNode` and `ChatController` toggle/restriction behavior, adapted without
@@ -3943,7 +4730,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   `👍: 2, Not selected` and `❤️: 1201, Selected` while PID 11956 remains running.
 - Deferred: custom-emoji origination grid, reactor list/avatars, removal animation, forum-topic identity and live server mutation proof.
 
-### Forward and message-selection slice
+#### Forward and message-selection slice
 
 - **P0 flow:** pre-Liquid/current `ChatMessageSelectionNode`, `ChatMessageSelectionInputPanelNode`,
   `ChatControllerForwardMessages` and `PeerSelectionController` behavior, adapted to UIKit + Combine + TDLibKit without
@@ -3956,7 +4743,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   Device hierarchy proves `forward-probe-saved-messages` and `forward-probe-design-group` are full-width 402×62 AX controls;
   center taps select both, enable the 66×56 Forward control and produce `Ready: 3 sorted IDs · 2 chats` without a Telegram send.
 
-### Reply, quote and forward provenance slice
+#### Reply, quote and forward provenance slice
 
 - **P0 flow:** pre-Liquid/current `ChatMessageReplyInfoNode`, `ChatMessageForwardInfoNode` and bubble tap semantics, adapted without
   AsyncDisplayKit/SignalKit/Postbox/Display/ComponentFlow.
@@ -3967,7 +4754,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
 - Proof: `Message metadata probe: inline=true, unknown-chat=true, source-priority=true, expand-then-navigate=true, forward-navigate=true, external-input=true, utf16-quote=true, highlight=true, uikit=true, swiftui=false`.
   Screenshots are `.build/message-metadata-final-*.png`; Simulator remains booted.
 
-### Exhaustive MessageContent breadth slice
+#### Exhaustive MessageContent breadth slice
 
 - **P0 flow:** classic content routing based on the pre-Liquid contact/map/poll/action/animated-sticker nodes and
   `ServiceMessageStrings`, adapted to UIKit + Combine + TDLibKit rather than Texture/SignalKit/Postbox/Display/ComponentFlow.
@@ -3980,7 +4767,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   `MessageContent probe: tdlib=1.8.66-022d6020, exhaustive-cases=104, views=file,file,attachmentAlbum,contact,location,location,poll,poll,stickerGlyph,stickerGlyph,service,service, sized=true, poll-actions=poll:0,poll:0,1, action-proof=true, uikit=true, swiftui=false`.
   Device screenshots are under `.build/message-content-final-postbuild-*.png`; Simulator remains booted.
 
-### FFmpeg range controller slice
+#### FFmpeg range controller slice
 
 - **P0 flow:** non-Apple WebM VOD controller, following pre-Liquid/current `ChunkMediaPlayerV2.swift` buffering/seek/EOF and
   `ChunkMediaPlayerDirectFetchSourceImpl.swift` packet-lookahead behavior through TDLib `downloadFile(offset:limit:)`,
@@ -3994,10 +4781,9 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   autoplay, visible buffering, stable pause, 1.5× rate, offscreen suspension/cancellation, preserved intent, last-seek-wins,
   seek-first PTS, EOF/no-loop, offline/retry, seek clamp, zero renderer errors, finite range downloads, zero full downloads and cleanup.
   `git diff --check` is clean.
-- Subsequent slices below record persistent session rollover and the sample-buffer PiP implementation. Active system PiP/background
-  restore remains a physical-device proof gap, subject to the new revalidation gate.
+- Persistent session rollover is complete; sample-buffer PiP remains the independent VOD architecture gap.
 
-### Production FFmpeg gallery routing slice
+#### Production FFmpeg gallery routing slice
 
 - **P0 flow:** WebM/VP9 VOD in the existing UIKit inline/fullscreen owner, following pre-Liquid `UniversalVideoGalleryItem.swift`
   central visibility and `ChunkMediaPlayerV2.swift` backend continuity without importing Telegram infrastructure.
@@ -4010,7 +4796,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   `offscreen-intent=true`, `finite-ranges=true`, `ffmpeg-invalidate=true`, native `same-item=true`, zero full downloads for streamable
   fixtures, exact return-to-inline continuity, terminal lease cancellation and no stale attachment callbacks.
 
-### Persistent FFmpeg session slice
+#### Persistent FFmpeg session slice
 
 - **P0 flow:** retain demux/decoder/SWR state across VOD high-water expansions, matching pre-Liquid `ChunkMediaPlayerV2.swift`,
   `FFMpegMediaDataReaderV2` and `FFMpegFileReader` session-per-seek behavior through TDLib finite range reads.
@@ -4023,7 +4809,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   fixture proves video 12s plus audio packets at 0…2 and 8…10s, non-EOF first horizon, full terminal audio/video, and ordered FIFO use
   (`25` packets / `24,113` bytes). The production controller proves eleven 1s DEBUG pumps on one session plus all prior playback states.
 
-### Sample-buffer Picture in Picture slice
+#### Sample-buffer Picture in Picture slice
 
 - **P0 flow:** FFmpeg WebM VOD PiP using the pre-Liquid/current `NativePictureInPictureContentImpl` AVKit contract while retaining
   BetterTG's existing UIKit owner, Combine state, TDLib range session and restore coordinator.
@@ -4037,7 +4823,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   and background restore still require a capable physical device.
 
 
-## User-reported list, menu and profile fixes — 2026-09-05
+### User-reported list, menu and profile fixes — 2026-09-05
 
 - Single/double delivery checks use Telegram's `PresentationResourcesChatList.generateStatusCheckImage`
   stroke geometry. A fixed trailing status container isolates unread/pin/mute from summary compression
@@ -4057,7 +4843,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   Simulator screenshots/hierarchy confirm list/chat search 8pt bottom gaps, trailing unread badges, one-row profile actions and glass tabs, avatar Profile/Search, root Delete/Back, exact bubble-edge menu alignment, centered selection title and complete cleanup on Cancel/last deselection. See `.build/ui-probe-evidence/parity-fixes-20260905/stage1/SMOKE.md`. Physical-device layout proof remains pending.
 
 
-## TDLib chat-list ownership and paging — 2026-09-05
+### TDLib chat-list ownership and paging — 2026-09-05
 
 - `TelegramChatListStore` consumes the active client's ordered updates before dispatching UI
   notifications. It retains chat/peer snapshots and all chat fields across partial updates;
@@ -4075,7 +4861,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   Xcode 26.6 / iOS 26.5 (`build-Debug-20260905-175331-35225-7160.log`). The opt-in native-cache probe passed all nine checks on a real TDLib model, without server mutations. Main, custom-folder and Archive lists populated correctly after the snapshot fix below. A visible scroll sample does not establish a measured row-200 crossing.
 
 
-## Selection pan and deletion submenu separator — 2026-09-05
+### Selection pan and deletion submenu separator — 2026-09-05
 
 - Opt into UICollectionView's two-finger multiple-selection interaction, matching Telegram's
   two-finger history selection gesture. Native selection callbacks use the same displayed-message
@@ -4089,7 +4875,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   (`build-Debug-20260905-175726-36643-20849.log`). Live two-finger/edge-scroll verification pending.
 
 
-## Chat-list snapshot race found during launch verification — 2026-09-05
+### Chat-list snapshot race found during launch verification — 2026-09-05
 
 - Real startup exposed a UITableView dequeue assertion: membership reached the diffable snapshot
   before the separately queued provider cache, causing a fallback cell with the wrong reuse type.
@@ -4102,7 +4888,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   `.build/ui-probe-evidence/parity-fixes-20260905/stage2/`.
 
 
-## Custom language links — 2026-09-05
+### Custom language links — 2026-09-05
 
 - Timeline links and gallery captions recognize Telegram `t.me/setlanguage/<id>` and
   `tg://setlanguage?lang=<id>`; the requested `addlanguage` spelling is accepted as an alias.
@@ -4120,7 +4906,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
   subsequently applied; Settings and persisted `appLanguagePackID` both read `lowercased-en`.
 
 
-### September 5 parity follow-up
+#### September 5 parity follow-up
 
 - **Chat chrome and lists:** Telegram vector single/double checks; a fixed trailing status region prevents unread counters from following message width and prevents pin/unread overlap. Expanded and active searches use a 36pt field with an 8pt bottom inset inside 44pt chrome. TDLib updates own list membership/order; `loadChats` only requests more data, repeats short pages and stops on 404. Diffable snapshots publish their cell cache first and serialize/coalesce pending snapshots. The isolated store probe passes nine checks; main/custom/archive pagination and stable scrolling passed on the simulator.
 - **Navigation, menus and selection:** all owned navigation controllers use classic plain UIKit buttons. Profile actions stay in one row, and shared-media tabs reuse the approved glass folder selector. Avatar menus request the high-resolution photo and wire Search/Profile. Message menus follow the actual bubble edge, keep one root Delete with Back-separated children, and remove the Reply/Forward divider. Selection clears every circle on Cancel/last deselection, centers the count title and supports UIKit two-finger range selection. The installed simulator HID tool cannot synthesize two simultaneous fingers, so that gesture still needs manual verification.
@@ -4134,7 +4920,7 @@ The Liquid Glass restoration above supersedes this slice for the folder picker a
 Evidence is stored under `.build/ui-probe-evidence/parity-fixes-20260905/`. Tests only send to Saved Messages or the agent-created private `BetterTG test` forum; no other participant's messages are modified or deleted.
 
 
-### September 6 navigation and text-selection refinements
+#### September 6 navigation and text-selection refinements
 
 - Empty chat titles use the localized `User.DeletedAccount` fallback in the shared display-title model.
 - Native navigation is hidden before the first transition frame. Owned controllers either retain their
@@ -4173,7 +4959,7 @@ The final no-selection Photos picker Cancel check also passed: one tap returned 
 with an empty composer and no extra navigation pop, asset selection, send or save. The earlier
 unresponsive Cancel observation was not reproduced after the context-menu ownership fixes.
 
-### September 6 forum idle-scroll regression
+#### September 6 forum idle-scroll regression
 
 The user reproduced continuous jumping with search hidden. A 12-second recording and six snapshots
 confirmed about 80pt of visible movement despite unchanged accessibility row frames. LLDB caught
@@ -4191,7 +4977,7 @@ Full responses merge and sort in a single publication.
 same simulator as PID 74854, and the user confirmed the jumping was gone. Baseline video, pixel
 measurements and debugger stacks are in `forum-jump` under the simulator evidence directory above.
 
-### September 6 media interaction corrections
+#### September 6 media interaction corrections
 
 Gallery dismissal now drags full-size media vertically in either direction. Chrome and background
 fade with distance (Telegram's 50pt/80pt ranges); releasing animates from the current position into
@@ -4227,7 +5013,7 @@ No message was sent by these checks. Final simulator and device builds
 `build-Debug-20260906-170646-15353-6396.log` and `build-Debug-20260906-170755-16779-25227.log`
 passed without warnings; the device was relaunched normally after the capture probe.
 
-### Gallery controls, keyboard navigation, and forwarding follow-up (2026-09-06)
+#### Gallery controls, keyboard navigation, and forwarding follow-up (2026-09-06)
 
 Gallery transitions keep the media snapshot separate from the surrounding controls, including the
 Live Photo button. Controls fade with drag distance and animate back during cancellation; presentation
@@ -4255,7 +5041,7 @@ that the keyboard does not return over the gallery. The More-menu check is
 build `build-Debug-20260906-180319-54637-12556.log` passed without warnings. The paired iPhone became
 unavailable before delivery of the final keyboard and picker changes.
 
-### Forward recipient navigation and composer preview (2026-09-06)
+#### Forward recipient navigation and composer preview (2026-09-06)
 
 The production Forward picker now reuses the main screen's bottom `FolderPickerView`,
 `UIPageViewController` paging and `TelegramListNavigationBar` search. Recipient rows contain
