@@ -3848,7 +3848,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                let text = copyableText(from: message.message.content)
             {
                 readOnlyActions.append(TelegramContextMenuAction(
-                    title: "Copy",
+                    title: L10n.telegram("Conversation.ContextMenuCopy"),
                     image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
                 ) { UIPasteboard.setFormattedText(text) })
             }
@@ -3888,7 +3888,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         if canOfferPinAction(for: message) {
             elements.append(TelegramContextMenuAction(
-                title: message.isPinned ? "Unpin" : "Pin",
+                title: L10n.telegram(message.isPinned ? "Conversation.Unpin" : "Conversation.Pin"),
                 image: UIImage(systemName: message.isPinned ? "pin.slash" : "pin"),
             ) { [weak self, weak message] in
                 guard let message else { return }
@@ -3903,7 +3903,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
            message.properties.canBeForwarded || message.properties.canBeCopied
         {
             elements.append(TelegramContextMenuAction(
-                title: "Forward",
+                title: L10n.telegram("Conversation.ContextMenuForward"),
                 image: UIImage(systemName: "arrowshape.turn.up.right"),
             ) { [weak self] in
                 self?.presentForwardPicker(forDisplayedMessageIDs: [message.displayedID])
@@ -3911,7 +3911,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         if canSelectMessage(message) {
             elements.append(TelegramContextMenuAction(
-                title: "Select",
+                title: L10n.telegram("Conversation.ContextMenuSelect"),
                 image: UIImage(systemName: "checkmark.circle"),
             ) { [weak self] in
                 self?.beginMessageSelection(with: message.displayedID)

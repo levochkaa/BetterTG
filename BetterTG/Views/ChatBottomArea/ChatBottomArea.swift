@@ -885,7 +885,7 @@ final class ChatComposerView: UIView {
                     image: UIImage(systemName: "camera.fill"),
                 ) { [weak self] in self?.onTakePhoto?() },
                 TelegramContextMenuAction(
-                    title: "Attach Files",
+                    title: L10n.telegram("Attachment.File"),
                     image: UIImage(systemName: "doc.fill"),
                 ) { [weak self] in
                     self?.onPickFiles?()

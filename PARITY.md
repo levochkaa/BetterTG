@@ -101,7 +101,7 @@ All three histories are reachable from `codex/parity`. `main` and both source br
 | --- | --- | --- | --- |
 | F1 | P1 | Forwarding into Saved Messages reported "Telegram returned a different topic" although TDLib delivered it (Saved Messages topic vs empty destination topic); the forward stayed pending for a duplicate retry | fixed `15701d2`, Simulator smoke |
 | F2 | P2 | Forward to shows its search field initially; identity requires it hidden like the main list | fixed `89f1c14`: pages scroll search out after the first page; Simulator smoke shows hidden search, pull-to-reveal and folder switching |
-| F3 | P2 | Context-menu item casing is mixed (reply/edit/copy/delete vs Forward/Select) | queued |
+| F3 | P2 | Context-menu item casing is mixed (reply/edit/copy/delete vs Forward/Select) | fixed in the F3 slice: message, gallery and attach menu items use Telegram keys (`Conversation.ContextMenuForward`, `Conversation.ContextMenuSelect`, `Conversation.Pin`/`Unpin`, `Conversation.ContextMenuCopy`, `SharedMedia.ViewInChat`, `Gallery.SaveImage`/`SaveVideo`, `Common.Delete`, `Attachment.File`) with en fallbacks; Simulator shows them in the selected pack's casing. Labels without a Telegram key (Emoji, Stickers & GIFs, Save Live Photo/GIF/Animation/Sticker Frame) stay BetterTG English |
 | F4 | P2 | Astra profile editor status uses `navigationItem.prompt`, which classic chrome does not render | queued |
 | F5 | P2 | Forum search renewal after client restoration lost its probe with the UISearchController UI | queued: new probe for the classic search field |
 | F6 | P2 | Reaction strip stickers load through the active client rather than the menu's captured client | queued |

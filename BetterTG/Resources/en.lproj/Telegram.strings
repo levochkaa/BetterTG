@@ -215,4 +215,12 @@
 
 "Conversation.ContextMenuQuote" = "Quote";
 
+"Conversation.ContextMenuForward" = "Forward";
+"Conversation.ContextMenuSelect" = "Select";
+"Conversation.Pin" = "Pin";
+"Conversation.Unpin" = "Unpin";
+"SharedMedia.ViewInChat" = "View in Chat";
+"Gallery.SaveVideo" = "Save Video";
+"Attachment.File" = "File";
+
 "Common.Save" = "Save";

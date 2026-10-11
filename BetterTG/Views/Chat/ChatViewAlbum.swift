@@ -625,7 +625,7 @@ private struct MediaGalleryExportAsset {
             self.originalFilename = "bettertg-photo-\(message.id).jpg"
             self.photosKind = .photo
             self.requiresWebPStillConversion = false
-            self.saveActionTitle = content.video == nil ? "Save Photo" : "Save Live Photo"
+            self.saveActionTitle = content.video == nil ? L10n.telegram("Gallery.SaveImage") : "Save Live Photo"
             self.saveSuccessText = content.video == nil ? "Photo saved" : "Live Photo saved"
             self.shareFileExtension = nil
         case .messageSticker(let content):
@@ -669,7 +669,7 @@ private struct MediaGalleryExportAsset {
             self.originalFilename = filename.isEmpty ? "bettertg-video-\(message.id).mp4" : filename
             self.photosKind = .video
             self.requiresWebPStillConversion = false
-            self.saveActionTitle = "Save Video"
+            self.saveActionTitle = L10n.telegram("Gallery.SaveVideo")
             self.saveSuccessText = "Video saved"
             switch mimeType {
             case "video/mp4": self.shareFileExtension = "mp4"
@@ -2365,7 +2365,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         var actions = [TelegramContextMenuAction]()
         if canOpen {
             actions.append(TelegramContextMenuAction(
-                title: "Open in Chat",
+                title: L10n.telegram("SharedMedia.ViewInChat"),
                 image: UIImage(systemName: "bubble.left.and.text.bubble.right"),
             ) { [weak self] in
                 self?.openSelectedMessageInChat()
@@ -2373,7 +2373,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
         if canForward {
             actions.append(TelegramContextMenuAction(
-                title: "Forward",
+                title: L10n.telegram("Conversation.ContextMenuForward"),
                 image: UIImage(systemName: "arrowshape.turn.up.right"),
             ) { [weak self] in
                 self?.forwardSelectedMedia()
@@ -2389,7 +2389,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
         if canDelete {
             actions.append(TelegramContextMenuAction(
-                title: "Delete",
+                title: L10n.telegram("Common.Delete"),
                 image: UIImage(systemName: "trash"),
                 isDestructive: true,
             ) { [weak self] in
