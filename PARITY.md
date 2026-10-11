@@ -23,8 +23,8 @@ scope. None of the states below claims complete Telegram parity.
   levochkaa/TDLibKit (native models plus the generated compat layer in `BetterTG/Shared`), Lottie 4.6.1, libwebp 1.6.0,
   FFmpeg 9.0 through `Packages/FFmpegBridge`, SwiftMath 1.7.3. Production code has no MobileVLCKit, TDLibKitDynamic or
   SwiftUI/hosting/representable UI.
-- Next: identity gap F2 (Forward to search starts hidden), CustomContextMenu gestures for every menu source, the liquid
-  morph for menu buttons, then post-merge revalidation.
+- Next: CustomContextMenu gestures for every menu source, the liquid morph for menu buttons, then post-merge
+  revalidation. F2 is fixed in `88253af`.
 - Audit cursor: every area is `pending` after the merge. Start with the Stage 0 resolution sites below and the astra code
   ported to TDLibKit 2, then follow the full path action → state/ownership → TDLib → update → UI/cleanup per area.
 
@@ -96,12 +96,13 @@ All three histories are reachable from `codex/parity`. `main` and both source br
 | ID | Pri | Finding | State |
 | --- | --- | --- | --- |
 | F1 | P1 | Forwarding into Saved Messages reported "Telegram returned a different topic" although TDLib delivered it (Saved Messages topic vs empty destination topic); the forward stayed pending for a duplicate retry | fixed `15701d2`, Simulator smoke |
-| F2 | P2 | Forward to shows its search field initially; identity requires it hidden like the main list | next |
+| F2 | P2 | Forward to shows its search field initially; identity requires it hidden like the main list | fixed `88253af`: pages scroll search out after the first page; Simulator smoke shows hidden search, pull-to-reveal and folder switching |
 | F3 | P2 | Context-menu item casing is mixed (reply/edit/copy/delete vs Forward/Select) | queued |
 | F4 | P2 | Astra profile editor status uses `navigationItem.prompt`, which classic chrome does not render | queued |
 | F5 | P2 | Forum search renewal after client restoration lost its probe with the UISearchController UI | queued: new probe for the classic search field |
 | F6 | P2 | Reaction strip stickers load through the active client rather than the menu's captured client | queued |
 | F7 | P2 | From M2: native-model deep `Hashable` cost in timeline diffing is unmeasured; `ChatVM._loadMessages` skips astra `replacingExisting` for already shown cursor messages; client activation keeps the previous client published until the async replacement exists; `ComposerTextProbe` lost its JSON round trip; new astra strings are not localized | queued for revalidation |
+| F8 | P2 | During the F2 smoke, a tap sequence in Forward to (pull to reveal search, tap a folder, tap Close) ended in a real group chat without a pending forward; nothing was sent. A controlled repeat switched folders correctly | unreproduced; watch hit testing of the Forward to folder picker after search reveal |
 
 ## BetterTG identity (user decisions)
 

@@ -34,9 +34,11 @@ import UIKit
     private var query = ""
     private var searchActive = false
     private var didSetInitialOffset = false
+    private var didApplyFirstPage = false
 
     var searchOffset: CGFloat {
-        guard isViewLoaded, didSetInitialOffset else { return 0 }
+        // Until the first page is laid out the search field is considered hidden, as in the main list.
+        guard isViewLoaded, didSetInitialOffset else { return ChatListNavigationSearchView.scrollHeight }
         return min(
             ChatListNavigationSearchView.scrollHeight,
             max(0, tableView.contentOffset.y + tableView.adjustedContentInset.top),
@@ -110,9 +112,15 @@ import UIKit
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        guard !didSetInitialOffset else { return }
+        // Like the main list, the search field starts hidden once the first page has its height.
+        guard !didSetInitialOffset, didApplyFirstPage, tableView.bounds.height > 0,
+              dataSource.snapshot().numberOfItems == 0 || tableView.contentSize.height > 0
+        else { return }
         didSetInitialOffset = true
-        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
+        tableView.setContentOffset(
+            CGPoint(x: 0, y: -tableView.adjustedContentInset.top + ChatListNavigationSearchView.scrollHeight),
+            animated: false,
+        )
         onScroll?(searchOffset)
     }
 
@@ -332,7 +340,12 @@ import UIKit
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
         snapshot.appendSections([.chats])
         snapshot.appendItems(visibleChatIDs.filter { eligibilityByChatID[$0]?.isAllowed == true })
-        dataSource.apply(snapshot, animatingDifferences: true)
+        let firstPage = !didApplyFirstPage
+        dataSource.apply(snapshot, animatingDifferences: !firstPage) { [weak self] in
+            guard let self, firstPage else { return }
+            didApplyFirstPage = true
+            view.setNeedsLayout()
+        }
         updateBackgroundView()
     }
 
