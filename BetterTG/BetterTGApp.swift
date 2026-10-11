@@ -179,6 +179,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             PinnedMessageDebugProbe.runIfRequested(in: window)
             ForumTopicDebugProbe.runIfRequested(in: window)
             ContextMenuLiquidMorphProbe.runIfRequested(in: window)
+            TelegramClassicNavigationChromeProbe.runIfRequested(in: window)
         #endif
 
         for context in connectionOptions.urlContexts {

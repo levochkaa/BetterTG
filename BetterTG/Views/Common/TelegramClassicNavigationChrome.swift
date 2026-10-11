@@ -66,6 +66,7 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
             item.observe(\.leftBarButtonItems) { _, _ in changed() },
             item.observe(\.rightBarButtonItems) { _, _ in changed() },
             item.observe(\.hidesBackButton) { _, _ in changed() },
+            item.observe(\.prompt) { _, _ in changed() },
             controller.observe(\.title) { _, _ in changed() },
         ]
         if let scrollView = controller.view as? UIScrollView {
@@ -141,6 +142,8 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
 
     private let background = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let separator = UIView()
+    /// `UINavigationItem.prompt` (Reconnecting…, Saving…): a line above the title row, 30 pt like the system bar's.
+    private let promptLabel = UILabel()
     private let titleLabel = UILabel()
     private let backButton = UIButton(type: .system)
     private var leftViews = [UIView]()
@@ -151,13 +154,21 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     private var searchView: ChatListNavigationSearchView?
     private var searchActive = false
 
-    var contentHeight: CGFloat { 44 + (searchView != nil && !searchActive ? 44 : 0) }
+    var contentHeight: CGFloat { promptHeight + 44 + (searchView != nil && !searchActive ? 44 : 0) }
+
+    private var promptHeight: CGFloat { promptLabel.text?.isEmpty == false ? 30 : 0 }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         addSubview(background)
         separator.backgroundColor = .separator
         addSubview(separator)
+        promptLabel.font = .preferredFont(forTextStyle: .footnote)
+        promptLabel.adjustsFontForContentSizeCategory = true
+        promptLabel.textColor = .secondaryLabel
+        promptLabel.textAlignment = .center
+        promptLabel.lineBreakMode = .byTruncatingTail
+        addSubview(promptLabel)
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.textAlignment = .center
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -178,21 +189,23 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
             width: bounds.width,
             height: 1 / traitCollection.displayScale,
         )
-        backButton.frame = CGRect(x: 2, y: topInset, width: 44, height: 44)
+        promptLabel.frame = CGRect(x: 16, y: topInset, width: max(0, bounds.width - 32), height: promptHeight)
+        let rowY = topInset + promptHeight
+        backButton.frame = CGRect(x: 2, y: rowY, width: 44, height: 44)
         var left: CGFloat = backButton.isHidden ? 6 : 46
         for control in leftViews {
             let width = max(44, control.sizeThatFits(CGSize(width: bounds.width / 3, height: 44)).width + 12)
-            control.frame = CGRect(x: left, y: topInset, width: width, height: 44)
+            control.frame = CGRect(x: left, y: rowY, width: width, height: 44)
             left += width
         }
         var right = bounds.width - 6
         for control in rightViews {
             let width = max(44, control.sizeThatFits(CGSize(width: bounds.width / 3, height: 44)).width + 12)
             right -= width
-            control.frame = CGRect(x: right, y: topInset, width: width, height: 44)
+            control.frame = CGRect(x: right, y: rowY, width: width, height: 44)
         }
         let inset = max(left, bounds.width - right) + 8
-        let titleFrame = CGRect(x: inset, y: topInset, width: max(0, bounds.width - 2 * inset), height: 44)
+        let titleFrame = CGRect(x: inset, y: rowY, width: max(0, bounds.width - 2 * inset), height: 44)
         titleLabel.frame = titleFrame
         customTitle?.frame = titleFrame
         for item in [titleLabel, backButton] + leftViews + rightViews + [customTitle]
@@ -202,7 +215,7 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
                 ? 0
                 : 1
         }
-        searchView?.frame = CGRect(x: 0, y: topInset + (searchActive ? 0 : 44), width: bounds.width, height: 44)
+        searchView?.frame = CGRect(x: 0, y: rowY + (searchActive ? 0 : 44), width: bounds.width, height: 44)
     }
 
     func configure(
@@ -210,6 +223,12 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         searchController newSearch: UISearchController?,
     ) {
         titleLabel.text = item.title ?? fallbackTitle
+        if promptLabel.text != item.prompt {
+            promptLabel.text = item.prompt
+            if let prompt = item.prompt, !prompt.isEmpty {
+                UIAccessibility.post(notification: .announcement, argument: prompt)
+            }
+        }
         backButton.accessibilityLabel = L10n.telegram("Common.Back")
         let left = item.leftBarButtonItems ?? []
         let right = item.rightBarButtonItems ?? []
