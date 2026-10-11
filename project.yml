@@ -2,7 +2,7 @@ name: BetterTG
 options:
   bundleIdPrefix: com.levochkaaa
   minimumXcodeGenVersion: 2.45.4
-  xcodeVersion: 26.6
+  xcodeVersion: 27.0
   projectFormat: xcode16_3
   indentWidth: 4
   tabWidth: 4
