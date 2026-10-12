@@ -518,3 +518,5 @@
 "VideoNote.CaptureInterrupted" = "Video-note capture was interrupted.";
 "VideoNote.EncodeFailed" = "Couldn’t encode the video note.";
 "Accessibility.VideoNoteCameraPreview" = "Video note camera preview";
+
+"Login.WaitingForAuthorization" = "Waiting for authorization";

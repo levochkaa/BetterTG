@@ -177,7 +177,7 @@ final class LoginViewController: UIViewController {
     private func render() {
         let loginState = authorization.stage
         let current = authorization.capture() != nil
-        titleLabel.text = loginState?.title ?? "Waiting for authorization"
+        titleLabel.text = loginState?.title ?? L10n.betterTG("Login.WaitingForAuthorization")
         countryButton.isHidden = loginState != .phoneNumber
         countryButton.configuration?.title = selectedCountry.name
         prefixLabel.isHidden = loginState != .phoneNumber

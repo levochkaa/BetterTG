@@ -518,3 +518,5 @@
 "VideoNote.CaptureInterrupted" = "Запись видеосообщения прервана.";
 "VideoNote.EncodeFailed" = "Не удалось закодировать видеосообщение.";
 "Accessibility.VideoNoteCameraPreview" = "Превью камеры для видеосообщения";
+
+"Login.WaitingForAuthorization" = "Ожидание авторизации";
