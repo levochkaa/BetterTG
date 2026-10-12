@@ -4259,24 +4259,42 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// Telegram's pinned-panel close: those who may unpin are asked to unpin (Conversation.UnpinMessageAlert);
     /// everyone else hides the banner for themselves.
     private func closePinnedMessageBanner() {
-        guard let pinned = chatVM.visiblePinnedMessage,
-              let message = chatVM.messages.first(where: { $0.id == pinned.id }),
-              canOfferPinAction(for: message),
-              presentedViewController == nil
-        else {
+        guard let pinned = chatVM.visiblePinnedMessage, presentedViewController == nil else {
             chatVM.hidePinnedMessageBanner()
             return
         }
+        if let message = chatVM.messages.first(where: { $0.id == pinned.id }) {
+            guard canOfferPinAction(for: message) else {
+                chatVM.hidePinnedMessageBanner()
+                return
+            }
+            presentUnpinAlert { [weak self, weak message] in
+                guard let self, let message, canOfferPinAction(for: message) else { return }
+                chatVM.unpinMessage(message)
+            }
+            return
+        }
+        // Outside the loaded history: ask TDLib whether this account may unpin before offering it.
+        let pinnedID = pinned.id
+        Task { [weak self] in
+            guard let self else { return }
+            let canUnpin = await chatVM.canUnpinMessage(id: pinnedID)
+            guard chatVM.visiblePinnedMessage?.id == pinnedID, presentedViewController == nil else { return }
+            guard canUnpin else {
+                chatVM.hidePinnedMessageBanner()
+                return
+            }
+            presentUnpinAlert { [weak self] in self?.chatVM.unpinBannerMessage(id: pinnedID) }
+        }
+    }
+
+    private func presentUnpinAlert(unpin: @escaping () -> Void) {
         let alert = UIAlertController(
             title: nil,
             message: L10n.telegram("Conversation.UnpinMessageAlert"),
             preferredStyle: .alert,
         )
-        alert.addAction(UIAlertAction(title: L10n.telegram("Conversation.Unpin"), style: .default) {
-            [weak self, weak message] _ in
-            guard let self, let message, canOfferPinAction(for: message) else { return }
-            chatVM.unpinMessage(message)
-        })
+        alert.addAction(UIAlertAction(title: L10n.telegram("Conversation.Unpin"), style: .default) { _ in unpin() })
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
         present(alert, animated: true)
     }

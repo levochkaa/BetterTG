@@ -1874,6 +1874,56 @@ import UIKit
         )
     }
 
+    /// Whether fresh TDLib properties let the account unpin this message (Telegram's canManagePin for the panel).
+    func canUnpinMessage(id messageID: Int64) async -> Bool {
+        guard supportsPinnedMessages,
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id
+        else { return false }
+        return await (try? client.getMessageProperties(chatId: chatID, messageId: messageID))?.canBePinned == true
+    }
+
+    /// Unpins the banner's message when it is outside the loaded history. TDLib's updateMessageIsPinned then
+    /// refreshes the banner through applyPinnedMessageUpdate.
+    func unpinBannerMessage(id messageID: Int64) {
+        guard supportsPinnedMessages, pinMutationTasks.isEmpty,
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == client.id
+        else { return }
+        let generation = UUID()
+        let client = client
+        pinMutationGenerations[messageID] = generation
+        pinMutationTasks[messageID] = Task { [weak self] in
+            guard let self else { return }
+            var failure: Error?
+            do {
+                let properties = try await client.getMessageProperties(chatId: chatID, messageId: messageID)
+                guard properties.canBePinned else { throw PinMutationFailure.unavailable }
+                guard pinMutationGenerations[messageID] == generation,
+                      TDLib.shared.activeAccountID == accountID,
+                      TDLib.shared.activeClient.id == client.id
+                else { throw PinMutationFailure.accountChanged }
+                _ = try await client.unpinChatMessage(chatId: chatID, messageId: messageID)
+            } catch is CancellationError {
+            } catch {
+                failure = error
+            }
+            guard pinMutationGenerations[messageID] == generation else { return }
+            pinMutationTasks[messageID] = nil
+            pinMutationGenerations[messageID] = nil
+            guard TDLib.shared.activeAccountID == accountID, TDLib.shared.activeClient.id == client.id else { return }
+            if let failure {
+                pinErrorMessage =
+                    switch failure as? PinMutationFailure {
+                    case .accountChanged: L10n.betterTG("Error.AccountChanged")
+                    case .unavailable: L10n.betterTG("Chat.PinUnavailable")
+                    case nil: L10n.betterTG("Chat.UnpinFailed")
+                    }
+            }
+            refreshPinnedMessages()
+        }
+    }
+
     func unpinMessage(_ message: CustomMessage) {
         setMessagePinned(
             message,
