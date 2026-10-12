@@ -884,13 +884,22 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                     ? L10n.telegram("ChatList.Context.Unarchive")
                     : L10n.telegram("ChatList.Context.Archive"),
                 image: UIImage(systemName: archived ? "tray.and.arrow.up" : "archivebox"),
-            ) {
-                Task {
-                    _ = try? await scope.perform {
+            ) { [weak self] in
+                Task { [weak self] in
+                    let moved = await (try? scope.perform {
                         try await client.addChatToList(
                             chatId: chat.id,
                             chatList: archived ? .chatListMain : .chatListArchive,
                         )
+                    }) != nil
+                    // Telegram (ChatListController, archiveChats) offers Undo after archiving.
+                    guard moved, !archived, let self, scope.isCurrent else { return }
+                    showUndoToast(L10n.telegram("ChatList.UndoArchiveTitle")) {
+                        Task {
+                            _ = try? await scope.perform {
+                                try await client.addChatToList(chatId: chat.id, chatList: .chatListMain)
+                            }
+                        }
                     }
                 }
             },
@@ -963,6 +972,20 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             tracking: gesture,
             presentationStyle: .chatPreview,
             previewController: previewController,
+        )
+    }
+
+    /// Shown on the screen that owns this page, above the folder picker on the main list.
+    private func showUndoToast(_ text: String, undo: @escaping () -> Void) {
+        var host: UIViewController = self
+        while let parent = host.parent, !(parent is UINavigationController) {
+            host = parent
+        }
+        TelegramUndoToast.show(
+            text: text,
+            in: host.view,
+            bottomInset: showsStandaloneSearch ? 12 : 64,
+            undo: undo,
         )
     }
 

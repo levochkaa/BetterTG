@@ -426,3 +426,5 @@
 "DialogList.You" = "You";
 "ChatList.ArchivedChatsTitle" = "Archived Chats";
 "Common.More" = "More";
+"ChatList.UndoArchiveTitle" = "Chat archived";
+"Undo.Undo" = "Undo";
