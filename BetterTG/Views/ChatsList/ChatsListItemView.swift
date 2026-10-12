@@ -161,78 +161,30 @@ final class ChatListCell: UITableViewCell {
     }
 
     private func summaryText(for chat: CustomChat, client: TDLibClient) -> NSAttributedString? {
-        if chat.draftMessage == nil, let message = chat.lastMessage,
-           MessageContentPresentation.make(message.content).isService,
-           let service = serviceSummary(for: chat, message: message, client: client)
-        {
-            return service
+        var missing = [Int64]()
+        defer { requestUsers(missing, chat: chat, client: client) }
+        let lastMessage = chat.draftMessage == nil ? chat.lastMessage : nil
+        if let message = lastMessage, let service = ChatPreviewText.serviceText(
+            for: message, chatTitle: chat.chat.title, isChannel: chat.supergroup?.isChannel == true,
+            client: client, missing: &missing,
+        ) {
+            return NSAttributedString(string: service, attributes: [.foregroundColor: UIColor.secondaryLabel])
         }
         guard let summary = ChatSummary.attributedText(for: chat) else { return nil }
-        guard let author = authorPrefix(for: chat, client: client) else { return summary }
-        let result = NSMutableAttributedString(string: author + ": ", attributes: [.foregroundColor: UIColor.label])
-        result.append(summary)
-        return result
-    }
-
-    /// Telegram's inline author prefix for group rows (ChatListItem, useInlineAuthorPrefix): "You" for the
-    /// account's messages and the sender's compact name otherwise; channels, chat senders and service actions
-    /// have none.
-    private func authorPrefix(for chat: CustomChat, client: TDLibClient) -> String? {
-        guard chat.draftMessage == nil, let message = chat.lastMessage,
-              !MessageContentPresentation.make(message.content).isService
-        else { return nil }
-        switch chat.type {
-        case .group: break
-        case .supergroup(let supergroup) where !supergroup.isChannel: break
-        default: return nil
-        }
-        if message.isOutgoing { return L10n.telegram("DialogList.You") }
-        guard case .messageSenderUser(let sender) = message.senderId else { return nil }
-        if let user = ChatListSenderNames.shared.user(userID: sender.userId, client: client) {
-            return ChatListSenderNames.compactName(user)
-        }
-        requestUsers([sender.userId], chat: chat, client: client)
-        return nil
-    }
-
-    /// Telegram's chat list words service actions with names (plainServiceMessageString). Until the names are
-    /// cached the row keeps the generic title; a pin names its author without the pinned text.
-    private func serviceSummary(for chat: CustomChat, message: Message, client: TDLibClient) -> NSAttributedString? {
-        let cache = ChatListSenderNames.shared
-        var author: String?
-        var senderUserID: Int64?
-        var missing = [Int64]()
-        switch message.senderId {
-        case .messageSenderUser(let sender):
-            senderUserID = sender.userId
-            if let user = cache.user(userID: sender.userId, client: client) {
-                author = ServiceMessageText.displayTitle(user)
-            } else {
-                missing.append(sender.userId)
+        let isGroup =
+            switch chat.type {
+            case .group: true
+            case .supergroup(let supergroup): !supergroup.isChannel
+            case .bot, .user: false
             }
-        case .messageSenderChat(let sender):
-            author = sender.chatId == chat.id ? chat.chat.title : nil
-        }
-        var names = [Int64: String]()
-        for id in ServiceMessageText.memberIDs(message.content) {
-            if let user = cache.user(userID: id, client: client) {
-                names[id] = ServiceMessageText.displayTitle(user)
-            } else {
-                missing.append(id)
-            }
-        }
-        guard missing.isEmpty else {
-            requestUsers(missing, chat: chat, client: client)
-            return nil
-        }
-        guard let author, let text = ServiceMessageText.make(message.content, context: .init(
-            author: author, isOutgoing: message.isOutgoing, isChannel: chat.supergroup?.isChannel == true,
-            senderUserID: senderUserID, names: names, pinned: nil,
-        )) else { return nil }
-        return NSAttributedString(string: text, attributes: [.foregroundColor: UIColor.secondaryLabel])
+        let author = isGroup
+            ? lastMessage.flatMap { ChatPreviewText.authorPrefix(for: $0, client: client, missing: &missing) }
+            : nil
+        return ChatPreviewText.prefixed(author, summary)
     }
 
     private func requestUsers(_ ids: [Int64], chat: CustomChat, client: TDLibClient) {
+        guard !ids.isEmpty else { return }
         let chatID = chat.id
         for id in Set(ids) {
             ChatListSenderNames.shared.resolve(userID: id, client: client) { [weak self] in
@@ -356,6 +308,75 @@ final class ChatListCell: UITableViewCell {
             separatorView.bottomAnchor.constraint(equalTo: rowView.bottomAnchor),
             separatorView.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
         ])
+    }
+}
+
+// MARK: - ChatPreviewText
+
+/// Telegram's preview wording for group and topic rows. Names come from ChatListSenderNames; a missing name is
+/// appended to `missing` and the caller shows the generic text until it arrives.
+@MainActor enum ChatPreviewText {
+    /// The inline author prefix (ChatListItem useInlineAuthorPrefix): "You" for the account's messages and the
+    /// sender's compact name otherwise. Chat senders and service actions have none.
+    static func authorPrefix(for message: Message, client: TDLibClient, missing: inout [Int64]) -> String? {
+        guard !MessageContentPresentation.make(message.content).isService else { return nil }
+        if message.isOutgoing { return L10n.telegram("DialogList.You") }
+        guard case .messageSenderUser(let sender) = message.senderId else { return nil }
+        if let user = ChatListSenderNames.shared.user(userID: sender.userId, client: client) {
+            return ChatListSenderNames.compactName(user)
+        }
+        missing.append(sender.userId)
+        return nil
+    }
+
+    /// Service actions with names (plainServiceMessageString); a pin names its author without the pinned text.
+    static func serviceText(
+        for message: Message,
+        chatTitle: String?,
+        isChannel: Bool,
+        client: TDLibClient,
+        missing: inout [Int64],
+    ) -> String? {
+        guard MessageContentPresentation.make(message.content).isService else { return nil }
+        let cache = ChatListSenderNames.shared
+        var author: String?
+        var senderUserID: Int64?
+        var absent = [Int64]()
+        switch message.senderId {
+        case .messageSenderUser(let sender):
+            senderUserID = sender.userId
+            if let user = cache.user(userID: sender.userId, client: client) {
+                author = ServiceMessageText.displayTitle(user)
+            } else {
+                absent.append(sender.userId)
+            }
+        case .messageSenderChat(let sender):
+            author = sender.chatId == message.chatId ? chatTitle : nil
+        }
+        var names = [Int64: String]()
+        for id in ServiceMessageText.memberIDs(message.content) {
+            if let user = cache.user(userID: id, client: client) {
+                names[id] = ServiceMessageText.displayTitle(user)
+            } else {
+                absent.append(id)
+            }
+        }
+        guard absent.isEmpty else {
+            missing += absent
+            return nil
+        }
+        guard let author else { return nil }
+        return ServiceMessageText.make(message.content, context: .init(
+            author: author, isOutgoing: message.isOutgoing, isChannel: isChannel,
+            senderUserID: senderUserID, names: names, pinned: nil,
+        ))
+    }
+
+    static func prefixed(_ author: String?, _ summary: NSAttributedString) -> NSAttributedString {
+        guard let author else { return summary }
+        let result = NSMutableAttributedString(string: author + ": ", attributes: [.foregroundColor: UIColor.label])
+        result.append(summary)
+        return result
     }
 }
 

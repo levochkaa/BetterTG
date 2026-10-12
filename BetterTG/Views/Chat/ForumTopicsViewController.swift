@@ -839,6 +839,9 @@ final class ForumTopicCell: UITableViewCell {
     private let unreadBadge = TelegramUnreadBadgeLabel(minimumDiameter: 20, horizontalPadding: 8)
     private let pinView = UIImageView(image: UIImage(systemName: "pin.fill"))
     private let closedView = UIImageView(image: UIImage(systemName: "lock.fill"))
+    /// The topic a late sender name re-applies, if the cell still shows it.
+    private var configuredTopic: ForumTopic?
+    private var configuredClient: TDLibClient?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -890,15 +893,16 @@ final class ForumTopicCell: UITableViewCell {
         selectionStyle = .default
         iconView.configure(info: topic.info, client: client)
         titleLabel.text = topic.info.name
-        previewLabel.text =
-            if let draft = topic.draftMessage {
-                Self.draftPreview(draft.content)
-            } else if let message = topic.lastMessage {
-                ChatSummary.summary(for: message)
-            } else {
-                L10n.betterTG("Forum.PreviewUnavailable")
-            }
+        configuredTopic = topic
+        configuredClient = client
         previewLabel.textColor = topic.draftMessage == nil ? .secondaryLabel : .systemRed
+        if let draft = topic.draftMessage {
+            previewLabel.text = Self.draftPreview(draft.content)
+        } else if let message = topic.lastMessage {
+            previewLabel.attributedText = preview(for: message, topicID: topic.info.forumTopicId, client: client)
+        } else {
+            previewLabel.text = L10n.betterTG("Forum.PreviewUnavailable")
+        }
         dateLabel.text = topic.lastMessage.map { Self.dateText(timestamp: $0.date) }
         let hasUnreadIndicator = topic.unreadCount > 0
             || topic.unreadMentionCount > 0
@@ -946,7 +950,36 @@ final class ForumTopicCell: UITableViewCell {
         accessibilityTraits = [.button]
     }
 
+    /// Topic rows are forum (group) rows: Telegram names the sender and words service actions with names.
+    private func preview(for message: Message, topicID: Int, client: TDLibClient) -> NSAttributedString {
+        var missing = [Int64]()
+        defer { requestUsers(missing, topicID: topicID, client: client) }
+        let secondary: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.secondaryLabel]
+        if let service = ChatPreviewText.serviceText(
+            for: message, chatTitle: nil, isChannel: false, client: client, missing: &missing,
+        ) {
+            return NSAttributedString(string: service, attributes: secondary)
+        }
+        let summary = NSAttributedString(string: ChatSummary.summary(for: message), attributes: secondary)
+        return ChatPreviewText.prefixed(
+            ChatPreviewText.authorPrefix(for: message, client: client, missing: &missing),
+            summary,
+        )
+    }
+
+    private func requestUsers(_ ids: [Int64], topicID: Int, client: TDLibClient) {
+        for id in Set(ids) {
+            ChatListSenderNames.shared.resolve(userID: id, client: client) { [weak self] in
+                guard let self, let topic = configuredTopic, topic.info.forumTopicId == topicID,
+                      let client = configuredClient
+                else { return }
+                configure(topic: topic, client: client)
+            }
+        }
+    }
+
     private func configureUnavailable() {
+        configuredTopic = nil
         iconView.prepareForReuse()
         iconView.isHidden = true
         titleLabel.text = L10n.betterTG("Forum.TopicUnavailable")
