@@ -164,7 +164,7 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
             selected: indexPath.item == selectedIndex,
             client: client,
         ) }
-        cell.accessibilityLabel = "Media \(indexPath.item + 1)"
+        cell.accessibilityLabel = L10n.betterTG("Accessibility.MediaNumber", indexPath.item + 1)
         return cell
     }
 

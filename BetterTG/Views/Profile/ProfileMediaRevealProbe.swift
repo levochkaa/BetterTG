@@ -104,7 +104,8 @@ import UIKit
             cell.pauseLoading()
             cell.resumeLoading()
             try require(
-                cell.debugHasCover && !cell.debugHasRawImage && cell.accessibilityLabel == "Media spoiler",
+                cell.debugHasCover && !cell.debugHasRawImage && cell.accessibilityLabel == L10n
+                    .betterTG("Accessibility.MediaSpoiler"),
                 "raw concealed cell/AX",
             )
             try require(cell.contentView.subviews.compactMap { $0 as? MediaConcealmentView }.allSatisfy {
@@ -240,7 +241,8 @@ import UIKit
                 )
             }
             try require(
-                !epoch.session.reveal(secret) && cells[0].accessibilityLabel == "Protected media",
+                !epoch.session.reveal(secret) && cells[0].accessibilityLabel == L10n
+                    .betterTG("Accessibility.ProtectedMedia"),
                 "secret admitted",
             )
         }

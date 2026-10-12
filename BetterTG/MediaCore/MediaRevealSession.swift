@@ -184,8 +184,10 @@ final class MediaConcealmentView: UIControl, ReusableMediaView, GalleryMediaView
             ])
         }
         isAccessibilityElement = true
-        accessibilityLabel = secret ? "Protected media" : "Media spoiler"
-        accessibilityHint = secret ? nil : "Reveal media spoiler"
+        accessibilityLabel = secret
+            ? L10n.betterTG("Accessibility.ProtectedMedia")
+            : L10n.betterTG("Accessibility.MediaSpoiler")
+        accessibilityHint = secret ? nil : L10n.betterTG("Accessibility.RevealMediaSpoiler")
         accessibilityTraits = .button
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
     }

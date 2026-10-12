@@ -377,7 +377,7 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
 
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
         isAccessibilityElement = true
-        accessibilityLabel = "Video sticker"
+        accessibilityLabel = L10n.betterTG("Accessibility.VideoSticker")
         accessibilityTraits = .image
     }
 

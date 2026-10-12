@@ -318,3 +318,23 @@
 "VoiceOver.Chat.Failed" = "Failed to send";
 "Conversation.ChecksTooltip.Delivered" = "Delivered";
 "Conversation.ChecksTooltip.Read" = "Read";
+
+"VoiceOver.Chat.Caption" = "Caption: %@";
+"Preview.SaveGif" = "Save GIF";
+"Gallery.GifSaved" = "GIF Saved";
+"Gallery.ImageSaved" = "Image Saved";
+"Gallery.VideoSaved" = "Video Saved";
+"Gallery.VoiceOver.PictureInPicture" = "Picture-in-Picture";
+"Gallery.VoiceOver.Share" = "Share";
+"Items.NOfM" = "%1$@ of %2$@";
+"Media.ShareItem_0" = "All %@ Items";
+"Media.ShareItem_1" = "%@ Item";
+"Media.ShareItem_2" = "All %@ Items";
+"Media.ShareItem_3_10" = "All %@ Items";
+"Media.ShareItem_many" = "All %@ Items";
+"Media.ShareItem_any" = "All %@ Items";
+"VoiceOver.Media.PlaybackPlay" = "Play";
+"VoiceOver.Media.PlaybackPause" = "Pause";
+"VoiceOver.Media.PlaybackRate" = "Playback rate";
+"Gallery.Live" = "LIVE";
+"VoiceOver.Chat.AnimatedSticker" = "Animated sticker";

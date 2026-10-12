@@ -275,7 +275,7 @@ final class AnimatedWebPView: UIControl, AnimatedFileView {
 
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
         isAccessibilityElement = true
-        accessibilityLabel = "Animated sticker"
+        accessibilityLabel = L10n.telegram("VoiceOver.Chat.AnimatedSticker")
         accessibilityTraits = .image
     }
 

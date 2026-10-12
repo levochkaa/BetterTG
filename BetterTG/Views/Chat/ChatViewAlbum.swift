@@ -313,20 +313,24 @@ private final class GalleryCaptionTextView: UITextView, UITextViewDelegate {
         let raw = String(text[stringRange])
         switch entity.type {
         case .textEntityTypeEmailAddress:
-            return URL(string: "mailto://\(raw)").map { ($0, "Email \(raw)", false) }
+            return URL(string: "mailto://\(raw)").map { ($0, L10n.betterTG("Accessibility.EmailLink", raw), false) }
         case .textEntityTypeMention:
             return getUrl(from: "t.me/\(raw.trimmingCharacters(in: CharacterSet(charactersIn: "@")))")
-                .map { ($0, "Open \(raw)", false) }
+                .map { ($0, L10n.betterTG("Accessibility.OpenNamed", raw), false) }
         case .textEntityTypePhoneNumber:
-            return URL(string: "tel://\(raw)").map { ($0, "Call \(raw)", false) }
+            return URL(string: "tel://\(raw)").map { ($0, L10n.betterTG("Accessibility.CallNumber", raw), false) }
         case .textEntityTypeTextUrl(let textURL):
             guard let url = getUrl(from: textURL.url) else { return nil }
             let displayedURL = getUrl(from: raw)
             let matchesDisplayedDestination = displayedURL.map(Self.normalizedURLString) == Self
                 .normalizedURLString(url)
-            return (url, "Open link to \(url.host ?? url.absoluteString)", !matchesDisplayedDestination)
+            return (
+                url,
+                L10n.betterTG("Accessibility.OpenLinkTo", url.host ?? url.absoluteString),
+                !matchesDisplayedDestination,
+            )
         case .textEntityTypeUrl:
-            return getUrl(from: raw).map { ($0, "Open link \(raw)", false) }
+            return getUrl(from: raw).map { ($0, L10n.betterTG("Accessibility.OpenLinkNamed", raw), false) }
         default:
             return nil
         }
@@ -401,11 +405,14 @@ private final class GalleryCaptionTextView: UITextView, UITextViewDelegate {
             )
         }
         attributedText = caption
-        accessibilityLabel = "Caption, \(Self.accessibilityText(formattedText, spoilerRanges: spoilerRanges, revealed: spoilersRevealed))"
+        accessibilityLabel = L10n.telegram(
+            "VoiceOver.Chat.Caption",
+            Self.accessibilityText(formattedText, spoilerRanges: spoilerRanges, revealed: spoilersRevealed),
+        )
         var customActions = [UIAccessibilityCustomAction]()
         if !spoilersRevealed, !spoilerRanges.isEmpty {
             customActions.append(UIAccessibilityCustomAction(
-                name: "Reveal spoiler",
+                name: L10n.betterTG("Accessibility.RevealSpoiler"),
                 target: self,
                 selector: #selector(revealSpoilers),
             ))
@@ -533,9 +540,9 @@ private enum MediaGalleryOpenInChatError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .contextChanged:
-            "The active Telegram account changed."
+            L10n.betterTG("Error.AccountChanged")
         case .messageUnavailable:
-            "This message is no longer available in the original chat."
+            L10n.betterTG("Gallery.MessageUnavailable")
         }
     }
 }
@@ -595,13 +602,13 @@ private struct MediaGalleryExportAsset {
             case "image/gif":
                 self.shareFileExtension = "gif"
                 self.photosKind = .photo
-                self.saveActionTitle = "Save GIF"
-                self.saveSuccessText = "GIF saved"
+                self.saveActionTitle = L10n.telegram("Preview.SaveGif")
+                self.saveSuccessText = L10n.telegram("Gallery.GifSaved")
             case "video/mp4":
                 self.shareFileExtension = "mp4"
                 self.photosKind = .video
-                self.saveActionTitle = "Save Animation"
-                self.saveSuccessText = "Animation saved"
+                self.saveActionTitle = L10n.betterTG("Gallery.SaveAnimation")
+                self.saveSuccessText = L10n.betterTG("Gallery.AnimationSaved")
             default:
                 self.shareFileExtension = nil
                 self.photosKind = nil
@@ -625,8 +632,12 @@ private struct MediaGalleryExportAsset {
             self.originalFilename = "bettertg-photo-\(message.id).jpg"
             self.photosKind = .photo
             self.requiresWebPStillConversion = false
-            self.saveActionTitle = content.video == nil ? L10n.telegram("Gallery.SaveImage") : "Save Live Photo"
-            self.saveSuccessText = content.video == nil ? "Photo saved" : "Live Photo saved"
+            self.saveActionTitle = content.video == nil
+                ? L10n.telegram("Gallery.SaveImage")
+                : L10n.betterTG("Gallery.SaveLivePhoto")
+            self.saveSuccessText = content.video == nil
+                ? L10n.telegram("Gallery.ImageSaved")
+                : L10n.betterTG("Gallery.LivePhotoSaved")
             self.shareFileExtension = nil
         case .messageSticker(let content):
             file = content.sticker.sticker
@@ -656,8 +667,8 @@ private struct MediaGalleryExportAsset {
                 self.mimeType = "image/webp"
                 self.photosKind = .photo
                 self.requiresWebPStillConversion = true
-                self.saveActionTitle = "Save Sticker Frame"
-                self.saveSuccessText = "Sticker frame saved"
+                self.saveActionTitle = L10n.betterTG("Gallery.SaveStickerFrame")
+                self.saveSuccessText = L10n.betterTG("Gallery.StickerFrameSaved")
             }
             self.originalFilename = "bettertg-sticker-\(message.id).\(fileExtension)"
         case .messageVideo(let content):
@@ -670,7 +681,7 @@ private struct MediaGalleryExportAsset {
             self.photosKind = .video
             self.requiresWebPStillConversion = false
             self.saveActionTitle = L10n.telegram("Gallery.SaveVideo")
-            self.saveSuccessText = "Video saved"
+            self.saveSuccessText = L10n.telegram("Gallery.VideoSaved")
             switch mimeType {
             case "video/mp4": self.shareFileExtension = "mp4"
             case "video/quicktime": self.shareFileExtension = "mov"
@@ -708,17 +719,17 @@ private enum MediaGallerySaveError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .contextChanged:
-            "The active Telegram account or selected item changed."
+            L10n.betterTG("Gallery.ErrorContextChanged")
         case .downloadFailed:
-            "The original media couldn't be downloaded."
+            L10n.betterTG("Gallery.ErrorDownloadFailed")
         case .messageUnavailable:
-            "This media is no longer available in the original chat."
+            L10n.betterTG("Gallery.ErrorMediaUnavailable")
         case .photosAccessDenied:
-            "Allow BetterTG to add media to Photos in Settings."
+            L10n.betterTG("Gallery.ErrorPhotosAccess")
         case .protectedContent:
-            "Telegram doesn't allow this media to be exported."
+            L10n.betterTG("Gallery.ErrorProtected")
         case .unsupportedVideo:
-            "This video format can't be added to Photos."
+            L10n.betterTG("Gallery.ErrorUnsupportedVideo")
         }
     }
 
@@ -742,13 +753,13 @@ private enum MediaGalleryDeleteError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .accountChanged:
-            "The active Telegram account or selected item changed."
+            L10n.betterTG("Gallery.ErrorContextChanged")
         case .noPermission:
-            "These messages can no longer be deleted together."
+            L10n.betterTG("Gallery.ErrorDeleteTogether")
         case .notConfirmed:
-            "Telegram didn't confirm deletion. Check whether the media remains before trying again."
+            L10n.betterTG("Gallery.ErrorDeleteNotConfirmed")
         case .unavailable:
-            "The selected media is no longer available in the original chat."
+            L10n.betterTG("Gallery.ErrorSelectedUnavailable")
         }
     }
 }
@@ -820,25 +831,25 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 input: " ",
                 modifierFlags: [],
                 action: #selector(toggleSelectedPlayback),
-                discoverabilityTitle: "Play or Pause",
+                discoverabilityTitle: L10n.betterTG("Gallery.KeyPlayPause"),
             ),
             makeKeyCommand(
                 input: UIKeyCommand.inputLeftArrow,
                 modifierFlags: [.shift],
                 action: #selector(jumpSelectedPlaybackBackward),
-                discoverabilityTitle: "Back 5 Seconds",
+                discoverabilityTitle: L10n.betterTG("Gallery.KeyBack5"),
             ),
             makeKeyCommand(
                 input: UIKeyCommand.inputRightArrow,
                 modifierFlags: [.shift],
                 action: #selector(jumpSelectedPlaybackForward),
-                discoverabilityTitle: "Forward 5 Seconds",
+                discoverabilityTitle: L10n.betterTG("Gallery.KeyForward5"),
             ),
             makeKeyCommand(
                 input: "p",
                 modifierFlags: [.command],
                 action: #selector(toggleSelectedPictureInPicture),
-                discoverabilityTitle: "Picture in Picture",
+                discoverabilityTitle: L10n.telegram("Gallery.VoiceOver.PictureInPicture"),
             ),
         ]
     }
@@ -1677,11 +1688,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         closeButton.accessibilityIdentifier = "gallery-close"
         closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
         moreButton.setImage(UIImage(systemName: "ellipsis", withConfiguration: symbol), for: .normal)
-        moreButton.accessibilityLabel = "More actions"
+        moreButton.accessibilityLabel = L10n.betterTG("Accessibility.MoreActions")
         moreButton.accessibilityIdentifier = "gallery-more-actions"
         moreButton.addTarget(self, action: #selector(showMoreActions), for: .touchUpInside)
         shareButton.setImage(UIImage(systemName: "square.and.arrow.up", withConfiguration: symbol), for: .normal)
-        shareButton.accessibilityLabel = "Share"
+        shareButton.accessibilityLabel = L10n.telegram("Gallery.VoiceOver.Share")
         shareButton.accessibilityIdentifier = "gallery-share"
         shareButton.addTarget(self, action: #selector(share), for: .touchUpInside)
         deleteButton.setImage(UIImage(systemName: "trash", withConfiguration: symbol), for: .normal)
@@ -1845,7 +1856,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     private func updateCounter() {
         let count = max(messages.count, totalMessageCount ?? messages.count)
-        counterLabel.text = actionStatusText ?? (count > 1 ? "\(selectedIndex + 1) of \(count)" : "")
+        counterLabel.text = actionStatusText
+            ?? (count > 1 ? L10n.telegram("Items.NOfM", "\(selectedIndex + 1)", "\(count)") : "")
         updateThumbnailStrip(around: selectedIndex, pagingPosition: CGFloat(selectedIndex), commitSelection: true)
         updateAuthor()
         updateMoreMenu()
@@ -1981,14 +1993,18 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
         guard presentedViewController == nil else { return }
         let alert = UIAlertController(
-            title: "Open Link?",
+            title: L10n.telegram("OpenLinkConfirmation.Title"),
             message: url.absoluteString,
             preferredStyle: .alert,
         )
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Open", style: .default) { [weak self] _ in
-            TelegramLinkRouter.shared.open(url, from: self)
-        })
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert
+            .addAction(UIAlertAction(
+                title: L10n.telegram("OpenLinkConfirmation.Open"),
+                style: .default,
+            ) { [weak self] _ in
+                TelegramLinkRouter.shared.open(url, from: self)
+            })
         present(alert, animated: true)
     }
 
@@ -2345,7 +2361,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         let selectedAsset = messages.indices.contains(selectedIndex)
             ? MediaGalleryExportAsset(messages[selectedIndex])
             : nil
-        shareButton.accessibilityLabel = selectedAsset?.isLivePhoto == true ? "Share Live Photo files" : "Share"
+        shareButton.accessibilityLabel = selectedAsset?.isLivePhoto == true
+            ? L10n.betterTG("Accessibility.ShareLivePhotoFiles")
+            : L10n.telegram("Gallery.VoiceOver.Share")
         let canOpen = hasActionContext && onPrepareOpenMessageID != nil
         let canForward = hasActionContext && actionSourceLocation != nil
         let selectedMessage = messages.indices.contains(selectedIndex) ? messages[selectedIndex] : nil
@@ -2425,7 +2443,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         let generation = UUID()
         openInChatGeneration = generation
         setActionBusy(true, source: .more)
-        UIAccessibility.post(notification: .announcement, argument: "Opening message")
+        UIAccessibility.post(notification: .announcement, argument: L10n.betterTG("Accessibility.OpeningMessage"))
         openInChatTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -2509,7 +2527,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         let generation = UUID()
         forwardGeneration = generation
         setActionBusy(true, source: .more)
-        UIAccessibility.post(notification: .announcement, argument: "Preparing media to forward")
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: L10n.betterTG("Accessibility.PreparingMediaForward"),
+        )
         forwardTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -2712,11 +2733,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
               TDLib.shared.activeClient.id == client.id
         else { return }
         let alert = UIAlertController(
-            title: "Forward Media",
-            message: "Choose whether to forward only this item or all \(albumMessageIDs.count) items in the album.",
+            title: L10n.betterTG("Gallery.ForwardMediaTitle"),
+            message: L10n.betterTG("Gallery.ForwardMediaText", albumMessageIDs.count),
             preferredStyle: .actionSheet,
         )
-        alert.addAction(UIAlertAction(title: "This Item", style: .destructive) { [weak self, weak alert] _ in
+        alert.addAction(UIAlertAction(title: L10n.betterTG("Gallery.ThisItem"), style: .destructive) { [
+            weak self,
+            weak alert,
+        ] _ in
             alert?.dismiss(animated: true) { [weak self] in
                 self?.presentForwardPicker(
                     messageIDs: [selectedMessageID],
@@ -2726,7 +2750,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 )
             }
         })
-        alert.addAction(UIAlertAction(title: "All \(albumMessageIDs.count) Items", style: .destructive) { [
+        alert.addAction(UIAlertAction(
+            title: L10n.telegramPlural("Media.ShareItem", count: albumMessageIDs.count),
+            style: .destructive,
+        ) { [
             weak self,
             weak alert,
         ] _ in
@@ -2739,7 +2766,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 )
             }
         })
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
         alert.popoverPresentationController?.sourceView = moreButton
         alert.popoverPresentationController?.sourceRect = moreButton.bounds
         present(alert, animated: true)
@@ -2825,11 +2852,15 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     private func presentForwardError(_ error: Swift.Error) {
         let message = (error as? LocalizedError)?.errorDescription
-            ?? "The selected media couldn't be prepared for forwarding."
+            ?? L10n.betterTG("Gallery.ForwardPrepareFailed")
         UIAccessibility.post(notification: .announcement, argument: message)
         guard presentedViewController == nil else { return }
-        let alert = UIAlertController(title: "Can't Forward", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        let alert = UIAlertController(
+            title: L10n.betterTG("Chat.CantForward"),
+            message: message,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         present(alert, animated: true)
     }
 
@@ -2855,7 +2886,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         let generation = UUID()
         deleteGeneration = generation
         setActionBusy(true, source: .more)
-        UIAccessibility.post(notification: .announcement, argument: "Checking media deletion options")
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: L10n.betterTG("Accessibility.CheckingDeleteOptions"),
+        )
         deleteTask = Task { [weak self] in
             guard let self else { return }
             do {
@@ -2931,11 +2965,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
               TDLib.shared.activeClient.id == client.id
         else { return }
         let alert = UIAlertController(
-            title: "Delete Media",
-            message: "Choose whether to delete only this item or all \(albumMessageIDs.count) items in the album.",
+            title: L10n.betterTG("Gallery.DeleteMediaTitle"),
+            message: L10n.betterTG("Gallery.DeleteMediaText", albumMessageIDs.count),
             preferredStyle: .actionSheet,
         )
-        alert.addAction(UIAlertAction(title: "This Item", style: .default) { [weak self, weak alert] _ in
+        alert.addAction(UIAlertAction(title: L10n.betterTG("Gallery.ThisItem"), style: .default) { [
+            weak self,
+            weak alert,
+        ] _ in
             alert?.dismiss(animated: true) { [weak self] in
                 self?.prepareDeleteConfirmation(
                     messageIDs: [selectedMessageID],
@@ -2945,7 +2982,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 )
             }
         })
-        alert.addAction(UIAlertAction(title: "All \(albumMessageIDs.count) Items", style: .default) { [
+        alert.addAction(UIAlertAction(
+            title: L10n.telegramPlural("Media.ShareItem", count: albumMessageIDs.count),
+            style: .default,
+        ) { [
             weak self,
             weak alert,
         ] _ in
@@ -2958,7 +2998,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 )
             }
         })
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
         alert.popoverPresentationController?.sourceView = moreButton
         alert.popoverPresentationController?.sourceRect = moreButton.bounds
         present(alert, animated: true)
@@ -3091,12 +3131,15 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         else { return }
         let count = messageIDs.count
         let alert = UIAlertController(
-            title: count == 1 ? "Delete Message?" : "Delete \(count) Messages?",
+            title: L10n.telegramPlural("Chat.DeleteMessagesConfirmation", count: count),
             message: nil,
             preferredStyle: .actionSheet,
         )
         if capabilities.canDeleteOnlyForSelf {
-            alert.addAction(UIAlertAction(title: "Delete for Me", style: .destructive) { [weak self, weak alert] _ in
+            alert.addAction(UIAlertAction(
+                title: L10n.telegram("Conversation.DeleteMessagesForMe"),
+                style: .destructive,
+            ) { [weak self, weak alert] _ in
                 alert?.dismiss(animated: true) { [weak self] in
                     self?.performDelete(
                         messageIDs: messageIDs,
@@ -3109,7 +3152,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             })
         }
         if capabilities.canDeleteForAllUsers {
-            alert.addAction(UIAlertAction(title: "Delete for Everyone", style: .destructive) { [
+            alert.addAction(UIAlertAction(
+                title: L10n.telegram("Conversation.DeleteMessagesForEveryone"),
+                style: .destructive,
+            ) { [
                 weak self,
                 weak alert,
             ] _ in
@@ -3124,7 +3170,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 }
             })
         }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
         alert.popoverPresentationController?.sourceView = moreButton
         alert.popoverPresentationController?.sourceRect = moreButton.bounds
         present(alert, animated: true)
@@ -3261,8 +3307,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         let message = error.localizedDescription
         UIAccessibility.post(notification: .announcement, argument: message)
         guard presentedViewController == nil else { return }
-        let alert = UIAlertController(title: "Can't Delete", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        let alert = UIAlertController(title: L10n.betterTG("Chat.CantDelete"), message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         present(alert, animated: true)
     }
 
@@ -3290,7 +3336,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         setActionBusy(true, source: action == .share ? .share : .more)
         UIAccessibility.post(
             notification: .announcement,
-            argument: action == .share ? "Preparing media to share" : "Preparing media to save",
+            argument: action == .share
+                ? L10n.betterTG("Accessibility.PreparingMediaShare")
+                : L10n.betterTG("Accessibility.PreparingMediaSave"),
         )
         exportTask = Task { [weak self] in
             guard let self else { return }
@@ -3799,18 +3847,20 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         UIAccessibility.post(notification: .announcement, argument: message)
         guard presentedViewController == nil else { return }
         let alert = UIAlertController(
-            title: action == .share ? "Couldn't Share Media" : "Couldn't Save Media",
+            title: action == .share
+                ? L10n.betterTG("Gallery.ShareFailedTitle")
+                : L10n.betterTG("Gallery.SaveFailedTitle"),
             message: message,
             preferredStyle: .alert,
         )
         if (error as? MediaGallerySaveError)?.shouldOfferSettings == true,
            let settingsURL = URL(string: UIApplication.openSettingsURLString)
         {
-            alert.addAction(UIAlertAction(title: "Settings", style: .default) { _ in
+            alert.addAction(UIAlertAction(title: L10n.telegram("AccessDenied.Settings"), style: .default) { _ in
                 UIApplication.shared.open(settingsURL)
             })
         }
-        alert.addAction(UIAlertAction(title: "OK", style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .cancel))
         present(alert, animated: true)
     }
 
@@ -3861,11 +3911,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         UIAccessibility.post(notification: .announcement, argument: message)
         guard presentedViewController == nil else { return }
         let alert = UIAlertController(
-            title: "Message Unavailable",
+            title: L10n.betterTG("Chat.MessageUnavailableTitle"),
             message: message,
             preferredStyle: .alert,
         )
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         present(alert, animated: true)
     }
 
@@ -7636,11 +7686,11 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             }
         spinner.translatesAutoresizingMaskIntoConstraints = false
         retryButton.translatesAutoresizingMaskIntoConstraints = false
-        retryButton.setTitle("Retry", for: .normal)
+        retryButton.setTitle(L10n.telegram("ChatImportActivity.Retry"), for: .normal)
         retryButton.setTitleColor(.white, for: .normal)
         retryButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
         retryButton.isHidden = true
-        retryButton.accessibilityHint = "Attempts to load this video again"
+        retryButton.accessibilityHint = L10n.betterTG("Accessibility.RetryVideoHint")
         retryButton.addTarget(self, action: #selector(retryPlayback), for: .touchUpInside)
         configurePlaybackControls()
         let controlsTapGesture = UITapGestureRecognizer(target: self, action: #selector(toggleControlsVisibility))
@@ -8131,8 +8181,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             for: .normal,
         )
         pictureInPictureButton.accessibilityLabel = active
-            ? "Stop Picture in Picture"
-            : "Start Picture in Picture"
+            ? L10n.betterTG("Accessibility.StopPictureInPicture")
+            : L10n.betterTG("Accessibility.StartPictureInPicture")
     }
 
     func performPlaybackCommand(_ command: GalleryPlaybackCommand) {
@@ -8403,15 +8453,15 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         networkStatusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         playButton.tintColor = .white
-        playButton.accessibilityLabel = "Play"
+        playButton.accessibilityLabel = L10n.telegram("VoiceOver.Media.PlaybackPlay")
         playButton.addTarget(self, action: #selector(togglePlayback), for: .touchUpInside)
         jumpBackwardButton.tintColor = .white
         jumpBackwardButton.setImage(UIImage(systemName: "gobackward.15"), for: .normal)
-        jumpBackwardButton.accessibilityLabel = "Back 15 seconds"
+        jumpBackwardButton.accessibilityLabel = L10n.betterTG("Accessibility.Back15Seconds")
         jumpBackwardButton.addTarget(self, action: #selector(jumpPlaybackBackward), for: .touchUpInside)
         jumpForwardButton.tintColor = .white
         jumpForwardButton.setImage(UIImage(systemName: "goforward.15"), for: .normal)
-        jumpForwardButton.accessibilityLabel = "Forward 15 seconds"
+        jumpForwardButton.accessibilityLabel = L10n.betterTG("Accessibility.Forward15Seconds")
         jumpForwardButton.addTarget(self, action: #selector(jumpPlaybackForward), for: .touchUpInside)
         timeLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         timeLabel.textColor = .white
@@ -8422,8 +8472,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         seekSlider.minimumTrackTintColor = .white
         seekSlider.maximumTrackTintColor = .clear
         seekSlider.isEnabled = false
-        seekSlider.accessibilityLabel = "Video position"
-        seekSlider.accessibilityHint = "Swipe up or down to seek"
+        seekSlider.accessibilityLabel = L10n.betterTG("Accessibility.VideoPosition")
+        seekSlider.accessibilityHint = L10n.betterTG("Accessibility.SeekHint")
         seekSlider.addTarget(self, action: #selector(beginSeeking), for: .touchDown)
         seekSlider.addTarget(self, action: #selector(seekValueChanged), for: .valueChanged)
         seekSlider.addTarget(
@@ -8432,16 +8482,16 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             for: [.touchUpInside, .touchUpOutside, .touchCancel],
         )
         muteButton.tintColor = .white
-        muteButton.accessibilityLabel = "Mute"
+        muteButton.accessibilityLabel = L10n.betterTG("Accessibility.MuteSound")
         muteButton.addTarget(self, action: #selector(toggleMuted), for: .touchUpInside)
         rateButton.setTitle("1×", for: .normal)
         rateButton.setTitleColor(.white, for: .normal)
-        rateButton.accessibilityLabel = "Playback speed"
-        rateButton.accessibilityHint = "Cycles through available playback speeds"
+        rateButton.accessibilityLabel = L10n.telegram("VoiceOver.Media.PlaybackRate")
+        rateButton.accessibilityHint = L10n.betterTG("Accessibility.PlaybackSpeedHint")
         rateButton.addTarget(self, action: #selector(cyclePlaybackRate), for: .touchUpInside)
         pictureInPictureButton.tintColor = .white
         pictureInPictureButton.isHidden = true
-        pictureInPictureButton.accessibilityLabel = "Start Picture in Picture"
+        pictureInPictureButton.accessibilityLabel = L10n.betterTG("Accessibility.StartPictureInPicture")
         pictureInPictureButton.addTarget(
             self,
             action: #selector(togglePictureInPicture),
@@ -8633,8 +8683,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                 downloaded = try await lease.source.completedFile()
             } catch {
                 let statusText = (error as? TDLibVODRangeError) == .offline
-                    ? "Offline"
-                    : "Couldn't load video"
+                    ? L10n.betterTG("Gallery.StatusOffline")
+                    : L10n.betterTG("Gallery.VideoLoadFailed")
                 await lease.invalidate()
                 await MainActor.run {
                     guard let self,
@@ -8774,7 +8824,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                 }
             } else if usesLegacyDownload || sourceFile != nil {
                 usesLegacyDownload = false
-                showRetryState(statusText: "Couldn't load video", retryMode: .fullDownload)
+                showRetryState(statusText: L10n.betterTG("Gallery.VideoLoadFailed"), retryMode: .fullDownload)
             }
         }
         refreshPlaybackSurfaceVisibility()
@@ -8806,10 +8856,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         prepareSurfaceForNewItem()
         player.stop()
         if retriesVOD {
-            let statusText = currentStreamingStatus == .offline ? "Offline" : "Stream timed out"
+            let statusText = currentStreamingStatus == .offline
+                ? L10n.betterTG("Gallery.StatusOffline")
+                : L10n.betterTG("Gallery.StreamTimedOut")
             showRetryState(statusText: statusText, retryMode: .vod)
         } else if failedWithFFmpeg, sourceFile.local.isDownloadingCompleted {
-            showRetryState(statusText: "Couldn't decode video", retryMode: .vod)
+            showRetryState(statusText: L10n.betterTG("Gallery.VideoDecodeFailed"), retryMode: .vod)
         } else {
             startLegacyDownload(file: sourceFile)
         }
@@ -8931,7 +8983,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         let playbackRequested = isSeeking ? resumeAfterSeeking : playbackIsRequested
         let showsPause = playbackRequested && currentPlaybackState != .ended && currentPlaybackState != .failed
         playButton.setImage(UIImage(systemName: showsPause ? "pause.fill" : "play.fill"), for: .normal)
-        playButton.accessibilityLabel = showsPause ? "Pause" : "Play"
+        playButton.accessibilityLabel = showsPause
+            ? L10n.telegram("VoiceOver.Media.PlaybackPause")
+            : L10n.telegram("VoiceOver.Media.PlaybackPlay")
         playButton.isEnabled = currentPlaybackState != .failed
         let canSeek = canSeekPlayback
         seekSlider.isEnabled = canSeek
@@ -8944,8 +8998,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             UIImage(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill"),
             for: .normal,
         )
-        muteButton.accessibilityLabel = isMuted ? "Unmute" : "Mute"
-        muteButton.accessibilityValue = isMuted ? "Muted" : "Sound on"
+        muteButton.accessibilityLabel = isMuted
+            ? L10n.betterTG("Accessibility.UnmuteSound")
+            : L10n.betterTG("Accessibility.MuteSound")
+        muteButton.accessibilityValue = isMuted
+            ? L10n.betterTG("Accessibility.Muted")
+            : L10n.betterTG("Accessibility.SoundOn")
 
         let rateTitle =
             switch playbackRate {
@@ -9127,27 +9185,27 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             if let retryStatusText {
                 retryStatusText
             } else if usesLegacyDownload {
-                "Downloading…"
+                L10n.betterTG("Gallery.StatusDownloading")
             } else {
                 switch status {
                 case .offline:
-                    "Offline"
+                    L10n.betterTG("Gallery.StatusOffline")
                 case .retrying:
-                    "Retrying…"
+                    L10n.betterTG("Gallery.StatusRetrying")
                 case .failed:
-                    "Couldn't stream"
+                    L10n.betterTG("Gallery.StreamFailed")
                 case .loading:
                     if currentPlaybackState == .buffering || currentPlaybackState == .preparing {
-                        "Buffering…"
+                        L10n.betterTG("Gallery.StatusBuffering")
                     } else {
                         ""
                     }
                 case .idle, .ready:
-                    currentPlaybackState == .buffering ? "Buffering…" : ""
+                    currentPlaybackState == .buffering ? L10n.betterTG("Gallery.StatusBuffering") : ""
                 }
             }
         networkStatusLabel.text = text
-        networkStatusLabel.accessibilityLabel = text.isEmpty ? nil : "Video status"
+        networkStatusLabel.accessibilityLabel = text.isEmpty ? nil : L10n.betterTG("Accessibility.VideoStatus")
         networkStatusLabel.accessibilityValue = text.isEmpty ? nil : text
         networkStatusLabel.accessibilityElementsHidden = text.isEmpty
         if hasBlockingStreamingStatus || currentPlaybackState == .buffering {
@@ -9179,7 +9237,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         let elapsed = formatPlaybackTime(boundedCurrent)
         let duration = formatPlaybackTime(playbackDuration)
         timeLabel.text = "\(elapsed) / \(duration)"
-        seekSlider.accessibilityValue = "\(elapsed) of \(duration)"
+        seekSlider.accessibilityValue = L10n.telegram("Items.NOfM", elapsed, duration)
     }
 
     private func formatPlaybackTime(_ time: TimeInterval) -> String {

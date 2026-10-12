@@ -54,7 +54,7 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
         player.attach(to: playerSurface.playerLayer)
         var configuration = UIButton.Configuration.plain()
         configuration.image = UIImage(named: "Gallery/LivePhotoPlay")
-        configuration.title = "LIVE"
+        configuration.title = L10n.telegram("Gallery.Live")
         configuration.imagePadding = 4
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 11)
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
@@ -66,7 +66,7 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
         liveButton.tintColor = .white
         liveButton.backgroundColor = UIColor.black.withAlphaComponent(0.45)
         liveButton.layer.cornerRadius = 14
-        liveButton.accessibilityLabel = "Play Live Photo"
+        liveButton.accessibilityLabel = L10n.betterTG("Accessibility.PlayLivePhoto")
         liveButton.accessibilityIdentifier = "gallery-live-photo-play"
         liveButton.addTarget(self, action: #selector(togglePlayback), for: .touchUpInside)
         addSubview(liveButton)
@@ -209,13 +209,13 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
                 player.load(url: url, autoplay: false, loops: false)
                 spinner.stopAnimating()
                 liveButton.isEnabled = true
-                setLiveButtonTitle("LIVE")
+                setLiveButtonTitle(L10n.telegram("Gallery.Live"))
                 autoplayIfNeeded()
             } catch {
                 guard let self, !Task.isCancelled, self.generation == generation else { return }
                 spinner.stopAnimating()
                 liveButton.isEnabled = true
-                setLiveButtonTitle("Retry")
+                setLiveButtonTitle(L10n.telegram("ChatImportActivity.Retry"))
             }
         }
     }
@@ -240,7 +240,7 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
         case .failed:
             isUserPlaybackActive = false
             isAutoplaying = false
-            setLiveButtonTitle("Retry")
+            setLiveButtonTitle(L10n.telegram("ChatImportActivity.Retry"))
         default: break
         }
         updateVideoVisibility()
@@ -271,10 +271,12 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
             : "Gallery/LivePhotoPlay")
         liveButton.configuration = configuration
         liveButton.tintColor = .white
-        liveButton.accessibilityLabel = isUserPlaybackActive ? "Stop Live Photo" : "Play Live Photo"
+        liveButton.accessibilityLabel = isUserPlaybackActive
+            ? L10n.betterTG("Accessibility.StopLivePhoto")
+            : L10n.betterTG("Accessibility.PlayLivePhoto")
         liveButton.accessibilityValue = player.state == .playing
-            ? String(format: "Playing %.1f seconds", elapsed)
-            : "Stopped"
+            ? L10n.betterTG("Accessibility.PlayingSeconds", elapsed)
+            : L10n.betterTG("Accessibility.Stopped")
     }
 
     private func stopMotion() {

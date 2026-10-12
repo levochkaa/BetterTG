@@ -21,7 +21,7 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
         super.init(frame: frame)
         clipsToBounds = true
         isAccessibilityElement = true
-        accessibilityLabel = "GIF"
+        accessibilityLabel = L10n.telegram("Message.Animation")
         accessibilityTraits = .image
         thumbnailView.contentMode = .scaleAspectFit
         addSubview(thumbnailView)
