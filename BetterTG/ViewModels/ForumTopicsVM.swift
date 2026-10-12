@@ -546,7 +546,13 @@ import TDLibKit
                 topics.removeAll { $0.info.forumTopicId == id }
                 return
             }
-            topics = ForumTopicPageState.merging(existing: topics, incoming: [topic])
+            // Replace in place and re-sort through the pinned ranks; a plain order merge would move pinned topics.
+            if let index = topics.firstIndex(where: { $0.info.forumTopicId == id }) {
+                topics[index] = topic
+            } else {
+                topics.append(topic)
+            }
+            sortTopics()
         }
         topicRequests[requestID] = task
     }
