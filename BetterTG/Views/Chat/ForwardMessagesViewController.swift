@@ -20,6 +20,8 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
         rightImage: UIImage(systemName: "ellipsis"),
         leftAction: { [weak self] in self?.cancelPicker() },
         rightAction: { [weak self] in self?.showOptions() },
+        leftAccessibilityLabel: L10n.telegram("Common.Close"),
+        rightAccessibilityLabel: L10n.telegram("Common.More"),
     )
     private var navigationHeight: NSLayoutConstraint!
     private var contentHeight = TelegramListNavigationBar.expandedContentHeight

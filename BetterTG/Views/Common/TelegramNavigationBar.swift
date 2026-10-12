@@ -44,6 +44,8 @@ final class TelegramListNavigationBar: UIView {
         leftAction: (() -> Void)?,
         rightAction: (() -> Void)?,
         showsBackButton: Bool = false,
+        leftAccessibilityLabel: String? = nil,
+        rightAccessibilityLabel: String? = nil,
     ) {
         self.searchView = ChatListNavigationSearchView(placeholder: placeholder)
         self.leftAction = leftAction
@@ -54,6 +56,9 @@ final class TelegramListNavigationBar: UIView {
         leftButton.setImage(leftImage, for: .normal)
         rightButton.setImage(rightImage, for: .normal)
         configureViews()
+        // Symbol images otherwise read their symbol names ("Gear shape") to VoiceOver.
+        if let leftAccessibilityLabel { leftButton.accessibilityLabel = leftAccessibilityLabel }
+        if let rightAccessibilityLabel { rightButton.accessibilityLabel = rightAccessibilityLabel }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {

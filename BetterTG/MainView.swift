@@ -37,6 +37,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         rightImage: UIImage(systemName: "gearshape"),
         leftAction: { [weak self] in self?.openArchive() },
         rightAction: { [weak self] in self?.openSettings() },
+        leftAccessibilityLabel: L10n.telegram("ChatList.ArchivedChatsTitle"),
+        rightAccessibilityLabel: L10n.telegram("Settings.Title"),
     )
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private var currentNavigationContentHeight = TelegramListNavigationBar.expandedContentHeight

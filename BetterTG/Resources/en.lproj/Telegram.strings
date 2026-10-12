@@ -424,3 +424,5 @@
 "Conversation.ForwardOptions.ShowSendersName" = "Show Sender's Name";
 "Conversation.ForwardOptions.HideSendersName" = "Hide Sender's Name";
 "DialogList.You" = "You";
+"ChatList.ArchivedChatsTitle" = "Archived Chats";
+"Common.More" = "More";
