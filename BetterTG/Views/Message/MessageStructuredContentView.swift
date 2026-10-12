@@ -1815,7 +1815,8 @@ final class TelegramContactDetailsViewController: UIViewController {
 
         static func runIfRequested(in window: UIWindow) {
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-message-content") else { return }
-            DispatchQueue.main.async {
+            Task { @MainActor in
+                try? await ProbeFixtures.waitForActiveAccount()
                 run(in: window)
             }
         }

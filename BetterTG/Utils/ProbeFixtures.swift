@@ -6,6 +6,20 @@
 
     /// Chat-list fixtures shared by DEBUG probes. Never used by production paths.
     @MainActor enum ProbeFixtures {
+        struct AccountNotReady: Error, CustomStringConvertible {
+            var description: String { "account did not become ready" }
+        }
+
+        /// TDLibKit 2 creates the active client asynchronously after launch. Probes that borrow the active client
+        /// object or its VOD ranges wait for it instead of tripping the bootstrap precondition.
+        static func waitForActiveAccount(timeout: Duration = .seconds(30)) async throws {
+            let deadline = ContinuousClock.now.advanced(by: timeout)
+            while !TDLib.shared.isActiveAccountReady, ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            guard TDLib.shared.isActiveAccountReady else { throw AccountNotReady() }
+        }
+
         static func folder() -> CustomFolder {
             let name = ChatFolderName(animateCustomEmoji: false, text: .init(entities: [], text: "probe"))
             let icon = ChatFolderIcon(name: "All")

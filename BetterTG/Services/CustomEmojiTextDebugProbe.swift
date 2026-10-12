@@ -16,8 +16,11 @@ import UIKit
         value.addAttribute(.font, value: UIFont.bold, range: NSRange(location: 1, length: 2))
         var lines = [String]()
         func check(_ name: String, _ condition: Bool) { lines.append("\(condition ? "PASS" : "FAIL") \(name)") }
-        let state = AttributedString(telegramText: value)
-        let roundTrip = state.telegramNSAttributedString
+        // The composer turns visual custom emoji runs into one semantic entity per emoji, as CustomTextField does
+        // for pasted and inserted emoji; outgoing entities, drafts and edits read only that semantic layer.
+        ComposerText.setCustomEmoji(TelegramCustomEmojiRun.extract(from: value), in: value)
+        let state = ComposerText.value(value)
+        let roundTrip = ComposerText.uiKit(state)
         let runs = TelegramCustomEmojiRun.extract(from: roundTrip)
         check("scope retains 64-bit custom emoji ids", runs.count == 2 && runs.allSatisfy { $0.id == id })
         check(

@@ -180,7 +180,8 @@
                 throw Failure(description: "missing Done item")
             }
             try require(
-                item.title == "Done" && item.style == .plain && item.image == nil
+                // The title follows the selected language pack; the accessibility label stays fixed.
+                item.title == L10n.telegram("Common.Done") && item.style == .plain && item.image == nil
                     && item.accessibilityLabel == "Done" && (item.target as? UIViewController) === controller
                     && item.action == NSSelectorFromString(action) && item.isEnabled == enabled,
                 "Done title/style/AX/target/action/enabled changed",
@@ -223,7 +224,7 @@
         }
 
         private static func search(_ picker: ChatFolderChatSelectionViewController, _ text: String) {
-            let controller = picker.navigationItem.searchController!
+            let controller = picker.telegramNavigationSearch
             controller.searchBar.text = text
             picker.updateSearchResults(for: controller)
         }
@@ -334,10 +335,18 @@
             let actual = rows(picker)
             try require(
                 actual.map { $0.textLabel?.text } == expected.map { Optional($0.1) },
-                "selector fallback/sort mismatch",
+                "selector fallback/sort mismatch: actual=\(actual.map { $0.textLabel?.text ?? "nil" }) "
+                    + "expected=\(expected.map(\.1))",
             )
             for (row, item) in zip(actual, expected) {
-                try require(row.detailTextLabel?.text == item.2, "selector contact/type subtitle mismatch")
+                // Subtitles come from the selected language pack.
+                let keys = [
+                    "Contact": "ChatList.PeerTypeContact", "Non-Contact": "ChatList.PeerTypeNonContact",
+                    "Group": "ChatList.PeerTypeGroup", "Bot": "ChatList.PeerTypeBot",
+                    "Channel": "ChatList.PeerTypeChannel",
+                ]
+                let subtitle = item.2.map { keys[$0].map { L10n.telegram($0) } ?? $0 }
+                try require(row.detailTextLabel?.text == subtitle, "selector contact/type subtitle mismatch")
                 try require(
                     row.accessoryType == (item.0.id == 101 ? .checkmark : .none),
                     "fallback changed selection identity",
@@ -345,7 +354,10 @@
             }
             let reused = UITableViewCell(style: .subtitle, reuseIdentifier: "FolderChatCell")
             picker.configurePickerCell(reused, chat: cases[3].0)
-            try require(reused.detailTextLabel?.text == "Contact", "reuse fixture did not bind contact")
+            try require(
+                reused.detailTextLabel?.text == L10n.telegram("ChatList.PeerTypeContact"),
+                "reuse fixture did not bind contact",
+            )
             picker.configurePickerCell(reused, chat: deleted)
             try require(
                 reused.textLabel?.text == "Deleted Account" && reused.detailTextLabel?.text == nil
@@ -402,7 +414,8 @@
             try await until({
                 picker.tableView.layoutIfNeeded()
                 let row = picker.tableView.cellForRow(at: IndexPath(row: 0, section: 0))
-                return row?.textLabel?.text == "Resolved" && row?.detailTextLabel?.text == "Contact"
+                return row?.textLabel?.text == "Resolved"
+                    && row?.detailTextLabel?.text == L10n.telegram("ChatList.PeerTypeContact")
                     && row?.accessoryType == .checkmark
             }, "accepted user update did not refresh actual selector row")
             search(picker, "Resolved")
@@ -579,7 +592,7 @@
             fixture.ready.send(fixture.current)
             try verifyDoneItem(picker, action: "done", enabled: true)
             picker.tableView(picker.tableView, didSelectRowAt: IndexPath(row: 0, section: 0))
-            let search = picker.navigationItem.searchController!
+            let search = picker.telegramNavigationSearch
             search.searchBar.text = "Fixture"
             picker.updateSearchResults(for: search)
             _ = fixture.replace(clientID: 803)

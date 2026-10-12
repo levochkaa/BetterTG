@@ -69,6 +69,13 @@
 
         static func runIfRequested(in window: UIWindow) {
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-forum-topics") else { return }
+            Task { @MainActor in
+                try? await ProbeFixtures.waitForActiveAccount()
+                present(in: window)
+            }
+        }
+
+        private static func present(in window: UIWindow) {
             let general = topic(
                 id: 1,
                 name: "General",

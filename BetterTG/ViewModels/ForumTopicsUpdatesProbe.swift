@@ -104,6 +104,7 @@ import UIKit
         Task { @MainActor in
             let result: String
             do {
+                try await ProbeFixtures.waitForActiveAccount()
                 try await verify()
                 try await verifyDeferredDemand()
                 try await verifyFullReadOrdering()
@@ -923,7 +924,10 @@ import UIKit
         let individual = f.model.probeTopicTask(id: 9)!
         f.finishTopic(f.pendingTopicIndex(id: 9)!, changed)
         try await terminal([individual])
-        try require(f.model.topics.map(\.info.forumTopicId) == [9, 3, 5, 1], "individual invented pin position")
+        try require(
+            f.model.topics.map(\.info.forumTopicId) == [9, 3, 5, 1],
+            "individual invented pin position: \(f.model.topics.map(\.info.forumTopicId))",
+        )
 
         f.post(topic(id: 3, order: 2))
         await events()

@@ -87,7 +87,7 @@
             guard let input = descendants(view.view).compactMap({ $0 as? UITextField }).first,
                   let button = descendants(view.view)
 .compactMap({ $0 as? UIButton })
-                  .first(where: { $0.configuration?.title == "Continue" })
+                  .first(where: { $0.configuration?.title == L10n.telegram("Login.Continue") })
             else {
                 throw Failure(description: "real Login controls missing")
             }

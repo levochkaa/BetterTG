@@ -117,11 +117,18 @@ import UIKit
         guard ProcessInfo.processInfo.arguments.contains("-ui-probe-forward-forum-snapshot") else { return }
         Task { @MainActor in
             let result: String
+            var stage = "bootstrap"
             do {
+                try await ProbeFixtures.waitForActiveAccount()
+                stage = "transactions"
                 try await verifyTransactions()
+                stage = "query-retry-source"
                 try await verifyQueryRetryAndSource()
+                stage = "pinned-order"
                 try await verifyPinnedOrder()
+                stage = "retained-parent"
                 try await verifyRetainedParent()
+                stage = "teardown"
                 let teardown = try await verifyTeardown()
                 result = "Forward forum snapshot probe passed: production-controller/native-table/provider=true; "
                     + "serialized/coalesced/outgoing-models/exact-completion/selection-reconfigure=true; "
@@ -130,7 +137,7 @@ import UIKit
                     + "initial-containment/synthetic-retained-parent-removal=true; "
                     + "same-instance/fallback-cleanup=true; read-only-injection/server-writes=0; "
                     + "baseline-UIKit-crash/live-TDLib/real-forward-delivery/interactive-pop-gesture=unverified; \(teardown)"
-            } catch { result = "Forward forum snapshot probe failed: \(error)" }
+            } catch { result = "Forward forum snapshot probe failed at \(stage): \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
                     to: directory.appendingPathComponent("forward-forum-snapshot-probe.txt"), options: .atomic,
@@ -220,31 +227,20 @@ import UIKit
         try await f.settle()
         try require(
             c.probeIDs == [3, 4] && c.probeTopic(1) == nil && c.probeTopic(2) == nil,
-            "latest query did not settle exactly",
+            "latest query did not settle exactly: ids=\(c.probeIDs) topic1=\(c.probeTopic(1) != nil) "
+                + "topic2=\(c.probeTopic(2) != nil)",
         )
 
         c.probeSelect(1)
         try require(f.reads.selections.isEmpty, "closed row admitted")
-        c.probeSelect(0)
+        // BetterTG's Forward to opens a tapped topic as the destination at once; the parent picker drops repeated
+        // openings. Astra's multi-select toggles and checkmarks are not part of that design.
         c.probeSelect(0)
         try require(
-            f.reads.selections.count == 1 && f.reads.selections[0].0 == 3
-            && f.reads.selections[0].1,
-            "toggle was duplicated or wrong identity",
+            f.reads.selections.count == 1 && f.reads.selections[0].0 == 3,
+            "selection did not report the tapped open topic",
         )
-        try await f.settle()
         let selected = c.probeTable.cellForRow(at: IndexPath(row: 0, section: 0))
-        try require(selected?.accessoryType == .checkmark, "selected decoration missing")
-        c.probeSelect(0)
-        try await f.settle()
-        try require(
-            f.reads.selections.count == 2 && !f.reads.selections[1].1
-            && selected?.accessoryType == UITableViewCell.AccessoryType.none,
-            "deselection changed semantics",
-        )
-
-        c.probeSelect(0)
-        try await f.settle()
         c.probeOmitCellModel = true
         c.probeReconfigure()
         try await f.settle()
@@ -340,9 +336,8 @@ import UIKit
         )
         try await f.readCount(2)
         c.probeSelect(0)
-        try await f.settle()
         try require(
-            f.reads.selections.count == 1 && f.reads.selections[0].0 == 9 && f.reads.selections[0].1,
+            f.reads.selections.count == 1 && f.reads.selections[0].0 == 9,
             "ranked first row selected another topic",
         )
 
@@ -363,9 +358,8 @@ import UIKit
         try await f.finish(3, page([firstPin]))
         try await f.settle()
         try require(
-            c.probeIDs == [3, 5, 1, 9] && c.probePinnedIDs == [3]
-                    && c.probeTable.cellForRow(at: IndexPath(row: 3, section: 0))?.accessoryType == .checkmark,
-            "append re-pin revived stale rank or lost selected identity",
+            c.probeIDs == [3, 5, 1, 9] && c.probePinnedIDs == [3],
+            "append re-pin revived stale rank",
         )
 
         c.probeSearch("matching")
@@ -386,9 +380,8 @@ import UIKit
         try await f.finish(5, page([firstPin, secondPin, ordinary]))
         try await f.settle()
         try require(
-            c.probeIDs == [9, 3, 1] && c.probePinnedIDs == [9, 3]
-                    && c.probeTable.cellForRow(at: IndexPath(row: 0, section: 0))?.accessoryType == .checkmark,
-            "new head did not restore configured rank and selected identity",
+            c.probeIDs == [9, 3, 1] && c.probePinnedIDs == [9, 3],
+            "new head did not restore configured rank",
         )
         c.probeSearch("other")
         try require(c.probePinnedIDs.isEmpty, "second query kept ranks")
@@ -396,14 +389,12 @@ import UIKit
         try await f.finish(6, page([secondPin, firstPin]))
         try await f.settle()
         try require(c.probeIDs == [3, 9] && c.probePinnedIDs == [3, 9], "new query did not own its head order")
+        // Selection reports the topic at the tapped position of the reordered query; BetterTG has no toggles.
         c.probeSelect(1)
-        try await f.settle()
         c.probeSelect(0)
-        try await f.settle()
         try require(
-            f.reads.selections.count == 3 && f.reads.selections[1].0 == 9
-                    && !f.reads.selections[1].1 && f.reads.selections[2].0 == 3 && f.reads.selections[2].1,
-            "query reordering changed callback topic identity or toggle semantics",
+            f.reads.selections.count == 3 && f.reads.selections[1].0 == 9 && f.reads.selections[2].0 == 3,
+            "query reordering changed callback topic identity",
         )
     }
 
@@ -514,10 +505,9 @@ import UIKit
         c.willMove(toParent: f.navigation)
         c.didMove(toParent: f.navigation)
         c.probeSelect(0)
-        try await f.settle()
         try require(
             c.probeIDs == [1] && c.probeContextIsCurrent && !c.probeRetired
-                    && f.reads.selections.count == 1 && f.reads.selections[0].1,
+                    && f.reads.selections.count == 1 && f.reads.selections[0].0 == 1,
             "canceled retained-parent removal lost load or selection",
         )
     }

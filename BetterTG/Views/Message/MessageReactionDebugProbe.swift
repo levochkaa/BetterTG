@@ -97,6 +97,13 @@
 
         static func runIfRequested(in window: UIWindow) {
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-message-reactions") else { return }
+            Task { @MainActor in
+                try? await ProbeFixtures.waitForActiveAccount()
+                present(in: window)
+            }
+        }
+
+        private static func present(in window: UIWindow) {
             let thumbsUp = ReactionType.reactionTypeEmoji(ReactionTypeEmoji(emoji: "👍"))
             let heart = ReactionType.reactionTypeEmoji(ReactionTypeEmoji(emoji: "❤️"))
             let laugh = ReactionType.reactionTypeEmoji(ReactionTypeEmoji(emoji: "😂"))

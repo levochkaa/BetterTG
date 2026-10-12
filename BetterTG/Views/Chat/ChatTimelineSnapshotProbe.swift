@@ -272,6 +272,7 @@ import UIKit
         Task { @MainActor in
             let result: String
             do {
+                try await ProbeFixtures.waitForActiveAccount()
                 try await verify()
                 try await verifyReleasedOwner()
                 result = "Chat timeline snapshot probe passed: shared-production-scheduler/native-MessageCell=true; "

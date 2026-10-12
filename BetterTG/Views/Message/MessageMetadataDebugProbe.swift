@@ -100,6 +100,7 @@
         static func runIfRequested(in window: UIWindow) {
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-message-metadata") else { return }
             Task { @MainActor in
+                try? await ProbeFixtures.waitForActiveAccount()
                 await run(in: window)
             }
         }

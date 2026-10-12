@@ -106,6 +106,7 @@
                 Task { @MainActor in
                     let result: String
                     do {
+                        try await ProbeFixtures.waitForActiveAccount()
                         try await verifySnapshotCells()
                         result = "Forum snapshot probe passed: production-state/serialized/coalesced/outgoing-lifetime=true; "
                             + "real-UIKit-diffable/production-cell/same-instance-reconfigure=true; "

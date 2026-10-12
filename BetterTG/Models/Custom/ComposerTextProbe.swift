@@ -80,7 +80,10 @@
             try require(field.text == "ni" && field.markedTextRange != nil, "model feedback ended marked text")
             try require(!field.permitsClientRestoration, "marked composition allowed route replacement")
             field.setMarkedText("你", selectedRange: NSRange(location: 1, length: 0))
-            try require(field.text == "你" && field.markedTextRange != nil, "second marked candidate lost composition")
+            try require(
+                field.text == "你" && field.markedTextRange != nil,
+                "second marked candidate lost composition: text=\(field.text ?? "nil") marked=\(field.markedTextRange != nil)",
+            )
             field.unmarkText()
             try require(field.text == "你" && field.markedTextRange == nil, "marked commit lost text")
         }
@@ -123,7 +126,8 @@
                 NSRange(location: 1, length: 1),
                 NSRange(location: 0, length: 1),
                 NSRange(location: -1, length: 1),
-                NSRange(location: 1, length: Int.max),
+                // TDLibKit 2 entities hold Int32 offsets and lengths; the largest one is still out of range.
+                NSRange(location: 1, length: Int(Int32.max)),
             ] {
                 let text = FormattedText(
                     entities: [.init(length: range.length, offset: range.location, type: .textEntityTypeBold)],

@@ -128,15 +128,27 @@ import UIKit
         for cell in cells {
             cell.refreshRevealState()
         }
+        // The revealed placeholder decodes off the main thread before it reaches the image view.
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while !cells[1].debugHasRawImage, ContinuousClock.now < deadline {
+            try await Task<Never, Never>.sleep(for: .milliseconds(10))
+        }
         try require(
             loads == [2] && cells[1].debugHasRawImage && cells[0].debugHasCover && cells[2].debugHasCover,
-            "first gallery tap did not grant only selected member",
+            "first gallery tap did not grant only selected member: loads=\(loads) raw=\(cells.map(\.debugHasRawImage)) "
+                + "covers=\(cells.map(\.debugHasCover))",
         )
         try require(coveredSnapshot?.snapshotView == nil, "old cover snapshot survived render replacement")
         let rawSnapshot = cells[1].transitionTarget(for: 2, validation: { true })
         guard rawSnapshot?.validatedSourceView is TDImageLoadingView,
+              // The gallery transition rasterizes into MediaGalleryImageTransitionView, which keeps the image frame.
               let revealedImage = (rawSnapshot?.snapshotView as? UIImageView)?.image
-        else { throw Failure(description: "revealed source or rasterized snapshot absent") }
+              ?? (rawSnapshot?.snapshotView as? MediaGalleryImageTransitionView)?.image
+        else {
+            throw Failure(
+                description: "revealed source or rasterized snapshot absent: source=\(String(describing: rawSnapshot?.validatedSourceView.map { type(of: $0) })) snapshot=\(String(describing: rawSnapshot?.snapshotView.map { type(of: $0) }))",
+            )
+        }
         try require(isFixtureRed(revealedImage), "revealed transition lost private fixture pixels")
         try require(
             cells[1].accessibilityLabel?.contains("hidden-caption") == false,
@@ -146,9 +158,14 @@ import UIKit
         for cell in cells {
             cell.refreshRevealState()
         }
+        let pagedDeadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while !cells[2].debugHasRawImage, ContinuousClock.now < pagedDeadline {
+            try await Task<Never, Never>.sleep(for: .milliseconds(10))
+        }
         try require(
             loads == [2, 3] && cells[0].debugHasCover && cells[2].debugHasRawImage,
-            "gallery paging/return overgranted",
+            "gallery paging/return overgranted: loads=\(loads) raw=\(cells.map(\.debugHasRawImage)) "
+                + "covers=\(cells.map(\.debugHasCover))",
         )
 
         let replacement = message(file: f.file, id: 2, revision: 1, png: png)
@@ -164,6 +181,10 @@ import UIKit
         try require(loads == [2, 3], "replacement loaded before a fresh grant")
         gallery.debugRevealSelection(at: 1)
         cells[1].refreshRevealState()
+        let freshDeadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while !cells[1].debugHasRawImage, ContinuousClock.now < freshDeadline {
+            try await Task<Never, Never>.sleep(for: .milliseconds(10))
+        }
         try require(loads == [2, 3, 2] && cells[1].debugHasRawImage, "fresh accepted revision cannot reveal")
         let reusedSnapshot = cells[1].transitionTarget(for: 2, validation: { true })
         cells[1].prepareForReuse()
@@ -226,6 +247,10 @@ import UIKit
         let ordinary = message(file: epoch.file, id: 20, spoiler: false, png: png)
         epoch.session.reconcile([ordinary])
         cells[0].configure(message: ordinary, context: epoch.context, permit: epoch.session.permit(for: ordinary))
+        let ordinaryDeadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while !cells[0].debugHasRawImage, ContinuousClock.now < ordinaryDeadline {
+            try await Task<Never, Never>.sleep(for: .milliseconds(10))
+        }
         try require(cells[0].debugHasRawImage && !cells[0].debugHasCover, "ordinary media regressed")
         try require(cells[0].accessibilityLabel?.contains("hidden-caption") == false, "ordinary text spoiler AX leaked")
         let firstDownloads = await f.backend.downloadCalls

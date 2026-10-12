@@ -151,11 +151,7 @@ import UIKit
             let result: String
             do {
                 // The fixtures borrow the active client object (no RPC); it exists once the account is ready.
-                let deadline = ContinuousClock.now.advanced(by: .seconds(30))
-                while !TDLib.shared.isActiveAccountReady, ContinuousClock.now < deadline {
-                    try await Task.sleep(for: .milliseconds(100))
-                }
-                try require(TDLib.shared.isActiveAccountReady, "account did not become ready")
+                try await ProbeFixtures.waitForActiveAccount()
                 try await verifyRenewal()
                 try await verifyUnknownActor(departFirst: false)
                 try await verifyUnknownActor(departFirst: true)

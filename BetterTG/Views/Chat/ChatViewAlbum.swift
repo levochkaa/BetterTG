@@ -6561,6 +6561,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             Task {
                 let result: String
                 do {
+                    try await ProbeFixtures.waitForActiveAccount()
                     try await verifyRestorationBindings()
                     try await verifyContextRevocation(sameAccount: false, pendingStart: false)
                     try await verifyContextRevocation(sameAccount: true, pendingStart: true)

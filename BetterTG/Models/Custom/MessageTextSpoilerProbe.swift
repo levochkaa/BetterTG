@@ -77,7 +77,7 @@
                 "invalid hit index",
             )
             let malformed = FormattedText(entities: [
-                .init(length: Int.max, offset: 1, type: .textEntityTypeSpoiler),
+                .init(length: Int(Int32.max), offset: 1, type: .textEntityTypeSpoiler),
                 .init(length: 1, offset: -1, type: .textEntityTypeBold),
             ], text: "secret")
             let unsafe = MessageTextSpoilerPresentation(malformed)
@@ -163,8 +163,9 @@
             try require(!rect.isEmpty, "missing glyph layout")
             let point = CGPoint(x: rect.midX, y: rect.midY)
             view.activateEntity(at: point) { actions.append($0) }
+            // The reveal is reported so the tap handler counts it as handled; nothing else is dispatched.
             try require(
-                state.revealed && !second.revealed && actions.isEmpty,
+                state.revealed && !second.revealed && actions == [.reveal],
                 "first tap dispatched or revealed another album source",
             )
             try require(
@@ -179,6 +180,7 @@
                 !view.permitsCustomEmoji(range: emoji, generation: oldGeneration),
                 "old emoji completion admitted",
             )
+            actions.removeAll()
             view.activateEntity(at: point) { actions.append($0) }
             try require(
                 actions == [.open(URL(string: "https://example.invalid/secret")!)],

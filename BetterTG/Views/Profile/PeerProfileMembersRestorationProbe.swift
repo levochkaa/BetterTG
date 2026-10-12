@@ -29,6 +29,7 @@ import UIKit
         Task {
             let result: String
             do {
+                try await ProbeFixtures.waitForActiveAccount()
                 try verifyValues()
                 try await until("window scene") { UIApplication.shared.connectedScenes.contains { $0 is UIWindowScene }
                     }

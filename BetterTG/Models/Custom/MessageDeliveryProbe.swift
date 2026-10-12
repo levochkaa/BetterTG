@@ -156,6 +156,7 @@ import UIKit
         Task { @MainActor in
             let result: String
             do {
+                try await ProbeFixtures.waitForActiveAccount()
                 try verifyReceipts()
                 try verifyForumReceipts()
                 try verifyStates()

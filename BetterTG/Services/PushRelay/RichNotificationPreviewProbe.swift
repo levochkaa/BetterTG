@@ -92,7 +92,7 @@
                 // ranges or reveal the text when an offset cannot be decoded.
                 for entity in [
                     TextEntity(length: 7, offset: 3, type: .textEntityTypeSpoiler),
-                    TextEntity(length: 0, offset: Int.max, type: .textEntityTypeSpoiler),
+                    TextEntity(length: 0, offset: Int(Int32.max), type: .textEntityTypeSpoiler),
                 ] {
                     let body = Policy.captionedBody(
                         icon: icon, caption: .init(entities: [entity], text: text), fallback: fallback,
