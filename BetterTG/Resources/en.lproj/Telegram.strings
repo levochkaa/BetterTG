@@ -58,6 +58,12 @@
 "Conversation.DeleteMessagesForMe" = "Delete for me";
 "Conversation.DeleteMessagesForEveryone" = "Delete for everyone";
 "Conversation.SavedMessages" = "Saved Messages";
+"Conversation.PinMessagesFor" = "Pin for me and %@";
+"Conversation.PinMessagesForMe" = "Pin for me";
+"Conversation.PinMessageAlert.PinAndNotifyMembers" = "Pin and notify all members";
+"Conversation.PinMessageAlert.OnlyPin" = "Only Pin";
+"Conversation.UnpinMessageAlert" = "Would you like to unpin this message?";
+"Conversation.PinnedMessage" = "Pinned Message";
 
 "Message.Photo" = "Photo";
 "Message.Video" = "Video";

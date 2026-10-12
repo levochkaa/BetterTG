@@ -2066,7 +2066,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     self?.scrollToMessage(id: message.id)
                 },
                 onHide: { [weak self] in
-                    self?.chatVM.hidePinnedMessageBanner()
+                    self?.closePinnedMessageBanner()
                 },
             )
             pinnedMessageBanner.isHidden = false
@@ -3794,8 +3794,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         else { return }
         didPresentPinError = true
         chatVM.pinErrorMessage = nil
-        let alert = UIAlertController(title: "Pinned Message", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+        let alert = UIAlertController(
+            title: L10n.telegram("Conversation.PinnedMessage"),
+            message: message,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
             self?.didPresentPinError = false
         })
         present(alert, animated: true)
@@ -3887,17 +3891,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ) { UIPasteboard.setFormattedText(text) })
         }
         if canOfferPinAction(for: message) {
-            elements.append(TelegramContextMenuAction(
-                title: L10n.telegram(message.isPinned ? "Conversation.Unpin" : "Conversation.Pin"),
-                image: UIImage(systemName: message.isPinned ? "pin.slash" : "pin"),
-            ) { [weak self, weak message] in
-                guard let message else { return }
-                if message.isPinned {
-                    self?.presentUnpinConfirmation(for: message)
-                } else {
-                    self?.presentPinOptions(for: message)
-                }
-            })
+            if message.isPinned {
+                // Telegram unpins from the message menu without a confirmation (askForConfirmation: false).
+                elements.append(TelegramContextMenuAction(
+                    title: L10n.telegram("Conversation.Unpin"),
+                    image: UIImage(systemName: "pin.slash"),
+                ) { [weak self, weak message] in
+                    guard let self, let message, canOfferPinAction(for: message) else { return }
+                    chatVM.unpinMessage(message)
+                })
+            } else {
+                elements.append(pinMenuAction(for: message))
+            }
         }
         if canForwardMessageContent(message),
            message.properties.canBeForwarded || message.properties.canBeCopied
@@ -4135,99 +4140,89 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func canOfferPinAction(for message: CustomMessage) -> Bool {
         chatVM.supportsPinnedMessages
             && message.album.isEmpty
-            && message.message.topicId == nil
+            && chatVM.acceptsChatLevelPin(message.message)
             && !message.contentPresentation.isService
             && message.message.sendingState == nil
             && message.properties.canBePinned
     }
 
-    private func presentPinOptions(for message: CustomMessage) {
-        guard canOfferPinAction(for: message),
-              presentedViewController == nil
-        else { return }
-        let alertMessage = chatVM.pinnedMessage != nil
-            ? "This message will become the newest pinned message."
-            : nil
-        let alert = UIAlertController(
-            title: "Pin Message?",
-            message: alertMessage,
-            preferredStyle: .actionSheet,
-        )
+    /// Telegram's message-menu pin (ChatControllerLoadDisplayNode, pinMessage): channels and Saved Messages pin at
+    /// once; private chats and groups replace the menu with their two pin options.
+    private func pinMenuAction(for message: CustomMessage) -> TelegramContextMenuAction {
+        let title = L10n.telegram("Conversation.Pin")
+        let image = UIImage(systemName: "pin")
+        let children: [TelegramContextMenuAction]
         if chatVM.customChat.isSavedMessages {
-            alert.addAction(UIAlertAction(title: "Pin", style: .default) { [weak self, weak message] _ in
-                guard let self, let message else { return }
-                chatVM.pinMessage(message, mode: .savedMessages)
-            })
-        } else {
-            switch chatVM.customChat.type {
-            case .bot, .user:
-                alert.addAction(UIAlertAction(title: "Pin for Both", style: .default) { [weak self, weak message] _ in
-                    guard let self, let message else { return }
-                    chatVM.pinMessage(message, mode: .privateForBoth)
-                })
-                alert.addAction(UIAlertAction(title: "Pin for Me", style: .default) { [weak self, weak message] _ in
-                    guard let self, let message else { return }
-                    chatVM.pinMessage(message, mode: .privateForSelf)
-                })
-            case .group:
-                addGroupPinActions(to: alert, message: message)
-            case .supergroup(let supergroup):
-                if supergroup.isChannel {
-                    alert.addAction(UIAlertAction(title: "Pin", style: .default) { [weak self, weak message] _ in
-                        guard let self, let message else { return }
-                        chatVM.pinMessage(message, mode: .channel)
-                    })
-                } else {
-                    addGroupPinActions(to: alert, message: message)
-                }
-            }
+            return pinOption(title: title, image: image, mode: .savedMessages, message: message)
         }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        configureActionSheetPopover(alert)
-        present(alert, animated: true)
+        switch chatVM.customChat.type {
+        case .bot(let user), .user(let user):
+            children = [
+                pinOption(
+                    title: L10n.telegram("Conversation.PinMessagesFor", user.compactDisplayTitle),
+                    mode: .privateForBoth,
+                    message: message,
+                ),
+                pinOption(
+                    title: L10n.telegram("Conversation.PinMessagesForMe"),
+                    mode: .privateForSelf,
+                    message: message,
+                ),
+            ]
+        case .supergroup(let supergroup) where supergroup.isChannel:
+            return pinOption(title: title, image: image, mode: .channel, message: message)
+        case .group, .supergroup:
+            children = [
+                pinOption(
+                    title: L10n.telegram("Conversation.PinMessageAlert.PinAndNotifyMembers"),
+                    mode: .groupNotify,
+                    message: message,
+                ),
+                pinOption(
+                    title: L10n.telegram("Conversation.PinMessageAlert.OnlyPin"),
+                    mode: .groupSilent,
+                    message: message,
+                ),
+            ]
+        }
+        return TelegramContextMenuAction(title: title, image: image, children: children)
     }
 
-    private func addGroupPinActions(
-        to alert: UIAlertController,
+    private func pinOption(
+        title: String,
+        image: UIImage? = nil,
+        mode: MessagePinMode,
         message: CustomMessage,
-    ) {
-        alert.addAction(UIAlertAction(title: "Pin and Notify", style: .default) { [weak self, weak message] _ in
-            guard let self, let message else { return }
-            chatVM.pinMessage(message, mode: .groupNotify)
-        })
-        alert.addAction(UIAlertAction(title: "Only Pin", style: .default) { [weak self, weak message] _ in
-            guard let self, let message else { return }
-            chatVM.pinMessage(message, mode: .groupSilent)
-        })
+    ) -> TelegramContextMenuAction {
+        TelegramContextMenuAction(title: title, image: image) { [weak self, weak message] in
+            guard let self, let message, canOfferPinAction(for: message) else { return }
+            chatVM.pinMessage(message, mode: mode)
+        }
     }
 
-    private func presentUnpinConfirmation(for message: CustomMessage) {
-        guard canOfferPinAction(for: message),
+    /// Telegram's pinned-panel close: those who may unpin are asked to unpin (Conversation.UnpinMessageAlert);
+    /// everyone else hides the banner for themselves.
+    private func closePinnedMessageBanner() {
+        guard let pinned = chatVM.visiblePinnedMessage,
+              let message = chatVM.messages.first(where: { $0.id == pinned.id }),
+              canOfferPinAction(for: message),
               presentedViewController == nil
-        else { return }
+        else {
+            chatVM.hidePinnedMessageBanner()
+            return
+        }
         let alert = UIAlertController(
-            title: "Unpin Message?",
-            message: nil,
-            preferredStyle: .actionSheet,
+            title: nil,
+            message: L10n.telegram("Conversation.UnpinMessageAlert"),
+            preferredStyle: .alert,
         )
-        alert.addAction(UIAlertAction(title: "Unpin", style: .destructive) { [weak self, weak message] _ in
-            guard let self, let message else { return }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Conversation.Unpin"), style: .default) {
+            [weak self, weak message] _ in
+            guard let self, let message, canOfferPinAction(for: message) else { return }
             chatVM.unpinMessage(message)
         })
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        configureActionSheetPopover(alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
         present(alert, animated: true)
-    }
-
-    private func configureActionSheetPopover(_ alert: UIAlertController) {
-        guard let popover = alert.popoverPresentationController else { return }
-        popover.sourceView = view
-        popover.sourceRect = CGRect(
-            x: view.bounds.midX,
-            y: view.bounds.maxY - view.safeAreaInsets.bottom,
-            width: 1,
-            height: 1,
-        )
     }
 
     private func contextReactionsProvider(for message: CustomMessage) -> TelegramContextReactionsProvider? {
@@ -4496,5 +4491,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return text.isEmpty ? nil : FormattedText(entities: [], text: text)
         }
         return formattedText(from: content)
+    }
+}
+
+private extension User {
+    /// Telegram's EnginePeer.compactDisplayTitle for users: the first name, else the last name.
+    var compactDisplayTitle: String {
+        let first = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !first.isEmpty { return first }
+        let last = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return last.isEmpty ? L10n.telegram("User.DeletedAccount") : last
     }
 }

@@ -88,3 +88,5 @@
 "Message.Unsupported.Story" = "Forwarded stories aren't supported yet.";
 "Message.Unsupported.Checklist" = "Checklist messages aren't supported yet.";
 "Message.Unsupported.Invoice" = "Payments aren't supported in BetterTG.";
+"Accessibility.HidePinnedMessage" = "Hide pinned message";
+"Accessibility.OpenPinnedMessageHint" = "Opens the pinned message";

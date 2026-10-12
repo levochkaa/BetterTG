@@ -918,6 +918,14 @@ import UIKit
         }
     }
 
+    /// Chat-level pins cover messages outside topics. Saved Messages also tags every message with its
+    /// saved-messages sublist, and Telegram pins there for the user, so that topic does not block a pin.
+    func acceptsChatLevelPin(_ message: Message) -> Bool {
+        guard let topic = message.topicId else { return true }
+        if case .messageTopicSavedMessages = topic { return customChat.isSavedMessages }
+        return false
+    }
+
     func refreshDeliveryStates() {
         if isAllMessagesForum {
             refreshAllMessagesForumDeliveryStates()
@@ -1793,7 +1801,7 @@ import UIKit
                       TDLib.shared.activeClient.id == client.id
                 else { return }
                 pinnedMessageAuthoritativeRevision &+= 1
-                pinnedMessage = message.topicId == nil ? message : nil
+                pinnedMessage = acceptsChatLevelPin(message) ? message : nil
                 pinnedMessageTask = nil
             } catch is CancellationError {
                 guard pinnedMessageGeneration == generation else { return }
@@ -4141,7 +4149,7 @@ import UIKit
     ) {
         guard supportsPinnedMessages,
               message.album.isEmpty,
-              message.message.topicId == nil,
+              acceptsChatLevelPin(message.message),
               pinMutationTasks.isEmpty,
               TDLib.shared.activeAccountID == accountID,
               TDLib.shared.activeClient.id == client.id,

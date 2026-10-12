@@ -143,7 +143,7 @@ final class PinnedMessageBannerView: UIView {
         {
             redacted.replaceCharacters(in: range, with: "•••")
         }
-        return redacted.length == 0 ? "Spoiler" : String(redacted)
+        return redacted.length == 0 ? L10n.betterTG("Message.Spoiler") : String(redacted)
     }
 
     func configure(
@@ -170,7 +170,7 @@ final class PinnedMessageBannerView: UIView {
         }
         prepareForReuse()
         renderedContent = content
-        titleLabel.text = "Pinned Message"
+        titleLabel.text = L10n.telegram("Conversation.PinnedMessage")
         bodyLabel.text = preview
         if let thumbnail {
             thumbnailWidthConstraint.constant = 35
@@ -192,12 +192,12 @@ final class PinnedMessageBannerView: UIView {
             UIImage(systemName: "xmark"),
             for: .normal,
         )
-        actionButton.accessibilityLabel = "Hide Pinned Message"
+        actionButton.accessibilityLabel = L10n.betterTG("Accessibility.HidePinnedMessage")
         self.onOpen = onOpen
         self.onHide = onHide
         openControl.isAccessibilityElement = true
-        openControl.accessibilityLabel = "Pinned message, \(bodyLabel.text ?? "")"
-        openControl.accessibilityHint = "Opens the pinned message"
+        openControl.accessibilityLabel = "\(L10n.telegram("Conversation.PinnedMessage")), \(bodyLabel.text ?? "")"
+        openControl.accessibilityHint = L10n.betterTG("Accessibility.OpenPinnedMessageHint")
         openControl.accessibilityTraits = [.button]
     }
 

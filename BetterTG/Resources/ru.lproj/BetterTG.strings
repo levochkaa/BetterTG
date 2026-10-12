@@ -88,3 +88,5 @@
 "Message.Unsupported.Story" = "Пересланные истории пока не поддерживаются.";
 "Message.Unsupported.Checklist" = "Списки задач пока не поддерживаются.";
 "Message.Unsupported.Invoice" = "Платежи в BetterTG не поддерживаются.";
+"Accessibility.HidePinnedMessage" = "Скрыть закреплённое сообщение";
+"Accessibility.OpenPinnedMessageHint" = "Открывает закреплённое сообщение";
