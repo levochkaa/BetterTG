@@ -30,6 +30,10 @@ final class ChatListCell: UITableViewCell {
         usesStableChatListWidth: true,
     )
     private var pinned = false
+    /// The configuration a late sender name re-applies, if the cell still shows that chat.
+    private weak var configuredChat: CustomChat?
+    private var configuredMuted = false
+    private var configuredClient: TDLibClient?
 
     var contextPreviewView: UIView { rowView }
 
@@ -101,9 +105,12 @@ final class ChatListCell: UITableViewCell {
     }
 
     func configure(chat: CustomChat, isMuted: Bool, client: TDLibClient) {
+        configuredChat = chat
+        configuredMuted = isMuted
+        configuredClient = client
         pinned = chat.position.isPinned
         titleLabel.text = chat.displayTitle
-        messageLabel.attributedText = ChatSummary.attributedText(for: chat)
+        messageLabel.attributedText = summaryText(for: chat, client: client)
         let hasUnread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
         pinView.isHidden = !pinned || hasUnread
         muteView.isHidden = !isMuted || hasUnread || pinned
@@ -143,6 +150,39 @@ final class ChatListCell: UITableViewCell {
             .compactMap(\.self)
             .joined(separator: ", ")
         accessibilityTraits = .button
+    }
+
+    private func summaryText(for chat: CustomChat, client: TDLibClient) -> NSAttributedString? {
+        guard let summary = ChatSummary.attributedText(for: chat) else { return nil }
+        guard let author = authorPrefix(for: chat, client: client) else { return summary }
+        let result = NSMutableAttributedString(string: author + ": ", attributes: [.foregroundColor: UIColor.label])
+        result.append(summary)
+        return result
+    }
+
+    /// Telegram's inline author prefix for group rows (ChatListItem, useInlineAuthorPrefix): "You" for the
+    /// account's messages and the sender's compact name otherwise; channels, chat senders and service actions
+    /// have none.
+    private func authorPrefix(for chat: CustomChat, client: TDLibClient) -> String? {
+        guard chat.draftMessage == nil, let message = chat.lastMessage,
+              !MessageContentPresentation.make(message.content).isService
+        else { return nil }
+        switch chat.type {
+        case .group: break
+        case .supergroup(let supergroup) where !supergroup.isChannel: break
+        default: return nil
+        }
+        if message.isOutgoing { return L10n.telegram("DialogList.You") }
+        guard case .messageSenderUser(let sender) = message.senderId else { return nil }
+        if let name = ChatListSenderNames.shared.name(userID: sender.userId, client: client) { return name }
+        let chatID = chat.id
+        ChatListSenderNames.shared.resolve(userID: sender.userId, client: client) { [weak self] in
+            guard let self, let chat = configuredChat, chat.id == chatID,
+                  let client = configuredClient
+            else { return }
+            configure(chat: chat, isMuted: configuredMuted, client: client)
+        }
+        return nil
     }
 
     private func updateBackground(highlighted: Bool, animated: Bool) {
@@ -257,5 +297,54 @@ final class ChatListCell: UITableViewCell {
             separatorView.bottomAnchor.constraint(equalTo: rowView.bottomAnchor),
             separatorView.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
         ])
+    }
+}
+
+// MARK: - ChatListSenderNames
+
+/// Compact sender names for the chat list's inline author prefix, kept for the current TDLib client only. TDLib
+/// answers getUser from its local store, so a miss costs one hop and the visible row updates when it lands.
+@MainActor final class ChatListSenderNames {
+    static let shared = ChatListSenderNames()
+
+    private var clientID: Int32?
+    private var names = [Int64: String]()
+    private var waiters = [Int64: [() -> Void]]()
+
+    /// Telegram's compactDisplayTitle for users: the first name, else the last name.
+    private static func compactName(_ user: User) -> String {
+        let first = user.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !first.isEmpty { return first }
+        let last = user.lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return last.isEmpty ? L10n.telegram("User.DeletedAccount") : last
+    }
+
+    func name(userID: Int64, client: TDLibClient) -> String? {
+        retain(client)
+        return names[userID]
+    }
+
+    func resolve(userID: Int64, client: TDLibClient, completion: @escaping () -> Void) {
+        retain(client)
+        guard names[userID] == nil else { return completion() }
+        let isFirstWaiter = waiters[userID] == nil
+        waiters[userID, default: []].append(completion)
+        guard isFirstWaiter else { return }
+        let requestClientID = client.id
+        Task { [weak self] in
+            let user = try? await client.getUser(userId: userID)
+            guard let self, clientID == requestClientID else { return }
+            let completions = waiters.removeValue(forKey: userID) ?? []
+            guard let user else { return }
+            names[userID] = Self.compactName(user)
+            completions.forEach { $0() }
+        }
+    }
+
+    private func retain(_ client: TDLibClient) {
+        guard clientID != client.id else { return }
+        clientID = client.id
+        names.removeAll()
+        waiters.removeAll()
     }
 }
