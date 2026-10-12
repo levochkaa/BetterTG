@@ -37,6 +37,12 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
             && !(gestureRecognizers ?? []).contains { $0.state == .began || $0.state == .changed }
     }
 
+    /// The client whose account owns this composer's chat; custom emoji stickers load through it.
+    var customEmojiClient: TDLibClient? {
+        get { emojiRenderer.client }
+        set { emojiRenderer.client = newValue }
+    }
+
     init(placeholder: String) {
         self.placeholder = placeholder
         let storage = NSTextStorage()
@@ -182,6 +188,9 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     func setAttributedText(_ value: AttributedString) {
         let value = ComposerText.uiKit(value)
         guard attributedText != value else { return }
+        // The model echoes what the input method is composing. Replacing the text would end the marked
+        // composition at every candidate; the semantic attributes settle once the composition ends.
+        if markedTextRange != nil, value.string == text { return }
         isApplyingValue = true
         let selection = selectedRange
         attributedText = value.length == 0

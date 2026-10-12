@@ -419,6 +419,7 @@ final class ChatComposerView: UIView {
             selectedMediaRecordingMode = .voice
         }
         textView.setPlaceholder(chatVM.composerPlaceholder)
+        textView.customEmojiClient = chatVM.client
         textView.setAttributedText(targetText)
         // Telegram builds the edit state with ChatTextInputState(inputText:), whose selection is after the text.
         if beginsEditing { textView.moveCaretToEnd() }

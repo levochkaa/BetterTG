@@ -18,6 +18,14 @@ import UIKit
         }
     }
 
+    /// The composer's chat client. Its account owns the custom emoji stickers, so a composer that outlives an
+    /// account switch keeps resolving them there; without a client the emoji stay plain glyphs.
+    var client: TDLibClient? {
+        didSet {
+            if client?.id != oldValue?.id { update() }
+        }
+    }
+
     private weak var textView: UITextView?
     private var placements = [Placement]()
     private var task: Task<Void, Never>?
@@ -28,33 +36,35 @@ import UIKit
 
     func update() {
         guard let textView else { return }
-        let client = TDLib.shared.activeClient
         let requests = TelegramCustomEmojiRun.extract(from: textView.textStorage).map { ($0.id, $0.range) }
+        let client = requests.isEmpty ? nil : client
         let old = placements
-        placements = requests.enumerated().map { index, request in
-            if clientID == client.id, index < old.count, old[index].id == request.0 {
-                old[index].range = request.1
-                return old[index]
+        placements = client == nil
+            ? []
+            : requests.enumerated().map { index, request in
+                if clientID == client?.id, index < old.count, old[index].id == request.0 {
+                    old[index].range = request.1
+                    return old[index]
+                }
+                let placement = Placement(id: request.0, range: request.1)
+                placement.view.isUserInteractionEnabled = false
+                textView.addSubview(placement.view)
+                return placement
             }
-            let placement = Placement(id: request.0, range: request.1)
-            placement.view.isUserInteractionEnabled = false
-            textView.addSubview(placement.view)
-            return placement
-        }
         for item in old where !placements.contains(where: { $0 === item }) {
             item.view.prepareForReuse()
             item.view.removeFromSuperview()
         }
-        clientID = client.id
+        clientID = client?.id
         task?.cancel()
         let pending = placements.filter { !$0.configured }
-        if !pending.isEmpty {
+        if let client, !pending.isEmpty {
             task = Task { [weak self] in
                 let stickers = await CustomEmojiStickerRepository.shared.stickers(
                     for: pending.map(\.id),
                     client: client,
                 )
-                guard let self, !Task.isCancelled, TDLib.shared.activeClient.id == client.id else { return }
+                guard let self, !Task.isCancelled, clientID == client.id else { return }
                 for item in pending {
                     guard placements.contains(where: { $0 === item }), let sticker = stickers[item.id] else { continue }
                     item.view.onFirstFrameReady = { [weak self, weak item] in
