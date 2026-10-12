@@ -601,16 +601,16 @@ import UIKit
     private var pendingVideoRetryStatusMessage: String? {
         guard let failed = pendingVideoNote?.failedSendState else { return nil }
         if failed.requiredPaidMessageStarCount > 0 {
-            return "This video-message retry requires a paid-message flow, which BetterTG doesn’t support."
+            return L10n.betterTG("VideoNote.RetryPaidUnsupported")
         }
         if failed.needAnotherReplyQuote || failed.needAnotherSender {
-            return "This failed video message can’t be retried with the original reply or sender."
+            return L10n.betterTG("VideoNote.RetryNeedsAnotherReply")
         }
         if !failed.canRetry {
-            return "TDLib marked this video message as non-retryable."
+            return L10n.betterTG("VideoNote.RetryNotAllowed")
         }
         if failed.retryAvailableAt > Foundation.Date() {
-            return "This video message can be retried shortly."
+            return L10n.betterTG("VideoNote.RetrySoon")
         }
         return nil
     }
@@ -618,21 +618,21 @@ import UIKit
     private var pendingVoiceRetryStatusMessage: String? {
         guard let draft = pendingVoiceNote else { return nil }
         if draft.enqueueStartedAt != nil {
-            return "A previous voice send ended before its status was confirmed. Check the chat before discarding it."
+            return L10n.betterTG("Voice.SendUnconfirmed")
         }
         guard let failedState = draft.failedSendState else { return nil }
         if failedState.requiredPaidMessageStarCount > 0 {
-            return "Retrying this voice message requires a paid message, which BetterTG does not support."
+            return L10n.betterTG("Voice.RetryPaidUnsupported")
         }
         if failedState.needAnotherReplyQuote || failedState.needAnotherSender {
-            return "Telegram requires a different reply or sender before this voice message can be retried."
+            return L10n.betterTG("Voice.RetryNeedsAnotherReply")
         }
         guard failedState.canRetry else {
-            return "Telegram marked this voice message as non-retryable. You can discard the draft."
+            return L10n.betterTG("Voice.RetryNotAllowed")
         }
         if failedState.retryAvailableAt > Foundation.Date() {
             let seconds = max(1, Int(ceil(failedState.retryAvailableAt.timeIntervalSinceNow)))
-            return "Telegram will allow retrying this voice message in \(seconds) seconds."
+            return L10n.betterTG("Voice.RetryAvailableIn", seconds)
         }
         return nil
     }
@@ -858,7 +858,7 @@ import UIKit
             if let restoredPendingDraft {
                 activatePendingVoiceDraft(restoredPendingDraft)
                 if restoredPendingDraft.enqueueStartedAt != nil {
-                    self.voiceNoteErrorMessage = "A previous voice send was interrupted before its status was confirmed. Check the chat before retrying."
+                    self.voiceNoteErrorMessage = L10n.betterTG("Voice.SendInterrupted")
                 } else if let retryStatus = pendingVoiceRetryStatusMessage {
                     self.voiceNoteErrorMessage = retryStatus
                 }
@@ -876,7 +876,7 @@ import UIKit
             if let restoredVideoDraft {
                 activatePendingVideoDraft(restoredVideoDraft)
                 if restoredVideoDraft.enqueueStartedAt != nil {
-                    self.videoNoteErrorMessage = "A previous video send was interrupted before its status was confirmed. Check the chat before retrying."
+                    self.videoNoteErrorMessage = L10n.betterTG("VideoNote.SendInterrupted")
                 } else if let status = pendingVideoRetryStatusMessage {
                     self.videoNoteErrorMessage = status
                 }
@@ -1685,13 +1685,13 @@ import UIKit
                 reactionErrorMessage =
                     switch error as? ReactionMutationFailure {
                     case .accountChanged:
-                        "The active Telegram account changed."
+                        L10n.betterTG("Error.AccountChanged")
                     case .unavailable:
-                        "This reaction isn't available for the message."
+                        L10n.betterTG("Chat.ReactionUnavailable")
                     case nil:
                         wasChosen
-                            ? "The reaction couldn't be removed."
-                            : "The reaction couldn't be added."
+                            ? L10n.betterTG("Chat.ReactionRemoveFailed")
+                            : L10n.betterTG("Chat.ReactionAddFailed")
                     }
             }
         }
@@ -2609,7 +2609,7 @@ import UIKit
             return .retained(
                 asset,
                 originConsumed: false,
-                message: "Couldn’t preserve the video message for sending.",
+                message: L10n.betterTG("VideoNote.PreserveFailed"),
             )
         }
         if let adoptedOriginID = draft.originRecordingDraftID ?? originRecordingDraftID {
@@ -2625,7 +2625,7 @@ import UIKit
             return .retained(
                 draft.asset,
                 originConsumed: true,
-                message: "Another video message is still being sent. Try again when it finishes.",
+                message: L10n.betterTG("VideoNote.AnotherSending"),
             )
         }
 
@@ -2670,7 +2670,7 @@ import UIKit
                 )
             } catch {
                 registration = nil
-                videoNoteErrorMessage = "The video message was queued, but local retry state couldn’t be saved."
+                videoNoteErrorMessage = L10n.betterTG("VideoNote.QueuedStateNotSaved")
             }
             var deletionResolution: VideoNoteDraftResolution?
             if bufferedVideoDeletedMessageIDs.remove(message.id) != nil {
@@ -2725,7 +2725,7 @@ import UIKit
                 return .retained(
                     resolution.draft.asset,
                     originConsumed: true,
-                    message: "Couldn’t upload the video message. You can retry without recording again.",
+                    message: L10n.betterTG("VideoNote.UploadFailed"),
                 )
             }
             await clearRouteDraftAfterMediaSend(draft.destination)
@@ -2742,7 +2742,7 @@ import UIKit
             return .retained(
                 draft.asset,
                 originConsumed: true,
-                message: "Video message sending was cancelled.",
+                message: L10n.betterTG("VideoNote.SendCancelled"),
             )
         } catch {
             if didBeginEnqueue {
@@ -2761,7 +2761,7 @@ import UIKit
             return .retained(
                 draft.asset,
                 originConsumed: true,
-                message: "Couldn’t send the video message. You can retry without recording again.",
+                message: L10n.betterTG("VideoNote.SendFailed"),
             )
         }
     }
@@ -2803,7 +2803,7 @@ import UIKit
 
     func discardPendingVideoNote() {
         guard videoRetryTask == nil else {
-            videoNoteErrorMessage = "Wait for the current video-message retry to finish."
+            videoNoteErrorMessage = L10n.betterTG("VideoNote.RetryInProgress")
             return
         }
         guard let draft = pendingVideoNote else { return }
@@ -2854,7 +2854,7 @@ import UIKit
             if pendingVideoNote == nil || pendingVideoNote?.id == resolution.draft.id {
                 activatePendingVideoDraft(resolution.draft)
                 videoNoteErrorMessage = pendingVideoRetryStatusMessage
-                    ?? "Couldn’t upload the video message. You can retry without recording again."
+                    ?? L10n.betterTG("VideoNote.UploadFailed")
             }
         case .succeeded:
             if pendingVideoNote?.id == resolution.draft.id {
@@ -3086,7 +3086,7 @@ import UIKit
             pendingVoiceReplyMessage = nil
             voiceRecordingInteractionState = .idle
             Media.shared.endAudioSessionRecord()
-            voiceNoteErrorMessage = "Couldn’t start voice recording."
+            voiceNoteErrorMessage = L10n.betterTG("Voice.StartFailed")
             await promoteNextPendingVoiceDraft()
             return false
         }
@@ -3254,7 +3254,7 @@ import UIKit
                 voiceRecordingTrimIsUpdating = false
                 voiceRecordingTrimBaseDraft = nil
                 voiceRecordingPreviewIsPlaying = false
-                voiceNoteErrorMessage = "Couldn’t save the voice trim range."
+                voiceNoteErrorMessage = L10n.betterTG("Voice.TrimSaveFailed")
                 objectWillChange.send()
                 loadVoiceRecordingPreview(canonicalDraft)
             }
@@ -3341,7 +3341,7 @@ import UIKit
                 await refreshPendingVoiceDraft(id: discardedDraft.id)
                 guard voiceFinalizationGeneration == generation else { return }
                 if pendingVoiceNote?.id == discardedDraft.id {
-                    voiceNoteErrorMessage = "This voice message is still being prepared or sent. Its file was kept."
+                    voiceNoteErrorMessage = L10n.betterTG("Voice.StillSending")
                 }
                 return
             }
@@ -3470,7 +3470,7 @@ import UIKit
             } else {
                 finishVoiceRecording(
                     sendWhenReady: false,
-                    pendingMessage: "Voice recording stopped before a preview could be created.",
+                    pendingMessage: L10n.betterTG("Voice.StoppedBeforePreview"),
                 )
             }
         case .preview:
@@ -4269,13 +4269,13 @@ import UIKit
                 pinErrorMessage =
                     switch error as? PinMutationFailure {
                     case .accountChanged:
-                        "The active Telegram account changed."
+                        L10n.betterTG("Error.AccountChanged")
                     case .unavailable:
-                        "This message can no longer be pinned."
+                        L10n.betterTG("Chat.PinUnavailable")
                     case nil:
                         pinned
-                            ? "The message couldn't be pinned."
-                            : "The message couldn't be unpinned."
+                            ? L10n.betterTG("Chat.PinFailed")
+                            : L10n.betterTG("Chat.UnpinFailed")
                     }
                 if TDLib.shared.activeAccountID == accountID,
                    TDLib.shared.activeClient.id == client.id
@@ -4400,7 +4400,7 @@ import UIKit
         else { return }
         activatePendingVideoDraft(nextDraft)
         if nextDraft.enqueueStartedAt != nil {
-            videoNoteErrorMessage = "A previous video send was interrupted before its status was confirmed. Check the chat before retrying."
+            videoNoteErrorMessage = L10n.betterTG("VideoNote.SendInterrupted")
         }
     }
 
@@ -4444,7 +4444,7 @@ import UIKit
             sendTopic: draft.sendTopic,
             replyTo: draft.replyTo,
         ) else {
-            voiceNoteErrorMessage = "The voice message destination is no longer writable."
+            voiceNoteErrorMessage = L10n.betterTG("Voice.DestinationNotWritable")
             return
         }
         activeVoiceRecordingContext = recordingContext
@@ -4475,7 +4475,7 @@ import UIKit
         } catch {
             try? FileManager.default.removeItem(at: url)
             Media.shared.endAudioSessionRecord()
-            voiceNoteErrorMessage = "Couldn’t resume voice recording."
+            voiceNoteErrorMessage = L10n.betterTG("Voice.ResumeFailed")
             voiceRecordingInteractionState = .preview
             loadVoiceRecordingPreview(draft)
         }
@@ -4598,7 +4598,7 @@ import UIKit
                     activeVoiceRecordingDraft = existingDraft
                     timerCount = existingDraft.exactDuration
                     voiceRecordingInteractionState = .preview
-                    voiceNoteErrorMessage = "Couldn’t append the latest recording segment. The previous preview is safe."
+                    voiceNoteErrorMessage = L10n.betterTG("Voice.AppendFailed")
                     loadVoiceRecordingPreview(existingDraft)
                     if sendAfterPreparation, voiceRecordingLifecycle.permitsContinuation(interactionGeneration) {
                         sendVoiceRecordingPreview()
@@ -4655,7 +4655,7 @@ import UIKit
         cancelReplyIfMatching(context?.replyTo)
         startVoiceFinalization(
             sendWhenReady: false,
-            pendingMessage: "Preview preparation failed. The recording was preserved as a retry draft.",
+            pendingMessage: L10n.betterTG("Voice.PreviewFailedPreserved"),
         )
         // Keep the route checkpoint until the fallback has a durable send-store owner.
         await voiceFinalizeTask?.value
@@ -4725,7 +4725,7 @@ import UIKit
                 guard voiceRecordingDraftGeneration == generation else { return }
                 voiceRecordingDraftTask = nil
                 voiceRecordingInteractionState = .preview
-                voiceNoteErrorMessage = "Couldn’t apply the voice trim range."
+                voiceNoteErrorMessage = L10n.betterTG("Voice.TrimApplyFailed")
                 activeVoiceRecordingDraft = draft
                 loadVoiceRecordingPreview(draft)
             }
@@ -4813,7 +4813,7 @@ import UIKit
                 cancelVoiceSendTransition(for: draft.id)
                 voiceRecordingDraftTask = nil
                 voiceRecordingInteractionState = .preview
-                voiceNoteErrorMessage = "Couldn’t prepare the voice preview for sending."
+                voiceNoteErrorMessage = L10n.betterTG("Voice.PreparePreviewFailed")
                 loadVoiceRecordingPreview(draft)
             }
         }
@@ -4868,7 +4868,7 @@ import UIKit
                     releaseVoiceRecordingPreviewAudioSession()
                 } else if state == .failed {
                     releaseVoiceRecordingPreviewAudioSession()
-                    voiceNoteErrorMessage = "Couldn’t play the voice recording preview."
+                    voiceNoteErrorMessage = L10n.betterTG("Voice.PreviewPlaybackFailed")
                 }
             }
             .store(in: &voiceRecordingPreviewCancellables)
@@ -4991,7 +4991,7 @@ import UIKit
             activeVoiceRecordingContext = nil
             pendingVoiceReplyMessage = nil
             try? FileManager.default.removeItem(at: sourceURL)
-            voiceNoteErrorMessage = pendingMessage ?? "Voice message is too short."
+            voiceNoteErrorMessage = pendingMessage ?? L10n.betterTG("Voice.TooShort")
             Task { [weak self] in await self?.promoteNextPendingVoiceDraft() }
             return
         }
@@ -5135,7 +5135,7 @@ import UIKit
                     guard voiceFinalizationGeneration == generation else { throw CancellationError() }
                     cancelVoiceSendTransition(for: draft.id)
                     activatePendingVoiceDraft(draft)
-                    voiceNoteErrorMessage = pendingMessage ?? "Voice recording stopped before it could be sent."
+                    voiceNoteErrorMessage = pendingMessage ?? L10n.betterTG("Voice.StoppedBeforeSend")
                     #if DEBUG
                         if ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-preview-send") {
                             log("Voice preview smoke: promoted encoded=\(draft.isEncoded)")
@@ -5200,7 +5200,7 @@ import UIKit
                 } catch {
                     log("Voice note enqueue persistence failed: \(error)")
                     if voiceFinalizationGeneration == generation {
-                        voiceNoteErrorMessage = "The voice message was queued, but local retry state couldn’t be saved."
+                        voiceNoteErrorMessage = L10n.betterTG("Voice.QueuedStateNotSaved")
                     }
                 }
                 if let finalization {
@@ -5303,7 +5303,7 @@ import UIKit
                     hasPendingVoiceNote = false
                 }
                 voiceNoteErrorMessage = pendingVoiceRetryStatusMessage
-                    ?? "Couldn’t send the voice message. You can retry without recording again."
+                    ?? L10n.betterTG("Voice.SendFailed")
                 _ = try? await tdSendFrozenMediaChatAction(
                     .chatActionCancel,
                     sendTopic: draft.sendTopic,
@@ -5475,7 +5475,7 @@ import UIKit
             }
             guard draftClearGeneration == generation else { return }
             draftClearTask = nil
-            draftErrorMessage = "The sticker was sent, but the reply draft couldn't be updated."
+            draftErrorMessage = L10n.betterTG("Composer.StickerDraftUpdateFailed")
         }
     }
 
@@ -5516,7 +5516,7 @@ import UIKit
             }
             guard draftClearGeneration == generation else { return }
             draftClearTask = nil
-            draftErrorMessage = "The sent message is safe, but its old draft couldn't be cleared."
+            draftErrorMessage = L10n.betterTG("Composer.OldDraftClearFailed")
         }
     }
 
@@ -5527,7 +5527,7 @@ import UIKit
             if pendingVoiceNote == nil, !recordingVoiceNote, !startingVoiceNote {
                 activatePendingVoiceDraft(resolution.draft)
                 voiceNoteErrorMessage = pendingVoiceRetryStatusMessage
-                    ?? "Couldn’t upload the voice message. You can retry without recording again."
+                    ?? L10n.betterTG("Voice.UploadFailed")
             }
         case .succeeded:
             Task { [weak self] in await self?.promoteNextPendingVoiceDraft() }
@@ -5547,7 +5547,7 @@ import UIKit
         else { return }
         activatePendingVoiceDraft(nextDraft)
         if nextDraft.enqueueStartedAt != nil {
-            voiceNoteErrorMessage = "A previous voice send was interrupted before its status was confirmed. Check the chat before retrying."
+            voiceNoteErrorMessage = L10n.betterTG("Voice.SendInterrupted")
         } else if let retryStatus = pendingVoiceRetryStatusMessage {
             voiceNoteErrorMessage = retryStatus
         }

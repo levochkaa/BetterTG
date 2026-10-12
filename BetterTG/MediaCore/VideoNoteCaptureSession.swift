@@ -808,7 +808,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         guard microphoneGranted else {
             guard failPreparation(
                 generation,
-                message: "Microphone access is required for video notes.",
+                message: L10n.betterTG("VideoNote.MicrophoneRequired"),
             ) else { throw CancellationError() }
             throw VideoNoteCaptureError.permissionDenied
         }
@@ -818,7 +818,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
         guard cameraGranted else {
             guard failPreparation(
                 generation,
-                message: "Camera access is required for video notes.",
+                message: L10n.betterTG("VideoNote.CameraRequired"),
             ) else { throw CancellationError() }
             throw VideoNoteCaptureError.permissionDenied
         }
@@ -1051,7 +1051,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                         self.preparationGeneration = nil
                         self.activeCaptureGeneration = nil
                         self.enqueueStateLocked(
-                            .failed("Couldn’t start the video-note camera."),
+                            .failed(L10n.betterTG("VideoNote.CameraStartFailed")),
                             generation: generation,
                         )
                         return true
@@ -1201,7 +1201,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             object: captureSession,
             queue: nil,
         ) { [weak self] _ in
-            self?.handleCaptureFailure("Video-note capture stopped unexpectedly.")
+            self?.handleCaptureFailure(L10n.betterTG("VideoNote.CaptureStopped"))
         })
     }
 
@@ -1223,7 +1223,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             if let onCaptureInterruption {
                 onCaptureInterruption(generation)
             } else {
-                handleCaptureFailure("Video-note capture was interrupted.")
+                handleCaptureFailure(L10n.betterTG("VideoNote.CaptureInterrupted"))
             }
         }
     }
@@ -1362,7 +1362,7 @@ extension VideoNoteCaptureSession: AVCaptureVideoDataOutputSampleBufferDelegate,
                 finishAudioIfCovered(context)
             }
         } catch {
-            handleRecordingFailure("Couldn’t encode the video note.", context: context)
+            handleRecordingFailure(L10n.betterTG("VideoNote.EncodeFailed"), context: context)
         }
     }
 
@@ -1496,7 +1496,7 @@ final class VideoNoteCameraPreviewView: UIView {
         backgroundColor = .black
         clipsToBounds = true
         isAccessibilityElement = true
-        accessibilityLabel = "Video note camera preview"
+        accessibilityLabel = L10n.betterTG("Accessibility.VideoNoteCameraPreview")
         previewLayer.videoGravity = .resizeAspectFill
     }
 

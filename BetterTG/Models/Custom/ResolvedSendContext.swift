@@ -60,21 +60,21 @@ enum ChatSendContextError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .accountUnavailable:
-            "The active Telegram account changed."
+            L10n.betterTG("Error.AccountChanged")
         case .chatPermissionDenied:
-            "You can't send this kind of message in the chat."
+            L10n.betterTG("Composer.MessageTypeNotAllowed")
         case .crossTopicReply:
-            "Open the replied message's topic before replying."
+            L10n.betterTG("Composer.CrossTopicReply")
         case .forumTopicRequired:
-            "Choose a forum topic before sending."
+            L10n.betterTG("Composer.ChooseTopic")
         case .partialAlbum(let sent, let expected):
-            "Telegram accepted \(sent) of \(expected) attachments. The selection was kept to avoid losing anything."
+            L10n.betterTG("Composer.PartialAlbum", sent, expected)
         case .topicMetadataUnavailable:
-            "The topic couldn't be checked yet."
+            L10n.betterTG("Composer.TopicCheckPending")
         case .topicReadOnly:
-            "Only the topic creator or an administrator can post in this closed topic."
+            L10n.betterTG("Composer.ClosedTopicPostRestriction")
         case .unexpectedDestination:
-            "Telegram returned the message in a different topic."
+            L10n.betterTG("Composer.UnexpectedTopic")
         }
     }
 }
