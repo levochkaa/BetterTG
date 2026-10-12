@@ -28,7 +28,10 @@ scope. None of the states below claims complete Telegram parity.
   `89f1c14`.
 - The liquid morph of menu buttons is ported (commit `feature(context-menu): morph menu buttons into the custom menu`);
   see "Liquid morph of menu buttons" below.
-- Next: post-merge revalidation, starting with the Stage 0 resolution sites and findings F3–F8.
+- Revalidation so far: F3–F7 and F9–F16 are fixed; all 91 probes pass (see "Probe sweep — 2026-10-12"); F8 and F17
+  are watch items. Next: the remaining queued parts of F7 (deep `Hashable` cost, astra string localization), then
+  per-area revalidation of media/VOD, voice and video notes, multiple accounts and chat-list mutations, and the liquid
+  morph frame and Reduce Motion proofs.
 - Audit cursor: every area is `pending` after the merge. Start with the Stage 0 resolution sites below and the astra code
   ported to TDLibKit 2, then follow the full path action → state/ownership → TDLib → update → UI/cleanup per area.
 
@@ -110,6 +113,34 @@ All three histories are reachable from `codex/parity`. `main` and both source br
 | F9 | P1 | The old message press reset every ancestor recognizer by toggling `isEnabled` when it began, up to the window's system gates and the glass flex pan. Applied to the chat list, it left the table's `_UISwipeDismissalGestureRecognizer` recognizing every later tap (logged `st=3`), so rows stopped opening chats after a chat-preview menu | fixed in the gesture slice: the press relies on UIKit exclusivity, and ChatView no longer lets the message press recognize simultaneously; Simulator smoke opens the chat after a preview menu |
 | F10 | P1 | Gesture port regression: a long press on the newest message lifted its preview so the menu appeared under the resting finger, and the release selected the action there (Select in the smoke; Delete was one row lower) | fixed: touches that do not begin on the menu, including the opening finger, highlight and select only after the scrubbing handoff, that is after moving past the 10 pt hysteresis; reactions follow the same rule; the probe covers the resting finger; Simulator: a release over Select keeps the menu open |
 | F11 | P2 | Editing started with the caret at the start of the message text, so typing went before it. Telegram builds the edit state with `ChatTextInputState(inputText:)`, whose selection is after the text (`AccountContext/Sources/ChatController.swift:466`, `ChatControllerLoadDisplayNode.swift:4578`) | fixed: the composer moves the caret to the end when editing begins; Simulator edit appended at the end |
+| F12 | P1 | A single-topic refresh merged the topic through the plain order merge, which moved pinned topics below unpinned ones (probe `forum-updates`: `[9,5,1,3]`) | fixed `2288147`: the topic is replaced in place and re-sorted through the pinned ranks, as in astra; `-ui-probe-forum-updates` passes |
+| F13 | P2 | Forward to hid forum topics the forward may not enter. Telegram peer selection lists closed topics disabled (`ChatListNode`, closed thread info) | fixed `7f999d7`: every loaded topic is listed; disallowed ones are dimmed, not interactive and announced as closed; selection still requires an allowed topic; `-ui-probe-forward-forum-snapshot` passes |
+| F14 | P2 | The folder chat selector's title fallbacks (username, phone, chat type) were unreachable: `displayTitle` already turned an empty title into Deleted Account | fixed `c7fc52c`: the selector checks TDLib's raw title first |
+| F15 | P2 | The composer replaced marked text with the model echo, ending IME composition at every candidate; its custom emoji loaded through the active account instead of the chat's | fixed `dcadd35`: the echo is skipped while text is marked and equal; `ChatComposerView` hands `chatVM.client` to the emoji renderer, which drops placements without a client and ignores results from a replaced client |
+| F16 | P2 | The folder "Add Chats" selector sorted 815 candidates alphabetically, so recent chats needed a search. Telegram's picker is the root chat list (`chatListFilterAddChatsController` → `ContactMultiselectionControllerNode`, `ChatListNode(location: .chatList(groupId: .root))`) | fixed `bf97289`: candidates follow the main list (pinned, then recent), then chats only in other folders, then the archive; position-only changes keep the open selector's rows in place as astra required. `-ui-probe-folder-flow` passes with list positions unrelated to titles and IDs; Simulator: the selector's first rows match the All tab |
+| F17 | P3 | Once, right after a `-ui-probe-folder-flow` launch, returning to the People tab showed its search field although pages start with it scrolled out | not reproduced in two direct repeats (Add Chats → back → swipe the folder picker → All → back); a long press on the selected tab does not reveal it. A second sighting was a tap on the already selected tab, which scrolls the page to the top with search like Telegram. The first sighting is unexplained; watch it |
+
+### Probe sweep — 2026-10-12
+
+All 91 launch-argument probes ran on iPhone 18 Pro (iOS 27.0) against the merged build through `./build.sh run
+--skip-build`, one launch per probe. Probe repairs are in `804fd8d`: probes that borrow the active client wait for the
+asynchronous TDLibKit 2 account bootstrap, test entities stay within `Int32`, and probes follow the merged semantic,
+localized and forward-picker APIs. After the repairs and F12/F13 every probe that reports by itself passes, including
+`vod-resource-loader` (progressive playback before completion, controls, offline retry, no full download) and
+`video-note-lifecycle` (about 2 minutes). Four probes only observe live UI and wrote nothing in an unattended launch:
+`folder-selector-content`, `profile-header-layout`, `viewport-completion` and `message-navigation`; they are
+exercised by hand:
+
+- `viewport-completion` passed in Saved Messages after scrolling away from both edges: the real ChatView kept its
+  snapshot IDs, and the held native completion restored the stable-ID pixel offset; a synthetic delegate drag rejected
+  the old restoration. Physical gestures, history insertion, media resize and keyboard overlap stay unverified.
+- `message-navigation`: tapping a test reply's quote in Saved Messages scrolled to the loaded target with an
+  animated scroll and settled 0.2 pt from the command offset with unchanged snapshot IDs, then highlighted the target.
+  The test reply was deleted afterwards.
+- `profile-header-layout` passed on the Saved Messages profile (labels fill the width, 96 pt avatar). The shared
+  media gallery opened from the grid, paged 1 → 3 of 6 and closed with the swipe-down dismissal back to the grid.
+- `folder-selector-content`: 815 candidates, 35 empty raw titles (all deleted accounts), no empty cell text and no
+  title mismatches after F14. The same check found F16.
 
 ### Context-menu gestures — 2026-10-12
 
@@ -229,10 +260,10 @@ Appendix A). Post-merge audit is `pending` for every row until revalidated on `c
 | P0 | Topic composer durable media identity | implemented write foundation | reviewed with composer | pending |
 | P0 | Forum-aware Forward destinations | implemented breadth | reviewed with content/actions | pending; F1 fixed |
 | P0 | Composer and send/delete transitions | partial | reviewed, A22/A24/A25/A49 repairs | Simulator 10-12: draft kept across back and relaunch, send, edit (F11 fixed), reply, two-message delete; transitions not frame-checked |
-| P1 | Profiles, shared media, gallery | partial | reviewed, A20b/A27/A28 repairs | pending; profile/gallery smoke |
+| P1 | Profiles, shared media, gallery | partial | reviewed, A20b/A27/A28 repairs | Simulator 10-12: Saved Messages profile header probe, grid → gallery, paging, swipe-down dismissal; other peer types pending |
 | P1 | Multiple accounts | implemented | partial (A23/A30) | pending |
-| P1 | Chats, folders, archive, search, edit/reorder | partial | reviewed, list/mutation repairs | pending; store-based list kept |
-| P1 | Timeline stability and performance | partial | reviewed, A22/A39/A49 repairs | pending |
+| P1 | Chats, folders, archive, search, edit/reorder | partial | reviewed, list/mutation repairs | F14/F16 fixed; folder-flow and folder-selector probes; mutations pending; store-based list kept |
+| P1 | Timeline stability and performance | partial | reviewed, A22/A39/A49 repairs | viewport-completion and message-navigation on the real ChatView; prepend/media resize/keyboard pending |
 | P2 | Shell/navigation polish | implemented shell/list breadth | A32/A37 unresolved | pending |
 | P0 | Context-menu gestures from CustomContextMenu | ported 10-12 for all sources | — | probe + Simulator smoke; F9 fixed |
 | P1 | Liquid morph of menu buttons | ported 10-12 (gallery More, composer attach) | — | probe + Simulator smoke |
