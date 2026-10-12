@@ -2196,22 +2196,29 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     rows[item] = timelineSnapshots.committed.rows[item]
                     continue
                 }
-                let value = ChatMessageRenderValue(canonical)
                 let inputs = ChatTimelineMessageRow.Inputs(
-                    highlightedMessageID: value.sourceMessages.first { $0.id == chatVM.highlightedMessageId }?.id,
+                    highlightedMessageID: canonical.sourceMessages.first { $0.id == chatVM.highlightedMessageId }?.id,
                     selectionActive: isSelectingMessages && canSelectMessage(canonical),
                     selected: selectedDisplayedMessageIDs.contains(id),
                     showsProfileImage: chatVM.customChat.shouldShowProfileImage,
                     canAddReactions: chatVM.canAddReactions,
                     canReply: presentationMode == .full && !isSelectingMessages
-                        && !chatVM.isReadOnlyTopic && value.properties.canBeReplied,
+                        && !chatVM.isReadOnlyTopic && canonical.properties.canBeReplied,
                 )
                 let mustRefresh = demand.ids.contains(id) || changedOwners.contains(id)
                     || wasSelectingMessages && !isSelectingMessages
-                if let previous, !mustRefresh, previous.canonical === canonical,
-                   previous.value == value, previous.inputs == inputs
-                {
-                    rows[item] = .message(previous)
+                let reusable = previous.flatMap { previous in
+                    !mustRefresh && previous.canonical === canonical && previous.inputs == inputs ? previous : nil
+                }
+                // Unchanged revision: the value cannot differ, so skip building and deep-comparing it.
+                if let reusable, reusable.revision == canonical.renderRevision {
+                    rows[item] = .message(reusable)
+                    continue
+                }
+                let value = ChatMessageRenderValue(canonical)
+                if let reusable, reusable.value == value {
+                    reusable.revision = canonical.renderRevision
+                    rows[item] = .message(reusable)
                 } else {
                     // Capture matching handles only. Creating new players is lazy,
                     // after a visible provider verifies this exact canonical payload.

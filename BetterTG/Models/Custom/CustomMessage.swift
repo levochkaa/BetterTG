@@ -32,8 +32,17 @@ import TDLibKit
 
     @Published var spoilersRevealed = false
 
-    var isReplyQuoteExpanded = false
+    var isReplyQuoteExpanded = false {
+        didSet { renderRevision &+= 1 }
+    }
+
+    /// Bumped by every published change and by quote expansion, which are all the inputs of ChatMessageRenderValue.
+    /// A timeline row whose canonical object and revision are unchanged renders the same value, so a snapshot can
+    /// skip building and deep-comparing it (each native TDLib field read crosses into C++).
+    private(set) var renderRevision: UInt64 = 0
     let richContentState = MessageRichContentState()
+
+    private var renderRevisionSubscription: AnyCancellable?
 
     var id: Int64 { message.id }
     var contentPresentation: MessageContentPresentation {
@@ -74,6 +83,10 @@ import TDLibKit
         self.reactions = reactions ?? message.interactionInfo?.reactions
         self.unreadReactions = unreadReactions ?? message.unreadReactions
         self.isPinned = isPinned ?? message.isPinned
+        // objectWillChange fires synchronously on the main actor inside each @Published setter.
+        self.renderRevisionSubscription = objectWillChange.sink { [weak self] _ in
+            MainActor.assumeIsolated { self?.renderRevision &+= 1 }
+        }
     }
 
     /// A detached rendering copy, never a live message or a restored history seed.

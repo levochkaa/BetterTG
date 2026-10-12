@@ -39,6 +39,17 @@
                 compareTime += CACurrentMediaTime() - compareStart
                 previous = values
             }
+            // The snapshot fast path: an unchanged canonical revision skips building and comparing the value.
+            let revisions = messages.map(\.renderRevision)
+            var revisionTime = 0.0
+            var unchanged = 0
+            for _ in 0..<rounds {
+                let start = CACurrentMediaTime()
+                for (message, revision) in zip(messages, revisions) where message.renderRevision == revision {
+                    unchanged += 1
+                }
+                revisionTime += CACurrentMediaTime() - start
+            }
             let count = Double(messages.count)
             let perSnapshotMS = (buildTime + compareTime) / Double(rounds) * 1000
             let perMessageUS = (buildTime + compareTime) / Double(rounds) / count * 1_000_000
@@ -49,6 +60,8 @@
                     compareTime / Double(rounds) * 1000,
                 )
                 + String(format: "total-ms/snapshot=%.3f, us/message=%.2f, ", perSnapshotMS, perMessageUS)
+                + String(format: "revision-check-ms/snapshot=%.4f, ", revisionTime / Double(rounds) * 1000)
+                + "unchanged-revisions=\(unchanged / rounds)/\(messages.count), "
                 + "unequal-pairs=\(unequal), environment=Simulator (Mac CPU; device unmeasured)"
         }
 

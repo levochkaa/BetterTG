@@ -19,6 +19,8 @@ import UIKit
     let id = UUID()
     let canonical: CustomMessage
     let value: ChatMessageRenderValue
+    /// The canonical revision this row's value is known to match; equal-content reuse advances it.
+    var revision: UInt64
     let inputs: Inputs
     let client: TDLibClient
     let source: TdUpdateSource?
@@ -35,6 +37,7 @@ import UIKit
     ) {
         self.canonical = canonical
         self.value = value
+        self.revision = canonical.renderRevision
         self.inputs = inputs
         self.client = client
         self.source = source
