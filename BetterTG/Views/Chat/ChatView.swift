@@ -422,6 +422,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             viewportCompletionProbe = probe
             probe.start()
         }
+        if presentationMode == .full, chatVM.customChat.isSavedMessages {
+            ChatTimelineValueCostProbe.start { [weak self] in self?.chatVM.messages ?? [] }
+        }
         guard presentationMode == .full,
               ProcessInfo.processInfo.arguments.contains("-ui-smoke-keyboard")
         else { return }
