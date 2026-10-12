@@ -686,6 +686,9 @@ import UIKit
         if snapshotState.hasPending { drainSnapshot()
             return
         }
+        // A removed row can move the table while its animation runs without the bar following; after a topic was
+        // deleted the search slot stayed open with the search field collapsed, leaving an empty band.
+        updateNavigationBar()
         if owns(model, binding: binding) {
             restoreViewportIfNeeded()
             if view.window != nil, navigationController?.topViewController === self,
