@@ -963,9 +963,18 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
               let chat = chat(for: chatID),
               let cell = tableView.cellForRow(at: indexPath) as? ChatListCell
         else { return }
-        let previewController = chat.chat.viewAsTopics
-            ? nil
-            : ChatViewController(customChat: chat, presentationMode: .contextPreview)
+        // Telegram previews a forum with its topic list (ChatListController, previewing: true).
+        let previewController: UIViewController =
+            if chat.chat.viewAsTopics {
+                ForumTopicsViewController(
+                    customChat: chat,
+                    location: ChatLocation.current(chatID: chat.id, client: TDLib.shared.activeClient),
+                    client: TDLib.shared.activeClient,
+                    presentationMode: .contextPreview,
+                )
+            } else {
+                ChatViewController(customChat: chat, presentationMode: .contextPreview)
+            }
         presentTelegramContextMenu(
             sourceView: cell.contextPreviewView,
             actions: menu(for: chat),

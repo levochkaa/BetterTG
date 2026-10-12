@@ -10,6 +10,13 @@ import UIKit
 @MainActor final class ForumTopicsViewController: UIViewController, UITableViewDelegate,
     ClientRestorableNavigationEntry
 {
+    /// `contextPreview` is Telegram's `ChatListControllerImpl(location: .forum, previewing: true)`: the topic list
+    /// shown above a forum's chat-list context menu. The menu owns it, outside any navigation stack.
+    enum PresentationMode {
+        case standard
+        case contextPreview
+    }
+
     struct ClientRestorationState {
         let pages: ForumTopicsRestorationState
         let rawQuery: String
@@ -43,6 +50,7 @@ import UIKit
     private var bindingID = UUID()
     private var boundSource: TdUpdateSource?
     private let environment: ForumTopicsClientEnvironment
+    private let presentationMode: PresentationMode
     private var actorID: Int64?
     private var readySource: TdUpdateSource?
     private var identityRevoked = false
@@ -84,7 +92,9 @@ import UIKit
     }
 
     private var routeIsRetained: Bool {
-        !retired && chatListActionOwnerIsAttached
+        guard !retired else { return false }
+        if presentationMode == .contextPreview { return parent != nil }
+        return chatListActionOwnerIsAttached
             && navigationController?.viewControllers.contains(where: { $0 === self }) == true
     }
 
@@ -103,9 +113,11 @@ import UIKit
         targetQuote: MessageQuoteHighlight? = nil,
         restoration: ClientRestorationState? = nil,
         environment: ForumTopicsClientEnvironment? = nil,
+        presentationMode: PresentationMode = .standard,
     ) {
         let environment = environment ?? .live
         self.environment = environment
+        self.presentationMode = presentationMode
         self.actorID = environment.currentActor()
         self.boundSource = location.accountID.map { .init(accountID: $0, clientID: location.clientID) }
         self.viewModel = environment.model(customChat, location, client, restoration?.pages)
@@ -238,7 +250,7 @@ import UIKit
 
     func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard snapshotState.canSelect,
+        guard presentationMode == .standard, snapshotState.canSelect,
               let topicID = dataSource.itemIdentifier(for: indexPath),
               snapshotState.topic(id: topicID) != nil,
               let topic = viewModel.topicForOpening(id: topicID, rawQuery: searchQuery)
@@ -473,7 +485,8 @@ import UIKit
     }
 
     private func retryClientRestoration() {
-        guard !retired, !identityRevoked, !retryScheduled,
+        // A preview never rebuilds navigation; the menu closes with its client.
+        guard presentationMode == .standard, !retired, !identityRevoked, !retryScheduled,
               let source = readySource, source == environment.currentSource(), source != boundSource,
               source.accountID == viewModel.location.accountID else { return }
         retryScheduled = true
@@ -505,6 +518,7 @@ import UIKit
         tableView.estimatedRowHeight = 70
         tableView.alwaysBounceVertical = true
         tableView.keyboardDismissMode = .onDrag
+        tableView.allowsSelection = presentationMode == .standard
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 80, bottom: 0, right: 0)
         tableView.register(ForumTopicCell.self, forCellReuseIdentifier: ForumTopicCell.reuseID)
         view.addSubview(tableView)
@@ -551,6 +565,10 @@ import UIKit
         }
         searchQuery = initialQuery
         if !initialQuery.isEmpty { navigationBarView.restoreSearchQuery(initialQuery) }
+        if presentationMode == .contextPreview {
+            navigationBarView.isUserInteractionEnabled = false
+            navigationBarView.setLeftButtonHidden(true)
+        }
         updateNavigationBar()
     }
 
