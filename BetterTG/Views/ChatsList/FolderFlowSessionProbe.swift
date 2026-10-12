@@ -310,6 +310,12 @@
                 (channel, "Untitled Channel", "Channel"),
                 (pickerChat(id: 114, user: pickerUser(id: 114, type: .userTypeDeleted)), "Deleted Account", nil),
             ]
+            // List positions unrelated to titles and IDs: the selector follows the chat list like Telegram's picker.
+            for (index, item) in cases.enumerated() {
+                item.0.position = .init(
+                    isPinned: false, list: .chatListMain, order: .init(Int64(index * 5 % cases.count + 1)), source: nil,
+                )
+            }
             fixture.folders[1].chats = cases.reversed().map(\.0)
             var selected: Set<Int64>?
             let picker = ChatFolderChatSelectionViewController(
@@ -328,10 +334,7 @@
                 picker.candidatePresentationReloadsForProbe == beforeShuffle,
                 "unchanged shuffled input reloaded selector",
             )
-            let expected = cases.sorted {
-                let comparison = $0.1.localizedCaseInsensitiveCompare($1.1)
-                return comparison == .orderedSame ? $0.0.id < $1.0.id : comparison == .orderedAscending
-            }
+            let expected = cases.sorted { $0.0.position.order > $1.0.position.order }
             let actual = rows(picker)
             try require(
                 actual.map { $0.textLabel?.text } == expected.map { Optional($0.1) },
@@ -375,7 +378,8 @@
                 rows(picker).map { $0.textLabel?.text } == ["Deleted Account", "Deleted Account"],
                 "fallback title not searchable",
             )
-            picker.tableView(picker.tableView, didSelectRowAt: IndexPath(row: 0, section: 0))
+            let selectedDeletedRow = expected.filter { $0.1 == "Deleted Account" }.firstIndex { $0.0.id == 101 } ?? 0
+            picker.tableView(picker.tableView, didSelectRowAt: IndexPath(row: selectedDeletedRow, section: 0))
             search(picker, "unknown")
             try require(
                 rows(picker).map { $0.textLabel?.text } == ["Unknown User"],

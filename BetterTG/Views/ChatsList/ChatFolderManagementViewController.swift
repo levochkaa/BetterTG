@@ -474,6 +474,8 @@ TelegramNavigationSearchProvider {
     private var candidateGeneration = UUID()
     private var candidatePresentation = [Int64: CandidatePresentation]()
     private var candidateOrder = [Int64]()
+    /// Which chat list each candidate was taken from: main list, other folders, then archive.
+    private var candidateListRanks = [Int64: Int]()
     private let searchController = UISearchController(searchResultsController: nil)
     private var selectedChatIDs: Set<Int64>
     private var chats = [CustomChat]()
@@ -601,10 +603,23 @@ TelegramNavigationSearchProvider {
     private func reloadCandidates() {
         guard session.isCurrent else { return }
         let folders = session.allFolders
+        // Telegram's add-chats picker is the root chat list (ChatListNode, groupId .root), so candidates follow
+        // the main list first. Chats reachable only through other folders or the archive come after it.
+        let ranked = folders.enumerated().sorted { lhs, rhs in
+            lhs.element.candidateListRank == rhs.element.candidateListRank
+                ? lhs.offset < rhs.offset
+                : lhs.element.candidateListRank < rhs.element.candidateListRank
+        }
         var seen = Set<Int64>()
-        chats = folders
-            .flatMap(\.chats)
-            .filter { seen.insert($0.id).inserted }
+        var ranks = [Int64: Int]()
+        chats = ranked.flatMap { _, folder in
+            folder.chats.filter { chat in
+                guard seen.insert(chat.id).inserted else { return false }
+                ranks[chat.id] = folder.candidateListRank
+                return true
+            }
+        }
+        candidateListRanks = ranks
         let generation = UUID()
         candidateGeneration = generation
         let scope = session.scope(owner: self)
@@ -630,14 +645,19 @@ TelegramNavigationSearchProvider {
             ($0.id, CandidatePresentation(title: $0.folderPickerTitle, subtitle: $0.folderPickerSubtitle))
         })
         guard presentation != candidatePresentation else {
+            // Position-only changes keep the open selector's rows in place while chats are being picked.
             let byID = Dictionary(uniqueKeysWithValues: chats.map { ($0.id, $0) })
             chats = candidateOrder.compactMap { byID[$0] }
             applyFilter(reload: false)
             return
         }
-        chats.sort {
-            let comparison = $0.folderPickerTitle.localizedCaseInsensitiveCompare($1.folderPickerTitle)
-            return comparison == .orderedSame ? $0.id < $1.id : comparison == .orderedAscending
+        let ranks = candidateListRanks
+        chats.sort { lhs, rhs in
+            let lhsRank = ranks[lhs.id] ?? .max
+            let rhsRank = ranks[rhs.id] ?? .max
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            if lhs.position.order != rhs.position.order { return lhs.position.order > rhs.position.order }
+            return lhs.id < rhs.id
         }
         candidatePresentation = presentation
         candidateOrder = chats.map(\.id)
@@ -929,6 +949,16 @@ private extension ChatFolderEditorViewController {
                 )
             default: nil
             }
+        }
+    }
+}
+
+private extension CustomFolder {
+    var candidateListRank: Int {
+        switch type {
+        case .main: 0
+        case .folder: 1
+        case .archive: 2
         }
     }
 }
