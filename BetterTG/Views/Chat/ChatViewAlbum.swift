@@ -1713,8 +1713,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             spinner.color = .white
             spinner.hidesWhenStopped = true
             spinner.isUserInteractionEnabled = false
+            spinner.setLoading(false)
         }
-        toolbar.contentView.addSubview(shareActivityIndicator)
+        // Above the toolbar rather than inside its effect content view: a stopped indicator there stayed in the
+        // accessibility tree as "Progress halted" over Share even while hidden.
+        view.addSubview(shareActivityIndicator)
         topBar.addSubview(moreActivityIndicator)
         counterLabel.translatesAutoresizingMaskIntoConstraints = false
         counterLabel.textColor = .white
@@ -2024,6 +2027,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             self.topBar.alpha = visible ? 1 : 0
             self.thumbnailStrip.alpha = visible ? 1 : 0
             self.toolbar.alpha = visible ? 1 : 0
+            self.shareActivityIndicator.alpha = visible ? 1 : 0
             self.captionView.alpha = visible ? 1 : 0
         }
         if animated {
@@ -3895,16 +3899,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         collectionView.isScrollEnabled = !busy
         moreButton.imageView?.alpha = busy && source == .more ? 0 : 1
         shareButton.imageView?.alpha = busy && source == .share ? 0 : 1
-        if busy, source == .more {
-            moreActivityIndicator.startAnimating()
-        } else {
-            moreActivityIndicator.stopAnimating()
-        }
-        if busy, source == .share {
-            shareActivityIndicator.startAnimating()
-        } else {
-            shareActivityIndicator.stopAnimating()
-        }
+        moreActivityIndicator.setLoading(busy && source == .more)
+        shareActivityIndicator.setLoading(busy && source == .share)
     }
 
     private func presentOpenInChatError(_ message: String) {

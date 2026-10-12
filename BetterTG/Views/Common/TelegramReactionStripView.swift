@@ -69,7 +69,7 @@ final class TelegramReactionStripView: UIView {
 
     func configure(_ reactions: [TelegramContextMenuReaction]) {
         prepareForReuse()
-        spinner.stopAnimating()
+        spinner.setLoading(false)
         for reaction in reactions {
             let button = TelegramReactionStripButton(reaction: reaction)
             button.addAction(UIAction { [weak self, weak button] _ in
