@@ -338,3 +338,25 @@
 "VoiceOver.Media.PlaybackRate" = "Playback rate";
 "Gallery.Live" = "LIVE";
 "VoiceOver.Chat.AnimatedSticker" = "Animated sticker";
+
+"GroupInfo.Administrators" = "Administrators";
+"Group.Info.Members" = "Members";
+"Channel.Management.LabelOwner" = "Owner";
+"Channel.Management.LabelAdministrator" = "Administrator";
+"GroupPermission.Member" = "Member";
+"Watch.LastSeen.Lately" = "recently";
+"Watch.LastSeen.WithinAWeek" = "within a week";
+"Watch.LastSeen.WithinAMonth" = "within a month";
+"GroupInfo.ActionAddRank" = "Add Member Tag";
+"UserInfo.FirstNamePlaceholder" = "First Name";
+"UserInfo.LastNamePlaceholder" = "Last Name";
+"Settings.About" = "Bio";
+"Channel.Edit.AboutItem" = "Description";
+"PeerInfo.PaneMedia" = "Media";
+"PeerInfo.PaneFiles" = "Files";
+"PeerInfo.PaneLinks" = "Links";
+"PeerInfo.PaneAudio" = "Audio";
+"PeerInfo.ButtonMessage" = "Message";
+"Channel.Info.Management" = "Admins";
+"Bot.GenericBotStatus" = "bot";
+"LastSeen.Offline" = "offline";

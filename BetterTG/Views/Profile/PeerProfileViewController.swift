@@ -16,10 +16,28 @@ ClientRestorableNavigationEntry {
 
         var title: String {
             switch self {
-            case .media: "Media"
-            case .files: "Files"
-            case .links: "Links"
-            case .audio: "Audio"
+            case .media: L10n.telegram("PeerInfo.PaneMedia")
+            case .files: L10n.telegram("PeerInfo.PaneFiles")
+            case .links: L10n.telegram("PeerInfo.PaneLinks")
+            case .audio: L10n.telegram("PeerInfo.PaneAudio")
+            }
+        }
+
+        var loadFailedText: String {
+            switch self {
+            case .media: L10n.betterTG("Profile.SharedMediaLoadFailed")
+            case .files: L10n.betterTG("Profile.SharedFilesLoadFailed")
+            case .links: L10n.betterTG("Profile.SharedLinksLoadFailed")
+            case .audio: L10n.betterTG("Profile.SharedAudioLoadFailed")
+            }
+        }
+
+        var emptyText: String {
+            switch self {
+            case .media: L10n.betterTG("Profile.SharedMediaEmpty")
+            case .files: L10n.betterTG("Profile.SharedFilesEmpty")
+            case .links: L10n.betterTG("Profile.SharedLinksEmpty")
+            case .audio: L10n.betterTG("Profile.SharedAudioEmpty")
             }
         }
 
@@ -80,6 +98,7 @@ ClientRestorableNavigationEntry {
     private var currentUserProfilePhoto: ProfilePhoto?
     private var currentUserPhotoRoleSignature: UserPhotoRoleSignature?
     private var currentStatusText: String
+    private var currentStatusIsOnline = false
     private var currentBioText = ""
     private var currentDetailTexts = [String]()
     private let avatarView = ProfileAvatarView()
@@ -91,22 +110,22 @@ ClientRestorableNavigationEntry {
     private let detailsLabel = UILabel()
     private let actionStack = UIStackView()
     private lazy var messageActionButton = profileButton(
-        title: "Message",
+        title: L10n.telegram("PeerInfo.ButtonMessage"),
         symbol: "message.fill",
         action: #selector(messagePressed),
     )
     private lazy var searchActionButton = profileButton(
-        title: "Search",
+        title: L10n.telegram("PeerInfo.ButtonSearch"),
         symbol: "magnifyingglass",
         action: #selector(searchPressed),
     )
     private lazy var membersActionButton = profileButton(
-        title: "Members",
+        title: L10n.telegram("Group.Info.Members"),
         symbol: "person.2.fill",
         action: #selector(membersPressed),
     )
     private lazy var administratorsActionButton = profileButton(
-        title: "Admins",
+        title: L10n.telegram("Channel.Info.Management"),
         symbol: "person.badge.key.fill",
         action: #selector(administratorsPressed),
     )
@@ -280,6 +299,9 @@ ClientRestorableNavigationEntry {
         self.currentChatPhotoInfo = customChat.chat.photo
         self.currentUserProfilePhoto = customChat.user?.profilePhoto
         self.currentStatusText = isSelfProfile ? "" : Self.statusText(for: customChat)
+        if !isSelfProfile, case .user(let user) = customChat.type {
+            self.currentStatusIsOnline = Self.isOnline(user.status)
+        }
         super.init(nibName: nil, bundle: nil)
         observeClientOwnership()
     }
@@ -300,7 +322,7 @@ ClientRestorableNavigationEntry {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Profile"
+        title = L10n.betterTG("Profile.Title")
         view.backgroundColor = .systemBackground
         configureHeader()
         configureCollectionView()
@@ -440,23 +462,41 @@ ClientRestorableNavigationEntry {
     private static func statusText(for customChat: CustomChat) -> String {
         switch customChat.type {
         case .bot:
-            "bot"
+            L10n.telegram("Bot.GenericBotStatus")
         case .user(let user):
             statusText(for: user.status)
         case .group(let group):
-            "\(group.memberCount) members"
+            memberCountText(group.memberCount, isChannel: false)
         case .supergroup(let group):
-            group.isChannel ? "channel" : (group.isForum ? "forum" : "group")
+            kindText(isChannel: group.isChannel, isForum: group.isForum)
         }
+    }
+
+    private static func memberCountText(_ count: Int, isChannel: Bool) -> String {
+        L10n.telegramPlural(
+            isChannel ? "Conversation.StatusSubscribers" : "Conversation.StatusMembers",
+            count: count,
+            formattedCount: String(count),
+        )
+    }
+
+    private static func kindText(isChannel: Bool, isForum: Bool) -> String {
+        if isChannel { return L10n.telegram("Channel.Status") }
+        return isForum ? L10n.betterTG("Profile.ForumStatus") : L10n.telegram("Group.Status")
+    }
+
+    private static func isOnline(_ status: UserStatus) -> Bool {
+        if case .userStatusOnline = status { return true }
+        return false
     }
 
     private static func statusText(for status: UserStatus) -> String {
         switch status {
-        case .userStatusOnline: "online"
-        case .userStatusRecently: "last seen recently"
-        case .userStatusLastWeek: "last seen within a week"
-        case .userStatusLastMonth: "last seen within a month"
-        case .userStatusEmpty, .userStatusOffline: "offline"
+        case .userStatusOnline: L10n.telegram("Presence.online")
+        case .userStatusRecently: L10n.telegram("LastSeen.Lately")
+        case .userStatusLastWeek: L10n.telegram("LastSeen.WithinAWeek")
+        case .userStatusLastMonth: L10n.telegram("LastSeen.WithinAMonth")
+        case .userStatusEmpty, .userStatusOffline: L10n.telegram("LastSeen.Offline")
         }
     }
 
@@ -648,9 +688,9 @@ ClientRestorableNavigationEntry {
         }, completion: { [weak self] chat in
             guard let self else { return }
             guard let chat, chat.id == chatID else {
-                navigationItem.prompt = "Couldn't reload profile."
+                navigationItem.prompt = L10n.betterTG("Profile.ReloadFailed")
                 navigationItem.rightBarButtonItem = UIBarButtonItem(
-                    title: "Retry",
+                    title: L10n.telegram("ChatImportActivity.Retry"),
                     style: .plain,
                     target: self,
                     action: #selector(retryClientRestoration),
@@ -691,8 +731,10 @@ ClientRestorableNavigationEntry {
         avatarView.layer.cornerRadius = 48
         avatarView.clipsToBounds = true
         avatarView.isAccessibilityElement = true
-        avatarView.accessibilityLabel = "\(profileTitle()) profile photo"
-        avatarView.accessibilityHint = avatarGalleryIsAvailable ? "Opens profile photos" : nil
+        avatarView.accessibilityLabel = L10n.betterTG("Accessibility.ProfilePhotoOf", profileTitle())
+        avatarView.accessibilityHint = avatarGalleryIsAvailable
+            ? L10n.betterTG("Accessibility.OpenProfilePhotosHint")
+            : nil
         avatarView.accessibilityTraits = avatarGalleryIsAvailable ? [.button, .image] : .image
         avatarTapGesture.isEnabled = avatarGalleryIsAvailable
         avatarView.addGestureRecognizer(avatarTapGesture)
@@ -1108,7 +1150,7 @@ ClientRestorableNavigationEntry {
             parent: self, accountID: accountID, actorID: accountUserID, chatID: customChat.id,
         ) == true { return }
         if canWaitForClientRestoration {
-            navigationItem.prompt = "Reconnecting…"
+            navigationItem.prompt = L10n.betterTG("Session.Reconnecting")
             retryClientRestoration()
             return
         }
@@ -1155,6 +1197,7 @@ ClientRestorableNavigationEntry {
     private func handleUserStatusUpdate(_ update: UpdateUserStatus) {
         guard contextIsCurrent, update.userId == customChat.user?.id else { return }
         currentStatusText = isSelfProfile ? "" : Self.statusText(for: update.status)
+        currentStatusIsOnline = !isSelfProfile && Self.isOnline(update.status)
         scheduleMetadataRender()
     }
 
@@ -1175,6 +1218,7 @@ ClientRestorableNavigationEntry {
             currentChatTitle = name
         }
         currentStatusText = isSelfProfile ? "" : Self.statusText(for: update.user.status)
+        currentStatusIsOnline = !isSelfProfile && Self.isOnline(update.user.status)
         currentDetailTexts = update.user.usernames?.activeUsernames.map { "@\($0)" } ?? []
         if !update.user.phoneNumber.isEmpty {
             currentDetailTexts.append("+\(update.user.phoneNumber)")
@@ -1191,7 +1235,7 @@ ClientRestorableNavigationEntry {
               )
         else { return }
         customChat.type = .group(update.basicGroup)
-        currentStatusText = "\(update.basicGroup.memberCount) members"
+        currentStatusText = Self.memberCountText(update.basicGroup.memberCount, isChannel: false)
         scheduleMetadataRender()
     }
 
@@ -1208,11 +1252,9 @@ ClientRestorableNavigationEntry {
         customChat.type = .supergroup(update.supergroup)
         currentStatusText =
             if update.supergroup.memberCount > 0 {
-                "\(update.supergroup.memberCount) \(update.supergroup.isChannel ? "subscribers" : "members")"
+                Self.memberCountText(update.supergroup.memberCount, isChannel: update.supergroup.isChannel)
             } else {
-                update.supergroup.isChannel
-                    ? "channel"
-                    : (update.supergroup.isForum ? "forum" : "group")
+                Self.kindText(isChannel: update.supergroup.isChannel, isForum: update.supergroup.isForum)
             }
         currentDetailTexts = update.supergroup.usernames?.activeUsernames.map { "@\($0)" } ?? []
         scheduleMetadataRender()
@@ -1254,12 +1296,11 @@ ClientRestorableNavigationEntry {
         infoTask?.cancel()
         infoTask = nil
         currentSupergroupCanGetMembers = update.supergroupFullInfo.canGetMembers
-        let noun = group.isChannel ? "subscribers" : "members"
         applyFullInfo(
             bio: update.supergroupFullInfo.description,
             details: group.usernames?.activeUsernames.map { "@\($0)" } ?? [],
             status: update.supergroupFullInfo.memberCount > 0
-                ? "\(update.supergroupFullInfo.memberCount) \(noun)"
+                ? Self.memberCountText(update.supergroupFullInfo.memberCount, isChannel: group.isChannel)
                 : nil,
             photo: update.supergroupFullInfo.photo,
         )
@@ -1307,7 +1348,7 @@ ClientRestorableNavigationEntry {
                   let chat
             else { return }
             customChat.chat = chat
-            currentChatTitle = isSelfProfile ? "Saved Messages" : chat.title
+            currentChatTitle = isSelfProfile ? L10n.telegram("Conversation.SavedMessages") : chat.title
             if currentChatPhotoInfo != chat.photo {
                 currentProfilePhoto = nil
                 hasHydratedFullInfo = false
@@ -1454,7 +1495,7 @@ ClientRestorableNavigationEntry {
         guard !clientOwnerRetired else { return }
         titleLabel.text = profileTitle()
         statusLabel.text = currentStatusText
-        statusLabel.textColor = currentStatusText == "online" ? .systemGreen : .secondaryLabel
+        statusLabel.textColor = currentStatusIsOnline ? .systemGreen : .secondaryLabel
         statusLabel.isHidden = currentStatusText.isEmpty
         bioLabel.text = currentBioText
         bioLabel.textColor = .label
@@ -1473,8 +1514,10 @@ ClientRestorableNavigationEntry {
         renderedAvatarItemID = displayedAvatarItemID
         renderedAvatarFileID = displayedAvatarFile?.id
         avatarTapGesture.isEnabled = avatarGalleryIsAvailable
-        avatarView.accessibilityLabel = "\(profileTitle()) profile photo"
-        avatarView.accessibilityHint = avatarGalleryIsAvailable ? "Opens profile photos" : nil
+        avatarView.accessibilityLabel = L10n.betterTG("Accessibility.ProfilePhotoOf", profileTitle())
+        avatarView.accessibilityHint = avatarGalleryIsAvailable
+            ? L10n.betterTG("Accessibility.OpenProfilePhotosHint")
+            : nil
         avatarView.accessibilityTraits = avatarGalleryIsAvailable ? [.button, .image] : .image
         updateActionAvailability()
         view.setNeedsLayout()
@@ -1572,7 +1615,7 @@ ClientRestorableNavigationEntry {
             cell.prepareForReuse()
             cell.contentView.isHidden = true
             cell.accessibilityElementsHidden = true
-            cell.accessibilityLabel = "Loading message…"
+            cell.accessibilityLabel = L10n.betterTG("Profile.LoadingMessage")
         }
         scheduleSharedSnapshot()
     }
@@ -1613,7 +1656,6 @@ ClientRestorableNavigationEntry {
                     applyFullInfo(bio: info.description, details: [], status: nil, photo: info.photo)
                 case .supergroup(let group):
                     let info = try await client.getSupergroupFullInfo(supergroupId: group.id)
-                    let noun = group.isChannel ? "subscribers" : "members"
                     guard !Task.isCancelled,
                           contextIsCurrent,
                           fullInfoGeneration == generation
@@ -1622,7 +1664,9 @@ ClientRestorableNavigationEntry {
                     applyFullInfo(
                         bio: info.description,
                         details: group.usernames?.activeUsernames.map { "@\($0)" } ?? [],
-                        status: info.memberCount > 0 ? "\(info.memberCount) \(noun)" : nil,
+                        status: info.memberCount > 0
+                            ? Self.memberCountText(info.memberCount, isChannel: group.isChannel)
+                            : nil,
                         photo: info.photo,
                     )
                 }
@@ -1703,7 +1747,7 @@ ClientRestorableNavigationEntry {
                 refresh.finishPage()
                 historyTask = nil
                 guard !Task.isCancelled, refresh.canRead, sharedMessageRefresh === refresh else { return }
-                historyError = "Couldn't load shared \(requestedTab.title.lowercased())."
+                historyError = requestedTab.loadFailedText
                 activeMediaGallery?.allowMoreMessagesRetry()
                 applySnapshot()
             }
@@ -1755,16 +1799,16 @@ ClientRestorableNavigationEntry {
         }
         if let historyError {
             var configuration = UIButton.Configuration.plain()
-            configuration.title = "\(historyError)\nTap to retry"
+            configuration.title = L10n.betterTG("Profile.TapToRetryFormat", historyError)
             let button = UIButton(configuration: configuration)
             button.titleLabel?.numberOfLines = 0
             button.titleLabel?.textAlignment = .center
             button.addTarget(self, action: #selector(retrySharedMedia), for: .touchUpInside)
-            button.accessibilityHint = "Retries loading shared media"
+            button.accessibilityHint = L10n.betterTG("Accessibility.RetrySharedMediaHint")
             collectionView.backgroundView = button
         } else {
             let label = UILabel()
-            label.text = historyTask == nil ? "No shared \(currentSharedTab.title.lowercased())" : "Loading…"
+            label.text = historyTask == nil ? currentSharedTab.emptyText : L10n.betterTG("Profile.Loading")
             label.textAlignment = .center
             label.textColor = .secondaryLabel
             collectionView.backgroundView = label
@@ -1776,7 +1820,7 @@ ClientRestorableNavigationEntry {
     }
 
     private func profileTitle() -> String {
-        isSelfProfile ? "Saved Messages" : currentChatTitle
+        isSelfProfile ? L10n.telegram("Conversation.SavedMessages") : currentChatTitle
     }
 
     @objc private func avatarPressed() {
@@ -2326,7 +2370,7 @@ final class SharedMediaGridCell: UICollectionViewCell {
         videoBadge.isHidden = true
         if renderedAllowsPixels {
             accessibilityLabel = "\(MessageTextSpoilerPresentation.summary(for: message)), \(profileDateString(message.date))"
-            accessibilityHint = "Open media"
+            accessibilityHint = L10n.betterTG("Accessibility.OpenMedia")
             if !loadingIsPaused { loadThumbnail(for: message) }
         } else {
             let cover = MediaConcealmentView(message: message)
@@ -2342,7 +2386,7 @@ final class SharedMediaGridCell: UICollectionViewCell {
             ])
             self.cover = cover
             accessibilityLabel = cover.accessibilityLabel
-            accessibilityHint = permit?.key.isSecret == true ? nil : "Open media"
+            accessibilityHint = permit?.key.isSecret == true ? nil : L10n.betterTG("Accessibility.OpenMedia")
         }
     }
 
@@ -2419,7 +2463,9 @@ final class SharedMediaPendingCell: UICollectionViewCell {
     func configure(state: PeerProfileSharedMessageRefresh.State) {
         contentView.isHidden = false
         accessibilityElementsHidden = false
-        label.text = state == .retry ? "Couldn't refresh.\nTap to retry" : "Loading message…"
+        label.text = state == .retry
+            ? L10n.betterTG("Profile.RefreshFailedMultiline")
+            : L10n.betterTG("Profile.LoadingMessage")
         isAccessibilityElement = true
         accessibilityLabel = label.text
         accessibilityTraits = state == .retry ? .button : .staticText
@@ -2469,12 +2515,16 @@ final class SharedMediaRowCell: UICollectionViewCell {
     func configurePending(state: PeerProfileSharedMessageRefresh.State) {
         contentView.isHidden = false
         accessibilityElementsHidden = false
-        titleLabel.text = state == .retry ? "Couldn't refresh" : "Loading message…"
-        subtitleLabel.text = state == .retry ? "Tap to retry" : " "
+        titleLabel.text = state == .retry
+            ? L10n.betterTG("Profile.RefreshFailed")
+            : L10n.betterTG("Profile.LoadingMessage")
+        subtitleLabel.text = state == .retry ? L10n.betterTG("Profile.TapToRetry") : " "
         iconView.image = UIImage(systemName: state == .retry ? "arrow.clockwise" : "clock")
         isAccessibilityElement = true
         accessibilityTraits = state == .retry ? .button : .staticText
-        accessibilityLabel = state == .retry ? "Couldn't refresh. Tap to retry" : "Loading message…"
+        accessibilityLabel = state == .retry
+            ? L10n.betterTG("Profile.RefreshFailedTapToRetry")
+            : L10n.betterTG("Profile.LoadingMessage")
     }
 
     func configure(message: Message) {

@@ -118,7 +118,9 @@ struct PeerProfileMembersRevalidation {
 @MainActor enum PeerProfileMemberPlaceholder {
     static func configure(_ cell: UITableViewCell, retrying: Bool) {
         var content = cell.defaultContentConfiguration()
-        content.text = retrying ? "Member unavailable — retry" : "Updating member…"
+        content.text = retrying
+            ? L10n.betterTG("Profile.MemberUnavailableRetry")
+            : L10n.betterTG("Profile.UpdatingMember")
         content.secondaryText = nil
         content.textProperties.color = .secondaryLabel
         cell.contentConfiguration = content

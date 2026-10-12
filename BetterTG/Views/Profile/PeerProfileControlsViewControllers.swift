@@ -107,10 +107,10 @@ import UIKit
             && !tableView.isTracking && !tableView.isDragging && !tableView.isDecelerating
     }
 
-    private var listNoun: String {
+    private var emptyListText: String {
         switch source {
-        case .administrators: "administrators"
-        case .basicGroup, .supergroup: "members"
+        case .administrators: L10n.betterTG("Profile.NoAdmins")
+        case .basicGroup, .supergroup: L10n.betterTG("Profile.NoMembers")
         }
     }
 
@@ -141,8 +141,8 @@ import UIKit
         super.init(style: .plain)
         self.title =
             switch source {
-            case .administrators: "Administrators"
-            case .basicGroup, .supergroup: "Members"
+            case .administrators: L10n.telegram("GroupInfo.Administrators")
+            case .basicGroup, .supergroup: L10n.telegram("Group.Info.Members")
             }
         navigationItem.backButtonTitle = title
     }
@@ -351,26 +351,32 @@ import UIKit
     private static func role(for member: ChatMember) -> String {
         switch member.status {
         case .chatMemberStatusCreator:
-            member.tag.isEmpty ? "Owner" : "Owner · \(member.tag)"
+            roleTitle(L10n.telegram("Channel.Management.LabelOwner"), tag: member.tag)
         case .chatMemberStatusAdministrator:
-            member.tag.isEmpty ? "Administrator" : "Administrator · \(member.tag)"
+            roleTitle(L10n.telegram("Channel.Management.LabelAdministrator"), tag: member.tag)
         case .chatMemberStatusBanned:
-            "Banned"
+            L10n.betterTG("Profile.RoleBanned")
         case .chatMemberStatusLeft:
-            "Left"
+            L10n.betterTG("Profile.RoleLeft")
         case .chatMemberStatusMember:
-            member.tag.isEmpty ? "Member" : member.tag
+            member.tag.isEmpty ? L10n.telegram("GroupPermission.Member") : member.tag
         case .chatMemberStatusRestricted(let restricted):
-            restricted.isMember ? "Restricted member" : "Restricted"
+            restricted.isMember
+                ? L10n.betterTG("Profile.RoleRestrictedMember")
+                : L10n.betterTG("Profile.RoleRestricted")
         }
+    }
+
+    private static func roleTitle(_ role: String, tag: String) -> String {
+        tag.isEmpty ? role : "\(role) · \(tag)"
     }
 
     private static func userStatus(_ status: UserStatus) -> String {
         switch status {
-        case .userStatusOnline: "online"
-        case .userStatusRecently: "recently"
-        case .userStatusLastWeek: "within a week"
-        case .userStatusLastMonth: "within a month"
+        case .userStatusOnline: L10n.telegram("Presence.online")
+        case .userStatusRecently: L10n.telegram("Watch.LastSeen.Lately")
+        case .userStatusLastWeek: L10n.telegram("Watch.LastSeen.WithinAWeek")
+        case .userStatusLastMonth: L10n.telegram("Watch.LastSeen.WithinAMonth")
         case .userStatusEmpty, .userStatusOffline: ""
         }
     }
@@ -427,6 +433,13 @@ import UIKit
         })
     }
 
+    private func loadFailureText(_ message: String) -> String {
+        switch source {
+        case .administrators: L10n.betterTG("Profile.AdminsLoadFailed", message)
+        case .basicGroup, .supergroup: L10n.betterTG("Profile.MembersLoadFailed", message)
+        }
+    }
+
     private func configureDataSource() {
         dataSource = UITableViewDiffableDataSource<
             Section,
@@ -457,7 +470,7 @@ import UIKit
             cell.accessoryType = canInspectTag ? .disclosureIndicator : .none
             cell.isAccessibilityElement = true
             cell.accessibilityLabel = row.accessibilityLabel
-            cell.accessibilityHint = canInspectTag ? "Shows member tag controls" : nil
+            cell.accessibilityHint = canInspectTag ? L10n.betterTG("Accessibility.MemberTagHint") : nil
             cell.accessibilityTraits = canInspectTag ? .button : .staticText
             return cell
         }
@@ -499,11 +512,15 @@ import UIKit
                     page = result.administrators.map { administrator in
                         let role =
                             if administrator.isOwner {
-                                administrator.customTitle.isEmpty ? "Owner" : "Owner · \(administrator.customTitle)"
+                                Self.roleTitle(
+                                    L10n.telegram("Channel.Management.LabelOwner"),
+                                    tag: administrator.customTitle,
+                                )
                             } else {
-                                administrator.customTitle.isEmpty
-                                    ? "Administrator"
-                                    : "Administrator · \(administrator.customTitle)"
+                                Self.roleTitle(
+                                    L10n.telegram("Channel.Management.LabelAdministrator"),
+                                    tag: administrator.customTitle,
+                                )
                             }
                         return Seed(
                             id: .user(administrator.userId),
@@ -620,7 +637,7 @@ import UIKit
                 return fallbackRow(seed)
             }
             let name = [user.firstName, user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
-            let title = name.isEmpty ? "User \(userID)" : name
+            let title = name.isEmpty ? L10n.betterTG("Profile.UserFallback", String(userID)) : name
             let status = Self.userStatus(user.status)
             let detail = status.isEmpty ? seed.role : "\(seed.role) · \(status)"
             return Row(
@@ -629,7 +646,10 @@ import UIKit
                 title: title,
             )
         case .chat(let chatID):
-            let title = await (try? client.getChat(chatId: chatID))?.title ?? "Chat \(chatID)"
+            let title = await (try? client.getChat(chatId: chatID))?.title ?? L10n.betterTG(
+                "Profile.ChatFallback",
+                String(chatID),
+            )
             return Row(
                 accessibilityLabel: "\(title), \(seed.role)",
                 role: seed.role,
@@ -641,8 +661,8 @@ import UIKit
     private func fallbackRow(_ seed: Seed) -> Row {
         let title =
             switch seed.id {
-            case .user(let userID): "User \(userID)"
-            case .chat(let chatID): "Chat \(chatID)"
+            case .user(let userID): L10n.betterTG("Profile.UserFallback", String(userID))
+            case .chat(let chatID): L10n.betterTG("Profile.ChatFallback", String(chatID))
             }
         return Row(
             accessibilityLabel: "\(title), \(seed.role)",
@@ -685,7 +705,7 @@ import UIKit
         let generation = loadGeneration
         let retryID = UUID()
         loadRetryID = retryID
-        let action = UIAction(title: "Retry") { [weak self] _ in
+        let action = UIAction(title: L10n.telegram("ChatImportActivity.Retry")) { [weak self] _ in
             self?.retryLoad(id: retryID, generation: generation)
         }
         let item = UIBarButtonItem(primaryAction: action)
@@ -693,7 +713,7 @@ import UIKit
         navigationItem.rightBarButtonItem = item
         let button = UIButton(type: .system)
         button.frame.size.height = 112
-        button.setTitle("Couldn't load \(listNoun)\n\(message)\nTap to retry", for: .normal)
+        button.setTitle(loadFailureText(message), for: .normal)
         button.titleLabel?.numberOfLines = 0
         button.titleLabel?.textAlignment = .center
         button.addAction(action, for: .touchUpInside)
@@ -732,7 +752,7 @@ import UIKit
     }
 
     private func updateEmptyState() {
-        tableView.backgroundView = orderedIDs.isEmpty && loadTask == nil ? emptyLabel("No \(listNoun)") : nil
+        tableView.backgroundView = orderedIDs.isEmpty && loadTask == nil ? emptyLabel(emptyListText) : nil
     }
 
     private func scheduleReload() {
@@ -761,15 +781,21 @@ import UIKit
         reloadTask = nil
         tagPreparationTask = nil
         tableView.isUserInteractionEnabled = false
-        navigationItem.prompt = identity.revoked ? "This account is no longer active." : "Reconnecting…"
+        navigationItem.prompt = identity.revoked
+            ? L10n.betterTG("Session.AccountInactive")
+            : L10n.betterTG("Session.Reconnecting")
     }
 
     private func presentTagError(_ error: Swift.Error) {
         guard presentedViewController == nil else { return }
         let message = (error as? LocalizedError)?.errorDescription
-            ?? "This member's tag can't be edited right now."
-        let alert = UIAlertController(title: "Can't Edit Tag", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+            ?? L10n.betterTG("Profile.TagEditUnavailable")
+        let alert = UIAlertController(
+            title: L10n.betterTG("Profile.CantEditTag"),
+            message: message,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         present(alert, animated: true)
     }
 
@@ -920,7 +946,8 @@ extension PeerProfileMembersViewController {
             else { throw PeerProfileMembersRestorationProbe.Failure(description: "missing member anchor") }
         old.invalidateForContextChange()
         try PeerProfileMembersRestorationProbe.require(old.tableView.visibleCells.allSatisfy {
-            $0.accessibilityLabel == "Updating member…" && $0.accessibilityHint == nil && $0.accessoryType == .none
+            $0.accessibilityLabel == L10n.betterTG("Profile.UpdatingMember") && $0.accessibilityHint == nil && $0
+                .accessoryType == .none
         }, "stale visible roles/actions survived quarantine")
         let heights = old.retainedHeights
         old.invalidateForContextChange()
@@ -980,11 +1007,12 @@ extension PeerProfileMembersViewController {
             throw PeerProfileMembersRestorationProbe.Failure(description: "missing retry control")
         }
         try PeerProfileMembersRestorationProbe.require(
-            fresh.navigationItem.rightBarButtonItem?.title == "Retry"
+            fresh.navigationItem.rightBarButtonItem?.title == L10n.telegram("ChatImportActivity.Retry")
             && fresh.navigationItem.rightBarButtonItem?.style == .plain
             && fresh.navigationItem.rightBarButtonItem?.hidesSharedBackground == true
             && fresh.tableView.visibleCells.allSatisfy {
-                $0.accessibilityLabel == "Member unavailable — retry" && $0.accessoryType == .none && $0
+                $0.accessibilityLabel == L10n.betterTG("Profile.MemberUnavailableRetry") && $0
+                    .accessoryType == .none && $0
                     .accessibilityHint == nil
             },
             "deep failure lacked visible classic Retry or leaked stale roles",
@@ -1130,10 +1158,10 @@ struct PeerProfileMemberTagAuthority {
         let editorTitle =
             switch target.status {
             case .chatMemberStatusAdministrator, .chatMemberStatusCreator:
-                "Edit Admin Title"
+                L10n.betterTG("Profile.EditAdminTitle")
             case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember,
                  .chatMemberStatusRestricted:
-                target.tag.isEmpty ? "Add Member Tag" : "Edit Member Tag"
+                target.tag.isEmpty ? L10n.telegram("GroupInfo.ActionAddRank") : L10n.betterTG("Profile.EditMemberTag")
             }
         return Self(baselineTag: target.tag, editorTitle: editorTitle)
     }
@@ -1163,17 +1191,17 @@ enum PeerProfileMemberTagError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .accountChanged:
-            "The active Telegram account changed."
+            L10n.betterTG("Error.AccountChanged")
         case .inactiveMember:
-            "This user is no longer an active member."
+            L10n.betterTG("Profile.TagInactiveMember")
         case .invalidTag:
-            "Tags can contain up to 16 characters and can't contain emoji or line breaks."
+            L10n.betterTG("Profile.TagInvalid")
         case .permissionDenied:
-            "You no longer have permission to edit this member's tag."
+            L10n.betterTG("Profile.TagPermissionDenied")
         case .staleTag:
-            "The tag changed elsewhere. Close this editor and try again."
+            L10n.betterTG("Profile.TagStale")
         case .unsupportedChat:
-            "Member tags are available only in groups and supergroups, not channels."
+            L10n.betterTG("Profile.TagUnsupportedChat")
         }
     }
 }
@@ -1246,7 +1274,7 @@ enum PeerProfileMemberTagError: LocalizedError {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "Save",
+            title: L10n.telegram("Common.Save"),
             style: .plain,
             target: self,
             action: #selector(save),
@@ -1268,7 +1296,7 @@ enum PeerProfileMemberTagError: LocalizedError {
         textField.autocapitalizationType = .sentences
         textField.autocorrectionType = .no
         textField.clearButtonMode = .whileEditing
-        textField.placeholder = "Tag"
+        textField.placeholder = L10n.betterTG("Profile.TagPlaceholder")
         textField.text = baselineTag
         textField.delegate = self
         textField.addTarget(self, action: #selector(textChanged), for: .editingChanged)
@@ -1294,11 +1322,11 @@ enum PeerProfileMemberTagError: LocalizedError {
                 guard let self else { return }
                 switch state {
                 case .ready: navigationItem.prompt = nil
-                case .waiting: navigationItem.prompt = "Reconnecting… Your changes are kept."
-                case .saving: navigationItem.prompt = "Saving…"
-                case .uncertain: navigationItem.prompt = "Result unknown. Check the member before retrying."
+                case .waiting: navigationItem.prompt = L10n.betterTG("Session.ReconnectingKeepsChanges")
+                case .saving: navigationItem.prompt = L10n.betterTG("Session.Saving")
+                case .uncertain: navigationItem.prompt = L10n.betterTG("Profile.MemberResultUnknown")
                 case .revoked:
-                    navigationItem.prompt = "This account is no longer active."
+                    navigationItem.prompt = L10n.betterTG("Session.AccountInactive")
                     view.isUserInteractionEnabled = false
                 }
                 updateValidation()
@@ -1379,7 +1407,7 @@ enum PeerProfileMemberTagError: LocalizedError {
         countLabel.textColor = valid ? .secondaryLabel : .systemRed
         navigationItem.rightBarButtonItem?.isEnabled = valid && textField.markedTextRange == nil && session
             .state == .ready
-        textField.accessibilityValue = "\(count) of 16 characters"
+        textField.accessibilityValue = L10n.betterTG("Accessibility.TagCharacterCount", count)
     }
 
     private func showError(_ message: String) {
@@ -1444,10 +1472,10 @@ enum PeerProfileMemberTagError: LocalizedError {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = "Edit"
+        title = L10n.telegram("Common.Edit")
         view.backgroundColor = .systemBackground
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "Save",
+            title: L10n.telegram("Common.Save"),
             style: .plain,
             target: self,
             action: #selector(save),
@@ -1459,11 +1487,11 @@ enum PeerProfileMemberTagError: LocalizedError {
                 navigationItem.rightBarButtonItem?.isEnabled = state == .ready
                 switch state {
                 case .ready: navigationItem.prompt = nil
-                case .waiting: navigationItem.prompt = "Reconnecting… Your changes are kept."
-                case .saving: navigationItem.prompt = "Saving…"
-                case .uncertain: navigationItem.prompt = "Result unknown. Check the profile before retrying."
+                case .waiting: navigationItem.prompt = L10n.betterTG("Session.ReconnectingKeepsChanges")
+                case .saving: navigationItem.prompt = L10n.betterTG("Session.Saving")
+                case .uncertain: navigationItem.prompt = L10n.betterTG("Profile.ProfileResultUnknown")
                 case .revoked:
-                    navigationItem.prompt = "This account is no longer active."
+                    navigationItem.prompt = L10n.betterTG("Session.AccountInactive")
                     view.isUserInteractionEnabled = false
                 }
             }
@@ -1520,18 +1548,18 @@ enum PeerProfileMemberTagError: LocalizedError {
         stack.addArrangedSubview(errorLabel)
         switch mode {
         case .selfProfile(_, let firstName, let lastName, let bio):
-            firstField.placeholder = "First name"
-            secondField.placeholder = "Last name"
+            firstField.placeholder = L10n.telegram("UserInfo.FirstNamePlaceholder")
+            secondField.placeholder = L10n.telegram("UserInfo.LastNamePlaceholder")
             firstField.text = firstName
             secondField.text = lastName
             detailView.text = bio
-            detailView.accessibilityLabel = "Bio"
+            detailView.accessibilityLabel = L10n.telegram("Settings.About")
         case .chat(_, let title, let description):
-            firstField.placeholder = "Chat title"
+            firstField.placeholder = L10n.betterTG("Profile.ChatTitlePlaceholder")
             firstField.text = title
             secondField.isHidden = true
             detailView.text = description
-            detailView.accessibilityLabel = "Description"
+            detailView.accessibilityLabel = L10n.telegram("Channel.Edit.AboutItem")
         }
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -1552,7 +1580,9 @@ enum PeerProfileMemberTagError: LocalizedError {
         let second = secondField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let detail = detailView.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !first.isEmpty else {
-            showError(secondField.isHidden ? "Chat title is required." : "First name is required.")
+            showError(secondField.isHidden
+                ? L10n.betterTG("Profile.ChatTitleRequired")
+                : L10n.betterTG("Profile.FirstNameRequired"))
             return
         }
         errorLabel.isHidden = true
@@ -1588,13 +1618,17 @@ enum PeerProfileMemberTagError: LocalizedError {
             switch result {
             case .success: navigationController?.popViewController(animated: true)
             case .failure(let error):
-                let prefix =
+                let partialKey =
                     if case .selfProfile = mode {
-                        "Name was saved, but bio failed: "
+                        "Profile.BioSaveFailed"
                     } else {
-                        "Title was saved, but description failed: "
+                        "Profile.DescriptionSaveFailed"
                     }
-                showError((completed > 0 ? prefix : "") + error.localizedDescription)
+                showError(
+                    completed > 0
+                        ? L10n.betterTG(partialKey, error.localizedDescription)
+                        : error.localizedDescription,
+                )
             }
         })
     }
@@ -1615,7 +1649,7 @@ enum PeerProfileEditError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .partialSuccess(let message): message
-        case .permissionChanged: "Your permission to edit this profile has changed."
+        case .permissionChanged: L10n.betterTG("Profile.PermissionChanged")
         }
     }
 }

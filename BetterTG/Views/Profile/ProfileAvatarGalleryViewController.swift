@@ -381,14 +381,14 @@ struct ProfileAvatarGalleryItem: Hashable {
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
         closeButton.tintColor = .white
-        closeButton.accessibilityLabel = "Close"
+        closeButton.accessibilityLabel = L10n.telegram("Common.Close")
         closeButton.accessibilityIdentifier = "avatar-gallery-close"
         closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
         retryButton.translatesAutoresizingMaskIntoConstraints = false
-        retryButton.setTitle("Retry", for: .normal)
+        retryButton.setTitle(L10n.telegram("ChatImportActivity.Retry"), for: .normal)
         retryButton.setTitleColor(.white, for: .normal)
         retryButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
-        retryButton.accessibilityLabel = "Retry loading profile photos"
+        retryButton.accessibilityLabel = L10n.betterTG("Accessibility.RetryProfilePhotos")
         retryButton.isHidden = true
         retryButton.addTarget(self, action: #selector(retryLoading), for: .touchUpInside)
         counterLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -440,7 +440,7 @@ struct ProfileAvatarGalleryItem: Hashable {
     }
 
     private func updateCounter() {
-        counterLabel.text = totalCount > 1 ? "\(selectedIndex + 1) of \(totalCount)" : ""
+        counterLabel.text = totalCount > 1 ? L10n.telegram("Items.NOfM", "\(selectedIndex + 1)", "\(totalCount)") : ""
         counterLabel.accessibilityLabel = counterLabel.text
     }
 
@@ -627,8 +627,8 @@ private final class ProfileAvatarMediaView: UIScrollView, UIScrollViewDelegate {
         isAccessibilityElement = true
         accessibilityTraits = .image
         accessibilityLabel = item.addedDate > 0
-            ? "Profile photo, \(ProfileAvatarDateFormatting.string(item.addedDate))"
-            : "Profile photo"
+            ? L10n.betterTG("Accessibility.ProfilePhotoDated", ProfileAvatarDateFormatting.string(item.addedDate))
+            : L10n.betterTG("Accessibility.ProfilePhoto")
     }
 
     func prepareForReuse() {

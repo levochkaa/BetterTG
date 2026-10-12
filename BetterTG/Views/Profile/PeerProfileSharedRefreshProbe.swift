@@ -235,7 +235,7 @@ import UIKit
         let pending = SharedMediaPendingCell()
         pending.configure(state: f.refresh.state(for: 2))
         try require(
-            f.values[2] != nil && pending.accessibilityLabel?.contains("Tap to retry") == true,
+            f.values[2] != nil && pending.accessibilityLabel?.contains(L10n.betterTG("Profile.TapToRetry")) == true,
             "rejected page ID lost local retry row",
         )
         var actions = 0
@@ -367,7 +367,10 @@ import UIKit
             readyHeight > 0 && abs(readyHeight - loadingHeight) < 0.5 && abs(readyHeight - height()) < 0.5,
             "pending/retry row changed fitted geometry",
         )
-        try require(row.accessibilityLabel == "Couldn't refresh. Tap to retry", "row leaked seed caption")
+        try require(
+            row.accessibilityLabel == L10n.betterTG("Profile.RefreshFailedTapToRetry"),
+            "row leaked seed caption",
+        )
 
         let narrow = SharedMediaPendingCell(frame: CGRect(x: 0, y: 0, width: 40, height: 40))
         narrow.configure(state: .loading)
@@ -447,12 +450,14 @@ import UIKit
         let pending = SharedMediaPendingCell(frame: CGRect(x: 0, y: 0, width: 110, height: 110))
         pending.configure(state: f.refresh.state(for: 1))
         try require(
-            pending.accessibilityLabel == "Loading message…" && pending.accessibilityTraits == .staticText,
+            pending.accessibilityLabel == L10n.betterTG("Profile.LoadingMessage") && pending
+                .accessibilityTraits == .staticText,
             "pending cell leaked seed text",
         )
         pending.configure(state: .retry)
         try require(
-            pending.accessibilityLabel == "Couldn't refresh.\nTap to retry" && pending.accessibilityTraits == .button,
+            pending.accessibilityLabel == L10n.betterTG("Profile.RefreshFailedMultiline") && pending
+                .accessibilityTraits == .button,
             "retry cell semantics",
         )
         let grid = SharedMediaGridCell(frame: CGRect(x: 0, y: 0, width: 110, height: 110))
