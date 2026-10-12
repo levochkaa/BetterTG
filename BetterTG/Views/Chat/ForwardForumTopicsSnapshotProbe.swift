@@ -246,7 +246,8 @@ import UIKit
         try await f.settle()
         try require(
             c.probeTable.cellForRow(at: IndexPath(row: 0, section: 0)) === selected
-            && selected?.accessibilityLabel == "Topic unavailable" && selected?.accessibilityIdentifier == nil
+            && selected?.accessibilityLabel == L10n.betterTG("Forum.TopicUnavailable") && selected?
+                .accessibilityIdentifier == nil
             && selected?.accessoryType == UITableViewCell.AccessoryType.none
             && selected?.isUserInteractionEnabled == false,
             "fallback replaced cell or retained selection/content",

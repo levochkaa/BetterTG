@@ -44,7 +44,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         )
         self.navigationBarView = TelegramListNavigationBar(
             title: folder.name,
-            placeholder: "Search \(folder.name.lowercased())…",
+            placeholder: L10n.betterTG("Folders.SearchIn", folder.name.lowercased()),
             leftImage: UIImage(systemName: "chevron.left"),
             rightImage: nil,
             leftAction: { NavigationStorage.shared.pop() },

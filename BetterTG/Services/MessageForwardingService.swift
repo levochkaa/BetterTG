@@ -132,8 +132,8 @@ struct PendingMessageForward: Equatable {
 
     var title: String {
         prepared.request.messageIDs.count == 1
-            ? "Forward message"
-            : "Forward \(prepared.request.messageIDs.count) messages"
+            ? L10n.telegram("Conversation.ForwardOptions.ForwardTitleSingle")
+            : L10n.telegramPlural("Conversation.ForwardOptions.ForwardTitle", count: prepared.request.messageIDs.count)
     }
 }
 
@@ -181,23 +181,23 @@ enum MessageForwardingError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .accountChanged:
-            "The active Telegram account changed. Open Forward again in the current account."
+            L10n.betterTG("Forward.AccountChanged")
         case .destinationUnavailable(let reason):
             reason
         case .emptySelection:
-            "Select at least one message to forward."
+            L10n.betterTG("Forward.EmptySelection")
         case .excludedProduct:
-            "Paid media forwarding isn't supported."
+            L10n.betterTG("Forward.PaidMediaUnsupported")
         case .partialDelivery(let sent, let expected):
-            "TDLib forwarded \(sent) of \(expected) selected messages."
+            L10n.betterTG("Forward.PartialDelivery", sent, expected)
         case .protectedMessages:
-            "One or more selected messages can't be forwarded or copied."
+            L10n.betterTG("Forward.ProtectedMessages")
         case .sourceMismatch:
-            "One or more selected messages no longer belong to this topic."
+            L10n.betterTG("Forward.SourceMismatch")
         case .tooManyMessages(let count):
-            "Select no more than 100 messages. \(count) are currently selected."
+            L10n.betterTG("Forward.TooManyMessages", count)
         case .unsupportedMode:
-            "The selected messages don't support this forwarding option."
+            L10n.betterTG("Forward.UnsupportedMode")
         }
     }
 }
@@ -268,7 +268,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
     ) -> MessageForwardDestinationEligibility {
         if case .chatTypeSecret = chat.type {
             guard prepared.canCopyToSecretChat else {
-                return unavailable("One or more selected messages can't be copied to a Secret Chat.")
+                return unavailable(L10n.betterTG("Forward.SecretChatCopyUnavailable"))
             }
             return MessageForwardDestinationEligibility(
                 isAllowed: true,
@@ -291,7 +291,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
                 case .voiceNote: permissions.canSendVoiceNotes
                 }
             if !allowed {
-                return unavailable("You don't have permission to send this message type here.")
+                return unavailable(L10n.betterTG("Forward.NoPermission"))
             }
         }
         return .allowed
@@ -322,7 +322,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
         )
         guard eligibility.isAllowed else {
             throw MessageForwardingError.destinationUnavailable(
-                eligibility.reason ?? "This chat can't receive the selected messages.",
+                eligibility.reason ?? L10n.betterTG("Forward.ChatCantReceive"),
             )
         }
         let effectiveMode =
@@ -378,7 +378,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
             )
         }
         guard messages.allSatisfy({ destination.accepts($0) })
-        else { throw MessageForwardingError.destinationUnavailable("Telegram returned a different topic.") }
+        else { throw MessageForwardingError.destinationUnavailable(L10n.betterTG("Forward.DifferentTopic")) }
         return sentCount
     }
 
@@ -397,7 +397,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
         else { throw MessageForwardingError.accountChanged }
         let destinationChat = try await client.getChat(chatId: destination.chatID)
         guard destinationChat.permissions.canSendBasicMessages else {
-            throw MessageForwardingError.destinationUnavailable("You can't send a comment to this chat.")
+            throw MessageForwardingError.destinationUnavailable(L10n.betterTG("Forward.CommentNotAllowed"))
         }
         let commentPrepared = PreparedMessageForward(
             request: prepared.request,
@@ -415,7 +415,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
         )
         guard commentEligibility.isAllowed else {
             throw MessageForwardingError.destinationUnavailable(
-                commentEligibility.reason ?? "This destination can't receive a comment.",
+                commentEligibility.reason ?? L10n.betterTG("Forward.CommentDestinationUnavailable"),
             )
         }
         guard TDLib.shared.activeAccountID == accountID,
@@ -434,7 +434,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
             topicId: destination.topic,
         )
         guard destination.accepts(message)
-        else { throw MessageForwardingError.destinationUnavailable("Telegram returned a different topic.") }
+        else { throw MessageForwardingError.destinationUnavailable(L10n.betterTG("Forward.DifferentTopic")) }
         return message
     }
 
@@ -454,7 +454,7 @@ enum MessageForwardingError: LocalizedError, Equatable {
                 )
                 if supergroup.isForum {
                     guard case .messageTopicForum(let forumTopic) = topic else {
-                        return unavailable("Choose a forum topic before forwarding.")
+                        return unavailable(L10n.betterTG("Forward.ChooseTopic"))
                     }
                     let resolvedTopic = try await client.getForumTopic(
                         chatId: chat.id,
@@ -471,16 +471,16 @@ enum MessageForwardingError: LocalizedError, Equatable {
                         }
                     let restricted = resolvedTopic.info.isClosed || resolvedTopic.info.isHidden
                     guard !restricted || resolvedTopic.info.isOutgoing || canManageTopics else {
-                        return unavailable("This topic is closed.")
+                        return unavailable(L10n.betterTG("Forward.TopicClosed"))
                     }
                 } else if topic != nil {
-                    return unavailable("This chat doesn't support forum topics.")
+                    return unavailable(L10n.betterTG("Forward.TopicsUnsupported"))
                 }
             } catch {
-                return unavailable("This chat couldn't be checked.")
+                return unavailable(L10n.betterTG("Forward.ChatCheckFailed"))
             }
         } else if topic != nil {
-            return unavailable("This chat doesn't support forum topics.")
+            return unavailable(L10n.betterTG("Forward.TopicsUnsupported"))
         }
 
         if case .chatTypePrivate(let privateChat) = chat.type {
@@ -489,14 +489,14 @@ enum MessageForwardingError: LocalizedError, Equatable {
                 case .canSendMessageToUserResultOk:
                     break
                 case .canSendMessageToUserResultUserHasPaidMessages:
-                    return unavailable("Paid messages aren't supported.")
+                    return unavailable(L10n.betterTG("Forward.PaidMessagesUnsupported"))
                 case .canSendMessageToUserResultUserIsDeleted:
-                    return unavailable("This user is no longer available.")
+                    return unavailable(L10n.betterTG("Forward.UserUnavailable"))
                 case .canSendMessageToUserResultUserRestrictsNewChats:
-                    return unavailable("This user doesn't accept new chats.")
+                    return unavailable(L10n.betterTG("Forward.UserRestrictsNewChats"))
                 }
             } catch {
-                return unavailable("This chat couldn't be checked.")
+                return unavailable(L10n.betterTG("Forward.ChatCheckFailed"))
             }
         }
         return localEligibility

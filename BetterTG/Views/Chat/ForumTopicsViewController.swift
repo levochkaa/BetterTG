@@ -51,7 +51,7 @@ import UIKit
     private let tableView = ForumTopicsTableView(frame: .zero, style: .plain)
     private lazy var navigationBarView = TelegramListNavigationBar(
         title: viewModel.customChat.displayTitle,
-        placeholder: "Search Topics",
+        placeholder: L10n.betterTG("Forum.SearchTopics"),
         leftImage: UIImage(systemName: "chevron.left"),
         rightImage: nil,
         leftAction: { [weak self] in self?.navigationController?.popViewController(animated: true) },
@@ -647,7 +647,7 @@ import UIKit
     private func updateBackgroundView() {
         if let failure = preparationFailure {
             let button = UIButton(type: .system)
-            button.setTitle("Couldn't reconnect topics.\nTap to retry", for: .normal)
+            button.setTitle(L10n.betterTG("Forum.ReconnectFailed"), for: .normal)
             button.titleLabel?.numberOfLines = 0
             button.titleLabel?.textAlignment = .center
             button.addAction(UIAction { [weak self] _ in
@@ -672,8 +672,8 @@ import UIKit
         } else {
             let label = UILabel()
             label.text = !searchQuery.isEmpty
-                ? "No topics found"
-                : "No topics"
+                ? L10n.betterTG("Forum.NoTopicsFound")
+                : L10n.betterTG("Forum.NoTopics")
             label.textAlignment = .center
             label.textColor = .secondaryLabel
             tableView.backgroundView = label
@@ -707,7 +707,7 @@ import UIKit
             guard let message, message.chatId == location.chatID, message.id == targetMessageID,
                   case .messageTopicForum(let forumTopic) = message.topicId
             else {
-                self?.presentLoadError("The message topic couldn't be opened.", model: model, binding: binding)
+                self?.presentLoadError(L10n.betterTG("Forum.MessageTopicOpenFailed"), model: model, binding: binding)
                 return
             }
             let topic = try? await client.getForumTopic(chatId: location.chatID, forumTopicId: forumTopic.forumTopicId)
@@ -715,7 +715,7 @@ import UIKit
             guard let topic, topic.info.chatId == location.chatID,
                   topic.info.forumTopicId == forumTopic.forumTopicId
             else {
-                presentLoadError("The message topic couldn't be opened.", model: model, binding: binding)
+                presentLoadError(L10n.betterTG("Forum.MessageTopicOpenFailed"), model: model, binding: binding)
                 return
             }
             let opened = open(
@@ -754,8 +754,15 @@ import UIKit
         guard owns(model, binding: binding), navigationController?.topViewController === self,
               !didPresentLoadError, presentedViewController == nil else { return }
         didPresentLoadError = true
-        let alert = UIAlertController(title: "Topics", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self, weak alert] _ in
+        let alert = UIAlertController(
+            title: L10n.telegram("ChatList.Search.FilterTopics"),
+            message: message,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("ChatImportActivity.Retry"), style: .default) { [
+            weak self,
+            weak alert,
+        ] _ in
             guard let self, let alert, owns(model, binding: binding, current: false),
                   presentedViewController === alert else { return }
             didPresentLoadError = false
@@ -764,7 +771,10 @@ import UIKit
             }
             dismiss(animated: true) { [weak self] in self?.retryClientRestoration() }
         })
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self, weak alert] _ in
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel) { [
+            weak self,
+            weak alert,
+        ] _ in
             guard let self, let alert, owns(model, binding: binding, current: false),
                   presentedViewController === alert else { return }
             didPresentLoadError = false
@@ -857,13 +867,13 @@ final class ForumTopicCell: UITableViewCell {
     private static func draftPreview(_ content: DraftMessageContent) -> String {
         switch content {
         case .draftMessageContentText(let text):
-            "Draft: \(text.text.text)"
+            L10n.betterTG("Forum.DraftPreview", text.text.text)
         case .draftMessageContentInputRichMessage, .draftMessageContentRichMessage:
-            "Draft: Rich message"
+            L10n.betterTG("Forum.DraftPreview", L10n.betterTG("Message.Rich"))
         case .draftMessageContentVideoNote:
-            "Draft: Video message"
+            L10n.betterTG("Forum.DraftPreview", L10n.telegram("VoiceOver.Chat.VideoMessage"))
         case .draftMessageContentVoiceNote:
-            "Draft: Voice message"
+            L10n.betterTG("Forum.DraftPreview", L10n.telegram("VoiceOver.Chat.VoiceMessage"))
         }
     }
 
@@ -886,7 +896,7 @@ final class ForumTopicCell: UITableViewCell {
             } else if let message = topic.lastMessage {
                 ChatSummary.summary(for: message)
             } else {
-                "Message preview unavailable"
+                L10n.betterTG("Forum.PreviewUnavailable")
             }
         previewLabel.textColor = topic.draftMessage == nil ? .secondaryLabel : .systemRed
         dateLabel.text = topic.lastMessage.map { Self.dateText(timestamp: $0.date) }
@@ -913,12 +923,21 @@ final class ForumTopicCell: UITableViewCell {
         contentView.backgroundColor = backgroundColor
         accessibilityLabel = [
             topic.info.name,
-            topic.info.isClosed ? "Closed" : nil,
-            topic.isPinned ? "Pinned" : nil,
-            topic.unreadCount > 0 ? "\(topic.unreadCount) unread" : nil,
-            topic.unreadMentionCount > 0 ? "\(topic.unreadMentionCount) unread mentions" : nil,
-            topic.unreadReactionCount > 0 ? "\(topic.unreadReactionCount) unread reactions" : nil,
-            topic.unreadPollVoteCount > 0 ? "\(topic.unreadPollVoteCount) unread poll votes" : nil,
+            topic.info.isClosed ? L10n.betterTG("Forum.Closed") : nil,
+            topic.isPinned ? L10n.betterTG("Accessibility.Pinned") : nil,
+            topic.unreadCount > 0
+                ? L10n
+                    .telegramPlural("VoiceOver.Chat.UnreadMessages", count: topic.unreadCount)
+                : nil,
+            topic.unreadMentionCount > 0
+                ? L10n.betterTG("Accessibility.UnreadMentions", topic.unreadMentionCount)
+                : nil,
+            topic.unreadReactionCount > 0
+                ? L10n.betterTG("Accessibility.UnreadReactions", topic.unreadReactionCount)
+                : nil,
+            topic.unreadPollVoteCount > 0
+                ? L10n.betterTG("Accessibility.UnreadPollVotes", topic.unreadPollVoteCount)
+                : nil,
             previewLabel.text,
         ]
             .compactMap(\.self)
@@ -930,7 +949,7 @@ final class ForumTopicCell: UITableViewCell {
     private func configureUnavailable() {
         iconView.prepareForReuse()
         iconView.isHidden = true
-        titleLabel.text = "Topic unavailable"
+        titleLabel.text = L10n.betterTG("Forum.TopicUnavailable")
         previewLabel.text = nil
         dateLabel.text = nil
         unreadBadge.text = nil
@@ -940,7 +959,7 @@ final class ForumTopicCell: UITableViewCell {
         backgroundColor = .systemBackground
         contentView.backgroundColor = backgroundColor
         selectionStyle = .none
-        accessibilityLabel = "Topic unavailable"
+        accessibilityLabel = L10n.betterTG("Forum.TopicUnavailable")
         accessibilityIdentifier = nil
         accessibilityTraits = [.staticText]
     }

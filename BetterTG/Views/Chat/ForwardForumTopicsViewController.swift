@@ -178,7 +178,7 @@ import UIKit
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 80, bottom: 0, right: 0)
         tableView.register(ForumTopicCell.self, forCellReuseIdentifier: ForumTopicCell.reuseID)
         searchBar.delegate = self
-        searchBar.placeholder = "Search Topics"
+        searchBar.placeholder = L10n.betterTG("Forum.SearchTopics")
         searchBar.autocapitalizationType = .none
         searchBar.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: 56)
         tableView.tableHeaderView = searchBar
@@ -260,8 +260,8 @@ import UIKit
             cell.contentView.alpha = allowed ? 1 : 0.48
             cell.isUserInteractionEnabled = allowed
             cell.accessibilityValue = selected
-                ? "Selected"
-                : (allowed ? nil : "Closed")
+                ? L10n.telegram("VoiceOver.Chat.Selected")
+                : (allowed ? nil : L10n.betterTG("Forum.Closed"))
             return cell
         }
     }
@@ -281,7 +281,7 @@ import UIKit
                   let supergroup = try? await client.getSupergroup(supergroupId: type.supergroupId),
                   contextIsCurrent
             else {
-                showError("This forum couldn't be checked.")
+                showError(L10n.betterTG("Forum.CheckFailed"))
                 return
             }
             canManageTopics =
@@ -373,7 +373,7 @@ import UIKit
                 loading = false
                 loadTask = nil
                 updateBackground()
-                showError("Topics couldn't be loaded.")
+                showError(L10n.betterTG("Forum.LoadFailed"))
             }
         }
     }
@@ -456,7 +456,7 @@ import UIKit
             tableView.backgroundView = spinner
         } else {
             let label = UILabel()
-            label.text = query.isEmpty ? "No topics" : "No topics found"
+            label.text = query.isEmpty ? L10n.betterTG("Forum.NoTopics") : L10n.betterTG("Forum.NoTopicsFound")
             label.textAlignment = .center
             label.textColor = .secondaryLabel
             tableView.backgroundView = label
@@ -471,8 +471,12 @@ import UIKit
         }
         #endif
         guard presentedViewController == nil else { return }
-        let alert = UIAlertController(title: "Forward", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        let alert = UIAlertController(
+            title: L10n.telegram("Conversation.ForwardTitle"),
+            message: message,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         present(alert, animated: true)
     }
 

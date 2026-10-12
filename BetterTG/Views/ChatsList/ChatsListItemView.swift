@@ -94,13 +94,21 @@ final class ChatListCell: UITableViewCell {
         else { return nil }
         switch message.sendingState {
         case .messageSendingStateFailed:
-            return (UIImage(systemName: "exclamationmark.circle"), .systemRed, "Failed to send")
+            return (UIImage(systemName: "exclamationmark.circle"), .systemRed, L10n.telegram("VoiceOver.Chat.Failed"))
         case .messageSendingStatePending:
-            return (UIImage(systemName: "clock"), .secondaryLabel, "Sending")
+            return (UIImage(systemName: "clock"), .secondaryLabel, L10n.telegram("VoiceOver.Chat.Sending"))
         case nil:
             return message.id <= chat.chat.lastReadOutboxMessageId
-                ? (TelegramDeliveryCheck.image(isRead: true), .systemBlue, "Read")
-                : (TelegramDeliveryCheck.image(isRead: false), .systemBlue, "Delivered")
+                ? (
+                    TelegramDeliveryCheck.image(isRead: true),
+                    .systemBlue,
+                    L10n.telegram("Conversation.ChecksTooltip.Read"),
+                )
+                : (
+                    TelegramDeliveryCheck.image(isRead: false),
+                    .systemBlue,
+                    L10n.telegram("Conversation.ChecksTooltip.Delivered"),
+                )
         }
     }
 
@@ -139,8 +147,8 @@ final class ChatListCell: UITableViewCell {
             messageLabel.text,
             dateLabel.text,
             delivery?.accessibilityText,
-            pinned ? "Pinned" : nil,
-            isMuted ? "Muted" : nil,
+            pinned ? L10n.betterTG("Accessibility.Pinned") : nil,
+            isMuted ? L10n.betterTG("Accessibility.Muted") : nil,
             hasUnread
                 ? (chat.unreadCount > 0
                     ? L10n.telegramPlural("VoiceOver.Chat.UnreadMessages", count: chat.unreadCount)

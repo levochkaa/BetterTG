@@ -322,7 +322,7 @@ import UIKit
                 if forumLookupFailedChatIDs.contains(chatID) || unavailablePrivateChatIDs.contains(chatID) {
                     MessageForwardDestinationEligibility(
                         isAllowed: false,
-                        reason: "This destination is unavailable.",
+                        reason: L10n.betterTG("Forward.DestinationUnavailable"),
                         forcedMode: nil,
                     )
                 } else {
@@ -355,7 +355,7 @@ import UIKit
             tableView.backgroundView = activityIndicator
         } else if dataSource.snapshot().numberOfItems == 0 {
             let label = UILabel()
-            label.text = "No chats found"
+            label.text = L10n.betterTG("Forward.NoChatsFound")
             label.textAlignment = .center
             label.textColor = .secondaryLabel
             tableView.backgroundView = label

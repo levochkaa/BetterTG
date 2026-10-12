@@ -183,7 +183,7 @@ final class ChatFolderOrderViewController: UITableViewController {
             target: self,
             action: #selector(saveOrder),
         )
-        navigationItem.rightBarButtonItem?.accessibilityLabel = "Done"
+        navigationItem.rightBarButtonItem?.accessibilityLabel = L10n.telegram("Common.Done")
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "FolderOrderCell")
         tableView.setEditing(true, animated: false)
         sessionObservation = session.bind(self)
@@ -511,7 +511,7 @@ TelegramNavigationSearchProvider {
             target: self,
             action: #selector(done),
         )
-        navigationItem.rightBarButtonItem?.accessibilityLabel = "Done"
+        navigationItem.rightBarButtonItem?.accessibilityLabel = L10n.telegram("Common.Done")
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchBar.placeholder = L10n.telegram("ChatListFilter.AddChatsSearchPlaceholder")
@@ -973,8 +973,8 @@ private extension CustomChat {
         switch type {
         case .bot(let user), .user(let user):
             switch user.type {
-            case .userTypeDeleted: return "Deleted Account"
-            case .userTypeUnknown: return "Unknown User"
+            case .userTypeDeleted: return L10n.telegram("User.DeletedAccount")
+            case .userTypeUnknown: return L10n.betterTG("Folders.UnknownUser")
             default: break
             }
             let name = [user.firstName, user.lastName]
@@ -984,10 +984,12 @@ private extension CustomChat {
             if !name.isEmpty { return name }
             if let username = user.usernames?.activeUsernames.first, !username.isEmpty { return "@" + username }
             if !user.phoneNumber.isEmpty { return user.phoneNumber }
-            if case .bot = type { return "Bot" }
-            return "User"
-        case .group: return "Untitled Group"
-        case .supergroup(let group): return group.isChannel ? "Untitled Channel" : "Untitled Group"
+            if case .bot = type { return L10n.betterTG("Folders.UntitledBot") }
+            return L10n.betterTG("Folders.UntitledUser")
+        case .group: return L10n.betterTG("Folders.UntitledGroup")
+        case .supergroup(let group): return group.isChannel
+            ? L10n.betterTG("Folders.UntitledChannel")
+            : L10n.betterTG("Folders.UntitledGroup")
         }
     }
 

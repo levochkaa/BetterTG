@@ -338,7 +338,7 @@ import TDLibKit
                 requestedCursors.remove(cursor)
                 loading = false
                 loadTask = nil
-                errorMessage = "Topics couldn't be loaded."
+                errorMessage = L10n.betterTG("Forum.LoadFailed")
                 drainPendingTopicRefreshes()
             }
         }

@@ -129,12 +129,12 @@ import UIKit
             case .ready:
                 owner.navigationItem.prompt = nil
                 onReady()
-            case .waiting: owner.navigationItem.prompt = "Reconnecting… Your changes are kept."
-            case .saving: owner.navigationItem.prompt = "Saving…"
+            case .waiting: owner.navigationItem.prompt = L10n.betterTG("Session.ReconnectingKeepsChanges")
+            case .saving: owner.navigationItem.prompt = L10n.betterTG("Session.Saving")
             case .uncertain:
-                owner.navigationItem.prompt = "Result unknown. Check folders before retrying."
+                owner.navigationItem.prompt = L10n.betterTG("Folders.ResultUnknown")
             case .revoked:
-                owner.navigationItem.prompt = "This account is no longer active."
+                owner.navigationItem.prompt = L10n.betterTG("Session.AccountInactive")
                 owner.view.isUserInteractionEnabled = false
                 guard let navigation = owner.navigationController,
                       let index = navigation.viewControllers.firstIndex(where: { $0 === owner }) else { return }

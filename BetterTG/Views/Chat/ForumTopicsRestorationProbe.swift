@@ -246,7 +246,7 @@
             try host.finish()
             try require(
                 host.table.cellForRow(at: IndexPath(row: 0, section: 0)) === remaining
-                            && remaining?.accessibilityLabel == "Topic unavailable"
+                            && remaining?.accessibilityLabel == L10n.betterTG("Forum.TopicUnavailable")
                             && remaining?.accessibilityIdentifier == nil
                     && remaining?.selectionStyle == UITableViewCell.SelectionStyle.none,
                 "missing model replaced the cell or retained its old action/content",

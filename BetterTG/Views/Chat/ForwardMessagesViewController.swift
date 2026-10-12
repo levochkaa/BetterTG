@@ -15,7 +15,8 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private let pageController = UIPageViewController(transitionStyle: .scroll, navigationOrientation: .horizontal)
     private let folderPicker = FolderPickerView()
     private lazy var customNavigationBar = TelegramListNavigationBar(
-        title: "Forward to", placeholder: "Search", leftImage: UIImage(systemName: "xmark"),
+        title: L10n.betterTG("Forward.Title"), placeholder: L10n.telegram("Common.Search"),
+        leftImage: UIImage(systemName: "xmark"),
         rightImage: UIImage(systemName: "ellipsis"),
         leftAction: { [weak self] in self?.cancelPicker() },
         rightAction: { [weak self] in self?.showOptions() },
@@ -277,7 +278,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
                   let message = try? await client.getMessage(chatId: request.sourceChatID, messageId: firstID)
             else {
                 if !Task.isCancelled,
-                   contextIsCurrent { showError("This chat or the original message is no longer available.") }
+                   contextIsCurrent { showError(L10n.betterTG("Forward.SourceUnavailable")) }
                 return
             }
             guard !Task.isCancelled, contextIsCurrent else { return }
@@ -285,9 +286,10 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
                 switch message.senderId {
                 case .messageSenderUser(let user):
                     await (try? client.getUser(userId: user.userId))
-                        .map { [$0.firstName, $0.lastName].filter { !$0.isEmpty }.joined(separator: " ") } ?? "User"
+                        .map { [$0.firstName, $0.lastName].filter { !$0.isEmpty }.joined(separator: " ") } ?? L10n
+                        .betterTG("Forward.UnknownSender")
                 case .messageSenderChat(let source):
-                    await (try? client.getChat(chatId: source.chatId))?.title ?? "Chat"
+                    await (try? client.getChat(chatId: source.chatId))?.title ?? L10n.betterTG("Chat.FallbackChatTitle")
                 }
             guard !Task.isCancelled, contextIsCurrent else { return }
             let draft = PendingMessageForward(
@@ -301,19 +303,25 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
 
     private func showOptions() {
         guard let preparedForward else { return }
-        let sheet = UIAlertController(title: "Forward Options", message: nil, preferredStyle: .actionSheet)
+        let sheet = UIAlertController(
+            title: L10n.betterTG("Forward.OptionsTitle"),
+            message: nil,
+            preferredStyle: .actionSheet,
+        )
         func add(_ title: String, _ value: MessageForwardMode) {
             sheet
                 .addAction(UIAlertAction(title: title + (mode == value ? " ✓" : ""), style: .default) { [weak self] _ in
                     self?.mode = value
                 })
         }
-        if preparedForward.canForward { add("Show Sender Name", .forward) }
+        if preparedForward.canForward { add(L10n.telegram("Conversation.ForwardOptions.ShowSendersName"), .forward) }
         if preparedForward.canCopy {
-            add("Hide Sender Name", .copy(removeCaption: false))
-            if preparedForward.hasCaptions { add("Hide Sender and Captions", .copy(removeCaption: true)) }
+            add(L10n.telegram("Conversation.ForwardOptions.HideSendersName"), .copy(removeCaption: false))
+            if preparedForward.hasCaptions {
+                add(L10n.betterTG("Forward.HideSenderAndCaptions"), .copy(removeCaption: true))
+            }
         }
-        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
         sheet.popoverPresentationController?.sourceView = customNavigationBar
         sheet.popoverPresentationController?.sourceRect = CGRect(
             x: customNavigationBar.bounds.maxX - 44,
@@ -325,9 +333,13 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     }
 
     private func showError(_ message: String) {
-        let alert = UIAlertController(title: "Can't Forward", message: message, preferredStyle: .alert)
+        let alert = UIAlertController(
+            title: L10n.betterTG("Chat.CantForward"),
+            message: message,
+            preferredStyle: .alert,
+        )
         alert
-            .addAction(UIAlertAction(title: "Close", style: .default) { [weak self] _ in
+            .addAction(UIAlertAction(title: L10n.telegram("Common.Close"), style: .default) { [weak self] _ in
                 self?.dismiss(animated: true)
             })
         (navigationController?.topViewController ?? self).present(alert, animated: true)

@@ -182,7 +182,8 @@
             try require(
                 // The title follows the selected language pack; the accessibility label stays fixed.
                 item.title == L10n.telegram("Common.Done") && item.style == .plain && item.image == nil
-                    && item.accessibilityLabel == "Done" && (item.target as? UIViewController) === controller
+                    && item.accessibilityLabel == L10n
+                        .telegram("Common.Done") && (item.target as? UIViewController) === controller
                     && item.action == NSSelectorFromString(action) && item.isEnabled == enabled,
                 "Done title/style/AX/target/action/enabled changed",
             )
@@ -280,7 +281,11 @@
                 activeStoryState: nil,
             ))
             let cases: [(CustomChat, String, String?)] = [
-                (deleted, "Deleted Account", nil), (unknown, "Unknown User", nil),
+                (deleted, L10n.telegram("User.DeletedAccount"), nil), (
+                    unknown,
+                    L10n.betterTG("Folders.UnknownUser"),
+                    nil,
+                ),
                 (
                     pickerChat(id: 103, user: pickerUser(id: 103, first: "Alpha", last: "Person")),
                     "Alpha Person",
@@ -298,17 +303,25 @@
                 ),
                 (pickerChat(id: 106, user: pickerUser(id: 106, username: "fixture")), "@fixture", "Non-Contact"),
                 (pickerChat(id: 107, user: pickerUser(id: 107, phone: "1234567")), "1234567", "Non-Contact"),
-                (pickerChat(id: 108, user: pickerUser(id: 108)), "User", "Non-Contact"),
-                (pickerChat(id: 109), "Untitled Group", "Group"),
+                (pickerChat(id: 108, user: pickerUser(id: 108)), L10n.betterTG("Folders.UntitledUser"), "Non-Contact"),
+                (pickerChat(id: 109), L10n.betterTG("Folders.UntitledGroup"), "Group"),
                 (pickerChat(id: 110, title: "Saved Messages"), "Saved Messages", "Group"),
-                (pickerChat(id: 111, user: pickerUser(id: 111, type: botType)), "Bot", "Bot"),
+                (
+                    pickerChat(id: 111, user: pickerUser(id: 111, type: botType)),
+                    L10n.betterTG("Folders.UntitledBot"),
+                    "Bot",
+                ),
                 (
                     pickerChat(id: 112, title: " \n", user: pickerUser(id: 112, last: "Surname")),
                     "Surname",
                     "Non-Contact",
                 ),
-                (channel, "Untitled Channel", "Channel"),
-                (pickerChat(id: 114, user: pickerUser(id: 114, type: .userTypeDeleted)), "Deleted Account", nil),
+                (channel, L10n.betterTG("Folders.UntitledChannel"), "Channel"),
+                (
+                    pickerChat(id: 114, user: pickerUser(id: 114, type: .userTypeDeleted)),
+                    L10n.telegram("User.DeletedAccount"),
+                    nil,
+                ),
             ]
             // List positions unrelated to titles and IDs: the selector follows the chat list like Telegram's picker.
             for (index, item) in cases.enumerated() {
@@ -363,26 +376,30 @@
             )
             picker.configurePickerCell(reused, chat: deleted)
             try require(
-                reused.textLabel?.text == "Deleted Account" && reused.detailTextLabel?.text == nil
+                reused.textLabel?.text == L10n.telegram("User.DeletedAccount") && reused.detailTextLabel?.text == nil
                 && reused.accessoryType == .checkmark,
                 "reuse retained subtitle or dropped selection",
             )
             picker.configurePickerCell(reused, chat: unknown)
             try require(
-                reused.textLabel?.text == "Unknown User" && reused.detailTextLabel?.text == nil
+                reused.textLabel?.text == L10n.betterTG("Folders.UnknownUser") && reused.detailTextLabel?.text == nil
                 && reused.accessoryType == .none,
                 "unknown reused deleted selection",
             )
             search(picker, "deleted")
             try require(
-                rows(picker).map { $0.textLabel?.text } == ["Deleted Account", "Deleted Account"],
+                rows(picker).map { $0.textLabel?.text } == [
+                    L10n.telegram("User.DeletedAccount"),
+                    L10n.telegram("User.DeletedAccount"),
+                ],
                 "fallback title not searchable",
             )
-            let selectedDeletedRow = expected.filter { $0.1 == "Deleted Account" }.firstIndex { $0.0.id == 101 } ?? 0
+            let selectedDeletedRow = expected.filter { $0.1 == L10n.telegram("User.DeletedAccount") }
+                .firstIndex { $0.0.id == 101 } ?? 0
             picker.tableView(picker.tableView, didSelectRowAt: IndexPath(row: selectedDeletedRow, section: 0))
             search(picker, "unknown")
             try require(
-                rows(picker).map { $0.textLabel?.text } == ["Unknown User"],
+                rows(picker).map { $0.textLabel?.text } == [L10n.betterTG("Folders.UnknownUser")],
                 "unknown mislabeled or unsearchable",
             )
             picker.tableView(picker.tableView, didSelectRowAt: IndexPath(row: 0, section: 0))
@@ -722,7 +739,8 @@
                     try require(
                         current.session.state == .uncertain && owner.navigationItem.rightBarButtonItem?
                             .isEnabled == false
-                            && owner.navigationItem.prompt?.contains("unknown") == true && text.text == "unsent kept",
+                            && owner.navigationItem.prompt == L10n.betterTG("Folders.ResultUnknown") && text
+                                .text == "unsent kept",
                         "dispatched rollover did not retain explicit uncertainty",
                     )
                     current.gate?.release()

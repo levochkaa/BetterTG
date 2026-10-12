@@ -53,7 +53,9 @@ final class ForumTopicRunHeaderCell: UICollectionViewCell {
         accessibilityElementsHidden = false
         isUserInteractionEnabled = true
         self.onOpen = onOpen
-        let title = info?.name ?? (id.topicID == 1 ? "General" : "Topic")
+        let title = info?.name ?? (id.topicID == 1
+            ? L10n.betterTG("Forum.GeneralTopic")
+            : L10n.betterTG("Forum.TopicFallback"))
         titleLabel.text = title
         let nextIconSignature = [
             String(id.topicID),
@@ -69,9 +71,9 @@ final class ForumTopicRunHeaderCell: UICollectionViewCell {
         control.isAccessibilityElement = true
         control.accessibilityTraits = .button
         control.accessibilityIdentifier = "forum-topic-run-\(id.topicID)-\(id.runStartMessageID)"
-        control.accessibilityLabel = "\(title) topic"
-        control.accessibilityValue = info?.isClosed == true ? "Closed" : nil
-        control.accessibilityHint = "Opens this topic"
+        control.accessibilityLabel = L10n.betterTG("Accessibility.TopicNamed", title)
+        control.accessibilityValue = info?.isClosed == true ? L10n.betterTG("Forum.Closed") : nil
+        control.accessibilityHint = L10n.betterTG("Accessibility.OpenTopicHint")
     }
 
     private func configureViews() {

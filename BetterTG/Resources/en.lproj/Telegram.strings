@@ -360,3 +360,15 @@
 "Channel.Info.Management" = "Admins";
 "Bot.GenericBotStatus" = "bot";
 "LastSeen.Offline" = "offline";
+
+"Conversation.ForwardOptions.ForwardTitleSingle" = "Forward Message";
+"Conversation.ForwardOptions.ForwardTitle_0" = "Forward %@ Messages";
+"Conversation.ForwardOptions.ForwardTitle_1" = "Forward %@ Message";
+"Conversation.ForwardOptions.ForwardTitle_2" = "Forward %@ Messages";
+"Conversation.ForwardOptions.ForwardTitle_3_10" = "Forward %@ Messages";
+"Conversation.ForwardOptions.ForwardTitle_many" = "Forward %@ Messages";
+"Conversation.ForwardOptions.ForwardTitle_any" = "Forward %@ Messages";
+"ChatList.Search.FilterTopics" = "Topics";
+"Conversation.ForwardTitle" = "Forward";
+"Conversation.ForwardOptions.ShowSendersName" = "Show Sender's Name";
+"Conversation.ForwardOptions.HideSendersName" = "Hide Sender's Name";
