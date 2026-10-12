@@ -304,10 +304,10 @@ private final class MessageReactionButton: UIControl {
         ).cgColor
         isAccessibilityElement = true
         accessibilityIdentifier = "message-reaction-\(reaction.type.accessibilityIdentifierComponent)"
-        accessibilityLabel = "\(reaction.type.accessibilityName), \(reaction.totalCount) reactions"
+        accessibilityLabel = "\(reaction.type.accessibilityName), \(L10n.telegramPlural("Chat.ContextReactionCount", count: reaction.totalCount))"
         accessibilityValue = [
-            reaction.isChosen ? "Selected" : nil,
-            unread ? "Unread" : nil,
+            reaction.isChosen ? L10n.telegram("VoiceOver.Chat.Selected") : nil,
+            unread ? L10n.telegram("DialogList.Unread") : nil,
         ]
             .compactMap(\.self)
             .joined(separator: ", ")

@@ -114,9 +114,9 @@ extension ReactionType {
         case .reactionTypeEmoji(let reaction):
             reaction.emoji
         case .reactionTypeCustomEmoji:
-            "Custom emoji"
+            L10n.betterTG("Accessibility.CustomEmoji")
         case .reactionTypePaid:
-            "Paid reaction"
+            L10n.betterTG("Accessibility.PaidReaction")
         }
     }
 

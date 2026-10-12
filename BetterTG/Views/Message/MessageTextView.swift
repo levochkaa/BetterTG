@@ -444,7 +444,10 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         // UITextView otherwise derives a value from its original string; the safe label owns spoken text.
         accessibilityValue = ""
         accessibilityCustomActions = !state.revealed && !state.presentation.ranges.isEmpty
-            ? [UIAccessibilityCustomAction(name: "Reveal spoiler") { [weak self] _ in self?.revealSpoilers() ?? false }]
+            ?
+            [UIAccessibilityCustomAction(name: L10n.betterTG("Accessibility.RevealSpoiler")) { [weak self] _ in
+                self?.revealSpoilers() ?? false
+            }]
             : nil
         lastSpoilerRects.removeAll()
         layoutSpoilers()

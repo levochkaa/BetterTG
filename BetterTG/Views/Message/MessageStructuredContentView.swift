@@ -482,14 +482,14 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
         var title: String {
             switch self {
             case .audio(let audio):
-                for value in [audio.title, audio.fileName, "Audio"] {
+                for value in [audio.title, audio.fileName, L10n.betterTG("Message.AudioFallback")] {
                     let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !value.isEmpty { return value }
                 }
-                return "Audio"
+                return L10n.betterTG("Message.AudioFallback")
             case .document(let document):
                 let title = document.fileName.trimmingCharacters(in: .whitespacesAndNewlines)
-                return title.isEmpty ? "Document" : title
+                return title.isEmpty ? L10n.betterTG("Message.DocumentFallback") : title
             }
         }
 
@@ -578,7 +578,7 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
 
     private static func fileSizeString(_ file: File) -> String {
         let size = max(file.size, file.expectedSize)
-        guard size > 0 else { return "File" }
+        guard size > 0 else { return L10n.telegram("Message.File") }
         return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
     }
 
@@ -703,10 +703,14 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
             .isDownloadingCompleted
         progressView.progress = downloadProgress
         accessibilityLabel = "\(content.title), \(statusSubtitle)"
-        accessibilityValue = progressView.isHidden ? nil : "\(Int(downloadProgress * 100)) percent downloaded"
+        accessibilityValue = progressView.isHidden
+            ? nil
+            : L10n.betterTG("Accessibility.PercentDownloaded", Int(downloadProgress * 100))
         accessibilityHint = localPath == nil
-            ? "Downloads the file"
-            : (content.isAudio ? "Plays or pauses the audio" : "Opens the document")
+            ? L10n.betterTG("Accessibility.DownloadFileHint")
+            : (content.isAudio
+                ? L10n.betterTG("Accessibility.PlayPauseAudioHint")
+                : L10n.betterTG("Accessibility.OpenDocumentHint"))
     }
 
     @objc private func performPrimaryAction() {
@@ -798,7 +802,7 @@ private final class ContactMessageContentView: UIControl, MessageSupplementView 
                 values.append(value)
             }
         }
-        return Array((values.isEmpty ? ["Telegram contact"] : values).prefix(5))
+        return Array((values.isEmpty ? [L10n.betterTG("Message.TelegramContact")] : values).prefix(5))
     }
 
     func prepareForReuse() {}
@@ -808,7 +812,7 @@ private final class ContactMessageContentView: UIControl, MessageSupplementView 
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        let displayedName = fullName.isEmpty ? "Contact" : fullName
+        let displayedName = fullName.isEmpty ? L10n.telegram("Message.Contact") : fullName
         let initials = [contact.firstName.first, contact.lastName.first]
             .compactMap(\.self)
             .map(String.init)
@@ -857,8 +861,8 @@ private final class ContactMessageContentView: UIControl, MessageSupplementView 
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
         isAccessibilityElement = true
         accessibilityTraits = [.button]
-        accessibilityLabel = "Contact, \(displayedName), \(phoneLabel.text ?? "")"
-        accessibilityHint = "Opens contact details"
+        accessibilityLabel = "\(L10n.telegram("Message.Contact")), \(displayedName), \(phoneLabel.text ?? "")"
+        accessibilityHint = L10n.betterTG("Accessibility.OpenContactHint")
     }
 
     @objc private func tapped() {
@@ -969,12 +973,12 @@ private final class LocationMessageContentView: UIControl, MessageSupplementView
         isAccessibilityElement = true
         accessibilityTraits = [.button, .image]
         accessibilityLabel = [content.title, content.subtitle].compactMap(\.self).joined(separator: ", ")
-        accessibilityHint = "Opens this location in Maps"
+        accessibilityHint = L10n.betterTG("Accessibility.OpenLocationHint")
     }
 
     private func configureLiveStatus() {
         if content.liveIndefinite {
-            subtitleLabel.text = "Live location"
+            subtitleLabel.text = L10n.telegram("Message.LiveLocation")
             updateAccessibilityLabel()
             return
         }
@@ -992,17 +996,17 @@ private final class LocationMessageContentView: UIControl, MessageSupplementView
         guard let liveDeadline = content.liveDeadline else { return }
         let remaining = max(0, Int(ceil(liveDeadline.timeIntervalSinceNow)))
         if remaining == 0 {
-            subtitleLabel.text = "Live location ended"
+            subtitleLabel.text = L10n.betterTG("Message.LiveLocationEnded")
             liveTimer?.invalidate()
             liveTimer = nil
         } else {
             subtitleLabel.text =
                 if remaining >= 3600 {
-                    "Live for \(remaining / 3600)h \((remaining % 3600) / 60)m"
+                    L10n.betterTG("Message.LiveForHours", remaining / 3600, (remaining % 3600) / 60)
                 } else if remaining >= 60 {
-                    "Live for \(remaining / 60)m \(remaining % 60)s"
+                    L10n.betterTG("Message.LiveForMinutes", remaining / 60, remaining % 60)
                 } else {
-                    "Live for \(remaining)s"
+                    L10n.betterTG("Message.LiveForSeconds", remaining)
                 }
         }
         updateAccessibilityLabel()
@@ -1109,20 +1113,20 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
 
     private var pollTypeText: String {
         var values = [String]()
-        values.append(content.poll.isAnonymous ? "Anonymous" : "Public")
-        values.append(isQuiz ? "Quiz" : "Poll")
-        if content.poll.isClosed { values.append("Closed") }
+        values.append(content.poll.isAnonymous ? L10n.betterTG("Poll.Anonymous") : L10n.betterTG("Poll.Public"))
+        values.append(isQuiz ? L10n.telegram("MessagePoll.LabelQuiz") : L10n.betterTG("Poll.Poll"))
+        if content.poll.isClosed { values.append(L10n.betterTG("Poll.Closed")) }
         return values.joined(separator: " • ")
     }
 
     private var footerText: String {
         var values = [String]()
         let count = content.poll.totalVoterCount
-        values.append("\(count) \(count == 1 ? "vote" : "votes")")
+        values.append(L10n.telegramPlural("MessagePoll.VotedCount", count: count))
         if let restriction = content.poll.voteRestrictionReason {
             values.append(pollRestrictionText(restriction))
         } else if content.poll.allowsMultipleAnswers, canVote {
-            values.append("Select one or more answers")
+            values.append(L10n.betterTG("Poll.SelectMultiple"))
         }
         if case .pollTypeQuiz(let quiz) = content.poll.type,
            showsResults,
@@ -1213,7 +1217,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         }
 
         voteButton.translatesAutoresizingMaskIntoConstraints = false
-        voteButton.setTitle("VOTE", for: .normal)
+        voteButton.setTitle(L10n.telegram("MessagePoll.SubmitVote"), for: .normal)
         voteButton.titleLabel?.font = .preferredFont(forTextStyle: .callout).withWeight(.semibold)
         voteButton.addTarget(self, action: #selector(voteTapped), for: .touchUpInside)
         voteButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 38).isActive = true
@@ -1288,7 +1292,9 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         voteButton.isEnabled = hasSelectionChange && canVote
         voteButton.alpha = voteButton.isEnabled ? 1 : 0.45
         voteButton.setTitle(
-            state.pendingSelection.isEmpty && !currentSelection.isEmpty ? "RETRACT VOTE" : "VOTE",
+            state.pendingSelection.isEmpty && !currentSelection.isEmpty
+                ? L10n.telegram("Conversation.UnvotePoll")
+                : L10n.telegram("MessagePoll.SubmitVote"),
             for: .normal,
         )
     }
@@ -1309,17 +1315,17 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     private func pollRestrictionText(_ restriction: PollVoteRestrictionReason) -> String {
         switch restriction {
         case .pollVoteRestrictionReasonClosed:
-            "Poll closed"
+            L10n.betterTG("Poll.RestrictionClosed")
         case .pollVoteRestrictionReasonYetUnsent:
-            "Send the poll to vote"
+            L10n.betterTG("Poll.RestrictionUnsent")
         case .pollVoteRestrictionReasonScheduled:
-            "Scheduled polls can't be voted yet"
+            L10n.betterTG("Poll.RestrictionScheduled")
         case .pollVoteRestrictionReasonCountryRestricted:
-            "Voting isn't available in your country"
+            L10n.betterTG("Poll.RestrictionCountry")
         case .pollVoteRestrictionReasonMembershipRequired:
-            "Join the chat for at least a day to vote"
+            L10n.betterTG("Poll.RestrictionMembership")
         case .pollVoteRestrictionReasonOther:
-            "Voting is unavailable"
+            L10n.betterTG("Poll.RestrictionOther")
         }
     }
 }
@@ -1438,9 +1444,9 @@ private final class PollOptionContentView: UIControl {
         isEnabled = enabled
         alpha = enabled || showsResults ? 1 : 0.7
         accessibilityLabel = option.text.text
-        accessibilityValue = showsResults ? "\(option.votePercentage) percent" : nil
+        accessibilityValue = showsResults ? L10n.betterTG("Accessibility.Percent", Int(option.votePercentage)) : nil
         accessibilityTraits = option.isChosen ? [.button, .selected] : [.button]
-        accessibilityHint = enabled ? "Selects this poll option" : nil
+        accessibilityHint = enabled ? L10n.betterTG("Accessibility.SelectPollOptionHint") : nil
         setNeedsLayout()
     }
 
@@ -1499,7 +1505,8 @@ private final class StickerGlyphContentView: UIView, MessageSupplementView {
             heightAnchor.constraint(equalToConstant: 184),
         ])
         isAccessibilityElement = true
-        accessibilityLabel = value.flatMap { $0 > 0 ? "\(emoji), value \($0)" : nil } ?? emoji
+        accessibilityLabel = value
+            .flatMap { $0 > 0 ? L10n.betterTG("Accessibility.DiceValue", emoji, Int($0)) : nil } ?? emoji
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -1580,7 +1587,7 @@ final class TelegramContactDetailsViewController: UIViewController {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        return value.isEmpty ? "Contact" : value
+        return value.isEmpty ? L10n.telegram("Message.Contact") : value
     }
 
     private var contactInitials: String {
@@ -1606,15 +1613,15 @@ final class TelegramContactDetailsViewController: UIViewController {
                 guard !value.isEmpty else { return nil }
                 let key: String
                 if rawKey.hasPrefix("TEL") {
-                    key = "Phone"
+                    key = L10n.betterTG("Contact.Phone")
                 } else if rawKey.hasPrefix("EMAIL") {
-                    key = "Email"
+                    key = L10n.betterTG("Contact.Email")
                 } else if rawKey.hasPrefix("ORG") {
-                    key = "Company"
+                    key = L10n.betterTG("Contact.Company")
                 } else if rawKey.hasPrefix("TITLE") {
-                    key = "Title"
+                    key = L10n.betterTG("Contact.JobTitle")
                 } else if rawKey.hasPrefix("ADR") {
-                    key = "Address"
+                    key = L10n.betterTG("Contact.Address")
                 } else {
                     return nil
                 }
@@ -1625,7 +1632,7 @@ final class TelegramContactDetailsViewController: UIViewController {
     init(contact: Contact) {
         self.contact = contact
         super.init(nibName: nil, bundle: nil)
-        title = "Contact"
+        title = L10n.telegram("Message.Contact")
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -1695,10 +1702,17 @@ final class TelegramContactDetailsViewController: UIViewController {
         actions.distribution = .fillEqually
         actions.spacing = 10
         if !contact.phoneNumber.isEmpty {
-            actions.addArrangedSubview(actionButton(title: "Call", symbol: "phone.fill") { [weak self] in
-                self?.callContact()
-            })
-            actions.addArrangedSubview(actionButton(title: "Copy", symbol: "doc.on.doc") { [weak self] in
+            actions
+                .addArrangedSubview(actionButton(
+                    title: L10n.telegram("Conversation.Call"),
+                    symbol: "phone.fill",
+                ) { [weak self] in
+                    self?.callContact()
+                })
+            actions.addArrangedSubview(actionButton(
+                title: L10n.telegram("Conversation.ContextMenuCopy"),
+                symbol: "doc.on.doc",
+            ) { [weak self] in
                 UIPasteboard.general.string = self?.contact.phoneNumber
             })
         }

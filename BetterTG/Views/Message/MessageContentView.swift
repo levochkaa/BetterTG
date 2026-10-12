@@ -109,7 +109,7 @@ final class MessageMediaView: UIView {
                         displaySize: displaySize,
                         onTap: nil,
                     )
-                    animationView.accessibilityLabel = "GIF"
+                    animationView.accessibilityLabel = L10n.telegram("Message.Animation")
                     view = animationView
                 } else {
                     let animationView = InlineAnimationMediaView()
@@ -353,7 +353,9 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
     func configure(photo: Photo, isLivePhoto: Bool = false, client: TDLibClient, onTap: @escaping () -> Void) {
         self.onTap = onTap
         livePhotoBadge.isHidden = !isLivePhoto
-        accessibilityLabel = isLivePhoto ? "Open Live Photo" : "Open photo"
+        accessibilityLabel = isLivePhoto
+            ? L10n.betterTG("Accessibility.OpenLivePhoto")
+            : L10n.betterTG("Accessibility.OpenPhoto")
         let displaySize = telegramMediaDisplaySize(source: telegramPhotoSize(photo))
         widthConstraint.constant = displaySize.width
         heightConstraint.constant = displaySize.height
@@ -616,12 +618,14 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
             imageView.isHidden = true
             playIcon.isHidden = true
             videoPlaybackAttachmentToken = videoPlaybackOwner.attach(to: self, context: .inline)
-            accessibilityLabel = videoPlaybackOwner.isAnimation ? "Open animation" : "Open video"
+            accessibilityLabel = videoPlaybackOwner.isAnimation
+                ? L10n.betterTG("Accessibility.OpenAnimation")
+                : L10n.betterTG("Accessibility.OpenVideo")
             accessibilityTraits = videoPlaybackOwner.isAnimation ? .button : [.button, .playsSound]
             return
         }
         imageView.isHidden = false
-        accessibilityLabel = "Open media"
+        accessibilityLabel = L10n.betterTG("Accessibility.OpenMedia")
         accessibilityTraits = .button
         switch message.content {
         case .messagePhoto(let photo):
@@ -743,7 +747,7 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
         addGestureRecognizer(tapGesture)
         NSLayoutConstraint.activate([widthConstraint, heightConstraint])
         accessibilityTraits = [.button, .playsSound]
-        accessibilityLabel = "Open video"
+        accessibilityLabel = L10n.betterTG("Accessibility.OpenVideo")
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -766,7 +770,9 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
         prepareForReuse()
         messageID = owner.messageID
         self.owner = owner
-        accessibilityLabel = owner.isAnimation ? "Open animation" : "Open video"
+        accessibilityLabel = owner.isAnimation
+            ? L10n.betterTG("Accessibility.OpenAnimation")
+            : L10n.betterTG("Accessibility.OpenVideo")
         accessibilityTraits = owner.isAnimation ? .button : [.button, .playsSound]
         self.onTap = onTap
         let displaySize = telegramMediaDisplaySize(source: size)

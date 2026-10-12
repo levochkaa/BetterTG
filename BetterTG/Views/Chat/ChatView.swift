@@ -1,5 +1,6 @@
 // ChatView.swift
 
+import AVFoundation
 import Combine
 import PhotosUI
 import TDLibKit
@@ -87,6 +88,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         var messageIDs = [Int64]()
         let snapshots: [ComposerSendTransitionSnapshot]
         let timeout: DispatchWorkItem
+    }
+
+    private static var videoNoteCapturePermissionDenied: Bool {
+        let camera = AVCaptureDevice.authorizationStatus(for: .video)
+        return camera == .denied || camera == .restricted
+            || AVAudioApplication.shared.recordPermission == .denied
     }
 
     override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge {
@@ -239,9 +246,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let bubbleCount = selectedDisplayedMessageIDs.count
         let sourceCount = selectedSourceMessageIDs.count
         if bubbleCount == sourceCount {
-            return sourceCount == 1 ? "1 message selected" : "\(sourceCount) messages selected"
+            return L10n.telegramPlural("VoiceOver.Chat.MessagesSelected", count: sourceCount)
         }
-        return "\(bubbleCount) conversations selected, \(sourceCount) messages"
+        return L10n.betterTG("Accessibility.ConversationsSelected", bubbleCount, sourceCount)
     }
 
     private var routeIsRetained: Bool {
@@ -1351,14 +1358,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func confirmVoiceTrimAndResume() {
         guard presentedViewController == nil else { return }
         let alert = UIAlertController(
-            title: "Trim voice recording?",
-            message: "Audio outside the selected range will be removed before recording continues.",
+            title: L10n.betterTG("Voice.TrimAlertTitle"),
+            message: L10n.betterTG("Voice.TrimAlertText"),
             preferredStyle: .alert,
         )
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        alert.addAction(UIAlertAction(title: "Trim and Continue", style: .destructive) { [weak self] _ in
-            self?.chatVM.resumeVoiceRecording(confirmingTrim: true)
-        })
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert
+            .addAction(UIAlertAction(
+                title: L10n.betterTG("Voice.TrimAndContinue"),
+                style: .destructive,
+            ) { [weak self] _ in
+                self?.chatVM.resumeVoiceRecording(confirmingTrim: true)
+            })
         present(alert, animated: true)
     }
 
@@ -1447,7 +1458,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 return .retained(
                     asset,
                     originConsumed: false,
-                    message: "The chat was closed before the video message could be sent.",
+                    message: L10n.betterTG("VideoNote.ChatClosed"),
                 )
             }
             let transitionID = UUID()
@@ -1532,35 +1543,50 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func presentVideoNoteErrorIfNeeded(_ message: String) {
         guard !didPresentVideoNoteError, presentedViewController == nil else { return }
         didPresentVideoNoteError = true
-        let alert = UIAlertController(title: "Video Message", message: message, preferredStyle: .alert)
+        let alert = UIAlertController(
+            title: L10n.telegram("Message.VideoMessage"),
+            message: message,
+            preferredStyle: .alert,
+        )
         if videoNoteRecorder?.hasPersistedRecordingDraft == true {
-            alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-                self?.didPresentVideoNoteError = false
-                self?.videoNoteRecorder?.retryPersistedPreview()
-            })
-            alert.addAction(UIAlertAction(title: "Discard", style: .destructive) { [weak self] _ in
+            alert
+                .addAction(UIAlertAction(
+                    title: L10n.telegram("ChatImportActivity.Retry"),
+                    style: .default,
+                ) { [weak self] _ in
+                    self?.didPresentVideoNoteError = false
+                    self?.videoNoteRecorder?.retryPersistedPreview()
+                })
+            alert.addAction(UIAlertAction(
+                title: L10n.telegram("Conversation.DiscardVoiceMessageAction"),
+                style: .destructive,
+            ) { [weak self] _ in
                 self?.didPresentVideoNoteError = false
                 self?.videoNoteRecorder?.cancel()
             })
             present(alert, animated: true)
             return
         }
-        alert.addAction(UIAlertAction(title: "OK", style: .cancel) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .cancel) { [weak self] _ in
             self?.didPresentVideoNoteError = false
             if self?.videoNoteRecorder?.state.isActive != true {
                 self?.videoNoteRecorder?.cancel()
             }
         })
-        if message.localizedCaseInsensitiveContains("access") {
-            alert.addAction(UIAlertAction(title: "Settings", style: .default) { [weak self] _ in
-                self?.didPresentVideoNoteError = false
-                if let url = URL(string: UIApplication.openSettingsURLString) {
-                    UIApplication.shared.open(url)
-                }
-                if self?.videoNoteRecorder?.state.isActive != true {
-                    self?.videoNoteRecorder?.cancel()
-                }
-            })
+        if Self.videoNoteCapturePermissionDenied {
+            alert
+                .addAction(UIAlertAction(
+                    title: L10n.telegram("AccessDenied.Settings"),
+                    style: .default,
+                ) { [weak self] _ in
+                    self?.didPresentVideoNoteError = false
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                    if self?.videoNoteRecorder?.state.isActive != true {
+                        self?.videoNoteRecorder?.cancel()
+                    }
+                })
         }
         present(alert, animated: true)
     }
@@ -1568,8 +1594,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func presentVideoNoteRetryErrorIfNeeded(_ message: String) {
         guard !didPresentVideoNoteError, presentedViewController == nil else { return }
         didPresentVideoNoteError = true
-        let alert = UIAlertController(title: "Video Message", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+        let alert = UIAlertController(
+            title: L10n.telegram("Message.VideoMessage"),
+            message: message,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
             self?.didPresentVideoNoteError = false
         })
         present(alert, animated: true)
@@ -1978,8 +2008,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             if location.isTopicScoped {
                 chatVM.isReadOnlyTopic
                     ? (chatVM.forumTopicInfo?.isClosed == true || chatVM.forumTopicInfo?.isHidden == true
-                        ? "Closed topic · Read-only"
-                        : "\(chatVM.customChat.displayTitle) · Read-only")
+                        ? L10n.betterTG("Forum.ClosedTopicReadOnly")
+                        : L10n.betterTG("Forum.ReadOnlyStatus", chatVM.customChat.displayTitle))
                     : chatVM.customChat.displayTitle
             } else {
                 chatVM.headerStatus
@@ -2026,8 +2056,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             if location.isTopicScoped {
                 chatVM.isReadOnlyTopic
                     ? (chatVM.forumTopicInfo?.isClosed == true || chatVM.forumTopicInfo?.isHidden == true
-                        ? "Closed topic · Read-only"
-                        : "\(chatVM.customChat.displayTitle) · Read-only")
+                        ? L10n.betterTG("Forum.ClosedTopicReadOnly")
+                        : L10n.betterTG("Forum.ReadOnlyStatus", chatVM.customChat.displayTitle))
                     : chatVM.customChat.displayTitle
             } else {
                 chatVM.headerStatus
@@ -3297,11 +3327,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         metadataNavigationTask = nil
         guard presentedViewController == nil else { return }
         let alert = UIAlertController(
-            title: "Message Unavailable",
-            message: "The original chat or message can’t be opened.",
+            title: L10n.betterTG("Chat.MessageUnavailableTitle"),
+            message: L10n.betterTG("Chat.MessageUnavailableText"),
             preferredStyle: .alert,
         )
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         present(alert, animated: true)
     }
 
@@ -3692,23 +3722,30 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard let message = chatVM.voiceNoteErrorMessage, !didPresentVoiceNoteError else { return }
         didPresentVoiceNoteError = true
         chatVM.voiceNoteErrorMessage = nil
-        let alert = UIAlertController(title: "Voice Message", message: message, preferredStyle: .alert)
+        let alert = UIAlertController(title: L10n.telegram("Message.Audio"), message: message, preferredStyle: .alert)
         if chatVM.hasPendingVoiceNote {
-            alert.addAction(UIAlertAction(title: "Discard", style: .destructive) { [weak self] _ in
+            alert.addAction(UIAlertAction(
+                title: L10n.telegram("Conversation.DiscardVoiceMessageAction"),
+                style: .destructive,
+            ) { [weak self] _ in
                 self?.didPresentVoiceNoteError = false
                 self?.chatVM.discardPendingVoiceNote()
             })
-            alert.addAction(UIAlertAction(title: "Keep", style: .cancel) { [weak self] _ in
+            alert.addAction(UIAlertAction(title: L10n.betterTG("Chat.KeepDraft"), style: .cancel) { [weak self] _ in
                 self?.didPresentVoiceNoteError = false
             })
             if chatVM.canRetryPendingVoiceNote {
-                alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-                    self?.didPresentVoiceNoteError = false
-                    self?.chatVM.retryPendingVoiceNote()
-                })
+                alert
+                    .addAction(UIAlertAction(
+                        title: L10n.telegram("ChatImportActivity.Retry"),
+                        style: .default,
+                    ) { [weak self] _ in
+                        self?.didPresentVoiceNoteError = false
+                        self?.chatVM.retryPendingVoiceNote()
+                    })
             }
         } else {
-            alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
                 self?.didPresentVoiceNoteError = false
             })
         }
@@ -3722,23 +3759,34 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         else { return }
         didPresentVideoNoteError = true
         chatVM.videoNoteErrorMessage = nil
-        let alert = UIAlertController(title: "Video Message", message: message, preferredStyle: .alert)
+        let alert = UIAlertController(
+            title: L10n.telegram("Message.VideoMessage"),
+            message: message,
+            preferredStyle: .alert,
+        )
         if chatVM.hasPendingVideoNote {
-            alert.addAction(UIAlertAction(title: "Discard", style: .destructive) { [weak self] _ in
+            alert.addAction(UIAlertAction(
+                title: L10n.telegram("Conversation.DiscardVoiceMessageAction"),
+                style: .destructive,
+            ) { [weak self] _ in
                 self?.didPresentVideoNoteError = false
                 self?.chatVM.discardPendingVideoNote()
             })
-            alert.addAction(UIAlertAction(title: "Keep", style: .cancel) { [weak self] _ in
+            alert.addAction(UIAlertAction(title: L10n.betterTG("Chat.KeepDraft"), style: .cancel) { [weak self] _ in
                 self?.didPresentVideoNoteError = false
             })
             if chatVM.canRetryPendingVideoNote {
-                alert.addAction(UIAlertAction(title: "Retry", style: .default) { [weak self] _ in
-                    self?.didPresentVideoNoteError = false
-                    self?.chatVM.retryPendingVideoNote()
-                })
+                alert
+                    .addAction(UIAlertAction(
+                        title: L10n.telegram("ChatImportActivity.Retry"),
+                        style: .default,
+                    ) { [weak self] _ in
+                        self?.didPresentVideoNoteError = false
+                        self?.chatVM.retryPendingVideoNote()
+                    })
             }
         } else {
-            alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
                 self?.didPresentVideoNoteError = false
             })
         }
@@ -3752,8 +3800,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         else { return }
         didPresentReactionError = true
         chatVM.reactionErrorMessage = nil
-        let alert = UIAlertController(title: "Reaction", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+        let alert = UIAlertController(
+            title: L10n.betterTG("Chat.ReactionErrorTitle"),
+            message: message,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
             self?.didPresentReactionError = false
         })
         present(alert, animated: true)
@@ -3766,8 +3818,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         else { return }
         didPresentSendError = true
         chatVM.sendErrorMessage = nil
-        let alert = UIAlertController(title: "Message", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+        let alert = UIAlertController(title: L10n.betterTG("Message.Generic"), message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
             self?.didPresentSendError = false
         })
         present(alert, animated: true)
@@ -3780,8 +3832,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         else { return }
         didPresentDraftError = true
         chatVM.draftErrorMessage = nil
-        let alert = UIAlertController(title: "Draft", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in
+        let alert = UIAlertController(
+            title: L10n.telegram("DialogList.Draft"),
+            message: message,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
             self?.didPresentDraftError = false
         })
         present(alert, animated: true)
@@ -4017,14 +4073,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             let proposedIDs = selectedDisplayedMessageIDs.union([displayedMessageID])
             if sourceMessageIDs(forDisplayedMessageIDs: proposedIDs).count > 100 {
                 let alert = UIAlertController(
-                    title: "Selection Limit",
+                    title: L10n.betterTG("Chat.SelectionLimitTitle"),
                     message: MessageForwardingError.tooManyMessages(
                         sourceMessageIDs(forDisplayedMessageIDs: proposedIDs).count,
                     )
                     .localizedDescription,
                     preferredStyle: .alert,
                 )
-                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
                 present(alert, animated: true)
                 return
             }
@@ -4335,12 +4391,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             present(navigationController, animated: true)
         } catch {
             let alert = UIAlertController(
-                title: "Can't Forward",
+                title: L10n.betterTG("Chat.CantForward"),
                 message: (error as? LocalizedError)?.errorDescription
-                    ?? "The selected messages couldn't be forwarded.",
+                    ?? L10n.betterTG("Chat.ForwardFailed"),
                 preferredStyle: .alert,
             )
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
             present(alert, animated: true)
         }
     }
@@ -4397,11 +4453,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 selectionCapabilityGeneration = nil
                 updateMessageSelectionChrome()
                 let alert = UIAlertController(
-                    title: "Can't Delete",
-                    message: "The selected messages couldn't be checked.",
+                    title: L10n.betterTG("Chat.CantDelete"),
+                    message: L10n.betterTG("Chat.DeleteCheckFailed"),
                     preferredStyle: .alert,
                 )
-                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
                 present(alert, animated: true)
             }
         }
@@ -4415,31 +4471,37 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     ) {
         guard canDeleteForSelf || canDeleteForAll else {
             let alert = UIAlertController(
-                title: "Can't Delete",
-                message: "The selected messages can't be deleted together.",
+                title: L10n.betterTG("Chat.CantDelete"),
+                message: L10n.betterTG("Chat.DeleteTogetherUnavailable"),
                 preferredStyle: .alert,
             )
-            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
             present(alert, animated: true)
             return
         }
         let count = messageIDs.count
         let alert = UIAlertController(
-            title: count == 1 ? "Delete Message?" : "Delete \(count) Messages?",
+            title: L10n.telegramPlural("Chat.DeleteMessagesConfirmation", count: count),
             message: nil,
             preferredStyle: .actionSheet,
         )
         if canDeleteForSelf {
-            alert.addAction(UIAlertAction(title: "Delete for Me", style: .destructive) { [weak self] _ in
+            alert.addAction(UIAlertAction(
+                title: L10n.telegram("Conversation.DeleteMessagesForMe"),
+                style: .destructive,
+            ) { [weak self] _ in
                 self?.deleteSelectedMessages(messageIDs, forBoth: false, accountID: accountID)
             })
         }
         if canDeleteForAll {
-            alert.addAction(UIAlertAction(title: "Delete for Everyone", style: .destructive) { [weak self] _ in
+            alert.addAction(UIAlertAction(
+                title: L10n.telegram("Conversation.DeleteMessagesForEveryone"),
+                style: .destructive,
+            ) { [weak self] _ in
                 self?.deleteSelectedMessages(messageIDs, forBoth: true, accountID: accountID)
             })
         }
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
         if let popover = alert.popoverPresentationController {
             popover.sourceView = messageSelectionToolbar
             popover.sourceRect = messageSelectionToolbar.bounds

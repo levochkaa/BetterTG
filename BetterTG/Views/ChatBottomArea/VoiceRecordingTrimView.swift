@@ -121,7 +121,9 @@ final class VoiceRecordingTrimView: UIView {
     }
 
     private func configure(handle: VoiceRecordingTrimHandle, updatedEnd: Bool) {
-        handle.accessibilityLabel = updatedEnd ? "Trim end" : "Trim start"
+        handle.accessibilityLabel = updatedEnd
+            ? L10n.betterTG("Accessibility.TrimEnd")
+            : L10n.betterTG("Accessibility.TrimStart")
         handle.onMove = { [weak self] location, finished in
             self?.moveHandle(updatedEnd: updatedEnd, location: location, finished: finished)
         }

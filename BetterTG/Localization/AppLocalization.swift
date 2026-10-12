@@ -36,6 +36,10 @@ enum L10n {
         AppLocalization.shared.telegramPluralString(key, count: count)
     }
 
+    static func telegramPlural(_ key: String, count: Int, formattedCount: String) -> String {
+        AppLocalization.shared.telegramPluralString(key, count: count, formattedCount: formattedCount)
+    }
+
     static func betterTG(_ key: String, _ arguments: CVarArg...) -> String {
         AppLocalization.shared.betterTGString(key, arguments: arguments)
     }
@@ -493,7 +497,7 @@ final class AppLocalization: @unchecked Sendable {
         return Self.format(result.0, localeID: result.1, arguments: arguments)
     }
 
-    func telegramPluralString(_ key: String, count: Int) -> String {
+    func telegramPluralString(_ key: String, count: Int, formattedCount: String? = nil) -> String {
         let result: (String, String) = lock.withLock {
             let selectedID = selectedLanguagePackIDStorage
             if let resolved = pluralString(key, count: count, in: selectedID) {
@@ -508,7 +512,7 @@ final class AppLocalization: @unchecked Sendable {
             }
             return (bundledTelegramString(key + "_any"), "en")
         }
-        return Self.format(result.0, localeID: result.1, arguments: [String(count) as NSString])
+        return Self.format(result.0, localeID: result.1, arguments: [(formattedCount ?? String(count)) as NSString])
     }
 
     func betterTGString(_ key: String, arguments: [CVarArg] = []) -> String {

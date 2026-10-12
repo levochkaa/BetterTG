@@ -175,9 +175,13 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
         if preview.skipConfirmation {
             TelegramLinkRouter.shared.open(url, from: controller)
         } else {
-            let alert = UIAlertController(title: "Open link?", message: url.absoluteString, preferredStyle: .alert)
+            let alert = UIAlertController(
+                title: L10n.telegram("OpenLinkConfirmation.Title"),
+                message: url.absoluteString,
+                preferredStyle: .alert,
+            )
             alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-            alert.addAction(UIAlertAction(title: "Open", style: .default) { _ in
+            alert.addAction(UIAlertAction(title: L10n.telegram("OpenLinkConfirmation.Open"), style: .default) { _ in
                 TelegramLinkRouter.shared.open(url, from: controller)
             })
             controller.present(alert, animated: true)

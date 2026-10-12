@@ -402,7 +402,9 @@ import UIKit
         }
         message.reactions = reactions(true)
         rows.configure(cell, message: message)
-        guard let action = cell.accessibilityCustomActions?.first(where: { $0.name.hasPrefix("Remove ") }) else {
+        guard let action = cell.accessibilityCustomActions?.first(where: {
+            $0.name == L10n.betterTG("Accessibility.RemoveReaction", type.accessibilityName)
+        }) else {
             throw Failure(description: "chosen reaction AX action missing")
         }
         rows.canAddReactions = false
@@ -424,7 +426,9 @@ import UIKit
     private static func verifyMetadata(_ rows: Rows, cell: MessageCell, message: CustomMessage) throws {
         message.replyPresentation = reply(target: 99)
         rows.configure(cell, message: message)
-        guard let action = cell.accessibilityCustomActions?.first(where: { $0.name == "Open replied message" }) else {
+        guard let action = cell.accessibilityCustomActions?.first(where: {
+            $0.name == L10n.betterTG("Accessibility.OpenRepliedMessage")
+        }) else {
             throw Failure(description: "metadata AX action missing")
         }
         let calls = rows.calls
@@ -520,7 +524,7 @@ import UIKit
     }
 
     private static func selectionAction(_ cell: MessageCell) -> UIAccessibilityCustomAction? {
-        cell.accessibilityCustomActions?.first { $0.name == "Select Message" }
+        cell.accessibilityCustomActions?.first { $0.name == L10n.betterTG("Accessibility.SelectMessage") }
     }
 
     private static func makeMessage() -> CustomMessage {

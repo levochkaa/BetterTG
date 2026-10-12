@@ -605,7 +605,7 @@ final class MessageRichContentView: UIView, MessageSupplementView {
             cover.backgroundColor = .secondarySystemBackground
             cover.isUserInteractionEnabled = false
             pin(cover, to: button)
-            button.accessibilityLabel = "Reveal spoiler"
+            button.accessibilityLabel = L10n.betterTG("Accessibility.RevealSpoiler")
             button.addAction(UIAction { [weak self, weak cover] _ in
                 guard let self else { return }
                 if !state.revealedSpoilers.contains(path) {
@@ -618,7 +618,9 @@ final class MessageRichContentView: UIView, MessageSupplementView {
                 } else { openMedia(file, isVideo: isVideo) }
             }, for: .touchUpInside)
         } else {
-            button.accessibilityLabel = isVideo ? "Play video" : "Open photo"
+            button.accessibilityLabel = isVideo
+                ? L10n.betterTG("Accessibility.PlayVideo")
+                : L10n.betterTG("Accessibility.OpenPhoto")
             button.addAction(UIAction { [weak self] _ in self?.openMedia(file, isVideo: isVideo) }, for: .touchUpInside)
         }
         return button

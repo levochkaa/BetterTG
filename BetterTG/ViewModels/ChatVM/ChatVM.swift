@@ -65,6 +65,7 @@ import UIKit
     let pollInteractionStore = MessagePollInteractionStore()
     @Published var actionStatus = ""
     @Published var onlineStatus = ""
+    private(set) var isUserOnline = false
     @Published var memberCount = 0
     @Published var onlineMemberCount = 0
     @Published private(set) var editCustomMessage: CustomMessage? {
@@ -356,17 +357,17 @@ import UIKit
             let info = replyMessage
                 .flatMap { forumTopicInfo(for: $0.message.topicId) }
                 ?? generalForumTopic?.info
-            guard let topicName = info?.name else { return "Message…" }
+            guard let topicName = info?.name else { return L10n.telegram("Conversation.InputTextPlaceholder") }
             return replyMessage == nil
-                ? "Message in \(topicName)"
-                : "Reply in \(topicName)"
+                ? L10n.telegram("Chat.InputPlaceholderMessageInTopic", topicName)
+                : L10n.telegram("Chat.InputPlaceholderReplyInTopic", topicName)
         }
         guard let topicName = forumTopicInfo?.name, location.isTopicScoped else {
-            return "Message…"
+            return L10n.telegram("Conversation.InputTextPlaceholder")
         }
         return replyMessage == nil
-            ? "Message in \(topicName)"
-            : "Reply in \(topicName)"
+            ? L10n.telegram("Chat.InputPlaceholderMessageInTopic", topicName)
+            : L10n.telegram("Chat.InputPlaceholderReplyInTopic", topicName)
     }
 
     var composerRestrictionText: String {
@@ -375,16 +376,16 @@ import UIKit
                let info = forumTopicInfo(for: replyMessage.message.topicId),
                info.isClosed || info.isHidden
             {
-                return "Replies are disabled in this closed topic."
+                return L10n.betterTG("Composer.ClosedTopicReplies")
             }
             if generalForumTopic == nil {
-                return "Loading the General topic…"
+                return L10n.betterTG("Composer.LoadingGeneralTopic")
             }
         }
         if forumTopicInfo?.isClosed == true || forumTopicInfo?.isHidden == true {
-            return "Only the topic creator or an administrator can post here."
+            return L10n.betterTG("Composer.ClosedTopicRestriction")
         }
-        return "You can't send messages in this topic."
+        return L10n.betterTG("Composer.TopicRestriction")
     }
 
     var locationContextIsCurrent: Bool {
@@ -457,16 +458,23 @@ import UIKit
         case .group:
             return memberStatus(memberCount: memberCount, onlineMemberCount: onlineMemberCount)
         case .supergroup(let group):
-            guard memberCount > 0 else { return group.isChannel ? "channel" : "group" }
+            guard memberCount > 0 else {
+                return group.isChannel ? L10n.telegram("Channel.Status") : L10n.telegram("Group.Status")
+            }
             if group.isChannel {
-                return countStatus(memberCount, singular: "subscriber", plural: "subscribers")
+                return countStatus("Conversation.StatusSubscribers", count: memberCount)
             }
             return memberStatus(memberCount: memberCount, onlineMemberCount: onlineMemberCount)
         }
     }
 
     var headerStatusIsActive: Bool {
-        !actionStatus.isEmpty || headerStatus == "online"
+        if !actionStatus.isEmpty { return true }
+        guard !customChat.isSavedMessages else { return false }
+        switch customChat.type {
+        case .bot, .user: return isUserOnline
+        case .group, .supergroup: return false
+        }
     }
 
     var formattedTimerCount: String {
@@ -755,7 +763,7 @@ import UIKit
         self.memberCount = customChat.group?.memberCount ?? customChat.supergroup?.memberCount ?? 0
         log("init \(customChat.chat.id)")
         if let user = customChat.user {
-            self.onlineStatus = getOnlineStatus(from: user.status)
+            updateOnlineStatus(from: user.status)
         }
 
         // Install local intent before any publisher, server draft, or async load
@@ -1229,6 +1237,16 @@ import UIKit
             dateFormatter.dateStyle = .short
             return L10n.telegram("LastSeen.AtDate", dateFormatter.string(from: date))
         }
+    }
+
+    func updateOnlineStatus(from userStatus: UserStatus) {
+        isUserOnline =
+            if case .userStatusOnline = userStatus {
+                true
+            } else {
+                false
+            }
+        onlineStatus = getOnlineStatus(from: userStatus)
     }
 
     func getOnlineStatus(from userStatus: UserStatus) -> String {
@@ -5607,12 +5625,12 @@ import UIKit
     }
 
     private func memberStatus(memberCount: Int, onlineMemberCount: Int) -> String {
-        let members = countStatus(memberCount, singular: "member", plural: "members")
+        let members = countStatus("Conversation.StatusMembers", count: memberCount)
         guard onlineMemberCount > 1 else { return members }
-        return "\(members), \(onlineMemberCount.formatted(.number)) online"
+        return "\(members), \(countStatus("Conversation.StatusOnline", count: onlineMemberCount))"
     }
 
-    private func countStatus(_ count: Int, singular: String, plural: String) -> String {
-        "\(count.formatted(.number)) \(count == 1 ? singular : plural)"
+    private func countStatus(_ key: String, count: Int) -> String {
+        L10n.telegramPlural(key, count: count, formattedCount: count.formatted(.number))
     }
 }

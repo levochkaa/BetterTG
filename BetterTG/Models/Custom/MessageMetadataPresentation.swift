@@ -235,7 +235,7 @@ struct MessageReplyPresentation: Equatable {
     }
 
     var accessibilityDescription: String {
-        "Reply from \(title), \(MessageTextSpoilerPresentation(body).accessibilityText())"
+        L10n.betterTG("Accessibility.ReplyFrom", title, MessageTextSpoilerPresentation(body).accessibilityText())
     }
 }
 
@@ -251,29 +251,29 @@ extension MessageReplyPresentation {
         switch input {
         case .inputMessageReplyToMessage(let message):
             quote = message.quote
-            title = "Reply"
+            title = L10n.betterTG("Chat.Reply")
             targetChatID = currentChatID
             targetMessageID = message.messageId
         case .inputMessageReplyToExternalMessage(let message):
             quote = message.quote
-            title = "External reply"
+            title = L10n.betterTG("Chat.ExternalReply")
             targetChatID = message.chatId
             targetMessageID = message.messageId
         case .inputMessageReplyToStory(let story):
             quote = nil
-            title = "Story"
+            title = L10n.telegram("Message.Story")
             targetChatID = story.storyPosterChatId
             targetMessageID = nil
         case .inputMessageReplyToEphemeralMessage:
             quote = nil
-            title = "Ephemeral message"
+            title = L10n.betterTG("Chat.EphemeralMessage")
             targetChatID = nil
             targetMessageID = nil
         }
         let textQuote = quote.map { TextQuote(isManual: true, position: $0.position, text: $0.text) }
         return Self(
             availability: quote == nil ? .unavailable : .inline,
-            body: quote?.text ?? FormattedText(entities: [], text: "Original message unavailable"),
+            body: quote?.text ?? FormattedText(entities: [], text: L10n.betterTG("Chat.OriginalMessageUnavailable")),
             navigationTarget: .unavailable,
             quote: textQuote,
             referencedChatID: targetChatID,
@@ -301,7 +301,7 @@ struct MessageForwardPresentation: Equatable {
     let targetMessageID: Int64?
 
     var accessibilityDescription: String {
-        "Forwarded from \(sourceTitle)"
+        L10n.telegram("VoiceOver.Chat.ForwardedFrom", sourceTitle)
     }
 
     func removingNavigationTarget() -> Self {
@@ -348,10 +348,10 @@ struct MessageForwardPresentation: Equatable {
             return await messageReplyPresentation(reply, parent: message)
         case .messageReplyToStory(let story):
             let chat = await chat(id: story.storyPosterChatId)
-            let title = nonEmpty(chat?.title) ?? "Story"
+            let title = nonEmpty(chat?.title) ?? L10n.telegram("Message.Story")
             return MessageReplyPresentation(
                 availability: .story,
-                body: plainText("Story"),
+                body: plainText(L10n.telegram("Message.Story")),
                 navigationTarget: .unavailable,
                 quote: nil,
                 referencedChatID: story.storyPosterChatId == 0 ? nil : story.storyPosterChatId,
@@ -396,7 +396,9 @@ struct MessageForwardPresentation: Equatable {
             }
         return MessageForwardPresentation(
             avatar: displayed.avatar,
-            headline: psa == nil ? "Forwarded message" : "Public service announcement",
+            headline: psa == nil
+                ? L10n.telegramPlural("ForwardedMessages", count: 1)
+                : L10n.betterTG("Chat.PublicServiceAnnouncement"),
             navigationTarget: navigationTarget,
             originalSourceTitle: origin.title,
             publicServiceAnnouncementType: psa,
@@ -449,7 +451,7 @@ struct MessageForwardPresentation: Equatable {
             } else {
                 nil
             }
-        let authorTitle = authorPeer?.title ?? nonEmpty(contextChat?.title) ?? "Reply"
+        let authorTitle = authorPeer?.title ?? nonEmpty(contextChat?.title) ?? L10n.betterTG("Chat.Reply")
         let title =
             if let contextTitle = nonEmpty(contextChat?.title), normalized(contextTitle) != normalized(authorTitle) {
                 "\(authorTitle) • \(contextTitle)"
@@ -462,7 +464,7 @@ struct MessageForwardPresentation: Equatable {
             } else if let content {
                 previewText(for: content)
             } else {
-                plainText("Original message unavailable")
+                plainText(L10n.betterTG("Chat.OriginalMessageUnavailable"))
             }
         let quoteHighlight = reply.quote.flatMap { resolvedQuoteHighlight($0, content: content) }
         let navigationTarget: MessageMetadataNavigationTarget? =
@@ -562,11 +564,11 @@ struct MessageForwardPresentation: Equatable {
                 avatar: nil,
                 chatID: nil,
                 navigationTarget: .user(userID: origin.senderUserId),
-                title: "Deleted Account",
+                title: L10n.telegram("User.DeletedAccount"),
                 userID: origin.senderUserId,
             )
         case .messageOriginHiddenUser(let origin):
-            let title = nonEmpty(origin.senderName) ?? "Hidden Account"
+            let title = nonEmpty(origin.senderName) ?? L10n.betterTG("Chat.HiddenAccount")
             return ResolvedPeer(
                 avatar: avatar(initialsFor(title)),
                 chatID: nil,
@@ -576,7 +578,8 @@ struct MessageForwardPresentation: Equatable {
             )
         case .messageOriginChat(let origin):
             let chat = await chat(id: origin.senderChatId)
-            let base = nonEmpty(chat?.title) ?? nonEmpty(origin.authorSignature) ?? "Chat"
+            let base = nonEmpty(chat?.title) ?? nonEmpty(origin.authorSignature) ?? L10n
+                .betterTG("Chat.FallbackChatTitle")
             return ResolvedPeer(
                 avatar: chat.map(avatar(for:)),
                 chatID: origin.senderChatId,
@@ -586,7 +589,8 @@ struct MessageForwardPresentation: Equatable {
             )
         case .messageOriginChannel(let origin):
             let chat = await chat(id: origin.chatId)
-            let base = nonEmpty(chat?.title) ?? nonEmpty(origin.authorSignature) ?? "Channel"
+            let base = nonEmpty(chat?.title) ?? nonEmpty(origin.authorSignature) ?? L10n
+                .betterTG("Chat.FallbackChannelTitle")
             let navigation: MessageMetadataNavigationTarget = origin.messageId == 0
                 ? .chat(chatID: origin.chatId)
                 : .message(chatID: origin.chatId, messageID: origin.messageId, quote: nil)
@@ -610,12 +614,12 @@ struct MessageForwardPresentation: Equatable {
                 avatar: nil,
                 chatID: nil,
                 navigationTarget: .user(userID: sender.userId),
-                title: "Deleted Account",
+                title: L10n.telegram("User.DeletedAccount"),
                 userID: sender.userId,
             )
         case .messageSenderChat(let sender):
             let chat = await chat(id: sender.chatId)
-            let base = nonEmpty(chat?.title) ?? nonEmpty(authorSignature) ?? "Chat"
+            let base = nonEmpty(chat?.title) ?? nonEmpty(authorSignature) ?? L10n.betterTG("Chat.FallbackChatTitle")
             return ResolvedPeer(
                 avatar: chat.map(avatar(for:)),
                 chatID: sender.chatId,
@@ -748,11 +752,11 @@ struct MessageForwardPresentation: Equatable {
     }
 
     private func userDisplayName(_ user: User) -> String {
-        if case .userTypeDeleted = user.type { return "Deleted Account" }
+        if case .userTypeDeleted = user.type { return L10n.telegram("User.DeletedAccount") }
         let value = [user.firstName, user.lastName]
             .compactMap(nonEmpty)
             .joined(separator: " ")
-        return value.isEmpty ? "Deleted Account" : value
+        return value.isEmpty ? L10n.telegram("User.DeletedAccount") : value
     }
 
     private func signedTitle(_ title: String, signature: String) -> String {

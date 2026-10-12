@@ -21,10 +21,10 @@ enum MessageDeliveryState: Equatable {
     var spoken: String? {
         switch self {
         case .none: nil
-        case .sending: "Sending"
-        case .failed: "Failed to send"
-        case .delivered: "Delivered"
-        case .read: "Read"
+        case .sending: L10n.telegram("VoiceOver.Chat.Sending")
+        case .failed: L10n.telegram("VoiceOver.Chat.Failed")
+        case .delivered: L10n.telegram("Conversation.ChecksTooltip.Delivered")
+        case .read: L10n.telegram("Conversation.ChecksTooltip.Read")
         }
     }
 

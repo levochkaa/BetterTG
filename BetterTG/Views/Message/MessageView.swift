@@ -797,8 +797,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             if MediaRevealSession.Key(message: source)?.isSecret == false {
                 metadataAccessibilityActions.append(UIAccessibilityCustomAction(
                     name: message.sourceMessages.count > 1
-                        ? "Reveal media spoiler \(index + 1)"
-                        : "Reveal media spoiler",
+                        ? L10n.betterTG("Accessibility.RevealMediaSpoilerNumber", index + 1)
+                        : L10n.betterTG("Accessibility.RevealMediaSpoiler"),
                 ) { _ in
                     onMediaTap(message.sourceMessages, source.id)
                     return true
@@ -807,21 +807,23 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
         if let reply = message.replyPresentation {
             if reply.isManualQuote, !message.isReplyQuoteExpanded {
-                metadataAccessibilityActions.append(UIAccessibilityCustomAction(name: "Expand quoted text") { _ in
-                    onReplyQuoteExpand()
-                    return true
-                })
+                metadataAccessibilityActions
+                    .append(UIAccessibilityCustomAction(name: L10n.betterTG("Accessibility.ExpandQuote")) { _ in
+                        onReplyQuoteExpand()
+                        return true
+                    })
             }
             if let target = reply.navigationTarget {
-                metadataAccessibilityActions.append(UIAccessibilityCustomAction(name: "Open replied message") { _ in
-                    onMetadataNavigate(target)
-                    return true
-                })
+                metadataAccessibilityActions
+                    .append(UIAccessibilityCustomAction(name: L10n.betterTG("Accessibility.OpenRepliedMessage")) { _ in
+                        onMetadataNavigate(target)
+                        return true
+                    })
             }
         }
         if let target = message.forwardPresentation?.navigationTarget {
             metadataAccessibilityActions
-                .append(UIAccessibilityCustomAction(name: "Open forwarded message source") { _ in
+                .append(UIAccessibilityCustomAction(name: L10n.betterTG("Accessibility.OpenForwardSource")) { _ in
                     onMetadataNavigate(target)
                     return true
                 })
@@ -830,8 +832,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             where !message.reactionMutationInFlight && (canAddReactions || reaction.isChosen)
         {
             let actionName = reaction.isChosen
-                ? "Remove \(reaction.type.accessibilityName) reaction"
-                : "Add \(reaction.type.accessibilityName) reaction"
+                ? L10n.betterTG("Accessibility.RemoveReaction", reaction.type.accessibilityName)
+                : L10n.betterTG("Accessibility.AddReaction", reaction.type.accessibilityName)
             metadataAccessibilityActions.append(UIAccessibilityCustomAction(name: actionName) { _ in
                 onReactionTap(reaction.type)
                 return true
@@ -839,7 +841,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
         if selectionActive {
             metadataAccessibilityActions.append(UIAccessibilityCustomAction(
-                name: selected ? "Deselect Message" : "Select Message",
+                name: selected
+                    ? L10n.betterTG("Accessibility.DeselectMessage")
+                    : L10n.betterTG("Accessibility.SelectMessage"),
             ) { [weak self] _ in
                 guard self?.actionBindingID == actionBindingID else { return false }
                 onSelectionToggle?()
@@ -850,7 +854,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             } else {
                 accessibilityTraits.remove(.selected)
             }
-            accessibilityValue = selected ? "Selected" : "Not selected"
+            accessibilityValue = selected
+                ? L10n.telegram("VoiceOver.Chat.Selected")
+                : L10n.betterTG("Accessibility.NotSelected")
         } else {
             accessibilityTraits.remove(.selected)
             accessibilityValue = nil
@@ -873,7 +879,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 // Captions have independent A10 grants; do not project raw media metadata through the cell.
                 let captions = accessibilityStates.map { $0.presentation.accessibilityText(revealed: $0.revealed) }
                 content = (concealed.map {
-                    MediaRevealSession.Key(message: $0)?.isSecret == true ? "Protected media" : "Media spoiler"
+                    MediaRevealSession.Key(message: $0)?.isSecret == true
+                        ? L10n.betterTG("Accessibility.ProtectedMedia")
+                        : L10n.betterTG("Accessibility.MediaSpoiler")
                 } + captions).joined(separator: ", ")
             }
             updateSpoilerAccessibility(
@@ -906,7 +914,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         accessibilityLabel = (prefix + [content] + suffix).compactMap(\.self).joined(separator: ", ")
         var result = actions
         if states.contains(where: { !$0.revealed && !$0.presentation.ranges.isEmpty }) {
-            result.append(UIAccessibilityCustomAction(name: "Reveal spoilers") { _ in
+            result.append(UIAccessibilityCustomAction(name: L10n.betterTG("Accessibility.RevealSpoilers")) { _ in
                 states.reduce(false) { $1.reveal() || $0 }
             })
         }

@@ -248,7 +248,9 @@
             defer { subscription.cancel() }
             refresh()
             try require(cell.accessibilityLabel?.contains("HIDDEN") == false, "parent AX leaked")
-            guard let reveal = cell.accessibilityCustomActions?.first(where: { $0.name == "Reveal spoilers" }) else {
+            guard let reveal = cell.accessibilityCustomActions?
+                .first(where: { $0.name == L10n.betterTG("Accessibility.RevealSpoilers") })
+            else {
                 throw Failure(description: "parent reveal action missing")
             }
             try require(

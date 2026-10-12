@@ -557,7 +557,8 @@ import UIKit
               let selection = allControls(cell).first(where: {
                   $0.accessibilityIdentifier == "message-selection-control"
               }),
-              let oldSelectionAction = cell.accessibilityCustomActions?.first(where: { $0.name == "Deselect Message" }),
+              let oldSelectionAction = cell.accessibilityCustomActions?
+              .first(where: { $0.name == L10n.betterTG("Accessibility.DeselectMessage") }),
               let container = cell.contextPreviewView as? TelegramContextMenuExtractableView,
               let extracted = container.probeTakeContextMenuContent()
         else {
@@ -681,7 +682,8 @@ import UIKit
         guard let cell = rows.collection.cellForItem(at: path) as? MessageCell,
               let control = allControls(cell)
               .first(where: { $0.accessibilityIdentifier == "message-selection-control" }),
-              let oldAX = cell.accessibilityCustomActions?.first(where: { $0.name == "Deselect Message" })
+              let oldAX = cell.accessibilityCustomActions?
+              .first(where: { $0.name == L10n.betterTG("Accessibility.DeselectMessage") })
         else { throw Failure(description: "selection-touch fixture was not armed") }
         guard let binding = cell.actionBindingID else { throw Failure(description: "selection cell has no binding") }
         let reuseCount = cell.probeReuseCount
@@ -699,7 +701,9 @@ import UIKit
         control.sendActions(for: .touchUpInside)
         _ = oldAX.actionHandler?(oldAX)
         try require(rows.selectionTaps == 0, "old touch/AX invoked an old or rebound selection handler")
-        guard let currentAX = cell.accessibilityCustomActions?.first(where: { $0.name == "Deselect Message" }) else {
+        guard let currentAX = cell.accessibilityCustomActions?
+            .first(where: { $0.name == L10n.betterTG("Accessibility.DeselectMessage") })
+        else {
             throw Failure(description: "current selection AX action missing")
         }
         _ = currentAX.actionHandler?(currentAX)
@@ -893,7 +897,8 @@ import UIKit
         await events()
         try require(
             rows.collection.cellForItem(at: path) === original && rows.collection.contentOffset == offset
-                    && original.accessibilityLabel?.contains("Read") == true && staleCallbacks == 0,
+                    && original.accessibilityLabel?
+                        .contains(L10n.telegram("Conversation.ChecksTooltip.Read")) == true && staleCallbacks == 0,
             "same-ID replacement: retained-cell=\(rows.collection.cellForItem(at: path) === original), "
                 + "offset=\(offset)->\(rows.collection.contentOffset), "
                 + "AX=\(original.accessibilityLabel ?? "nil"), stale-callbacks=\(staleCallbacks)",
@@ -925,7 +930,11 @@ import UIKit
         try require(
             flushes == 1 && burstIDs.count == rows.messages.count - 1
                 && rows.collection.contentOffset == offset
-                && rows.collection.visibleCells.allSatisfy { $0.accessibilityLabel?.contains("Read") == true },
+                && rows.collection
+.visibleCells
+                    .allSatisfy {
+                    $0.accessibilityLabel?.contains(L10n.telegram("Conversation.ChecksTooltip.Read")) == true
+                    },
             "receipt burst did not coalesce, missed visible status or moved viewport",
         )
         burstSubscriptions.forEach { $0.cancel() }
@@ -1004,15 +1013,15 @@ import UIKit
                 && rows.collection
 .cellForItem(at: IndexPath(item: 0, section: 0))?
 .accessibilityLabel?
-                    .contains("Read") == true
+                    .contains(L10n.telegram("Conversation.ChecksTooltip.Read")) == true
                 && rows.collection
 .cellForItem(at: IndexPath(item: 1, section: 0))?
 .accessibilityLabel?
-                    .contains("Read") != true
+                    .contains(L10n.telegram("Conversation.ChecksTooltip.Read")) != true
                 && rows.collection
 .cellForItem(at: IndexPath(item: 2, section: 0))?
 .accessibilityLabel?
-                    .contains("Read") != true,
+                    .contains(L10n.telegram("Conversation.ChecksTooltip.Read")) != true,
             "explicit-topic update reconfigured or marked a foreign/unknown topic, or moved viewport",
         )
         topicSubscriptions.forEach { $0.cancel() }
@@ -1067,7 +1076,8 @@ import UIKit
                         item: 0,
                         section: 0,
                     ))
-                    && original?.accessibilityLabel?.contains("Read") == true && rows.collection
+                    && original?.accessibilityLabel?
+                        .contains(L10n.telegram("Conversation.ChecksTooltip.Read")) == true && rows.collection
                         .contentOffset == offset,
             "canonical topic update crossed topic, replaced cell, or moved viewport",
         )
@@ -1089,7 +1099,8 @@ import UIKit
         try require(
             replacement.displayedID == album.displayedID && replacement.deliveryState == .delivered
                     && original === rows.collection.cellForItem(at: .init(item: 0, section: 0))
-                    && original?.accessibilityLabel?.contains("Delivered") == true,
+                    && original?.accessibilityLabel?
+                        .contains(L10n.telegram("Conversation.ChecksTooltip.Delivered")) == true,
             "same-ID canonical promotion retained removed topic Read",
         )
         album.updateDeliveryState(permitsFinalStatus: true, readOutbox: nil, topic: firstTopic)

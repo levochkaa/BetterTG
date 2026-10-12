@@ -354,7 +354,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         addSubview(backButton)
 
         titleControl.translatesAutoresizingMaskIntoConstraints = false
-        titleControl.accessibilityHint = "Opens profile. Long press to search messages"
+        titleControl.accessibilityHint = L10n.betterTG("Accessibility.OpenProfileHint")
         titleControl.accessibilityTraits = .button
         titleControl.addTarget(self, action: #selector(profilePressed), for: .touchUpInside)
         titleControl.addGestureRecognizer(
@@ -411,7 +411,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         selectionCancelButton.translatesAutoresizingMaskIntoConstraints = false
         selectionCancelButton.setTitle(L10n.telegram("Common.Cancel"), for: .normal)
         selectionCancelButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
-        selectionCancelButton.accessibilityLabel = "Cancel Selection"
+        selectionCancelButton.accessibilityLabel = L10n.betterTG("Accessibility.CancelSelection")
         selectionCancelButton.isHidden = true
         selectionCancelButton.addTarget(self, action: #selector(selectionCancelPressed), for: .touchUpInside)
         addSubview(selectionCancelButton)

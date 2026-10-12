@@ -43,10 +43,10 @@ final class ChatDateHeaderCell: UICollectionViewCell {
     private static func title(for date: Date) -> String {
         let calendar = Calendar.autoupdatingCurrent
         if calendar.isDateInToday(date) {
-            return "Today"
+            return L10n.telegram("Weekday.Today")
         }
         if calendar.isDateInYesterday(date) {
-            return "Yesterday"
+            return L10n.telegram("Weekday.Yesterday")
         }
         let formatter = DateFormatter()
         formatter.locale = .autoupdatingCurrent

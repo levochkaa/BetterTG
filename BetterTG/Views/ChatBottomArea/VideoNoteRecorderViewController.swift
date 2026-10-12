@@ -287,7 +287,7 @@ enum VideoNoteSubmissionResult {
                       operationGeneration == generation,
                       exitDisposition == .none
                 else { return }
-                fail("Couldn’t restore the saved video-message preview.")
+                fail(L10n.betterTG("VideoNote.RestoreSavedPreviewFailed"))
             }
         }
     }
@@ -458,7 +458,7 @@ enum VideoNoteSubmissionResult {
                     canRecordMore: canonicalDraft.canRecordMore,
                 )
                 onPreviewData?(canonicalDraft, previewThumbnails)
-                onError?("Couldn’t save the video trim range.")
+                onError?(L10n.betterTG("VideoNote.TrimSaveFailed"))
             }
         }
     }
@@ -593,7 +593,7 @@ enum VideoNoteSubmissionResult {
         previewContainer.backgroundColor = .black
         previewContainer.clipsToBounds = true
         previewContainer.accessibilityIdentifier = "video-note-camera-circle"
-        previewContainer.accessibilityHint = "Double-tap to toggle preview sound."
+        previewContainer.accessibilityHint = L10n.betterTG("Accessibility.TogglePreviewSoundHint")
         previewContainer.onAccessibilityActivate = { [weak self] in
             self?.togglePreviewMute() ?? false
         }
@@ -644,13 +644,13 @@ enum VideoNoteSubmissionResult {
         configureControl(
             flipButton,
             symbol: "camera.rotate.fill",
-            label: "Switch camera",
+            label: L10n.betterTG("Accessibility.SwitchCamera"),
             action: #selector(flipCamera),
         )
         configureControl(
             flashButton,
             symbol: "bolt.slash.fill",
-            label: "Toggle flash",
+            label: L10n.betterTG("Accessibility.ToggleFlash"),
             action: #selector(toggleFlash),
         )
         view.addSubview(flipButton)
@@ -859,7 +859,7 @@ enum VideoNoteSubmissionResult {
                 )
                 resumeLifecyclePreview(clearBackground: false)
             } else {
-                state = .failed("Recording was interrupted before a video preview could be saved.")
+                state = .failed(L10n.betterTG("VideoNote.InterruptedBeforePreview"))
             }
         }
     }
@@ -882,7 +882,7 @@ enum VideoNoteSubmissionResult {
             } catch {
                 guard operationGeneration == pending.generation, exitDisposition == .none,
                       !didRequestDismiss else { return }
-                state = .failed("Couldn’t restore the saved video-message preview.")
+                state = .failed(L10n.betterTG("VideoNote.RestoreSavedPreviewFailed"))
             }
         }
     }
@@ -927,7 +927,7 @@ enum VideoNoteSubmissionResult {
                         isPlaying: false,
                         canRecordMore: canRecordMore,
                     )
-                    onError?("Couldn’t play the video-message preview.")
+                    onError?(L10n.betterTG("VideoNote.PreviewPlaybackFailed"))
                 case .buffering, .ended, .idle, .paused, .preparing:
                     state = .preview(
                         duration: duration,
@@ -1219,7 +1219,7 @@ enum VideoNoteSubmissionResult {
               let onSubmit
         else {
             if onSubmit == nil {
-                fail("Video message sending isn’t available.")
+                fail(L10n.betterTG("VideoNote.SendingUnavailable"))
             }
             return
         }
@@ -1230,7 +1230,7 @@ enum VideoNoteSubmissionResult {
         if let draft,
            draft.effectiveRange.upperBound - draft.effectiveRange.lowerBound < 1 - 0.000_001
         {
-            onError?("Video messages must be at least 1 second. Record more before sending.")
+            onError?(L10n.betterTG("VideoNote.TooShort"))
             return
         }
         guard draft != nil || currentAsset != nil else { return }
@@ -1276,7 +1276,7 @@ enum VideoNoteSubmissionResult {
                         isPlaying: previewPlayer.isPlaybackRequested,
                         canRecordMore: draft.canRecordMore,
                     )
-                    onError?("Couldn’t prepare the video message for sending.")
+                    onError?(L10n.betterTG("VideoNote.PrepareSendFailed"))
                     return
                 }
                 originRecordingDraftID = draft.id
@@ -1562,7 +1562,7 @@ enum VideoNoteSubmissionResult {
                   operationGeneration == generation,
                   exitDisposition == .none
             else { return }
-            fail("Couldn’t restore the video-message preview.")
+            fail(L10n.betterTG("VideoNote.RestorePreviewFailed"))
         }
     }
 
@@ -1586,20 +1586,22 @@ enum VideoNoteSubmissionResult {
         switch state {
         case .preparing:
             loadingIndicator.startAnimating()
-            statusLabel.text = "Preparing camera…"
+            statusLabel.text = L10n.betterTG("VideoNote.PreparingCamera")
         case .holding(let duration):
-            statusLabel.text = "\(formatted(duration))  ← Cancel  ↑ Lock"
+            statusLabel.text = L10n.betterTG("VideoNote.HoldingStatus", formatted(duration))
             previewContainer.isUserInteractionEnabled = true
         case .locked(let duration):
-            statusLabel.text = "\(formatted(duration))  Locked"
+            statusLabel.text = L10n.betterTG("VideoNote.LockedStatus", formatted(duration))
             previewContainer.isUserInteractionEnabled = true
         case .stopping:
             loadingIndicator.startAnimating()
-            statusLabel.text = "Preparing preview…"
+            statusLabel.text = L10n.betterTG("VideoNote.PreparingPreview")
             flipButton.isHidden = true
             flashButton.isHidden = true
         case .preview(let duration, let isPlaying, _):
-            statusLabel.text = "\(formatted(duration))  \(isPlaying ? "Playing" : "Paused")"
+            statusLabel.text = isPlaying
+                ? L10n.betterTG("VideoNote.PreviewPlayingStatus", formatted(duration))
+                : L10n.betterTG("VideoNote.PreviewPausedStatus", formatted(duration))
             flipButton.isHidden = true
             flashButton.isHidden = true
             previewContainer.isUserInteractionEnabled = true
@@ -1609,7 +1611,7 @@ enum VideoNoteSubmissionResult {
             updatePreviewMuteBadge()
         case .sending:
             loadingIndicator.startAnimating()
-            statusLabel.text = "Sending…"
+            statusLabel.text = L10n.betterTG("VideoNote.Sending")
             flipButton.isHidden = true
             flashButton.isHidden = true
         case .failed(let message):
@@ -1747,16 +1749,16 @@ enum VideoNoteSubmissionResult {
         if let captureError = error as? VideoNoteCaptureError {
             switch captureError {
             case .cameraUnavailable:
-                return "No camera is available for video messages."
+                return L10n.betterTG("VideoNote.CameraUnavailable")
             case .configurationFailed:
-                return "Couldn’t start the video-message camera."
+                return L10n.betterTG("VideoNote.CameraStartFailed")
             case .permissionDenied:
-                return "Camera and microphone access are required for video messages."
+                return L10n.betterTG("VideoNote.PermissionRequired")
             case .recordingUnavailable:
-                return "Video-message recording is unavailable."
+                return L10n.betterTG("VideoNote.RecordingUnavailable")
             }
         }
-        return "Couldn’t record the video message."
+        return L10n.betterTG("VideoNote.RecordFailed")
     }
 
     private func formatted(_ duration: Double) -> String {
@@ -1766,9 +1768,11 @@ enum VideoNoteSubmissionResult {
 
     private func updatePreviewAccessibility() {
         previewContainer.accessibilityLabel = previewMuted
-            ? "Video message preview, muted"
-            : "Video message preview, sound on"
-        previewContainer.accessibilityValue = previewMuted ? "Muted" : "Sound on"
+            ? L10n.betterTG("Accessibility.VideoPreviewMuted")
+            : L10n.betterTG("Accessibility.VideoPreviewSoundOn")
+        previewContainer.accessibilityValue = previewMuted
+            ? L10n.betterTG("Accessibility.Muted")
+            : L10n.betterTG("Accessibility.SoundOn")
     }
 
     private func updatePreviewMuteBadge() {
@@ -1821,7 +1825,7 @@ enum VideoNoteSubmissionResult {
             previewPlayer.setMuted(true)
             updatePreviewAccessibility()
             updatePreviewMuteBadge()
-            onError?("Couldn’t enable video-preview sound.")
+            onError?(L10n.betterTG("VideoNote.PreviewSoundFailed"))
         }
     }
 

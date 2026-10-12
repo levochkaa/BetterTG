@@ -188,10 +188,12 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         sideConstraint.constant = min(260, max(180, CGFloat(videoNote.length)))
         durationLabel.text = format(videoNote.duration)
         secretBlurView.isHidden = !isSecret
-        accessibilityLabel = "Video message, \(format(videoNote.duration))"
+        accessibilityLabel = "\(L10n.telegram("VoiceOver.Chat.VideoMessage")), \(format(videoNote.duration))"
         accessibilityHint = isSecret
-            ? (supportsSecretHold ? "Touch and hold to open" : "Protected message unavailable")
-            : "Double-tap to play or pause"
+            ? (supportsSecretHold
+                ? L10n.betterTG("Accessibility.HoldToOpenHint")
+                : L10n.betterTG("Accessibility.ProtectedMessageUnavailable"))
+            : L10n.betterTG("Accessibility.PlayPauseHint")
         guard let backend, backend.isCurrent(), !isSecret || supportsSecretHold else { return }
         if !isSecret, let data = videoNote.minithumbnail?.data {
             thumbnailView.image = UIImage(data: data)
@@ -441,26 +443,30 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             Self.activePlaybackView = self
             hasStartedPlayback = true
             playIcon.isHidden = true
-            accessibilityValue = "Playing"
+            accessibilityValue = L10n.betterTG("Accessibility.Playing")
         case .buffering, .preparing:
             playIcon.image = UIImage(systemName: "clock.fill")
             playIcon.isHidden = false
-            accessibilityValue = "Loading"
+            accessibilityValue = L10n.betterTG("Accessibility.Loading")
         case .failed:
             playIcon.image = UIImage(systemName: "exclamationmark.circle.fill")
             playIcon.isHidden = false
-            accessibilityValue = "Playback failed"
+            accessibilityValue = L10n.betterTG("Accessibility.PlaybackFailed")
         case .paused:
             if Self.activePlaybackView === self { Self.activePlaybackView = nil }
             playIcon.image = UIImage(systemName: "play.fill")
             playIcon.isHidden = isSecret || !hasStartedPlayback
-            accessibilityValue = representedPath == nil ? "Downloading" : "Paused"
+            accessibilityValue = representedPath == nil
+                ? L10n.betterTG("Accessibility.Downloading")
+                : L10n.betterTG("Accessibility.Paused")
         case .ended, .idle:
             if Self.activePlaybackView === self { Self.activePlaybackView = nil }
             hasStartedPlayback = false
             playIcon.isHidden = true
             progressLayer.strokeEnd = 0
-            accessibilityValue = representedPath == nil ? "Downloading" : "Ready to play"
+            accessibilityValue = representedPath == nil
+                ? L10n.betterTG("Accessibility.Downloading")
+                : L10n.betterTG("Accessibility.ReadyToPlay")
         }
     }
 
@@ -512,7 +518,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             } catch {
                 guard self?.secretHoldID == token else { return }
                 self?.concealSecret()
-                self?.accessibilityValue = "Couldn’t open"
+                self?.accessibilityValue = L10n.betterTG("Accessibility.CouldNotOpen")
             }
         }
     }
@@ -585,7 +591,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         thumbnailView.image = nil
         representedPath = nil
         playerSurface.isHidden = true
-        accessibilityValue = "Protected message unavailable"
+        accessibilityValue = L10n.betterTG("Accessibility.ProtectedMessageUnavailable")
     }
 
     private func setPlayerSurfaceReady(_ isReady: Bool) {

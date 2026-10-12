@@ -28,7 +28,7 @@ enum TelegramSpoilers {
         guard !revealed else { return text.text }
         let redacted = NSMutableString(string: text.text)
         for range in ranges(in: text).reversed() {
-            redacted.replaceCharacters(in: range, with: "Spoiler")
+            redacted.replaceCharacters(in: range, with: L10n.betterTG("Message.Spoiler"))
         }
         return String(redacted)
     }

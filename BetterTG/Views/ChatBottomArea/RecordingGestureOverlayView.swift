@@ -94,7 +94,9 @@ final class RecordingGestureOverlayView: UIView {
             systemName: translation.y < -60 ? "lock.fill" : "lock.open.fill",
             withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold),
         )
-        hint.text = translation.x < -70 ? "Release to cancel" : "‹  Slide to cancel"
+        hint.text = translation.x < -70
+            ? L10n.betterTG("Composer.ReleaseToCancel")
+            : "‹  \(L10n.telegram("Conversation.SlideToCancel"))"
         hint.alpha = max(0, 1 + translation.y / 70)
         setNeedsLayout()
         guard self.active != active else { return }

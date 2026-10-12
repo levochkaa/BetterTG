@@ -71,7 +71,7 @@ final class MessageSelectionToolbar: UIView {
         canForward: Bool,
         isBusy: Bool = false,
     ) {
-        countLabel.text = selectedCount == 1 ? "1 Message" : "\(selectedCount) Messages"
+        countLabel.text = L10n.telegramPlural("Conversation.ForwardOptions.Title", count: selectedCount)
         deleteButton.isEnabled = canDelete && !isBusy
         forwardButton.isEnabled = canForward && !isBusy
         deleteButton.alpha = deleteButton.isEnabled ? 1 : 0.35
@@ -97,7 +97,7 @@ final class MessageSelectionToolbar: UIView {
             for: .normal,
         )
         deleteButton.tintColor = .systemRed
-        deleteButton.accessibilityLabel = "Delete Selected Messages"
+        deleteButton.accessibilityLabel = L10n.betterTG("Accessibility.DeleteSelectedMessages")
         deleteButton.addTarget(self, action: #selector(deletePressed), for: .touchUpInside)
         addSubview(deleteButton)
 
@@ -116,7 +116,7 @@ final class MessageSelectionToolbar: UIView {
             ),
             for: .normal,
         )
-        forwardButton.accessibilityLabel = "Forward Selected Messages"
+        forwardButton.accessibilityLabel = L10n.betterTG("Accessibility.ForwardSelectedMessages")
         forwardButton.addTarget(self, action: #selector(forwardPressed), for: .touchUpInside)
         addSubview(forwardButton)
 

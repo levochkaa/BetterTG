@@ -185,7 +185,7 @@ extension ChatVM {
         }
         observeCurrentUpdate(.updateUserStatus) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.userId == customChat.user?.id else { return }
-            onlineStatus = getOnlineStatus(from: update.status)
+            updateOnlineStatus(from: update.status)
         }
         observeCurrentUpdate(.updateChatOnlineMemberCount) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.chatId == chatID else { return }

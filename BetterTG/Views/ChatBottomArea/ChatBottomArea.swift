@@ -439,7 +439,10 @@ final class ChatComposerView: UIView {
             showsReplyPreview = true
             closeReplyButton.isHidden = true
             replySnippet.configure(
-                title: "Video reply · \(videoNoteReplyMessage.senderUser?.firstName ?? "Message")",
+                title: L10n.betterTG(
+                    "Composer.VideoReplyTo",
+                    videoNoteReplyMessage.senderUser?.firstName ?? L10n.betterTG("Message.Generic"),
+                ),
                 message: videoNoteReplyMessage.message,
             ) { [weak self] in
                 guard let self else { return }
@@ -465,14 +468,20 @@ final class ChatComposerView: UIView {
             closeReplyButton.isHidden = true
             if let pendingReply = chatVM.pendingVideoReplyMessage {
                 replySnippet.configure(
-                    title: "Video reply · \(pendingReply.senderUser?.firstName ?? "Message")",
+                    title: L10n.betterTG(
+                        "Composer.VideoReplyTo",
+                        pendingReply.senderUser?.firstName ?? L10n.betterTG("Message.Generic"),
+                    ),
                     message: pendingReply.message,
                 ) { [weak self] in
                     guard let self else { return }
                     onNavigateToMessage?(navigationTarget(for: pendingReply))
                 }
             } else {
-                replySnippet.configure(title: "Video reply", text: "Original replied message") { [weak self] in
+                replySnippet.configure(
+                    title: L10n.betterTG("Composer.VideoReply"),
+                    text: L10n.betterTG("Composer.OriginalRepliedMessage"),
+                ) { [weak self] in
                     guard let self else { return }
                     onNavigateToMessage?(
                         chatVM.pendingVideoReplyNavigationTarget
@@ -488,14 +497,20 @@ final class ChatComposerView: UIView {
             closeReplyButton.isHidden = true
             if let pendingReply = chatVM.pendingVoiceReplyMessage {
                 replySnippet.configure(
-                    title: "Voice reply · \(pendingReply.senderUser?.firstName ?? "Message")",
+                    title: L10n.betterTG(
+                        "Composer.VoiceReplyTo",
+                        pendingReply.senderUser?.firstName ?? L10n.betterTG("Message.Generic"),
+                    ),
                     message: pendingReply.message,
                 ) { [weak self] in
                     guard let self else { return }
                     onNavigateToMessage?(navigationTarget(for: pendingReply))
                 }
             } else {
-                replySnippet.configure(title: "Voice reply", text: "Original replied message") { [weak self] in
+                replySnippet.configure(
+                    title: L10n.betterTG("Composer.VoiceReply"),
+                    text: L10n.betterTG("Composer.OriginalRepliedMessage"),
+                ) { [weak self] in
                     guard let self else { return }
                     onNavigateToMessage?(
                         chatVM.pendingVoiceReplyNavigationTarget
@@ -760,7 +775,7 @@ final class ChatComposerView: UIView {
         )
         recordingPreviewWaveform.playedColor = .systemBlue
         recordingPreviewWaveform.unplayedColor = UIColor.secondaryLabel.withAlphaComponent(0.55)
-        recordingPreviewWaveform.accessibilityLabel = "Voice recording preview waveform"
+        recordingPreviewWaveform.accessibilityLabel = L10n.betterTG("Accessibility.VoicePreviewWaveform")
         recordingPreviewWaveform.onSeek = { [weak self] progress in
             self?.seekRecordingPreview(to: progress)
         }
@@ -895,7 +910,7 @@ final class ChatComposerView: UIView {
                     self?.onPickFiles?()
                 },
                 TelegramContextMenuAction(
-                    title: "Emoji, Stickers & GIFs",
+                    title: L10n.betterTG("Composer.EmojiStickersGIFs"),
                     image: UIImage(systemName: "face.smiling"),
                 ) { [weak self] in self?.onPickEmojiMedia?() },
             ],
@@ -966,9 +981,14 @@ final class ChatComposerView: UIView {
                 liveButton.tintColor = .white
                 liveButton.titleLabel?.font = .systemFont(ofSize: 10, weight: .semibold)
                 let liveEnabled = selectedImage.isLivePhotoEnabled && chatVM.canSendLivePhotos
-                liveButton.setTitle(liveEnabled ? "◉ LIVE" : "LIVE OFF", for: .normal)
-                liveButton.accessibilityLabel = "Live Photo"
-                liveButton.accessibilityValue = liveEnabled ? "On" : "Off"
+                liveButton.setTitle(
+                    liveEnabled ? L10n.betterTG("Composer.LiveOn") : L10n.betterTG("Composer.LiveOff"),
+                    for: .normal,
+                )
+                liveButton.accessibilityLabel = L10n.telegram("Message.LivePhoto")
+                liveButton.accessibilityValue = liveEnabled
+                    ? L10n.telegram("VoiceOver.Common.On")
+                    : L10n.telegram("VoiceOver.Common.Off")
                 liveButton.isEnabled = chatVM.canSendLivePhotos
                 liveButton.addAction(UIAction { [weak self, weak liveButton] _ in
                     guard let self,
@@ -976,8 +996,13 @@ final class ChatComposerView: UIView {
                     else { return }
                     chatVM.displayedImages[index].isLivePhotoEnabled.toggle()
                     let enabled = chatVM.displayedImages[index].isLivePhotoEnabled
-                    liveButton?.setTitle(enabled ? "◉ LIVE" : "LIVE OFF", for: .normal)
-                    liveButton?.accessibilityValue = enabled ? "On" : "Off"
+                    liveButton?.setTitle(
+                        enabled ? L10n.betterTG("Composer.LiveOn") : L10n.betterTG("Composer.LiveOff"),
+                        for: .normal,
+                    )
+                    liveButton?.accessibilityValue = enabled
+                        ? L10n.telegram("VoiceOver.Common.On")
+                        : L10n.telegram("VoiceOver.Common.Off")
                 }, for: .touchUpInside)
                 container.addSubview(liveButton)
                 NSLayoutConstraint.activate([
@@ -1040,7 +1065,7 @@ final class ChatComposerView: UIView {
             removeButton.translatesAutoresizingMaskIntoConstraints = false
             removeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
             removeButton.tintColor = .secondaryLabel
-            removeButton.accessibilityLabel = "Remove \(document.name)"
+            removeButton.accessibilityLabel = L10n.betterTG("Accessibility.RemoveAttachment", document.name)
             removeButton.addAction(UIAction { [weak self] _ in
                 self?.chatVM.removeDisplayedDocument(id: document.id)
             }, for: .touchUpInside)
@@ -1048,7 +1073,7 @@ final class ChatComposerView: UIView {
             container.addSubview(iconView)
             container.addSubview(labels)
             container.addSubview(removeButton)
-            titleLabel.accessibilityLabel = "\(document.name), \(sizeLabel.text ?? "file")"
+            titleLabel.accessibilityLabel = "\(document.name), \(sizeLabel.text ?? L10n.telegram("Message.File"))"
             sizeLabel.isAccessibilityElement = false
             NSLayoutConstraint.activate([
                 container.widthAnchor.constraint(equalToConstant: 220),
@@ -1158,14 +1183,14 @@ final class ChatComposerView: UIView {
             var voiceActions = [UIAction]()
             if chatVM.canRetryPendingVoiceNote {
                 voiceActions.append(UIAction(
-                    title: "Retry Voice Message",
+                    title: L10n.betterTG("Composer.RetryVoiceMessage"),
                     image: UIImage(systemName: "arrow.clockwise"),
                 ) { [weak self] _ in
                     self?.chatVM.retryPendingVoiceNote()
                 })
             }
             voiceActions.append(UIAction(
-                title: "Discard Voice Message",
+                title: L10n.telegram("Conversation.DiscardVoiceMessageTitle"),
                 image: UIImage(systemName: "trash"),
                 attributes: .destructive,
             ) { [weak self] _ in
@@ -1173,20 +1198,20 @@ final class ChatComposerView: UIView {
             })
             actionButton.menu = UIMenu(children: voiceActions)
             actionButton.accessibilityHint = chatVM.canRetryPendingVoiceNote
-                ? "Touch and hold for retry and discard options."
-                : "Check the chat for the previous send, or touch and hold to discard."
+                ? L10n.betterTG("Accessibility.PendingMediaRetryHint")
+                : L10n.betterTG("Accessibility.PendingMediaUncertainHint")
         } else if chatVM.hasPendingVideoNote {
             var videoActions = [UIAction]()
             if chatVM.canRetryPendingVideoNote {
                 videoActions.append(UIAction(
-                    title: "Retry Video Message",
+                    title: L10n.betterTG("Composer.RetryVideoMessage"),
                     image: UIImage(systemName: "arrow.clockwise"),
                 ) { [weak self] _ in
                     self?.chatVM.retryPendingVideoNote()
                 })
             }
             videoActions.append(UIAction(
-                title: "Discard Video Message",
+                title: L10n.betterTG("Composer.DiscardVideoMessage"),
                 image: UIImage(systemName: "trash"),
                 attributes: .destructive,
             ) { [weak self] _ in
@@ -1194,30 +1219,34 @@ final class ChatComposerView: UIView {
             })
             actionButton.menu = UIMenu(children: videoActions)
             actionButton.accessibilityHint = chatVM.canRetryPendingVideoNote
-                ? "Touch and hold for retry and discard options."
-                : "Check the chat for the previous send, or touch and hold to discard."
+                ? L10n.betterTG("Accessibility.PendingMediaRetryHint")
+                : L10n.betterTG("Accessibility.PendingMediaUncertainHint")
         } else {
             actionButton.menu = nil
             actionButton.accessibilityHint = UIAccessibility.isVoiceOverRunning && !hasContent
-                ? "Double-tap to start a locked \(selectedMediaRecordingMode == .video ? "video" : "voice") recording."
+                ? (selectedMediaRecordingMode == .video
+                    ? L10n.betterTG("Accessibility.LockedVideoRecordingHint")
+                    : L10n.betterTG("Accessibility.LockedVoiceRecordingHint"))
                 : nil
         }
         actionButton.accessibilityLabel =
             if isFinalizingVoice || isFinalizingVideo {
-                selectedMediaRecordingMode == .video ? "Preparing video message" : "Preparing voice message"
+                selectedMediaRecordingMode == .video
+                    ? L10n.betterTG("Accessibility.PreparingVideoMessage")
+                    : L10n.betterTG("Accessibility.PreparingVoiceMessage")
             } else if isRetryingVoice {
-                "Retry voice message"
+                L10n.betterTG("Accessibility.RetryVoiceMessage")
             } else if isUncertainVoice {
-                "Voice message send status unknown"
+                L10n.betterTG("Accessibility.VoiceSendStatusUnknown")
             } else if isRetryingVideo {
-                "Retry video message"
+                L10n.betterTG("Accessibility.RetryVideoMessage")
             } else if isUncertainVideo {
-                "Video message send status unknown"
+                L10n.betterTG("Accessibility.VideoSendStatusUnknown")
             } else {
                 isRecordingMedia || hasContent
                     ? L10n.telegram("MediaPicker.Send")
                     : selectedMediaRecordingMode == .video
-                        ? "Record video message"
+                        ? L10n.betterTG("Accessibility.RecordVideoMessage")
                         : L10n.betterTG("Accessibility.RecordVoiceMessage")
             }
     }
@@ -1231,7 +1260,7 @@ final class ChatComposerView: UIView {
         cancelRecordingButton.accessibilityLabel = L10n.betterTG("Accessibility.CancelVoiceRecording")
         videoNoteThumbnailStrip.isHidden = true
         recordingPreviewWaveform.isHidden = false
-        recordingSendButton.accessibilityLabel = "Send voice message"
+        recordingSendButton.accessibilityLabel = L10n.betterTG("Accessibility.SendVoiceMessage")
         recordingLabel.textColor = .systemRed
         recordingPreviewPlayButton.isHidden = true
         recordingPreviewContainer.isHidden = true
@@ -1240,24 +1269,30 @@ final class ChatComposerView: UIView {
         recordingSendButton.alpha = 1
         switch chatVM.voiceRecordingInteractionState {
         case .locked:
-            recordingLabel.text = "● \(chatVM.formattedTimerCount)  Locked"
-            recordingLabel.accessibilityLabel = "Voice recording locked, \(chatVM.formattedTimerCount)"
+            recordingLabel.text = L10n.betterTG("Composer.RecordingLocked", chatVM.formattedTimerCount)
+            recordingLabel.accessibilityLabel = L10n.betterTG(
+                "Accessibility.VoiceRecordingLocked",
+                chatVM.formattedTimerCount,
+            )
             recordingPauseResumeButton.isHidden = false
             recordingPauseResumeButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
-            recordingPauseResumeButton.accessibilityLabel = "Pause voice recording"
+            recordingPauseResumeButton.accessibilityLabel = L10n.betterTG("Accessibility.PauseVoiceRecording")
             recordingPauseResumeButton.isEnabled = chatVM.canPauseVoiceRecording
             recordingPauseResumeButton.alpha = chatVM.canPauseVoiceRecording ? 1 : 0.45
             recordingSendButton.isHidden = false
         case .holding:
             recordingLabel.text = "● \(chatVM.formattedTimerCount)"
-            recordingLabel.accessibilityLabel = "Recording voice message, \(chatVM.formattedTimerCount)"
+            recordingLabel.accessibilityLabel = L10n.betterTG(
+                "Accessibility.RecordingVoiceMessage",
+                chatVM.formattedTimerCount,
+            )
             recordingSendButton.isHidden = true
         case .preview:
             let previewPath = chatVM.voiceRecordingPreviewPath
             let isPlaying = chatVM.voiceRecordingPreviewIsPlaying
             recordingPauseResumeButton.isHidden = false
             recordingPauseResumeButton.setImage(UIImage(systemName: "mic.fill"), for: .normal)
-            recordingPauseResumeButton.accessibilityLabel = "Resume voice recording"
+            recordingPauseResumeButton.accessibilityLabel = L10n.betterTG("Accessibility.ResumeVoiceRecording")
             recordingPauseResumeButton.isEnabled = chatVM.voiceRecordingPreviewReady
             recordingPauseResumeButton.alpha = chatVM.voiceRecordingPreviewReady ? 1 : 0.45
             recordingPreviewPlayButton.isHidden = false
@@ -1266,8 +1301,8 @@ final class ChatComposerView: UIView {
                 for: .normal,
             )
             recordingPreviewPlayButton.accessibilityLabel = isPlaying
-                ? "Pause voice recording preview"
-                : "Play voice recording preview"
+                ? L10n.betterTG("Accessibility.PauseVoicePreview")
+                : L10n.betterTG("Accessibility.PlayVoicePreview")
             recordingPreviewPlayButton.isEnabled = chatVM.voiceRecordingPreviewReady && previewPath != nil
             recordingPreviewContainer.isHidden = false
             recordingPreviewWaveform.isEnabled = chatVM.voiceRecordingPreviewReady && previewPath != nil
@@ -1279,17 +1314,17 @@ final class ChatComposerView: UIView {
             recordingTrimView.setEditingEnabled(chatVM.voiceRecordingTrimControlsEnabled)
             recordingLabel.text = chatVM.formattedVoiceRecordingPreviewDuration
             recordingLabel.accessibilityLabel =
-                "Voice recording preview, \(chatVM.formattedVoiceRecordingPreviewDuration)"
+                L10n.betterTG("Accessibility.VoicePreview", chatVM.formattedVoiceRecordingPreviewDuration)
             recordingSendButton.isHidden = false
             recordingSendButton.isEnabled = chatVM.voiceRecordingPreviewReady
             recordingSendButton.alpha = chatVM.voiceRecordingPreviewReady ? 1 : 0.45
         case .pausing:
-            recordingLabel.text = "Preparing…"
-            recordingLabel.accessibilityLabel = "Preparing voice recording preview"
+            recordingLabel.text = L10n.betterTG("Composer.Preparing")
+            recordingLabel.accessibilityLabel = L10n.betterTG("Accessibility.PreparingVoicePreview")
             recordingSendButton.isHidden = true
         case .resuming:
-            recordingLabel.text = "Resuming…"
-            recordingLabel.accessibilityLabel = "Resuming voice recording"
+            recordingLabel.text = L10n.betterTG("Composer.Resuming")
+            recordingLabel.accessibilityLabel = L10n.betterTG("Accessibility.ResumingVoiceRecording")
             recordingSendButton.isHidden = true
         case .idle:
             recordingPauseResumeButton.isEnabled = true
@@ -1301,7 +1336,7 @@ final class ChatComposerView: UIView {
     }
 
     private func updateVideoRecordingStatus() {
-        cancelRecordingButton.accessibilityLabel = "Cancel video message"
+        cancelRecordingButton.accessibilityLabel = L10n.betterTG("Accessibility.CancelVideoMessage")
         recordingLabel.textColor = .systemRed
         recordingPreviewPlayButton.isHidden = true
         recordingPreviewContainer.isHidden = true
@@ -1315,50 +1350,59 @@ final class ChatComposerView: UIView {
         recordingTrimView.setEditingEnabled(false)
         switch videoNoteState {
         case .preparing:
-            recordingLabel.text = "Preparing camera…"
-            recordingLabel.accessibilityLabel = "Preparing video-message camera"
+            recordingLabel.text = L10n.betterTG("VideoNote.PreparingCamera")
+            recordingLabel.accessibilityLabel = L10n.betterTG("Accessibility.PreparingVideoCamera")
         case .holding(let duration):
             recordingLabel.text = "● \(formatVideoDuration(duration))"
-            recordingLabel.accessibilityLabel = "Recording video message, \(formatVideoDuration(duration))"
+            recordingLabel.accessibilityLabel = L10n.betterTG(
+                "Accessibility.RecordingVideoMessage",
+                formatVideoDuration(duration),
+            )
         case .locked(let duration):
-            recordingLabel.text = "● \(formatVideoDuration(duration))  Locked"
-            recordingLabel.accessibilityLabel = "Video recording locked, \(formatVideoDuration(duration))"
+            recordingLabel.text = L10n.betterTG("Composer.RecordingLocked", formatVideoDuration(duration))
+            recordingLabel.accessibilityLabel = L10n.betterTG(
+                "Accessibility.VideoRecordingLocked",
+                formatVideoDuration(duration),
+            )
             recordingPauseResumeButton.isHidden = false
             recordingPauseResumeButton.setImage(UIImage(systemName: "stop.fill"), for: .normal)
-            recordingPauseResumeButton.accessibilityLabel = "Stop video recording for preview"
+            recordingPauseResumeButton.accessibilityLabel = L10n.betterTG("Accessibility.StopVideoRecordingForPreview")
             recordingSendButton.isHidden = false
-            recordingSendButton.accessibilityLabel = "Send video message"
+            recordingSendButton.accessibilityLabel = L10n.betterTG("Accessibility.SendVideoMessage")
         case .preview(let duration, let isPlaying, let canRecordMore):
             let trimControlsBlocked = videoNoteTrimEditing || videoNoteTrimSaving
             recordingLabel.textColor = .label
             recordingLabel.text = formatVideoDuration(duration)
-            recordingLabel.accessibilityLabel = "Video message preview, \(formatVideoDuration(duration))"
+            recordingLabel.accessibilityLabel = L10n.betterTG(
+                "Accessibility.VideoPreview",
+                formatVideoDuration(duration),
+            )
             recordingPreviewPlayButton.isHidden = false
             recordingPreviewPlayButton.setImage(
                 UIImage(systemName: isPlaying ? "pause.fill" : "play.fill"),
                 for: .normal,
             )
             recordingPreviewPlayButton.accessibilityLabel = isPlaying
-                ? "Pause video message preview"
-                : "Play video message preview"
+                ? L10n.betterTG("Accessibility.PauseVideoPreview")
+                : L10n.betterTG("Accessibility.PlayVideoPreview")
             recordingPreviewContainer.isHidden = false
             videoNoteThumbnailStrip.isHidden = false
             videoNoteThumbnailStrip.setEditingEnabled(!videoNoteTrimSaving)
             recordingPauseResumeButton.isHidden = !canRecordMore
             recordingPauseResumeButton.setImage(UIImage(systemName: "video.badge.plus"), for: .normal)
-            recordingPauseResumeButton.accessibilityLabel = "Record more video"
+            recordingPauseResumeButton.accessibilityLabel = L10n.betterTG("Accessibility.RecordMoreVideo")
             recordingSendButton.isHidden = false
-            recordingSendButton.accessibilityLabel = "Send video message"
+            recordingSendButton.accessibilityLabel = L10n.betterTG("Accessibility.SendVideoMessage")
             for button in [recordingPauseResumeButton, recordingPreviewPlayButton, recordingSendButton] {
                 button.isEnabled = !trimControlsBlocked
                 button.alpha = trimControlsBlocked ? 0.45 : 1
             }
         case .stopping:
-            recordingLabel.text = "Preparing preview…"
-            recordingLabel.accessibilityLabel = "Preparing video message preview"
+            recordingLabel.text = L10n.betterTG("VideoNote.PreparingPreview")
+            recordingLabel.accessibilityLabel = L10n.betterTG("Accessibility.PreparingVideoPreview")
         case .sending:
-            recordingLabel.text = "Sending…"
-            recordingLabel.accessibilityLabel = "Sending video message"
+            recordingLabel.text = L10n.betterTG("VideoNote.Sending")
+            recordingLabel.accessibilityLabel = L10n.betterTG("Accessibility.SendingVideoMessage")
         case .failed(let message):
             recordingLabel.text = message
             recordingLabel.accessibilityLabel = message

@@ -72,7 +72,7 @@ final class ForwardHeaderView: UIControl {
         isAccessibilityElement = true
         accessibilityLabel = presentation.accessibilityDescription
         accessibilityTraits = onTap == nil ? [.staticText] : [.button]
-        accessibilityHint = onTap == nil ? nil : "Opens the forwarded message source"
+        accessibilityHint = onTap == nil ? nil : L10n.betterTG("Accessibility.OpenForwardSourceHint")
     }
 
     func prepareForReuse() {
@@ -245,10 +245,10 @@ final class ReplySnippetView: UIControl {
         accessibilityLabel = presentation.accessibilityDescription
         accessibilityTraits = [.button]
         accessibilityHint = canExpand
-            ? "Expands the quoted text"
+            ? L10n.betterTG("Accessibility.ExpandQuoteHint")
             : (presentation.navigationTarget == nil || presentation.navigationTarget == .unavailable
-                ? "Original message is unavailable"
-                : "Opens the replied message")
+                ? L10n.betterTG("Accessibility.OriginalMessageUnavailable")
+                : L10n.betterTG("Accessibility.OpenRepliedMessageHint"))
         invalidateIntrinsicContentSize()
     }
 
@@ -269,9 +269,13 @@ final class ReplySnippetView: UIControl {
         self.onTap = { _ in onTap() }
         isUserInteractionEnabled = true
         isAccessibilityElement = true
-        accessibilityLabel = "\(title), quoted text, \(MessageTextSpoilerPresentation(quote.text).accessibilityText())"
+        accessibilityLabel = L10n.betterTG(
+            "Accessibility.QuotedText",
+            title,
+            MessageTextSpoilerPresentation(quote.text).accessibilityText(),
+        )
         accessibilityTraits = [.button]
-        accessibilityHint = "Opens the message"
+        accessibilityHint = L10n.betterTG("Accessibility.OpenMessageHint")
         invalidateIntrinsicContentSize()
     }
 
@@ -290,7 +294,7 @@ final class ReplySnippetView: UIControl {
         isAccessibilityElement = true
         accessibilityLabel = "\(title), \(text)"
         accessibilityTraits = [.button]
-        accessibilityHint = "Opens the message"
+        accessibilityHint = L10n.betterTG("Accessibility.OpenMessageHint")
         invalidateIntrinsicContentSize()
     }
 

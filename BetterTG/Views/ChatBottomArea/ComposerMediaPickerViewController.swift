@@ -39,10 +39,10 @@ UISearchBarDelegate {
     private let chatID: Int64
     private let client: TDLibClient
     private let segmentedControl = UISegmentedControl(items: [
-        "Emoji",
+        L10n.telegram("EmojiInput.TabEmoji"),
         L10n.betterTG("CustomEmoji.Tab"),
-        "Stickers",
-        "GIFs",
+        L10n.telegram("EmojiInput.TabStickers"),
+        L10n.telegram("EmojiInput.TabGifs"),
     ])
     private let searchBar = UISearchBar()
     private var searchBarHeightConstraint: NSLayoutConstraint!
@@ -82,7 +82,7 @@ UISearchBarDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
-        title = "Emoji and Stickers"
+        title = L10n.betterTG("Composer.EmojiAndStickersTitle")
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             title: L10n.telegram("Common.Done"), style: .plain,
             target: self,
@@ -154,7 +154,7 @@ UISearchBarDelegate {
 
         searchBar.translatesAutoresizingMaskIntoConstraints = false
         searchBar.delegate = self
-        searchBar.placeholder = "Search stickers"
+        searchBar.placeholder = L10n.telegram("StickersSearch.SearchStickersPlaceholder")
         searchBar.searchBarStyle = .minimal
         view.addSubview(searchBar)
         searchBarHeightConstraint = searchBar.heightAnchor.constraint(equalToConstant: 44)
@@ -251,7 +251,9 @@ UISearchBarDelegate {
         loadTask?.cancel()
         searchTask?.cancel()
         searchBar.text = ""
-        searchBar.placeholder = mode == .gifs ? "Filter saved GIFs" : "Search stickers"
+        searchBar.placeholder = mode == .gifs
+            ? L10n.betterTG("Composer.FilterSavedGIFs")
+            : L10n.telegram("StickersSearch.SearchStickersPlaceholder")
         if mode == .customEmoji { searchBar.placeholder = L10n.betterTG("CustomEmoji.Search") }
         searchBar.isHidden = mode == .emoji
         searchBarHeightConstraint.constant = mode == .emoji ? 0 : 44
@@ -339,7 +341,7 @@ UISearchBarDelegate {
 
     private func emptyLabel() -> UIView {
         let label = UILabel()
-        label.text = mode == .gifs ? "No saved GIFs" : "No stickers found"
+        label.text = mode == .gifs ? L10n.betterTG("Composer.NoSavedGIFs") : L10n.telegram("Stickers.NoStickersFound")
         if mode == .customEmoji { label.text = L10n.betterTG("CustomEmoji.Empty") }
         label.textColor = .secondaryLabel
         label.textAlignment = .center
@@ -416,7 +418,9 @@ private final class ComposerStickerCell: UICollectionViewCell {
     func configure(sticker: Sticker, client: TDLibClient) {
         stickerView.configure(sticker: sticker, client: client)
         isAccessibilityElement = true
-        accessibilityLabel = sticker.emoji.isEmpty ? "Sticker" : "Sticker \(sticker.emoji)"
+        accessibilityLabel = sticker.emoji.isEmpty
+            ? L10n.telegram("Message.Sticker")
+            : L10n.telegram("Message.StickerText", sticker.emoji)
         accessibilityTraits = .button
     }
 
@@ -445,7 +449,7 @@ private final class ComposerAnimationCell: UICollectionViewCell {
         imageView.contentMode = .scaleAspectFill
         contentView.addSubview(imageView)
         badge.translatesAutoresizingMaskIntoConstraints = false
-        badge.text = "GIF"
+        badge.text = L10n.telegram("Message.Animation")
         badge.font = .systemFont(ofSize: 10, weight: .bold)
         badge.textColor = .white
         badge.backgroundColor = UIColor.black.withAlphaComponent(0.55)
@@ -482,7 +486,9 @@ private final class ComposerAnimationCell: UICollectionViewCell {
         loadingCancelled = false
         loadAnimation(animation)
         isAccessibilityElement = true
-        accessibilityLabel = animation.fileName.isEmpty ? "GIF" : "GIF \(animation.fileName)"
+        accessibilityLabel = animation.fileName.isEmpty
+            ? L10n.telegram("Message.Animation")
+            : "\(L10n.telegram("Message.Animation")) \(animation.fileName)"
         accessibilityTraits = .button
     }
 

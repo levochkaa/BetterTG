@@ -258,14 +258,14 @@ final class TelegramWaveformView: UIControl {
         guard bounds.width > 0 else { return }
         let updated = min(1, max(0, touch.location(in: self).x / bounds.width))
         progress = updated
-        accessibilityValue = "\(Int(updated * 100)) percent"
+        accessibilityValue = L10n.betterTG("Accessibility.Percent", Int(updated * 100))
         onSeek?(updated)
     }
 
     private func applyAccessibleProgress(_ updated: CGFloat) {
         let clipped = min(1, max(0, updated))
         progress = clipped
-        accessibilityValue = "\(Int(clipped * 100)) percent"
+        accessibilityValue = L10n.betterTG("Accessibility.Percent", Int(clipped * 100))
         onSeek?(clipped)
     }
 

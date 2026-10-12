@@ -402,7 +402,10 @@ import UIKit
         try require(
             rows.collection.cellForItem(at: .init(item: 0, section: 0)) === cell
             && cell.accessibilityCustomActions?
-                .contains(where: { $0.name == "Select Message" || $0.name == "Deselect Message" }) != true
+                .contains(where: {
+                    $0.name == L10n.betterTG("Accessibility.SelectMessage")
+                        || $0.name == L10n.betterTG("Accessibility.DeselectMessage")
+                }) != true
             && rows.state.committed.rows.values.compactMap(\.message).allSatisfy { !$0.inputs.selectionActive },
             "same-cell selection exit retained selection actions",
         )
