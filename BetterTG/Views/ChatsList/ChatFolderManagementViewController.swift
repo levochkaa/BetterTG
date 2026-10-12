@@ -935,8 +935,11 @@ private extension ChatFolderEditorViewController {
 
 private extension CustomChat {
     var folderPickerTitle: String {
-        let existing = displayTitle
-        if !existing.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return existing }
+        // displayTitle already turns an empty title into Deleted Account; check TDLib's raw title so the
+        // username, phone and type fallbacks below stay reachable.
+        if isSavedMessages || !chat.title
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty { return displayTitle }
         switch type {
         case .bot(let user), .user(let user):
             switch user.type {
