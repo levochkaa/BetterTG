@@ -718,10 +718,35 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             }
         }
         isApplyingSnapshot = true
+        // A list resting at its top keeps showing the top, as Telegram's chat list does: a chat that moves or arrives
+        // above the first row appears there instead of sliding under the navigation bar while UIKit anchors the
+        // previous first row.
+        let restingTopOffset: CGFloat? = {
+            guard didSetInitialSearchOffset, clientViewportRestoration.pending == nil,
+                  !isInteractingWithList, !tableView.isTracking
+            else { return nil }
+            let offset = tableView.contentOffset.y + tableView.adjustedContentInset.top
+            return offset <= ChatListNavigationSearchView.scrollHeight + 0.5 ? offset : nil
+        }()
         let applyToken = clientViewportRestoration.beginApply()
+        defer {
+            if let restingTopOffset {
+                let target = restingTopOffset - tableView.adjustedContentInset.top
+                if abs(tableView.contentOffset.y - target) > 0.5 {
+                    tableView.contentOffset = CGPoint(x: tableView.contentOffset.x, y: target)
+                }
+            }
+        }
         dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
             guard let self else { return }
             isApplyingSnapshot = false
+            // UIKit can re-anchor the previous first row during the update animation; bring the top back.
+            if let restingTopOffset, !isInteractingWithList, !tableView.isTracking {
+                let target = restingTopOffset - tableView.adjustedContentInset.top
+                if abs(tableView.contentOffset.y - target) > 0.5 {
+                    tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: target), animated: true)
+                }
+            }
             clientViewportRestoration.completeApply(applyToken)
             if !didSetInitialSearchOffset { view.setNeedsLayout() }
             let retainedIDs = Set(dataSource.snapshot().itemIdentifiers).union(folder.chats.map(\.id))
