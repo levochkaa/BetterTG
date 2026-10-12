@@ -153,6 +153,12 @@ final class ChatListCell: UITableViewCell {
     }
 
     private func summaryText(for chat: CustomChat, client: TDLibClient) -> NSAttributedString? {
+        if chat.draftMessage == nil, let message = chat.lastMessage,
+           MessageContentPresentation.make(message.content).isService,
+           let service = serviceSummary(for: chat, message: message, client: client)
+        {
+            return service
+        }
         guard let summary = ChatSummary.attributedText(for: chat) else { return nil }
         guard let author = authorPrefix(for: chat, client: client) else { return summary }
         let result = NSMutableAttributedString(string: author + ": ", attributes: [.foregroundColor: UIColor.label])
@@ -174,15 +180,60 @@ final class ChatListCell: UITableViewCell {
         }
         if message.isOutgoing { return L10n.telegram("DialogList.You") }
         guard case .messageSenderUser(let sender) = message.senderId else { return nil }
-        if let name = ChatListSenderNames.shared.name(userID: sender.userId, client: client) { return name }
-        let chatID = chat.id
-        ChatListSenderNames.shared.resolve(userID: sender.userId, client: client) { [weak self] in
-            guard let self, let chat = configuredChat, chat.id == chatID,
-                  let client = configuredClient
-            else { return }
-            configure(chat: chat, isMuted: configuredMuted, client: client)
+        if let user = ChatListSenderNames.shared.user(userID: sender.userId, client: client) {
+            return ChatListSenderNames.compactName(user)
         }
+        requestUsers([sender.userId], chat: chat, client: client)
         return nil
+    }
+
+    /// Telegram's chat list words service actions with names (plainServiceMessageString). Until the names are
+    /// cached the row keeps the generic title; a pin names its author without the pinned text.
+    private func serviceSummary(for chat: CustomChat, message: Message, client: TDLibClient) -> NSAttributedString? {
+        let cache = ChatListSenderNames.shared
+        var author: String?
+        var senderUserID: Int64?
+        var missing = [Int64]()
+        switch message.senderId {
+        case .messageSenderUser(let sender):
+            senderUserID = sender.userId
+            if let user = cache.user(userID: sender.userId, client: client) {
+                author = ServiceMessageText.displayTitle(user)
+            } else {
+                missing.append(sender.userId)
+            }
+        case .messageSenderChat(let sender):
+            author = sender.chatId == chat.id ? chat.chat.title : nil
+        }
+        var names = [Int64: String]()
+        for id in ServiceMessageText.memberIDs(message.content) {
+            if let user = cache.user(userID: id, client: client) {
+                names[id] = ServiceMessageText.displayTitle(user)
+            } else {
+                missing.append(id)
+            }
+        }
+        guard missing.isEmpty else {
+            requestUsers(missing, chat: chat, client: client)
+            return nil
+        }
+        guard let author, let text = ServiceMessageText.make(message.content, context: .init(
+            author: author, isOutgoing: message.isOutgoing, isChannel: chat.supergroup?.isChannel == true,
+            senderUserID: senderUserID, names: names, pinned: nil,
+        )) else { return nil }
+        return NSAttributedString(string: text, attributes: [.foregroundColor: UIColor.secondaryLabel])
+    }
+
+    private func requestUsers(_ ids: [Int64], chat: CustomChat, client: TDLibClient) {
+        let chatID = chat.id
+        for id in Set(ids) {
+            ChatListSenderNames.shared.resolve(userID: id, client: client) { [weak self] in
+                guard let self, let chat = configuredChat, chat.id == chatID,
+                      let client = configuredClient
+                else { return }
+                configure(chat: chat, isMuted: configuredMuted, client: client)
+            }
+        }
     }
 
     private func updateBackground(highlighted: Bool, animated: Bool) {
@@ -302,31 +353,32 @@ final class ChatListCell: UITableViewCell {
 
 // MARK: - ChatListSenderNames
 
-/// Compact sender names for the chat list's inline author prefix, kept for the current TDLib client only. TDLib
-/// answers getUser from its local store, so a miss costs one hop and the visible row updates when it lands.
+/// Users named by chat-list rows (inline author prefixes, service wording), kept for the current TDLib client
+/// only. TDLib answers getUser from its local store, so a miss costs one hop and the visible row updates when it
+/// lands.
 @MainActor final class ChatListSenderNames {
     static let shared = ChatListSenderNames()
 
     private var clientID: Int32?
-    private var names = [Int64: String]()
+    private var users = [Int64: User]()
     private var waiters = [Int64: [() -> Void]]()
 
     /// Telegram's compactDisplayTitle for users: the first name, else the last name.
-    private static func compactName(_ user: User) -> String {
+    static func compactName(_ user: User) -> String {
         let first = user.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         if !first.isEmpty { return first }
         let last = user.lastName.trimmingCharacters(in: .whitespacesAndNewlines)
         return last.isEmpty ? L10n.telegram("User.DeletedAccount") : last
     }
 
-    func name(userID: Int64, client: TDLibClient) -> String? {
+    func user(userID: Int64, client: TDLibClient) -> User? {
         retain(client)
-        return names[userID]
+        return users[userID]
     }
 
     func resolve(userID: Int64, client: TDLibClient, completion: @escaping () -> Void) {
         retain(client)
-        guard names[userID] == nil else { return completion() }
+        guard users[userID] == nil else { return completion() }
         let isFirstWaiter = waiters[userID] == nil
         waiters[userID, default: []].append(completion)
         guard isFirstWaiter else { return }
@@ -336,7 +388,7 @@ final class ChatListCell: UITableViewCell {
             guard let self, clientID == requestClientID else { return }
             let completions = waiters.removeValue(forKey: userID) ?? []
             guard let user else { return }
-            names[userID] = Self.compactName(user)
+            users[userID] = user
             completions.forEach { $0() }
         }
     }
@@ -344,7 +396,7 @@ final class ChatListCell: UITableViewCell {
     private func retain(_ client: TDLibClient) {
         guard clientID != client.id else { return }
         clientID = client.id
-        names.removeAll()
+        users.removeAll()
         waiters.removeAll()
     }
 }

@@ -133,6 +133,14 @@ enum ServiceMessageText {
         return name.isEmpty ? L10n.telegram("User.DeletedAccount") : name
     }
 
+    static func memberIDs(_ content: MessageContent) -> [Int64] {
+        switch content {
+        case .messageChatAddMembers(let value): value.memberUserIds
+        case .messageChatDeleteMember(let value): [value.userId]
+        default: []
+        }
+    }
+
     private static func handles(_ content: MessageContent) -> Bool {
         switch content {
         case .messageBasicGroupChatCreate, .messageChatAddMembers, .messageChatChangePhoto,
@@ -143,14 +151,6 @@ enum ServiceMessageText {
             true
         default:
             false
-        }
-    }
-
-    private static func memberIDs(_ content: MessageContent) -> [Int64] {
-        switch content {
-        case .messageChatAddMembers(let value): value.memberUserIds
-        case .messageChatDeleteMember(let value): [value.userId]
-        default: []
         }
     }
 
