@@ -123,6 +123,9 @@ All three histories are reachable from `codex/parity`. `main` and both source br
 | F21 | P2 | Group rows in the chat list showed the last message without its sender, and service actions as generic titles | fixed `36710af`, `7616f09`: group rows use Telegram's inline author prefix (ChatListItem `useInlineAuthorPrefix`, "You" or the sender's compact name), which keeps BetterTG's one-line preview; service previews use `ServiceMessageText` with names from a per-client user cache. Simulator: a member's name before the message text, and renaming the test forum showed "лева changed the group name to …" (renamed back) |
 | F22 | P1 | Measured F7 cost: every timeline snapshot rebuilt `ChatMessageRenderValue` for each loaded message and deep-compared it; native models read each field through C++. `-ui-probe-timeline-value-cost` on Saved Messages: 30 messages, 1.1 ms per snapshot (0.97 ms comparing, about 37 us per message) on the Simulator, so a few hundred loaded messages exceed a 120 Hz frame per snapshot | fixed `4d50618`: `CustomMessage.renderRevision` is bumped by every published change and by quote expansion; a row with the same canonical object, revision and inputs is reused without building or comparing, otherwise the deep comparison runs as before and advances the stored revision. Probe: 0.008 ms per snapshot on the fast path; timeline, restoration, update-delivery, delivery, reactions, viewport and composer-edit probes pass; Simulator edit of a test message updated its bubble and was reverted. Device timing unmeasured |
 | F23 | P1 | A folder page resting at its top hid chats that moved above the first row (a new pin or a new message): UIKit anchored the previous first row, so the moved chat slid under the navigation bar (pin smoke: the pinned row at y=30 behind the bar) | fixed `d2eab4b`: a page resting within the search height of its top keeps that offset across the snapshot; the immediate and the animated re-anchor are both corrected. Simulator: pinning the test forum shows it as the first visible row (unpinned afterwards); folder-flow, root-list, client-restoration and chat-list-store probes pass. Scrolled pages keep UIKit anchoring |
+| F24 | P2 | Chat-list "Add to Folder" opened an action sheet, shown as a popover over the bottom folder picker; Telegram (ChatContextMenus) replaces the menu with a submenu of folders that do not hold the chat yet, and hides the item when there is none | fixed: the item is a submenu of the same menu with the folder list; it is omitted when no folder can take the chat. Remove from Folder stays a direct action. Xcode device interaction: the submenu opens in the same menu container with back and the folders, back returns, closing changes nothing |
+| F25 | P3 | Stopped activity indicators in the reaction strip and the gallery Share/More buttons stayed in the accessibility tree as "Progress halted" over those controls | fixed: `UIActivityIndicatorView.setLoading` hides a stopped indicator from view and accessibility; the gallery share indicator moved above the toolbar because a hidden view inside the effect content view stayed exposed. Xcode device interaction: no indicator in the gallery tree before or after hiding chrome |
+| F26 | P3 | Gallery More liquid morph: the "1 of 6" counter shows over the first menu row for two frames at the start and end of the morph (60 fps video); no flash otherwise | open: the morph runs in the menu container while the counter belongs to the gallery chrome; needs a z-order experiment |
 
 ### Probe sweep — 2026-10-12
 
@@ -178,6 +181,16 @@ Proofs:
 - Not proven: B, C, D, H, I in the UI (probe only); preview pan visuals mid-drag; VoiceOver escape; 120 Hz and haptics on
   a physical device; the iOS 26 fallback path at runtime (selector checks only). Device-interaction multi-touch was
   rejected by automatic approval review because AGENTS.md forbids MCP simulator validation.
+
+### Context-menu gestures through Xcode device interaction — 2026-10-12
+
+Real multi-touch sequences (`mt`) on iPhone 18 Pro iOS 27.0, build after `9d46205`, in Saved Messages:
+hold 1.0 s then scrub to Copy and lift ran Copy (pasteboard changed) and closed the menu; lifting the opening finger
+in place kept the menu open with nothing highlighted; scrubbing past the 10 pt hysteresis and lifting outside the menu
+kept it open and ran nothing; tapping Select entered selection; a chat-row hold scrubbed to Add to Folder opened it;
+the gallery More menu grew out of the button and closed back into it, with luminance rising and falling smoothly in a
+60 fps recording (F26 noted). Reduce Motion is source-reviewed: `usesLiquidMorph` is decided when the menu opens
+and is false with Reduce Motion, which keeps the plain presentation; a runtime toggle is not proven.
 
 ### Liquid morph of menu buttons — 2026-10-12
 
