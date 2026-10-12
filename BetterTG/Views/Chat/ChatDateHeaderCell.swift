@@ -40,6 +40,11 @@ final class ChatDateHeaderCell: UICollectionViewCell {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// The pill's text for a day: today, yesterday, or the date. It changes at midnight and with the language.
+    static func title(for id: ChatDateHeaderID) -> String {
+        title(for: Date(timeIntervalSince1970: TimeInterval(id.dayTimestamp)))
+    }
+
     private static func title(for date: Date) -> String {
         let calendar = Calendar.autoupdatingCurrent
         if calendar.isDateInToday(date) {
@@ -59,15 +64,16 @@ final class ChatDateHeaderCell: UICollectionViewCell {
         return formatter.string(from: date)
     }
 
-    func configure(id: ChatDateHeaderID) {
+    /// Returns the title shown, so the owner can tell when the header needs refreshing.
+    @discardableResult func configure(id: ChatDateHeaderID) -> String {
         contentView.isHidden = false
         accessibilityElementsHidden = false
         isUserInteractionEnabled = true
-        let date = Date(timeIntervalSince1970: TimeInterval(id.dayTimestamp))
-        let text = Self.title(for: date)
+        let text = Self.title(for: id)
         titleLabel.text = text
         titleLabel.accessibilityLabel = text
         titleLabel.accessibilityIdentifier = "chat-date-\(id.dayTimestamp)"
+        return text
     }
 
     func resetUnavailableContent() {

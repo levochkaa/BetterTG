@@ -122,6 +122,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var messageRenderInvalidations = ChatMessageRenderInvalidations()
     private var prefetchTasks = [DisplayedMessageID: PrefetchTaskEntry]()
     private var inlineVideoPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
+    /// The title each date header was last configured with. A structural apply reconfigures only headers whose
+    /// title changed (midnight, language): reconfiguring every header in each delete's animated apply cut the rows'
+    /// collapse into steps.
+    private var dateHeaderTitles = [ChatDateHeaderID: String]()
     private var pendingInlineVideoOwnerReturns = Set<Int64>()
     private let customNavigationBar = TelegramChatNavigationBar()
     private var navigationBarHeightConstraint: NSLayoutConstraint!
@@ -1771,7 +1775,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     configure: { [weak self] cell in
                         guard let self, timelineSourceIsCurrent,
                               case .date = timelineSnapshots.row(for: itemID) else { return false }
-                        cell.configure(id: headerID)
+                        dateHeaderTitles[headerID] = cell.configure(id: headerID)
                         return true
                     },
                     unavailable: { $0.resetUnavailableContent() },
@@ -2260,7 +2264,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             switch item {
             case .dateHeader(let id):
                 rows[item] = .date(id)
-                if demand.structural { changed.insert(item) }
+                // A header never configured has no cell to refresh; it gets its title when dequeued.
+                if demand.structural, let shown = dateHeaderTitles[id], shown != ChatDateHeaderCell.title(for: id) {
+                    changed.insert(item)
+                }
             case .topicHeader(let id):
                 rows[item] = .topic(id, chatVM.forumTopic(id: id.topicID)?.info, chatVM.client, navigationClientSource)
                 changed.insert(item)
