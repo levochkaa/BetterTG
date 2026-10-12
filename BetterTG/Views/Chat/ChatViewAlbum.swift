@@ -1727,7 +1727,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         counterLabel.minimumScaleFactor = 0.75
         counterLabel.accessibilityIdentifier = "gallery-counter"
         counterLabel.accessibilityTraits = [.staticText, .updatesFrequently]
-        topBar.addSubview(counterLabel)
+        // Below the buttons: UIKit runs the More button's liquid morph at the button's place in this bar for its
+        // first and last frames, and a counter above it showed through the opening and closing menu.
+        topBar.insertSubview(counterLabel, at: 0)
         let metadata = UIStackView(arrangedSubviews: [authorLabel, dateLabel])
         metadata.axis = .vertical
         metadata.spacing = 0
