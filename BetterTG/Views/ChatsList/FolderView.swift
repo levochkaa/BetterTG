@@ -814,15 +814,43 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 false
             }
 
-        var actions = [
-            TelegramContextMenuAction(
-                title: isCustomFolder
-                    ? L10n.telegram("ChatList.Context.RemoveFromFolder")
-                    : L10n.telegram("ChatList.Context.AddToFolder"),
-                image: UIImage(systemName: isCustomFolder ? "folder.badge.minus" : "folder.badge.plus"),
+        var actions = [TelegramContextMenuAction]()
+        if isCustomFolder {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.Context.RemoveFromFolder"),
+                image: UIImage(systemName: "folder.badge.minus"),
             ) { [weak self] in
-                self?.performFolderAction(for: chat)
-            },
+                self?.removeFromCurrentFolder(chat)
+            })
+        } else {
+            // Telegram (ChatContextMenus, Add to Folder) lists only folders that do not already hold the chat, as a
+            // submenu of the same menu, and hides the item when there is none.
+            let targets = rootVM.folders.compactMap { folder -> (id: Int, name: String, folder: ChatFolder)? in
+                guard case .folder(let info, let definition) = folder.type,
+                      !folder.chats.contains(where: { $0.id == chat.id })
+                else { return nil }
+                return (info.id, folder.name, definition)
+            }
+            if !targets.isEmpty {
+                actions.append(TelegramContextMenuAction(
+                    title: L10n.telegram("ChatList.Context.AddToFolder"),
+                    image: UIImage(systemName: "folder.badge.plus"),
+                    children: targets.map { target in
+                        TelegramContextMenuAction(title: target.name, image: UIImage(systemName: "folder")) {
+                            Task {
+                                _ = try? await scope.perform {
+                                    try await client.editChatFolder(
+                                        chatFolderId: target.id,
+                                        folder: target.folder.adding(chatID: chat.id),
+                                    )
+                                }
+                            }
+                        }
+                    },
+                ))
+            }
+        }
+        actions += [
             TelegramContextMenuAction(
                 title: unread
                     ? L10n.telegram("ChatList.Context.MarkAsRead")
@@ -938,53 +966,16 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         )
     }
 
-    private func performFolderAction(for chat: CustomChat) {
+    private func removeFromCurrentFolder(_ chat: CustomChat) {
         let scope = actionAuthority.scope(owner: self)
         let client = actionAuthority.client
-        guard scope.isCurrent else { return }
-        if case .folder(let info, let definition) = folder.type {
-            let updated = definition.removing(chatID: chat.id)
-            Task {
-                _ = try? await scope.perform {
-                    try await client.editChatFolder(chatFolderId: info.id, folder: updated)
-                }
+        guard scope.isCurrent, case .folder(let info, let definition) = folder.type else { return }
+        let updated = definition.removing(chatID: chat.id)
+        Task {
+            _ = try? await scope.perform {
+                try await client.editChatFolder(chatFolderId: info.id, folder: updated)
             }
-            return
         }
-
-        let targets = rootVM.folders.compactMap { folder -> (Int, String, ChatFolder)? in
-            guard case .folder(let info, let definition) = folder.type,
-                  !folder.chats.contains(where: { $0.id == chat.id })
-            else { return nil }
-            return (info.id, folder.name, definition)
-        }
-        guard !targets.isEmpty else { return }
-        let picker = UIAlertController(
-            title: L10n.telegram("ChatList.Context.AddToFolder"),
-            message: nil,
-            preferredStyle: .actionSheet,
-        )
-        for target in targets {
-            picker.addAction(UIAlertAction(title: target.1, style: .default) { _ in
-                Task {
-                    _ = try? await scope.perform {
-                        try await client.editChatFolder(
-                            chatFolderId: target.0,
-                            folder: target.2.adding(chatID: chat.id),
-                        )
-                    }
-                }
-            })
-        }
-        picker.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        picker.popoverPresentationController?.sourceView = view
-        picker.popoverPresentationController?.sourceRect = CGRect(
-            x: view.bounds.midX,
-            y: view.bounds.maxY - view.safeAreaInsets.bottom,
-            width: 1,
-            height: 1,
-        )
-        present(picker, animated: true)
     }
 
     private func confirmDelete(chat: CustomChat, forAll: Bool) {
