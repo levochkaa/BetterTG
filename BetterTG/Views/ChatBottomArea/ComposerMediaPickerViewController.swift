@@ -129,12 +129,12 @@ UISearchBarDelegate {
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt _: IndexPath) {
         (cell as? ComposerStickerCell)?.setPlaybackVisible(true)
-        (cell as? ComposerAnimationCell)?.restartLoading()
+        (cell as? ComposerAnimationCell)?.setPlaybackVisible(true)
     }
 
     func collectionView(_: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt _: IndexPath) {
         (cell as? ComposerStickerCell)?.setPlaybackVisible(false)
-        (cell as? ComposerAnimationCell)?.cancelLoading()
+        (cell as? ComposerAnimationCell)?.setPlaybackVisible(false)
     }
 
     func searchBar(_: UISearchBar, textDidChange searchText: String) {
@@ -431,41 +431,28 @@ private final class ComposerStickerCell: UICollectionViewCell {
 
 // MARK: - ComposerAnimationCell
 
+/// Telegram's GIF panel plays its visible GIFs silently in a loop (MultiplexedVideoNode); the cell reuses the
+/// message bubble's player, filling the square.
 private final class ComposerAnimationCell: UICollectionViewCell {
     static let reuseIdentifier = "ComposerAnimationCell"
 
-    private let imageView = TDImageLoadingView()
-    private var imageOrigin: TDImageOrigin?
-    private let badge = UILabel()
-    private var animation: Animation?
-    private var loadingCancelled = false
+    private let animationView = InlineAnimationMediaView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.backgroundColor = .tertiarySystemFill
         contentView.layer.cornerRadius = 10
         contentView.clipsToBounds = true
-        imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.contentMode = .scaleAspectFill
-        contentView.addSubview(imageView)
-        badge.translatesAutoresizingMaskIntoConstraints = false
-        badge.text = L10n.telegram("Message.Animation")
-        badge.font = .systemFont(ofSize: 10, weight: .bold)
-        badge.textColor = .white
-        badge.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        badge.textAlignment = .center
-        badge.layer.cornerRadius = 5
-        badge.clipsToBounds = true
-        contentView.addSubview(badge)
+        animationView.translatesAutoresizingMaskIntoConstraints = false
+        animationView.fillsBounds = true
+        animationView.isUserInteractionEnabled = false
+        animationView.isAccessibilityElement = false
+        contentView.addSubview(animationView)
         NSLayoutConstraint.activate([
-            imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            imageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            badge.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -5),
-            badge.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -5),
-            badge.widthAnchor.constraint(equalToConstant: 30),
-            badge.heightAnchor.constraint(equalToConstant: 18),
+            animationView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            animationView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            animationView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            animationView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
         ])
     }
 
@@ -473,18 +460,11 @@ private final class ComposerAnimationCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        imageView.cancel()
-        imageView.image = nil
-        animation = nil
-        imageOrigin = nil
-        loadingCancelled = false
+        animationView.prepareForReuse()
     }
 
     func configure(animation: Animation, client: TDLibClient) {
-        imageOrigin = .captured(client: client)
-        self.animation = animation
-        loadingCancelled = false
-        loadAnimation(animation)
+        animationView.configure(animation: animation, displaySize: nil, client: client)
         isAccessibilityElement = true
         accessibilityLabel = animation.fileName.isEmpty
             ? L10n.telegram("Message.Animation")
@@ -492,27 +472,7 @@ private final class ComposerAnimationCell: UICollectionViewCell {
         accessibilityTraits = .button
     }
 
-    func restartLoading() {
-        guard loadingCancelled, let animation else { return }
-        loadingCancelled = false
-        loadAnimation(animation)
-    }
-
-    func cancelLoading() {
-        loadingCancelled = true
-        imageView.cancel()
-    }
-
-    private func loadAnimation(_ animation: Animation) {
-        if let thumbnail = animation.thumbnail {
-            imageView.load(
-                file: thumbnail.file,
-                placeholderData: animation.minithumbnail?.data,
-                maximumPixelSize: 320,
-                origin: imageOrigin,
-            )
-        } else {
-            imageView.loadPlaceholder(data: animation.minithumbnail?.data, origin: imageOrigin)
-        }
+    func setPlaybackVisible(_ visible: Bool) {
+        animationView.setPlaybackVisible(visible)
     }
 }

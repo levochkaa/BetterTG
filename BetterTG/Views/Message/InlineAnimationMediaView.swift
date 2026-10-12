@@ -6,12 +6,22 @@ import UIKit
 
 /// Telegram's MP4 animations loop silently inside the message, without gallery controls.
 final class InlineAnimationMediaView: UIView, ReusableMediaView {
+    /// Crop to fill instead of fitting, as the GIF panel's square cells do.
+    var fillsBounds = false {
+        didSet {
+            playerLayer.videoGravity = fillsBounds ? .resizeAspectFill : .resizeAspect
+            thumbnailView.contentMode = fillsBounds ? .scaleAspectFill : .scaleAspectFit
+        }
+    }
+
     private let thumbnailView = TDImageLoadingView()
     private let playerLayer = AVPlayerLayer()
     private var player: AVQueuePlayer?
     private var looper: AVPlayerLooper?
     private var readyObservation: NSKeyValueObservation?
-    private var downloadTask: Task<Void, Never>?
+    /// The shared demand cancels a pending download once no view wants the file, so scrolling the GIF panel
+    /// doesn't leave downloads running for cells that left.
+    private var fileRequest: AnimatedFileDownload?
     private var generation = UUID()
     private var playbackVisible = false
     private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 180)
@@ -47,11 +57,14 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
         updatePlayback()
     }
 
-    func configure(animation: Animation, displaySize: CGSize, client: TDLibClient) {
+    /// Without a display size the owner sizes the view.
+    func configure(animation: Animation, displaySize: CGSize?, client: TDLibClient) {
         prepareForReuse()
-        widthConstraint.constant = displaySize.width
-        heightConstraint.constant = displaySize.height
-        NSLayoutConstraint.activate([widthConstraint, heightConstraint])
+        if let displaySize {
+            widthConstraint.constant = displaySize.width
+            heightConstraint.constant = displaySize.height
+            NSLayoutConstraint.activate([widthConstraint, heightConstraint])
+        }
         if let thumbnail = animation.thumbnail {
             thumbnailView.load(file: thumbnail.file, placeholderData: animation.minithumbnail?.data, client: client)
         } else {
@@ -62,22 +75,22 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
             installPlayer(path: file.local.path)
             return
         }
-        let generation = generation
-        downloadTask = Task { [weak self] in
-            guard let downloaded = try? await client.downloadFile(
-                fileId: file.id, limit: 0, offset: 0, priority: 2, synchronous: true,
-            ), !Task.isCancelled,
-            let self, self.generation == generation,
-            downloaded.local.isDownloadingCompleted, !downloaded.local.path.isEmpty
-            else { return }
-            installPlayer(path: downloaded.local.path)
-        }
+        guard let request = AnimatedFileDownload(fileID: file.id, client: client) else { return }
+        fileRequest = request
+        request.start(file: file, onFile: { [weak self, weak request] file in
+            guard let self, let request, fileRequest === request, player == nil,
+                  file.local.isDownloadingCompleted, !file.local.path.isEmpty else { return }
+            installPlayer(path: file.local.path)
+        }, onInvalidated: { [weak self, weak request] in
+            guard let self, let request, fileRequest === request else { return }
+            fileRequest = nil
+        })
     }
 
     func prepareForReuse() {
         generation = UUID()
-        downloadTask?.cancel()
-        downloadTask = nil
+        fileRequest?.cancel()
+        fileRequest = nil
         readyObservation = nil
         player?.pause()
         looper?.disableLooping()
