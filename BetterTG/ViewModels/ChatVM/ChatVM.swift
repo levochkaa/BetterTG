@@ -1071,6 +1071,7 @@ import UIKit
         if let previous = messages.first(where: { $0.sourceMessages.contains { $0.id == (oldID ?? message.id) } }) {
             display.properties = previous.properties
             if previous.message.senderId == message.senderId { display.senderUser = previous.senderUser }
+            if previous.message.content.typeID == message.content.typeID { display.serviceText = previous.serviceText }
             if previous.message.replyTo == message.replyTo { display.replyPresentation = previous.replyPresentation }
             if previous.message.forwardInfo == message
                 .forwardInfo { display.forwardPresentation = previous.forwardPresentation }
@@ -1982,6 +1983,14 @@ import UIKit
         
         if case .messageSenderUser(let messageSenderUser) = message.senderId {
             customMessage.senderUser = try? await client.getUser(userId: messageSenderUser.userId)
+        }
+        if customMessage.contentPresentation.isService {
+            customMessage.serviceText = await ServiceMessageText.resolve(
+                message,
+                senderUser: customMessage.senderUser,
+                isChannel: customChat.supergroup?.isChannel == true,
+                client: client,
+            )
         }
         
         customMessage.formattedText = customMessage.contentPresentation.formattedText

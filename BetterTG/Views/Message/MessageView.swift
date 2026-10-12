@@ -777,7 +777,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             ? message.album.compactMap { textSpoilers.states[$0.id] }
             : [textSpoilers.states[textSourceID]].compactMap(\.self)
         let accessibilityAlbum = structuredContentView.handlesAlbumCaptions ? message.album : []
-        let fallbackAccessibilityContent = MessageTextSpoilerPresentation.summary(for: message.message)
+        // Service rows read their resolved wording (with names); other content keeps the spoiler-safe summary.
+        let fallbackAccessibilityContent = presentation.isService
+            ? presentation.summary
+            : MessageTextSpoilerPresentation.summary(for: message.message)
         let prefix = [
             message.forwardPresentation?.accessibilityDescription,
             message.replyPresentation?.accessibilityDescription,

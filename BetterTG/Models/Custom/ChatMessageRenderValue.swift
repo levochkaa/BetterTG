@@ -7,6 +7,7 @@ import TDLibKit
 struct ChatMessageRenderValue: Equatable {
     let message: Message
     let senderUser: User?
+    let serviceText: String?
     let replyPresentation: MessageReplyPresentation?
     let forwardPresentation: MessageForwardPresentation?
     let album: [Message]
@@ -31,6 +32,7 @@ struct ChatMessageRenderValue: Equatable {
     @MainActor init(_ value: CustomMessage) {
         self.message = value.message
         self.senderUser = value.senderUser
+        self.serviceText = value.serviceText
         self.replyPresentation = value.replyPresentation
         self.forwardPresentation = value.forwardPresentation
         self.album = value.album

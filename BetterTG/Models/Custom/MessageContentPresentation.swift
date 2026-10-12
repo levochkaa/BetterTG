@@ -270,98 +270,118 @@ struct MessageContentPresentation {
                 detail: L10n.betterTG("Message.Unsupported.Invoice"),
             )
         case .messageCall:
-            return service(title: "Call", symbolName: "phone")
+            return service(title: L10n.betterTG("Service.Call"), symbolName: "phone")
         case .messageGroupCall:
-            return service(title: "Group call", symbolName: "person.3")
+            return service(title: L10n.betterTG("Service.GroupCall"), symbolName: "person.3")
         case .messageVideoChatScheduled:
-            return service(title: "Video chat scheduled", symbolName: "calendar.badge.clock")
+            return service(title: L10n.betterTG("Service.VideoChatScheduled"), symbolName: "calendar.badge.clock")
         case .messageVideoChatStarted:
-            return service(title: "Video chat started", symbolName: "video")
+            return service(title: L10n.telegram("Notification.VoiceChatStartedChannel"), symbolName: "video")
         case .messageVideoChatEnded:
-            return service(title: "Video chat ended", symbolName: "video.slash")
+            return service(title: L10n.betterTG("Service.VideoChatEnded"), symbolName: "video.slash")
         case .messageInviteVideoChatParticipants:
-            return service(title: "Participants invited to video chat", symbolName: "person.badge.plus")
+            return service(title: L10n.betterTG("Service.VideoChatInvited"), symbolName: "person.badge.plus")
         case .messagePollOptionAdded:
-            return service(title: "A poll option was added", symbolName: "chart.bar.doc.horizontal")
+            return service(title: L10n.betterTG("Service.PollOptionAdded"), symbolName: "chart.bar.doc.horizontal")
         case .messagePollOptionDeleted:
-            return service(title: "A poll option was removed", symbolName: "chart.bar.doc.horizontal")
+            return service(title: L10n.betterTG("Service.PollOptionRemoved"), symbolName: "chart.bar.doc.horizontal")
         case .messageBasicGroupChatCreate:
-            return service(title: "Group created", symbolName: "person.2")
+            return service(title: L10n.telegram("Notification.CreatedGroup"), symbolName: "person.2")
         case .messageSupergroupChatCreate:
-            return service(title: "Channel or supergroup created", symbolName: "person.3")
+            return service(title: L10n.betterTG("Service.SupergroupCreated"), symbolName: "person.3")
         case .messageChatChangeTitle(let message):
             return service(
-                title: "Chat title changed",
+                title: L10n.betterTG("Service.TitleChanged"),
                 detail: nonEmptyString(message.title),
                 symbolName: "pencil",
             )
         case .messageChatChangePhoto:
-            return service(title: "Chat photo changed", symbolName: "photo")
+            return service(title: L10n.betterTG("Service.PhotoChanged"), symbolName: "photo")
         case .messageChatDeletePhoto:
-            return service(title: "Chat photo removed", symbolName: "photo.badge.minus")
+            return service(title: L10n.betterTG("Service.PhotoRemoved"), symbolName: "photo.badge.minus")
         case .messageChatOwnerLeft:
-            return service(title: "Chat owner left", symbolName: "person.crop.circle.badge.minus")
+            return service(title: L10n.betterTG("Service.OwnerLeft"), symbolName: "person.crop.circle.badge.minus")
         case .messageChatOwnerChanged:
-            return service(title: "Chat owner changed", symbolName: "person.crop.circle.badge.checkmark")
+            return service(
+                title: L10n.betterTG("Service.OwnerChanged"),
+                symbolName: "person.crop.circle.badge.checkmark",
+            )
         case .messageChatHasProtectedContentToggled:
-            return service(title: "Content protection changed", symbolName: "lock.shield")
+            return service(title: L10n.betterTG("Service.ProtectionChanged"), symbolName: "lock.shield")
         case .messageChatHasProtectedContentDisableRequested:
-            return service(title: "Content protection disable requested", symbolName: "lock.open")
+            return service(title: L10n.betterTG("Service.ProtectionDisableRequested"), symbolName: "lock.open")
         case .messageChatAddMembers(let message):
             let count = message.memberUserIds.count
             return service(
-                title: count == 1 ? "A member joined" : "\(count) members joined",
+                title: count == 1
+                    ? L10n.betterTG("Service.MemberJoined")
+                    : L10n.betterTG("Service.MembersJoined", count),
                 symbolName: "person.badge.plus",
             )
         case .messageChatJoinFromCommunity:
-            return service(title: "Joined from a community", symbolName: "person.crop.circle.badge.plus")
+            return service(
+                title: L10n.betterTG("Service.JoinedFromCommunity"),
+                symbolName: "person.crop.circle.badge.plus",
+            )
         case .messageChatJoinByLink:
-            return service(title: "Joined via invite link", symbolName: "link")
+            return service(title: L10n.betterTG("Service.JoinedByLink"), symbolName: "link")
         case .messageChatJoinByRequest:
-            return service(title: "Join request approved", symbolName: "person.crop.circle.badge.checkmark")
+            return service(
+                title: L10n.betterTG("Service.JoinRequestApproved"),
+                symbolName: "person.crop.circle.badge.checkmark",
+            )
         case .messageChatDeleteMember:
-            return service(title: "A member left", symbolName: "person.badge.minus")
+            return service(title: L10n.betterTG("Service.MemberLeft"), symbolName: "person.badge.minus")
         case .messageChatAddedToCommunity:
-            return service(title: "Chat added to a community", symbolName: "person.3.sequence")
+            return service(title: L10n.betterTG("Service.AddedToCommunity"), symbolName: "person.3.sequence")
         case .messageChatRemovedFromCommunity:
-            return service(title: "Chat removed from a community", symbolName: "person.3.sequence")
+            return service(title: L10n.betterTG("Service.RemovedFromCommunity"), symbolName: "person.3.sequence")
         case .messageChatUpgradeTo:
-            return service(title: "Group upgraded", symbolName: "arrow.up.circle")
+            return service(title: L10n.betterTG("Service.GroupUpgraded"), symbolName: "arrow.up.circle")
         case .messageChatUpgradeFrom:
-            return service(title: "Supergroup created", symbolName: "arrow.up.circle")
+            return service(title: L10n.betterTG("Service.UpgradedFromGroup"), symbolName: "arrow.up.circle")
         case .messagePinMessage:
-            return service(title: "A message was pinned", symbolName: "pin")
+            return service(title: L10n.betterTG("Service.MessagePinned"), symbolName: "pin")
         case .messageScreenshotTaken:
-            return service(title: "Screenshot taken", symbolName: "camera.viewfinder")
+            return service(title: L10n.betterTG("Service.Screenshot"), symbolName: "camera.viewfinder")
         case .messageChatSetBackground:
-            return service(title: "Chat background changed", symbolName: "photo.on.rectangle")
+            return service(title: L10n.betterTG("Service.BackgroundChanged"), symbolName: "photo.on.rectangle")
         case .messageChatSetTheme:
-            return service(title: "Chat theme changed", symbolName: "paintpalette")
+            return service(title: L10n.betterTG("Service.ThemeChanged"), symbolName: "paintpalette")
         case .messageChatSetMessageAutoDeleteTime:
-            return service(title: "Auto-delete timer changed", symbolName: "timer")
+            return service(title: L10n.betterTG("Service.AutoDeleteChanged"), symbolName: "timer")
         case .messageChatBoost:
             return excludedPaidContent(title: L10n.betterTG("Message.ChatBoost"))
         case .messageForumTopicCreated:
-            return service(title: "Topic created", symbolName: "bubble.left.and.bubble.right")
+            return service(
+                title: L10n.telegram("Notification.ForumTopicCreated"),
+                symbolName: "bubble.left.and.bubble.right",
+            )
         case .messageForumTopicEdited:
-            return service(title: "Topic edited", symbolName: "bubble.left.and.pencil")
+            return service(title: L10n.betterTG("Service.TopicEdited"), symbolName: "bubble.left.and.pencil")
         case .messageForumTopicIsClosedToggled:
-            return service(title: "Topic state changed", symbolName: "bubble.left.and.exclamationmark.bubble.right")
+            return service(
+                title: L10n.betterTG("Service.TopicStateChanged"),
+                symbolName: "bubble.left.and.exclamationmark.bubble.right",
+            )
         case .messageForumTopicIsHiddenToggled:
-            return service(title: "General topic visibility changed", symbolName: "eye.slash")
+            return service(title: L10n.betterTG("Service.GeneralTopicVisibility"), symbolName: "eye.slash")
         case .messageSuggestProfilePhoto:
-            return service(title: "Profile photo suggested", symbolName: "person.crop.circle.badge.plus")
+            return service(
+                title: L10n.betterTG("Service.ProfilePhotoSuggested"),
+                symbolName: "person.crop.circle.badge.plus",
+            )
         case .messageSuggestBirthdate:
-            return service(title: "Birthdate suggested", symbolName: "birthday.cake")
+            return service(title: L10n.betterTG("Service.BirthdateSuggested"), symbolName: "birthday.cake")
         case .messageCustomServiceAction(let message):
             return service(
-                title: firstNonEmpty(message.text, "Service message"),
+                title: firstNonEmpty(message.text, L10n.betterTG("Service.Generic")),
                 symbolName: "info.circle",
             )
         case .messageGameScore:
-            return service(title: "New game score", symbolName: "trophy")
+            return service(title: L10n.betterTG("Service.GameScore"), symbolName: "trophy")
         case .messageManagedBotCreated:
-            return service(title: "Managed bot created", symbolName: "cpu")
+            return service(title: L10n.betterTG("Service.ManagedBotCreated"), symbolName: "cpu")
         case .messagePaymentRefunded, .messagePaymentSuccessful, .messagePaymentSuccessfulBot,
              .messageTonConnectRequest, .messageTonWalletTransfer:
             return excludedPaidContent(title: L10n.betterTG("Message.Payment"))
@@ -378,35 +398,35 @@ struct MessageContentPresentation {
         case .messageDirectMessagePriceChanged, .messagePaidMessagePriceChanged, .messagePaidMessagesRefunded:
             return excludedPaidContent(title: L10n.betterTG("Message.PaidMessages"))
         case .messageChecklistTasksDone:
-            return service(title: "Checklist tasks updated", symbolName: "checklist")
+            return service(title: L10n.betterTG("Service.ChecklistDone"), symbolName: "checklist")
         case .messageChecklistTasksAdded:
-            return service(title: "Checklist tasks added", symbolName: "checklist")
+            return service(title: L10n.betterTG("Service.ChecklistAdded"), symbolName: "checklist")
         case .messageSuggestedPostApprovalFailed:
-            return service(title: "Suggested post approval failed", symbolName: "exclamationmark.circle")
+            return service(title: L10n.betterTG("Service.SuggestedPostFailed"), symbolName: "exclamationmark.circle")
         case .messageSuggestedPostApproved:
-            return service(title: "Suggested post approved", symbolName: "checkmark.circle")
+            return service(title: L10n.betterTG("Service.SuggestedPostApproved"), symbolName: "checkmark.circle")
         case .messageSuggestedPostDeclined:
-            return service(title: "Suggested post declined", symbolName: "xmark.circle")
+            return service(title: L10n.betterTG("Service.SuggestedPostDeclined"), symbolName: "xmark.circle")
         case .messageSuggestedPostPaid, .messageSuggestedPostRefunded:
             return excludedPaidContent(title: L10n.betterTG("Message.SuggestedPostPayment"))
         case .messageContactRegistered:
-            return service(title: "A contact joined Telegram", symbolName: "person.crop.circle.badge.plus")
+            return service(title: L10n.betterTG("Service.ContactJoined"), symbolName: "person.crop.circle.badge.plus")
         case .messageUsersShared:
-            return service(title: "Users shared with a bot", symbolName: "person.2")
+            return service(title: L10n.betterTG("Service.UsersShared"), symbolName: "person.2")
         case .messageChatShared:
-            return service(title: "Chat shared with a bot", symbolName: "bubble.left.and.bubble.right")
+            return service(title: L10n.betterTG("Service.ChatShared"), symbolName: "bubble.left.and.bubble.right")
         case .messageBotWriteAccessAllowed:
-            return service(title: "Bot messaging allowed", symbolName: "checkmark.shield")
+            return service(title: L10n.betterTG("Service.BotAllowed"), symbolName: "checkmark.shield")
         case .messageWebAppDataSent:
-            return service(title: "Web app data sent", symbolName: "app.badge.checkmark")
+            return service(title: L10n.betterTG("Service.WebAppSent"), symbolName: "app.badge.checkmark")
         case .messageWebAppDataReceived:
-            return service(title: "Web app data received", symbolName: "app.badge")
+            return service(title: L10n.betterTG("Service.WebAppReceived"), symbolName: "app.badge")
         case .messagePassportDataSent:
-            return service(title: "Passport data sent", symbolName: "person.text.rectangle")
+            return service(title: L10n.betterTG("Service.PassportSent"), symbolName: "person.text.rectangle")
         case .messagePassportDataReceived:
-            return service(title: "Passport data received", symbolName: "person.text.rectangle")
+            return service(title: L10n.betterTG("Service.PassportReceived"), symbolName: "person.text.rectangle")
         case .messageProximityAlertTriggered:
-            return service(title: "Proximity alert", symbolName: "location.circle")
+            return service(title: L10n.betterTG("Service.ProximityAlert"), symbolName: "location.circle")
         case .messageUnsupported:
             return unsupported(
                 title: L10n.betterTG("Message.Unsupported"),
@@ -496,5 +516,17 @@ struct MessageContentPresentation {
             return regular.sticker
         }
         return nil
+    }
+
+    /// Telegram's actor wording for a service action, once its names are resolved. The wording already names the
+    /// changed value, so the generic detail line is dropped.
+    func replacingServiceTitle(_ title: String?) -> Self {
+        guard let title, case .service(let content) = supplement else { return self }
+        return Self(
+            formattedText: formattedText,
+            isVisualMedia: isVisualMedia,
+            summary: title,
+            supplement: .service(ServiceContent(detail: nil, symbolName: content.symbolName, title: title)),
+        )
     }
 }

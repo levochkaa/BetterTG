@@ -16,6 +16,8 @@ import TDLibKit
     }
 
     @Published var senderUser: User?
+    /// Telegram's service wording with resolved names; nil keeps the generic service title.
+    @Published var serviceText: String?
     @Published var replyPresentation: MessageReplyPresentation?
     @Published var forwardPresentation: MessageForwardPresentation?
     @Published var album: [Message]
@@ -35,7 +37,7 @@ import TDLibKit
 
     var id: Int64 { message.id }
     var contentPresentation: MessageContentPresentation {
-        MessageContentPresentation.make(message)
+        MessageContentPresentation.make(message).replacingServiceTitle(serviceText)
     }
 
     var date: Foundation.Date {
@@ -88,6 +90,7 @@ import TDLibKit
         self.deliveryState = value.deliveryState
         self.reactionMutationInFlight = value.reactionMutationInFlight
         self.isReplyQuoteExpanded = value.isReplyQuoteExpanded
+        self.serviceText = value.serviceText
     }
 
     func updateDeliveryState(permitsFinalStatus: Bool, readOutbox: Int64?, topic: MessageTopic? = nil) {

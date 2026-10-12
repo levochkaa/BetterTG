@@ -10,6 +10,7 @@ import UIKit
 struct ChatHistoryMessageValue {
     let message: Message
     let sender: User?
+    let serviceText: String?
     let reply: MessageReplyPresentation?
     let forward: MessageForwardPresentation?
     let album: [Message]
@@ -28,6 +29,7 @@ struct ChatHistoryMessageValue {
     @MainActor init(_ value: CustomMessage) {
         self.message = value.message
         self.sender = value.senderUser
+        self.serviceText = value.serviceText
         self.reply = value.replyPresentation
         self.forward = value.forwardPresentation
         self.album = value.album
@@ -49,6 +51,7 @@ struct ChatHistoryMessageValue {
         // Initializer fallback must not replace an explicitly absent cached value.
         result.reactions = reactions
         result.isReplyQuoteExpanded = isReplyQuoteExpanded
+        result.serviceText = serviceText
         return result
     }
 }
