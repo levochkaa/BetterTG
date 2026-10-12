@@ -1216,7 +1216,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let section = NSCollectionLayoutSection(group: group)
         section.interGroupSpacing = 5
         section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
-        return UICollectionViewCompositionalLayout(section: section)
+        return ChatTimelineLayout(section: section)
     }
 
     private func configureNavigationBar() {
@@ -2408,6 +2408,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             owner.acknowledgeCommittedVisibleMessages(requestHistory: structural)
             owner.retryClientRestoration()
         }
+        let previousItemIDs = batch.demand.animated ? Set(dataSource.snapshot().itemIdentifiers) : []
         dataSource.apply(snapshot, animatingDifferences: batch.demand.animated) { [weak self] in
             #if DEBUG
                 if self?.viewportCompletionProbe?.holdNativeCompletion(
@@ -2416,7 +2417,29 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             #endif
             completion()
         }
+        if batch.demand.animated, !previousItemIDs.isEmpty {
+            riseInsertedLatestRows(after: previousItemIDs, ids: batch.content.ids)
+        }
         collectionView.backgroundView = batch.content.ids.isEmpty ? emptyLabel() : nil
+    }
+
+    /// Telegram moves a new latest message in from the bottom edge together with the rows it pushes up. UIKit adds
+    /// the new cell at its final place with animations off, while the rows above slide up by its height, so they
+    /// slid across it: a sticker or GIF showed under the bubble moving up. Every row moves by the same distance, so
+    /// the new rows take the additive move UIKit gave the first row above them.
+    private func riseInsertedLatestRows(after previous: Set<ChatTimelineItemID>, ids: [ChatTimelineItemID]) {
+        let inserted = ids.prefix { !previous.contains($0) }
+        guard !inserted.isEmpty, inserted.count < ids.count,
+              let neighbourPath = dataSource.indexPath(for: ids[inserted.count]),
+              let motion = collectionView.cellForItem(at: neighbourPath)?.layer.animation(forKey: "position")
+              as? CABasicAnimation, motion.isAdditive
+        else { return }
+        for id in inserted {
+            guard let path = dataSource.indexPath(for: id), let cell = collectionView.cellForItem(at: path) else {
+                continue
+            }
+            cell.layer.add(motion, forKey: "chat.latestRowRise")
+        }
     }
 
     private func prepareDeleteTransition(for ids: Set<DisplayedMessageID>) {
