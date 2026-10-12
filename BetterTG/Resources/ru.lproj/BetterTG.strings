@@ -65,3 +65,26 @@
 "CustomEmoji.Empty" = "Эмодзи не найдены";
 
 "CustomEmoji.PremiumRequired" = "Для отправки этих эмодзи в этот чат нужен Telegram Premium. Их можно использовать в Избранном.";
+
+"Message.Generic" = "Сообщение";
+"Message.Rich" = "Форматированное сообщение";
+"Message.Spoiler" = "Спойлер";
+"Message.PaidMedia" = "Платные медиа";
+"Message.StakeDice" = "Кубик со ставкой";
+"Message.Checklist" = "Список задач";
+"Message.Invoice" = "Счёт";
+"Message.ChatBoost" = "Буст чата";
+"Message.Payment" = "Платёж";
+"Message.PremiumGift" = "Подарок Premium";
+"Message.CurrencyGift" = "Подарок валюты";
+"Message.Gift" = "Подарок";
+"Message.GiftOffer" = "Предложение купить подарок";
+"Message.PaidMessages" = "Изменение платных сообщений";
+"Message.SuggestedPostPayment" = "Оплата предложенного поста";
+"Message.Unsupported" = "Неподдерживаемое сообщение";
+"Message.Unsupported.TDLib" = "Это сообщение не поддерживается текущей версией TDLib.";
+"Message.Unsupported.Paid" = "Платные функции, Premium, Stars, TON, подарки, бусты и коллекционные предметы в BetterTG не поддерживаются.";
+"Message.Unsupported.Game" = "Игры пока не поддерживаются.";
+"Message.Unsupported.Story" = "Пересланные истории пока не поддерживаются.";
+"Message.Unsupported.Checklist" = "Списки задач пока не поддерживаются.";
+"Message.Unsupported.Invoice" = "Платежи в BetterTG не поддерживаются.";

@@ -667,19 +667,23 @@ struct MessageForwardPresentation: Equatable {
         case .messageText(let message):
             message.text
         case .messageAnimation(let message):
-            nonEmpty(message.caption.text) == nil ? plainText("Animation") : message.caption
+            nonEmpty(message.caption.text) == nil ? plainText(L10n.telegram("Message.Animation")) : message.caption
         case .messageAudio(let message):
-            nonEmpty(message.caption.text) == nil ? plainText("Audio") : message.caption
+            nonEmpty(message.caption.text) == nil
+                ? plainText(MessageContentPresentation.make(content).summary)
+                : message.caption
         case .messageDocument(let message):
-            nonEmpty(message.caption.text) == nil ? plainText(message.document.fileName) : message.caption
+            nonEmpty(message.caption.text) == nil
+                ? plainText(MessageContentPresentation.make(content).summary)
+                : message.caption
         case .messagePhoto(let message):
             nonEmpty(message.caption.text) == nil
-                ? plainText(message.video == nil ? "Photo" : "Live Photo")
+                ? plainText(L10n.telegram(message.video == nil ? "Message.Photo" : "Message.LivePhoto"))
                 : message.caption
         case .messageVideo(let message):
-            nonEmpty(message.caption.text) == nil ? plainText("Video") : message.caption
+            nonEmpty(message.caption.text) == nil ? plainText(L10n.telegram("Message.Video")) : message.caption
         case .messageVoiceNote(let message):
-            nonEmpty(message.caption.text) == nil ? plainText("Voice message") : message.caption
+            nonEmpty(message.caption.text) == nil ? plainText(L10n.telegram("Message.Audio")) : message.caption
         case .messagePoll(let message):
             message.poll.question
         default:

@@ -100,13 +100,20 @@ struct MessageContentPresentation {
         case .messageAnimation(let message):
             return presentation(
                 formattedText: nonEmpty(message.caption),
-                summary: captionSummary(label: "Animation", caption: message.caption),
+                summary: captionSummary(label: L10n.telegram("Message.Animation"), caption: message.caption),
                 isVisualMedia: true,
             )
         case .messageAudio(let message):
-            let title = firstNonEmpty(message.audio.title, message.audio.fileName, "Audio")
+            // Telegram mediaContentKind: "title — performer", either alone, then the file name or File.
+            let title = message.audio.title.trimmingCharacters(in: .whitespacesAndNewlines)
             let performer = message.audio.performer.trimmingCharacters(in: .whitespacesAndNewlines)
-            let attachmentSummary = performer.isEmpty ? title : "\(performer) — \(title)"
+            let attachmentSummary =
+                switch (title.isEmpty, performer.isEmpty) {
+                case (false, false): "\(title) — \(performer)"
+                case (false, true): title
+                case (true, false): performer
+                case (true, true): firstNonEmpty(message.audio.fileName, L10n.telegram("Message.File"))
+                }
             let summary = message.caption.text.isEmpty
                 ? attachmentSummary
                 : "\(attachmentSummary): \(message.caption.text)"
@@ -117,7 +124,7 @@ struct MessageContentPresentation {
                 supplement: .audio(message.audio),
             )
         case .messageDocument(let message):
-            let title = firstNonEmpty(message.document.fileName, "Document")
+            let title = firstNonEmpty(message.document.fileName, L10n.telegram("Message.File"))
             let summary = message.caption.text.isEmpty ? title : "\(title): \(message.caption.text)"
             return Self(
                 formattedText: nonEmpty(message.caption),
@@ -126,40 +133,46 @@ struct MessageContentPresentation {
                 supplement: .document(message.document),
             )
         case .messagePaidMedia:
-            return excludedPaidContent(title: "Paid media")
+            return excludedPaidContent(title: L10n.betterTG("Message.PaidMedia"))
         case .messagePhoto(let message):
             return presentation(
                 formattedText: nonEmpty(message.caption),
-                summary: captionSummary(label: message.video == nil ? "Photo" : "Live Photo", caption: message.caption),
+                summary: captionSummary(
+                    label: L10n.telegram(message.video == nil ? "Message.Photo" : "Message.LivePhoto"),
+                    caption: message.caption,
+                ),
                 isVisualMedia: true,
             )
         case .messageSticker(let message):
             let emoji = message.sticker.emoji.trimmingCharacters(in: .whitespacesAndNewlines)
             return presentation(
-                summary: emoji.isEmpty ? "Sticker" : "Sticker \(emoji)",
+                summary: emoji.isEmpty ? L10n.telegram("Message.Sticker") : L10n.telegram("Message.StickerText", emoji),
                 isVisualMedia: true,
             )
         case .messageVideo(let message):
             return presentation(
                 formattedText: nonEmpty(message.caption),
-                summary: captionSummary(label: "Video", caption: message.caption),
+                summary: captionSummary(label: L10n.telegram("Message.Video"), caption: message.caption),
                 isVisualMedia: true,
             )
         case .messageVideoNote:
-            return presentation(summary: "Video message", isVisualMedia: true)
+            return presentation(summary: L10n.telegram("Message.VideoMessage"), isVisualMedia: true)
         case .messageVoiceNote(let message):
             return presentation(
                 formattedText: nonEmpty(message.caption),
-                summary: captionSummary(label: "Voice message", caption: message.caption),
+                summary: captionSummary(label: L10n.telegram("Message.Audio"), caption: message.caption),
             )
         case .messageExpiredPhoto:
-            return service(title: "Photo expired", symbolName: "photo.badge.exclamationmark")
+            return service(title: L10n.telegram("Message.ImageExpired"), symbolName: "photo.badge.exclamationmark")
         case .messageExpiredVideo:
-            return service(title: "Video expired", symbolName: "video.badge.ellipsis")
+            return service(title: L10n.telegram("Message.VideoExpired"), symbolName: "video.badge.ellipsis")
         case .messageExpiredVideoNote:
-            return service(title: "Video message expired", symbolName: "video.circle")
+            return service(title: L10n.telegram("Message.VideoMessageExpired"), symbolName: "video.circle")
         case .messageExpiredVoiceNote:
-            return service(title: "Voice message expired", symbolName: "waveform.badge.exclamationmark")
+            return service(
+                title: L10n.telegram("Message.VoiceMessageExpired"),
+                symbolName: "waveform.badge.exclamationmark",
+            )
         case .messageLiveLocation(let message):
             let isIndefinite = liveLocationIndefinite || message.expiresIn >= Int(Int32.max)
             let deadline = liveLocationDeadline ?? (isIndefinite
@@ -168,30 +181,30 @@ struct MessageContentPresentation {
             return Self(
                 formattedText: nil,
                 isVisualMedia: false,
-                summary: "Live location",
+                summary: L10n.telegram("Message.LiveLocation"),
                 supplement: .location(LocationContent(
                     liveDeadline: deadline,
                     liveIndefinite: isIndefinite,
                     location: message.location.location,
                     subtitle: nil,
-                    title: "Live location",
+                    title: L10n.telegram("Message.LiveLocation"),
                 )),
             )
         case .messageLocation(let message):
             return Self(
                 formattedText: nil,
                 isVisualMedia: false,
-                summary: "Location",
+                summary: L10n.telegram("Message.Location"),
                 supplement: .location(LocationContent(
                     liveDeadline: nil,
                     liveIndefinite: false,
                     location: message.location,
                     subtitle: nil,
-                    title: "Location",
+                    title: L10n.telegram("Message.Location"),
                 )),
             )
         case .messageVenue(let message):
-            let title = firstNonEmpty(message.venue.title, "Venue")
+            let title = firstNonEmpty(message.venue.title, L10n.telegram("Message.Location"))
             return Self(
                 formattedText: nil,
                 isVisualMedia: false,
@@ -209,7 +222,7 @@ struct MessageContentPresentation {
             return Self(
                 formattedText: nil,
                 isVisualMedia: false,
-                summary: "Contact: \(name)",
+                summary: "\(L10n.telegram("Message.Contact")): \(name)",
                 supplement: .contact(message.contact),
             )
         case .messageAnimatedEmoji(let message):
@@ -231,22 +244,31 @@ struct MessageContentPresentation {
                 )),
             )
         case .messageGame:
-            return unsupported(title: "Game", detail: "Game messages aren't supported yet.")
+            return unsupported(title: L10n.telegram("Message.Game"), detail: L10n.betterTG("Message.Unsupported.Game"))
         case .messagePoll(let message):
             return Self(
                 formattedText: nonEmpty(message.description),
                 isVisualMedia: false,
-                summary: "Poll: \(message.poll.question.text)",
+                summary: "📊 \(message.poll.question.text)",
                 supplement: .poll(message),
             )
         case .messageStakeDice:
-            return excludedPaidContent(title: "Stake dice")
+            return excludedPaidContent(title: L10n.betterTG("Message.StakeDice"))
         case .messageStory:
-            return unsupported(title: "Story", detail: "Forwarded stories aren't supported yet.")
+            return unsupported(
+                title: L10n.telegram("Message.Story"),
+                detail: L10n.betterTG("Message.Unsupported.Story"),
+            )
         case .messageChecklist:
-            return unsupported(title: "Checklist", detail: "Checklist messages aren't supported yet.")
+            return unsupported(
+                title: L10n.betterTG("Message.Checklist"),
+                detail: L10n.betterTG("Message.Unsupported.Checklist"),
+            )
         case .messageInvoice:
-            return unsupported(title: "Invoice", detail: "Payments aren't supported in BetterTG.")
+            return unsupported(
+                title: L10n.betterTG("Message.Invoice"),
+                detail: L10n.betterTG("Message.Unsupported.Invoice"),
+            )
         case .messageCall:
             return service(title: "Call", symbolName: "phone")
         case .messageGroupCall:
@@ -318,7 +340,7 @@ struct MessageContentPresentation {
         case .messageChatSetMessageAutoDeleteTime:
             return service(title: "Auto-delete timer changed", symbolName: "timer")
         case .messageChatBoost:
-            return excludedPaidContent(title: "Chat boost")
+            return excludedPaidContent(title: L10n.betterTG("Message.ChatBoost"))
         case .messageForumTopicCreated:
             return service(title: "Topic created", symbolName: "bubble.left.and.bubble.right")
         case .messageForumTopicEdited:
@@ -342,19 +364,19 @@ struct MessageContentPresentation {
             return service(title: "Managed bot created", symbolName: "cpu")
         case .messagePaymentRefunded, .messagePaymentSuccessful, .messagePaymentSuccessfulBot,
              .messageTonConnectRequest, .messageTonWalletTransfer:
-            return excludedPaidContent(title: "Payment message")
+            return excludedPaidContent(title: L10n.betterTG("Message.Payment"))
         case .messageGiftedPremium, .messagePremiumGiftCode:
-            return excludedPaidContent(title: "Premium gift")
+            return excludedPaidContent(title: L10n.betterTG("Message.PremiumGift"))
         case .messageGiveaway, .messageGiveawayCompleted, .messageGiveawayCreated, .messageGiveawayWinners:
-            return excludedPaidContent(title: "Giveaway")
+            return excludedPaidContent(title: L10n.telegram("Message.Giveaway"))
         case .messageGiftedGrams, .messageGiftedStars, .messageGiveawayPrizeStars:
-            return excludedPaidContent(title: "Currency gift")
+            return excludedPaidContent(title: L10n.betterTG("Message.CurrencyGift"))
         case .messageGift, .messageRefundedUpgradedGift, .messageUpgradedGift:
-            return excludedPaidContent(title: "Gift")
+            return excludedPaidContent(title: L10n.betterTG("Message.Gift"))
         case .messageUpgradedGiftPurchaseOffer, .messageUpgradedGiftPurchaseOfferRejected:
-            return excludedPaidContent(title: "Gift purchase offer")
+            return excludedPaidContent(title: L10n.betterTG("Message.GiftOffer"))
         case .messageDirectMessagePriceChanged, .messagePaidMessagePriceChanged, .messagePaidMessagesRefunded:
-            return excludedPaidContent(title: "Paid message update")
+            return excludedPaidContent(title: L10n.betterTG("Message.PaidMessages"))
         case .messageChecklistTasksDone:
             return service(title: "Checklist tasks updated", symbolName: "checklist")
         case .messageChecklistTasksAdded:
@@ -366,7 +388,7 @@ struct MessageContentPresentation {
         case .messageSuggestedPostDeclined:
             return service(title: "Suggested post declined", symbolName: "xmark.circle")
         case .messageSuggestedPostPaid, .messageSuggestedPostRefunded:
-            return excludedPaidContent(title: "Suggested post payment")
+            return excludedPaidContent(title: L10n.betterTG("Message.SuggestedPostPayment"))
         case .messageContactRegistered:
             return service(title: "A contact joined Telegram", symbolName: "person.crop.circle.badge.plus")
         case .messageUsersShared:
@@ -387,8 +409,8 @@ struct MessageContentPresentation {
             return service(title: "Proximity alert", symbolName: "location.circle")
         case .messageUnsupported:
             return unsupported(
-                title: "Unsupported message",
-                detail: "This message isn't supported by the current TDLib version.",
+                title: L10n.betterTG("Message.Unsupported"),
+                detail: L10n.betterTG("Message.Unsupported.TDLib"),
             )
         }
     }
@@ -439,7 +461,7 @@ struct MessageContentPresentation {
     private static func excludedPaidContent(title: String) -> Self {
         unsupported(
             title: title,
-            detail: "Paid, Premium, Stars, TON, gift, boost, and collectible flows aren't supported in BetterTG.",
+            detail: L10n.betterTG("Message.Unsupported.Paid"),
         )
     }
 
@@ -453,7 +475,7 @@ struct MessageContentPresentation {
     }
 
     private static func firstNonEmpty(_ strings: String...) -> String {
-        strings.lazy.compactMap(nonEmptyString).first ?? "Message"
+        strings.lazy.compactMap(nonEmptyString).first ?? L10n.betterTG("Message.Generic")
     }
 
     private static func captionSummary(label: String, caption: FormattedText) -> String {
@@ -461,7 +483,7 @@ struct MessageContentPresentation {
     }
 
     private static func contactName(_ contact: Contact) -> String {
-        firstNonEmpty("\(contact.firstName) \(contact.lastName)", contact.phoneNumber, "Contact")
+        firstNonEmpty("\(contact.firstName) \(contact.lastName)", contact.phoneNumber, L10n.telegram("Message.Contact"))
     }
 
     private static func coordinateString(_ location: Location) -> String {

@@ -82,7 +82,7 @@
             ], text: "secret")
             let unsafe = MessageTextSpoilerPresentation(malformed)
             try require(
-                unsafe.text.entities.isEmpty && unsafe.accessibilityText() == "Spoiler",
+                unsafe.text.entities.isEmpty && unsafe.accessibilityText() == L10n.betterTG("Message.Spoiler"),
                 "malformed range did not fail closed",
             )
             _ = unsafe.attributedText()
@@ -92,7 +92,8 @@
                     .init(length: 1, offset: offset, type: .textEntityTypeCode),
                 ], text: "🙂"))
                 try require(
-                    splitSurrogate.text.entities.isEmpty && splitSurrogate.accessibilityText() == "Spoiler"
+                    splitSurrogate.text.entities.isEmpty && splitSurrogate.accessibilityText() == L10n
+                        .betterTG("Message.Spoiler")
                         && splitSurrogate.action(at: offset, revealed: true) == .none,
                     "surrogate split start/end accepted",
                 )
@@ -111,7 +112,7 @@
                 .init(length: 4, offset: 2, type: .textEntityTypeSpoiler),
             ], text: "secret"))
             try require(
-                overlapping.ranges.count == 1 && overlapping.accessibilityText() == "Spoiler",
+                overlapping.ranges.count == 1 && overlapping.accessibilityText() == L10n.betterTG("Message.Spoiler"),
                 "overlapping redaction",
             )
             let code = MessageTextSpoilerPresentation(.init(entities: [

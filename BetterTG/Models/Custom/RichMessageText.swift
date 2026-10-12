@@ -11,7 +11,7 @@ enum RichMessageText {
         let value = blocks(message.blocks, revealSpoilers: false, depth: 0)
             .split(whereSeparator: \.isNewline)
             .joined(separator: " ")
-        return value.isEmpty ? "Rich message" : String(value.prefix(512))
+        return value.isEmpty ? L10n.betterTG("Message.Rich") : String(value.prefix(512))
     }
 
     static func copyText(_ message: TDNativeRichMessage) -> String {
@@ -54,18 +54,19 @@ enum RichMessageText {
                     .joined(separator: "\n")
                 case .pageBlockDetails(let value): text(value.header) + "\n" + nested(value.blocks)
                 case .pageBlockPhoto(let value): value.hasSpoiler && !revealSpoilers
-                    ? "Spoiler"
-                    : value.caption.map { text($0.text) } ?? "Photo"
+                    ? L10n.betterTG("Message.Spoiler")
+                    : value.caption.map { text($0.text) } ?? L10n.telegram("Message.Photo")
                 case .pageBlockVideo(let value): value.hasSpoiler && !revealSpoilers
-                    ? "Spoiler"
-                    : value.caption.map { text($0.text) } ?? "Video"
+                    ? L10n.betterTG("Message.Spoiler")
+                    : value.caption.map { text($0.text) } ?? L10n.telegram("Message.Video")
                 case .pageBlockAnimation(let value): value.hasSpoiler && !revealSpoilers
-                    ? "Spoiler"
-                    : value.caption.map { text($0.text) } ?? "Animation"
+                    ? L10n.betterTG("Message.Spoiler")
+                    : value.caption.map { text($0.text) } ?? L10n.telegram("Message.Animation")
                 case .pageBlockAudio(let value): value.caption.map { text($0.text) } ?? value.audio.title
                 case .pageBlockDocument(let value): value.caption.map { text($0.text) } ?? value.document
                     .fileName
-                case .pageBlockVoiceNote(let value): value.caption.map { text($0.text) } ?? "Voice message"
+                case .pageBlockVoiceNote(let value): value.caption.map { text($0.text) } ?? L10n
+                    .telegram("Message.Audio")
                 case .pageBlockCover(let value): nested([value.cover])
                 case .pageBlockCollage(let value): nested(value.blocks)
                 case .pageBlockSlideshow(let value): nested(value.blocks)
@@ -76,7 +77,7 @@ enum RichMessageText {
                 case .pageBlockMathematicalExpression(let value): value.expression
                 case .pageBlockAuthorDate(let value): text(value.author)
                 case .pageBlockRelatedArticles(let value): text(value.header)
-                case .pageBlockMap: "Location"
+                case .pageBlockMap: L10n.telegram("Message.Location")
                 case .pageBlockAnchor, .pageBlockDivider, .pageBlockUnsupported: nil
                 }
             }
@@ -98,7 +99,7 @@ enum RichMessageText {
         case .richTextItalic(let value): return text(value.text)
         case .richTextUnderline(let value): return text(value.text)
         case .richTextStrikethrough(let value): return text(value.text)
-        case .richTextSpoiler(let value): return revealSpoilers ? text(value.text) : "Spoiler"
+        case .richTextSpoiler(let value): return revealSpoilers ? text(value.text) : L10n.betterTG("Message.Spoiler")
         case .richTextSubscript(let value): return text(value.text)
         case .richTextSuperscript(let value): return text(value.text)
         case .richTextMarked(let value): return text(value.text)

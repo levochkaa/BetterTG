@@ -880,7 +880,8 @@ private final class LocationMessageContentView: UIControl, MessageSupplementView
     private var liveTimer: Timer?
 
     private var showsMetadata: Bool {
-        content.liveDeadline != nil || content.liveIndefinite || content.subtitle != nil || content.title != "Location"
+        // Venues always carry an address or coordinates; a plain location has neither.
+        content.liveDeadline != nil || content.liveIndefinite || content.subtitle != nil
     }
 
     init(

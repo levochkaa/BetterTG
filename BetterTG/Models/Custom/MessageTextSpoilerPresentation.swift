@@ -72,7 +72,7 @@ struct MessageTextSpoilerPresentation {
         guard !revealed else { return text.text }
         let result = NSMutableString(string: text.text)
         for range in ranges.reversed() {
-            result.replaceCharacters(in: range, with: "Spoiler")
+            result.replaceCharacters(in: range, with: L10n.betterTG("Message.Spoiler"))
         }
         return String(result)
     }

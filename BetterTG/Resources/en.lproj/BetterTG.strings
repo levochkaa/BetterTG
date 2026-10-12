@@ -65,3 +65,26 @@
 "CustomEmoji.Empty" = "No custom emoji found";
 
 "CustomEmoji.PremiumRequired" = "Telegram Premium is required to send custom emoji in this chat. You can use them in Saved Messages.";
+
+"Message.Generic" = "Message";
+"Message.Rich" = "Rich message";
+"Message.Spoiler" = "Spoiler";
+"Message.PaidMedia" = "Paid media";
+"Message.StakeDice" = "Stake dice";
+"Message.Checklist" = "Checklist";
+"Message.Invoice" = "Invoice";
+"Message.ChatBoost" = "Chat boost";
+"Message.Payment" = "Payment message";
+"Message.PremiumGift" = "Premium gift";
+"Message.CurrencyGift" = "Currency gift";
+"Message.Gift" = "Gift";
+"Message.GiftOffer" = "Gift purchase offer";
+"Message.PaidMessages" = "Paid message update";
+"Message.SuggestedPostPayment" = "Suggested post payment";
+"Message.Unsupported" = "Unsupported message";
+"Message.Unsupported.TDLib" = "This message isn't supported by the current TDLib version.";
+"Message.Unsupported.Paid" = "Paid, Premium, Stars, TON, gift, boost, and collectible flows aren't supported in BetterTG.";
+"Message.Unsupported.Game" = "Game messages aren't supported yet.";
+"Message.Unsupported.Story" = "Forwarded stories aren't supported yet.";
+"Message.Unsupported.Checklist" = "Checklist messages aren't supported yet.";
+"Message.Unsupported.Invoice" = "Payments aren't supported in BetterTG.";

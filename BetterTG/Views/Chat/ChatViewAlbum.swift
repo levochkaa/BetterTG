@@ -357,7 +357,7 @@ private final class GalleryCaptionTextView: UITextView, UITextViewDelegate {
         guard !revealed, !spoilerRanges.isEmpty else { return formattedText.text }
         let redacted = NSMutableString(string: formattedText.text)
         for range in spoilerRanges.sorted(by: { $0.location > $1.location }) {
-            redacted.replaceCharacters(in: range, with: "Spoiler")
+            redacted.replaceCharacters(in: range, with: L10n.betterTG("Message.Spoiler"))
         }
         return String(redacted)
     }
