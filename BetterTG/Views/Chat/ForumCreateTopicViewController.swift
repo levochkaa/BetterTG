@@ -5,12 +5,20 @@ import UIKit
 
 // MARK: - ForumCreateTopicViewController
 
-/// Telegram's ForumCreateTopicScreen in create mode: the topic name beside its icon, whose color cycles through
-/// `ForumCreateTopicScreen.iconColors` on tap, the topic icon grid, and Done once the name isn't empty. The grid
-/// offers TDLib's free default topic icons; Telegram's Premium emoji packs are not offered.
+/// Telegram's ForumCreateTopicScreen: the topic name beside its icon, whose color cycles through
+/// `ForumCreateTopicScreen.iconColors` on tap when creating, the topic icon grid, and Done once the name isn't empty.
+/// Editing keeps the color, as TDLib can't change it. The grid offers TDLib's free default topic icons; Telegram's
+/// Premium emoji packs are not offered.
 @MainActor final class ForumCreateTopicViewController: UIViewController, UITableViewDataSource, UITableViewDelegate,
     UITextFieldDelegate
 {
+    // MARK: Internal
+
+    enum Mode {
+        case create
+        case edit(name: String, color: Int, customEmojiID: Int64)
+    }
+
     // MARK: Private
 
     private enum Section: Int, CaseIterable {
@@ -18,14 +26,13 @@ import UIKit
         case icon
     }
 
-    // MARK: Internal
-
     static let iconColors = [0x6FB9F0, 0xFFD67E, 0xCB86DB, 0x8EEE98, 0xFF93B2, 0xFB6F5F]
 
     /// TDLib's limit for a topic name.
     private static let maximumNameLength = 128
 
     private let client: TDLibClient
+    private let mode: Mode
     private let create: (_ name: String, _ color: Int, _ customEmojiID: Int64) async -> Bool
     private var iconColor = ForumCreateTopicViewController.iconColors.randomElement() ?? 0x6FB9F0
     private var selectedEmojiID: Int64 = 0
@@ -52,11 +59,17 @@ import UIKit
 
     init(
         client: TDLibClient,
+        mode: Mode = .create,
         create: @escaping (_ name: String, _ color: Int, _ customEmojiID: Int64) async -> Bool,
     ) {
         self.client = client
+        self.mode = mode
         self.create = create
         super.init(nibName: nil, bundle: nil)
+        if case .edit(_, let color, let customEmojiID) = mode {
+            self.iconColor = color
+            self.selectedEmojiID = customEmojiID
+        }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -69,7 +82,16 @@ import UIKit
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = L10n.telegram("CreateTopic.CreateTitle")
+        switch mode {
+        case .create:
+            title = L10n.telegram("CreateTopic.CreateTitle")
+        case .edit(let name, _, _):
+            title = L10n.telegram("CreateTopic.EditTitle")
+            nameField.text = name
+            // Telegram's edit screen doesn't recolor the icon.
+            iconButton.isUserInteractionEnabled = false
+            iconButton.isAccessibilityElement = false
+        }
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: L10n.telegram("Common.Cancel"),
             style: .plain,
@@ -77,7 +99,7 @@ import UIKit
             action: #selector(cancelPressed),
         )
         navigationItem.rightBarButtonItem = doneItem
-        doneItem.isEnabled = false
+        doneItem.isEnabled = !trimmedName.isEmpty
         configureNameCell()
         configureIconCell()
         tableView.translatesAutoresizingMaskIntoConstraints = false
@@ -293,6 +315,31 @@ extension ForumCreateTopicViewController {
                     targetQuote: nil,
                 ))
             }
+            return true
+        }
+        presenter.present(UINavigationController(rootViewController: controller), animated: true)
+    }
+
+    /// Telegram's Edit topic action: rename and change the icon through `editForumTopic`, then close.
+    static func presentEdit(from presenter: UIViewController, topic: ForumTopic, chatID: Int64, client: TDLibClient) {
+        let topicID = topic.info.forumTopicId
+        let mode = Mode.edit(
+            name: topic.info.name,
+            color: topic.info.icon.color,
+            customEmojiID: topic.info.icon.customEmojiId,
+        )
+        let controller = ForumCreateTopicViewController(
+            client: client,
+            mode: mode,
+        ) { [weak presenter] name, _, emojiID in
+            guard await (try? client.send(TDNativeRequests.editForumTopic(
+                chatId: chatID,
+                forumTopicId: topicID,
+                name: name,
+                editIconCustomEmoji: true,
+                iconCustomEmojiId: emojiID,
+            ))) != nil else { return false }
+            presenter?.dismiss(animated: true)
             return true
         }
         presenter.present(UINavigationController(rootViewController: controller), animated: true)

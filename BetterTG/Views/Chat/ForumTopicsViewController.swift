@@ -194,6 +194,14 @@ import UIKit
         retryClientRestoration()
     }
 
+    /// Telegram's `muteForIntervalString` / `mutedForTimeIntervalString`: hours below a day, days above.
+    private static func intervalText(_ prefix: String, seconds: Int) -> String {
+        let (key, count) = seconds < 24 * 60 * 60
+            ? ("\(prefix).Hours", max(1, seconds / (60 * 60)))
+            : ("\(prefix).Days", max(1, seconds / (24 * 60 * 60)))
+        return L10n.telegramPlural(key, count: count, formattedCount: count.formatted(.number))
+    }
+
     func scrollViewWillEndDragging(
         _ scrollView: UIScrollView, withVelocity _: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>,
     ) {
@@ -521,6 +529,16 @@ import UIKit
         tableView.keyboardDismissMode = .onDrag
         tableView.allowsSelection = presentationMode == .standard
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 80, bottom: 0, right: 0)
+        if presentationMode == .standard {
+            let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(topicLongPressed(_:)))
+            press.pressedViewProvider = { [weak self] gesture in
+                guard let self, let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+                      let cell = tableView.cellForRow(at: path) as? ForumTopicCell
+                else { return nil }
+                return cell.contextPreviewView
+            }
+            tableView.addGestureRecognizer(press)
+        }
         tableView.register(ForumTopicCell.self, forCellReuseIdentifier: ForumTopicCell.reuseID)
         view.addSubview(tableView)
         NSLayoutConstraint.activate([
@@ -579,9 +597,11 @@ import UIKit
         dataSource = UITableViewDiffableDataSource<Section, Int>(
             tableView: tableView,
         ) { [weak self] tableView, indexPath, topicID in
-            ForumTopicCell.dequeue(
+            let topic = self?.snapshotState.topic(id: topicID)
+            return ForumTopicCell.dequeue(
                 from: tableView, at: indexPath,
-                topic: self?.snapshotState.topic(id: topicID), client: self?.snapshotState.client(id: topicID),
+                topic: topic, client: self?.snapshotState.client(id: topicID),
+                muted: topic.map { self?.isMuted($0) == true } ?? false,
             )
         }
     }
@@ -639,7 +659,10 @@ import UIKit
         let token = viewportRestoration.beginApply()
         let model = viewModel
         let binding = bindingID
-        dataSource.apply(snapshot, animatingDifferences: viewportRestoration.pending == nil) { [weak self] in
+        // A page covered by a pushed chat (a topic just created and opened) has no window. An animated diff there
+        // left the table showing the old rows on return, so the new topic only appeared after reopening the forum.
+        let animated = viewportRestoration.pending == nil && view.window != nil
+        dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
             let finish: () -> Void = { [weak self] in
                 self?.completeSnapshot(batch.token, viewportToken: token, model: model, binding: binding)
             }
@@ -894,6 +917,307 @@ import UIKit
         })
         present(alert, animated: true)
     }
+
+    // MARK: Topic context menu
+
+    /// A topic's mute state as Telegram resolves it: the topic's own setting, else the forum's.
+    private func isMuted(_ topic: ForumTopic) -> Bool {
+        let settings = topic.notificationSettings
+        guard settings.useDefaultMuteFor else { return settings.muteFor > 0 }
+        return RootVM.shared.isMuted(viewModel.customChat)
+    }
+
+    /// Telegram's topic menu (ChatListController, `.forum` item) over a preview of the topic's chat.
+    @objc private func topicLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard gesture.state == .began, presentationMode == .standard, contextIsCurrent,
+              presentedViewController == nil,
+              let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+              let topicID = dataSource.itemIdentifier(for: path),
+              let topic = snapshotState.topic(id: topicID),
+              let cell = tableView.cellForRow(at: path) as? ForumTopicCell
+        else { return }
+        let preview = ChatViewController(
+            customChat: viewModel.customChat,
+            location: viewModel.location.withForumTopic(id: topicID),
+            forumTopic: topic,
+            presentationMode: .contextPreview,
+        )
+        presentTelegramContextMenu(
+            sourceView: cell.contextPreviewView,
+            actions: topicMenu(for: topic),
+            tracking: gesture,
+            presentationStyle: .chatPreview,
+            previewController: preview,
+        )
+    }
+
+    /// Telegram's `chatForumTopicMenuItems`. Select and the notification exceptions screen aren't ported.
+    private func topicMenu(for topic: ForumTopic) -> [TelegramContextMenuAction] {
+        let chat = viewModel.customChat
+        let id = topic.info.forumTopicId
+        let isGeneral = topic.info.isGeneral
+        let canManage = chat.canManageForumTopics
+        let canOpenClose = canManage || topic.info.isOutgoing
+        var actions = [TelegramContextMenuAction]()
+        if canManage, !topic.info.isClosed || isGeneral {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(topic.isPinned ? "ChatList.Context.Unpin" : "ChatList.Context.Pin"),
+                image: UIImage(systemName: topic.isPinned ? "pin.slash.fill" : "pin.fill"),
+            ) { [weak self] in self?.togglePinned(topic) })
+        }
+        if topic.unreadCount > 0, let lastMessageID = topic.lastMessage?.id {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.Context.MarkAsRead"),
+                image: UIImage(systemName: "envelope.open"),
+            ) { [weak self] in
+                self?.performTopicRequest { client, chatID in
+                    _ = try await client.viewMessages(
+                        chatId: chatID,
+                        forceRead: true,
+                        messageIds: [lastMessageID],
+                        source: .messageSourceForumTopicHistory,
+                    )
+                }
+            })
+        }
+        if !isGeneral, canOpenClose {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.InlineTopicMenu.Edit"),
+                image: UIImage(systemName: "pencil"),
+            ) { [weak self] in
+                guard let self, contextIsCurrent, presentedViewController == nil else { return }
+                ForumCreateTopicViewController.presentEdit(
+                    from: self, topic: topic, chatID: viewModel.location.chatID, client: viewModel.client,
+                )
+            })
+        }
+        actions.append(muteAction(for: topic))
+        if !isGeneral, canOpenClose {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(topic.info.isClosed
+                    ? "ChatList.Context.ReopenTopic"
+                    : "ChatList.Context.CloseTopic"),
+                image: UIImage(systemName: topic.info.isClosed ? "play" : "pause"),
+            ) { [weak self] in
+                self?.performTopicRequest { client, chatID in
+                    _ = try await client.send(TDNativeRequests.toggleForumTopicIsClosed(
+                        chatId: chatID, forumTopicId: id, isClosed: !topic.info.isClosed,
+                    ))
+                }
+            })
+        }
+        if !isGeneral, chat.canDeleteAllMessages {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.Context.Delete"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+            ) { [weak self] in self?.confirmDelete(topicID: id) })
+        }
+        return actions
+    }
+
+    /// Muted: a direct Unmute. Otherwise Telegram's submenu: Mute for… presets, the sound toggle and Mute Forever.
+    private func muteAction(for topic: ForumTopic) -> TelegramContextMenuAction {
+        let settings = topic.notificationSettings
+        guard !isMuted(topic) else {
+            return TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.Context.Unmute"),
+                image: UIImage(systemName: "speaker.wave.2.fill"),
+            ) { [weak self] in self?.updateNotifications(of: topic, to: settings.replacingMuteFor(0)) }
+        }
+        let presets = [60 * 60, 8 * 60 * 60, 24 * 60 * 60, 7 * 24 * 60 * 60]
+        let soundEnabled = settings.useDefaultSound || settings.soundId != 0
+        return TelegramContextMenuAction(
+            title: L10n.telegram("ChatList.Context.Mute"),
+            image: UIImage(systemName: "speaker.slash.fill"),
+            children: [
+                TelegramContextMenuAction(
+                    title: L10n.telegram("PeerInfo.MuteFor"),
+                    image: UIImage(systemName: "clock"),
+                    children: presets.map { seconds in
+                        TelegramContextMenuAction(title: Self.intervalText(
+                            "MuteFor",
+                            seconds: seconds,
+                        )) { [weak self] in
+                            self?.updateNotifications(
+                                of: topic,
+                                to: settings.replacingMuteFor(seconds),
+                                toast: L10n.telegram(
+                                    "PeerInfo.TooltipMutedFor",
+                                    Self.intervalText("MutedForTime", seconds: seconds),
+                                ),
+                            )
+                        }
+                    },
+                ),
+                TelegramContextMenuAction(
+                    title: L10n.telegram(soundEnabled ? "PeerInfo.DisableSound" : "PeerInfo.EnableSound"),
+                    image: UIImage(systemName: soundEnabled ? "bell.slash" : "bell"),
+                    startsNewSection: true,
+                ) { [weak self] in
+                    self?.updateNotifications(
+                        of: topic,
+                        to: settings.replacingSound(enabled: !soundEnabled),
+                        toast: L10n.telegram(
+                            soundEnabled ? "PeerInfo.TooltipSoundDisabled" : "PeerInfo.TooltipSoundEnabled",
+                        ),
+                    )
+                },
+                TelegramContextMenuAction(
+                    title: L10n.telegram("PeerInfo.MuteForever"),
+                    image: UIImage(systemName: "speaker.slash.fill"),
+                    isDestructive: true,
+                ) { [weak self] in
+                    self?.updateNotifications(
+                        of: topic,
+                        to: settings.replacingMuteFor(Int(Int32.max)),
+                        toast: L10n.telegram("PeerInfo.TooltipMutedForever"),
+                    )
+                },
+            ],
+        )
+    }
+
+    private func updateNotifications(
+        of topic: ForumTopic,
+        to settings: ChatNotificationSettings,
+        toast: String? = nil,
+    ) {
+        let id = topic.info.forumTopicId
+        performTopicRequest { client, chatID in
+            _ = try await client.send(TDNativeRequests.setForumTopicNotificationSettings(
+                chatId: chatID, forumTopicId: id, notificationSettings: settings,
+            ))
+        } onSuccess: { [weak self] in
+            guard let self, let toast else { return }
+            TelegramUndoToast.show(text: toast, in: view, bottomInset: 12, undo: nil)
+        }
+    }
+
+    private func togglePinned(_ topic: ForumTopic) {
+        let id = topic.info.forumTopicId
+        let model = viewModel
+        let pinning = !topic.isPinned
+        performTopicRequest { client, chatID in
+            _ = try await client.send(TDNativeRequests.toggleForumTopicIsPinned(
+                chatId: chatID, forumTopicId: id, isPinned: pinning,
+            ))
+            guard pinning else { return }
+            // Telegram (toggleForumChannelTopicPinned) puts a new pin first; TDLib appends it. Reorder from the
+            // unfiltered first page, which holds every pinned topic, so a search filter can't drop other pins.
+            // Best effort: the pin itself succeeded, so a failed reorder must not read as the pin limit.
+            guard let page = try? await client.getForumTopics(
+                chatId: chatID, limit: 100, offsetDate: 0, offsetForumTopicId: 0, offsetMessageId: 0, query: "",
+            ) else { return }
+            let others = page.topics.filter { $0.isPinned && $0.info.forumTopicId != id }.map(\.info.forumTopicId)
+            _ = try? await client.send(TDNativeRequests.setPinnedForumTopics(
+                chatId: chatID, forumTopicIds: [id] + others,
+            ))
+        }
+        // A live pin update carries no rank; the first page brings TDLib's pinned order.
+        onSuccess: {
+            model.loadInitial()
+        } onFailure: { [weak self] in
+            guard !topic.isPinned else { return }
+            self?.presentPinLimit()
+        }
+    }
+
+    /// Telegram's limit alert when pinning fails (ChatList.MaxThreadPinsFinalText).
+    private func presentPinLimit() {
+        let model = viewModel
+        let binding = bindingID
+        Task { [weak self] in
+            guard case .optionValueInteger(let limit) = try? await model.client.getOption(
+                name: "pinned_forum_topic_count_max",
+            ), limit.value > 0, let self, owns(model, binding: binding), presentedViewController == nil
+            else { return }
+            let count = Int(limit.value)
+            let alert = UIAlertController(
+                title: L10n.telegram("Premium.LimitReached"),
+                message: L10n.telegramPlural(
+                    "ChatList.MaxThreadPinsFinalText", count: count, formattedCount: count.formatted(.number),
+                ),
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+            present(alert, animated: true)
+        }
+    }
+
+    /// Telegram asks in an action sheet before deleting a topic with all its messages.
+    private func confirmDelete(topicID: Int) {
+        guard contextIsCurrent, presentedViewController == nil else { return }
+        let sheet = UIAlertController(
+            title: nil,
+            message: L10n.telegram("ChatList.DeleteTopicConfirmationText"),
+            preferredStyle: .actionSheet,
+        )
+        sheet.addAction(UIAlertAction(
+            title: L10n.telegram("ChatList.DeleteTopicConfirmationAction"),
+            style: .destructive,
+        ) { [weak self] _ in
+            guard let self else { return }
+            let model = viewModel
+            performTopicRequest { client, chatID in
+                _ = try await client.send(TDNativeRequests.deleteForumTopic(chatId: chatID, forumTopicId: topicID))
+            } onSuccess: {
+                model.removeDeletedTopic(id: topicID)
+            }
+        })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        sheet.popoverPresentationController?.sourceView = view
+        sheet.popoverPresentationController?.sourceRect = CGRect(
+            x: view.bounds.midX,
+            y: view.bounds.midY,
+            width: 0,
+            height: 0,
+        )
+        present(sheet, animated: true)
+    }
+
+    /// Runs a topic request on this page's client and chat; results are dropped once the page no longer owns them.
+    private func performTopicRequest(
+        _ request: @escaping (TDLibClient, Int64) async throws -> Void,
+        onSuccess: (() -> Void)? = nil,
+        onFailure: (() -> Void)? = nil,
+    ) {
+        guard contextIsCurrent else { return }
+        let model = viewModel
+        let binding = bindingID
+        let chatID = model.location.chatID
+        Task { [weak self] in
+            let succeeded = await (try? request(model.client, chatID)) != nil
+            guard let self, owns(model, binding: binding) else { return }
+            if succeeded { onSuccess?() } else { onFailure?() }
+        }
+    }
+}
+
+// MARK: - ForumTopicsTableView
+
+private extension ChatNotificationSettings {
+    /// Telegram's Enable/Disable Sound: the default sound, or none (TDLib's sound id 0).
+    func replacingSound(enabled: Bool) -> ChatNotificationSettings {
+        ChatNotificationSettings(
+            disableMentionNotifications: disableMentionNotifications,
+            disablePinnedMessageNotifications: disablePinnedMessageNotifications,
+            muteFor: muteFor,
+            muteStories: muteStories,
+            showPreview: showPreview,
+            showStoryPoster: showStoryPoster,
+            soundId: enabled ? soundId : 0,
+            storySoundId: storySoundId,
+            useDefaultDisableMentionNotifications: useDefaultDisableMentionNotifications,
+            useDefaultDisablePinnedMessageNotifications: useDefaultDisablePinnedMessageNotifications,
+            useDefaultMuteFor: useDefaultMuteFor,
+            useDefaultMuteStories: useDefaultMuteStories,
+            useDefaultShowPreview: useDefaultShowPreview,
+            useDefaultShowStoryPoster: useDefaultShowStoryPoster,
+            useDefaultSound: enabled,
+            useDefaultStorySound: useDefaultStorySound,
+        )
+    }
 }
 
 // MARK: - ForumTopicsTableView
@@ -951,9 +1275,14 @@ final class ForumTopicCell: UITableViewCell {
     private let unreadBadge = TelegramUnreadBadgeLabel(minimumDiameter: 20, horizontalPadding: 8)
     private let pinView = UIImageView(image: UIImage(systemName: "pin.fill"))
     private let closedView = UIImageView(image: UIImage(systemName: "lock.fill"))
+    private let muteView = UIImageView(image: UIImage(systemName: "speaker.slash.fill"))
+    private var configuredMuted = false
     /// The topic a late sender name re-applies, if the cell still shows it.
     private var configuredTopic: ForumTopic?
     private var configuredClient: TDLibClient?
+
+    /// The part of the row the context menu lifts.
+    var contextPreviewView: UIView { contentView }
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -972,9 +1301,10 @@ final class ForumTopicCell: UITableViewCell {
 
     static func dequeue(
         from tableView: UITableView, at indexPath: IndexPath, topic: ForumTopic?, client: TDLibClient?,
+        muted: Bool = false,
     ) -> ForumTopicCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: reuseID, for: indexPath) as! ForumTopicCell
-        if let topic, let client { cell.configure(topic: topic, client: client) }
+        if let topic, let client { cell.configure(topic: topic, client: client, muted: muted) }
         else { cell.configureUnavailable() }
         return cell
     }
@@ -1000,13 +1330,14 @@ final class ForumTopicCell: UITableViewCell {
         return date.formatted(date: .abbreviated, time: .omitted)
     }
 
-    func configure(topic: ForumTopic, client: TDLibClient) {
+    func configure(topic: ForumTopic, client: TDLibClient, muted: Bool = false) {
         iconView.isHidden = false
         selectionStyle = .default
         iconView.configure(info: topic.info, client: client)
         titleLabel.text = topic.info.name
         configuredTopic = topic
         configuredClient = client
+        configuredMuted = muted
         previewLabel.textColor = topic.draftMessage == nil ? .secondaryLabel : .systemRed
         if let draft = topic.draftMessage {
             previewLabel.text = Self.draftPreview(draft.content)
@@ -1022,6 +1353,9 @@ final class ForumTopicCell: UITableViewCell {
             || topic.unreadPollVoteCount > 0
         pinView.isHidden = !topic.isPinned || hasUnreadIndicator
         closedView.isHidden = !topic.info.isClosed
+        muteView.isHidden = !muted
+        // Telegram greys a muted topic's unread count.
+        unreadBadge.backgroundColor = muted ? .systemGray : .systemBlue
         unreadBadge.text =
             if topic.unreadCount > 0 {
                 compactNumericCountString(topic.unreadCount)
@@ -1040,6 +1374,7 @@ final class ForumTopicCell: UITableViewCell {
         accessibilityLabel = [
             topic.info.name,
             topic.info.isClosed ? L10n.betterTG("Forum.Closed") : nil,
+            muted ? L10n.betterTG("Accessibility.Muted") : nil,
             topic.isPinned ? L10n.betterTG("Accessibility.Pinned") : nil,
             topic.unreadCount > 0
                 ? L10n
@@ -1085,7 +1420,7 @@ final class ForumTopicCell: UITableViewCell {
                 guard let self, let topic = configuredTopic, topic.info.forumTopicId == topicID,
                       let client = configuredClient
                 else { return }
-                configure(topic: topic, client: client)
+                configure(topic: topic, client: client, muted: configuredMuted)
             }
         }
     }
@@ -1101,6 +1436,7 @@ final class ForumTopicCell: UITableViewCell {
         unreadBadge.isHidden = true
         pinView.isHidden = true
         closedView.isHidden = true
+        muteView.isHidden = true
         backgroundColor = .systemBackground
         contentView.backgroundColor = backgroundColor
         selectionStyle = .none
@@ -1142,13 +1478,14 @@ final class ForumTopicCell: UITableViewCell {
         dateLabel.isAccessibilityElement = false
         contentView.addSubview(dateLabel)
 
-        for imageView in [pinView, closedView] {
+        for imageView in [pinView, closedView, muteView] {
             imageView.translatesAutoresizingMaskIntoConstraints = false
             imageView.tintColor = .secondaryLabel
             imageView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
             imageView.isAccessibilityElement = false
             contentView.addSubview(imageView)
         }
+        muteView.isHidden = true
 
         unreadBadge.translatesAutoresizingMaskIntoConstraints = false
         unreadBadge.backgroundColor = .systemBlue
@@ -1164,7 +1501,12 @@ final class ForumTopicCell: UITableViewCell {
             iconView.heightAnchor.constraint(equalToConstant: 44),
             titleLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 80),
             titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: pinView.leadingAnchor, constant: -4),
+            // Telegram puts the mute icon right after the title; pin and lock stay beside the date.
+            muteView.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor, constant: 4),
+            muteView.trailingAnchor.constraint(lessThanOrEqualTo: pinView.leadingAnchor, constant: -5),
+            muteView.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            muteView.widthAnchor.constraint(equalToConstant: 12),
+            muteView.heightAnchor.constraint(equalToConstant: 12),
             pinView.trailingAnchor.constraint(equalTo: closedView.leadingAnchor, constant: -5),
             pinView.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             pinView.widthAnchor.constraint(equalToConstant: 12),

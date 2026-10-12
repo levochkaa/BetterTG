@@ -247,6 +247,12 @@ import TDLibKit
         return topics.first { $0.info.forumTopicId == id }
     }
 
+    /// TDLib reports a deleted topic only through its deleted messages; drop the row once deletion succeeds.
+    func removeDeletedTopic(id: Int) {
+        guard contextIsCurrent else { return }
+        topics.removeAll { $0.info.forumTopicId == id }
+    }
+
     /// The cached supergroup can report 0 members; the full info carries the count Telegram shows.
     private func loadMemberCount() {
         guard usesTransport, memberCountTask == nil, let groupID = customChat.supergroup?.id else { return }

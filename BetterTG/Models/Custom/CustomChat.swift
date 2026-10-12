@@ -98,6 +98,20 @@ import TDLibKit
         }
     }
 
+    /// Telegram's `hasPermission(.manageTopics)`: pin, close and edit any topic.
+    var canManageForumTopics: Bool {
+        guard let supergroup, supergroup.isForum else { return false }
+        if case .chatMemberStatusCreator = supergroup.status { return true }
+        return adminRights?.canManageTopics == true
+    }
+
+    /// Telegram's `hasPermission(.deleteAllMessages)`, which a forum requires to delete a topic.
+    var canDeleteAllMessages: Bool {
+        guard let supergroup else { return false }
+        if case .chatMemberStatusCreator = supergroup.status { return true }
+        return adminRights?.canDeleteMessages == true
+    }
+
     var shouldShowProfileImage: Bool {
         switch type {
         case .bot, .user: false
