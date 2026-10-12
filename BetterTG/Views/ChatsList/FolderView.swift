@@ -304,6 +304,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var searchActive = false
     private var didSetInitialSearchOffset = false
     private var initialSearchScrollOffset = ChatListNavigationSearchView.scrollHeight
+    /// Where the page was before the shared search began. Search covers every page, as Telegram's search overlay
+    /// does, and ending it returns each page there instead of scrolling it to the top with search revealed.
+    private var viewportBeforeSearch: ChatListViewportSnapshot?
+    private var initialSearchScrollOffsetBeforeSearch: CGFloat?
     private var clientViewportRestoration: ChatListViewportRestoration
     private var cancellables = Set<AnyCancellable>()
     private var prefetchTasks = [Int64: Task<Void, Never>]()
@@ -561,10 +565,21 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     func setSearchActive(_ active: Bool, animated: Bool, preservingViewport: Bool = false) {
-        let viewport = preservingViewport ? clientRestorationViewport() : nil
+        let wasActive = searchActive
+        if active, !wasActive {
+            viewportBeforeSearch = isViewLoaded && didSetInitialSearchOffset ? clientRestorationViewport() : nil
+            initialSearchScrollOffsetBeforeSearch = initialSearchScrollOffset
+        }
+        let viewport = preservingViewport
+            ? clientRestorationViewport()
+            : (!active && wasActive ? viewportBeforeSearch : nil)
         searchActive = active
         if active {
             initialSearchScrollOffset = 0
+        } else if wasActive {
+            initialSearchScrollOffset = initialSearchScrollOffsetBeforeSearch ?? initialSearchScrollOffset
+            viewportBeforeSearch = nil
+            initialSearchScrollOffsetBeforeSearch = nil
         }
         guard isViewLoaded else { return }
         let targetTopInset = active
