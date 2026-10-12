@@ -432,3 +432,8 @@
 "Chat.ContextViewAsMessages" = "View as Messages";
 "GroupInfo.Title" = "Group Info";
 "Conversation.Search" = "Search";
+"Chat.CreateTopic" = "New Topic";
+"CreateTopic.CreateTitle" = "New Topic";
+"CreateTopic.EnterTopicTitle" = "ENTER TOPIC TITLE";
+"CreateTopic.EnterTopicTitlePlaceholder" = "What do you want to discuss?";
+"CreateTopic.SelectTopicIcon" = "SELECT TOPIC ICON";

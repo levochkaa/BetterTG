@@ -999,11 +999,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// Telegram's forum More menu while the forum reads as messages (ChatListControllerImpl.openMoreMenu,
-    /// isViewingAsTopics: false, from ChatController). Add Member and New Topic need screens BetterTG lacks.
+    /// isViewingAsTopics: false, from ChatController). Add Member needs a member picker BetterTG lacks.
     private func showForumMoreMenu(from source: UIView) {
         guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
               presentedViewController == nil, navigationController?.topViewController === self else { return }
-        let actions = [
+        var actions = [
             TelegramContextMenuAction(title: L10n.telegram("Chat.ContextViewAsTopics"), image: UIImage()) {
                 [weak self] in self?.viewForumAsTopics()
             },
@@ -1022,7 +1022,30 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 startsNewSection: true,
             ) { [weak self] in self?.customNavigationBar.beginSearch() },
         ]
+        // After Search, without another separator, as Telegram adds New Topic for a ChatController source.
+        if chatVM.customChat.canCreateForumTopics {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.CreateTopic"),
+                image: UIImage(systemName: "square.and.pencil"),
+            ) { [weak self] in self?.presentCreateTopic() })
+        }
         presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .sourceMorph)
+    }
+
+    private func presentCreateTopic() {
+        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
+              presentedViewController == nil else { return }
+        ForumCreateTopicViewController.present(
+            from: self,
+            customChat: chatVM.customChat,
+            location: location,
+            client: chatVM.client,
+            canOpen: { [weak self] in
+                guard let self else { return false }
+                return routeIsRetained && chatVM.locationContextIsCurrent
+                    && navigationController?.topViewController === self
+            },
+        )
     }
 
     /// Telegram replaces the forum's history with its topic list and stores the choice on the server.

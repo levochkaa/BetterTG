@@ -792,12 +792,12 @@ import UIKit
         navigationController.pushViewController(profile, animated: true)
     }
 
-    /// Telegram's forum More menu (ChatListControllerImpl.openMoreMenu, isViewingAsTopics: true). Add Member and
-    /// New Topic need screens BetterTG doesn't have yet.
+    /// Telegram's forum More menu (ChatListControllerImpl.openMoreMenu, isViewingAsTopics: true). Add Member needs a
+    /// member picker BetterTG doesn't have yet.
     private func showMoreMenu() {
         guard presentationMode == .standard, contextIsCurrent, presentedViewController == nil,
               navigationController?.topViewController === self else { return }
-        let actions = [
+        var actions = [
             TelegramContextMenuAction(
                 title: L10n.telegram("Chat.ContextViewAsTopics"),
                 image: UIImage(systemName: "checkmark"),
@@ -811,10 +811,33 @@ import UIKit
                 startsNewSection: true,
             ) { [weak self] in self?.openGroupInfo() },
         ]
+        if viewModel.customChat.canCreateForumTopics {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.CreateTopic"),
+                image: UIImage(systemName: "square.and.pencil"),
+                startsNewSection: true,
+            ) { [weak self] in self?.presentCreateTopic() })
+        }
         presentTelegramContextMenu(
             sourceView: navigationBarView.rightButtonView,
             actions: actions,
             presentationStyle: .sourceMorph,
+        )
+    }
+
+    private func presentCreateTopic() {
+        guard presentationMode == .standard, contextIsCurrent, presentedViewController == nil else { return }
+        let model = viewModel
+        let binding = bindingID
+        ForumCreateTopicViewController.present(
+            from: self,
+            customChat: model.customChat,
+            location: model.location,
+            client: model.client,
+            canOpen: { [weak self] in
+                guard let self else { return false }
+                return owns(model, binding: binding) && navigationController?.topViewController === self
+            },
         )
     }
 
@@ -1165,7 +1188,7 @@ final class ForumTopicCell: UITableViewCell {
 
 // MARK: - ForumTopicIconView
 
-private final class ForumTopicIconView: UIView {
+final class ForumTopicIconView: UIView {
     private let backgroundView = UIView()
     private let fallbackLabel = UILabel()
     private let fallbackImageView = UIImageView()
@@ -1238,22 +1261,7 @@ private final class ForumTopicIconView: UIView {
             fallbackLabel.isHidden = backgroundView.isHidden
         }
         guard !sameIcon, info.icon.customEmojiId != 0 else { return }
-        let currentGeneration = generation
-        let identifier = info.icon.customEmojiId
-        loadTask = Task { [weak self] in
-            let sticker = await CustomEmojiStickerRepository.shared.stickers(
-                for: [identifier],
-                client: client,
-            )[identifier]
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard let self,
-                      self.generation == currentGeneration,
-                      let sticker
-                else { return }
-                self.install(sticker, client: client)
-            }
-        }
+        loadEmoji(info.icon.customEmojiId, client: client)
     }
 
     func prepareForReuse() {
@@ -1270,6 +1278,42 @@ private final class ForumTopicIconView: UIView {
         fallbackLabel.text = nil
         fallbackImageView.isHidden = true
         fallbackImageView.image = nil
+    }
+
+    /// The icon of a topic being created: its color and first letter (Telegram's `.topic` icon content), or the
+    /// chosen custom emoji once it has drawn.
+    func configureDraft(name: String, color: Int, customEmojiID: Int64 = 0, client: TDLibClient? = nil) {
+        let emojiID = client == nil ? 0 : customEmojiID
+        let sameIcon = representedEmojiID == emojiID && representedClientID == client?.id
+        if !sameIcon {
+            prepareForReuse()
+            representedEmojiID = emojiID
+            representedClientID = client?.id
+        }
+        backgroundView.backgroundColor = UIColor(rgb: color)
+        fallbackImageView.isHidden = true
+        fallbackLabel.text = name.first.map { String($0).uppercased() }
+        fallbackLabel.isHidden = backgroundView.isHidden
+        guard !sameIcon, emojiID != 0, let client else { return }
+        loadEmoji(emojiID, client: client)
+    }
+
+    private func loadEmoji(_ identifier: Int64, client: TDLibClient) {
+        let currentGeneration = generation
+        loadTask = Task { [weak self] in
+            let sticker = await CustomEmojiStickerRepository.shared.stickers(
+                for: [identifier],
+                client: client,
+            )[identifier]
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self,
+                      self.generation == currentGeneration,
+                      let sticker
+                else { return }
+                self.install(sticker, client: client)
+            }
+        }
     }
 
     private func install(_ sticker: Sticker, client: TDLibClient) {

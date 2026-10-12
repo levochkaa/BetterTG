@@ -80,6 +80,24 @@ import TDLibKit
         return nil
     }
 
+    /// Telegram's `hasPermission(.createTopics)` for a forum: the owner, admins who manage topics, and members
+    /// when the group's permissions (and their own restrictions) allow creating topics.
+    var canCreateForumTopics: Bool {
+        guard let supergroup, supergroup.isForum, !supergroup.isChannel else { return false }
+        switch supergroup.status {
+        case .chatMemberStatusCreator:
+            return true
+        case .chatMemberStatusAdministrator(let administrator):
+            return administrator.rights.canManageTopics || chat.permissions.canCreateTopics
+        case .chatMemberStatusMember:
+            return chat.permissions.canCreateTopics
+        case .chatMemberStatusRestricted(let restricted):
+            return restricted.isMember && restricted.permissions.canCreateTopics && chat.permissions.canCreateTopics
+        case .chatMemberStatusBanned, .chatMemberStatusLeft:
+            return false
+        }
+    }
+
     var shouldShowProfileImage: Bool {
         switch type {
         case .bot, .user: false

@@ -490,6 +490,8 @@
 "Forward.OptionsTitle" = "Параметры пересылки";
 "Forward.HideSenderAndCaptions" = "Скрыть отправителя и подписи";
 "Forum.LoadFailed" = "Не удалось загрузить темы.";
+"Forum.TopicIconColor" = "Сменить цвет значка";
+"Forum.TopicIconDefault" = "Стандартный значок";
 "Forum.GeneralTopic" = "Основное";
 "Forum.TopicFallback" = "Тема";
 "Forum.Closed" = "Закрыта";

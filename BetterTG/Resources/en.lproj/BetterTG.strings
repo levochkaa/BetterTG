@@ -492,6 +492,8 @@
 "Forum.LoadFailed" = "Topics couldn't be loaded.";
 "Forum.GeneralTopic" = "General";
 "Forum.TopicFallback" = "Topic";
+"Forum.TopicIconColor" = "Change icon color";
+"Forum.TopicIconDefault" = "Default icon";
 "Forum.Closed" = "Closed";
 "Forum.SearchTopics" = "Search Topics";
 "Forum.ReconnectFailed" = "Couldn't reconnect topics.\nTap to retry";
