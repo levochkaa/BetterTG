@@ -4,7 +4,7 @@
 
 ## Build And Test
 
-- Do not use XcodeBuildMCP or other MCP tooling for BetterTG build, test, run, or simulator validation unless the user explicitly asks for it.
+- Build and run through ./build.sh as described below. Xcode MCP tools, including device interaction, may be used for Simulator validation such as UI inspection, taps, gestures and screenshots.
 - Build through the root multiplexer: `./build.sh build` (or `./build.sh`, which defaults to build).
 - Run through the root multiplexer: `./build.sh run`. BetterTG currently has no dedicated test target, so build is the repository-level validation.
 - Always run SwiftFormat after modifying Swift files. Pass every existing `.swift` file modified in the current task to a single invocation, and do not format the entire repository unless the user explicitly asks for it:
