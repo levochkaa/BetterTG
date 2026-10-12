@@ -396,8 +396,9 @@ import UIKit
 
     private func applySnapshot() {
         guard contextIsCurrent else { return }
-        // Only destinations the prepared forward may enter are listed.
-        snapshotState.enqueue(topics.filter { allowedTopicIDs.contains($0.info.forumTopicId) }, client: client)
+        // As in Telegram's peer selection (ChatListNode, closed thread info), topics the forward may not enter
+        // stay listed but disabled; selection still requires an allowed topic.
+        snapshotState.enqueue(topics, client: client)
         drainSnapshot()
     }
 
@@ -445,7 +446,7 @@ import UIKit
     }
 
     private func updateBackground() {
-        guard allowedTopicIDs.isEmpty else {
+        guard topics.isEmpty else {
             tableView.backgroundView = nil
             return
         }
