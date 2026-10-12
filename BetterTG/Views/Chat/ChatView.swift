@@ -998,6 +998,53 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         navigationController?.pushViewController(profile, animated: true)
     }
 
+    /// Telegram's forum More menu while the forum reads as messages (ChatListControllerImpl.openMoreMenu,
+    /// isViewingAsTopics: false, from ChatController). Add Member and New Topic need screens BetterTG lacks.
+    private func showForumMoreMenu(from source: UIView) {
+        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
+              presentedViewController == nil, navigationController?.topViewController === self else { return }
+        let actions = [
+            TelegramContextMenuAction(title: L10n.telegram("Chat.ContextViewAsTopics"), image: UIImage()) {
+                [weak self] in self?.viewForumAsTopics()
+            },
+            TelegramContextMenuAction(
+                title: L10n.telegram("Chat.ContextViewAsMessages"),
+                image: UIImage(systemName: "checkmark"),
+            ),
+            TelegramContextMenuAction(
+                title: L10n.telegram("GroupInfo.Title"),
+                image: UIImage(systemName: "person.2"),
+                startsNewSection: true,
+            ) { [weak self] in self?.openProfile() },
+            TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.Search"),
+                image: UIImage(systemName: "magnifyingglass"),
+                startsNewSection: true,
+            ) { [weak self] in self?.customNavigationBar.beginSearch() },
+        ]
+        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .sourceMorph)
+    }
+
+    /// Telegram replaces the forum's history with its topic list and stores the choice on the server.
+    private func viewForumAsTopics() {
+        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent else { return }
+        let client = chatVM.client
+        let location = location
+        let chatID = location.chatID
+        Task { [weak self] in
+            guard await (try? client.send(TDNativeRequests.toggleChatViewAsTopics(chatId: chatID, viewAsTopics: true)))
+                != nil,
+                let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client),
+                chat.chat.viewAsTopics, let self, routeIsRetained, chatVM.locationContextIsCurrent,
+                let navigationController,
+                let index = navigationController.viewControllers.firstIndex(where: { $0 === self })
+            else { return }
+            var stack = navigationController.viewControllers
+            stack[index] = ForumTopicsViewController(customChat: chat, location: location, client: client)
+            navigationController.setViewControllers(stack, animated: false)
+        }
+    }
+
     private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
         guard presentationMode == .full, routeIsRetained, source == tdlib.activeUpdateSource,
               source.accountID == location.accountID, source.clientID != location.clientID,
@@ -1157,6 +1204,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         customNavigationBar.translatesAutoresizingMaskIntoConstraints = false
         customNavigationBar.onBack = presentationMode == .full ? { NavigationStorage.shared.pop() } : nil
         customNavigationBar.onProfile = presentationMode == .full ? { [weak self] in self?.openProfile() } : nil
+        if presentationMode == .full, chatVM.isAllMessagesForum {
+            customNavigationBar.setShowsMoreButton(true)
+            customNavigationBar.onMore = { [weak self] source in self?.showForumMoreMenu(from: source) }
+        }
         customNavigationBar.onSelectionCancel = { [weak self] in
             self?.endMessageSelection()
         }

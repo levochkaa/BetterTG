@@ -19,6 +19,8 @@ import TDLibKit
     @Published private(set) var loading = false
     @Published private(set) var hasMore = true
     @Published private(set) var errorMessage: String?
+    @Published private(set) var memberCount: Int
+    @Published private(set) var onlineMemberCount = 0
 
     #if DEBUG
     private(set) var probeQueries = [String]()
@@ -30,6 +32,7 @@ import TDLibKit
     private let reads: ForumTopicsReadEnvironment
     private var cancellables = Set<AnyCancellable>()
     private var loadTask: Task<Void, Never>?
+    private var memberCountTask: Task<Void, Never>?
     // Canceling a Swift task doesn't end TDLib's continuation. Old generations
     // occupy these transport slots until their exact tasks return.
     private var topicRequests = [UUID: Task<Void, Never>]()
@@ -55,6 +58,12 @@ import TDLibKit
     private var restorationReset: Bool?
     private var retired = false
 
+    /// The forum header subtitle, as in Telegram's forum topic list (ChatTitleComponent with the peer status).
+    var headerStatus: String {
+        guard memberCount > 0 else { return L10n.telegram("Group.Status") }
+        return ChatVM.memberStatus(memberCount: memberCount, onlineMemberCount: onlineMemberCount)
+    }
+
     private var contextIsCurrent: Bool {
         usesTransport && !retired && reads.currentSource()?.matches(location) == true
             && client.id == location.clientID
@@ -77,6 +86,7 @@ import TDLibKit
 
     deinit {
         loadTask?.cancel()
+        memberCountTask?.cancel()
         topicRequests.values.forEach { $0.cancel() }
         chatOpenLease?.invalidate()
     }
@@ -92,6 +102,7 @@ import TDLibKit
         self.customChat = customChat
         self.location = location
         self.client = client
+        self.memberCount = customChat.supergroup?.memberCount ?? 0
         self.usesTransport = usesTransport
         self.reads = reads ?? .live(client: client)
         if let restoration, restoration.accepts(location) {
@@ -175,6 +186,7 @@ import TDLibKit
         #if DEBUG
         if !usesTransport { probeStarts += 1 }
         #endif
+        loadMemberCount()
         guard restoringPages else { loadInitial()
             return
         }
@@ -202,6 +214,8 @@ import TDLibKit
         generation &+= 1
         loadTask?.cancel()
         loadTask = nil
+        memberCountTask?.cancel()
+        memberCountTask = nil
         topicRequests.values.forEach { $0.cancel() }
         topicRequestIDs.removeAll()
         pendingTopicRefreshes.removeAll()
@@ -231,6 +245,17 @@ import TDLibKit
         let normalized = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard contextIsCurrent, normalized == query, normalized == acceptedQuery else { return nil }
         return topics.first { $0.info.forumTopicId == id }
+    }
+
+    /// The cached supergroup can report 0 members; the full info carries the count Telegram shows.
+    private func loadMemberCount() {
+        guard usesTransport, memberCountTask == nil, let groupID = customChat.supergroup?.id else { return }
+        let client = client
+        memberCountTask = Task { [weak self] in
+            guard let info = try? await client.getSupergroupFullInfo(supergroupId: groupID),
+                  !Task.isCancelled, info.memberCount > 0, let self, contextIsCurrent else { return }
+            memberCount = info.memberCount
+        }
     }
 
     private func load(reset: Bool, query: String) {
@@ -351,6 +376,20 @@ import TDLibKit
                 retire()
             }
             .store(in: &cancellables)
+        observeCurrentUpdate(.updateChatOnlineMemberCount) { [weak self] update in
+            guard let self, contextIsCurrent, update.chatId == location.chatID else { return }
+            onlineMemberCount = update.onlineMemberCount
+        }
+        observeCurrentUpdate(.updateSupergroup) { [weak self] update in
+            guard let self, contextIsCurrent, update.supergroup.id == customChat.supergroup?.id,
+                  update.supergroup.memberCount > 0 else { return }
+            memberCount = update.supergroup.memberCount
+        }
+        observeCurrentUpdate(.updateSupergroupFullInfo) { [weak self] update in
+            guard let self, contextIsCurrent, update.supergroupId == customChat.supergroup?.id,
+                  update.supergroupFullInfo.memberCount > 0 else { return }
+            memberCount = update.supergroupFullInfo.memberCount
+        }
         observeCurrentUpdate(.updateForumTopicInfo) { [weak self] update in
             guard let self,
                   contextIsCurrent,

@@ -456,15 +456,15 @@ import UIKit
         case .bot, .user:
             return onlineStatus
         case .group:
-            return memberStatus(memberCount: memberCount, onlineMemberCount: onlineMemberCount)
+            return Self.memberStatus(memberCount: memberCount, onlineMemberCount: onlineMemberCount)
         case .supergroup(let group):
             guard memberCount > 0 else {
                 return group.isChannel ? L10n.telegram("Channel.Status") : L10n.telegram("Group.Status")
             }
             if group.isChannel {
-                return countStatus("Conversation.StatusSubscribers", count: memberCount)
+                return Self.countStatus("Conversation.StatusSubscribers", count: memberCount)
             }
-            return memberStatus(memberCount: memberCount, onlineMemberCount: onlineMemberCount)
+            return Self.memberStatus(memberCount: memberCount, onlineMemberCount: onlineMemberCount)
         }
     }
 
@@ -924,6 +924,17 @@ import UIKit
                 visibleMessageIDs: visibleMessageIDs, client: client,
             )
         }
+    }
+
+    /// Telegram's group subtitle: "N members", plus ", M online" once more than one member is online.
+    static func memberStatus(memberCount: Int, onlineMemberCount: Int) -> String {
+        let members = countStatus("Conversation.StatusMembers", count: memberCount)
+        guard onlineMemberCount > 1 else { return members }
+        return "\(members), \(countStatus("Conversation.StatusOnline", count: onlineMemberCount))"
+    }
+
+    static func countStatus(_ key: String, count: Int) -> String {
+        L10n.telegramPlural(key, count: count, formattedCount: count.formatted(.number))
     }
 
     /// Chat-level pins cover messages outside topics. Saved Messages also tags every message with its
@@ -5672,15 +5683,5 @@ import UIKit
             .compactMap(\.self)
         // Expiry only ends the assertion; canonical work and accepted RPCs keep their owners.
         voiceBackgroundCheckpoint.protect(tasks)
-    }
-
-    private func memberStatus(memberCount: Int, onlineMemberCount: Int) -> String {
-        let members = countStatus("Conversation.StatusMembers", count: memberCount)
-        guard onlineMemberCount > 1 else { return members }
-        return "\(members), \(countStatus("Conversation.StatusOnline", count: onlineMemberCount))"
-    }
-
-    private func countStatus(_ key: String, count: Int) -> String {
-        L10n.telegramPlural(key, count: count, formattedCount: count.formatted(.number))
     }
 }

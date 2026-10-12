@@ -18,10 +18,18 @@ final class TelegramListNavigationBar: UIView {
         didSet { searchView.onQueryChange = onQueryChange }
     }
 
+    /// Makes the title a button, like Telegram's ChatTitleComponent opening the peer's info.
+    var onTitleTap: (() -> Void)? {
+        didSet { updateTitleInteraction() }
+    }
+
     // MARK: Private
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let titleControl = TelegramNavigationTitleControl()
+    private let titleStack = UIStackView()
     private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
     private let leftButton = UIButton(type: .system)
     private let rightButton = UIButton(type: .system)
     private let searchView: ChatListNavigationSearchView
@@ -29,6 +37,8 @@ final class TelegramListNavigationBar: UIView {
     private let rightAction: (() -> Void)?
     private let showsBackButton: Bool
     private var currentScrollOffset = CGFloat.zero
+
+    var rightButtonView: UIView { rightButton }
 
     var isSearchActive: Bool { searchView.isActive }
     var hasMarkedText: Bool { searchView.hasMarkedText }
@@ -89,6 +99,23 @@ final class TelegramListNavigationBar: UIView {
         leftButton.isHidden = hidden
     }
 
+    /// A secondary line under the title, as Telegram shows a forum's member status.
+    func setSubtitle(_ text: String?) {
+        subtitleLabel.text = text
+        subtitleLabel.isHidden = text?.isEmpty != false
+        updateTitleInteraction()
+    }
+
+    private func updateTitleInteraction() {
+        let tappable = onTitleTap != nil
+        titleControl.isUserInteractionEnabled = tappable
+        // Without an action the labels stay separate static text, as before.
+        titleControl.isAccessibilityElement = tappable
+        titleControl.accessibilityTraits = tappable ? .button : []
+        let subtitle = subtitleLabel.isHidden ? nil : subtitleLabel.text
+        titleControl.accessibilityLabel = [titleLabel.text, subtitle].compactMap(\.self).joined(separator: ", ")
+    }
+
     private func configureViews() {
         clipsToBounds = true
         blurView.translatesAutoresizingMaskIntoConstraints = false
@@ -109,12 +136,28 @@ final class TelegramListNavigationBar: UIView {
         leftButton.addTarget(self, action: #selector(leftPressed), for: .touchUpInside)
         rightButton.addTarget(self, action: #selector(rightPressed), for: .touchUpInside)
 
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.textColor = .label
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.textAlignment = .center
         titleLabel.adjustsFontForContentSizeCategory = true
-        addSubview(titleLabel)
+        titleLabel.lineBreakMode = .byTruncatingTail
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.font = .preferredFont(forTextStyle: .caption1)
+        subtitleLabel.textAlignment = .center
+        subtitleLabel.adjustsFontForContentSizeCategory = true
+        subtitleLabel.isHidden = true
+        titleStack.translatesAutoresizingMaskIntoConstraints = false
+        titleStack.axis = .vertical
+        titleStack.alignment = .center
+        titleStack.isUserInteractionEnabled = false
+        titleStack.addArrangedSubview(titleLabel)
+        titleStack.addArrangedSubview(subtitleLabel)
+        titleControl.translatesAutoresizingMaskIntoConstraints = false
+        titleControl.highlightedContentView = titleStack
+        titleControl.addTarget(self, action: #selector(titlePressed), for: .touchUpInside)
+        titleControl.addSubview(titleStack)
+        addSubview(titleControl)
+        updateTitleInteraction()
 
         searchView.translatesAutoresizingMaskIntoConstraints = false
         searchView.onActiveChange = { [weak self] active in
@@ -147,10 +190,14 @@ final class TelegramListNavigationBar: UIView {
             rightButton.widthAnchor.constraint(equalToConstant: 44),
             rightButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
 
-            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leftButton.trailingAnchor, constant: 8),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: rightButton.leadingAnchor, constant: -8),
-            titleLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
-            titleLabel.centerYAnchor.constraint(equalTo: leftButton.centerYAnchor),
+            titleControl.leadingAnchor.constraint(greaterThanOrEqualTo: leftButton.trailingAnchor, constant: 8),
+            titleControl.trailingAnchor.constraint(lessThanOrEqualTo: rightButton.leadingAnchor, constant: -8),
+            titleControl.centerXAnchor.constraint(equalTo: centerXAnchor),
+            titleControl.topAnchor.constraint(equalTo: leftButton.topAnchor),
+            titleControl.bottomAnchor.constraint(equalTo: leftButton.bottomAnchor),
+            titleStack.leadingAnchor.constraint(equalTo: titleControl.leadingAnchor),
+            titleStack.trailingAnchor.constraint(equalTo: titleControl.trailingAnchor),
+            titleStack.centerYAnchor.constraint(equalTo: titleControl.centerYAnchor),
 
             searchView.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: Self.titleHeight),
             searchView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
@@ -166,6 +213,7 @@ final class TelegramListNavigationBar: UIView {
 
     @objc private func leftPressed() { leftAction?() }
     @objc private func rightPressed() { rightAction?() }
+    @objc private func titlePressed() { onTitleTap?() }
 
     private func setSearchActive(_ active: Bool) {
         let parentView = superview
@@ -180,7 +228,7 @@ final class TelegramListNavigationBar: UIView {
             delay: 0,
             options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
         ) {
-            self.titleLabel.alpha = active ? 0 : 1
+            self.titleControl.alpha = active ? 0 : 1
             self.leftButton.alpha = active ? 0 : 1
             self.rightButton.alpha = active ? 0 : 1
             self.searchView.transform = active
@@ -203,6 +251,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     var onSearchQueryChange: ((String) -> Void)?
     var onSearchActiveChange: ((Bool) -> Void)?
     var onProfile: (() -> Void)?
+    /// Shown instead of the avatar by `setShowsMoreButton(true)`; receives the button as the menu source.
+    var onMore: ((UIView) -> Void)?
 
     // MARK: Private
 
@@ -214,6 +264,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private let titleLabel = UILabel()
     private let statusLabel = UILabel()
     private let avatarView = ProfileAvatarView()
+    private let moreButton = UIButton(type: .system)
+    private var showsMoreButton = false
     private let searchField = UISearchTextField()
     private let closeButton = UIButton(type: .system)
     private let selectionCancelButton = UIButton(type: .system)
@@ -264,6 +316,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             backButton.isHidden = true
             selectionCancelButton.isHidden = false
             avatarView.isHidden = true
+            moreButton.isHidden = true
             titleControl.isUserInteractionEnabled = false
             applyTitle(
                 title: L10n.telegramPlural("Conversation.SelectedMessagesFormat", count: count)
@@ -278,7 +331,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             regularTitleTrailingConstraint.isActive = true
             backButton.isHidden = backButtonExplicitlyHidden
             selectionCancelButton.isHidden = true
-            avatarView.isHidden = false
+            avatarView.isHidden = showsMoreButton
+            moreButton.isHidden = !showsMoreButton
             titleControl.isUserInteractionEnabled = true
             applyTitle(
                 title: configuredTitle,
@@ -310,6 +364,15 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         searchField.textColor = found == false ? .systemRed : .label
     }
 
+    /// Telegram shows More in place of the avatar for a forum read as messages
+    /// (rightNavigationButtonForChatInterfaceState, moreInfoNavigationButton).
+    func setShowsMoreButton(_ shows: Bool) {
+        showsMoreButton = shows
+        let selecting = selectionCount != nil
+        avatarView.isHidden = selecting || shows
+        moreButton.isHidden = selecting || !shows
+    }
+
     func setBackButtonHidden(_ hidden: Bool) {
         backButtonExplicitlyHidden = hidden
         if selectionCount == nil {
@@ -333,6 +396,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         UIView.animate(withDuration: 0.2) {
             self.titleControl.alpha = 0
             self.avatarView.alpha = 0
+            self.moreButton.alpha = 0
             self.backButton.alpha = 0
             self.searchField.alpha = 1
             self.closeButton.alpha = 1
@@ -386,6 +450,18 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         avatarView.isUserInteractionEnabled = true
         avatarView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(profilePressed)))
         addSubview(avatarView)
+
+        moreButton.translatesAutoresizingMaskIntoConstraints = false
+        moreButton.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
+        moreButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 18, weight: .medium),
+            forImageIn: .normal,
+        )
+        moreButton.tintColor = .systemBlue
+        moreButton.accessibilityLabel = L10n.telegram("Common.More")
+        moreButton.isHidden = true
+        moreButton.addTarget(self, action: #selector(morePressed), for: .touchUpInside)
+        addSubview(moreButton)
 
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.placeholder = L10n.telegram("Conversation.ContextMenuSearchMessages")
@@ -450,6 +526,10 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             avatarView.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
             avatarView.widthAnchor.constraint(equalToConstant: 34),
             avatarView.heightAnchor.constraint(equalToConstant: 34),
+            moreButton.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
+            moreButton.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
+            moreButton.widthAnchor.constraint(equalToConstant: 44),
+            moreButton.heightAnchor.constraint(equalToConstant: Self.contentHeight),
 
             regularTitleLeadingConstraint,
             regularTitleTrailingConstraint,
@@ -491,6 +571,10 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         onProfile?()
     }
 
+    @objc private func morePressed() {
+        onMore?(moreButton)
+    }
+
     @objc private func selectionCancelPressed() {
         onSelectionCancel?()
     }
@@ -510,6 +594,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         UIView.animate(withDuration: 0.2) {
             self.titleControl.alpha = 1
             self.avatarView.alpha = 1
+            self.moreButton.alpha = 1
             self.backButton.alpha = 1
             self.searchField.alpha = 0
             self.closeButton.alpha = 0

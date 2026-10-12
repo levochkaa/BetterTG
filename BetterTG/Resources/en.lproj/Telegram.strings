@@ -428,3 +428,7 @@
 "Common.More" = "More";
 "ChatList.UndoArchiveTitle" = "Chat archived";
 "Undo.Undo" = "Undo";
+"Chat.ContextViewAsTopics" = "View as Topics";
+"Chat.ContextViewAsMessages" = "View as Messages";
+"GroupInfo.Title" = "Group Info";
+"Conversation.Search" = "Search";

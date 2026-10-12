@@ -61,10 +61,11 @@ import UIKit
         title: viewModel.customChat.displayTitle,
         placeholder: L10n.betterTG("Forum.SearchTopics"),
         leftImage: UIImage(systemName: "chevron.left"),
-        rightImage: nil,
+        rightImage: UIImage(systemName: "ellipsis.circle"),
         leftAction: { [weak self] in self?.navigationController?.popViewController(animated: true) },
-        rightAction: nil,
+        rightAction: { [weak self] in self?.showMoreMenu() },
         showsBackButton: true,
+        rightAccessibilityLabel: L10n.telegram("Common.More"),
     )
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private var searchQuery = ""
@@ -568,6 +569,8 @@ import UIKit
         if presentationMode == .contextPreview {
             navigationBarView.isUserInteractionEnabled = false
             navigationBarView.setLeftButtonHidden(true)
+        } else {
+            navigationBarView.onTitleTap = { [weak self] in self?.openGroupInfo() }
         }
         updateNavigationBar()
     }
@@ -586,6 +589,14 @@ import UIKit
     private func observeState() {
         let model = viewModel
         let binding = bindingID
+        model.$memberCount
+            .combineLatest(model.$onlineMemberCount)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, owns(model, binding: binding, current: false) else { return }
+                navigationBarView.setSubtitle(model.headerStatus)
+            }
+            .store(in: &cancellables)
         model.$topics
             .receive(on: DispatchQueue.main)
             .sink { [weak self] topics in
@@ -766,6 +777,66 @@ import UIKit
             targetQuote: quote,
         ))
         return true
+    }
+
+    /// Telegram's forum title opens the group's info (ChatListController.updateForum, tapped).
+    private func openGroupInfo() {
+        guard presentationMode == .standard, contextIsCurrent, let accountID = viewModel.location.accountID,
+              let navigationController, navigationController.topViewController === self else { return }
+        let profile = PeerProfileViewController(
+            customChat: viewModel.customChat,
+            topic: nil,
+            client: viewModel.client,
+            accountID: accountID,
+        )
+        navigationController.pushViewController(profile, animated: true)
+    }
+
+    /// Telegram's forum More menu (ChatListControllerImpl.openMoreMenu, isViewingAsTopics: true). Add Member and
+    /// New Topic need screens BetterTG doesn't have yet.
+    private func showMoreMenu() {
+        guard presentationMode == .standard, contextIsCurrent, presentedViewController == nil,
+              navigationController?.topViewController === self else { return }
+        let actions = [
+            TelegramContextMenuAction(
+                title: L10n.telegram("Chat.ContextViewAsTopics"),
+                image: UIImage(systemName: "checkmark"),
+            ),
+            TelegramContextMenuAction(title: L10n.telegram("Chat.ContextViewAsMessages"), image: UIImage()) {
+                [weak self] in self?.viewAsMessages()
+            },
+            TelegramContextMenuAction(
+                title: L10n.telegram("GroupInfo.Title"),
+                image: UIImage(systemName: "person.2"),
+                startsNewSection: true,
+            ) { [weak self] in self?.openGroupInfo() },
+        ]
+        presentTelegramContextMenu(
+            sourceView: navigationBarView.rightButtonView,
+            actions: actions,
+            presentationStyle: .sourceMorph,
+        )
+    }
+
+    /// Telegram replaces the topic list with the forum's message history and stores the choice on the server.
+    private func viewAsMessages() {
+        guard presentationMode == .standard, contextIsCurrent else { return }
+        let model = viewModel
+        let binding = bindingID
+        let client = model.client
+        let chatID = model.location.chatID
+        Task { [weak self] in
+            guard await (try? client.send(TDNativeRequests.toggleChatViewAsTopics(chatId: chatID, viewAsTopics: false)))
+                != nil,
+                let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client),
+                !chat.chat.viewAsTopics, let self, owns(model, binding: binding),
+                let navigationController,
+                let index = navigationController.viewControllers.firstIndex(where: { $0 === self })
+            else { return }
+            var stack = navigationController.viewControllers
+            stack[index] = ChatViewController(customChat: chat, location: model.location)
+            navigationController.setViewControllers(stack, animated: false)
+        }
     }
 
     private func presentLoadError(_ message: String, model: ForumTopicsVM, binding: UUID) {
