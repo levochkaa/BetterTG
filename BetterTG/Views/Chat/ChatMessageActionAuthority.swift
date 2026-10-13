@@ -102,6 +102,9 @@ import UIKit
                   optionIDs.allSatisfy({ content.poll.options.indices.contains($0) }),
                   Set(optionIDs).count == optionIDs.count,
                   content.poll.allowsMultipleAnswers || optionIDs.count <= 1 else { return nil }
+        case .content(.cancelSending(let messageID)):
+            guard let raw = sources.first(where: { $0.id == messageID }),
+                  case .messageSendingStatePending = raw.sendingState else { return nil }
         case .content, .media, .selection:
             break
         }

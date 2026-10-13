@@ -32,6 +32,7 @@ final class MessageMediaView: UIView {
         client: TDLibClient,
         mediaRevealSession: MediaRevealSession? = nil,
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
+        onCancelSending: ((Int64) -> Void)? = nil,
         onTap: @escaping ([Message], Int64) -> Void,
     ) -> Bool {
         if case .messageVideoNote = message.message.content,
@@ -60,6 +61,7 @@ final class MessageMediaView: UIView {
                 client: client,
                 revealPermits: revealPermits,
                 videoPlaybackOwners: videoPlaybackOwners,
+                onCancelSending: onCancelSending,
                 onTap: onTap,
             )
             view = albumView
@@ -73,10 +75,16 @@ final class MessageMediaView: UIView {
             switch message.message.content {
             case .messagePhoto(let photo):
                 let photoView = SinglePhotoView()
-                photoView.configure(photo: photo.photo, isLivePhoto: photo.video != nil, client: client) { onTap(
-                    [message.message],
-                    message.id,
-                ) }
+                photoView.configure(
+                    photo: photo.photo,
+                    message: message.message,
+                    isLivePhoto: photo.video != nil,
+                    client: client,
+                ) { onTap([message.message], message.id) }
+                if let onCancelSending {
+                    let messageID = message.message.id
+                    photoView.showUploadProgress(for: message.message, client: client) { onCancelSending(messageID) }
+                }
                 view = photoView
             case .messageVoiceNote(let voice):
                 let voiceView = VoiceNotePlaybackView()
@@ -189,6 +197,10 @@ final class MessageMediaView: UIView {
                         usesFileAsThumbnailFallback: false,
                         client: client,
                     ) { onTap([message.message], message.id) }
+                    if let onCancelSending {
+                        let messageID = message.message.id
+                        fileView.showUploadProgress(for: message.message, client: client) { onCancelSending(messageID) }
+                    }
                     view = fileView
                 }
             default:
@@ -209,11 +221,13 @@ final class MessageMediaView: UIView {
         let representedIDs = Set(message.sourceMessages.map(\.id))
         revealSubscription = mediaRevealSession?.revisionsChanged.sink { [weak self] changed in
             guard !changed.ids.isDisjoint(with: representedIDs) else { return }
+            // A finished upload changes the photo's files, which is a new revision; keep the disc so it can fade out.
             self?.configure(
                 message: message,
                 client: client,
                 mediaRevealSession: mediaRevealSession,
                 videoPlaybackOwners: videoPlaybackOwners,
+                onCancelSending: onCancelSending,
                 onTap: onTap,
             )
         }
@@ -321,6 +335,7 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
 
     private let imageView = TDImageLoadingView()
     private let livePhotoBadge = LivePhotoBadgeView()
+    private let uploadProgress = MediaUploadProgressView()
     private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
     private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
     private var onTap: (() -> Void)?
@@ -332,12 +347,15 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
         imageView.clipsToBounds = true
         addSubview(imageView)
         addSubview(livePhotoBadge)
+        addSubview(uploadProgress)
         livePhotoBadge.frame = CGRect(x: 8, y: 8, width: 21, height: 21)
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: topAnchor),
             imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: trailingAnchor),
             imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            uploadProgress.centerXAnchor.constraint(equalTo: centerXAnchor),
+            uploadProgress.centerYAnchor.constraint(equalTo: centerYAnchor),
             heightConstraint,
             widthConstraint,
         ])
@@ -350,7 +368,13 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
 
     // MARK: Internal
 
-    func configure(photo: Photo, isLivePhoto: Bool = false, client: TDLibClient, onTap: @escaping () -> Void) {
+    func configure(
+        photo: Photo,
+        message: Message? = nil,
+        isLivePhoto: Bool = false,
+        client: TDLibClient,
+        onTap: @escaping () -> Void,
+    ) {
         self.onTap = onTap
         livePhotoBadge.isHidden = !isLivePhoto
         accessibilityLabel = isLivePhoto
@@ -359,11 +383,25 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
         let displaySize = telegramMediaDisplaySize(source: telegramPhotoSize(photo))
         widthConstraint.constant = displaySize.width
         heightConstraint.constant = displaySize.height
-        imageView.load(photo: photo, preferredSize: .yBox, client: client)
+        if let local = telegramLocalPhotoFile(for: message, photo: photo, preferred: .yBox) {
+            imageView.load(
+                file: local,
+                placeholderData: photo.minithumbnail?.data,
+                maximumPixelSize: 960,
+                client: client,
+            )
+        } else {
+            imageView.load(photo: photo, preferredSize: .yBox, client: client)
+        }
+    }
+
+    func showUploadProgress(for message: Message, client: TDLibClient, onCancel: @escaping () -> Void) {
+        uploadProgress.configure(message: message, client: client, onCancel: onCancel)
     }
 
     func prepareForReuse() {
         imageView.cancel()
+        uploadProgress.reset()
         onTap = nil
     }
 
@@ -372,6 +410,8 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
     }
 
     @objc private func tapped() {
+        // While the photo uploads only the disc reacts (ChatMessageInteractiveMediaNode.imageTap).
+        guard !uploadProgress.isActive else { return }
         onTap?()
     }
 }
@@ -439,9 +479,15 @@ final class AlbumMediaView: UIView, ReusableMediaView {
         client: TDLibClient,
         revealPermits: [Int64: MediaRevealPermit] = [:],
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner],
+        onCancelSending: ((Int64) -> Void)? = nil,
         onTap: @escaping ([Message], Int64) -> Void,
     ) {
         prepareForReuse()
+        // Telegram lays an album out in send order, first picked item first. The pending ID keeps that order while
+        // TDLib replaces members with server IDs one by one.
+        let messages = messages.sorted {
+            MediaUploadProgressRegistry.sendOrderID(of: $0) < MediaUploadProgressRegistry.sendOrderID(of: $1)
+        }
         self.messages = messages
         self.onTap = onTap
         let itemSizes = messages.map(telegramMessageMediaSize)
@@ -461,11 +507,23 @@ final class AlbumMediaView: UIView, ReusableMediaView {
                 videoPlaybackOwner: videoPlaybackOwners[message.id],
                 onTap: { onTap(messages, message.id) },
             )
+            if let onCancelSending {
+                let messageID = message.id
+                tile.showUploadProgress(for: message, client: client) { onCancelSending(messageID) }
+            }
             if layout.indices.contains(index) {
                 tile.apply(position: layout[index].1)
             }
             addSubview(tile)
             tiles.append(tile)
+            // Place the new tile now: a reconfigured row lays out inside the timeline's batch animation, which would
+            // otherwise grow every tile and its upload disc from the album's corner.
+            if itemFrames.indices.contains(index) {
+                UIView.performWithoutAnimation {
+                    tile.frame = itemFrames[index]
+                    tile.layoutIfNeeded()
+                }
+            }
         }
         setNeedsLayout()
     }
@@ -525,6 +583,8 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
     private let imageView = TDImageLoadingView()
     private let playIcon = UIImageView()
     private let livePhotoBadge = LivePhotoBadgeView()
+    private let uploadProgress = MediaUploadProgressView()
+    private var showsPlayIcon = false
     private weak var videoPlaybackOwner: GalleryVideoPlaybackOwner?
     private var videoPlaybackAttachmentToken: VideoPlaybackAttachmentToken?
     private var onTap: (() -> Void)?
@@ -561,6 +621,7 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         addSubview(imageView)
         addSubview(playIcon)
         addSubview(livePhotoBadge)
+        addSubview(uploadProgress)
         livePhotoBadge.frame = CGRect(x: 8, y: 8, width: 21, height: 21)
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(tapped))
         tapGesture.cancelsTouchesInView = false
@@ -569,15 +630,27 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         NSLayoutConstraint.activate([
             playIcon.centerXAnchor.constraint(equalTo: centerXAnchor),
             playIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            uploadProgress.centerXAnchor.constraint(equalTo: centerXAnchor),
+            uploadProgress.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+        uploadProgress.onActiveChange = { [weak self] active in
+            guard let self else { return }
+            playIcon.isHidden = active || !showsPlayIcon
+        }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // RadialStatusNode is 50 pt in media bubbles and 32 pt where the media is small.
+        uploadProgress.diameter = min(bounds.width, bounds.height) < 90 ? 32 : 50
+    }
+
     override func accessibilityActivate() -> Bool {
-        guard let onTap else { return false }
+        guard let onTap, !uploadProgress.isActive else { return false }
         onTap()
         return true
     }
@@ -631,7 +704,16 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         case .messagePhoto(let photo):
             playIcon.isHidden = true
             livePhotoBadge.isHidden = photo.video == nil
-            imageView.load(photo: photo.photo, preferredSize: .yBox, client: client)
+            if let local = telegramLocalPhotoFile(for: message, photo: photo.photo, preferred: .yBox) {
+                imageView.load(
+                    file: local,
+                    placeholderData: photo.photo.minithumbnail?.data,
+                    maximumPixelSize: 960,
+                    client: client,
+                )
+            } else {
+                imageView.load(photo: photo.photo, preferredSize: .yBox, client: client)
+            }
         case .messageVideo(let video):
             playIcon.isHidden = false
             if let thumbnail = video.video.thumbnail {
@@ -653,6 +735,7 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         default:
             playIcon.isHidden = true
         }
+        showsPlayIcon = !playIcon.isHidden
     }
 
     func apply(position: TelegramMosaicItemPosition) {
@@ -685,6 +768,8 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         revealPermit = nil
         imageView.cancel()
         imageView.isHidden = false
+        uploadProgress.reset()
+        showsPlayIcon = false
         onTap = nil
         livePhotoBadge.isHidden = true
         messageID = nil
@@ -700,6 +785,11 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         playIcon.isHidden = true
         videoPlaybackAttachmentToken = owner.attach(to: self, context: .inline)
         return videoPlaybackAttachmentToken != nil
+    }
+
+    func showUploadProgress(for message: Message, client: TDLibClient, onCancel: @escaping () -> Void) {
+        guard cover == nil, videoPlaybackOwner == nil else { return }
+        uploadProgress.configure(message: message, client: client, onCancel: onCancel)
     }
 
     func makeTransitionSnapshot() -> UIView? {
@@ -721,6 +811,7 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
     }
 
     @objc private func tapped() {
+        guard !uploadProgress.isActive else { return }
         onTap?()
     }
 }
@@ -831,6 +922,8 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
 
     private let imageView = TDImageLoadingView()
     private let playIcon = UIImageView()
+    private let uploadProgress = MediaUploadProgressView()
+    private var showsPlayIcon = false
     private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
     private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
     private var onTap: (() -> Void)?
@@ -846,6 +939,7 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
         playIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 46)
         addSubview(imageView)
         addSubview(playIcon)
+        addSubview(uploadProgress)
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: topAnchor),
             imageView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -853,9 +947,15 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
             imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
             playIcon.centerXAnchor.constraint(equalTo: centerXAnchor),
             playIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            uploadProgress.centerXAnchor.constraint(equalTo: centerXAnchor),
+            uploadProgress.centerYAnchor.constraint(equalTo: centerYAnchor),
             heightConstraint,
             widthConstraint,
         ])
+        uploadProgress.onActiveChange = { [weak self] active in
+            guard let self else { return }
+            playIcon.isHidden = active || !showsPlayIcon
+        }
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
     }
 
@@ -879,6 +979,7 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
         let displaySize = telegramMediaDisplaySize(source: size)
         widthConstraint.constant = displaySize.width
         heightConstraint.constant = displaySize.height
+        self.showsPlayIcon = showsPlayIcon
         playIcon.isHidden = !showsPlayIcon
         if let thumbnail {
             imageView.load(file: thumbnail.file, placeholderData: minithumbnail?.data, client: client)
@@ -889,8 +990,13 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
         }
     }
 
+    func showUploadProgress(for message: Message, client: TDLibClient, onCancel: @escaping () -> Void) {
+        uploadProgress.configure(message: message, client: client, onCancel: onCancel)
+    }
+
     func prepareForReuse() {
         imageView.cancel()
+        uploadProgress.reset()
         onTap = nil
     }
 
@@ -899,6 +1005,7 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
     }
 
     @objc private func tapped() {
+        guard !uploadProgress.isActive else { return }
         onTap?()
     }
 }
@@ -1040,7 +1147,13 @@ final class TDImageLoadingView: UIImageView {
             apply(UIImage(cgImage: cached.image), asFullImageFor: request)
             return
         }
-        if !preservingImage { preparePlaceholder(placeholderData, for: request) }
+        if !preservingImage {
+            if let preview = MediaUploadProgressRegistry.sentPreview(forPath: file.local.path) {
+                image = preview
+            } else {
+                preparePlaceholder(placeholderData, for: request)
+            }
+        }
         let download = origin.request(fileID: file.id)
         fileRequest = download
         download.start(

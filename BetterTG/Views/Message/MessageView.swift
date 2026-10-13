@@ -664,6 +664,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             client: client,
             mediaRevealSession: mediaRevealSession,
             videoPlaybackOwners: videoPlaybackOwners,
+            onCancelSending: { [weak self] messageID in
+                guard self?.actionBindingID == actionBindingID else { return }
+                onContentAction(.cancelSending(messageID: messageID))
+            },
             onTap: mediaAction,
         )
         mediaView.isHidden = !hasMedia

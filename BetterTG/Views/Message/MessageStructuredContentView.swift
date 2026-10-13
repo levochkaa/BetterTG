@@ -13,6 +13,8 @@ enum MessageContentAction {
     case openLocation(location: Location, title: String)
     case submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission)
     case richContentLayoutChanged
+    /// The disc over an uploading photo or video was tapped: delete the sending message, as Telegram does.
+    case cancelSending(messageID: Int64)
 
     @MainActor func rejectPollSubmission(in store: MessagePollInteractionStore?) {
         if case .submitPollAnswer(_, _, let submission) = self { store?.failSubmission(submission) }
@@ -1877,6 +1879,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("location")
                     case .submitPollAnswer(_, let optionIDs, _):
                         actions.append("poll:\(optionIDs.map(String.init).joined(separator: ","))")
+                    case .cancelSending:
+                        actions.append("cancel")
                     }
                 }
                 precondition(installed, "Fixture \(fixture.name) didn't install")

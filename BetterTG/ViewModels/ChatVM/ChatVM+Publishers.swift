@@ -293,6 +293,11 @@ extension ChatVM {
         _ update: UpdateMessageSendSucceeded,
         authority: ChatUpdateDeliveryAuthority,
     ) {
+        MediaUploadProgressRegistry.noteSendSucceeded(
+            chatID: update.message.chatId,
+            oldMessageID: update.oldMessageId,
+            newMessageID: update.message.id,
+        )
         sendTransitionMessageIDReplaced.send((update.oldMessageId, update.message.id))
         releaseOutgoingDocumentFile(messageID: update.oldMessageId)
         guard acceptsUpdate(authority) else { return }

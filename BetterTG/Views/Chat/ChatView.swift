@@ -3498,6 +3498,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         case .submitPollAnswer(let messageID, let optionIDs, let submission):
             chatVM.submitPollAnswer(messageID: messageID, optionIDs: optionIDs, submission: submission)
+        case .cancelSending(let messageID):
+            // ChatMessageInteractiveMediaNode.progressPressed deletes a sending message for everyone.
+            chatVM.deleteMessages(ids: [messageID], deleteForBoth: true)
         }
     }
 
