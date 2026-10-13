@@ -19,6 +19,9 @@ import UIKit
         let hasSpoiler: Bool
         let isSecret: Bool
 
+        /// Neither a spoiler nor self-destructing: any client may show these pixels.
+        var isPublic: Bool { !hasSpoiler && !isSecret }
+
         init?(message: Message) {
             self.chatID = message.chatId
             self.messageID = message.id
@@ -58,6 +61,9 @@ import UIKit
 
     private var latest = [Int64: Key]()
     private var revealed = [Int64: Key]()
+    /// The accepted key a public-to-public change replaced. A timeline row built a moment before the change still
+    /// renders it until the next snapshot lands; covering public media for that frame only flashes a placeholder.
+    private var predecessors = [Int64: Key]()
 
     init(context: MediaGalleryPlaybackContext) { self.context = context }
 
@@ -86,7 +92,10 @@ import UIKit
             if !replacingExisting, latest[message.id] != nil { continue }
             let key = Key(message: message)
             if latest[message.id] != key {
-                if latest[message.id] != nil { changed.insert(message.id) }
+                if let previous = latest[message.id] {
+                    changed.insert(message.id)
+                    predecessors[message.id] = previous.isPublic && key?.isPublic == true ? previous : nil
+                }
                 revealed[message.id] = nil
             }
             latest[message.id] = key
@@ -106,6 +115,7 @@ import UIKit
         for id in messageIDs {
             latest[id] = nil
             revealed[id] = nil
+            predecessors[id] = nil
         }
     }
 
@@ -117,7 +127,8 @@ import UIKit
     }
 
     fileprivate func current(_ key: Key) -> Bool {
-        context.isCurrent && key.chatID == context.location.chatID && latest[key.messageID] == key
+        guard context.isCurrent, key.chatID == context.location.chatID else { return false }
+        return latest[key.messageID] == key || predecessors[key.messageID] == key
     }
 
     fileprivate func allows(_ key: Key) -> Bool {
