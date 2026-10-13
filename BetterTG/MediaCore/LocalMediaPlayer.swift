@@ -24,6 +24,10 @@ final class LocalMediaPlayer {
         let start: TimeInterval
     }
 
+    /// Attach a video output to new items so `currentFramePixelBuffer()` works while playing; `AVPlayerLayer`
+    /// exposes its frame only when paused. Set before loading.
+    var keepsCurrentFrameReadable = false
+
     // MARK: Private
 
     private let player = AVPlayer()
@@ -56,6 +60,9 @@ final class LocalMediaPlayer {
         completion: (() -> Void)?,
     )?
     private var currentSeekIdentifier: UUID?
+    private var videoOutput: AVPlayerItemVideoOutput?
+    private var videoOutputOrientation = UIImage.Orientation.up
+    private var videoOrientationTask: Task<Void, Never>?
     private var itemCancellables = Set<AnyCancellable>()
     private var cancellables = Set<AnyCancellable>()
 
@@ -209,6 +216,25 @@ final class LocalMediaPlayer {
         compositionLease = nil
         vodSession?.invalidate()
         vodSession = nil
+    }
+
+    private static func imageOrientation(for transform: CGAffineTransform) -> UIImage.Orientation {
+        switch (transform.a, transform.b, transform.c, transform.d) {
+        case (0, 1, -1, 0): .right
+        case (0, -1, 1, 0): .left
+        case (-1, 0, 0, -1): .down
+        default: .up
+        }
+    }
+
+    /// The decoded frame for the current item time with the track's display orientation, for a transition snapshot.
+    func currentFrame() -> (pixelBuffer: CVPixelBuffer, orientation: UIImage.Orientation)? {
+        guard let item = player.currentItem,
+              let videoOutput,
+              item.outputs.contains(videoOutput),
+              let pixelBuffer = videoOutput.copyPixelBuffer(forItemTime: item.currentTime(), itemTimeForDisplay: nil)
+        else { return nil }
+        return (pixelBuffer, videoOutputOrientation)
     }
 
     func attach(to layer: AVPlayerLayer) {
@@ -386,6 +412,7 @@ final class LocalMediaPlayer {
         player.pause()
         player.isMuted = false
         player.replaceCurrentItem(with: nil)
+        videoOutput = nil
         compositionLease = nil
         vodSession?.invalidate()
         vodSession = nil
@@ -575,6 +602,24 @@ final class LocalMediaPlayer {
     private func installItem(_ item: AVPlayerItem) {
         applyPlaybackRange(to: item)
         observe(item: item)
+        if keepsCurrentFrameReadable {
+            let output = AVPlayerItemVideoOutput(pixelBufferAttributes: nil)
+            item.add(output)
+            videoOutput = output
+            // Decoded buffers are stored unrotated; AVPlayerLayer applies the track's preferred transform.
+            videoOutputOrientation = .up
+            videoOrientationTask?.cancel()
+            let asset = item.asset
+            videoOrientationTask = Task { @MainActor [weak self] in
+                guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+                      let transform = try? await track.load(.preferredTransform),
+                      let self, !Task.isCancelled, videoOutput === output
+                else { return }
+                videoOutputOrientation = Self.imageOrientation(for: transform)
+            }
+        } else {
+            videoOutput = nil
+        }
         player.replaceCurrentItem(with: item)
     }
 
@@ -595,6 +640,7 @@ final class LocalMediaPlayer {
         player.cancelPendingPrerolls()
         player.pause()
         player.replaceCurrentItem(with: nil)
+        videoOutput = nil
         compositionLease = nil
         vodSession?.invalidate()
         vodSession = nil

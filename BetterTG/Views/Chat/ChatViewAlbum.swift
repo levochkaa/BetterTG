@@ -7,6 +7,7 @@ import Photos
 import TDLibKit
 import UIKit
 import UniformTypeIdentifiers
+import VideoToolbox
 
 // MARK: - GalleryPlaybackCommand
 
@@ -7675,6 +7676,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         preview.contentMode = .scaleAspectFit
         videoSurface.translatesAutoresizingMaskIntoConstraints = false
         videoSurface.backgroundColor = .black
+        player.keepsCurrentFrameReadable = true
         player.attach(to: videoSurface.playerLayer)
         self.displayCancellable = videoSurface.playerLayer
             .publisher(for: \.isReadyForDisplay, options: [.initial, .new])
@@ -7792,6 +7794,14 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     }
 
     func makeTransitionSnapshot(contentMode: UIView.ContentMode) -> UIView? {
+        // The cover stays under the video surface, so once playback moved it no longer matches the screen. Telegram
+        // flies the frame on screen back to the bubble.
+        if let frame = currentFrameImage() {
+            let snapshot = UIImageView(image: frame)
+            snapshot.contentMode = contentMode
+            snapshot.clipsToBounds = true
+            return snapshot
+        }
         if preview.image != nil {
             return preview.makeImageSnapshot(contentMode: contentMode)
         }
@@ -8214,6 +8224,25 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             return false
         }
         return true
+    }
+
+    /// The frame the surface shows now, or nil before the first frame and while the surface is hidden.
+    private func currentFrameImage() -> UIImage? {
+        let frame: (pixelBuffer: CVPixelBuffer, orientation: UIImage.Orientation)?
+        if usesFFmpegVOD {
+            guard let surface = ffmpegPlayer?.surfaceView, !surface.isHidden else { return nil }
+            // Available while paused; a playing sample-buffer surface falls back to the cover.
+            frame = surface.displayLayer.sampleBufferRenderer.displayedPixelBuffer().map { ($0, .up) }
+        } else {
+            guard !videoSurface.isHidden, isSurfaceReady else { return nil }
+            frame = player.currentFrame()
+        }
+        guard let frame else { return nil }
+        var image: CGImage?
+        guard VTCreateCGImageFromCVPixelBuffer(frame.pixelBuffer, options: nil, imageOut: &image) == noErr,
+              let image
+        else { return nil }
+        return UIImage(cgImage: image, scale: 1, orientation: frame.orientation)
     }
 
     private func playbackPlay() {
@@ -8743,18 +8772,20 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     }
 
     private func refreshPlaybackSurfaceVisibility() {
+        // Buffering keeps the last frame on screen, as Telegram's video node does; hiding the surface showed the cover
+        // for a moment whenever playback resumed, e.g. when a closed gallery handed the video back to its bubble.
         let canShowSurface: Bool =
             switch currentPlaybackState {
-            case .ended, .paused, .playing:
+            case .buffering, .ended, .paused, .playing:
                 isSurfaceReady
-            case .buffering, .failed, .idle, .preparing:
+            case .failed, .idle, .preparing:
                 false
             }
         videoSurface.isHidden = usesFFmpegVOD || !canShowSurface
         let keepsSampleBufferLayerVisible = usesFFmpegVOD && isPictureInPictureRetainedByOwner
         ffmpegPlayer?.surfaceView.isHidden = !usesFFmpegVOD
             || !canShowSurface && !keepsSampleBufferLayerVisible
-        if canShowSurface {
+        if canShowSurface, currentPlaybackState != .buffering {
             spinner.stopAnimating()
         } else if currentPlaybackState != .failed, currentPlaybackState != .idle {
             spinner.startAnimating()
