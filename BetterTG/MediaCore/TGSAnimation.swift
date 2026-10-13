@@ -244,11 +244,11 @@ final class TGSStickerView: UIControl, AnimatedFileView {
               playbackEnabled
         else { return }
 
-        let progress = synchronizedProgress(for: animation)
-        animationView.play(fromProgress: progress, toProgress: 1, loopMode: .playOnce) { [weak self] finished in
-            guard finished else { return }
-            DispatchQueue.main.async { self?.playSynchronized() }
-        }
+        // One looping animation starting at the shared phase keeps equal stickers in step. Restarting a play-once
+        // animation every cycle rebuilt the Core Animation tree on the main thread each time, and a chat with many
+        // animated emoji fell to about 20 frames per second.
+        animationView.currentProgress = synchronizedProgress(for: animation)
+        animationView.play(fromProgress: 0, toProgress: 1, loopMode: .loop)
     }
 
     private func synchronizedProgress(for animation: LottieAnimation) -> AnimationProgressTime {
