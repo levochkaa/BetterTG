@@ -250,6 +250,13 @@ import UIKit
     private var restorationWaitsForViewport = false
     private var latestRestorationFailed = false
     private var messageReplacementIDs = [Int64: Int64]()
+    /// The album `sendMessageAlbum` is creating. TDLib announces its members one `updateNewMessage` at a time, and
+    /// each one reaches `messages` after its own hydration; Telegram inserts a sent album in one transaction, so the
+    /// timeline waits for the whole album.
+    private var outgoingAlbumHold: (id: UUID, count: Int)?
+    /// A composer media send TDLib is still creating. Telegram inserts the sent message in the transaction that clears
+    /// the input; the timeline holds the messages this send creates until the composer clears, so both change at once.
+    private var composerSendHold: (id: UUID, earlierMessageIDs: Set<Int64>)?
 
     var canSendLivePhotos: Bool {
         if case .chatTypeSecret = customChat.chat.type {
@@ -935,6 +942,30 @@ import UIKit
 
     static func countStatus(_ key: String, count: Int) -> String {
         L10n.telegramPlural(key, count: count, formattedCount: count.formatted(.number))
+    }
+
+    /// An album this chat is still announcing: show it once every member arrived, or a moment after the send call.
+    func holdsIncompleteOutgoingAlbum(_ message: CustomMessage) -> Bool {
+        guard let outgoingAlbumHold, message.message.mediaAlbumId != 0, message.message.isOutgoing else {
+            return false
+        }
+        let members = message.sourceMessages
+        return members.count < outgoingAlbumHold.count && members.allSatisfy {
+            if case .messageSendingStatePending = $0.sendingState {
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    /// A message the composer send in flight created; it appears together with the cleared composer.
+    func holdsComposerSendMessage(_ message: CustomMessage) -> Bool {
+        guard let composerSendHold, message.message.isOutgoing else { return false }
+        return message.sourceMessages.allSatisfy {
+            guard case .messageSendingStatePending = $0.sendingState else { return false }
+            return !composerSendHold.earlierMessageIDs.contains($0.id)
+        }
     }
 
     /// Chat-level pins cover messages outside topics. Saved Messages also tags every message with its
@@ -2136,6 +2167,8 @@ import UIKit
         let transitionKind: ComposerSendTransitionKind = displayedImages.isEmpty && displayedDocuments.isEmpty
             ? .text
             : .media
+        if transitionKind == .media { beginComposerSendHold(transitionID) }
+        defer { endComposerSendHold(transitionID) }
         sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: transitionKind))
         do {
             let result: (context: ResolvedSendContext, messages: [Message])
@@ -2150,6 +2183,9 @@ import UIKit
                 return
             }
             let draftClearSucceeded = await clearRouteDraft(result.context)
+            if transitionKind == .media {
+                await waitUntilTimelineShows(result.messages.map(\.id))
+            }
             guard locationContextIsCurrent else {
                 sendTransitionCancelled.send(transitionID)
                 return
@@ -2173,17 +2209,23 @@ import UIKit
                 || hasNewComposerState
                 || !draftClearSucceeded
             sendErrorMessage = nil
+            let acceptance = ComposerSendTransitionAcceptance(id: transitionID, messageIDs: result.messages.map(\.id))
+            if transitionKind == .media {
+                // Accept in the turn that cleared the composer, so the view inserts the media and shrinks the
+                // composer together.
+                endComposerSendHold(transitionID)
+                sendTransitionAccepted.send(acceptance)
+            }
             if hasNewComposerState {
                 cancelPendingDraftClearRetry()
                 await updateDraft()
             } else if location.isTopicScoped {
                 loadForumTopic()
             }
-            await Task.yield()
-            sendTransitionAccepted.send(ComposerSendTransitionAcceptance(
-                id: transitionID,
-                messageIDs: result.messages.map(\.id),
-            ))
+            if transitionKind != .media {
+                await Task.yield()
+                sendTransitionAccepted.send(acceptance)
+            }
             if let forward { await sendPendingForward(forward) }
         } catch {
             sendTransitionCancelled.send(transitionID)
@@ -2253,6 +2295,8 @@ import UIKit
                 )
                 messages = [message]
             } else {
+                let hold = beginOutgoingAlbum(count: contents.count)
+                defer { endOutgoingAlbum(hold) }
                 let result = try await client.sendMessageAlbum(
                     chatId: context.chatID,
                     inputMessageContents: contents,
@@ -2485,6 +2529,9 @@ import UIKit
         )
         let images = displayedImages
         guard !images.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
+        for image in images {
+            MediaUploadProgressRegistry.rememberSentPreview(image.image, path: image.url.path(percentEncoded: false))
+        }
         let caption = FormattedText(entities: getEntities(from: text), text: text.string)
         try await sendChatAction(.chatActionUploadingPhoto(ChatActionUploadingPhoto(progress: 0)), in: context)
         do {
@@ -2515,6 +2562,8 @@ import UIKit
                 }
                 sentMessages = [message]
             } else {
+                let hold = beginOutgoingAlbum(count: messageContents.count)
+                defer { endOutgoingAlbum(hold) }
                 let result = try await client.sendMessageAlbum(
                     chatId: context.chatID,
                     inputMessageContents: messageContents,
@@ -3473,6 +3522,51 @@ import UIKit
         reader.synchronize(ChatForumTopicReads.demandedIDs(
             chatID: chatID, messages: messages.flatMap(\.sourceMessages), composerTopics: composerTopics,
         ))
+    }
+
+    private func beginOutgoingAlbum(count: Int) -> UUID {
+        let id = UUID()
+        outgoingAlbumHold = (id, count)
+        return id
+    }
+
+    private func beginComposerSendHold(_ id: UUID) {
+        composerSendHold = (id, Set(messages.flatMap(\.sourceMessages).map(\.id)))
+        // A bound for a send that never settles.
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            self?.endComposerSendHold(id)
+        }
+    }
+
+    private func endComposerSendHold(_ id: UUID) {
+        guard composerSendHold?.id == id else { return }
+        composerSendHold = nil
+        messagesDidChange.send()
+    }
+
+    /// The send call returned before every member reached `messages`. Keep holding a partial album for a moment
+    /// longer, then show whatever arrived.
+    private func endOutgoingAlbum(_ id: UUID) {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            guard let self, outgoingAlbumHold?.id == id else { return }
+            outgoingAlbumHold = nil
+            messagesDidChange.send()
+        }
+    }
+
+    /// Telegram clears the input in the transaction that inserts the sent message. The sent messages reach
+    /// `messages` shortly after the send call returns; wait for them, within a bound, before the composer clears and
+    /// the timeline shows them.
+    private func waitUntilTimelineShows(_ ids: [Int64]) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(1)
+        while clock.now < deadline, !Task.isCancelled, locationContextIsCurrent {
+            let shown = Set(messages.flatMap(\.sourceMessages).map(\.id)).union(messageReplacementIDs.values)
+            if ids.allSatisfy(shown.contains), !messages.contains(where: holdsIncompleteOutgoingAlbum) { return }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     private func sendPendingForward(_ forward: PendingMessageForward) async {

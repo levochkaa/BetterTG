@@ -90,6 +90,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let timeout: DispatchWorkItem
     }
 
+    /// An additive move every timeline row shares, started at `start` (media time).
+    private struct ComposerSendGlide {
+        let key: String
+        let animation: CABasicAnimation
+        let start: CFTimeInterval
+
+        var end: CFTimeInterval { start + animation.duration }
+    }
+
     private static var videoNoteCapturePermissionDenied: Bool {
         let camera = AVCaptureDevice.authorizationStatus(for: .video)
         return camera == .denied || camera == .restricted
@@ -191,6 +200,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var selfSizingAnchorRestoreScheduled = false
     private var pendingComposerSendTransitions = [UUID: PendingComposerSendTransition]()
     private var activeComposerSendAnimations = 0
+    private var composerSendGlideCount = 0
+    private var composerSendGlides = [ComposerSendGlide]()
+    /// A media send was accepted while an earlier snapshot was still applying: the composer keeps the sent media until
+    /// the snapshot that inserts it, so both change in one transaction.
+    private var composerAwaitsSentMediaInsertion = false
+    private var composerSentMediaSettleGeneration = 0
     private var sendTransitionMessageIDAliases = [Int64: Int64]()
     private var pendingDeleteSnapshotWorkItem: DispatchWorkItem?
     private var pendingDeleteSnapshotDeadline: CFTimeInterval?
@@ -588,6 +603,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     func documentPickerWasCancelled(_: UIDocumentPickerViewController) { retryClientRestoration() }
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        applyComposerSendGlides(to: cell)
         guard case .message(let displayedMessageID) = dataSource.itemIdentifier(for: indexPath),
               let cell = cell as? MessageCell,
               let row = currentBoundRenderRow(cell)
@@ -2015,7 +2031,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         } else {
                             chatVM.resumeVoiceRecordingInteraction()
                         }
-                        composerView.update(from: chatVM)
+                        if !composerAwaitsSentMediaInsertion { composerView.update(from: chatVM) }
                     }
                     updateHighlightState()
                     updatePinnedMessageBanner(animated: true)
@@ -2257,7 +2273,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         let itemIDs = demand.structural
             ? ChatTimelineProjection.items(
-                messages: chatVM.messages.filter { !timelineSnapshots.deleting.contains($0.displayedID) },
+                messages: chatVM.messages.filter {
+                    !timelineSnapshots.deleting.contains($0.displayedID) && !chatVM.holdsIncompleteOutgoingAlbum($0)
+                        && !chatVM.holdsComposerSendMessage($0)
+                },
                 includesTopicHeaders: chatVM.isAllMessagesForum,
             )
             : timelineSnapshots.committed.ids
@@ -2430,6 +2449,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             #endif
             completion()
         }
+        collectionView.visibleCells.forEach(applyComposerSendGlides)
+        if structural, composerAwaitsSentMediaInsertion { settleComposerForSentMedia() }
         if batch.demand.animated, !previousItemIDs.isEmpty {
             riseInsertedLatestRows(after: previousItemIDs, ids: batch.content.ids)
         }
@@ -2526,7 +2547,41 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         transition.messageIDs = acceptance.messageIDs.map(resolveSendTransitionMessageID)
         pendingComposerSendTransitions[acceptance.id] = transition
+        if transition.kind == .media, isViewLoaded, timelineSourceIsCurrent {
+            // The view model released the sent media and cleared the composer in this turn. Telegram inserts the
+            // message in the transaction that shrinks the input panel; the snapshot that inserts it, now or after the
+            // one applying, also shrinks the composer, so the history moves once.
+            composerAwaitsSentMediaInsertion = true
+            composerSentMediaSettleGeneration &+= 1
+            let generation = composerSentMediaSettleGeneration
+            updateSnapshot(animated: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self, composerAwaitsSentMediaInsertion,
+                      composerSentMediaSettleGeneration == generation else { return }
+                settleComposerForSentMedia()
+            }
+        }
         DispatchQueue.main.async { [weak self] in self?.performPendingComposerSendTransitions() }
+    }
+
+    private func settleComposerForSentMedia() {
+        composerAwaitsSentMediaInsertion = false
+        guard showsComposer else { return }
+        // The thumbnails leave the composer now; their snapshots hold the place until they fly.
+        for transition in pendingComposerSendTransitions.values where !transition.messageIDs.isEmpty {
+            transition.snapshots.filter { $0.view.superview == nil }.forEach(placeComposerSendSnapshot)
+        }
+        composerView.update(from: chatVM)
+        view.layoutIfNeeded()
+    }
+
+    private func placeComposerSendSnapshot(_ source: ComposerSendTransitionSnapshot) {
+        let snapshot = source.view
+        snapshot.frame = source.sourceFrame
+        snapshot.layer.cornerCurve = .continuous
+        snapshot.layer.cornerRadius = min(12, snapshot.bounds.height / 2)
+        snapshot.clipsToBounds = true
+        view.addSubview(snapshot)
     }
 
     private func cancelComposerSendTransition(id: UUID) {
@@ -2567,6 +2622,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func performPendingComposerSendTransitions() {
         guard isViewLoaded, timelineSourceIsCurrent, !timelineSnapshots.isBusy else { return }
         defer { retryClientRestoration() }
+        // The composer clears just before acceptance, but its update may still be queued; settle it first so the
+        // snapshots fly to where the bubble ends up once the composer has shrunk.
+        if showsComposer, !composerAwaitsSentMediaInsertion,
+           pendingComposerSendTransitions.values.contains(where: { !$0.messageIDs.isEmpty })
+        {
+            composerView.update(from: chatVM)
+            view.layoutIfNeeded()
+        }
         collectionView.layoutIfNeeded()
         for (id, transition) in pendingComposerSendTransitions where !transition.messageIDs.isEmpty {
             guard let displayedID = transition.messageIDs
@@ -2607,11 +2670,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
         for (index, source) in transition.snapshots.enumerated() {
             let snapshot = source.view
-            snapshot.frame = source.sourceFrame
-            snapshot.layer.cornerCurve = .continuous
-            snapshot.layer.cornerRadius = min(12, snapshot.bounds.height / 2)
-            snapshot.clipsToBounds = true
-            view.addSubview(snapshot)
+            if snapshot.superview == nil { placeComposerSendSnapshot(source) }
             activeComposerSendAnimations += 1
             UIView.animate(
                 withDuration: 0.32,
@@ -2866,7 +2925,52 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             )
             collectionView.setContentOffset(previousOffset, animated: false)
         }
+        // Measured from before the inset change: UIKit may already move the offset when the inset changes.
+        if !pendingComposerSendTransitions.isEmpty || activeComposerSendAnimations > 0 {
+            glideRowsAfterComposerSendShift(collectionView.contentOffset.y - previousOffset.y)
+        }
         recordMessageNavigationGeometry("insets-after")
+    }
+
+    /// Telegram moves the history in the transaction that inserts a sent message and shrinks the input panel. Here
+    /// the cleared composer shrinks just after the insertion, so pinning the history would jump it by the composer's
+    /// change while the insertion still moves it the other way. The rows glide by that change on the insertion's
+    /// curve instead, so the history settles in one move.
+    private func glideRowsAfterComposerSendShift(_ shift: CGFloat) {
+        guard abs(shift) > 0.5, view.window != nil, !UIAccessibility.isReduceMotionEnabled else { return }
+        let insertion = collectionView.visibleCells
+            .lazy
+            .compactMap { $0.layer.animation(forKey: "position") as? CABasicAnimation }
+            .first { $0.isAdditive }
+        // A copy keeps UIKit's curve, including a spring.
+        let glide = (insertion?.copy() as? CABasicAnimation) ?? CABasicAnimation(keyPath: "position")
+        if insertion == nil {
+            glide.duration = 0.3
+            glide.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        }
+        glide.isAdditive = true
+        glide.fromValue = CGPoint(x: 0, y: shift)
+        glide.toValue = CGPoint.zero
+        glide.byValue = nil
+        composerSendGlideCount += 1
+        composerSendGlides.append(.init(
+            key: "chat.composerSendGlide.\(composerSendGlideCount)",
+            animation: glide,
+            start: CACurrentMediaTime(),
+        ))
+        collectionView.visibleCells.forEach(applyComposerSendGlides)
+    }
+
+    /// A row dequeued during a glide, or one whose animations were reset, joins it where the other rows are.
+    private func applyComposerSendGlides(to cell: UICollectionViewCell) {
+        guard !composerSendGlides.isEmpty else { return }
+        let now = CACurrentMediaTime()
+        composerSendGlides.removeAll { $0.end <= now }
+        for glide in composerSendGlides where cell.layer.animation(forKey: glide.key) == nil {
+            guard let animation = glide.animation.copy() as? CABasicAnimation else { continue }
+            animation.beginTime = cell.layer.convertTime(glide.start, from: nil)
+            cell.layer.add(animation, forKey: glide.key)
+        }
     }
 
     private func invalidateSelfSizingLayoutPreservingAnchor() {
