@@ -1458,6 +1458,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if let videoNoteRecorder {
             return await videoNoteRecorder.beginHolding()
         }
+        // Like the photo camera, check for a camera before starting capture. Without one (the Simulator), AVCapture
+        // reports a runtime error and the user saw "capture stopped unexpectedly" instead of the camera being absent.
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            presentVideoNoteErrorIfNeeded(L10n.betterTG("VideoNote.CameraUnavailable"))
+            return false
+        }
         guard let context = try? chatVM.resolveSendContext(
             for: .videoNote,
             replyingTo: chatVM.replyMessage,
