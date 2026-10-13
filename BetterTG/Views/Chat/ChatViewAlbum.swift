@@ -5461,6 +5461,12 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         attachmentToken = token
         attachmentContext = context
         attachmentContainer = container
+        // AVPlayerLayer animates a gravity or size change of its video layer implicitly, so a video handed back from
+        // the gallery appeared zoomed and shrank into its bubble for 0.25 s. Telegram's video node takes the new frame
+        // at once.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         mediaView.setPresentationContext(context)
         if mediaView.superview !== container {
             mediaView.removeFromSuperview()
@@ -5472,6 +5478,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
                 mediaView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
                 mediaView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             ])
+            container.layoutIfNeeded()
         }
         applyEffectivePlaybackVisibility()
         updatePictureInPictureControl()
