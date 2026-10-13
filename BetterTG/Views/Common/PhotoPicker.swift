@@ -2,6 +2,7 @@
 
 import PhotosUI
 import UIKit
+import UniformTypeIdentifiers
 
 enum PhotoPickerSelectionLoader {
     static func load(_ results: [PHPickerResult], completion: @escaping ([SelectedImage]) -> Void) {
@@ -11,19 +12,41 @@ enum PhotoPickerSelectionLoader {
         var selected = [Int: SelectedImage]()
 
         for (index, result) in results.prefix(10).enumerated() {
-            guard result.itemProvider.canLoadObject(ofClass: UIImage.self) else { continue }
+            let provider = result.itemProvider
+            let isVideo = !provider.canLoadObject(ofClass: PHLivePhoto.self)
+                && provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier)
+            guard isVideo || provider.canLoadObject(ofClass: UIImage.self) else { continue }
             group.enter()
-            load(result) { image in
+            let store: (SelectedImage?) -> Void = { image in
                 defer { group.leave() }
                 guard let image else { return }
                 lock.lock()
                 selected[index] = image
                 lock.unlock()
             }
+            if isVideo {
+                loadVideo(result, completion: store)
+            } else {
+                load(result, completion: store)
+            }
         }
 
         group.notify(queue: .main) {
             completion(selected.keys.sorted().compactMap { selected[$0] })
+        }
+    }
+
+    /// Telegram sends a picked video converted, with its first frame as the thumbnail (`LegacyMediaPickers`).
+    private static func loadVideo(_ result: PHPickerResult, completion: @escaping (SelectedImage?) -> Void) {
+        result.itemProvider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, error in
+            guard let url, let copy = SelectedVideoLoader.copy(url) else {
+                log("Error loading picked video: \(String(describing: error))")
+                completion(nil)
+                return
+            }
+            Task.detached(priority: .userInitiated) {
+                await completion(SelectedVideoLoader.selection(forMovieAt: copy))
+            }
         }
     }
 

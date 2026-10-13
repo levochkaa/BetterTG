@@ -3647,6 +3647,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func inlineVideoPlaybackOwner(for message: Message) -> GalleryVideoPlaybackOwner? {
+        // ChatMessageInteractiveMediaNode turns automatic playback off for an unsent message, so a sending video
+        // shows its thumbnail under the upload disc until TDLib replaces it with the sent message.
+        guard message.sendingState == nil else { return nil }
         if let owner = inlineVideoPlaybackOwners[message.id] {
             if owner.matches(message: message) { return owner }
             owner.invalidate()
@@ -3842,9 +3845,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func showPhotoPicker() {
-        guard chatVM.canAttachPhotos else { return }
+        // Telegram's gallery offers photos and videos, each when the chat allows it.
+        var filters = [PHPickerFilter]()
+        if chatVM.canAttachPhotos { filters.append(.images) }
+        if chatVM.canAttachVideos { filters.append(.videos) }
+        guard let first = filters.first else { return }
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
-        configuration.filter = .images
+        configuration.filter = filters.count == 1 ? first : .any(of: filters)
         configuration.selectionLimit = 10
         configuration.selection = .ordered
         configuration.preferredAssetRepresentationMode = .current

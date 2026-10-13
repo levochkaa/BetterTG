@@ -68,6 +68,7 @@ import UIKit
         #endif
         VoiceNoteDraftCoordinator.shared.start()
         VideoNoteDraftCoordinator.shared.start()
+        VideoSendGenerationCoordinator.shared.start()
         AppLocalization.shared.start()
         AvatarColorPalette.shared.start()
         PushRelayCoordinator.shared.start()

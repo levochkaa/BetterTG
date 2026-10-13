@@ -11,6 +11,7 @@ enum ChatSendContentKind {
     case photo
     case sticker
     case text
+    case video
     case videoNote
     case voiceNote
 }

@@ -318,6 +318,14 @@ import UIKit
         )) != nil
     }
 
+    var canAttachVideos: Bool {
+        (try? resolveSendContext(
+            for: .video,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )) != nil
+    }
+
     var canAttachDocuments: Bool {
         (try? resolveSendContext(
             for: .document,
@@ -335,8 +343,8 @@ import UIKit
     }
 
     var canWriteAnyMessage: Bool {
-        canWriteBasicMessages || canAttachPhotos || canAttachDocuments || canSendStickersAndAnimations
-            || canRecordVoiceNote || canRecordVideoNote
+        canWriteBasicMessages || canAttachPhotos || canAttachVideos || canAttachDocuments
+            || canSendStickersAndAnimations || canRecordVoiceNote || canRecordVideoNote
     }
 
     var canShowComposer: Bool {
@@ -2175,7 +2183,7 @@ import UIKit
             if !displayedDocuments.isEmpty {
                 result = try await sendMessageDocuments()
             } else if !displayedImages.isEmpty {
-                result = try await sendMessagePhotos()
+                result = try await sendMessageMedia()
             } else if !text.characters.isEmpty {
                 result = try await sendMessageText()
             } else {
@@ -2521,23 +2529,37 @@ import UIKit
         }
     }
 
-    func sendMessagePhotos() async throws -> (context: ResolvedSendContext, messages: [Message]) {
+    /// Sends the composer's photos and videos, one message or an album that may mix both, as Telegram does.
+    func sendMessageMedia() async throws -> (context: ResolvedSendContext, messages: [Message]) {
+        let images = displayedImages
+        let sendsVideos = images.contains { $0.video != nil }
+        if sendsVideos, images.contains(where: { $0.video == nil }) {
+            _ = try resolveSendContext(for: .photo, replyingTo: replyMessage, useCurrentReplyOverride: true)
+        }
         let context = try resolveSendContext(
-            for: .photo,
+            for: sendsVideos ? .video : .photo,
             replyingTo: replyMessage,
             useCurrentReplyOverride: true,
         )
-        let images = displayedImages
         guard !images.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
         for image in images {
             MediaUploadProgressRegistry.rememberSentPreview(image.image, path: image.url.path(percentEncoded: false))
         }
         let caption = FormattedText(entities: getEntities(from: text), text: text.string)
-        try await sendChatAction(.chatActionUploadingPhoto(ChatActionUploadingPhoto(progress: 0)), in: context)
+        try await sendChatAction(
+            sendsVideos
+                ? .chatActionUploadingVideo(ChatActionUploadingVideo(progress: 0))
+                : .chatActionUploadingPhoto(ChatActionUploadingPhoto(progress: 0)),
+            in: context,
+        )
         do {
             let sentMessages: [Message]
             var messageContents = [InputMessageContent]()
             for image in images {
+                if let video = image.video {
+                    messageContents.append(makeInputMessageVideo(video, thumbnail: image.url, caption: caption))
+                    continue
+                }
                 await messageContents.append(makeInputMessageContent(
                     for: image.url,
                     caption: caption,
@@ -2583,12 +2605,51 @@ import UIKit
                 }
                 sentMessages = messages
             }
+            for (image, message) in zip(images, sentMessages) {
+                guard let video = image.video, case .messageVideo(let content) = message.content else { continue }
+                VideoSendConversionProgress.register(
+                    fileID: content.video.video.id,
+                    clientID: client.id,
+                    originalPath: video.url.path(percentEncoded: false),
+                )
+            }
             try? await cancelChatAction(in: context)
             return (context, sentMessages)
         } catch {
             try? await cancelChatAction(in: context)
             throw error
         }
+    }
+
+    /// A picked video as Telegram sends it from the gallery: converted to the medium preset when TDLib generates
+    /// the file (`VideoSendGenerationCoordinator`), with the converted size, a 320 pt thumbnail and streaming.
+    func makeInputMessageVideo(_ video: SelectedVideo, thumbnail: URL, caption: FormattedText) -> InputMessageContent {
+        let dimensions = VideoSendPreset.outputDimensions(for: video.presentationSize)
+        return .inputMessageVideo(InputMessageVideo(
+            video: InputVideo(
+                video: .inputFileGenerated(InputFileGenerated(
+                    originalPath: video.url.path(percentEncoded: false),
+                    conversion: VideoSendGenerationCoordinator.conversion,
+                    expectedSize: VideoSendPreset.estimatedSize(duration: video.duration, hasAudio: video.hasAudio),
+                )),
+                thumbnail: InputThumbnail(
+                    thumbnail: .inputFileLocal(InputFileLocal(path: thumbnail.path(percentEncoded: false))),
+                    width: Int(video.thumbnailSize.width),
+                    height: Int(video.thumbnailSize.height),
+                ),
+                cover: nil,
+                startTimestamp: 0,
+                addedStickerFileIds: [],
+                duration: Int(video.duration.rounded()),
+                width: Int(dimensions.width),
+                height: Int(dimensions.height),
+                supportsStreaming: true,
+            ),
+            caption: caption,
+            showCaptionAboveMedia: false,
+            selfDestructType: nil,
+            hasSpoiler: false,
+        ))
     }
 
     func makeInputMessageContent(
@@ -4072,6 +4133,8 @@ import UIKit
             .videoNote
         case .chatActionUploadingPhoto:
             .photo
+        case .chatActionUploadingVideo:
+            .video
         default:
             .text
         }
@@ -4189,6 +4252,8 @@ import UIKit
             permissions.canSendPhotos
         case .text:
             permissions.canSendBasicMessages
+        case .video:
+            permissions.canSendVideos
         case .videoNote:
             permissions.canSendVideoNotes
         case .voiceNote:

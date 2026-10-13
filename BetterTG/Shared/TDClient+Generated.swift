@@ -150,6 +150,10 @@ extension TDClient {
         ))
     }
 
+    func finishFileGeneration(generationId: Int64, error: TDNativeError?) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.finishFileGeneration(generationId: generationId, error: error))
+    }
+
     func forwardMessages(
         chatId: Int64,
         fromChatId: Int64,

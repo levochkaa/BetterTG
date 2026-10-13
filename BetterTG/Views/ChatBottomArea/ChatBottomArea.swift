@@ -402,6 +402,7 @@ final class ChatComposerView: UIView {
         textView.isSelectable = canWriteText
         textView.alpha = canWriteText ? 1 : 0.5
         let canAttach = chatVM.canAttachPhotos
+            || chatVM.canAttachVideos
             || chatVM.canAttachDocuments
             || chatVM.canSendStickersAndAnimations
             || chatVM.canWriteBasicMessages
@@ -973,6 +974,28 @@ final class ChatComposerView: UIView {
             }, for: .touchUpInside)
             container.addSubview(imageView)
             container.addSubview(removeButton)
+            if let video = selectedImage.video {
+                // Telegram's gallery marks a video with its duration in the bottom corner.
+                let durationBadge = UIView()
+                durationBadge.translatesAutoresizingMaskIntoConstraints = false
+                durationBadge.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+                durationBadge.layer.cornerRadius = 5
+                let durationLabel = UILabel()
+                durationLabel.translatesAutoresizingMaskIntoConstraints = false
+                durationLabel.textColor = .white
+                durationLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
+                durationLabel.text = formatVideoDuration(video.duration)
+                durationBadge.addSubview(durationLabel)
+                container.addSubview(durationBadge)
+                NSLayoutConstraint.activate([
+                    durationLabel.topAnchor.constraint(equalTo: durationBadge.topAnchor, constant: 2),
+                    durationLabel.bottomAnchor.constraint(equalTo: durationBadge.bottomAnchor, constant: -2),
+                    durationLabel.leadingAnchor.constraint(equalTo: durationBadge.leadingAnchor, constant: 5),
+                    durationLabel.trailingAnchor.constraint(equalTo: durationBadge.trailingAnchor, constant: -5),
+                    durationBadge.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 4),
+                    durationBadge.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
+                ])
+            }
             if selectedImage.livePhotoVideoURL != nil {
                 let liveButton = UIButton(type: .system)
                 liveButton.translatesAutoresizingMaskIntoConstraints = false

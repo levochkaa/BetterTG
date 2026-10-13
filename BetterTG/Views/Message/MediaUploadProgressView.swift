@@ -176,9 +176,13 @@ final class MediaUploadProgressView: UIControl {
     private let arcLayer = CAShapeLayer()
     private let crossLayer = CAShapeLayer()
     private var cancellable: AnyCancellable?
+    private var conversionCancellable: AnyCancellable?
     private var seedTask: Task<Void, Never>?
     private var onCancel: (() -> Void)?
     private var progress = MediaUploadProgressView.minimumProgress
+    private var uploadFraction: CGFloat = 0
+    /// The converted share of a video this session sends; nil for other media.
+    private var conversionFraction: Double?
     private var generation = UUID()
     private var registryKey: MediaUploadProgressRegistry.Key?
 
@@ -288,6 +292,14 @@ final class MediaUploadProgressView: UIControl {
             progress = saved.progress
             arcLayer.strokeEnd = saved.progress
         }
+        if case .messageVideo = message.content {
+            conversionFraction = VideoSendConversionProgress.fraction(fileID: file.id, clientID: client.id)
+            conversionCancellable = VideoSendConversionProgress.updates(fileID: file.id, clientID: client.id)
+                .sink { [weak self] fraction in
+                    self?.conversionFraction = fraction
+                    self?.applyProgress(animated: true)
+                }
+        }
         apply(file, animated: false)
         cancellable = TDImageLoadingView.fileUpdates(source: origin.source, fileID: file.id)
             .sink { [weak self] in self?.apply($0, animated: true) }
@@ -304,6 +316,9 @@ final class MediaUploadProgressView: UIControl {
         generation = UUID()
         registryKey = nil
         cancellable = nil
+        conversionCancellable = nil
+        conversionFraction = nil
+        uploadFraction = 0
         seedTask?.cancel()
         seedTask = nil
         onCancel = nil
@@ -334,7 +349,13 @@ final class MediaUploadProgressView: UIControl {
             return
         }
         let size = max(file.size, file.expectedSize)
-        let fraction = size > 0 ? CGFloat(file.remote.uploadedSize) / CGFloat(size) : 0
+        uploadFraction = size > 0 ? CGFloat(file.remote.uploadedSize) / CGFloat(size) : 0
+        applyProgress(animated: animated)
+    }
+
+    private func applyProgress(animated: Bool) {
+        guard isActive, isEnabled else { return }
+        let fraction = conversionFraction.map { CGFloat($0) * 0.5 + uploadFraction * 0.5 } ?? uploadFraction
         let value = min(1, max(Self.minimumProgress, fraction))
         // Never step back: the seeded `getFile` state can arrive after a newer `updateFile`.
         guard value >= progress else { return }
@@ -369,6 +390,7 @@ final class MediaUploadProgressView: UIControl {
     /// Fades out over what remains of the 0.25 s that began at `finishedAt`.
     private func resumeFinish(from finishedAt: CFTimeInterval) {
         cancellable = nil
+        conversionCancellable = nil
         seedTask?.cancel()
         seedTask = nil
         isEnabled = false
