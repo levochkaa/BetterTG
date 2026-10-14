@@ -138,6 +138,7 @@ extension RootVM {
             folder.isLoading = false
             folder.hasMoreChats = true
             folder.loadError = nil
+            folder.chats.forEach { $0.isHeldThroughClientRenewal = true }
         }
         renewalHoldTask?.cancel()
         renewalHoldTask = Task { [weak self] in
@@ -160,6 +161,10 @@ extension RootVM {
             renewalHoldTask = nil
         }
         synchronizeChatLists()
+        // A row the renewed client never listed again is dropped above, or stays only while its list is held.
+        for folder in allFolders where !renewalHeldFolderIDs.contains(folder.id) {
+            folder.chats.forEach { $0.isHeldThroughClientRenewal = false }
+        }
     }
 
     func ensureBaseChatLists() {
@@ -240,6 +245,7 @@ extension RootVM {
                     existing.lastMessage = latest.lastMessage
                     existing.draftMessage = latest.draftMessage
                     existing.type = latest.type
+                    existing.isHeldThroughClientRenewal = false
                     folder.chatDidChange.send(id)
                 } else {
                     updated.append(latest)

@@ -19,6 +19,9 @@ import TDLibKit
     @Published var unreadCount: Int
     @Published var lastMessage: Message?
     @Published var draftMessage: DraftMessage?
+    /// A chat-list row kept through a same-account client renewal. Its files belong to the previous client, so the
+    /// list loads none of them until the renewed client supplies the chat again.
+    var isHeldThroughClientRenewal = false
 
     var id: Int64 { chat.id }
 

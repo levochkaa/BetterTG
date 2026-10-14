@@ -137,6 +137,20 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         placeholderView.reset()
     }
 
+    /// A row kept through a same-account client renewal: its files belong to the previous client, and the renewed
+    /// one can give the same file ID to another file. The same peer keeps its avatar; another peer shows its inline
+    /// thumbnail until the renewed client supplies the chat.
+    func configureHeldThroughClientRenewal(
+        minithumbnail: Minithumbnail?, placeholder: TelegramAvatarPlaceholder, client: TDLibClient,
+    ) {
+        guard representedPeerID != placeholder.peerID || imageView.image == nil else {
+            self.placeholder = placeholder
+            updatePlaceholder()
+            return
+        }
+        configure(file: nil, minithumbnail: minithumbnail, placeholder: placeholder, client: client)
+    }
+
     // MARK: Private
 
     private func updatePlaceholder() {
@@ -153,6 +167,10 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         guard let placeholder else { return }
         guard let sourceOrigin, sourceOrigin.isCurrent else {
             imageView.cancel()
+            // A same-account client renewal keeps this peer's avatar until the owner configures it with the new
+            // client.
+            if let sourceOrigin, sourceOrigin.source.accountID == TDLib.shared.activeAccountID,
+               representedPeerID == placeholder.peerID { return }
             imageView.image = nil
             representedAccountID = nil
             representedClientID = nil
@@ -175,8 +193,11 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
             || representedIcon != icon
         else { return }
 
+        // The same peer through a renewed client, or a new photo: keep the current avatar until the new one decodes.
+        let preservesImage = imageView.image != nil && representedAccountID == accountID
+            && representedPeerID == placeholder.peerID && representedIcon == icon && file != nil
         imageView.cancel()
-        imageView.image = nil
+        if !preservesImage { imageView.image = nil }
         representedAccountID = accountID
         representedClientID = clientID
         representedPeerID = placeholder.peerID
@@ -189,6 +210,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
                 placeholderData: minithumbnailData,
                 maximumPixelSize: 160,
                 origin: sourceOrigin,
+                preservingImage: preservesImage,
             )
         } else {
             imageView.loadPlaceholder(data: minithumbnailData, maximumPixelSize: 160, origin: sourceOrigin)

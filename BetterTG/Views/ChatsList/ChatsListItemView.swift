@@ -135,13 +135,21 @@ final class ChatListCell: UITableViewCell {
             : (pinned || isMuted ? 14 : 0)
         setNeedsLayout()
         updateBackground(highlighted: isHighlighted || isSelected, animated: false)
-        avatarView.configure(
-            file: chat.chat.photo?.small,
-            largeFile: chat.chat.photo?.big,
-            minithumbnail: chat.chat.photo?.minithumbnail,
-            placeholder: chat.telegramAvatarPlaceholder,
-            client: client,
-        )
+        if chat.isHeldThroughClientRenewal {
+            avatarView.configureHeldThroughClientRenewal(
+                minithumbnail: chat.chat.photo?.minithumbnail,
+                placeholder: chat.telegramAvatarPlaceholder,
+                client: client,
+            )
+        } else {
+            avatarView.configure(
+                file: chat.chat.photo?.small,
+                largeFile: chat.chat.photo?.big,
+                minithumbnail: chat.chat.photo?.minithumbnail,
+                placeholder: chat.telegramAvatarPlaceholder,
+                client: client,
+            )
+        }
         accessibilityLabel = [
             chat.displayTitle,
             messageLabel.text,
