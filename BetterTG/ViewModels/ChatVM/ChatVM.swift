@@ -267,7 +267,8 @@ import UIKit
     private var outgoingAlbumHold: (id: UUID, count: Int)?
     /// A composer media send TDLib is still creating. Telegram inserts the sent message in the transaction that clears
     /// the input; the timeline holds the messages this send creates until the composer clears, so both change at once.
-    private var composerSendHold: (id: UUID, earlierMessageIDs: Set<Int64>)?
+    /// Until the send call returns, any new pending outgoing message may be one of them; then only the returned ones.
+    private var composerSendHold: (id: UUID, earlierMessageIDs: Set<Int64>, sentMessageIDs: Set<Int64>?)?
 
     var canSendLivePhotos: Bool {
         if case .chatTypeSecret = customChat.chat.type {
@@ -983,6 +984,7 @@ import UIKit
         guard let composerSendHold, message.message.isOutgoing else { return false }
         return message.sourceMessages.allSatisfy {
             guard case .messageSendingStatePending = $0.sendingState else { return false }
+            if let sentMessageIDs = composerSendHold.sentMessageIDs { return sentMessageIDs.contains($0.id) }
             return !composerSendHold.earlierMessageIDs.contains($0.id)
         }
     }
@@ -2243,6 +2245,7 @@ import UIKit
                 sendTransitionCancelled.send(transitionID)
                 return
             }
+            if transitionKind == .media { narrowComposerSendHold(transitionID, to: result.messages.map(\.id)) }
             let draftClearSucceeded = await clearRouteDraft(result.context)
             if transitionKind == .media {
                 await waitUntilTimelineShows(result.messages.map(\.id))
@@ -3703,7 +3706,7 @@ import UIKit
     }
 
     private func beginComposerSendHold(_ id: UUID) {
-        composerSendHold = (id, Set(messages.flatMap(\.sourceMessages).map(\.id)))
+        composerSendHold = (id, Set(messages.flatMap(\.sourceMessages).map(\.id)), nil)
         // A bound for a send that never settles.
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
@@ -3714,6 +3717,13 @@ import UIKit
     private func endComposerSendHold(_ id: UUID) {
         guard composerSendHold?.id == id else { return }
         composerSendHold = nil
+        messagesDidChange.send()
+    }
+
+    /// The send call named its messages: release any other pending outgoing row the hold caught.
+    private func narrowComposerSendHold(_ id: UUID, to messageIDs: [Int64]) {
+        guard composerSendHold?.id == id else { return }
+        composerSendHold?.sentMessageIDs = Set(messageIDs)
         messagesDidChange.send()
     }
 
