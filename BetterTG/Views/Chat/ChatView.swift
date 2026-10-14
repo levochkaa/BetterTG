@@ -1271,7 +1271,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.layoutIfNeeded()
         if viewport.keepsLatest { pinToLatestEdge(animated: false) }
         else if let id = viewport.messageID, let displayed = chatVM.displayedMessageID(containing: id) {
-            restoreSnapshotAnchor(.init(itemID: .message(displayed), minYRelativeToViewport: viewport.pixelOffset))
+            landSnapshotAnchor(.init(itemID: .message(displayed), minYRelativeToViewport: viewport.pixelOffset))
         } else {
             let minimum = -collectionView.adjustedContentInset.top
             let maximum = max(
@@ -2884,6 +2884,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             animated: false,
         )
         recordMessageNavigationGeometry("anchor-after")
+    }
+
+    /// A fresh collection view carries estimated heights everywhere. Landing makes the rows on screen self-size,
+    /// which moves the anchor, so land again until it holds, as `centerCommittedMessage` does.
+    private func landSnapshotAnchor(_ anchor: SnapshotAnchor) {
+        timelineLayoutMutationDepth += 1
+        defer { finishTimelineLayoutMutation(retryPendingNavigation: false) }
+        for _ in 0..<4 {
+            collectionView.layoutIfNeeded()
+            guard let indexPath = dataSource.indexPath(for: anchor.itemID),
+                  let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return }
+            let current = attributes.frame.minY - collectionView.contentOffset.y
+            guard abs(current - anchor.minYRelativeToViewport) > 0.5 else { return }
+            restoreSnapshotAnchor(anchor)
+        }
     }
 
     private func messageCellWillChangeHeight() {
