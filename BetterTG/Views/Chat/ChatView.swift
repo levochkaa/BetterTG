@@ -121,6 +121,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         tdlib: tdlib,
     )
     private lazy var mediaRevealSession = galleryPlaybackContext.map(MediaRevealSession.init)
+    /// Canonical object and render revision each row had when the reveal session last saw it.
+    private var revealReconciledRows = [DisplayedMessageID: (message: CustomMessage, revision: UInt64)]()
     private let historyContainerView = UIView()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     private var dataSource: UICollectionViewDiffableDataSource<Section, ChatTimelineItemID>!
@@ -2189,7 +2191,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         let model = chatVM
                         let ids = messageRenderInvalidations.drain(current: model.messages, owner: model)
                         guard !ids.isEmpty, !clientOwnerRetired, model.locationContextIsCurrent else { return }
-                        mediaRevealSession?.reconcile(chatVM.messages.flatMap(\.sourceMessages))
+                        reconcileChangedRevealRows()
                         reconfigureMessages(ids: ids)
                     }
                 }
@@ -2303,8 +2305,27 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         drainTimelineSnapshots()
     }
 
+    /// Reveal keys read native TDLib fields, so a pass reconciles only rows whose canonical object or render revision
+    /// changed since the previous one. Array replacements already reconcile through `observeAcceptedMessages`.
+    private func reconcileChangedRevealRows() {
+        guard let mediaRevealSession else { return }
+        var rows = [DisplayedMessageID: (message: CustomMessage, revision: UInt64)](
+            minimumCapacity: chatVM.messages.count,
+        )
+        var changed = [Message]()
+        for message in chatVM.messages {
+            let previous = revealReconciledRows[message.displayedID]
+            if previous?.message !== message || previous?.revision != message.renderRevision {
+                changed += message.sourceMessages
+            }
+            rows[message.displayedID] = (message, message.renderRevision)
+        }
+        revealReconciledRows = rows
+        if !changed.isEmpty { mediaRevealSession.reconcile(changed) }
+    }
+
     private func makeTimelineContent(_ demand: ChatTimelineSnapshotState.Demand) -> ChatTimelineSnapshotState.Content {
-        mediaRevealSession?.reconcile(chatVM.messages.flatMap(\.sourceMessages))
+        reconcileChangedRevealRows()
         let wasSelectingMessages = isSelectingMessages
         if demand.structural, isSelectingMessages {
             let displayedIDs = Set(chatVM.messages.map(\.displayedID))
