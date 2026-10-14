@@ -32,6 +32,9 @@ enum Route {
     var folderLoadTasks = [Int: Task<Void, Never>]()
     var folderConfigurationTask: Task<Void, Never>?
     var folderConfigurationGeneration = UUID()
+    /// Lists a same-account client renewal has not reloaded yet. Their rows stay until the new client lists them.
+    var renewalHeldFolderIDs = Set<Int>()
+    var renewalHoldTask: Task<Void, Never>?
     let listAuthority = RootListAuthority()
     let scopeSettingsLoading = RootScopeSettingsLoading()
 

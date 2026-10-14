@@ -112,15 +112,54 @@ extension RootVM {
         let accountChanged = activeAccountID != store.accountID
         activeAccountID = store.accountID
         synchronizeAuthorization()
-        scopeNotificationSettings = [:]
-        folders = []
-        archive = nil
+        // Returning from the background renews the same account's client. Telegram's list never empties then, so
+        // keep the rows on screen, and their scroll position, until the new client lists them again.
+        if !accountChanged, allFolders.contains(where: { !$0.chats.isEmpty }) {
+            beginChatListRenewalHold()
+        } else {
+            endChatListRenewalHold()
+            scopeNotificationSettings = [:]
+            folders = []
+            archive = nil
+        }
         if accountChanged { currentFolder = nil }
         ensureBaseChatLists()
         if store.folderConfiguration != nil { loadFolderConfiguration() }
-        guard loggedIn else { return }
+        // A renewing client keeps `loggedIn` before it is ready; its ready notification starts the loads.
+        guard loggedIn, TDLib.shared.isActiveAccountReady else { return }
         loadScopeNotificationSettings()
         allFolders.forEach { self.loadMoreChats(in: $0) }
+    }
+
+    private func beginChatListRenewalHold() {
+        renewalHeldFolderIDs = Set(allFolders.map(\.id))
+        // The previous client's loads were cancelled mid-flight and never cleared their state.
+        for folder in allFolders {
+            folder.isLoading = false
+            folder.hasMoreChats = true
+            folder.loadError = nil
+        }
+        renewalHoldTask?.cancel()
+        renewalHoldTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            self?.endChatListRenewalHold()
+        }
+    }
+
+    /// Ends the hold for one list, or for all of them, and drops the rows the new client no longer lists.
+    func endChatListRenewalHold(folderID: Int? = nil) {
+        if let folderID {
+            guard renewalHeldFolderIDs.remove(folderID) != nil else { return }
+        } else {
+            guard !renewalHeldFolderIDs.isEmpty else { return }
+            renewalHeldFolderIDs = []
+        }
+        if renewalHeldFolderIDs.isEmpty {
+            renewalHoldTask?.cancel()
+            renewalHoldTask = nil
+        }
+        synchronizeChatLists()
     }
 
     func ensureBaseChatLists() {
@@ -179,6 +218,8 @@ extension RootVM {
             var membershipChanged = false
             for id in ids {
                 guard let latest = store.customChat(id: id, in: folder.chatList) else {
+                    // A renewing client has not listed this chat yet.
+                    if renewalHeldFolderIDs.contains(folder.id) { continue }
                     if updated.contains(where: { $0.id == id }) {
                         updated.removeAll { $0.id == id }
                         membershipChanged = true
@@ -218,7 +259,15 @@ extension RootVM {
               !folder.isLoading, folder.hasMoreChats else { return }
         let client = td
         let accountID = activeAccountID
-        let desiredCount = folder.chats.count + 100
+        // A renewal reloads what the list showed; later pages load as the user scrolls.
+        let renewing = renewalHeldFolderIDs.contains(folder.id)
+        let desiredCount = renewing ? max(folder.chats.count, 1) : folder.chats.count + 100
+        let loadedCount = { [weak folder] in
+            guard let folder else { return Int.max }
+            return renewing
+                ? TelegramChatListStore.shared.chatIDs(in: folder.chatList).count
+                : folder.chats.count
+        }
         folder.isLoading = true
         folder.loadError = nil
         let generation = folderConfigurationGeneration
@@ -232,7 +281,7 @@ extension RootVM {
                     folderLoadTasks[folder.id] = nil
                 }
             }
-            while !Task.isCancelled, folder.chats.count < desiredCount {
+            while !Task.isCancelled, loadedCount() < desiredCount {
                 guard activeAccountID == accountID, td.id == client.id,
                       generation == folderConfigurationGeneration,
                       allFolders.contains(where: { $0 === folder }) else { return }
@@ -243,12 +292,14 @@ extension RootVM {
                     guard !Task.isCancelled, activeAccountID == accountID, td.id == client.id else { return }
                     if let error = error as? TDLibError, error.code == 404 {
                         folder.hasMoreChats = false
+                        if renewing { endChatListRenewalHold(folderID: folder.id) }
                     } else {
                         folder.loadError = error.localizedDescription
                     }
                     return
                 }
             }
+            if renewing, !Task.isCancelled { endChatListRenewalHold(folderID: folder.id) }
         }
     }
 }
