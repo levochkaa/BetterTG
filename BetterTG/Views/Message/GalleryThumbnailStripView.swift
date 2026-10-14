@@ -6,6 +6,8 @@ import UIKit
 final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     private final class ThumbnailCell: UICollectionViewCell {
         private let image = TDImageLoadingView()
+        /// Concealed media keeps its pixels out of the strip, as the gallery page does with `MediaConcealmentView`.
+        private let concealmentSymbol = UIImageView(image: UIImage(systemName: "eye.slash.fill"))
 
         override init(frame: CGRect) {
             super.init(frame: frame)
@@ -15,6 +17,12 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
             image.frame = contentView.bounds
             image.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             contentView.addSubview(image)
+            concealmentSymbol.tintColor = .secondaryLabel
+            concealmentSymbol.contentMode = .scaleAspectFit
+            concealmentSymbol.frame = contentView.bounds.insetBy(dx: 4, dy: 12)
+            concealmentSymbol.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            concealmentSymbol.isHidden = true
+            contentView.addSubview(concealmentSymbol)
             isAccessibilityElement = true
         }
 
@@ -26,7 +34,15 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
             image.cancel()
         }
 
-        func configure(_ message: Message, selected: Bool, client: TDLibClient) {
+        func configure(_ message: Message, selected: Bool, allowsPixels: Bool, client: TDLibClient) {
+            updateSelection(selected)
+            concealmentSymbol.isHidden = allowsPixels
+            image.backgroundColor = allowsPixels ? nil : UIColor(white: 0.18, alpha: 1)
+            guard allowsPixels else {
+                image.cancel()
+                image.image = nil
+                return
+            }
             switch message.content {
             case .messagePhoto(let value): image.load(
                     photo: value.photo,
@@ -56,7 +72,6 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
                 ) }
             default: image.cancel()
             }
-            updateSelection(selected)
         }
 
         func updateSelection(_ selected: Bool) {
@@ -70,6 +85,7 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
     private lazy var collection = UICollectionView(frame: .zero, collectionViewLayout: layout)
     private var messages = [Message]()
     private var client: TDLibClient?
+    private var allowsPixels: (Message) -> Bool = { _ in false }
     private var selectedIndex = 0
     private var pagingPosition = CGFloat.zero
     private var isScrubbing = false
@@ -120,8 +136,15 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
         }
     }
 
-    func configure(messages: [Message], selectedIndex: Int, client: TDLibClient) {
+    /// `allowsPixels` is the gallery's reveal check; call `refreshConcealment()` when a reveal or revision changes it.
+    func configure(
+        messages: [Message],
+        selectedIndex: Int,
+        client: TDLibClient,
+        allowsPixels: @escaping (Message) -> Bool,
+    ) {
         self.client = client
+        self.allowsPixels = allowsPixels
         isUpdatingLayout = true
         defer { isUpdatingLayout = false }
         let changed = self.messages.map(\.id) != messages.map(\.id)
@@ -136,6 +159,20 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
         }
         if !isScrubbing {
             updateLayout(animated: window != nil && !changed && abs(previousPosition - pagingPosition) > 0.001)
+        }
+    }
+
+    /// Reconfigures visible thumbnails whose concealment changed, such as after a reveal or a media revision.
+    func refreshConcealment(messages updatedMessages: [Message]? = nil) {
+        if let updatedMessages, updatedMessages.map(\.id) == messages.map(\.id) { messages = updatedMessages }
+        guard let client else { return }
+        for indexPath in collection.indexPathsForVisibleItems where messages.indices.contains(indexPath.item) {
+            (collection.cellForItem(at: indexPath) as? ThumbnailCell)?.configure(
+                messages[indexPath.item],
+                selected: indexPath.item == selectedIndex,
+                allowsPixels: allowsPixels(messages[indexPath.item]),
+                client: client,
+            )
         }
     }
 
@@ -162,6 +199,7 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
         if let client { cell.configure(
             messages[indexPath.item],
             selected: indexPath.item == selectedIndex,
+            allowsPixels: allowsPixels(messages[indexPath.item]),
             client: client,
         ) }
         cell.accessibilityLabel = L10n.betterTG("Accessibility.MediaNumber", indexPath.item + 1)

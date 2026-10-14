@@ -881,6 +881,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     private var onRequestNewerMessages: (() -> Void)?
     private var chatHistory: ChatMediaGalleryHistory?
+    /// Where chat history paging reads from, kept so a gallery restored from PiP pages with its own history.
+    private var chatHistorySource: (client: TDLibClient, location: ChatLocation)?
 
     private var messages: [Message]
     private var totalMessageCount: Int?
@@ -989,6 +991,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             openInChatTransitionSourceProvider: openInChatTransitionSourceProvider,
             onOpenMessageTransitionCompleted: onOpenMessageTransitionCompleted,
             onRequestMoreMessages: onRequestMoreMessages,
+            chatHistorySource: chatHistorySource,
             onGalleryRestored: onGalleryRestored,
             transitionSourceProvider: transitionSourceProvider,
         )
@@ -1426,6 +1429,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                           changedMediaIDs.contains(messages[index].id) else { continue }
                     configureMediaCell(cell, at: index)
                 }
+                refreshThumbnailConcealment()
                 updateCounter()
             }
             return
@@ -1503,9 +1507,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     func enableChatHistoryPaging(client: TDLibClient, location: ChatLocation) {
+        chatHistorySource = (client, location)
         let history = ChatMediaGalleryHistory(client: client, location: location, messages: messages)
         chatHistory = history
-        history.onUpdate = { [weak self] messages in self?.updateMessages(messages) }
+        history.onUpdate = { [weak self] page in self?.mergeHistoryPage(page) }
         history.onFailure = { [weak self] in self?.allowMoreMessagesRetry() }
         onRequestMoreMessages = { [weak history] in history?.loadOlder() }
         onRequestNewerMessages = { [weak history] in history?.loadNewer() }
@@ -1614,6 +1619,21 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     fileprivate func presentationTransitionDidCancel() {
         releasePlaybackOwnersForDismissal()
+    }
+
+    /// A page only adds messages. Items already shown keep the gallery's copies, which reveal-session revisions keep
+    /// current; replacing them with the page's or the opening snapshot's copies would roll revisions back and undo a
+    /// reveal (`MediaRevealSession.reconcile` must not run on delayed results).
+    private func mergeHistoryPage(_ page: [Message]) {
+        guard hasCurrentContext, !didReleasePlaybackOwners else { return }
+        let base = pendingMessageUpdate ?? messages
+        let knownIDs = Set(base.map(\.id))
+        let added = page.filter { !knownIDs.contains($0.id) }
+        guard !added.isEmpty else { return }
+        reconcilingMediaRevisions = true
+        mediaRevealSession?.reconcile(added, replacingExisting: false)
+        reconcilingMediaRevisions = false
+        updateMessages((base + added).sorted { $0.id > $1.id })
     }
 
     private func observePermanentMessageDeletes() {
@@ -1855,9 +1875,23 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 messages: albumIndices.map { messages[$0] },
                 selectedIndex: albumIndices.firstIndex(of: index) ?? 0,
                 client: client,
-            )
+            ) { [weak self] message in
+                // The page's own check (`configureMediaCell`): a spoiler or self-destructing item stays concealed here
+                // too.
+                MediaRevealPermit.allows(
+                    message,
+                    permit: self?.mediaRevealSession?.permit(for: message),
+                    requiresPermit: true,
+                )
+            }
         }
         thumbnailStrip.updatePagingPosition(pagingPosition - CGFloat(first))
+    }
+
+    private func refreshThumbnailConcealment() {
+        guard thumbnailHeightConstraint != nil, !thumbnailMessageIndices.isEmpty,
+              thumbnailMessageIndices.allSatisfy(messages.indices.contains) else { return }
+        thumbnailStrip.refreshConcealment(messages: thumbnailMessageIndices.map { messages[$0] })
     }
 
     private func updateCounter() {
@@ -3984,6 +4018,7 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
         if let cell = collectionView.cellForItem(at: IndexPath(item: selectedIndex, section: 0)) as? MediaGalleryCell {
             configureMediaCell(cell, at: selectedIndex)
         }
+        refreshThumbnailConcealment()
     }
 }
 
@@ -6255,6 +6290,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     let openInChatTransitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
     let onOpenMessageTransitionCompleted: ((Int64) -> Void)?
     let onRequestMoreMessages: (() -> Void)?
+    let chatHistorySource: (client: TDLibClient, location: ChatLocation)?
     let onGalleryRestored: ((MediaGalleryViewController) -> Void)?
     let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
 
@@ -6270,10 +6306,15 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         gallery.onOpenMessageTransitionCompleted = onOpenMessageTransitionCompleted
         gallery.paginationIsCurrent = paginationIsCurrent
         guard paginationIsCurrent?() ?? true else { return }
-        gallery.onRequestMoreMessages = onRequestMoreMessages.map { action in
-            {
-                guard context.isCurrent, routeIsCurrent?() ?? true, paginationIsCurrent?() ?? true else { return }
-                action()
+        if let chatHistorySource {
+            // The original gallery's history delivers pages to that gallery only and dies with it.
+            gallery.enableChatHistoryPaging(client: chatHistorySource.client, location: chatHistorySource.location)
+        } else {
+            gallery.onRequestMoreMessages = onRequestMoreMessages.map { action in
+                {
+                    guard context.isCurrent, routeIsCurrent?() ?? true, paginationIsCurrent?() ?? true else { return }
+                    action()
+                }
             }
         }
         gallery.onGalleryRestored = onGalleryRestored

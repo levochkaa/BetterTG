@@ -17,6 +17,9 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
     private let liveButton = UIButton(type: .system)
     private let spinner = UIActivityIndicatorView(style: .medium)
     private var task: Task<Void, Never>?
+    /// The motion file still downloading for this page. Cancelling the Swift task doesn't stop TDLib, so reuse and
+    /// retry cancel it explicitly, as the shared animated-file demand does for its last owner.
+    private var pendingMotionDownload: (fileID: Int, client: TDLibClient)?
     private var cancellables = Set<AnyCancellable>()
     private var playbackVisible = false
     private var didAutoplay = false
@@ -143,6 +146,7 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
         generation = UUID()
         task?.cancel()
         task = nil
+        cancelMotionDownload()
         stopMotion()
         player.stop()
         motionURL = nil
@@ -188,10 +192,13 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
     }
 
     private func load(video: File, client: TDLibClient, generation: UUID) {
-        guard self.generation == generation, TDLib.shared.activeClient.id == client.id else { return }
+        guard self.generation == generation, let source = TDLib.shared.activeUpdateSource,
+              source.clientID == client.id else { return }
         task?.cancel()
+        cancelMotionDownload()
         spinner.startAnimating()
         liveButton.isEnabled = false
+        if !video.local.isDownloadingCompleted { pendingMotionDownload = (video.id, client) }
         task = Task { [weak self] in
             do {
                 let file = try await client.downloadFile(
@@ -203,7 +210,9 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
                 )
                 try Task.checkCancellation()
                 guard file.local.isDownloadingCompleted else { throw CocoaError(.fileReadUnknown) }
-                guard let self, self.generation == generation, TDLib.shared.activeClient.id == client.id else { return }
+                // The account or client that started the download must still be the active one.
+                guard let self, self.generation == generation, TDLib.shared.activeUpdateSource == source else { return }
+                pendingMotionDownload = nil
                 let url = URL(fileURLWithPath: file.local.path)
                 motionURL = url
                 player.load(url: url, autoplay: false, loops: false)
@@ -213,11 +222,18 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
                 autoplayIfNeeded()
             } catch {
                 guard let self, !Task.isCancelled, self.generation == generation else { return }
+                pendingMotionDownload = nil
                 spinner.stopAnimating()
                 liveButton.isEnabled = true
                 setLiveButtonTitle(L10n.telegram("ChatImportActivity.Retry"))
             }
         }
+    }
+
+    private func cancelMotionDownload() {
+        guard let pending = pendingMotionDownload else { return }
+        pendingMotionDownload = nil
+        Task { _ = try? await pending.client.cancelDownloadFile(fileId: pending.fileID, onlyIfPending: true) }
     }
 
     private func autoplayIfNeeded() {

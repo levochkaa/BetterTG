@@ -496,6 +496,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             MessageSelectionToolbar.contentHeight + view.safeAreaInsets.bottom
     }
 
+    private static func isChatGalleryMedia(_ message: Message) -> Bool {
+        switch message.content {
+        case .messagePhoto, .messageVideo: true
+        default: false
+        }
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === collectionView else { return }
         recordMessageNavigationGeometry("scroll")
@@ -3265,20 +3272,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             guard let displayedID = chatVM.displayedMessageID(containing: captured.id) else { return nil }
             return message(for: displayedID)?.sourceMessages.first(where: { $0.id == captured.id })
         }
-        // Chat photos and videos open in one gallery of every loaded chat media item, as in Telegram.
+        // Chat photos and videos open in one gallery of every loaded chat media item, as in Telegram. Self-destructing
+        // media stays out of it and opens alone, as Telegram keeps secret media out of the history gallery.
         let isChatMedia = messages.first(where: { $0.id == selection }).map { message in
-            switch message.content {
-            case .messagePhoto, .messageVideo: true
-            default: false
-            }
+            message.selfDestructType == nil && Self.isChatGalleryMedia(message)
         } ?? false
         let galleryMessages: [Message]
         if isChatMedia {
             let loaded = (chatVM.messages.flatMap(\.sourceMessages) + messages).filter { message in
-                switch message.content {
-                case .messagePhoto, .messageVideo: location.matches(message: message)
-                default: false
-                }
+                message.selfDestructType == nil && Self.isChatGalleryMedia(message) && location
+                    .matches(message: message)
             }
             galleryMessages = Dictionary(loaded.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
                 .values

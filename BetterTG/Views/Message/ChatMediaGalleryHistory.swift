@@ -5,6 +5,7 @@ import UIKit
 
 /// The pager spans chat history; album membership only controls the thumbnail strip.
 @MainActor final class ChatMediaGalleryHistory {
+    /// Receives only the new page: the gallery keeps its own, revision-current copies of messages it already shows.
     var onUpdate: (([Message]) -> Void)?
     var onFailure: (() -> Void)?
 
@@ -44,9 +45,11 @@ import UIKit
     func loadNewer() { load(newer: true) }
 
     private func load(newer: Bool) {
+        // A pending message's temporary ID isn't a server position to page from.
+        let serverIDs = messagesByID.values.filter { $0.sendingState == nil }.map(\.id)
         guard contextIsCurrent,
               newer ? hasNewer && newerTask == nil : hasOlder && olderTask == nil,
-              let cursor = newer ? messagesByID.keys.max() : messagesByID.keys.min()
+              let cursor = newer ? serverIDs.max() : serverIDs.min()
         else { return }
         let task = Task { [weak self] in
             guard let self else { return }
@@ -68,13 +71,16 @@ import UIKit
                 let expectedLocation = location
                 let excludedIDs = deletedIDs
                 let page = result.messages
-                    .filter { expectedLocation.matches(message: $0) && !excludedIDs.contains($0.id) }
+                    .filter {
+                        expectedLocation.matches(message: $0) && !excludedIDs.contains($0.id)
+                            && $0.selfDestructType == nil
+                    }
                 let advanced = page.contains { newer ? $0.id > cursor : $0.id < cursor }
                 if newer { hasNewer = advanced } else { hasOlder = advanced }
                 for message in page {
                     messagesByID[message.id] = message
                 }
-                if advanced { onUpdate?(messagesByID.values.sorted { $0.id > $1.id }) }
+                if advanced { onUpdate?(page) }
             } catch {
                 guard !Task.isCancelled, contextIsCurrent else { return }
                 onFailure?()
