@@ -3422,8 +3422,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
         gallery.contextIsCurrent = { [weak self] in
             guard let self else { return false }
-            return TDLib.shared.activeAccountID == location.accountID
-                && TDLib.shared.activeClient.id == chatVM.client.id
+            // A same-account client renewal keeps the route: the gallery reloads its items through the renewed
+            // client, and this chat is replaced once the gallery closes.
+            return TDLib.shared.activeAccountID == location.accountID && routeIsRetained
         }
         gallery.onPrepareOpenMessageID = { [weak self] messageID in
             await self?.prepareGalleryReturn(to: messageID) ?? false

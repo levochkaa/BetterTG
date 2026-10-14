@@ -400,6 +400,10 @@ extension TDClient {
         ))
     }
 
+    func getMessages(chatId: Int64, messageIds: [Int64]) async throws -> TDNativeMessages {
+        try await send(TDNativeRequests.getMessages(chatId: chatId, messageIds: messageIds))
+    }
+
     func getOption(name: String) async throws -> TDNativeOptionValue {
         try await send(TDNativeRequests.getOption(name: name))
     }

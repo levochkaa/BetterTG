@@ -873,8 +873,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     fileprivate let transitionSource: MediaGalleryTransitionTarget?
     fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
 
-    fileprivate let playbackContext: MediaGalleryPlaybackContext?
-    fileprivate let mediaRevealSession: MediaRevealSession?
+    fileprivate private(set) var playbackContext: MediaGalleryPlaybackContext?
+    fileprivate private(set) var mediaRevealSession: MediaRevealSession?
     fileprivate let pictureInPictureCoordinator: GalleryPictureInPictureCoordinator
 
     private let emptyKeyboardView = UIView(frame: .zero)
@@ -894,10 +894,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var totalMessageCount: Int?
     private let tdlib: TDLib
     private let actionAccountID: UUID?
-    private let actionClient: TDLibClient?
+    private var actionClient: TDLibClient?
     private let actionChatID: Int64?
-    private let actionClientID: Int32?
-    private let actionSourceLocation: ChatLocation?
+    private var actionClientID: Int32?
+    private var actionSourceLocation: ChatLocation?
+    private var clientRenewalCancellable: AnyCancellable?
+    private var clientRenewalTask: Task<Void, Never>?
     private let requiredActionTopic: MediaGalleryTopicIdentity?
     private let actionRequiresTopicMatch: Bool
     private var selectedIndex: Int
@@ -1133,6 +1135,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         deleteTask?.cancel()
         forwardTask?.cancel()
         statusResetTask?.cancel()
+        clientRenewalTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -1145,14 +1148,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         observePermanentMessageDeletes()
         observeVoiceOver()
         observeContentSizeCategory()
-        mediaRevealCancellable = mediaRevealSession?.revisionsChanged.sink { [weak self] changed in
-            guard let self, hasCurrentContext, !didReleasePlaybackOwners, !reconcilingMediaRevisions else { return }
-            for id in changed.ids {
-                videoPlaybackOwners.removeValue(forKey: id)?.invalidate()
-            }
-            let revisions = Dictionary(changed.messages.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
-            updateMessages(messages.map { revisions[$0.id] ?? $0 })
-        }
+        observeMediaRevisions()
+        observeClientRenewal()
     }
 
     override func viewDidLayoutSubviews() {
@@ -1670,6 +1667,138 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     fileprivate func presentationTransitionDidCancel() {
         releasePlaybackOwnersForDismissal()
+    }
+
+    private func observeMediaRevisions() {
+        mediaRevealCancellable = mediaRevealSession?.revisionsChanged.sink { [weak self] changed in
+            guard let self, hasCurrentContext, !didReleasePlaybackOwners, !reconcilingMediaRevisions else { return }
+            for id in changed.ids {
+                videoPlaybackOwners.removeValue(forKey: id)?.invalidate()
+            }
+            let revisions = Dictionary(changed.messages.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+            updateMessages(messages.map { revisions[$0.id] ?? $0 })
+        }
+    }
+
+    /// TDLib's client is renewed when the app returns from the background. Telegram's gallery keeps showing its
+    /// media through that, so this one reloads its items through the renewed client of the same account.
+    private func observeClientRenewal() {
+        guard let accountID = actionAccountID, actionSourceLocation != nil, playbackContext != nil else { return }
+        clientRenewalCancellable = tdlib.readyClientChanges
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] source in
+                guard let self, let source, source.accountID == accountID else { return }
+                renewClient(source)
+            }
+    }
+
+    private func renewClient(_ source: TdUpdateSource) {
+        guard let location = actionSourceLocation, source.clientID != location.clientID,
+              !contextWasInvalidated, !didReleasePlaybackOwners, !isBeingDismissed,
+              tdlib.activeUpdateSource == source, tdlib.activeClient.id == source.clientID,
+              contextIsCurrent?() ?? true,
+              messages.allSatisfy({ location.matches(message: $0) })
+        else { return }
+        let client = tdlib.activeClient
+        let destination = ChatLocation(
+            accountID: source.accountID, chatID: location.chatID, clientID: source.clientID, topic: location.topic,
+        )
+        let ids = messages.map(\.id)
+        clientRenewalTask?.cancel()
+        clientRenewalTask = Task { [weak self] in
+            // A renewed client knows a chat's messages only once it has loaded the chat.
+            guard await (try? client.getChat(chatId: location.chatID)) != nil,
+                  let renewed = try? await client.getMessages(chatId: location.chatID, messageIds: ids).messages,
+                  !Task.isCancelled, let self
+            else { return }
+            clientRenewalTask = nil
+            adoptRenewedClient(client, location: destination, source: source, messages: renewed)
+        }
+    }
+
+    private func adoptRenewedClient(
+        _ client: TDLibClient, location: ChatLocation, source: TdUpdateSource, messages renewed: [Message],
+        attempt: Int = 0,
+    ) {
+        guard !contextWasInvalidated, !didReleasePlaybackOwners, !isBeingDismissed,
+              tdlib.activeUpdateSource == source, contextIsCurrent?() ?? true,
+              let context = MediaGalleryPlaybackContext(client: client, location: location, tdlib: tdlib)
+        else { return }
+        // An interactive dismissal or a page update owns the pager; adopt the client once it settles.
+        guard !messageUpdateInProgress, transitionCoordinator == nil,
+              mediaTransitionController?.isInteractiveDismissalInProgress != true
+        else {
+            guard attempt < 20 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.adoptRenewedClient(
+                    client,
+                    location: location,
+                    source: source,
+                    messages: renewed,
+                    attempt: attempt + 1,
+                )
+            }
+            return
+        }
+        let renewedByID = Dictionary(renewed.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        guard let selectedID = selectedMessageID, renewedByID[selectedID] != nil else {
+            // The shown item is gone from the renewed history.
+            close()
+            return
+        }
+        let refreshed = messages.compactMap { renewedByID[$0.id] }
+        cancelExport()
+        cancelForward()
+        cancelDelete()
+        cancelOpenInChat()
+        // Players and borrowed inline owners stream through the old client; the pages make new ones.
+        for owner in videoPlaybackOwners.values {
+            owner.onReturnToInline = nil
+            owner.setPlaybackVisible(false)
+            owner.invalidate()
+        }
+        videoPlaybackOwners.removeAll()
+        pendingDeletedPlaybackOwners = [:]
+        pendingDeletedMessageIDsByChat = [:]
+        pendingMessageUpdate = nil
+        if let previous = playbackContext {
+            pictureInPictureCoordinator.contextWasRevoked(previous, revokeContext: true)
+            previous.revoke()
+        }
+        let previousSession = mediaRevealSession
+        let session = MediaRevealSession(context: context)
+        session.reconcile(refreshed)
+        if let previousSession { session.adoptReveals(from: previousSession, messages: refreshed) }
+        playbackContext = context
+        mediaRevealSession = session
+        actionClient = client
+        actionClientID = location.clientID
+        actionSourceLocation = location
+        let countChanged = refreshed.count != messages.count
+        messages = refreshed
+        selectedIndex = refreshed.firstIndex { $0.id == selectedID } ?? 0
+        totalMessageCount = totalMessageCount.map { max($0, refreshed.count) }
+        paginationRequestedMessageCount = nil
+        newerPaginationRequestedMessageCount = nil
+        if chatHistorySource != nil { enableChatHistoryPaging(client: client, location: location) }
+        displayedAuthorMessageID = nil
+        thumbnailMessageIndices = []
+        observePermanentMessageDeletes()
+        guard isViewLoaded else { return }
+        observeMediaRevisions()
+        if countChanged {
+            collectionView.reloadData()
+        } else {
+            // Reconfiguring keeps each page's cell, so a shown photo stays on screen while it reloads.
+            collectionView.reconfigureItems(at: messages.indices.map { IndexPath(item: $0, section: 0) })
+        }
+        collectionView.layoutIfNeeded()
+        collectionView.scrollToItem(
+            at: IndexPath(item: selectedIndex, section: 0), at: .centeredHorizontally, animated: false,
+        )
+        updateCounter()
+        bindSelectedCellChrome()
+        prunePlaybackOwners(around: selectedIndex)
     }
 
     private func precedesInGallery(_ lhs: Message, _ rhs: Message) -> Bool {
@@ -7093,6 +7222,8 @@ final class MediaGalleryCell: UICollectionViewCell {
     private var videoPlaybackAttachmentToken: VideoPlaybackAttachmentToken?
     private var transitionMediaSize: CGSize?
     private var revealPermit: MediaRevealPermit?
+    /// The message whose still photo this cell shows in its zoomable image view.
+    private var representedPhotoMessageID: Int64?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -7113,6 +7244,7 @@ final class MediaGalleryCell: UICollectionViewCell {
         videoPlaybackOwner = nil
         transitionMediaSize = nil
         revealPermit = nil
+        representedPhotoMessageID = nil
         contentMediaView?.prepareForReuse()
         contentMediaView?.removeFromSuperview()
         contentMediaView = nil
@@ -7143,6 +7275,20 @@ final class MediaGalleryCell: UICollectionViewCell {
         videoPlaybackOwner: GalleryVideoPlaybackOwner? = nil,
         onReveal: (() -> Void)? = nil,
     ) {
+        // The same photo through a renewed client, or a new revision of it, keeps its pixels and zoom until the new
+        // image decodes.
+        if representedPhotoMessageID == message.id, videoPlaybackOwner == nil,
+           case .messagePhoto(let photo) = message.content, photo.video == nil || photo.isSecret,
+           let imageView = contentMediaView as? ZoomableGalleryImageView,
+           MediaRevealPermit.allows(message, permit: revealPermit, requiresPermit: requiresRevealPermit),
+           let playbackContext, revealPermit?.matches(playbackContext) != false,
+           playbackContext.isCurrent, let client = playbackContext.client
+        {
+            transitionMediaSize = Self.mediaSize(for: message)
+            self.revealPermit = revealPermit
+            imageView.configure(photo: photo.photo, client: client, preservingImage: true)
+            return
+        }
         prepareForReuse()
         transitionMediaSize = Self.mediaSize(for: message)
         self.revealPermit = revealPermit
@@ -7170,6 +7316,7 @@ final class MediaGalleryCell: UICollectionViewCell {
                 } else {
                     let imageView = ZoomableGalleryImageView()
                     imageView.configure(photo: photo.photo, client: client)
+                    representedPhotoMessageID = message.id
                     view = imageView
                 }
             case .messageAnimation(let animation):
@@ -7438,8 +7585,11 @@ final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, Galler
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(photo: Photo, client: TDLibClient) {
-        imageView.load(photo: photo, preferredSize: .yBox, maximumPixelSize: 2048, client: client)
+    func configure(photo: Photo, client: TDLibClient, preservingImage: Bool = false) {
+        imageView.load(
+            photo: photo, preferredSize: .yBox, maximumPixelSize: 2048, client: client,
+            preservingImage: preservingImage,
+        )
     }
 
     func makeTransitionSnapshot() -> UIView? { imageView.makeImageSnapshot(contentMode: .scaleAspectFit) }

@@ -1143,12 +1143,14 @@ final class TDImageLoadingView: UIImageView {
         preferredSize: PhotoSizeType,
         maximumPixelSize: Int = 960,
         client: TDLibClient,
+        preservingImage: Bool = false,
     ) {
         load(
             photo: photo,
             preferredSize: preferredSize,
             maximumPixelSize: maximumPixelSize,
             origin: .captured(client: client),
+            preservingImage: preservingImage,
         )
     }
 
@@ -1157,6 +1159,7 @@ final class TDImageLoadingView: UIImageView {
         preferredSize: PhotoSizeType,
         maximumPixelSize: Int = 960,
         origin: TDImageOrigin?,
+        preservingImage: Bool = false,
     ) {
         let placeholderData = photo.minithumbnail?.data
         guard let size = photo.sizes.getSize(preferredSize) ?? photo.sizes.first else {
@@ -1168,6 +1171,7 @@ final class TDImageLoadingView: UIImageView {
             placeholderData: placeholderData,
             maximumPixelSize: maximumPixelSize,
             origin: origin,
+            preservingImage: preservingImage,
         )
     }
 
@@ -1229,7 +1233,7 @@ final class TDImageLoadingView: UIImageView {
         download.start(
             file: file,
             onFile: { [weak self] in self?.update(file: $0, for: request) },
-            onInvalidated: { [weak self] in self?.invalidate() },
+            onInvalidated: { [weak self] in self?.originDidChange(to: TDLib.shared.activeUpdateSource) },
         )
     }
 
@@ -1287,11 +1291,17 @@ final class TDImageLoadingView: UIImageView {
     private func admit(_ origin: TDImageOrigin) -> Bool {
         guard origin.isCurrent else { return false }
         representedOrigin = origin
-        cancellable = origin.changes.receive(on: DispatchQueue.main).sink { [weak self] _ in
+        cancellable = origin.changes.receive(on: DispatchQueue.main).sink { [weak self] source in
             guard let self, representedOrigin?.isCurrent != true else { return }
-            invalidate()
+            originDidChange(to: source)
         }
         return true
+    }
+
+    /// Returning from the background renews the same account's client: keep the pixels until the owner loads them
+    /// through the new client. Another account never sees them.
+    private func originDidChange(to source: TdUpdateSource?) {
+        if let source, source.accountID == representedOrigin?.source.accountID { cancel() } else { invalidate() }
     }
 
     private func invalidate() {

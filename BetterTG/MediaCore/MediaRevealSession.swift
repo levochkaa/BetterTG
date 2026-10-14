@@ -126,6 +126,18 @@ import UIKit
         return true
     }
 
+    /// A same-account client renewal keeps the spoilers the user revealed. File IDs belong to a client, so an
+    /// unchanged revision of the message identifies the same media.
+    func adoptReveals(from previous: MediaRevealSession, messages: [Message]) {
+        guard previous.context.location.accountID == context.location.accountID,
+              previous.context.location.chatID == context.location.chatID else { return }
+        for message in messages {
+            guard let earlier = previous.revealed[message.id], let key = Key(message: message),
+                  earlier.revision == key.revision, earlier.kind == key.kind else { continue }
+            reveal(message)
+        }
+    }
+
     fileprivate func current(_ key: Key) -> Bool {
         guard context.isCurrent, key.chatID == context.location.chatID else { return false }
         return latest[key.messageID] == key || predecessors[key.messageID] == key
