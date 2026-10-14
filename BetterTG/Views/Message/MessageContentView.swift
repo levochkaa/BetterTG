@@ -14,6 +14,8 @@ final class MessageMediaView: UIView {
     private var contentView: UIView?
     private var revealPermits = [Int64: MediaRevealPermit]()
     private var revealSubscription: AnyCancellable?
+    private var maximumWidth = CGFloat.zero
+    private var reconfigureForWidth: ((CGFloat) -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -30,14 +32,17 @@ final class MessageMediaView: UIView {
     @discardableResult func configure(
         message: CustomMessage,
         client: TDLibClient,
+        maximumWidth: CGFloat,
         mediaRevealSession: MediaRevealSession? = nil,
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner] = [:],
         onCancelSending: ((Int64) -> Void)? = nil,
         onTap: @escaping ([Message], Int64) -> Void,
     ) -> Bool {
+        self.maximumWidth = maximumWidth
         if case .messageVideoNote = message.message.content,
            let existing = contentView as? VideoNotePlaybackView
         {
+            reconfigureForWidth = nil
             existing.configure(message: message.message, client: client, context: mediaRevealSession?.context)
             return true
         }
@@ -54,36 +59,46 @@ final class MessageMediaView: UIView {
                 false
             }
         }
-        if !visualAlbum.isEmpty {
+        // Telegram lays out a mosaic only for two or more items (`ChatMessageBubbleItemNode.mosaicRange`); a group
+        // left with one item, such as an album whose other upload was cancelled, is an ordinary single media.
+        let item = visualAlbum.count == 1 ? visualAlbum[0] : message.message
+        let displaySize = TelegramMediaLayout.displaySize(
+            pixelSize: telegramMessageMediaSize(item),
+            kind: telegramMediaKind(item),
+            maximumWidth: maximumWidth,
+        )
+        if visualAlbum.count > 1 {
             let albumView = AlbumMediaView()
             albumView.configure(
                 messages: visualAlbum,
                 client: client,
+                maximumWidth: maximumWidth,
                 revealPermits: revealPermits,
                 videoPlaybackOwners: videoPlaybackOwners,
                 onCancelSending: onCancelSending,
                 onTap: onTap,
             )
             view = albumView
-        } else if !MediaRevealPermit.allows(message.message, permit: revealPermits[message.id], requiresPermit: true) {
+        } else if !MediaRevealPermit.allows(item, permit: revealPermits[item.id], requiresPermit: true) {
             view = MediaConcealmentView(
-                message: message.message,
-                size: telegramMediaDisplaySize(source: telegramMessageMediaSize(message.message)),
-                onTap: { onTap([message.message], message.id) },
+                message: item,
+                size: displaySize,
+                onTap: { onTap([item], item.id) },
             )
         } else {
-            switch message.message.content {
+            switch item.content {
             case .messagePhoto(let photo):
                 let photoView = SinglePhotoView()
                 photoView.configure(
                     photo: photo.photo,
-                    message: message.message,
+                    message: item,
                     isLivePhoto: photo.video != nil,
+                    displaySize: displaySize,
                     client: client,
-                ) { onTap([message.message], message.id) }
+                ) { onTap([item], item.id) }
                 if let onCancelSending {
-                    let messageID = message.message.id
-                    photoView.showUploadProgress(for: message.message, client: client) { onCancelSending(messageID) }
+                    let messageID = item.id
+                    photoView.showUploadProgress(for: item, client: client) { onCancelSending(messageID) }
                 }
                 view = photoView
             case .messageVoiceNote(let voice):
@@ -93,20 +108,13 @@ final class MessageMediaView: UIView {
             case .messageVideoNote:
                 let videoNoteView = VideoNotePlaybackView()
                 videoNoteView.configure(
-                    message: message.message, client: client, context: mediaRevealSession?.context,
+                    message: item, client: client, context: mediaRevealSession?.context,
                 )
                 view = videoNoteView
             case .messageAnimation(let animation):
-                let displaySize = telegramMediaDisplaySize(source: CGSize(
-                    width: CGFloat(animation.animation.width),
-                    height: CGFloat(animation.animation.height),
-                ))
-                if let owner = videoPlaybackOwners[message.id], owner.matches(message: message.message) {
+                if let owner = videoPlaybackOwners[item.id], owner.matches(message: item) {
                     let inlineView = InlineVideoMediaView()
-                    inlineView.configure(
-                        owner: owner,
-                        size: CGSize(width: animation.animation.width, height: animation.animation.height),
-                    ) { onTap([message.message], message.id) }
+                    inlineView.configure(owner: owner, displaySize: displaySize) { onTap([item], item.id) }
                     view = inlineView
                 } else if telegramAnimationUsesFFmpeg(animation.animation) {
                     let animationView = FFmpegAnimatedVideoView()
@@ -131,11 +139,8 @@ final class MessageMediaView: UIView {
                         file: sticker.sticker.sticker,
                         client: client,
                         thumbnail: sticker.sticker.thumbnail,
-                        displaySize: telegramMediaDisplaySize(source: CGSize(
-                            width: CGFloat(sticker.sticker.width),
-                            height: CGFloat(sticker.sticker.height),
-                        )),
-                        onTap: { onTap([message.message], message.id) },
+                        displaySize: displaySize,
+                        onTap: { onTap([item], item.id) },
                     )
                     view = stickerView
                 } else if sticker.sticker.format.typeID == TDNativeStickerFormatWebp.typeID {
@@ -144,11 +149,8 @@ final class MessageMediaView: UIView {
                         file: sticker.sticker.sticker,
                         client: client,
                         thumbnail: sticker.sticker.thumbnail,
-                        displaySize: telegramMediaDisplaySize(source: CGSize(
-                            width: CGFloat(sticker.sticker.width),
-                            height: CGFloat(sticker.sticker.height),
-                        )),
-                        onTap: { onTap([message.message], message.id) },
+                        displaySize: displaySize,
+                        onTap: { onTap([item], item.id) },
                     )
                     view = stickerView
                 } else if sticker.sticker.format.typeID == TDNativeStickerFormatWebm.typeID {
@@ -157,11 +159,8 @@ final class MessageMediaView: UIView {
                         file: sticker.sticker.sticker,
                         client: client,
                         thumbnail: sticker.sticker.thumbnail,
-                        displaySize: telegramMediaDisplaySize(source: CGSize(
-                            width: CGFloat(sticker.sticker.width),
-                            height: CGFloat(sticker.sticker.height),
-                        )),
-                        onTap: { onTap([message.message], message.id) },
+                        displaySize: displaySize,
+                        onTap: { onTap([item], item.id) },
                     )
                     view = stickerView
                 } else {
@@ -170,23 +169,22 @@ final class MessageMediaView: UIView {
                         file: sticker.sticker.sticker,
                         thumbnail: sticker.sticker.thumbnail,
                         minithumbnail: nil,
-                        size: CGSize(width: CGFloat(sticker.sticker.width), height: CGFloat(sticker.sticker.height)),
+                        displaySize: displaySize,
                         showsPlayIcon: sticker.sticker.format.typeID != TDNativeStickerFormatWebp.typeID,
                         client: client,
-                    ) { onTap([message.message], message.id) }
+                    ) { onTap([item], item.id) }
                     view = fileView
                 }
             case .messageVideo(let video):
-                if let videoPlaybackOwner = videoPlaybackOwners[message.id],
-                   videoPlaybackOwner.matches(message: message.message)
+                if let videoPlaybackOwner = videoPlaybackOwners[item.id],
+                   videoPlaybackOwner.matches(message: item)
                 {
                     let inlineView = InlineVideoMediaView()
-                    inlineView.configure(
-                        owner: videoPlaybackOwner,
-                        size: CGSize(width: CGFloat(video.video.width), height: CGFloat(video.video.height)),
-                    ) { onTap([message.message], message.id) }
+                    inlineView.configure(owner: videoPlaybackOwner, displaySize: displaySize) {
+                        onTap([item], item.id)
+                    }
                     if onCancelSending != nil {
-                        inlineView.showUploadProgress(for: message.message, client: client)
+                        inlineView.showUploadProgress(for: item, client: client)
                     }
                     view = inlineView
                 } else {
@@ -195,15 +193,15 @@ final class MessageMediaView: UIView {
                         file: video.video.video,
                         thumbnail: video.video.thumbnail,
                         minithumbnail: video.video.minithumbnail,
-                        size: CGSize(width: CGFloat(video.video.width), height: CGFloat(video.video.height)),
+                        displaySize: displaySize,
                         showsPlayIcon: true,
                         usesFileAsThumbnailFallback: false,
                         client: client,
-                    ) { onTap([message.message], message.id) }
-                    fileView.showSentVideoPoster(for: message.message)
+                    ) { onTap([item], item.id) }
+                    fileView.showSentVideoPoster(for: item)
                     if let onCancelSending {
-                        let messageID = message.message.id
-                        fileView.showUploadProgress(for: message.message, client: client) { onCancelSending(messageID) }
+                        let messageID = item.id
+                        fileView.showUploadProgress(for: item, client: client) { onCancelSending(messageID) }
                     }
                     view = fileView
                 }
@@ -214,7 +212,8 @@ final class MessageMediaView: UIView {
         guard let view else { return false }
         contentView = view
         view.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(view)
+        // Below the owner's overlays (the media time label and highlight), which a reconfigure from here keeps.
+        insertSubview(view, at: 0)
         NSLayoutConstraint.activate([
             view.topAnchor.constraint(equalTo: topAnchor),
             view.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -229,6 +228,18 @@ final class MessageMediaView: UIView {
             self?.configure(
                 message: message,
                 client: client,
+                maximumWidth: maximumWidth,
+                mediaRevealSession: mediaRevealSession,
+                videoPlaybackOwners: videoPlaybackOwners,
+                onCancelSending: onCancelSending,
+                onTap: onTap,
+            )
+        }
+        reconfigureForWidth = { [weak self] width in
+            self?.configure(
+                message: message,
+                client: client,
+                maximumWidth: width,
                 mediaRevealSession: mediaRevealSession,
                 videoPlaybackOwners: videoPlaybackOwners,
                 onCancelSending: onCancelSending,
@@ -238,10 +249,18 @@ final class MessageMediaView: UIView {
         return true
     }
 
+    /// Media sizes follow the bubble's widest allowed width, so a cell that changed width lays its media out again.
+    func updateMaximumWidth(_ width: CGFloat) {
+        guard abs(width - maximumWidth) > 0.5 else { return }
+        maximumWidth = width
+        reconfigureForWidth?(width)
+    }
+
     func prepareForReuse() {
         alpha = 1
         transitionGeneration = UUID()
         revealSubscription = nil
+        reconfigureForWidth = nil
         (contentView as? ReusableMediaView)?.prepareForReuse()
         contentView?.removeFromSuperview()
         contentView = nil
@@ -376,6 +395,7 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
         photo: Photo,
         message: Message? = nil,
         isLivePhoto: Bool = false,
+        displaySize: CGSize,
         client: TDLibClient,
         onTap: @escaping () -> Void,
     ) {
@@ -384,7 +404,6 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
         accessibilityLabel = isLivePhoto
             ? L10n.betterTG("Accessibility.OpenLivePhoto")
             : L10n.betterTG("Accessibility.OpenPhoto")
-        let displaySize = telegramMediaDisplaySize(source: telegramPhotoSize(photo))
         widthConstraint.constant = displaySize.width
         heightConstraint.constant = displaySize.height
         if let local = telegramLocalPhotoFile(for: message, photo: photo, preferred: .yBox) {
@@ -481,6 +500,7 @@ final class AlbumMediaView: UIView, ReusableMediaView {
     func configure(
         messages: [Message],
         client: TDLibClient,
+        maximumWidth: CGFloat,
         revealPermits: [Int64: MediaRevealPermit] = [:],
         videoPlaybackOwners: [Int64: GalleryVideoPlaybackOwner],
         onCancelSending: ((Int64) -> Void)? = nil,
@@ -496,7 +516,7 @@ final class AlbumMediaView: UIView, ReusableMediaView {
         self.onTap = onTap
         let itemSizes = messages.map(telegramMessageMediaSize)
         let (layout, size) = telegramMessageBubbleMosaicLayout(
-            maxSize: CGSize(width: 280, height: 320),
+            maxSize: TelegramMediaLayout.albumMaximumSize(maximumWidth: maximumWidth),
             itemSizes: itemSizes,
         )
         itemFrames = layout.map(\.0)
@@ -879,7 +899,7 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
 
     func configure(
         owner: GalleryVideoPlaybackOwner,
-        size: CGSize,
+        displaySize: CGSize,
         onTap: @escaping () -> Void,
     ) {
         prepareForReuse()
@@ -890,7 +910,6 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
             : L10n.betterTG("Accessibility.OpenVideo")
         accessibilityTraits = owner.isAnimation ? .button : [.button, .playsSound]
         self.onTap = onTap
-        let displaySize = telegramMediaDisplaySize(source: size)
         widthConstraint.constant = displaySize.width
         heightConstraint.constant = displaySize.height
         attachmentToken = owner.attach(to: self, context: .inline)
@@ -1000,14 +1019,13 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
         file: File,
         thumbnail: Thumbnail?,
         minithumbnail: Minithumbnail?,
-        size: CGSize,
+        displaySize: CGSize,
         showsPlayIcon: Bool,
         usesFileAsThumbnailFallback: Bool = true,
         client: TDLibClient,
         onTap: @escaping () -> Void,
     ) {
         self.onTap = onTap
-        let displaySize = telegramMediaDisplaySize(source: size)
         widthConstraint.constant = displaySize.width
         heightConstraint.constant = displaySize.height
         self.showsPlayIcon = showsPlayIcon
@@ -1506,9 +1524,11 @@ private func telegramMessageMediaSize(_ message: Message) -> CGSize {
     }
 }
 
-private func telegramMediaDisplaySize(source: CGSize) -> CGSize {
-    let aspectRatio = max(source.width / max(source.height, 1), 0.01)
-    let width: CGFloat = 280
-    let height = min(320, max(140, round(width / aspectRatio)))
-    return CGSize(width: width, height: height)
+private func telegramMediaKind(_ message: Message) -> TelegramMediaLayout.Kind {
+    switch message.content {
+    case .messageVideo: .video
+    case .messageAnimation: .animation
+    case .messageSticker: .sticker
+    default: .image
+    }
 }

@@ -662,6 +662,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         let hasMedia = mediaView.configure(
             message: message,
             client: client,
+            maximumWidth: maximumBubbleWidth(for: bounds.width),
             mediaRevealSession: mediaRevealSession,
             videoPlaybackOwners: videoPlaybackOwners,
             onCancelSending: { [weak self] messageID in
@@ -1294,7 +1295,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private func updateBubbleWidth(for cellWidth: CGFloat) {
         guard cellWidth > 0 else { return }
         guard bubbleContentNeedsMeasurement || abs(measuredCellWidth - cellWidth) > 0.5 else { return }
-        let maximumBubbleWidth = floor(cellWidth * 0.82)
+        let maximumBubbleWidth = maximumBubbleWidth(for: cellWidth)
+        if !mediaView.isHidden {
+            mediaView.updateMaximumWidth(maximumBubbleWidth)
+        }
         let mediaWidth = usesFullBleedMedia && !mediaView.isHidden
             ? mediaView.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
             : 0
@@ -1341,6 +1345,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private func maximumTextWidth(for cellWidth: CGFloat) -> CGFloat {
         guard cellWidth > 0 else { return Utils.maxMessageContentWidth }
         return max(1, floor(cellWidth * 0.82) - 16)
+    }
+
+    /// The widest bubble, which is also the widest media: Telegram's constrained width for media sizing.
+    private func maximumBubbleWidth(for cellWidth: CGFloat) -> CGFloat {
+        floor((cellWidth > 0 ? cellWidth : Utils.screen.bounds.width - 16) * 0.82)
     }
 }
 
