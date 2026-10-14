@@ -228,6 +228,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// The replaced controller's last history frame. It covers this history until the restored viewport lands, so
     /// a client renewal never shows the latest edge first.
     private var restoredHistoryCover: UIView?
+    /// The replaced controller's pinned banner, kept until the renewed client answers for the pinned message.
+    private var restoredPinnedBannerCover: UIView?
     private var restorationFocusAttempted = false
     private var restorationFocusSettled = false
     private var keyboardIsChanging = false
@@ -283,6 +285,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private var routeIsRetained: Bool {
         !clientOwnerRetired && navigationController?.viewControllers.contains(where: { $0 === self }) == true
+    }
+
+    /// The account's client was renewed and a replacement controller takes over this route. Until then the old
+    /// client no longer answers, so this controller keeps its chrome and history geometry as they were.
+    private var awaitsClientRenewal: Bool {
+        presentationMode == .full && !clientOwnerRetired && tdlib.activeAccountID == location.accountID
+            && tdlib.activeClient.id != location.clientID
     }
 
     /// A two-finger selection pan moves the timeline like a scroll, so it suspends viewport restoration.
@@ -362,6 +371,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         targetQuote: MessageQuoteHighlight? = nil, tdlib: TDLib,
         viewport: ChatClientRestorationViewport? = nil, composer: ChatComposerView.ClientViewState? = nil,
         historyCover: UIView? = nil,
+        pinnedBannerCover: UIView? = nil,
     ) {
         self.presentationMode = presentationMode
         self.location = chatVM.location
@@ -372,6 +382,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         self.restoredViewport = viewport
         self.restoredComposerState = composer
         self.restoredHistoryCover = viewport == nil ? nil : historyCover
+        self.restoredPinnedBannerCover = viewport == nil ? nil : pinnedBannerCover
         super.init(nibName: nil, bundle: nil)
         importBarrier.onQuiescent = { [weak self] in self?.retryClientRestoration() }
     }
@@ -431,6 +442,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             // A restoration that never settles must not leave the history covered.
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
                 self?.removeRestoredHistoryCover()
+            }
+        }
+        if restoredPinnedBannerCover != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self, let cover = restoredPinnedBannerCover else { return }
+                restoredPinnedBannerCover = nil
+                cover.removeFromSuperview()
+                updatePinnedMessageBanner(animated: true)
             }
         }
         applyPendingMessageNavigation()
@@ -839,8 +858,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 let cover = isViewLoaded && view.window != nil
                     ? historyContainerView.snapshotView(afterScreenUpdates: false)
                     : nil
+                let bannerCover = isViewLoaded && view.window != nil && !pinnedMessageBanner.isHidden
+                    && pinnedMessageBannerHeightConstraint.constant > 0
+                    ? pinnedMessageBanner.snapshotView(afterScreenUpdates: false)
+                    : nil
                 return ChatViewController(
                     chatVM: replacementVM, tdlib: tdlib, viewport: viewport, composer: composer, historyCover: cover,
+                    pinnedBannerCover: bannerCover,
                 )
             },
         )
@@ -1292,6 +1316,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         didPerformInitialScroll = true
         restoredComposerState = nil
         removeRestoredHistoryCover()
+        updateScrollToLatestButtonVisibility(animated: true)
         #if DEBUG
             log("Chat client restoration: viewport settled; fresh history starts")
         #endif
@@ -1378,6 +1403,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             navigationBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             navigationBackground.bottomAnchor.constraint(equalTo: pinnedMessageBanner.bottomAnchor),
         ])
+        if let cover = restoredPinnedBannerCover {
+            cover.isUserInteractionEnabled = false
+            // Pinned to the banner's edges: the banner is still zero-sized here, and resizing masks would add its
+            // whole final size to the snapshot's.
+            cover.translatesAutoresizingMaskIntoConstraints = false
+            pinnedMessageBanner.addSubview(cover)
+            NSLayoutConstraint.activate([
+                cover.topAnchor.constraint(equalTo: pinnedMessageBanner.topAnchor),
+                cover.leadingAnchor.constraint(equalTo: pinnedMessageBanner.leadingAnchor),
+                cover.trailingAnchor.constraint(equalTo: pinnedMessageBanner.trailingAnchor),
+                cover.bottomAnchor.constraint(equalTo: pinnedMessageBanner.bottomAnchor),
+            ])
+            pinnedMessageBanner.isHidden = false
+            pinnedMessageBannerHeightConstraint.constant = PinnedMessageBannerView.contentHeight
+        }
         updatePinnedMessageBanner(animated: false)
     }
 
@@ -1817,8 +1857,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         scrollToLatestButton.layer.shadowOpacity = 0.2
         scrollToLatestButton.layer.shadowRadius = 7
         scrollToLatestButton.layer.shadowOffset = CGSize(width: 0, height: 3)
-        scrollToLatestButton.alpha = 0
-        scrollToLatestButton.transform = CGAffineTransform(translationX: 0, y: 18).scaledBy(x: 0.72, y: 0.72)
+        // A replacement after a client renewal keeps the button its predecessor showed away from the latest edge.
+        scrollToLatestButtonVisible = restoredViewport.map { $0.pending && !$0.keepsLatest } ?? false
+        scrollToLatestButton.alpha = scrollToLatestButtonVisible ? 1 : 0
+        scrollToLatestButton.transform = scrollToLatestButtonVisible
+            ? .identity
+            : CGAffineTransform(translationX: 0, y: 18).scaledBy(x: 0.72, y: 0.72)
         scrollToLatestButton.accessibilityLabel = L10n.betterTG("Accessibility.ScrollToLatest")
         scrollToLatestButton.addTarget(self, action: #selector(scrollToLatest), for: .touchUpInside)
 
@@ -1840,6 +1884,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updateScrollToLatestButtonVisibility(animated: Bool) {
+        // Until the restored viewport lands, the offset is not the one the user sees under the history cover.
+        guard restoredViewport?.pending != true else { return }
         let isAwayFromLatest = collectionView.contentOffset.y + collectionView.adjustedContentInset.top > 160
         let visible = isAwayFromLatest && !messageSearchActive && !isSelectingMessages
         guard scrollToLatestButtonVisible != visible else { return }
@@ -2261,7 +2307,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updatePinnedMessageBanner(animated: Bool) {
-        guard pinnedMessageBannerHeightConstraint != nil else { return }
+        guard pinnedMessageBannerHeightConstraint != nil, !awaitsClientRenewal else { return }
         let message: Message? =
             if presentationMode == .full,
             !messageSearchActive,
@@ -2270,6 +2316,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             } else {
                 nil
             }
+        if let cover = restoredPinnedBannerCover {
+            if message == nil, chatVM.pinnedMessageIsLoading { return }
+            restoredPinnedBannerCover = nil
+            cover.removeFromSuperview()
+        }
         if let message {
             pinnedMessageBanner.configure(
                 message: message,
@@ -2980,6 +3031,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updateHistoryInsets() {
+        // The old client's permissions read as unavailable once the client is renewed, which would drop the composer
+        // from the insets and move the history before the replacement controller takes over.
+        guard !awaitsClientRenewal else { return }
         let visualBottomInset: CGFloat =
             if isSelectingMessages, messageSelectionToolbar.frame.minY > 0 {
                 view.bounds.maxY - messageSelectionToolbar.frame.minY + 8

@@ -286,6 +286,9 @@ import UIKit
         )
     }
 
+    /// The pinned message request is still in flight, so a missing banner message is not an answer yet.
+    var pinnedMessageIsLoading: Bool { pinnedMessageTask != nil }
+
     var supportsPinnedMessages: Bool {
         !previewing
             && !location.isTopicScoped
