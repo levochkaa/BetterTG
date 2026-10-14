@@ -377,12 +377,12 @@ private final class TelegramContextMenuController: UIViewController {
     private let dimView = TelegramContextMenuDismissView()
     private let previewPanView = TelegramContextMenuPassthroughView()
     private let previewContainer = UIView()
-    private let menuEffectView: UIVisualEffectView = {
-        let effect = UIGlassEffect(style: .regular)
-        effect.isInteractive = false
-        return UIVisualEffectView(effect: effect)
-    }()
-
+    /// Carries the system menu's flexible glass, which stretches toward a finger dragged across the menu. The glass
+    /// draws past the bounds while it stretches, so this view does not clip; `menuContentView` clips the actions.
+    private let menuView = UIView()
+    private let menuContentView = UIView()
+    /// Interactive public glass where the private material is unavailable.
+    private let fallbackGlassView = UIVisualEffectView(effect: nil)
     private let menuStack = UIStackView()
     private let selectionHighlightView = UIView()
     private var previewView: UIView?
@@ -610,19 +610,33 @@ private final class TelegramContextMenuController: UIViewController {
             selectableTextViews = [textView]
         }
 
-        menuEffectView.layer.cornerRadius = TelegramContextMenuLayout.menuCornerRadius
-        menuEffectView.layer.cornerCurve = .continuous
-        menuEffectView
-            .cornerConfiguration = .corners(radius: .fixed(Double(TelegramContextMenuLayout.menuCornerRadius)))
-        menuEffectView.clipsToBounds = true
-        menuEffectView.alpha = 0
-        view.addSubview(menuEffectView)
+        let menuCornerRadius = TelegramContextMenuLayout.menuCornerRadius
+        menuView.layer.cornerRadius = menuCornerRadius
+        menuView.layer.cornerCurve = .continuous
+        menuView.clipsToBounds = false
+        menuView.alpha = 0
+        if !ContextMenuNativeGlass.applyMenuGlass(to: menuView) {
+            let glass = UIGlassEffect(style: .regular)
+            glass.isInteractive = true
+            fallbackGlassView.effect = glass
+            fallbackGlassView.cornerConfiguration = .corners(radius: .fixed(Double(menuCornerRadius)))
+            fallbackGlassView.frame = menuView.bounds
+            fallbackGlassView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            menuView.addSubview(fallbackGlassView)
+        }
+        menuContentView.frame = menuView.bounds
+        menuContentView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        menuContentView.layer.cornerRadius = menuCornerRadius
+        menuContentView.layer.cornerCurve = .continuous
+        menuContentView.clipsToBounds = true
+        menuView.addSubview(menuContentView)
+        view.addSubview(menuView)
 
         selectionHighlightView.backgroundColor = .contextMenuSelectionHighlight
         selectionHighlightView.layer.cornerCurve = .continuous
         selectionHighlightView.alpha = 0
         selectionHighlightView.isUserInteractionEnabled = false
-        menuEffectView.contentView.addSubview(selectionHighlightView)
+        menuContentView.addSubview(selectionHighlightView)
 
         menuStack.axis = .vertical
         menuStack.alignment = .fill
@@ -634,12 +648,12 @@ private final class TelegramContextMenuController: UIViewController {
             trailing: 0,
         )
         menuStack.translatesAutoresizingMaskIntoConstraints = false
-        menuEffectView.contentView.addSubview(menuStack)
+        menuContentView.addSubview(menuStack)
         NSLayoutConstraint.activate([
-            menuStack.topAnchor.constraint(equalTo: menuEffectView.contentView.topAnchor),
-            menuStack.leadingAnchor.constraint(equalTo: menuEffectView.contentView.leadingAnchor),
-            menuStack.trailingAnchor.constraint(equalTo: menuEffectView.contentView.trailingAnchor),
-            menuStack.bottomAnchor.constraint(equalTo: menuEffectView.contentView.bottomAnchor),
+            menuStack.topAnchor.constraint(equalTo: menuContentView.topAnchor),
+            menuStack.leadingAnchor.constraint(equalTo: menuContentView.leadingAnchor),
+            menuStack.trailingAnchor.constraint(equalTo: menuContentView.trailingAnchor),
+            menuStack.bottomAnchor.constraint(equalTo: menuContentView.bottomAnchor),
         ])
 
         view.addGestureRecognizer(touchRecognizer)
@@ -861,7 +875,7 @@ private final class TelegramContextMenuController: UIViewController {
                     presentationStyle.showsPreview ? sourceFrame : .zero
                 }
         }
-        menuEffectView.frame = targetMenuFrame
+        menuView.frame = targetMenuFrame
         if presentationStyle == .message, !reactionStrip.isHidden {
             let width = min(availableWidth, reactionStrip.preferredWidth)
             let proposedX = targetPreviewFrame.midX > view.bounds.midX
@@ -953,8 +967,8 @@ private final class TelegramContextMenuController: UIViewController {
     private func animateMenuIn() {
         let contentTravelY = presentationStyle.showsPreview ? targetPreviewFrame.midY - sourceFrame.midY : 0
         let offset = menuTransitionOffset(contentTravelY: contentTravelY)
-        let layer = menuEffectView.layer
-        menuEffectView.alpha = 1
+        let layer = menuView.layer
+        menuView.alpha = 1
         layer.addTelegramAnimation(keyPath: "opacity", from: 0, to: 1, duration: 0.05, isRemovedOnCompletion: true)
         layer.addTelegramSpring(keyPath: "transform.scale", from: 0.01, to: 1)
         layer.addTelegramSpring(
@@ -968,7 +982,7 @@ private final class TelegramContextMenuController: UIViewController {
     private func animateMenuOut(returnFrame: CGRect) {
         let contentTravelY = presentationStyle.showsPreview ? targetPreviewFrame.midY - returnFrame.midY : 0
         let offset = menuTransitionOffset(contentTravelY: contentTravelY)
-        let layer = menuEffectView.layer
+        let layer = menuView.layer
         let presentation = layer.presentation()
         let scale = (presentation?.value(forKeyPath: "transform.scale") as? NSNumber)?.doubleValue ?? 1
         layer.addTelegramAnimation(keyPath: "opacity", from: presentation?.opacity ?? layer.opacity, to: 0)
@@ -997,10 +1011,10 @@ private final class TelegramContextMenuController: UIViewController {
         let parameters = UIPreviewParameters()
         parameters.backgroundColor = .clear
         parameters.visiblePath = UIBezierPath(
-            roundedRect: menuEffectView.bounds,
+            roundedRect: menuView.bounds,
             cornerRadius: TelegramContextMenuLayout.menuCornerRadius,
         )
-        return UITargetedPreview(view: menuEffectView, parameters: parameters)
+        return UITargetedPreview(view: menuView, parameters: parameters)
     }
 
     /// Telegram 58ce7d6688 `LensTransitionContainer.animateIn`: the button morphs into the menu, and an assertion
@@ -1021,7 +1035,7 @@ private final class TelegramContextMenuController: UIViewController {
         guard let source = ContextMenuLiquidMorph.sourcePreview(for: sourceView, parameters: parameters) else {
             return false
         }
-        menuEffectView.alpha = 1
+        menuView.alpha = 1
         let morph = ContextMenuLiquidMorph()
         let attachment = source.target.container.convert(source.target.center, to: view)
         isMorphPresenting = true
@@ -1041,7 +1055,7 @@ private final class TelegramContextMenuController: UIViewController {
         )
         guard started else {
             isMorphPresenting = false
-            menuEffectView.alpha = 0
+            menuView.alpha = 0
             return false
         }
         liquidMorph = morph
@@ -1055,7 +1069,7 @@ private final class TelegramContextMenuController: UIViewController {
     private func startLiquidMorphOut() -> Bool {
         let interruptsPresentation = isMorphPresenting
         isMorphPresenting = false
-        guard let morph = liquidMorph, let sourceView, sourceView.window != nil, menuEffectView.window != nil,
+        guard let morph = liquidMorph, let sourceView, sourceView.window != nil, menuView.window != nil,
               let source = morphSourcePreview,
               let destination = ContextMenuLiquidMorph.sourcePreview(
                   for: source.view,
@@ -1100,7 +1114,7 @@ private final class TelegramContextMenuController: UIViewController {
             }
             // The button left the window: fade the menu out at once.
             UIView.animate(withDuration: 0.15) {
-                self.menuEffectView.alpha = 0
+                self.menuView.alpha = 0
             } completion: { _ in self.finishDismissal() }
             return
         }
@@ -1149,7 +1163,7 @@ private final class TelegramContextMenuController: UIViewController {
         isDismissing = true
         removeEscape()
         // The menu goes transparent before its visibility assertion ends, so UIKit's cleanup never shows it open.
-        menuEffectView.alpha = 0
+        menuView.alpha = 0
         menuVisibilityAssertion = nil
         sourceVisibilityAssertion = nil
         liquidMorph = nil
@@ -1231,7 +1245,7 @@ private final class TelegramContextMenuController: UIViewController {
         rebuildActions()
         UIView.animate(withDuration: 0.22, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
             self.layoutPreviewAndMenu()
-            self.menuEffectView.layoutIfNeeded()
+            self.menuView.layoutIfNeeded()
         }
         UIAccessibility.post(notification: .layoutChanged, argument: actionButtons.first)
     }
@@ -1272,7 +1286,7 @@ private final class TelegramContextMenuController: UIViewController {
     /// scrollable chat preview keep their own gestures.
     private func touchOrigin(at point: CGPoint) -> ContextMenuTouchSession.Origin? {
         if !reactionStrip.isHidden, reactionStrip.frame.contains(point) { return nil }
-        if menuEffectView.frame.contains(point) { return .menu }
+        if menuView.frame.contains(point) { return .menu }
         guard previewFrame.contains(point) else { return .outside }
         if presentationStyle == .chatPreview { return nil }
         if selectableTextViews.contains(where: { $0.convert($0.bounds, to: view).contains(point) }) { return nil }
@@ -1284,7 +1298,7 @@ private final class TelegramContextMenuController: UIViewController {
         touchPoint = point
         touchSession?.move(to: point, insidePreview: previewFrame.contains(point))
         // The preview keeps its last position while the finger is over the menu.
-        if let anchor = touchSession?.panAnchor, !menuEffectView.frame.contains(point) {
+        if let anchor = touchSession?.panAnchor, !menuView.frame.contains(point) {
             let offset = ContextMenuMotion.platterOffset(
                 location: point,
                 anchor: anchor,
@@ -1333,7 +1347,7 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     private func actionIndex(at point: CGPoint) -> Int? {
-        guard menuEffectView.frame.contains(point) else { return nil }
+        guard menuView.frame.contains(point) else { return nil }
         return actionButtons.firstIndex { $0.convert($0.bounds, to: view).contains(point) }
     }
 
@@ -1389,9 +1403,9 @@ private final class TelegramContextMenuController: UIViewController {
             ) { highlight.alpha = 0 }
             return
         }
-        menuEffectView.layoutIfNeeded()
+        menuView.layoutIfNeeded()
         let button = actionButtons[index]
-        let rect = button.convert(button.bounds, to: menuEffectView.contentView)
+        let rect = button.convert(button.bounds, to: menuContentView)
             .insetBy(dx: TelegramContextMenuLayout.highlightInset, dy: 0)
         let radius = min(
             TelegramContextMenuLayout.menuCornerRadius - TelegramContextMenuLayout.highlightInset,

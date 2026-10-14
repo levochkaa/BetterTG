@@ -31,11 +31,68 @@ import UIKit
     static func modifyAnimations(frameRateRange: CAFrameRateRange, updateReason: UInt32, animations: () -> Void)
 }
 
+// MARK: - ContextMenuGlassMaterial
+
+/// `_UIViewGlass` setters the system menu calls in `__UIContextMenuListViewResolvedMaterial` (0x1c482aee0).
+@objc private protocol ContextMenuGlassMaterial: NSObjectProtocol {
+    @objc(initWithVariant:) init(variant: Int)
+    @objc(setAdaptive:) func setAdaptive(_ value: Bool)
+    @objc(setFlexible:) func setFlexible(_ value: Bool)
+    @objc(_setFlexVariant:) func setFlexVariant(_ value: Int)
+    @objc(_setEnabledWithoutSolarium:) func setEnabledWithoutSolarium(_ value: Bool)
+    @objc(setAllowsGrouping:) func setAllowsGrouping(_ value: Bool)
+}
+
+// MARK: - ContextMenuMaterialHost
+
+@objc private protocol ContextMenuMaterialHost: NSObjectProtocol {
+    @objc(_setBackground:) func setMaterialBackground(_ material: AnyObject?)
+}
+
+// MARK: - ContextMenuNativeGlass
+
+/// The system menu's glass, ported from CustomContextMenu App/NativeUIKit.swift. The flexible material installs
+/// UIKit's `_UIFlexInteraction` (activation 2/0, sources 3, variant 5, pan on the window), so the menu stretches
+/// toward a finger dragged across it, as the system menu does.
+@MainActor enum ContextMenuNativeGlass {
+    // MARK: Private
+
+    private static let glassClass: AnyClass? = {
+        guard let glassClass = NSClassFromString("_UIViewGlass"),
+              [
+                  "initWithVariant:",
+                  "setAdaptive:",
+                  "setFlexible:",
+                  "_setFlexVariant:",
+                  "_setEnabledWithoutSolarium:",
+                  "setAllowsGrouping:",
+              ].allSatisfy({ glassClass.instancesRespond(to: NSSelectorFromString($0)) })
+        else { return nil }
+        return glassClass
+    }()
+
+    // MARK: Internal
+
+    /// `_updateGlassBackgroundIfNeeded` (0x1c482b0a8) puts the material on a plain view. Returns false when the
+    /// private material is unavailable; the caller then uses interactive `UIGlassEffect`.
+    static func applyMenuGlass(to view: UIView) -> Bool {
+        guard let glassClass, view.responds(to: NSSelectorFromString("_setBackground:")) else { return false }
+        let glass = unsafeBitCast(glassClass, to: ContextMenuGlassMaterial.Type.self).init(variant: 0)
+        glass.setAdaptive(false)
+        glass.setFlexible(true)
+        glass.setFlexVariant(5)
+        glass.setEnabledWithoutSolarium(true)
+        glass.setAllowsGrouping(false)
+        unsafeBitCast(view, to: ContextMenuMaterialHost.self).setMaterialBackground(glass)
+        return true
+    }
+}
+
 // MARK: - ContextMenuNativeAnimation
 
 /// The private UIKit spring calls of the system context menu, ported from CustomContextMenu
 /// App/NativeUIKit.swift (addresses in its Research/Interaction/README.md). Every entry point checks its
-/// selectors and otherwise falls back to public UIKit that exists on iOS 26. The menu glass stays BetterTG's.
+/// selectors and otherwise falls back to public UIKit that exists on iOS 26.
 @MainActor enum ContextMenuNativeAnimation {
     // MARK: Private
 
