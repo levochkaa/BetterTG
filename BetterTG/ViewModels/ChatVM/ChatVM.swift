@@ -607,6 +607,16 @@ import UIKit
         return formatVoiceDuration(range.upperBound - range.lowerBound)
     }
 
+    #if DEBUG
+        var historyDiagnosticSummary: String {
+            let ids = messages.flatMap { $0.sourceMessages.map(\.id) }
+            let gaps = historyGaps.map { "\($0.olderBoundID)...\($0.newerBoundID)" }.joined(separator: ",")
+            return "rows \(messages.count) newest \(ids.max() ?? 0) oldest \(ids.min() ?? 0) gaps [\(gaps)] "
+                + "latestCursor \(latestRestorationCursor != nil) latestFailed \(latestRestorationFailed) "
+                + "waitsForViewport \(restorationWaitsForViewport) more \(hasMoreMessages)"
+        }
+    #endif
+
     private var usesOrdinaryDeliveryReceipts: Bool {
         guard location.topic == nil, !customChat.chat.viewAsTopics, !customChat.isSavedMessages else { return false }
         if case .chatTypeSupergroup(let type) = customChat.chat.type {
@@ -1525,6 +1535,18 @@ import UIKit
             oldestHistoryMessageID = oldest
         }
         driveMessageRefresh()
+    }
+
+    /// The window at the chat's newest message when the loaded rows don't include it, as Telegram's scroll to the end
+    /// of history reloads at the upper bound. Nil when the newest message is already loaded.
+    func prepareLatestMessageWindow() async -> (window: PreparedMessageWindow, messageID: Int64)? {
+        guard locationContextIsCurrent,
+              let newest = await loadHistory(fromMessageId: 0, limit: 1, offset: 0)?
+                  .first(where: { location.matches(message: $0) }),
+                  !Task.isCancelled, locationContextIsCurrent, displayedMessageID(containing: newest.id) == nil,
+                  let window = await prepareMessageWindow(around: newest.id)
+        else { return nil }
+        return (window, newest.id)
     }
 
     /// Loads a gap once the rows next to it come within reach, from the side the user is looking at, as Telegram's
@@ -3665,6 +3687,11 @@ import UIKit
                 .newerBoundID { gaps.append(HistoryGap(olderBoundID: newest, newerBoundID: gap.newerBoundID)) }
         }
         if newest < tailOldest { gaps.append(HistoryGap(olderBoundID: newest, newerBoundID: tailOldest)) }
+        // A window newer than every sent row, such as the latest one, leaves a gap down to the loaded history.
+        let sentIDs = messages.flatMap(\.sourceMessages).filter { $0.sendingState == nil }.map(\.id)
+        if let headNewest = sentIDs.max(), oldest > headNewest {
+            gaps.append(HistoryGap(olderBoundID: headNewest, newerBoundID: oldest))
+        }
         historyGaps = gaps.sorted { $0.newerBoundID > $1.newerBoundID }
     }
 

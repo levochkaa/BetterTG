@@ -173,6 +173,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let messageNavigationScroll = ChatMessageNavigationScroll()
     private var pendingQuoteDestination: PendingQuoteDestination?
     private var messageNavigationTask: Task<Void, Never>?
+    private var latestHistoryTask: Task<Void, Never>?
+    /// Telegram's scroll to the end of history owns the viewport until it lands. Self-sizing and snapshot anchors
+    /// would otherwise stop the animation partway with a non-animated offset write.
+    private var latestEdgeScrollInFlight = false
+    private var latestEdgeScrollGeneration = 0
     private var metadataNavigationTask: Task<Void, Never>?
     private var messageHighlightTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
@@ -356,6 +361,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         }
         messageNavigationTask?.cancel()
+        latestHistoryTask?.cancel()
         metadataNavigationTask?.cancel()
         messageHighlightTask?.cancel()
         selectionCapabilityTask?.cancel()
@@ -559,6 +565,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         viewportRestorationAuthority.invalidate()
         if hasPendingMessageNavigation { didPerformInitialScroll = true }
         cancelMessageNavigation()
+        latestEdgeScrollInFlight = false
         abandonRestoredViewport()
     }
 
@@ -579,6 +586,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         guard scrollView === collectionView else { return }
         recordMessageNavigationGeometry("animation-end", settled: true)
+        latestEdgeScrollInFlight = false
         messageNavigationScroll.animationEnded()
     }
 
@@ -2875,7 +2883,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if ensuringLayout { collectionView.layoutIfNeeded() }
         let ticket = viewportRestorationAuthority.begin()
         guard !clientOwnerRetired, chatVM.locationContextIsCurrent, !userIsScrollingTimeline,
-              !hasPendingMessageNavigation,
+              !hasPendingMessageNavigation, !latestEdgeScrollInFlight,
               allowInitial || didPerformInitialScroll else { return nil }
         let keepsLatest = !didPerformInitialScroll || isNearLatest
         recordMessageNavigationGeometry("automatic-capture", keepsLatest: keepsLatest)
@@ -2887,11 +2895,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func restoreAutomaticViewport(_ restoration: AutomaticViewportRestoration?) {
-        guard !hasPendingMessageNavigation, let restoration, viewportRestorationAuthority.consume(
-            restoration.ticket,
-            contextIsCurrent: !clientOwnerRetired && chatVM.locationContextIsCurrent,
-            userIsScrolling: userIsScrollingTimeline,
-        ) else { return }
+        guard !hasPendingMessageNavigation, !latestEdgeScrollInFlight, let restoration,
+              viewportRestorationAuthority.consume(
+                  restoration.ticket,
+                  contextIsCurrent: !clientOwnerRetired && chatVM.locationContextIsCurrent,
+                  userIsScrolling: userIsScrollingTimeline,
+              ) else { return }
         #if DEBUG
             viewportCompletionProbe?.automaticRestore()
         #endif
@@ -2916,7 +2925,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func restoreSnapshotAnchor(_ anchor: SnapshotAnchor) {
-        guard !hasPendingMessageNavigation, let indexPath = dataSource.indexPath(for: anchor.itemID),
+        guard !hasPendingMessageNavigation, !latestEdgeScrollInFlight,
+              let indexPath = dataSource.indexPath(for: anchor.itemID),
               let attributes = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath)
         else { return }
         let insets = collectionView.adjustedContentInset
@@ -3226,6 +3236,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if hasPendingMessageNavigation { recordMessageNavigationPhase("superseded") }
         messageNavigationTask?.cancel()
         messageNavigationTask = nil
+        latestHistoryTask?.cancel()
+        latestHistoryTask = nil
         pendingQuoteDestination = nil
         pendingScrollMessageID = nil
         pendingQuoteHighlight = nil
@@ -3968,6 +3980,39 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     @objc private func scrollToLatest() {
         abandonRestoredViewport()
         scrollToLatestMessage(animated: true)
+        loadLatestHistoryIfNeeded()
+    }
+
+    /// Telegram's scroll to the end of history reloads it at the upper bound when the loaded rows don't reach it,
+    /// then scrolls there.
+    private func loadLatestHistoryIfNeeded() {
+        guard !clientOwnerRetired, chatVM.locationContextIsCurrent, presentationMode == .full else { return }
+        #if DEBUG
+            log("Scroll to latest: \(chatVM.historyDiagnosticSummary)")
+        #endif
+        latestHistoryTask = Task { [weak self] in
+            guard let self else { return }
+            defer { if !Task.isCancelled { latestHistoryTask = nil } }
+            guard let latest = await chatVM.prepareLatestMessageWindow(), !Task.isCancelled,
+                  !clientOwnerRetired, chatVM.locationContextIsCurrent, !userIsScrollingTimeline,
+                  pendingScrollMessageID == nil
+            else { return }
+            chatVM.applyMessageWindow(latest.window)
+            #if DEBUG
+                log("Scroll to latest: loaded the latest window; \(chatVM.historyDiagnosticSummary)")
+            #endif
+            updateSnapshot(animated: false)
+            for _ in 0..<180 {
+                if !timelineSnapshots.isBusy, timelineSnapshots.committedContains(
+                    rawID: latest.messageID, displayedID: latest.window.displayedMessageID,
+                ) { break }
+                try? await Task.sleep(for: .milliseconds(16))
+                guard !Task.isCancelled else { return }
+            }
+            guard !clientOwnerRetired, chatVM.locationContextIsCurrent, !userIsScrollingTimeline,
+                  !hasPendingMessageNavigation else { return }
+            pinToLatestEdge(animated: true)
+        }
     }
 
     private func scrollToLatestMessage(animated: Bool) {
@@ -3980,15 +4025,43 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func pinToLatestEdge(animated: Bool) {
         guard !hasPendingMessageNavigation else { return }
         collectionView.layoutIfNeeded()
+        let target = -collectionView.adjustedContentInset.top
         recordMessageNavigationGeometry(
-            "pin-latest-before", desiredOffset: -collectionView.adjustedContentInset.top,
+            "pin-latest-before", desiredOffset: target,
             animated: animated, writer: "pin-latest",
         )
+        let distance = collectionView.contentOffset.y - target
+        if animated, distance > 0.5 {
+            beginLatestEdgeScroll()
+            // A row that self-sizes above the viewport moves the offset, which ends an animated scroll where it is.
+            // Lay out the destination first, as Telegram's list does before it animates to an item, then animate at
+            // most one screen over rows that already have their sizes.
+            collectionView.setContentOffset(CGPoint(x: 0, y: target), animated: false)
+            collectionView.layoutIfNeeded()
+            let maximum = collectionView.contentSize.height - collectionView.bounds.height
+                + collectionView.adjustedContentInset.bottom
+            collectionView.setContentOffset(
+                CGPoint(x: 0, y: max(target, min(target + min(distance, collectionView.bounds.height), maximum))),
+                animated: false,
+            )
+            collectionView.layoutIfNeeded()
+        }
         collectionView.setContentOffset(
-            CGPoint(x: 0, y: -collectionView.adjustedContentInset.top),
+            CGPoint(x: 0, y: target),
             animated: animated,
         )
         recordMessageNavigationGeometry("pin-latest-after")
+    }
+
+    private func beginLatestEdgeScroll() {
+        latestEdgeScrollInFlight = true
+        latestEdgeScrollGeneration &+= 1
+        let generation = latestEdgeScrollGeneration
+        // A later non-animated offset write can end the animation without a callback.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, latestEdgeScrollGeneration == generation else { return }
+            latestEdgeScrollInFlight = false
+        }
     }
 
     private func searchMessages(query: String) {
