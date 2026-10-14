@@ -3401,20 +3401,31 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// Centers a committed message without animation, so a returning gallery lands on its current frame.
     private func centerCommittedMessage(_ displayedID: DisplayedMessageID) {
         guard let path = dataSource.indexPath(for: .message(displayedID)) else { return }
-        collectionView.layoutIfNeeded()
-        guard let attributes = collectionView.layoutAttributesForItem(at: path) else { return }
-        let insets = collectionView.adjustedContentInset
-        let visibleCenterOffset = (collectionView.bounds.height + insets.top - insets.bottom) / 2
-        let minimum = -insets.top
-        let maximum = max(minimum, collectionView.contentSize.height - collectionView.bounds.height + insets.bottom)
         viewportRestorationAuthority.invalidate()
-        collectionView.setContentOffset(
-            CGPoint(
-                x: collectionView.contentOffset.x,
-                y: min(maximum, max(minimum, attributes.center.y - visibleCenterOffset)),
-            ),
-            animated: false,
-        )
+        // Rows away from the viewport carry estimated heights. Landing makes them self-size, which moves the target,
+        // so center again until it settles. The mutation depth keeps self-sizing from scheduling its own restore.
+        timelineLayoutMutationDepth += 1
+        defer { finishTimelineLayoutMutation(retryPendingNavigation: false) }
+        for _ in 0..<4 {
+            collectionView.layoutIfNeeded()
+            guard let attributes = collectionView.layoutAttributesForItem(at: path) else { return }
+            let insets = collectionView.adjustedContentInset
+            let visibleCenterOffset = (collectionView.bounds.height + insets.top - insets.bottom) / 2
+            let minimum = -insets.top
+            let maximum = max(
+                minimum,
+                collectionView.contentSize.height - collectionView.bounds.height + insets.bottom,
+            )
+            // Telegram's `.center(.bottom)` in its flipped list: a row taller than the content area shows its top,
+            // which here is the row's maxY at the bottom inset under the navigation bar.
+            let contentHeight = collectionView.bounds.height - insets.top - insets.bottom
+            let proposedY = attributes.size.height > contentHeight
+                ? attributes.frame.maxY - collectionView.bounds.height + insets.bottom
+                : attributes.center.y - visibleCenterOffset
+            let targetY = min(maximum, max(minimum, proposedY))
+            guard abs(collectionView.contentOffset.y - targetY) > 0.5 else { break }
+            collectionView.setContentOffset(CGPoint(x: collectionView.contentOffset.x, y: targetY), animated: false)
+        }
         didPerformInitialScroll = true
     }
 
