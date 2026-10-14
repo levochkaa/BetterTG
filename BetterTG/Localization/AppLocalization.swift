@@ -62,7 +62,7 @@ extension TelegramAccount {
 final class AppLocalization: @unchecked Sendable {
     // MARK: Private
 
-    private enum StoredString: Codable {
+    private enum StoredString: Codable, Equatable {
         case deleted
         case ordinary(String)
         case plural(PluralValues)
@@ -77,7 +77,7 @@ final class AppLocalization: @unchecked Sendable {
         case other
     }
 
-    private struct PluralValues: Codable {
+    private struct PluralValues: Codable, Equatable {
         let few: String
         let many: String
         let one: String
@@ -99,7 +99,7 @@ final class AppLocalization: @unchecked Sendable {
         }
     }
 
-    private struct StoredLanguagePack: Codable {
+    private struct StoredLanguagePack: Codable, Equatable {
         let baseLanguagePackID: String
         let id: String
         let isRTL: Bool
@@ -570,13 +570,17 @@ final class AppLocalization: @unchecked Sendable {
                 let baseInfo = try await client.getLanguagePackInfo(languagePackId: language.baseLanguagePackID)
                 basePack = try await downloadPack(Self.language(from: baseInfo), using: client)
             }
-            lock.withLock {
+            // Every new client (launch, foreground ownership restore) refreshes the pack. Only changed strings are a
+            // language change: the root rebuilds its navigation stack on that notification.
+            let changed = lock.withLock {
+                let changed = packs[pack.id] != pack || basePack.map { packs[$0.id] != $0 } == true
                 packs[pack.id] = pack
                 if let basePack {
                     packs[basePack.id] = basePack
                 }
+                return changed
             }
-            nc.post(name: .appLanguageChanged)
+            if changed { nc.post(name: .appLanguageChanged) }
         } catch {
             log("Unable to refresh Telegram language pack \(selectedLanguagePackID): \(error.localizedDescription)")
         }
