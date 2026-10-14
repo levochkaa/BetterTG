@@ -217,10 +217,7 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
         layout _: UICollectionViewLayout,
         sizeForItemAt indexPath: IndexPath,
     ) -> CGSize {
-        let size = Self.mediaSize(messages[indexPath.item])
-        let expandedWidth = min(75, max(31, 42 * size.width / max(1, size.height)))
-        let expansion = isScrubbing ? 0 : max(0, 1 - abs(CGFloat(indexPath.item) - pagingPosition))
-        return CGSize(width: 23 + (expandedWidth - 23) * expansion, height: 42)
+        CGSize(width: itemWidth(at: indexPath.item), height: 42)
     }
 
     func scrollViewWillBeginDragging(_: UIScrollView) {
@@ -247,6 +244,25 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
 
     func scrollViewDidEndDecelerating(_: UIScrollView) {
         finishScrubbing()
+    }
+
+    private func itemWidth(at index: Int) -> CGFloat {
+        let size = Self.mediaSize(messages[index])
+        let expandedWidth = min(75, max(31, 42 * size.width / max(1, size.height)))
+        let expansion = isScrubbing ? 0 : max(0, 1 - abs(CGFloat(index) - pagingPosition))
+        return 23 + (expandedWidth - 23) * expansion
+    }
+
+    /// The item's center in content coordinates, from the same widths the layout uses. The flow layout's own
+    /// attributes can still describe the previous album here: after the strip was hidden on a non-album page and the
+    /// next album reloads it, layout runs before the collection prepares the new items, and asking it for an item
+    /// past the old count throws.
+    private func itemCenterX(at index: Int) -> CGFloat {
+        var x = CGFloat.zero
+        for item in 0..<index {
+            x += itemWidth(at: item) + layout.minimumLineSpacing
+        }
+        return x + itemWidth(at: index) / 2
     }
 
     private func finishScrubbing() {
@@ -282,11 +298,9 @@ final class GalleryThumbnailStripView: UIView, UICollectionViewDataSource, UICol
         let position = isScrubbing ? CGFloat(selectedIndex) : pagingPosition
         let lower = min(messages.count - 1, max(0, Int(floor(position))))
         let upper = min(messages.count - 1, lower + 1)
-        guard let first = layout.layoutAttributesForItem(at: IndexPath(item: lower, section: 0)),
-              let second = layout.layoutAttributesForItem(at: IndexPath(item: upper, section: 0))
-        else { return }
         let fraction = position - CGFloat(lower)
-        let center = first.center.x + (second.center.x - first.center.x) * fraction
+        let lowerCenter = itemCenterX(at: lower)
+        let center = lowerCenter + (itemCenterX(at: upper) - lowerCenter) * fraction
         collection.setContentOffset(
             CGPoint(x: center - collection.bounds.width / 2, y: -collection.adjustedContentInset.top),
             animated: animated,
