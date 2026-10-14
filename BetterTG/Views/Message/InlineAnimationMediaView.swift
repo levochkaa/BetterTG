@@ -24,6 +24,9 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
     private var fileRequest: AnimatedFileDownload?
     private var generation = UUID()
     private var playbackVisible = false
+    /// A bubble opens the gallery on tap, as Telegram's `ChatMessageInteractiveMediaNode` does; panel cells pass nil.
+    private var onTap: (() -> Void)?
+    private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
     private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 180)
     private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 180)
 
@@ -57,9 +60,20 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
         updatePlayback()
     }
 
+    override func accessibilityActivate() -> Bool {
+        guard let onTap else { return false }
+        onTap()
+        return true
+    }
+
     /// Without a display size the owner sizes the view.
-    func configure(animation: Animation, displaySize: CGSize?, client: TDLibClient) {
+    func configure(animation: Animation, displaySize: CGSize?, client: TDLibClient, onTap: (() -> Void)? = nil) {
         prepareForReuse()
+        self.onTap = onTap
+        if onTap != nil, tapRecognizer.view == nil { addGestureRecognizer(tapRecognizer) }
+        tapRecognizer.isEnabled = onTap != nil
+        isUserInteractionEnabled = onTap != nil
+        accessibilityTraits = onTap == nil ? .image : [.image, .button]
         if let displaySize {
             widthConstraint.constant = displaySize.width
             heightConstraint.constant = displaySize.height
@@ -108,6 +122,8 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
         playbackVisible = isVisible
         updatePlayback()
     }
+
+    @objc private func tapped() { onTap?() }
 
     private func installPlayer(path: String) {
         let player = AVQueuePlayer()

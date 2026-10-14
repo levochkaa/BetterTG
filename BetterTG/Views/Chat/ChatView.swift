@@ -130,6 +130,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let timelineSnapshots = ChatTimelineSnapshotState()
     private var messageRenderInvalidations = ChatMessageRenderInvalidations()
     private var prefetchTasks = [DisplayedMessageID: PrefetchTaskEntry]()
+    /// Voice and video-note files a prefetch asked TDLib for. TDLib keeps downloading them after the prefetch task
+    /// ends, so a row that leaves the prefetch range without being shown cancels them; a shown row's view owns them.
+    private var prefetchedPlaybackFiles = [DisplayedMessageID: (client: TDLibClient, fileIDs: [Int])]()
     private var inlineVideoPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
     /// The title each date header was last configured with. A structural apply reconfigures only headers whose
     /// title changed (midnight, language): reconfiguring every header in each delete's animated apply cut the rows'
@@ -612,6 +615,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         applyComposerSendGlides(to: cell)
+        if case .message(let displayedMessageID) = dataSource.itemIdentifier(for: indexPath) {
+            prefetchedPlaybackFiles[displayedMessageID] = nil
+        }
         guard case .message(let displayedMessageID) = dataSource.itemIdentifier(for: indexPath),
               let cell = cell as? MessageCell,
               let row = currentBoundRenderRow(cell)
@@ -658,6 +664,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             let generation = UUID()
             let entry = PrefetchTaskEntry(generation: generation)
             prefetchTasks[displayedMessageID] = entry
+            let playbackFileIDs = messages.flatMap(TDMediaPrefetcher.playbackFileIDs(in:))
+            if !playbackFileIDs.isEmpty { prefetchedPlaybackFiles[displayedMessageID] = (client, playbackFileIDs) }
             entry.task = Task { [weak self] in
                 for item in messages where !Task.isCancelled {
                     await TDMediaPrefetcher.prefetch(message: item, client: client, revealPermit: permits[item.id])
@@ -675,6 +683,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             guard case .message(let id) = dataSource.itemIdentifier(for: indexPath) else { continue }
             prefetchTasks[id]?.task?.cancel()
             prefetchTasks[id] = nil
+            if let files = prefetchedPlaybackFiles.removeValue(forKey: id),
+               !collectionView.indexPathsForVisibleItems.contains(indexPath)
+            {
+                let client = files.client
+                Task {
+                    for fileID in files.fileIDs {
+                        _ = try? await client.cancelDownloadFile(fileId: fileID, onlyIfPending: true)
+                    }
+                }
+            }
         }
     }
 

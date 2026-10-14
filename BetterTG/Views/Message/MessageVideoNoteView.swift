@@ -152,22 +152,24 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     func configure(message: Message, client: TDLibClient, context: MediaGalleryPlaybackContext?) {
         let acceptsContext = context.map { $0.isCurrent && $0.location.matches(message: message) }
             ?? !Self.isSecret(message)
-        configure(
+        let keptPlayback = configure(
             message: message,
             backend: acceptsContext
                 ? VideoNotePlaybackBackend.captured(client: client, context: context)
                 : nil,
         )
-        guard backend?.isCurrent() == true, !isRevoked else { return }
+        // The same note keeps its thumbnail too; reloading it would cancel the load and blank the image.
+        guard !keptPlayback, backend?.isCurrent() == true, !isRevoked else { return }
         if !isSecret, let thumbnail = videoNote?.thumbnail {
             thumbnailView.load(file: thumbnail.file, placeholderData: videoNote?.minithumbnail?.data, client: client)
         }
     }
 
-    func configure(message: Message, backend: VideoNotePlaybackBackend?) {
+    /// Returns true when it reconfigured the note it already shows and kept its playback.
+    @discardableResult func configure(message: Message, backend: VideoNotePlaybackBackend?) -> Bool {
         guard case .messageVideoNote(let value) = message.content else {
             prepareForReuse()
-            return
+            return false
         }
         // A reconfigure of the same note keeps its playback, progress and download.
         if let current = self.message, current.chatId == message.chatId, current.id == message.id,
@@ -177,7 +179,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             videoNote = value.videoNote
             self.message = message
             update(file: value.videoNote.video)
-            return
+            return true
         }
         prepareForReuse()
         let videoNote = value.videoNote
@@ -194,7 +196,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
                 ? L10n.betterTG("Accessibility.HoldToOpenHint")
                 : L10n.betterTG("Accessibility.ProtectedMessageUnavailable"))
             : L10n.betterTG("Accessibility.PlayPauseHint")
-        guard let backend, backend.isCurrent(), !isSecret || supportsSecretHold else { return }
+        guard let backend, backend.isCurrent(), !isSecret || supportsSecretHold else { return false }
         if !isSecret, let data = videoNote.minithumbnail?.data {
             thumbnailView.image = UIImage(data: data)
         }
@@ -202,6 +204,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         update(file: videoNote.video)
         if !isSecret { startDownloadIfNeeded() }
         renderPlayerState(.idle)
+        return false
     }
 
     func prepareForReuse() {

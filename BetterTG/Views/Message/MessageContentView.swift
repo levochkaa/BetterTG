@@ -112,6 +112,8 @@ final class MessageMediaView: UIView {
                 )
                 view = videoNoteView
             case .messageAnimation(let animation):
+                // As with other sending media (F41), a tap on a GIF that is still sending does nothing.
+                let openGallery: (() -> Void)? = item.sendingState == nil ? { onTap([item], item.id) } : nil
                 if let owner = videoPlaybackOwners[item.id], owner.matches(message: item) {
                     let inlineView = InlineVideoMediaView()
                     inlineView.configure(owner: owner, displaySize: displaySize) { onTap([item], item.id) }
@@ -123,13 +125,18 @@ final class MessageMediaView: UIView {
                         client: client,
                         thumbnail: animation.animation.thumbnail,
                         displaySize: displaySize,
-                        onTap: nil,
+                        onTap: openGallery,
                     )
                     animationView.accessibilityLabel = L10n.telegram("Message.Animation")
                     view = animationView
                 } else {
                     let animationView = InlineAnimationMediaView()
-                    animationView.configure(animation: animation.animation, displaySize: displaySize, client: client)
+                    animationView.configure(
+                        animation: animation.animation,
+                        displaySize: displaySize,
+                        client: client,
+                        onTap: openGallery,
+                    )
                     view = animationView
                 }
             case .messageSticker(let sticker):
@@ -1385,6 +1392,18 @@ enum TDMediaPrefetcher {
         case ffmpegVideo
     }
 
+    /// The voice or video-note files a prefetch starts outside the shared demand and doesn't wait for.
+    static func playbackFileIDs(in message: Message) -> [Int] {
+        let file: File? =
+            switch message.content {
+            case .messageVoiceNote(let voice): voice.voiceNote.voice
+            case .messageVideoNote(let video): video.videoNote.video
+            default: nil
+            }
+        guard let file, !file.local.isDownloadingCompleted else { return [] }
+        return [file.id]
+    }
+
     @MainActor static func prefetch(
         message: Message,
         client: TDLibClient,
@@ -1440,8 +1459,8 @@ enum TDMediaPrefetcher {
                 guard let request = AnimatedFileDownload(fileID: file.file.id, client: client) else { return }
                 downloaded = await request.completedFile(file: file.file)
             case .unpooledMedia:
-                // Playback does not share this demand yet. Start prefetch without
-                // waiting for completion or cancelling another consumer's file.
+                // Playback does not share this demand yet. Start prefetch without waiting for completion; ChatView
+                // cancels the pending download if the row leaves the prefetch range unseen.
                 downloaded = try? await client.downloadFile(
                     fileId: file.file.id,
                     limit: 0,
