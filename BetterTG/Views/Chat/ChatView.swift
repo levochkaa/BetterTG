@@ -1007,6 +1007,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         var visibleIDs = Set<Int64>()
         var tailIDs = Set<Int64>()
+        var visibleDisplayedIDs = Set<DisplayedMessageID>()
         let tailRows = Set(chatVM.messages.suffix(5).map(\.displayedID))
         for indexPath in collectionView.indexPathsForVisibleItems {
             guard let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
@@ -1014,8 +1015,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                   timelineSnapshots.committed.rows[.message(row.value.displayedID)]?.message === row else { continue }
             let ids = Set(row.value.sourceMessages.map(\.id))
             visibleIDs.formUnion(ids)
+            visibleDisplayedIDs.insert(row.value.displayedID)
             if tailRows.contains(row.value.displayedID) { tailIDs.formUnion(ids) }
         }
+        if requestHistory { chatVM.loadHistoryGaps(near: visibleDisplayedIDs) }
         // A context preview may page history, but must never acknowledge it read.
         if presentationMode == .contextPreview {
             acknowledgedVisibleRawIDs.removeAll()

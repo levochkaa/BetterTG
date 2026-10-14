@@ -22,7 +22,15 @@ import UIKit
         let messages: [CustomMessage]
         let displayedMessageID: DisplayedMessageID
         let rawOldestMessageID: Int64?
+        let rawNewestMessageID: Int64?
         let readToken: ChatHistoryRestorationRefresh.ReadToken?
+    }
+
+    /// History a jump skipped: no message with `olderBoundID < id < newerBoundID` is loaded, though the chat may
+    /// have some. Telegram's history view never shows such a hole, so scrolling toward one loads it.
+    struct HistoryGap: Equatable {
+        var olderBoundID: Int64
+        var newerBoundID: Int64
     }
 
     // MARK: Private
@@ -146,6 +154,8 @@ import UIKit
         didSet { queueForumTopicDemandRefresh() }
     }
 
+    private(set) var historyGaps = [HistoryGap]()
+
     private var voiceFinalizationGeneration = UInt64.zero
     private var voiceDraftRefreshGeneration = UInt64.zero
     @Published private var pendingVoiceDraftIsFinalizing = false
@@ -244,6 +254,7 @@ import UIKit
     private var voiceSendTransitionIDs = [UUID: UUID]()
     private var hasMoreMessages = true
     private var oldestHistoryMessageID: Int64?
+    private var historyGapTask: Task<Void, Never>?
     private var messageRefresh: ChatHistoryRestorationRefresh?
     private var messageRefreshTask: Task<Void, Never>?
     private var latestRestorationCursor: ChatHistoryLatestRefreshCursor?
@@ -1110,6 +1121,15 @@ import UIKit
     /// client's latest history and source-message reads before claiming freshness.
     func historyRestorationState() -> ChatHistoryRestorationState? {
         guard composerCanTransfer, reactionMutationTasks.isEmpty, pinMutationTasks.isEmpty else { return nil }
+        // The seed has no gap list: keep only the contiguous history above the newest gap and page on from there.
+        if let gap = historyGaps.first {
+            return ChatHistoryRestorationState(
+                location: location,
+                messages: messages.filter { row in row.sourceMessages.allSatisfy { $0.id >= gap.newerBoundID } }
+                    .map(ChatHistoryMessageValue.init),
+                oldestHistoryMessageID: gap.newerBoundID, hasMoreMessages: true,
+            )
+        }
         return ChatHistoryRestorationState(
             location: location, messages: messages.map(ChatHistoryMessageValue.init),
             oldestHistoryMessageID: oldestHistoryMessageID, hasMoreMessages: hasMoreMessages,
@@ -1444,6 +1464,7 @@ import UIKit
             ChatMessageNavigationDiagnostic.record("history-ready")
         #endif
         let rawOldestMessageID = history.last?.id
+        let rawNewestMessageID = history.first?.id
         if !history.contains(where: { $0.id == id }) {
             #if DEBUG
                 ChatMessageNavigationDiagnostic.record("fallback-read")
@@ -1479,7 +1500,7 @@ import UIKit
         #endif
         return PreparedMessageWindow(
             messages: loaded, displayedMessageID: displayedMessageID,
-            rawOldestMessageID: rawOldestMessageID, readToken: readToken,
+            rawOldestMessageID: rawOldestMessageID, rawNewestMessageID: rawNewestMessageID, readToken: readToken,
         )
     }
 
@@ -1489,11 +1510,43 @@ import UIKit
             messageRefresh?.takeCurrentValues(window.messages.map(ChatHistoryMessageValue.init), token: $0)
                 .map { $0.makeMessage() } ?? []
         } ?? window.messages
+        let windowIDs = current.flatMap { $0.sourceMessages.map(\.id) }
+            + [window.rawOldestMessageID, window.rawNewestMessageID].compactMap(\.self)
+        if let windowOldest = windowIDs.min(), let windowNewest = windowIDs.max() {
+            recordHistoryWindow(oldest: windowOldest, newest: windowNewest)
+        }
         messages = canonicalMessages(merging: messages, with: current, replacingExisting: true)
         if let oldest = window.rawOldestMessageID, oldestHistoryMessageID.map({ oldest < $0 }) ?? true {
             oldestHistoryMessageID = oldest
         }
         driveMessageRefresh()
+    }
+
+    /// Loads a gap once the rows next to it come within reach, from the side the user is looking at, as Telegram's
+    /// history view loads the next page in the scroll direction.
+    func loadHistoryGaps(near visibleIDs: Set<DisplayedMessageID>) {
+        guard historyGapTask == nil, !historyGaps.isEmpty, !restorationWaitsForViewport, locationContextIsCurrent
+        else { return }
+        let visibleIndices = messages.indices.filter { visibleIDs.contains(messages[$0].displayedID) }
+        guard !visibleIndices.isEmpty else { return }
+        let reach = 12
+        for gap in historyGaps {
+            // `messages` is newest first: the gap sits between the last row reaching its newer bound and the next one.
+            guard let newerIndex = messages.lastIndex(where: { row in
+                row.sourceMessages.contains { $0.id >= gap.newerBoundID }
+            }) else { continue }
+            let olderIndex = newerIndex + 1
+            let newerDistance = visibleIndices.map { abs($0 - newerIndex) }.min() ?? .max
+            let olderDistance = olderIndex < messages.count
+                ? visibleIndices.map { abs($0 - olderIndex) }.min() ?? .max
+                : Int.max
+            guard min(newerDistance, olderDistance) <= reach else { continue }
+            let fillsFromOlderSide = olderDistance < newerDistance
+            historyGapTask = Task { [weak self] in
+                await self?.loadHistoryGap(gap, fromOlderSide: fillsFromOlderSide)
+            }
+            return
+        }
     }
 
     func mergeIncomingMessages(_ incoming: [CustomMessage]) {
@@ -3587,6 +3640,60 @@ import UIKit
         reader.synchronize(ChatForumTopicReads.demandedIDs(
             chatID: chatID, messages: messages.flatMap(\.sourceMessages), composerTopics: composerTopics,
         ))
+    }
+
+    /// A window is contiguous history from `oldest` to `newest`. It splits any gap it lands in, and a window older
+    /// than everything loaded leaves a gap up to the previous oldest message. Call before merging the window.
+    private func recordHistoryWindow(oldest: Int64, newest: Int64) {
+        let loadedIDs = messages.flatMap { $0.sourceMessages.map(\.id) }
+        guard let tailOldest = oldestHistoryMessageID ?? loadedIDs.min() else { return }
+        var gaps = [HistoryGap]()
+        for gap in historyGaps {
+            guard oldest < gap.newerBoundID, newest > gap.olderBoundID else {
+                gaps.append(gap)
+                continue
+            }
+            if gap
+                .olderBoundID < oldest { gaps.append(HistoryGap(olderBoundID: gap.olderBoundID, newerBoundID: oldest)) }
+            if newest < gap
+                .newerBoundID { gaps.append(HistoryGap(olderBoundID: newest, newerBoundID: gap.newerBoundID)) }
+        }
+        if newest < tailOldest { gaps.append(HistoryGap(olderBoundID: newest, newerBoundID: tailOldest)) }
+        historyGaps = gaps.sorted { $0.newerBoundID > $1.newerBoundID }
+    }
+
+    private func loadHistoryGap(_ gap: HistoryGap, fromOlderSide: Bool) async {
+        defer { historyGapTask = nil }
+        let readToken = messageRefresh?.beginRead()
+        let pageSize = 50
+        guard let fetched = await loadHistory(
+            fromMessageId: fromOlderSide ? gap.olderBoundID : gap.newerBoundID,
+            limit: pageSize,
+            offset: fromOlderSide ? -(pageSize - 1) : 0,
+        ), !Task.isCancelled, locationContextIsCurrent, historyGaps.contains(gap) else { return }
+        let inside = fetched.filter { $0.id > gap.olderBoundID && $0.id < gap.newerBoundID }
+        let closes = fromOlderSide
+            ? fetched.contains { $0.id >= gap.newerBoundID }
+            : fetched.contains { $0.id <= gap.olderBoundID }
+        // TDLib can return an empty page while it fills its cache; the next scroll near the gap retries.
+        guard closes || !inside.isEmpty else { return }
+        let loaded = await inside.filter { location.matches(message: $0) }.asyncMap { await getCustomMessage(from: $0) }
+        guard !Task.isCancelled, locationContextIsCurrent, let index = historyGaps.firstIndex(of: gap) else { return }
+        if closes {
+            historyGaps.remove(at: index)
+        } else if fromOlderSide, let newest = inside.map(\.id).max() {
+            historyGaps[index].olderBoundID = newest
+        } else if let oldest = inside.map(\.id).min() {
+            historyGaps[index].newerBoundID = oldest
+        }
+        let current = readToken.map {
+            messageRefresh?.takeCurrentValues(loaded.map(ChatHistoryMessageValue.init), token: $0)
+                .map { $0.makeMessage() } ?? []
+        } ?? loaded
+        if !current.isEmpty {
+            messages = canonicalMessages(merging: messages, with: current, replacingExisting: true)
+        }
+        driveMessageRefresh()
     }
 
     private func beginOutgoingAlbum(count: Int) -> UUID {
