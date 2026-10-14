@@ -383,7 +383,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         highlightConstraints = []
         highlightOverlay.removeFromSuperview()
         avatarView.prepareForReuse()
-        avatarView.isHidden = true
+        avatarView.setHiddenIfChanged(true)
         mediaView.prepareForReuse()
         structuredContentView.prepareForReuse()
         textView.prepareForReuse()
@@ -396,7 +396,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         forwardView.isHidden = true
         replyView.isHidden = true
         textView.isHidden = true
-        mediaView.isHidden = true
+        mediaView.setHiddenIfChanged(true)
         structuredContentView.isHidden = true
         reactionView.isHidden = true
         timestampLabel.isHidden = true
@@ -670,7 +670,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             },
             onTap: mediaAction,
         )
-        mediaView.isHidden = !hasMedia
+        mediaView.setHiddenIfChanged(!hasMedia)
         setMessageHighlighted(highlightedMessageID, animated: reconfiguresSameMessage)
 
         let previewBelowText: Bool =
@@ -752,7 +752,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         mediaView.bringSubviewToFront(mediaTimestampLabel)
 
         if let sender = message.senderUser, showsProfileImage, !message.message.isOutgoing {
-            avatarView.isHidden = false
+            avatarView.setHiddenIfChanged(false)
             avatarView.configure(
                 file: sender.profilePhoto?.small,
                 largeFile: sender.profilePhoto?.big,
@@ -761,7 +761,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 client: client,
             )
         } else {
-            avatarView.isHidden = true
+            avatarView.setHiddenIfChanged(true)
         }
 
         let isVideoNoteMessage =
@@ -1039,7 +1039,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     private func updateBubbleContentInsets() {
         for content in bubbleContentViews {
-            bubbleInsetViews[ObjectIdentifier(content)]?.isHidden = content.isHidden
+            bubbleInsetViews[ObjectIdentifier(content)]?.setHiddenIfChanged(content.isHidden)
         }
         let visibleItems = bubbleStack.arrangedSubviews.filter { !$0.isHidden }
         var mediaCorners = CACornerMask()

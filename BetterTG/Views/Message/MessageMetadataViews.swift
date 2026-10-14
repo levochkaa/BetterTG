@@ -66,7 +66,7 @@ final class ForwardHeaderView: UIControl {
         headlineLabel.text = presentation.headline
         sourceLabel.text = presentation.sourceTitle
         avatarView.configure(presentation.avatar, client: client)
-        avatarView.isHidden = presentation.avatar == nil
+        avatarView.setHiddenIfChanged(presentation.avatar == nil)
         self.onTap = onTap
         isUserInteractionEnabled = onTap != nil
         isAccessibilityElement = true
@@ -222,7 +222,7 @@ final class ReplySnippetView: UIControl {
         titleLabel.numberOfLines = presentation.isManualQuote ? 2 : 1
         bodyLabel.attributedText = MessageTextSpoilerPresentation(presentation.body).attributedText()
         bodyLabel.numberOfLines = presentation.isManualQuote ? (expanded ? 50 : 5) : 1
-        quoteIconView.isHidden = !presentation.isManualQuote
+        quoteIconView.setHiddenIfChanged(!presentation.isManualQuote)
         if let thumbnail = presentation.thumbnail {
             thumbnailWidthConstraint.constant = 36
             textLeadingConstraint.constant = 6
@@ -262,7 +262,7 @@ final class ReplySnippetView: UIControl {
         titleLabel.numberOfLines = 2
         bodyLabel.attributedText = MessageTextSpoilerPresentation(quote.text).attributedText()
         bodyLabel.numberOfLines = 3
-        quoteIconView.isHidden = false
+        quoteIconView.setHiddenIfChanged(false)
         thumbnailWidthConstraint.constant = 0
         textLeadingConstraint.constant = 0
         thumbnailView.isHidden = true
@@ -285,7 +285,7 @@ final class ReplySnippetView: UIControl {
         titleLabel.numberOfLines = 1
         bodyLabel.text = text
         bodyLabel.numberOfLines = 1
-        quoteIconView.isHidden = true
+        quoteIconView.setHiddenIfChanged(true)
         thumbnailWidthConstraint.constant = 0
         textLeadingConstraint.constant = 0
         thumbnailView.isHidden = true
@@ -303,7 +303,7 @@ final class ReplySnippetView: UIControl {
         thumbnailView.image = nil
         titleLabel.text = nil
         bodyLabel.attributedText = nil
-        quoteIconView.isHidden = true
+        quoteIconView.setHiddenIfChanged(true)
         thumbnailWidthConstraint.constant = 0
         textLeadingConstraint.constant = 0
         onTap = nil
