@@ -193,6 +193,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var selectedDisplayedMessageIDs = Set<DisplayedMessageID>()
     private var isSelectingMessages = false
     private var selectionInteractionActive = false
+    /// A two-finger pan that ran into the selection limit; its alert waits until the pan ends.
+    private var selectionInteractionHitLimit: Int?
     private var selectionCapabilityTask: Task<Void, Never>?
     private var selectionCapabilityGeneration: UUID?
     private var timelineLayoutMutationDepth = 0
@@ -722,7 +724,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// Telegram uses a two-finger vertical selection pan. UIKit owns gesture tracking,
     /// range reversal and edge scrolling; the chat keeps one shared selection model.
     func collectionView(_: UICollectionView, shouldBeginMultipleSelectionInteractionAt indexPath: IndexPath) -> Bool {
-        guard presentationMode == .full, !messageSearchActive,
+        // Same eligibility as the menu's Select: a read-only topic offers no selection.
+        guard presentationMode == .full, !messageSearchActive, !chatVM.isReadOnlyTopic,
               case .message(let id) = dataSource.itemIdentifier(for: indexPath),
               let message = message(for: id) else { return false }
         return canSelectMessage(message)
@@ -731,19 +734,31 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     func collectionView(_: UICollectionView, didBeginMultipleSelectionInteractionAt indexPath: IndexPath) {
         guard case .message(let id) = dataSource.itemIdentifier(for: indexPath) else { return }
         selectionInteractionActive = true
+        selectionInteractionHitLimit = nil
         if !isSelectingMessages { beginMessageSelection(with: id, selectInitialMessage: false) }
     }
 
     func collectionViewDidEndMultipleSelectionInteraction(_: UICollectionView) {
         selectionInteractionActive = false
         if selectedDisplayedMessageIDs.isEmpty { endMessageSelection() }
+        if let count = selectionInteractionHitLimit {
+            selectionInteractionHitLimit = nil
+            presentSelectionLimitAlert(count: count)
+        }
     }
 
     func collectionView(_: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool {
         guard isSelectingMessages,
               case .message(let id) = dataSource.itemIdentifier(for: indexPath),
               let message = message(for: id), canSelectMessage(message) else { return false }
-        return sourceMessageIDs(forDisplayedMessageIDs: selectedDisplayedMessageIDs.union([id])).count <= 100
+        let count = sourceMessageIDs(forDisplayedMessageIDs: selectedDisplayedMessageIDs.union([id])).count
+        guard count > 100 else { return true }
+        if selectionInteractionActive {
+            selectionInteractionHitLimit = max(selectionInteractionHitLimit ?? 0, count)
+        } else {
+            presentSelectionLimitAlert(count: count)
+        }
+        return false
     }
 
     func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
@@ -4348,17 +4363,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             selectedDisplayedMessageIDs.remove(displayedMessageID)
         } else {
             let proposedIDs = selectedDisplayedMessageIDs.union([displayedMessageID])
-            if sourceMessageIDs(forDisplayedMessageIDs: proposedIDs).count > 100 {
-                let alert = UIAlertController(
-                    title: L10n.betterTG("Chat.SelectionLimitTitle"),
-                    message: MessageForwardingError.tooManyMessages(
-                        sourceMessageIDs(forDisplayedMessageIDs: proposedIDs).count,
-                    )
-                    .localizedDescription,
-                    preferredStyle: .alert,
-                )
-                alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
-                present(alert, animated: true)
+            let proposedCount = sourceMessageIDs(forDisplayedMessageIDs: proposedIDs).count
+            if proposedCount > 100 {
+                presentSelectionLimitAlert(count: proposedCount)
                 return
             }
             selectedDisplayedMessageIDs.insert(selectedMessage.displayedID)
@@ -4372,6 +4379,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 argument: selectionAccessibilityAnnouncement,
             )
         }
+    }
+
+    private func presentSelectionLimitAlert(count: Int) {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: L10n.betterTG("Chat.SelectionLimitTitle"),
+            message: MessageForwardingError.tooManyMessages(count).localizedDescription,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        present(alert, animated: true)
     }
 
     private func endMessageSelection(reconfigure: Bool = true) {
