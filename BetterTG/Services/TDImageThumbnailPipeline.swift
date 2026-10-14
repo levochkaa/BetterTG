@@ -12,9 +12,13 @@ struct TDImageThumbnailKey: Hashable {
     let clientID: Int32
     let fileID: Int
     let maximumPixelSize: Int
+    /// The file's remote unique ID. File IDs belong to a client, so a renewed client of the same account reuses the
+    /// pixels decoded through the previous one only by this ID.
+    var contentID = ""
 
     var cacheKey: NSString {
         let accountNamespace = accountID?.uuidString ?? "unknown-account"
+        if !contentID.isEmpty { return "\(accountNamespace):remote:\(contentID):\(maximumPixelSize)" as NSString }
         return "\(accountNamespace):\(clientID):\(fileID):\(maximumPixelSize)" as NSString
     }
 
@@ -185,6 +189,7 @@ enum TDImagePrefetcher {
             clientID: source.clientID,
             fileID: file.id,
             maximumPixelSize: maximumPixelSize,
+            contentID: file.remote.uniqueId,
         )
         if TDImageThumbnailPipeline.shared.cachedImage(for: key.cacheKey) != nil {
             return

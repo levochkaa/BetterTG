@@ -1089,6 +1089,7 @@ final class TDImageLoadingView: UIImageView {
         let accountID: UUID
         let clientID: Int32
         let fileID: Int
+        let contentID: String
         let maximumPixelSize: Int
         let generation: UUID
 
@@ -1098,6 +1099,7 @@ final class TDImageLoadingView: UIImageView {
                 clientID: clientID,
                 fileID: fileID,
                 maximumPixelSize: maximumPixelSize,
+                contentID: contentID,
             )
         }
     }
@@ -1211,6 +1213,7 @@ final class TDImageLoadingView: UIImageView {
             accountID: origin.source.accountID,
             clientID: origin.source.clientID,
             fileID: file.id,
+            contentID: file.remote.uniqueId,
             maximumPixelSize: maximumPixelSize,
             generation: UUID(),
         )
@@ -1492,6 +1495,7 @@ enum TDMediaPrefetcher {
                     clientID: source.clientID,
                     fileID: downloaded.id,
                     maximumPixelSize: 960,
+                    contentID: downloaded.remote.uniqueId,
                 )
                 _ = await TDImageThumbnailPipeline.shared.image(at: downloaded.local.path, key: key)
             case .unpooledMedia:
