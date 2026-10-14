@@ -185,6 +185,9 @@ final class MessageMediaView: UIView {
                         owner: videoPlaybackOwner,
                         size: CGSize(width: CGFloat(video.video.width), height: CGFloat(video.video.height)),
                     ) { onTap([message.message], message.id) }
+                    if onCancelSending != nil {
+                        inlineView.showUploadProgress(for: message.message, client: client)
+                    }
                     view = inlineView
                 } else {
                     let fileView = FileMediaPreviewView()
@@ -197,6 +200,7 @@ final class MessageMediaView: UIView {
                         usesFileAsThumbnailFallback: false,
                         client: client,
                     ) { onTap([message.message], message.id) }
+                    fileView.showSentVideoPoster(for: message.message)
                     if let onCancelSending {
                         let messageID = message.message.id
                         fileView.showUploadProgress(for: message.message, client: client) { onCancelSending(messageID) }
@@ -633,6 +637,7 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
             uploadProgress.centerXAnchor.constraint(equalTo: centerXAnchor),
             uploadProgress.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+        uploadProgress.showsUploadedCheck = true
         uploadProgress.onActiveChange = { [weak self] active in
             guard let self else { return }
             playIcon.isHidden = active || !showsPlayIcon
@@ -691,6 +696,7 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
             imageView.isHidden = true
             playIcon.isHidden = true
             videoPlaybackAttachmentToken = videoPlaybackOwner.attach(to: self, context: .inline)
+            bringSubviewToFront(uploadProgress)
             accessibilityLabel = videoPlaybackOwner.isAnimation
                 ? L10n.betterTG("Accessibility.OpenAnimation")
                 : L10n.betterTG("Accessibility.OpenVideo")
@@ -715,8 +721,16 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
                 imageView.load(photo: photo.photo, preferredSize: .yBox, client: client)
             }
         case .messageVideo(let video):
-            playIcon.isHidden = false
-            if let thumbnail = video.video.thumbnail {
+            // A video this session sends keeps the frame it was picked with until inline playback takes the tile.
+            // TDLib swaps its thumbnail when an album item uploads before the others and again once it is sent;
+            // Telegram keeps the same media node, and its autoplaying bubble has no play icon.
+            let poster = MediaUploadProgressRegistry.sentVideoPoster(
+                for: MediaUploadProgressRegistry.Key(chatID: message.chatId, messageID: message.id),
+            )
+            playIcon.isHidden = poster != nil
+            if let poster {
+                imageView.image = poster
+            } else if let thumbnail = video.video.thumbnail {
                 imageView.load(file: thumbnail.file, placeholderData: video.video.minithumbnail?.data, client: client)
             } else {
                 imageView.loadPlaceholder(data: video.video.minithumbnail?.data, client: client)
@@ -784,11 +798,13 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         imageView.isHidden = true
         playIcon.isHidden = true
         videoPlaybackAttachmentToken = owner.attach(to: self, context: .inline)
+        bringSubviewToFront(uploadProgress)
         return videoPlaybackAttachmentToken != nil
     }
 
     func showUploadProgress(for message: Message, client: TDLibClient, onCancel: @escaping () -> Void) {
-        guard cover == nil, videoPlaybackOwner == nil else { return }
+        // Over inline playback the disc only finishes the fade its pending tile began.
+        guard cover == nil else { return }
         uploadProgress.configure(message: message, client: client, onCancel: onCancel)
     }
 
@@ -826,6 +842,8 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
     private weak var owner: GalleryVideoPlaybackOwner?
     private var attachmentToken: VideoPlaybackAttachmentToken?
     private var onTap: (() -> Void)?
+    /// Finishes the fade of the upload disc when TDLib replaces a sent video's pending bubble.
+    private let uploadProgress = MediaUploadProgressView()
     private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
     private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
 
@@ -836,7 +854,13 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
         tapGesture.cancelsTouchesInView = false
         tapGesture.delegate = self
         addGestureRecognizer(tapGesture)
-        NSLayoutConstraint.activate([widthConstraint, heightConstraint])
+        addSubview(uploadProgress)
+        NSLayoutConstraint.activate([
+            widthConstraint,
+            heightConstraint,
+            uploadProgress.centerXAnchor.constraint(equalTo: centerXAnchor),
+            uploadProgress.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
         accessibilityTraits = [.button, .playsSound]
         accessibilityLabel = L10n.betterTG("Accessibility.OpenVideo")
     }
@@ -870,6 +894,7 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
         widthConstraint.constant = displaySize.width
         heightConstraint.constant = displaySize.height
         attachmentToken = owner.attach(to: self, context: .inline)
+        bringSubviewToFront(uploadProgress)
     }
 
     func prepareForReuse() {
@@ -880,6 +905,11 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
         owner = nil
         onTap = nil
         messageID = nil
+        uploadProgress.reset()
+    }
+
+    func showUploadProgress(for message: Message, client: TDLibClient) {
+        uploadProgress.configure(message: message, client: client) {}
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -902,6 +932,7 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
         guard messageID == owner.messageID else { return false }
         self.owner = owner
         attachmentToken = owner.attach(to: self, context: .inline)
+        bringSubviewToFront(uploadProgress)
         return attachmentToken != nil
     }
 
@@ -992,6 +1023,20 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
 
     func showUploadProgress(for message: Message, client: TDLibClient, onCancel: @escaping () -> Void) {
         uploadProgress.configure(message: message, client: client, onCancel: onCancel)
+    }
+
+    /// A video this session just sent keeps its pending frame, without a play icon, until inline playback takes
+    /// the bubble; Telegram's autoplaying bubble has none.
+    func showSentVideoPoster(for message: Message) {
+        guard message.sendingState == nil,
+              let poster = MediaUploadProgressRegistry.sentVideoPoster(
+                  for: MediaUploadProgressRegistry.Key(chatID: message.chatId, messageID: message.id),
+              )
+        else { return }
+        imageView.cancel()
+        imageView.image = poster
+        showsPlayIcon = false
+        playIcon.isHidden = true
     }
 
     func prepareForReuse() {

@@ -2612,6 +2612,10 @@ import UIKit
                     clientID: client.id,
                     originalPath: video.url.path(percentEncoded: false),
                 )
+                MediaUploadProgressRegistry.rememberSentVideoPoster(
+                    image.image,
+                    for: MediaUploadProgressRegistry.Key(chatID: message.chatId, messageID: message.id),
+                )
             }
             try? await cancelChatAction(in: context)
             return (context, sentMessages)

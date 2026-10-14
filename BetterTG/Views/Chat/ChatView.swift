@@ -2437,6 +2437,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             owner.settleRestoredViewport()
             owner.applyPendingMessageNavigation()
             owner.performPendingComposerSendTransitions()
+            // A reconfigured row can bring a new inline video, such as a sent video replacing its pending bubble,
+            // without a scroll or a newly displayed cell to start it.
+            owner.updateInlineVideoPlaybackVisibility()
             owner.acknowledgeCommittedVisibleMessages(requestHistory: structural)
             owner.retryClientRestoration()
         }

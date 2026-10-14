@@ -4718,6 +4718,9 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             vodRanges: playbackContext.vodRanges,
             previewContext: playbackContext,
             deferPlaybackUntilVisible: deferPlaybackUntilVisible || source.isAnimation,
+            poster: MediaUploadProgressRegistry.sentVideoPoster(
+                for: MediaUploadProgressRegistry.Key(chatID: message.chatId, messageID: message.id),
+            ),
         )
         configurePictureInPicture()
         observeMessageDeletion()
@@ -7349,6 +7352,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private let preview = TDImageLoadingView()
     private let videoSurface = LocalVideoSurfaceView(frame: .zero)
     private let spinner = UIActivityIndicatorView(style: .large)
+    /// Hides the buffering spinner inline: Telegram's autoplaying bubble shows no status in its centre.
+    private let spinnerHost = UIView()
     private let retryButton = UIButton(type: .system)
     private let controlsView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
     private let controlsStack = UIStackView()
@@ -7681,6 +7686,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         super.init(frame: frame)
         preview.translatesAutoresizingMaskIntoConstraints = false
         preview.contentMode = .scaleAspectFit
+        preview.clipsToBounds = true
         videoSurface.translatesAutoresizingMaskIntoConstraints = false
         videoSurface.backgroundColor = .black
         player.keepsCurrentFrameReadable = true
@@ -7692,6 +7698,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                 DispatchQueue.main.async { self?.refreshSurfaceReady() }
             }
         spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinnerHost.translatesAutoresizingMaskIntoConstraints = false
+        spinnerHost.isUserInteractionEnabled = false
         retryButton.translatesAutoresizingMaskIntoConstraints = false
         retryButton.setTitle(L10n.telegram("ChatImportActivity.Retry"), for: .normal)
         retryButton.setTitleColor(.white, for: .normal)
@@ -7707,7 +7715,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         addGestureRecognizer(controlsTapGesture)
         addSubview(preview)
         addSubview(videoSurface)
-        addSubview(spinner)
+        addSubview(spinnerHost)
+        spinnerHost.addSubview(spinner)
         addSubview(retryButton)
         addSubview(controlsView)
         self.controlsBottomConstraint = controlsView.bottomAnchor.constraint(
@@ -7723,6 +7732,10 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             videoSurface.leadingAnchor.constraint(equalTo: leadingAnchor),
             videoSurface.trailingAnchor.constraint(equalTo: trailingAnchor),
             videoSurface.bottomAnchor.constraint(equalTo: bottomAnchor),
+            spinnerHost.topAnchor.constraint(equalTo: topAnchor),
+            spinnerHost.leadingAnchor.constraint(equalTo: leadingAnchor),
+            spinnerHost.trailingAnchor.constraint(equalTo: trailingAnchor),
+            spinnerHost.bottomAnchor.constraint(equalTo: bottomAnchor),
             spinner.centerXAnchor.constraint(equalTo: centerXAnchor),
             spinner.centerYAnchor.constraint(equalTo: centerYAnchor),
             retryButton.centerXAnchor.constraint(equalTo: centerXAnchor),
@@ -7840,6 +7853,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         vodRanges: TDLibVODRangeCoordinator,
         previewContext: MediaGalleryPlaybackContext? = nil,
         deferPlaybackUntilVisible: Bool = false,
+        poster: UIImage? = nil,
     ) {
         prepareForReuse()
         fileID = file.id
@@ -7866,22 +7880,28 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             }
         }
         videoSurface.isHidden = true
+        // A video this session just sent starts from the frame its pending bubble showed; the blurred minithumbnail
+        // would replace it until the sent thumbnail decodes.
+        let placeholderData = poster == nil ? minithumbnail?.data : nil
         if let thumbnail, let previewContext, previewContext.isCurrent,
            let client = previewContext.client, let accountID = previewContext.location.accountID
         {
             preview.load(
                 file: thumbnail.file,
-                placeholderData: minithumbnail?.data,
+                placeholderData: placeholderData,
                 accountID: accountID,
                 client: client,
             )
         } else {
             preview.loadPlaceholder(
-                data: minithumbnail?.data,
+                data: placeholderData,
                 origin: previewContext?.isCurrent == true
                     ? previewContext?.client.flatMap { .captured(client: $0) }
                     : nil,
             )
+        }
+        if let poster, preview.image == nil {
+            preview.image = poster
         }
         guard canPlay, UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true else { return }
         spinner.startAnimating()
@@ -7957,6 +7977,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         mutedBeforeInlinePresentation = nil
         waitsForInitialPlaybackVisibility = false
         videoSurface.playerLayer.videoGravity = .resizeAspect
+        preview.contentMode = .scaleAspectFit
+        spinnerHost.isHidden = false
         videoSurface.playerLayer.player = nil
         videoSurface.isHidden = true
         fileID = nil
@@ -8000,6 +8022,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         controlsTapGesture?.isEnabled = !shouldPresentInline && onGalleryChromeVisibilityChanged == nil
         videoSurface.playerLayer.videoGravity = shouldPresentInline ? .resizeAspectFill : .resizeAspect
         ffmpegPlayer?.surfaceView.videoGravity = shouldPresentInline ? .resizeAspectFill : .resizeAspect
+        // The bubble fills its frame with the cover as it does with the video.
+        preview.contentMode = shouldPresentInline ? .scaleAspectFill : .scaleAspectFit
+        spinnerHost.isHidden = shouldPresentInline
         if shouldPresentInline {
             mutedBeforeInlinePresentation = isMuted
             isMuted = true

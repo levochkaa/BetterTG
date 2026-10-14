@@ -18,6 +18,8 @@ import UIKit
     struct State {
         var progress: CGFloat
         var finishedAt: CFTimeInterval?
+        /// When the file finished uploading while its message still waited to be sent.
+        var uploadedAt: CFTimeInterval?
         var updatedAt: CFTimeInterval
     }
 
@@ -30,17 +32,26 @@ import UIKit
     private static var sendOrderIDs = [Key: Int64]()
     /// Decoded previews of photos this session sends, by the local path TDLib uploads them from.
     private static var sentPreviews = [String: (image: UIImage, addedAt: CFTimeInterval)]()
+    /// First frames of videos this session sends. The sent message keeps its pending bubble's frame under the
+    /// inline player until the video draws, as Telegram keeps the same media node.
+    private static var sentVideoPosters = [Key: (image: UIImage, expiresAt: CFTimeInterval)]()
 
     static func state(for key: Key) -> State? {
         prune()
         return states[key]
     }
 
-    static func record(_ key: Key, progress: CGFloat? = nil, finishedAt: CFTimeInterval? = nil) {
+    static func record(
+        _ key: Key,
+        progress: CGFloat? = nil,
+        finishedAt: CFTimeInterval? = nil,
+        uploadedAt: CFTimeInterval? = nil,
+    ) {
         let now = CACurrentMediaTime()
         var state = states[key] ?? State(progress: 0, updatedAt: now)
         if let progress { state.progress = max(state.progress, progress) }
         if let finishedAt, state.finishedAt == nil { state.finishedAt = finishedAt }
+        if let uploadedAt, state.uploadedAt == nil { state.uploadedAt = uploadedAt }
         state.updatedAt = now
         states[key] = state
         if states.count > capacity, let oldest = states.min(by: { $0.value.updatedAt < $1.value.updatedAt })?.key {
@@ -72,6 +83,15 @@ import UIKit
         path.isEmpty ? nil : sentPreviews[path]?.image
     }
 
+    static func rememberSentVideoPoster(_ image: UIImage, for key: Key) {
+        // A video can convert and upload for minutes, so the pending poster outlives the photos' two minutes.
+        storeSentVideoPoster(image, for: key, lifetime: 3600)
+    }
+
+    static func sentVideoPoster(for key: Key) -> UIImage? {
+        sentVideoPosters[key]?.image
+    }
+
     static func rememberLocalPhoto(_ file: File, for key: Key) {
         localPhotos[key] = file
         if localPhotos.count > capacity, let any = localPhotos.keys.first(where: { $0 != key }) {
@@ -97,11 +117,15 @@ import UIKit
             sendOrderIDs[any] = nil
         }
         if let photo = localPhotos.removeValue(forKey: old) { localPhotos[new] = photo }
+        if let poster = sentVideoPosters.removeValue(forKey: old) {
+            storeSentVideoPoster(poster.image, for: new, lifetime: 120)
+        }
         guard let state = states.removeValue(forKey: old) else { return }
         let now = CACurrentMediaTime()
         states[new] = State(
             progress: 1,
             finishedAt: state.finishedAt ?? now,
+            uploadedAt: state.uploadedAt,
             updatedAt: now,
         )
     }
@@ -109,6 +133,17 @@ import UIKit
     /// The order of `message` among its album: its pending ID when this session sent it, else its ID.
     static func sendOrderID(of message: Message) -> Int64 {
         sendOrderIDs[Key(chatID: message.chatId, messageID: message.id)] ?? message.id
+    }
+
+    private static func storeSentVideoPoster(_ image: UIImage, for key: Key, lifetime: CFTimeInterval) {
+        let now = CACurrentMediaTime()
+        sentVideoPosters = sentVideoPosters.filter { $0.value.expiresAt > now }
+        sentVideoPosters[key] = (image, now + lifetime)
+        while sentVideoPosters.count > 10,
+              let soonest = sentVideoPosters.min(by: { $0.value.expiresAt < $1.value.expiresAt })?.key
+        {
+            sentVideoPosters[soonest] = nil
+        }
     }
 
     private static func prune() {
@@ -148,12 +183,15 @@ import UIKit
 
 /// Telegram's radial status for a photo, video or GIF that is still uploading (`ChatMessageInteractiveMediaNode`,
 /// `RadialProgressContentNode`): a dark disc with a rotating arc for the uploaded share and a cancel cross. A tap
-/// on the disc cancels the send.
+/// on the disc cancels the send. The disc stays until the message is sent, as Telegram keeps a pending message's
+/// status while `isSending`, even after its file has uploaded.
 final class MediaUploadProgressView: UIControl {
     // MARK: Private
 
     private static let minimumProgress: CGFloat = 0.027
     private static let fadeDuration: CFTimeInterval = 0.25
+    private static let checkDrawDuration: CFTimeInterval = 0.25
+    private static let checkAppearDuration: CFTimeInterval = 0.2
 
     override var intrinsicContentSize: CGSize { CGSize(width: diameter, height: diameter) }
 
@@ -161,6 +199,10 @@ final class MediaUploadProgressView: UIControl {
 
     /// Called when the overlay appears or finishes, so the host can hide its play icon and ignore other taps.
     var onActiveChange: ((Bool) -> Void)?
+
+    /// Album tiles replace the arc with a check once their file has uploaded and the album waits for its other
+    /// items (`.check` for an `.unconstrained` media node); a single bubble keeps the full ring until it is sent.
+    var showsUploadedCheck = false
 
     private(set) var isActive = false
 
@@ -175,6 +217,7 @@ final class MediaUploadProgressView: UIControl {
     private let arcContainer = CALayer()
     private let arcLayer = CAShapeLayer()
     private let crossLayer = CAShapeLayer()
+    private let checkLayer = CAShapeLayer()
     private var cancellable: AnyCancellable?
     private var conversionCancellable: AnyCancellable?
     private var seedTask: Task<Void, Never>?
@@ -185,6 +228,8 @@ final class MediaUploadProgressView: UIControl {
     private var conversionFraction: Double?
     private var generation = UUID()
     private var registryKey: MediaUploadProgressRegistry.Key?
+    private var isUploaded = false
+    private var showsCheck = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -195,16 +240,19 @@ final class MediaUploadProgressView: UIControl {
         backgroundColor = UIColor { traits in
             UIColor.black.withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.6 : 0.45)
         }
-        for shape in [arcLayer, crossLayer] {
+        for shape in [arcLayer, crossLayer, checkLayer] {
             shape.fillColor = UIColor.clear.cgColor
             shape.strokeColor = UIColor.white.cgColor
             shape.lineCap = .round
         }
+        checkLayer.lineJoin = .round
+        checkLayer.opacity = 0
         arcLayer.strokeStart = 0
         arcLayer.strokeEnd = Self.minimumProgress
         arcContainer.addSublayer(arcLayer)
         layer.addSublayer(arcContainer)
         layer.addSublayer(crossLayer)
+        layer.addSublayer(checkLayer)
         isAccessibilityElement = true
         accessibilityTraits = .button
         accessibilityLabel = L10n.telegram("Common.Cancel")
@@ -243,6 +291,21 @@ final class MediaUploadProgressView: UIControl {
         path.move(to: CGPoint(x: side / 2 + cross / 2, y: side / 2 - cross / 2))
         path.addLine(to: CGPoint(x: side / 2 - cross / 2, y: side / 2 + cross / 2))
         crossLayer.path = path.cgPath
+        // RadialCheckContentNode: a 2.5 pt stroke scaled by the diameter, 2 pt at 32 pt, at least 1.7 pt.
+        let checkFactor = max(0.3, factor)
+        checkLayer.frame = bounds
+        checkLayer.lineWidth = max(1.7, (abs(side - 32) < 0.1 ? 2 : 2.5) * checkFactor)
+        let isSmall = side < 36
+        let start = CGPoint(x: side / 2 - (isSmall ? 7 : 10) * checkFactor, y: side / 2 + checkFactor)
+        let first = (isSmall ? 4.5 : 7) * checkFactor
+        let second = isSmall
+            ? CGPoint(x: 10 * checkFactor, y: -11 * checkFactor)
+            : CGPoint(x: 13 * checkFactor, y: -15 * checkFactor)
+        let check = UIBezierPath()
+        check.move(to: start)
+        check.addLine(to: CGPoint(x: start.x + first, y: start.y + first))
+        check.addLine(to: CGPoint(x: start.x + first + second.x, y: start.y + first + second.y))
+        checkLayer.path = check.cgPath
         CATransaction.commit()
     }
 
@@ -266,21 +329,18 @@ final class MediaUploadProgressView: UIControl {
         }
     }
 
-    /// Shows the overlay while `message` uploads its media and follows `updateFile` until the upload completes. A
-    /// reconfigured or replacement row resumes the recorded progress or fade-out.
+    /// Shows the overlay while `message` is pending and follows `updateFile` until the upload completes. A
+    /// reconfigured or replacement row resumes the recorded progress, check or fade-out.
     func configure(message: Message, client: TDLibClient, onCancel: @escaping () -> Void) {
         reset()
         let key = MediaUploadProgressRegistry.Key(chatID: message.chatId, messageID: message.id)
         let saved = MediaUploadProgressRegistry.state(for: key)
-        guard let file = Self.pendingFile(of: message),
-              !file.remote.isUploadingCompleted,
-              saved?.finishedAt == nil,
-              let origin = TDImageOrigin.captured(client: client)
-        else {
-            // Sent, or uploaded while this row was rebuilt: finish the fade the previous overlay began.
+        guard let file = Self.pendingFile(of: message) else {
+            // Sent: finish the fade that began when TDLib replaced the pending message.
             guard let saved else { return }
             registryKey = key
             setActive(true)
+            if saved.uploadedAt != nil, showsUploadedCheck { showCheck(since: nil) }
             resumeFinish(from: saved.finishedAt ?? CACurrentMediaTime())
             return
         }
@@ -292,6 +352,17 @@ final class MediaUploadProgressView: UIControl {
             progress = saved.progress
             arcLayer.strokeEnd = saved.progress
         }
+        // The sent message fades the disc only when a pending state was recorded.
+        MediaUploadProgressRegistry.record(key, progress: progress)
+        if let uploadedAt = saved?.uploadedAt {
+            markUploaded(at: uploadedAt)
+            return
+        }
+        if file.remote.isUploadingCompleted {
+            markUploaded(at: CACurrentMediaTime())
+            return
+        }
+        guard let origin = TDImageOrigin.captured(client: client) else { return }
         if case .messageVideo = message.content {
             conversionFraction = VideoSendConversionProgress.fraction(fileID: file.id, clientID: client.id)
             conversionCancellable = VideoSendConversionProgress.updates(fileID: file.id, clientID: client.id)
@@ -323,11 +394,20 @@ final class MediaUploadProgressView: UIControl {
         seedTask = nil
         onCancel = nil
         progress = Self.minimumProgress
+        isUploaded = false
+        showsCheck = false
         layer.removeAllAnimations()
         crossLayer.removeAllAnimations()
         arcLayer.removeAllAnimations()
         arcContainer.removeAllAnimations()
+        checkLayer.removeAllAnimations()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        arcContainer.opacity = 1
+        crossLayer.opacity = 1
+        checkLayer.opacity = 0
         arcLayer.strokeEnd = Self.minimumProgress
+        CATransaction.commit()
         alpha = 1
         crossLayer.transform = CATransform3DIdentity
         isEnabled = true
@@ -343,18 +423,22 @@ final class MediaUploadProgressView: UIControl {
     }
 
     private func apply(_ file: File, animated: Bool) {
-        guard isActive, isEnabled else { return }
+        guard isActive, isEnabled, !isUploaded else { return }
         if file.remote.isUploadingCompleted {
-            finish()
+            markUploaded(at: CACurrentMediaTime())
             return
         }
         let size = max(file.size, file.expectedSize)
         uploadFraction = size > 0 ? CGFloat(file.remote.uploadedSize) / CGFloat(size) : 0
         applyProgress(animated: animated)
+        // Every part is on the server (`mediaProgress` 1.0) while TDLib still has to send the message.
+        if progress >= 1, file.size > 0, file.remote.uploadedSize >= file.size {
+            markUploaded(at: CACurrentMediaTime())
+        }
     }
 
     private func applyProgress(animated: Bool) {
-        guard isActive, isEnabled else { return }
+        guard isActive, isEnabled, !isUploaded else { return }
         let fraction = conversionFraction.map { CGFloat($0) * 0.5 + uploadFraction * 0.5 } ?? uploadFraction
         let value = min(1, max(Self.minimumProgress, fraction))
         // Never step back: the seeded `getFile` state can arrive after a newer `updateFile`.
@@ -380,11 +464,86 @@ final class MediaUploadProgressView: UIControl {
         arcLayer.add(animation, forKey: "progress")
     }
 
-    /// The upload is done; the sent message replaces this row shortly. Fade out as `RadialProgressContentNode` does.
-    private func finish() {
-        let now = CACurrentMediaTime()
-        if let registryKey { MediaUploadProgressRegistry.record(registryKey, progress: 1, finishedAt: now) }
-        resumeFinish(from: now)
+    /// The file is on the server and the message waits to be sent: an album waits for its other items, a single
+    /// message for the server. Telegram keeps the status while `isSending`, full and still cancellable.
+    private func markUploaded(at uploadedAt: CFTimeInterval) {
+        isUploaded = true
+        cancellable = nil
+        conversionCancellable = nil
+        seedTask?.cancel()
+        seedTask = nil
+        if let registryKey { MediaUploadProgressRegistry.record(registryKey, progress: 1, uploadedAt: uploadedAt) }
+        let previous = arcLayer.presentation()?.strokeEnd ?? arcLayer.strokeEnd
+        progress = 1
+        arcLayer.strokeEnd = 1
+        accessibilityValue = "100%"
+        if previous < 1, window != nil, !UIAccessibility.isReduceMotionEnabled,
+           CACurrentMediaTime() - uploadedAt < 0.2
+        {
+            let animation = CABasicAnimation(keyPath: "strokeEnd")
+            animation.fromValue = previous
+            animation.toValue = 1
+            animation.duration = 0.2
+            animation.timingFunction = CAMediaTimingFunction(name: .linear)
+            arcLayer.add(animation, forKey: "progress")
+        }
+        if showsUploadedCheck { showCheck(since: uploadedAt) }
+    }
+
+    /// Replaces the arc and cross with a check. Within 0.25 s of `uploadedAt` it resumes Telegram's transition:
+    /// `RadialProgressContentNode.animateOut` fades the arc over 0.25 s while `RadialCheckContentNode.animateIn`
+    /// fades and scales the check in over 0.2 s and draws it over 0.25 s.
+    private func showCheck(since uploadedAt: CFTimeInterval?) {
+        guard !showsCheck else { return }
+        showsCheck = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        arcContainer.opacity = 0
+        crossLayer.opacity = 0
+        checkLayer.opacity = 1
+        checkLayer.strokeEnd = 1
+        CATransaction.commit()
+        let elapsed = max(0, uploadedAt.map { CACurrentMediaTime() - $0 } ?? .infinity)
+        guard elapsed < Self.checkDrawDuration, !UIAccessibility.isReduceMotionEnabled else { return }
+        let easing = CAMediaTimingFunction(name: .easeInEaseOut)
+        func animation(_ keyPath: String, from: Double, to: Double, duration: Double, linear: Bool = false)
+            -> CABasicAnimation
+        {
+            let animation = CABasicAnimation(keyPath: keyPath)
+            animation.fromValue = from
+            animation.toValue = to
+            animation.duration = duration
+            animation.timingFunction = linear ? CAMediaTimingFunction(name: .linear) : easing
+            return animation
+        }
+        let drawRemaining = Self.checkDrawDuration - elapsed
+        let fadeOut = animation(
+            "opacity",
+            from: 1 - elapsed / Self.fadeDuration,
+            to: 0,
+            duration: Self.fadeDuration - elapsed,
+        )
+        arcContainer.add(fadeOut, forKey: "checkTransition")
+        crossLayer.add(fadeOut, forKey: "checkTransition")
+        checkLayer.add(
+            animation(
+                "strokeEnd",
+                from: elapsed / Self.checkDrawDuration,
+                to: 1,
+                duration: drawRemaining,
+                linear: true,
+            ),
+            forKey: "checkDraw",
+        )
+        if elapsed < Self.checkAppearDuration {
+            let share = elapsed / Self.checkAppearDuration
+            let remaining = Self.checkAppearDuration - elapsed
+            checkLayer.add(animation("opacity", from: share, to: 1, duration: remaining), forKey: "checkFade")
+            checkLayer.add(
+                animation("transform.scale", from: 0.7 + 0.3 * share, to: 1, duration: remaining),
+                forKey: "checkScale",
+            )
+        }
     }
 
     /// Fades out over what remains of the 0.25 s that began at `finishedAt`.
