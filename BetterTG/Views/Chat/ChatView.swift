@@ -207,6 +207,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var composerAwaitsSentMediaInsertion = false
     private var composerSentMediaSettleGeneration = 0
     private var sendTransitionMessageIDAliases = [Int64: Int64]()
+    private var sendTransitionAliasOrder = [Int64]()
     private var pendingDeleteSnapshotWorkItem: DispatchWorkItem?
     private var pendingDeleteSnapshotDeadline: CFTimeInterval?
     private lazy var importBarrier = ChatComposerImportBarrier(location: location)
@@ -2602,11 +2603,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func replacePendingComposerSendMessageID(old: Int64, new: Int64) {
+        if sendTransitionMessageIDAliases[old] == nil { sendTransitionAliasOrder.append(old) }
         sendTransitionMessageIDAliases[old] = new
-        if sendTransitionMessageIDAliases.count > 128,
-           let oldestKey = sendTransitionMessageIDAliases.keys.first
-        {
-            sendTransitionMessageIDAliases[oldestKey] = nil
+        // Evict the oldest alias; a dictionary's first key is arbitrary and could drop one a transition still needs.
+        while sendTransitionAliasOrder.count > 128 {
+            sendTransitionMessageIDAliases[sendTransitionAliasOrder.removeFirst()] = nil
         }
         for id in Array(pendingComposerSendTransitions.keys) {
             guard var transition = pendingComposerSendTransitions[id],
@@ -2838,6 +2839,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updateHighlightState() {
+        // Any ChatVM publish lands here; only a highlight change reconfigures rows and retires viewport restoration.
+        guard lastHighlightedMessageID != chatVM.highlightedMessageId else { return }
         let changed = Set([lastHighlightedMessageID, chatVM.highlightedMessageId].compactMap(\.self))
         lastHighlightedMessageID = chatVM.highlightedMessageId
         guard !changed.isEmpty else { return }
@@ -2903,7 +2906,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             #endif
             viewportRestorationAuthority.invalidate()
         }
-        let userIsScrolling = collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
+        let userIsScrolling = userIsScrollingTimeline
         let keepLatestVisible = !userIsScrolling && !hasPendingMessageNavigation
             && (!didPerformInitialScroll || isNearLatest)
         let previousOffset = collectionView.contentOffset
@@ -3346,20 +3349,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         updateSnapshot(animated: false)
         // The frozen timeline commits asynchronously; wait a bounded time for the target row.
-        for _ in 0..<60 {
-            if let displayedID = chatVM.displayedMessageID(containing: messageID),
-               timelineSnapshots.committedContains(rawID: messageID, displayedID: displayedID),
-               !timelineSnapshots.isBusy
-            {
-                break
-            }
+        func targetIsCommitted() -> Bool {
+            guard let displayedID = chatVM.displayedMessageID(containing: messageID) else { return false }
+            return timelineSnapshots.committedContains(rawID: messageID, displayedID: displayedID)
+                && !timelineSnapshots.isBusy
+        }
+        for _ in 0..<180 {
+            if targetIsCommitted() || clientOwnerRetired { break }
             try? await Task.sleep(for: .milliseconds(16))
             guard !Task.isCancelled else { return false }
         }
-        return !Task.isCancelled
+        // Fail rather than return to a row the timeline hasn't laid out: centering and the return flight need its
+        // frame.
+        return !Task.isCancelled && !clientOwnerRetired
             && TDLib.shared.activeAccountID == location.accountID
             && TDLib.shared.activeClient.id == location.clientID
-            && chatVM.displayedMessageID(containing: messageID) != nil
+            && targetIsCommitted()
     }
 
     private func galleryReturnTarget(for messageID: Int64) -> MediaGalleryTransitionTarget? {
