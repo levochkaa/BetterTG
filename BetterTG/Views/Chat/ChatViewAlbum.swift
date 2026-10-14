@@ -883,6 +883,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var chatHistory: ChatMediaGalleryHistory?
     /// Where chat history paging reads from, kept so a gallery restored from PiP pages with its own history.
     private var chatHistorySource: (client: TDLibClient, location: ChatLocation)?
+    /// Telegram's chat gallery runs from the oldest item on the left to the newest on the right; profile media runs
+    /// newest first. Either way an item's number counts from the oldest, so the newest one reads "N of N".
+    private var ordersOldestFirst = false
+    /// The chat gallery's numbering anchor: a loaded item's 1-based position from the newest, as TDLib reports it.
+    private var chatMediaPositionAnchor: (messageID: Int64, fromNewest: Int)?
+    private var chatMediaNumberingTask: Task<Void, Never>?
 
     private var messages: [Message]
     private var totalMessageCount: Int?
@@ -1024,6 +1030,21 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         return abs(collectionView.contentOffset.x - expectedOffset) < 2
     }
 
+    /// Telegram numbers an item from the oldest item of the whole list, whichever way the gallery runs.
+    private var counterPosition: (number: Int, count: Int) {
+        let count = max(messages.count, totalMessageCount ?? messages.count)
+        if ordersOldestFirst {
+            guard let totalMessageCount, let anchor = chatMediaPositionAnchor,
+                  let anchorIndex = messages.firstIndex(where: { $0.id == anchor.messageID })
+            else { return (selectedIndex + 1, messages.count) }
+            let fromNewest = anchor.fromNewest + anchorIndex - selectedIndex
+            return (min(count, max(1, totalMessageCount - fromNewest + 1)), count)
+        }
+        // Profile media pages from the newest item, so the first loaded item is the newest of the total.
+        if totalMessageCount != nil { return (max(1, count - selectedIndex), count) }
+        return (selectedIndex + 1, count)
+    }
+
     init(
         messages: [Message],
         selection: Int64,
@@ -1107,6 +1128,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     deinit {
         openInChatTask?.cancel()
         authorTask?.cancel()
+        chatMediaNumberingTask?.cancel()
         exportTask?.cancel()
         deleteTask?.cancel()
         forwardTask?.cancel()
@@ -1223,16 +1245,19 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         updateSelection(from: scrollView)
+        applyMessageUpdateDeferredByScrolling()
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate {
             updateSelection(from: scrollView)
+            applyMessageUpdateDeferredByScrolling()
         }
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         updateSelection(from: scrollView)
+        applyMessageUpdateDeferredByScrolling()
     }
 
     func collectionView(
@@ -1448,6 +1473,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
         let appendsOnly = changedMediaIDs.isEmpty && updatedIDs.count > previousIDs.count
             && updatedIDs.starts(with: previousIDs)
+        // Items added before the visible one shift every page; wait until the user stops paging instead of
+        // moving the pages under a drag or deceleration.
+        if !appendsOnly, isViewLoaded, collectionView.isTracking || collectionView.isDecelerating {
+            pendingMessageUpdate = updatedMessages
+            return
+        }
         let previousCount = messages.count
         messages = updatedMessages
         if let totalMessageCount, messages.count > totalMessageCount {
@@ -1498,6 +1529,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 )
             }
             finishUpdate()
+            requestMoreMessagesIfNeeded(near: selectedIndex)
         }
     }
 
@@ -1508,12 +1540,31 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     func enableChatHistoryPaging(client: TDLibClient, location: ChatLocation) {
         chatHistorySource = (client, location)
+        if !ordersOldestFirst {
+            ordersOldestFirst = true
+            let selection = selectedMessageID
+            messages.sort(by: precedesInGallery)
+            selectedIndex = selection.flatMap { id in messages.firstIndex { $0.id == id } } ?? 0
+            if isViewLoaded {
+                collectionView.reloadData()
+                collectionView.layoutIfNeeded()
+                if messages.indices.contains(selectedIndex) {
+                    collectionView.scrollToItem(
+                        at: IndexPath(item: selectedIndex, section: 0),
+                        at: .centeredHorizontally,
+                        animated: false,
+                    )
+                }
+                updateCounter()
+            }
+        }
         let history = ChatMediaGalleryHistory(client: client, location: location, messages: messages)
         chatHistory = history
         history.onUpdate = { [weak self] page in self?.mergeHistoryPage(page) }
         history.onFailure = { [weak self] in self?.allowMoreMessagesRetry() }
         onRequestMoreMessages = { [weak history] in history?.loadOlder() }
         onRequestNewerMessages = { [weak history] in history?.loadNewer() }
+        loadChatMediaNumbering(client: client, location: location)
     }
 
     #if DEBUG
@@ -1621,6 +1672,63 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         releasePlaybackOwnersForDismissal()
     }
 
+    private func precedesInGallery(_ lhs: Message, _ rhs: Message) -> Bool {
+        ordersOldestFirst ? lhs.id < rhs.id : lhs.id > rhs.id
+    }
+
+    /// Telegram numbers chat media from the oldest item of the chat. TDLib reports the chat's photo and video count
+    /// and the opened item's position from the newest; loaded neighbours follow from their order.
+    private func loadChatMediaNumbering(client: TDLibClient, location: ChatLocation) {
+        chatMediaNumberingTask?.cancel()
+        guard messages.indices.contains(selectedIndex), messages[selectedIndex].sendingState == nil else { return }
+        let anchorID = messages[selectedIndex].id
+        chatMediaNumberingTask = Task { [weak self] in
+            guard let total = try? await client.getChatMessageCount(
+                chatId: location.chatID,
+                filter: .searchMessagesFilterPhotoAndVideo,
+                returnLocal: false,
+                topicId: location.topic,
+            )
+            .count,
+            let position = try? await client.getChatMessagePosition(
+                chatId: location.chatID,
+                filter: .searchMessagesFilterPhotoAndVideo,
+                messageId: anchorID,
+                topicId: location.topic,
+            )
+            .count,
+                !Task.isCancelled, let self, hasCurrentContext, position > 0, total >= position,
+                messages.contains(where: { $0.id == anchorID })
+            else { return }
+            totalMessageCount = max(total, messages.count)
+            chatMediaPositionAnchor = (anchorID, position)
+            if isViewLoaded { updateCounter() }
+        }
+    }
+
+    /// Keeps the numbering anchor on a surviving item: each deleted item newer than it moves it one closer to the
+    /// newest. Call before `messages` drops the deleted items.
+    private func shiftChatMediaNumbering(deleting deletedIDs: Set<Int64>) {
+        guard let anchor = chatMediaPositionAnchor,
+              let anchorIndex = messages.firstIndex(where: { $0.id == anchor.messageID }) else { return }
+        let survivor = deletedIDs.contains(anchor.messageID)
+            ? messages.indices.first { !deletedIDs.contains(messages[$0].id) }
+            : anchorIndex
+        guard let survivor else {
+            chatMediaPositionAnchor = nil
+            return
+        }
+        let survivorID = messages[survivor].id
+        let deletedNewer = messages.count(where: { deletedIDs.contains($0.id) && $0.id > survivorID })
+        chatMediaPositionAnchor = (survivorID, max(1, anchor.fromNewest + anchorIndex - survivor - deletedNewer))
+    }
+
+    private func applyMessageUpdateDeferredByScrolling() {
+        guard pendingMessageUpdate != nil else { return }
+        // UIKit can still report the drag on this callback.
+        DispatchQueue.main.async { [weak self] in self?.drainPendingMessageUpdates() }
+    }
+
     /// A page only adds messages. Items already shown keep the gallery's copies, which reveal-session revisions keep
     /// current; replacing them with the page's or the opening snapshot's copies would roll revisions back and undo a
     /// reveal (`MediaRevealSession.reconcile` must not run on delayed results).
@@ -1633,7 +1741,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         reconcilingMediaRevisions = true
         mediaRevealSession?.reconcile(added, replacingExisting: false)
         reconcilingMediaRevisions = false
-        updateMessages((base + added).sorted { $0.id > $1.id })
+        updateMessages((base + added).sorted(by: precedesInGallery))
     }
 
     private func observePermanentMessageDeletes() {
@@ -1895,9 +2003,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     private func updateCounter() {
-        let count = max(messages.count, totalMessageCount ?? messages.count)
+        let (number, count) = counterPosition
         counterLabel.text = actionStatusText
-            ?? (count > 1 ? L10n.telegram("Items.NOfM", "\(selectedIndex + 1)", "\(count)") : "")
+            ?? (count > 1 ? L10n.telegram("Items.NOfM", "\(number)", "\(count)") : "")
         updateThumbnailStrip(around: selectedIndex, pagingPosition: CGFloat(selectedIndex), commitSelection: true)
         updateAuthor()
         updateMoreMenu()
@@ -2119,11 +2227,15 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     private func requestMoreMessagesIfNeeded(near index: Int) {
         guard hasCurrentContext, !isBeingDismissed, !didReleasePlaybackOwners, !messageUpdateInProgress else { return }
-        if index <= 2, newerPaginationRequestedMessageCount != messages.count, let onRequestNewerMessages {
+        let nearFirst = index <= 2
+        let nearLast = index >= max(0, messages.count - 3)
+        if ordersOldestFirst ? nearLast : nearFirst, newerPaginationRequestedMessageCount != messages.count,
+           let onRequestNewerMessages
+        {
             newerPaginationRequestedMessageCount = messages.count
             onRequestNewerMessages()
         }
-        if index >= max(0, messages.count - 3), paginationRequestedMessageCount != messages.count,
+        if ordersOldestFirst ? nearFirst : nearLast, paginationRequestedMessageCount != messages.count,
            let onRequestMoreMessages
         {
             paginationRequestedMessageCount = messages.count
@@ -2169,6 +2281,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 messages.count - deletedCurrentMessages.count,
                 totalMessageCount - deletedCurrentMessages.count,
             )
+        }
+        if !deletedCurrentMessages.isEmpty {
+            shiftChatMediaNumbering(deleting: Set(deletedCurrentMessages.map(\.id)))
         }
         if selectedWasDeleted {
             forcedDismissalSnapshot = forcedDismissalSnapshot ?? snapshot

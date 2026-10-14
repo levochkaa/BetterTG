@@ -234,6 +234,34 @@ extension TDClient {
         try await send(TDNativeRequests.getChatMember(chatId: chatId, memberId: memberId))
     }
 
+    func getChatMessageCount(
+        chatId: Int64,
+        filter: TDNativeSearchMessagesFilter,
+        returnLocal: Bool,
+        topicId: TDNativeMessageTopic?,
+    ) async throws -> TDNativeCount {
+        try await send(TDNativeRequests.getChatMessageCount(
+            chatId: chatId,
+            topicId: topicId,
+            filter: filter,
+            returnLocal: returnLocal,
+        ))
+    }
+
+    func getChatMessagePosition(
+        chatId: Int64,
+        filter: TDNativeSearchMessagesFilter,
+        messageId: Int64,
+        topicId: TDNativeMessageTopic?,
+    ) async throws -> TDNativeCount {
+        try await send(TDNativeRequests.getChatMessagePosition(
+            chatId: chatId,
+            topicId: topicId,
+            filter: filter,
+            messageId: messageId,
+        ))
+    }
+
     func getChatPinnedMessage(chatId: Int64) async throws -> TDNativeMessage {
         try await send(TDNativeRequests.getChatPinnedMessage(chatId: chatId))
     }
