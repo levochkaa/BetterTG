@@ -461,24 +461,30 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 NSLayoutConstraint.activate(highlightConstraints)
             }
         }
+        let layer = highlightOverlay.layer
+        let visibleOpacity = highlightOverlay.isHidden ? 0 : layer.presentation()?.opacity ?? layer.opacity
+        layer.removeAnimation(forKey: "highlightFade")
         messageIsHighlighted = highlighted
-        if highlighted { highlightOverlay.isHidden = false }
-        let changes = { self.highlightOverlay.alpha = highlighted ? 1 : 0 }
-        if animated {
-            UIView.animate(
-                withDuration: highlighted ? 0.2 : 0.35,
-                delay: 0,
-                options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseInOut],
-                animations: changes,
-            ) { [weak self] _ in
-                guard let self, !messageIsHighlighted else { return }
-                highlightOverlay.isHidden = true
-            }
-        } else {
-            highlightOverlay.layer.removeAllAnimations()
-            changes()
+        highlightOverlay.alpha = highlighted ? 1 : 0
+        // Telegram shows the highlight at once and fades it out over 0.3 s (ChatMessageBubbleItemNode
+        // updateHighlightedState). Timeline snapshots apply without UIView animations, so the fade is a layer
+        // animation.
+        guard !highlighted, animated, visibleOpacity > 0 else {
             highlightOverlay.isHidden = !highlighted
+            return
         }
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self, !messageIsHighlighted else { return }
+            highlightOverlay.isHidden = true
+        }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = visibleOpacity
+        fade.toValue = 0
+        fade.duration = 0.3
+        fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(fade, forKey: "highlightFade")
+        CATransaction.commit()
     }
 
     func highlightQuote(_ quote: MessageQuoteHighlight) {
