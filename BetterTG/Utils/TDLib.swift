@@ -41,6 +41,9 @@ final class TDLib: @unchecked Sendable {
     private(set) var accounts = [TelegramAccount]()
     private(set) var activeAccountID: UUID?
     private(set) var isActiveAccountReady = false
+    /// The ready account whose client the foreground ownership restore is recreating. The new client reports
+    /// WaitTdlibParameters before Ready; that is no sign-out, so the root keeps the shell and its routes (A30).
+    private(set) var renewingAccountID: UUID?
 
     private var manager = TDLibClientManager()
     private let registry = TelegramAccountRegistry()
@@ -192,7 +195,9 @@ final class TDLib: @unchecked Sendable {
                 processLock = lock
                 lifecycleSuspended = false
                 manager = TDLibClientManager()
+                let wasReady = isActiveAccountReady
                 activate(account: account, notify: false)
+                renewingAccountID = wasReady ? account.id : nil
                 log("TDLib ownership restored to main application")
             } catch {
                 log("TDLib ownership restore failed: \(error.localizedDescription)")
@@ -288,6 +293,7 @@ final class TDLib: @unchecked Sendable {
     private func publishAuthorizationState(_ authorizationState: AuthorizationState, source: TdUpdateSource) {
         log("TDLib authorization state received: \(authorizationState.diagnosticName)")
         isActiveAccountReady = authorizationState == .authorizationStateReady
+        if authorizationState != .authorizationStateWaitTdlibParameters { renewingAccountID = nil }
         self.authorizationState.update(authorizationState, source: source)
         switch authorizationState {
         case .authorizationStateWaitTdlibParameters:
@@ -333,6 +339,7 @@ final class TDLib: @unchecked Sendable {
 
     private func activate(account: TelegramAccount, notify: Bool) {
         isActiveAccountReady = false
+        renewingAccountID = nil
         let accountID = account.id
         let manager = manager
         let generation = UUID()

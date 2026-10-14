@@ -225,6 +225,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var clientOwnerRetired = false
     private var restoredViewport: ChatClientRestorationViewport?
     private var restoredComposerState: ChatComposerView.ClientViewState?
+    /// The replaced controller's last history frame. It covers this history until the restored viewport lands, so
+    /// a client renewal never shows the latest edge first.
+    private var restoredHistoryCover: UIView?
     private var restorationFocusAttempted = false
     private var restorationFocusSettled = false
     private var keyboardIsChanging = false
@@ -358,6 +361,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         chatVM: ChatVM, presentationMode: PresentationMode = .full, targetMessageID: Int64? = nil,
         targetQuote: MessageQuoteHighlight? = nil, tdlib: TDLib,
         viewport: ChatClientRestorationViewport? = nil, composer: ChatComposerView.ClientViewState? = nil,
+        historyCover: UIView? = nil,
     ) {
         self.presentationMode = presentationMode
         self.location = chatVM.location
@@ -367,6 +371,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         self.tdlib = tdlib
         self.restoredViewport = viewport
         self.restoredComposerState = composer
+        self.restoredHistoryCover = viewport == nil ? nil : historyCover
         super.init(nibName: nil, bundle: nil)
         importBarrier.onQuiescent = { [weak self] in self?.retryClientRestoration() }
     }
@@ -422,6 +427,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         restoredViewport?.appeared = true
+        if restoredHistoryCover != nil {
+            // A restoration that never settles must not leave the history covered.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.removeRestoredHistoryCover()
+            }
+        }
         applyPendingMessageNavigation()
         settleRestoredViewport()
         if preparedClient == nil { clientPreparationSource = nil }
@@ -825,7 +836,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 cancellables.removeAll()
                 messageCancellables.removeAll()
                 if isViewLoaded { composerView.retireClientView() }
-                return ChatViewController(chatVM: replacementVM, tdlib: tdlib, viewport: viewport, composer: composer)
+                let cover = isViewLoaded && view.window != nil
+                    ? historyContainerView.snapshotView(afterScreenUpdates: false)
+                    : nil
+                return ChatViewController(
+                    chatVM: replacementVM, tdlib: tdlib, viewport: viewport, composer: composer, historyCover: cover,
+                )
             },
         )
     }
@@ -1217,7 +1233,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard restoredViewport?.pending == true else { return }
         restoredViewport?.invalidate()
         restoredComposerState = nil
+        removeRestoredHistoryCover()
         chatVM.beginRestoredHistoryRefresh()
+    }
+
+    private func removeRestoredHistoryCover() {
+        guard let cover = restoredHistoryCover else { return }
+        restoredHistoryCover = nil
+        UIView.animate(withDuration: 0.15, delay: 0, options: [.beginFromCurrentState]) {
+            cover.alpha = 0
+        } completion: { _ in cover.removeFromSuperview() }
     }
 
     private func settleRestoredViewport() {
@@ -1266,6 +1291,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         didPerformInitialScroll = true
         restoredComposerState = nil
+        removeRestoredHistoryCover()
         #if DEBUG
             log("Chat client restoration: viewport settled; fresh history starts")
         #endif
@@ -1390,6 +1416,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             collectionView.addGestureRecognizer(messageContextGesture)
         }
         historyContainerView.addSubview(collectionView)
+        if let restoredHistoryCover {
+            // Inside the flipped container, as the snapshot was taken, so it draws the old frame unchanged.
+            restoredHistoryCover.isUserInteractionEnabled = false
+            restoredHistoryCover.frame = historyContainerView.bounds
+            restoredHistoryCover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            historyContainerView.addSubview(restoredHistoryCover)
+        }
         var constraints = [
             historyContainerView.topAnchor.constraint(equalTo: view.topAnchor),
             historyContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),

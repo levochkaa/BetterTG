@@ -94,7 +94,10 @@ extension RootVM {
     private func synchronizeAuthorization() {
         // Legacy void auth notifications are wakeups, never authority for the
         // account that happens to own this root when main-queue delivery occurs.
-        loggedIn = activeAccountID == TDLib.shared.activeAccountID && TDLib.shared.isActiveAccountReady
+        let ready = activeAccountID == TDLib.shared.activeAccountID && TDLib.shared.isActiveAccountReady
+        // A foreground restore renews the same account's client; until it reports a real state, keep the shell.
+        if !ready, loggedIn, activeAccountID != nil, activeAccountID == TDLib.shared.renewingAccountID { return }
+        loggedIn = ready
     }
 
     func restoreChatListContext() {

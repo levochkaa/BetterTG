@@ -59,8 +59,9 @@ final class RootViewController: UIViewController {
             controller = LoginViewController(accountID: displayedAccountID)
         }
 
-        transition(from: displayedController, to: controller, animated: animated)
+        let previousController = displayedController
         displayedController = controller
+        transition(from: previousController, to: controller, animated: animated)
     }
 
     private func transition(from oldController: UIViewController?, to newController: UIViewController, animated: Bool) {
@@ -68,27 +69,41 @@ final class RootViewController: UIViewController {
             return
         }
 
-        addChild(newController)
-        newController.view.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(newController.view)
-        NSLayoutConstraint.activate([
-            newController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            newController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            newController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            newController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
+        // The navigation controller is shared, so a quick round trip shows it again while it still fades out.
+        let isReturning = newController.parent === self
+        if isReturning {
+            view.bringSubviewToFront(newController.view)
+        } else {
+            addChild(newController)
+            newController.view.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(newController.view)
+            NSLayoutConstraint.activate([
+                newController.view.topAnchor.constraint(equalTo: view.topAnchor),
+                newController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                newController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                newController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            ])
+        }
         newController.didMove(toParent: self)
 
-        guard let oldController else { return }
+        guard let oldController else {
+            newController.view.alpha = 1
+            return
+        }
         oldController.willMove(toParent: nil)
-        let completion = {
+        let completion = { [weak self] in
+            // A later transition may have shown this controller again; it stays.
+            guard self?.displayedController !== oldController else { return }
             oldController.view.removeFromSuperview()
             oldController.removeFromParent()
         }
-        guard animated else { return completion() }
+        guard animated else {
+            newController.view.alpha = 1
+            return completion()
+        }
 
-        newController.view.alpha = 0
-        UIView.animate(withDuration: 0.25, animations: {
+        if !isReturning { newController.view.alpha = 0 }
+        UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState], animations: {
             newController.view.alpha = 1
             oldController.view.alpha = 0
         }, completion: { _ in completion() })
