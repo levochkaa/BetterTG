@@ -3,9 +3,7 @@
 import TDLibKit
 import UIKit
 
-@MainActor final class ForwardForumTopicsViewController: UIViewController, UITableViewDelegate,
-    UISearchBarDelegate
-{
+@MainActor final class ForwardForumTopicsViewController: UIViewController, UITableViewDelegate {
     private enum Section {
         case topics
     }
@@ -31,7 +29,7 @@ import UIKit
     var probePinnedIDs: [Int] { pinnedOrder.ids }
     var probeTask: Task<Void, Never>? { loadTask }
     func probeTopic(_ id: Int) -> ForumTopic? { snapshotState.topic(id: id) }
-    func probeSearch(_ text: String) { searchBar(searchBar, textDidChange: text) }
+    func probeSearch(_ text: String) { searchQueryChanged(text) }
     func probeLoadMore() { load(reset: false) }
     func probeSelect(_ row: Int) { tableView(tableView, didSelectRowAt: IndexPath(row: row, section: 0)) }
     func probeReconfigure() { applySnapshot() }
@@ -41,14 +39,19 @@ import UIKit
     private let preparedForward: PreparedMessageForward
     private let client: TDLibClient
     private let accountID: UUID
-    private let tableView = UITableView(frame: .zero, style: .plain)
-    private let searchBar = UISearchBar()
-    private let navigationBarView = UIVisualEffectView(
-        effect: UIBlurEffect(style: .systemChromeMaterial),
+    private let tableView = ForumTopicsTableView(frame: .zero, style: .plain)
+    /// The main topic list's chrome: Telegram's list bar with a search field that hides under it.
+    private lazy var navigationBarView = TelegramListNavigationBar(
+        title: chat.title,
+        placeholder: L10n.betterTG("Forum.SearchTopics"),
+        leftImage: UIImage(systemName: "chevron.left"),
+        rightImage: nil,
+        leftAction: { [weak self] in self?.navigationController?.popViewController(animated: true) },
+        rightAction: nil,
+        showsBackButton: true,
     )
-    private let backButton = UIButton(type: .system)
-    private let titleLabel = UILabel()
     private var navigationBarHeightConstraint: NSLayoutConstraint!
+    private var didSetInitialSearchOffset = false
     private var dataSource: UITableViewDiffableDataSource<Section, Int>!
     private var snapshotState = ForumTopicsSnapshotState()
     private var pinnedOrder = ForumTopicPinnedOrder()
@@ -149,22 +152,33 @@ import UIKit
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
-        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + TelegramChatNavigationBar.contentHeight
+        updateNavigationBar()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        guard abs(searchBar.frame.width - tableView.bounds.width) > 0.5 else { return }
-        searchBar.frame.size.width = tableView.bounds.width
-        tableView.tableHeaderView = searchBar
+        guard !didSetInitialSearchOffset, tableView.bounds.height > 0 else { return }
+        didSetInitialSearchOffset = true
+        tableView.setContentOffset(
+            CGPoint(x: 0, y: -tableView.adjustedContentInset.top + ChatListNavigationSearchView.scrollHeight),
+            animated: false,
+        )
+        updateNavigationBar()
     }
 
-    func searchBar(_: UISearchBar, textDidChange searchText: String) {
-        let updated = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard updated != query else { return }
-        query = updated
-        pinnedOrder.reset(keepingRanks: false)
-        load(reset: true)
+    func scrollViewWillEndDragging(
+        _ scrollView: UIScrollView, withVelocity _: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>,
+    ) {
+        guard !navigationBarView.isSearchActive else { return }
+        let top = -scrollView.adjustedContentInset.top
+        let distance = targetContentOffset.pointee.y - top
+        let searchHeight = ChatListNavigationSearchView.scrollHeight
+        guard distance > 0, distance < searchHeight else { return }
+        targetContentOffset.pointee.y = top + (distance < searchHeight / 2 ? 0 : searchHeight)
+    }
+
+    func scrollViewDidScroll(_: UIScrollView) {
+        updateNavigationBar()
     }
 
     func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -185,6 +199,21 @@ import UIKit
         }
     }
 
+    private func updateNavigationBar() {
+        guard navigationBarHeightConstraint != nil else { return }
+        navigationBarView.applyScroll(offset: didSetInitialSearchOffset
+            ? tableView.contentOffset.y + tableView.adjustedContentInset.top
+            : ChatListNavigationSearchView.scrollHeight)
+    }
+
+    private func searchQueryChanged(_ searchText: String) {
+        let updated = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard updated != query else { return }
+        query = updated
+        pinnedOrder.reset(keepingRanks: false)
+        load(reset: true)
+    }
+
     private func configureTable() {
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.delegate = self
@@ -192,14 +221,11 @@ import UIKit
         tableView.estimatedRowHeight = 70
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 80, bottom: 0, right: 0)
         tableView.register(ForumTopicCell.self, forCellReuseIdentifier: ForumTopicCell.reuseID)
-        searchBar.delegate = self
-        searchBar.placeholder = L10n.betterTG("Forum.SearchTopics")
-        searchBar.autocapitalizationType = .none
-        searchBar.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: 56)
-        tableView.tableHeaderView = searchBar
-        view.addSubview(tableView)
+        tableView.contentInset.top = TelegramListNavigationBar.expandedContentHeight
+        tableView.verticalScrollIndicatorInsets.top = TelegramListNavigationBar.expandedContentHeight
+        view.insertSubview(tableView, belowSubview: navigationBarView)
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: navigationBarView.bottomAnchor),
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -210,50 +236,32 @@ import UIKit
         navigationBarView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(navigationBarView)
         navigationBarHeightConstraint = navigationBarView.heightAnchor.constraint(
-            equalToConstant: view.safeAreaInsets.top + TelegramChatNavigationBar.contentHeight,
+            equalToConstant: view.safeAreaInsets.top + TelegramListNavigationBar.titleHeight,
         )
-
-        backButton.translatesAutoresizingMaskIntoConstraints = false
-        backButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        backButton.accessibilityLabel = L10n.telegram("Common.Back")
-        backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
-        navigationBarView.contentView.addSubview(backButton)
-
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.text = chat.title
-        titleLabel.textColor = .label
-        titleLabel.font = .preferredFont(forTextStyle: .headline)
-        titleLabel.textAlignment = .center
-        titleLabel.adjustsFontSizeToFitWidth = true
-        titleLabel.minimumScaleFactor = 0.8
-        navigationBarView.contentView.addSubview(titleLabel)
-
-        let separator = UIView()
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.backgroundColor = .separator
-        navigationBarView.contentView.addSubview(separator)
-
         NSLayoutConstraint.activate([
             navigationBarView.topAnchor.constraint(equalTo: view.topAnchor),
             navigationBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             navigationBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             navigationBarHeightConstraint,
-            backButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 2),
-            backButton.bottomAnchor.constraint(equalTo: navigationBarView.bottomAnchor),
-            backButton.widthAnchor.constraint(equalToConstant: 44),
-            backButton.heightAnchor.constraint(equalToConstant: 44),
-            titleLabel.centerXAnchor.constraint(equalTo: navigationBarView.centerXAnchor),
-            titleLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 8),
-            titleLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor,
-                constant: -56,
-            ),
-            separator.leadingAnchor.constraint(equalTo: navigationBarView.leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: navigationBarView.trailingAnchor),
-            separator.bottomAnchor.constraint(equalTo: navigationBarView.bottomAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
         ])
+        navigationBarView.onQueryChange = { [weak self] query in
+            self?.searchQueryChanged(query)
+        }
+        navigationBarView.onVisibleHeightChange = { [weak self] height in
+            guard let self else { return }
+            navigationBarHeightConstraint.constant = view.safeAreaInsets.top + height
+        }
+        navigationBarView.onSearchActiveChange = { [weak self] active in
+            guard let self else { return }
+            tableView.searchScrollRange = active ? 0 : ChatListNavigationSearchView.scrollHeight
+            let height = active
+                ? ChatListNavigationSearchView.scrollHeight
+                : TelegramListNavigationBar.expandedContentHeight
+            tableView.contentInset.top = height
+            tableView.verticalScrollIndicatorInsets.top = height
+            tableView.layoutIfNeeded()
+            tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
+        }
     }
 
     private func configureDataSource() {
@@ -486,9 +494,5 @@ import UIKit
         )
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         present(alert, animated: true)
-    }
-
-    @objc private func backPressed() {
-        navigationController?.popViewController(animated: true)
     }
 }

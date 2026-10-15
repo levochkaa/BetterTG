@@ -1256,7 +1256,7 @@ private extension ChatNotificationSettings {
 /// A native footer gives short lists enough travel to hide search. UITableView
 /// must own contentSize: overriding it makes its self-sizing row layout repeatedly
 /// reconcile different content extents and animate the rows while idle.
-private final class ForumTopicsTableView: UITableView {
+final class ForumTopicsTableView: UITableView {
     var searchScrollRange = ChatListNavigationSearchView.scrollHeight {
         didSet { updateScrollExtent() }
     }
