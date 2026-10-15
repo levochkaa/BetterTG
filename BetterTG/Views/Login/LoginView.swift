@@ -25,6 +25,7 @@ final class LoginViewController: UIViewController {
     private var renderedQRCodeLink: String?
     private var stageTimer: Timer?
     private var optionAction: LoginStageContent.Action?
+    private var secondaryOptionAction: LoginStageContent.Action?
 
     private let contentStack = UIStackView()
     private let titleLabel = UILabel()
@@ -39,7 +40,9 @@ final class LoginViewController: UIViewController {
     private let secondaryField = UITextField()
     private let continueButton = UIButton(type: .system)
     private let optionButton = UIButton(type: .system)
+    private let secondaryOptionButton = UIButton(type: .system)
     private let noteLabel = UILabel()
+    private let backButton = UIButton(type: .system)
     private let accountsButton = UIButton(type: .system)
 
     // MARK: Internal
@@ -147,6 +150,14 @@ final class LoginViewController: UIViewController {
         }
     }
 
+    /// A text option; one without an action reads as a countdown.
+    private static func apply(_ option: LoginStageContent.Option?, to button: UIButton, enabled: Bool) {
+        button.isHidden = option == nil
+        button.configuration?.title = option?.title
+        button.configuration?.baseForegroundColor = option?.action == nil ? .secondaryLabel : nil
+        button.isEnabled = enabled && option?.action != nil
+    }
+
     private func configureViews() {
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .vertical
@@ -162,6 +173,15 @@ final class LoginViewController: UIViewController {
         accountsButton.translatesAutoresizingMaskIntoConstraints = false
         accountsButton.addTarget(self, action: #selector(showAccounts), for: .touchUpInside)
         view.addSubview(accountsButton)
+
+        var backConfiguration = UIButton.Configuration.plain()
+        backConfiguration.image = UIImage(systemName: "chevron.backward")
+        backConfiguration.title = L10n.telegram("Common.Back")
+        backConfiguration.imagePadding = 4
+        backButton.configuration = backConfiguration
+        backButton.translatesAutoresizingMaskIntoConstraints = false
+        backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
+        view.addSubview(backButton)
 
         titleLabel.font = .preferredFont(forTextStyle: .largeTitle)
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -223,6 +243,8 @@ final class LoginViewController: UIViewController {
         optionConfiguration.titleLineBreakMode = .byWordWrapping
         optionButton.configuration = optionConfiguration
         optionButton.addTarget(self, action: #selector(optionPressed), for: .touchUpInside)
+        secondaryOptionButton.configuration = optionConfiguration
+        secondaryOptionButton.addTarget(self, action: #selector(secondaryOptionPressed), for: .touchUpInside)
 
         noteLabel.numberOfLines = 0
         noteLabel.textAlignment = .center
@@ -239,6 +261,7 @@ final class LoginViewController: UIViewController {
         contentStack.addArrangedSubview(continueButton)
         contentStack.addArrangedSubview(noteLabel)
         contentStack.addArrangedSubview(optionButton)
+        contentStack.addArrangedSubview(secondaryOptionButton)
         render()
     }
 
@@ -249,6 +272,8 @@ final class LoginViewController: UIViewController {
             contentStack.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
             accountsButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
             accountsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            backButton.centerYAnchor.constraint(equalTo: accountsButton.centerYAnchor),
+            backButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 4),
         ])
     }
 
@@ -327,13 +352,14 @@ final class LoginViewController: UIViewController {
         countryButton.isEnabled = inputField.isEnabled
 
         optionAction = content.option?.action
-        optionButton.isHidden = content.option == nil
-        optionButton.configuration?.title = content.option?.title
-        optionButton.configuration?.baseForegroundColor = content.option?.action == nil ? .secondaryLabel : nil
-        optionButton.isEnabled = enabled && content.option?.action != nil
+        Self.apply(content.option, to: optionButton, enabled: enabled)
+        secondaryOptionAction = content.secondaryOption?.action
+        Self.apply(content.secondaryOption, to: secondaryOptionButton, enabled: enabled)
         noteLabel.text = content.note
         noteLabel.isHidden = content.note == nil
 
+        backButton.isHidden = !authorization.canGoBack
+        backButton.isEnabled = enabled
         accountsButton.isEnabled = current
         accountsButton.isHidden = !hasOtherAccounts()
         if !current || stage == nil || !content.acceptsInput {
@@ -433,10 +459,24 @@ final class LoginViewController: UIViewController {
     }
 
     @objc private func optionPressed() {
-        guard let action = optionAction, let token = authorization.capture() else { return }
+        handle(optionAction)
+    }
+
+    @objc private func secondaryOptionPressed() {
+        handle(secondaryOptionAction)
+    }
+
+    private func handle(_ action: LoginStageContent.Action?) {
+        guard let action, let token = authorization.capture() else { return }
         switch action {
         case .requestQRCode:
             authorization.perform(.qrCode(otherUserIDs: otherAccountUserIDs()))
+        case .resendCode:
+            authorization.perform(.resendCode)
+        case .openURL(let url):
+            UIApplication.shared.open(url)
+        case .forgotPassword:
+            forgotPassword()
         case .resetEmail:
             confirmEmailReset(token: token)
         case .showTermsOfService:
@@ -446,6 +486,66 @@ final class LoginViewController: UIViewController {
             guard authorization.stage == .qrCode, let restartSignIn else { return }
             do { try restartSignIn() } catch { showError(error.localizedDescription) }
         }
+    }
+
+    /// Telegram's back button: a screen opened inside a step closes; a later step asks to stop its verification
+    /// first and then returns to phone entry (`AuthorizationSequenceCodeEntryController`, sign-up and email).
+    @objc private func backPressed() {
+        guard let token = authorization.capture() else { return }
+        if authorization.hasLocalStage {
+            authorization.leaveLocalStage()
+            return
+        }
+        let keys: (text: String, proceed: String, stop: String)? =
+            switch authorization.stage {
+            case .code:
+                (
+                    text: "Login.CancelPhoneVerification",
+                    proceed: "Login.CancelPhoneVerificationContinue",
+                    stop: "Login.CancelPhoneVerificationStop",
+                )
+            case .emailAddress, .emailCode:
+                (
+                    text: "Login.CancelEmailVerification",
+                    proceed: "Login.CancelEmailVerificationContinue",
+                    stop: "Login.CancelEmailVerificationStop",
+                )
+            case .registration:
+                (
+                    text: "Login.CancelSignUpConfirmation",
+                    proceed: "Login.CancelPhoneVerificationContinue",
+                    stop: "Login.CancelPhoneVerificationStop",
+                )
+            default:
+                nil
+            }
+        guard let keys else {
+            authorization.changePhoneNumber()
+            return
+        }
+        let alert = UIAlertController(title: nil, message: L10n.telegram(keys.text), preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram(keys.proceed), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram(keys.stop), style: .default) { [weak self] _ in
+            guard let self, authorization.permits(token) else { return }
+            authorization.changePhoneNumber()
+        })
+        present(alert, animated: true)
+    }
+
+    /// Telegram's "Forgot password?": a recovery email gets a code; without one only Telegram's explanation remains.
+    private func forgotPassword() {
+        guard case .authorizationStateWaitPassword(let value) = authorization.snapshot?.state else { return }
+        guard value.hasRecoveryEmailAddress else {
+            let alert = UIAlertController(
+                title: nil,
+                message: L10n.telegram("TwoStepAuth.RecoveryUnavailable"),
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+            present(alert, animated: true)
+            return
+        }
+        authorization.perform(.passwordRecovery)
     }
 
     /// Telegram's "Can't access this email?": a reset that needs waiting is confirmed first (`resetEmail`).
@@ -512,7 +612,12 @@ final class LoginViewController: UIViewController {
             guard let self, authorization.permits(token) else { return }
             presentTermsOfService(terms, token: token, asksToAgree: true)
         })
-        alert.addAction(UIAlertAction(title: L10n.telegram("Login.TermsOfServiceDecline"), style: .destructive))
+        // Telegram ends the sign-up when its terms are declined.
+        let decline = L10n.telegram("Login.TermsOfServiceDecline")
+        alert.addAction(UIAlertAction(title: decline, style: .destructive) { [weak self] _ in
+            guard let self, authorization.permits(token) else { return }
+            authorization.changePhoneNumber()
+        })
         present(alert, animated: true)
     }
 

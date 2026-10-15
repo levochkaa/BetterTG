@@ -13,6 +13,10 @@ enum LoginState: Equatable {
     case emailCode
     case registration
     case qrCode
+    /// "Forgot password?": the code sent to the recovery email. Shown inside TDLib's password step.
+    case passwordRecovery
+    /// The new password after a valid recovery code. Shown inside TDLib's password step.
+    case newPassword
 
     /// The step TDLib's state asks for; nil for states without user input.
     init?(_ state: AuthorizationState?) {
@@ -35,7 +39,11 @@ enum LoginState: Equatable {
 enum LoginRequest: Equatable {
     case phoneNumber(String)
     case code(String)
+    case resendCode
     case password(String)
+    case passwordRecovery
+    case recoveryCode(String)
+    case recoverPassword(code: String, password: String, hint: String)
     case emailAddress(String)
     case emailCode(String)
     case registration(firstName: String, lastName: String)

@@ -48,6 +48,10 @@ extension TDClient {
         try await send(TDNativeRequests.checkAuthenticationPassword(password: password))
     }
 
+    func checkAuthenticationPasswordRecoveryCode(recoveryCode: String) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.checkAuthenticationPasswordRecoveryCode(recoveryCode: recoveryCode))
+    }
+
     func closeChat(chatId: Int64) async throws -> TDNativeOk {
         try await send(TDNativeRequests.closeChat(chatId: chatId))
     }
@@ -547,6 +551,18 @@ extension TDClient {
         try await send(TDNativeRequests.readChatList(chatList: chatList))
     }
 
+    func recoverAuthenticationPassword(
+        recoveryCode: String,
+        newPassword: String,
+        newHint: String,
+    ) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.recoverAuthenticationPassword(
+            recoveryCode: recoveryCode,
+            newPassword: newPassword,
+            newHint: newHint,
+        ))
+    }
+
     func registerDevice(
         deviceToken: TDNativeDeviceToken,
         otherUserIds: [Int64],
@@ -581,8 +597,16 @@ extension TDClient {
         ))
     }
 
+    func requestAuthenticationPasswordRecovery() async throws -> TDNativeOk {
+        try await send(TDNativeRequests.requestAuthenticationPasswordRecovery())
+    }
+
     func requestQrCodeAuthentication(otherUserIds: [Int64]) async throws -> TDNativeOk {
         try await send(TDNativeRequests.requestQrCodeAuthentication(otherUserIds: otherUserIds))
+    }
+
+    func resendAuthenticationCode(reason: TDNativeResendCodeReason?) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.resendAuthenticationCode(reason: reason))
     }
 
     func resendMessages(

@@ -39,6 +39,7 @@
                         + "suspended-completion/queued-dispatch/reentrant-revoke/deinit=true; "
                         + "same-account-rebind/foreign-account-terminal=true; generated-scoped-transport=true; "
                         + "input-free-states-denied=true; email/sign-up/qr-stages=true; "
+                        + "wrong-number/resend/password-recovery=true; "
                         + "real-auth/account-stores/clipboard=0; server/device-auth=pending"
                 } catch { result = "Login authorization probe failed: \(error)" }
                 log(result)
@@ -244,6 +245,71 @@
             await drain()
             try require(requests.calls.count == 3 && weakDetached() == nil, "reentrant/deinit dispatch escaped")
             try verifyTransport(source: a1, state: password)
+            try await verifyLocalSteps()
+        }
+
+        /// Screens opened inside one TDLib step: phone entry over the code step, a resend after the timeout, and the
+        /// password recovery chain, which survives TDLib restating the password step before its request returns.
+        private static func verifyLocalSteps() async throws {
+            let relay = TDLibAuthorizationState()
+            let requests = Requests()
+            defer { requests.finishAll() }
+            let source = TdUpdateSource(accountID: UUID(), clientID: 9)
+            let session = LoginAuthorizationSession(
+                accountID: source.accountID,
+                currentSource: { relay.current?.source },
+                client: { candidate in
+                    guard relay.current?.source == candidate else { return nil }
+                    return .init { request in try await requests.send(candidate, request) }
+                },
+            )
+            let subscription = relay.publisher.sink { session.accept($0) }
+            defer { subscription.cancel() }
+            relay.activate(source)
+            relay.update(.authorizationStateWaitCode(.init(codeInfo: .init(
+                phoneNumber: "isolated",
+                type: .authenticationCodeTypeSms(.init(length: 5)),
+                nextType: .authenticationCodeTypeCall(.init(length: 5)),
+                timeout: 0,
+            ))), source: source)
+            session.changePhoneNumber()
+            try require(session.stage == .phoneNumber && session.hasLocalStage, "wrong number kept the code step")
+            session.leaveLocalStage()
+            try require(session.stage == .code, "back from phone entry lost the code step")
+            session.perform(.resendCode)
+            await drain()
+            try require(requests.calls.last?.1 == .resendCode, "resend not dispatched after the timeout")
+            requests.complete(0)
+            await drain()
+
+            func password(pattern: String) -> AuthorizationState {
+                .authorizationStateWaitPassword(.init(
+                    passwordHint: "",
+                    hasRecoveryEmailAddress: true,
+                    hasPassportData: false,
+                    recoveryEmailAddressPattern: pattern,
+                ))
+            }
+            relay.update(password(pattern: ""), source: source)
+            session.perform(.passwordRecovery)
+            await drain()
+            relay.update(password(pattern: "isolated@pattern"), source: source)
+            try require(session.isBusy, "restated step cancelled its request")
+            requests.complete(1)
+            await drain()
+            try require(session.stage == .passwordRecovery, "recovery code screen missing")
+            session.submit("123456", prefix: "")
+            await drain()
+            try require(requests.calls.last?.1 == .recoveryCode("123456"), "recovery code not checked")
+            requests.complete(2)
+            await drain()
+            try require(session.stage == .newPassword, "new password screen missing")
+            session.submit("new-secret", secondary: "hint", prefix: "")
+            await drain()
+            try require(
+                requests.calls.last?.1 == .recoverPassword(code: "123456", password: "new-secret", hint: "hint"),
+                "new password lost its recovery code",
+            )
         }
 
         private static func verifyTransport(source: TdUpdateSource, state: AuthorizationState) throws {

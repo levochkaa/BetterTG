@@ -7,6 +7,9 @@ import UIKit
 struct LoginStageContent {
     enum Action: Equatable {
         case requestQRCode
+        case resendCode
+        case openURL(URL)
+        case forgotPassword
         case resetEmail
         case showTermsOfService
         case usePhoneNumber
@@ -32,6 +35,7 @@ struct LoginStageContent {
     var isSecure = false
     var acceptsInput = true
     var option: Option?
+    var secondaryOption: Option?
     var note: String?
 
     static func make(stage: LoginState?, state: AuthorizationState?, remaining: Int) -> Self {
@@ -56,7 +60,7 @@ struct LoginStageContent {
             guard case .authorizationStateWaitCode(let value) = state else {
                 return Self(title: L10n.telegram("Login.EnterCodeTelegramTitle"))
             }
-            return code(value.codeInfo)
+            return code(value.codeInfo, remaining: remaining)
         case .twoFactor:
             var content = Self(
                 title: L10n.telegram("LoginPassword.Title"),
@@ -69,6 +73,23 @@ struct LoginStageContent {
             }
             content.isSecure = true
             content.contentType = .password
+            content.option = Option(title: L10n.telegram("TwoStepAuth.EnterPasswordForgot"), action: .forgotPassword)
+            return content
+        case .passwordRecovery:
+            var content = Self(
+                title: L10n.telegram("TwoStepAuth.RecoveryTitle"),
+                text: L10n.telegram("TwoStepAuth.RecoveryCodeHelp"),
+            )
+            content.placeholder = L10n.telegram("TwoStepAuth.RecoveryCode")
+            content.keyboardType = .numberPad
+            content.contentType = .oneTimeCode
+            return content
+        case .newPassword:
+            var content = Self(title: L10n.telegram("TwoFactorSetup.Password.Title"))
+            content.placeholder = L10n.telegram("TwoFactorSetup.Password.PlaceholderPassword")
+            content.secondaryPlaceholder = L10n.telegram("TwoFactorSetup.Hint.Placeholder")
+            content.isSecure = true
+            content.contentType = .newPassword
             return content
         case .emailAddress:
             var content = Self(
@@ -160,12 +181,13 @@ struct LoginStageContent {
     }
 
     /// The code screen for the way the code was sent (`authorizationCurrentOptionText`).
-    private static func code(_ info: TDNativeAuthenticationCodeInfo) -> Self {
+    private static func code(_ info: TDNativeAuthenticationCodeInfo, remaining: Int) -> Self {
         let phone = info.phoneNumber.hasPrefix("+") ? info.phoneNumber : "+" + info.phoneNumber
         var content = Self(title: L10n.telegram("Login.EnterCodeTelegramTitle"))
         content.placeholder = L10n.telegram("Login.Code")
         content.keyboardType = .numberPad
         content.contentType = .oneTimeCode
+        content.option = resendOption(info, remaining: remaining)
         switch info.type {
         case .authenticationCodeTypeTelegramMessage:
             content.text = styled("Login.EnterCodeTelegramText", phone)
@@ -197,11 +219,42 @@ struct LoginStageContent {
                 boldMarker + value.phoneNumberPrefix + boldMarker,
                 L10n.telegram("Login.CodePhonePatternInfoText").replacingOccurrences(of: "\n", with: " "),
             ].joined(separator: "\n")
-        case .authenticationCodeTypeFragment:
+        case .authenticationCodeTypeFragment(let value):
             content.title = L10n.telegram("Login.EnterCodeFragmentTitle")
             content.text = styled("Login.EnterCodeFragmentText", phone)
+            if let url = URL(string: value.url) {
+                content.secondaryOption = Option(title: L10n.telegram("Login.OpenFragment"), action: .openURL(url))
+            }
         }
         return content
+    }
+
+    /// Telegram's next-code line: a countdown until TDLib allows a resend, then the way the next code comes
+    /// (`authorizationNextOptionText`). Nil when TDLib has no next code type.
+    private static func resendOption(_ info: TDNativeAuthenticationCodeInfo, remaining: Int) -> Option? {
+        guard let next = info.nextType else { return nil }
+        let (isCall, key) =
+            switch next {
+            case .authenticationCodeTypeFirebaseAndroid, .authenticationCodeTypeFirebaseIos, .authenticationCodeTypeSms,
+                 .authenticationCodeTypeSmsPhrase, .authenticationCodeTypeSmsWord:
+                (false, "Login.SendCodeViaSms")
+            case .authenticationCodeTypeCall:
+                (true, "Login.SendCodeViaCall")
+            case .authenticationCodeTypeFlashCall, .authenticationCodeTypeMissedCall:
+                (true, "Login.SendCodeViaFlashCall")
+            case .authenticationCodeTypeFragment:
+                (false, "Login.GetCodeViaFragment")
+            case .authenticationCodeTypeTelegramMessage:
+                (false, "Login.HaveNotReceivedCodeInternal")
+            }
+        guard remaining > 0 else { return Option(title: L10n.telegram(key), action: .resendCode) }
+        let time = clockText(seconds: remaining)
+        return Option(
+            title: isCall
+                ? L10n.telegram("ChangePhoneNumberCode.CallTimer", time)
+                : L10n.telegram("Login.WillSendSms", time),
+            action: nil,
+        )
     }
 
     /// The email code screen with Telegram's reset option (`AuthorizationSequenceCodeEntryControllerNode`).
