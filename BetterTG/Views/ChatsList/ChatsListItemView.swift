@@ -137,6 +137,7 @@ final class ChatListCell: UITableViewCell {
         updateBackground(highlighted: isHighlighted || isSelected, animated: false)
         if chat.isHeldThroughClientRenewal {
             avatarView.configureHeldThroughClientRenewal(
+                file: chat.chat.photo?.small,
                 minithumbnail: chat.chat.photo?.minithumbnail,
                 placeholder: chat.telegramAvatarPlaceholder,
                 client: client,

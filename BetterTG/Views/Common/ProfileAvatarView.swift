@@ -138,10 +138,11 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
     }
 
     /// A row kept through a same-account client renewal: its files belong to the previous client, and the renewed
-    /// one can give the same file ID to another file. The same peer keeps its avatar; another peer shows its inline
-    /// thumbnail until the renewed client supplies the chat.
+    /// one can give the same file ID to another file. The same peer keeps its avatar. A view new to the peer (as in
+    /// a list rebuilt for the renewed client) shows the pixels already decoded for the photo, which are cached by
+    /// its remote ID, or else its inline thumbnail until the renewed client supplies the chat.
     func configureHeldThroughClientRenewal(
-        minithumbnail: Minithumbnail?, placeholder: TelegramAvatarPlaceholder, client: TDLibClient,
+        file: File?, minithumbnail: Minithumbnail?, placeholder: TelegramAvatarPlaceholder, client: TDLibClient,
     ) {
         guard representedPeerID != placeholder.peerID || imageView.image == nil else {
             self.placeholder = placeholder
@@ -149,6 +150,15 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
             return
         }
         configure(file: nil, minithumbnail: minithumbnail, placeholder: placeholder, client: client)
+        guard let file, !file.remote.uniqueId.isEmpty, displayedIcon(for: placeholder) == .none,
+              let accountID = sourceOrigin?.source.accountID ?? TDLib.shared.activeAccountID,
+              let cached = TDImageThumbnailPipeline.shared.cachedImage(for: TDImageThumbnailKey(
+                  accountID: accountID, clientID: 0, fileID: 0, maximumPixelSize: 160,
+                  contentID: file.remote.uniqueId,
+              ).cacheKey)
+        else { return }
+        imageView.cancel()
+        imageView.image = UIImage(cgImage: cached.image)
     }
 
     // MARK: Private
