@@ -344,6 +344,32 @@ Read-only audits at `e1e0ad48`: forum topics and the chat timeline (T), the Forw
 Reviewed and OK: forum topic VM ownership and update scoping, topic menu permissions, view as messages/topics, closed-topic writing rules, timeline identities and anchoring; Forward request checks, secret-chat copy mode, closed-topic destinations, send order and account dismissal; folder write sessions, removal and reorder; quote ranges, entities, spoilers, drafts and bubble expansion.
 
 
+### Chat search, chat actions, stickers and stories — 2026-10-16
+
+Audit and fixes from `codex/parity-chat-tools` and `codex/parity-stories` (cherry-picked; build fixes `126be625`, `489aee75`).
+
+| ID | Sev | Finding | Status |
+|---|---|---|---|
+| S-1 | P1 | Chat search jumps to the newest of the first 50 matches only; no arrows, "N of M", "No Results" or paging | fixed `27867360`: a bottom panel replaces the composer with calendar, members, "N of M" and up/down, paging by 50. Build only |
+| S-2 | P2 | No jump to a date (`getChatMessageByDate` unused) | fixed `27867360`: Telegram's day picker; jumps to the first message of the day (Telegram keeps the time of day) |
+| S-3 | P2 | No "from:" member search | fixed `27867360`: "from:" lists members (`searchChatMembers`), a token scopes the search |
+| S-4 | P3 | Placeholder differs from "Search this chat" | fixed `27867360` |
+| S-5 | P3 | No results-as-list mode | open |
+| S-6 | P3 | Matched text isn't highlighted in bubbles | open |
+| S-7 | P2 | Profile lacks Mute, Auto-Delete, Clear Messages, Leave/Delete; the auto-delete timer can't be set | fixed `088af4eb`: a More menu with Telegram's mute presets, auto-delete 1 day/1 week/1 month/off, Clear Messages and the removal sheet |
+| S-8 | P3 | No custom mute duration or Auto-Delete "Other…" | open |
+| S-9 | P3 | Chat-list Delete/Clear runs at once; Telegram waits 5 s behind Undo | open |
+| S-10 | P2 | The sticker tab is one flat list | fixed `f5ec896c`: Favorites, Recently Used and installed packs with titles |
+| S-11 | P2 | A sticker in a message opens the gallery; no pack preview or Add/Remove | fixed `f5ec896c`, `128758cc`: the pack sheet with Add/Remove and Copy Link |
+| S-12 | P3 | No Add to/Remove from Favorites, Remove from Recents | fixed `f5ec896c`, `128758cc` |
+| S-13 | P3 | GIFs can't be saved from messages or deleted | fixed `f5ec896c`, `128758cc` |
+| S-14 | P3 | GIF search only filters saved GIFs | open |
+| S-15 | P3 | The emoji tab is a fixed list of 100 | open |
+| S-16 | P3 | No sticker pack search or trending packs | open |
+| S-17 | P3 | Secret chats search returns nothing (Telegram searches locally) | open |
+| ST-1 | P2 | No story viewer; shared stories and mentions were untappable, no rings | fixed `7fdaec19`, `45d3e06d`, `2dd7048d`, `31f7ef3f`: a UIKit viewer (segments, header, caption, quarter taps, hold to pause, drag to dismiss, poster paging, `openStory`/`closeStory`, story updates scoped to the client), opened from story bubbles, the profile avatar ring and chat list avatar rings. `-ui-probe-story-viewer` passes; no chat in the list had active stories at 05:31, so the viewer wasn't opened live. Not ported: replies and reactions, story areas, viewers list, the more menu, stealth mode, the cube transition |
+
+
 ### Probe sweep — 2026-10-12
 
 Repeat on the merged build `e05d541` (localization merge): 86 of 91 probes report a pass; `draft-coding` passes in the app's tmp folder, and the four observation probes need live UI as above.
