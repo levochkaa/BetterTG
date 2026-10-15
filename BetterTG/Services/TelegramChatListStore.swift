@@ -209,8 +209,9 @@ import TDLibKit
             return groups[peer.basicGroupId].map(CustomChat.CustomChatType.group)
         case .chatTypeSupergroup(let peer):
             return supergroups[peer.supergroupId].map(CustomChat.CustomChatType.supergroup)
-        case .chatTypeSecret:
-            return nil
+        case .chatTypeSecret(let peer):
+            // Telegram lists a secret chat as a row for its user, marked with a lock (`ChatListItem`).
+            return users[peer.userId].map(CustomChat.CustomChatType.user)
         }
     }
 

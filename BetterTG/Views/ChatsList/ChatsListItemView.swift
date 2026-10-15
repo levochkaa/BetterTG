@@ -74,6 +74,24 @@ final class ChatListCell: UITableViewCell {
         updateBackground(highlighted: selected, animated: animated)
     }
 
+    /// Telegram draws a secret chat's title in green after a lock (`ChatListItem`, `secretTitleColor`).
+    private static func title(for chat: CustomChat, font: UIFont) -> NSAttributedString {
+        guard chat.secretChatID != nil else {
+            return NSAttributedString(string: chat.displayTitle, attributes: [.foregroundColor: UIColor.label])
+        }
+        let configuration = UIImage.SymbolConfiguration(font: font, scale: .small)
+        let lock = NSTextAttachment(
+            image: UIImage(systemName: "lock.fill", withConfiguration: configuration)?
+                .withTintColor(.systemGreen, renderingMode: .alwaysOriginal) ?? UIImage(),
+        )
+        let title = NSMutableAttributedString(attachment: lock)
+        title.append(NSAttributedString(
+            string: " " + chat.displayTitle,
+            attributes: [.foregroundColor: UIColor.systemGreen],
+        ))
+        return title
+    }
+
     private static func dateText(for chat: CustomChat) -> String? {
         guard let timestamp = chat.draftMessage?.date ?? chat.lastMessage?.date else { return nil }
         let date = Foundation.Date(timeIntervalSince1970: TimeInterval(timestamp))
@@ -147,7 +165,7 @@ final class ChatListCell: UITableViewCell {
         configuredClient = client
         pinned = chat.position.isPinned
         backgroundColor = pinned ? .secondarySystemBackground : .systemBackground
-        titleLabel.text = chat.displayTitle
+        titleLabel.attributedText = Self.title(for: chat, font: titleLabel.font)
         messageLabel.attributedText = activityText(for: chat, client: client) ?? summaryText(for: chat, client: client)
         let chatID = chat.id
         activityCancellable = ChatListActivities.shared

@@ -115,6 +115,12 @@ import TDLibKit
         return adminRights?.canDeleteMessages == true
     }
 
+    /// The secret chat's ID when this is an end-to-end encrypted chat with its user.
+    var secretChatID: Int? {
+        if case .chatTypeSecret(let secret) = chat.type { return secret.secretChatId }
+        return nil
+    }
+
     var shouldShowProfileImage: Bool {
         switch type {
         case .bot, .user: false

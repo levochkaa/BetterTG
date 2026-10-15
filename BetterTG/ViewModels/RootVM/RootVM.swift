@@ -183,8 +183,16 @@ enum Route {
                 lastMessage: chat.lastMessage,
                 draftMessage: chat.draftMessage,
             )
-        default:
-            return nil
+        case .chatTypeSecret(let type):
+            guard let user = try? await client.getUser(userId: type.userId) else { return nil }
+            return CustomChat(
+                chat: chat,
+                position: position,
+                unreadCount: chat.unreadCount,
+                type: .user(user),
+                lastMessage: chat.lastMessage,
+                draftMessage: chat.draftMessage,
+            )
         }
     }
 }

@@ -221,6 +221,10 @@ extension ChatVM {
             updateSlowMode(expiresIn: update.supergroupFullInfo.slowModeDelayExpiresIn)
             if update.supergroupFullInfo.memberCount > 0 { memberCount = update.supergroupFullInfo.memberCount }
         }
+        observeCurrentUpdate(.updateSecretChat) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.secretChat.id == customChat.secretChatID else { return }
+            updateSecretChatState(update.secretChat.state)
+        }
         observeCurrentUpdate(.updateUserFullInfo) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.userId == customChat.user?.id else { return }
             updateRecipientNoteRestriction(update.userFullInfo.hasRestrictedVoiceAndVideoNoteMessages)

@@ -158,6 +158,8 @@ import UIKit
 
     /// The private chat's user doesn't accept voice and video notes (`hasRestrictedVoiceAndVideoNoteMessages`).
     private(set) var recipientRestrictsVoiceAndVideoNotes = false
+    /// A secret chat sends nothing until TDLib reports its state ready; nil until the state is known.
+    private(set) var secretChatIsReady: Bool?
 
     private var voiceFinalizationGeneration = UInt64.zero
     private var voiceDraftRefreshGeneration = UInt64.zero
@@ -1386,7 +1388,14 @@ import UIKit
                 memberCount = info.members.count
             }
         case .user(let user):
+            let secretChatID = customChat.secretChatID
             chatInfoTask = Task { [weak self] in
+                if let secretChatID,
+                   let secret = try? await client.send(TDNativeRequests.getSecretChat(secretChatId: secretChatID))
+                {
+                    guard !Task.isCancelled, let self, locationContextIsCurrent else { return }
+                    updateSecretChatState(secret.state)
+                }
                 guard let info = try? await client.getUserFullInfo(userId: user.id),
                       !Task.isCancelled, let self, locationContextIsCurrent else { return }
                 updateRecipientNoteRestriction(info.hasRestrictedVoiceAndVideoNoteMessages)
@@ -1398,6 +1407,19 @@ import UIKit
 
     func updateSlowMode(expiresIn seconds: Double) {
         slowModeExpiresAt = seconds > 0 ? Date().addingTimeInterval(seconds) : nil
+    }
+
+    /// Telegram's secret chat accepts messages only once the other side has joined, and none once it is closed.
+    func updateSecretChatState(_ state: TDNativeSecretChatState) {
+        let ready =
+            if case .secretChatStateReady = state {
+                true
+            } else {
+                false
+            }
+        guard secretChatIsReady != ready else { return }
+        secretChatIsReady = ready
+        objectWillChange.send()
     }
 
     func updateRecipientNoteRestriction(_ restricted: Bool) {
@@ -4639,6 +4661,7 @@ import UIKit
     }
 
     private func permissionAllows(_ kind: ChatSendContentKind) -> Bool {
+        if customChat.secretChatID != nil, secretChatIsReady != true { return false }
         // Telegram's recipient restriction on voice and video notes (`Conversation.VoiceMessagesRestricted`).
         switch kind {
         case .videoNote, .voiceNote: if recipientRestrictsVoiceAndVideoNotes { return false }
