@@ -21,8 +21,9 @@ import UIKit
     private var dataSource: UITableViewDiffableDataSource<Section, Int64>!
     private var chatsByID = [Int64: Chat]()
     private var forumChatIDs = Set<Int64>()
-    private var checkedSupergroupChatIDs = Set<Int64>()
-    private var forumLookupFailedChatIDs = Set<Int64>()
+    /// The user's own standing per destination; Telegram's send check needs it besides the default permissions. A
+    /// failed lookup leaves no entry, so the chat stays hidden and the next hydration retries it.
+    private var standingByChatID = [Int64: MessageForwardDestinationStanding]()
     private var unavailablePrivateChatIDs = Set<Int64>()
     private var eligibilityByChatID = [Int64: MessageForwardDestinationEligibility]()
     private var visibleChatIDs = [Int64]()
@@ -262,22 +263,12 @@ import UIKit
             if let chat = try? await client.getChat(chatId: chatID) {
                 chatsByID[chatID] = chat
             }
-            if let chat = chatsByID[chatID],
-               case .chatTypeSupergroup(let type) = chat.type,
-               !checkedSupergroupChatIDs.contains(chatID)
-            {
-                if chat.viewAsTopics {
-                    forumChatIDs.insert(chatID)
-                    checkedSupergroupChatIDs.insert(chatID)
-                    forumLookupFailedChatIDs.remove(chatID)
-                } else if let supergroup = try? await client.getSupergroup(supergroupId: type.supergroupId) {
-                    checkedSupergroupChatIDs.insert(chatID)
-                    forumLookupFailedChatIDs.remove(chatID)
-                    if supergroup.isForum {
+            if let chat = chatsByID[chatID], standingByChatID[chatID] == nil {
+                if let standing = try? await MessageForwardingService.standing(of: chat, client: client) {
+                    standingByChatID[chatID] = standing
+                    if chat.viewAsTopics || standing.isForum {
                         forumChatIDs.insert(chatID)
                     }
-                } else {
-                    forumLookupFailedChatIDs.insert(chatID)
                 }
             }
         }
@@ -318,17 +309,19 @@ import UIKit
         var updated = [Int64: MessageForwardDestinationEligibility]()
         for chatID in visibleChatIDs {
             guard let chat = chatsByID[chatID] else { continue }
+            let standing = standingByChatID[chatID]
             updated[chatID] =
-                if forumLookupFailedChatIDs.contains(chatID) || unavailablePrivateChatIDs.contains(chatID) {
+                if let standing, !unavailablePrivateChatIDs.contains(chatID) {
+                    MessageForwardingService.localEligibility(
+                        of: chat,
+                        standing: standing,
+                        for: preparedForward,
+                    )
+                } else {
                     MessageForwardDestinationEligibility(
                         isAllowed: false,
                         reason: L10n.betterTG("Forward.DestinationUnavailable"),
                         forcedMode: nil,
-                    )
-                } else {
-                    MessageForwardingService.localEligibility(
-                        of: chat,
-                        for: preparedForward,
                     )
                 }
         }

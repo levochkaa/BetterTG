@@ -836,3 +836,5 @@
 "Conversation.ContextViewReplies_1" = "View %@ Reply";
 "Conversation.ContextViewReplies_any" = "View %@ Replies";
 "Conversation.ContextViewThread" = "View Thread";
+"Forward.ErrorPublicPollDisabledInChannels" = "Sorry, public polls can’t be forwarded to channels.";
+"Forward.ErrorTodoDisabledInChannels" = "Sorry, checklists can’t be forwarded to channels.";

@@ -64,6 +64,8 @@ import UIKit
     private var query = ""
     private var acceptedQuery: String?
     private var canManageTopics = false
+    /// The user's standing in the forum, resolved together with `canManageTopics`.
+    private var standing: MessageForwardDestinationStanding?
     private var rightsResolved = false
     private var retired = false
     private var wasContained = false
@@ -78,6 +80,19 @@ import UIKit
         #endif
         return TDLib.shared.activeAccountID == accountID
             && TDLib.shared.activeClient.id == client.id
+    }
+
+    private var destinationAllowsForward: Bool {
+        if let standing {
+            return MessageForwardingService.localEligibility(of: chat, standing: standing, for: preparedForward)
+                .isAllowed
+        }
+        #if DEBUG
+        // The snapshot probe injects rights without a TDLib supergroup.
+        return probeInitialRights != nil
+        #else
+        return false
+        #endif
     }
 
     init(
@@ -277,22 +292,16 @@ import UIKit
         #endif
         loadTask = Task { [weak self] in
             guard let self else { return }
-            guard case .chatTypeSupergroup(let type) = chat.type,
-                  let supergroup = try? await client.getSupergroup(supergroupId: type.supergroupId),
+            guard case .chatTypeSupergroup = chat.type,
+                  let standing = try? await MessageForwardingService.standing(of: chat, client: client),
+                  case .group(let group) = standing,
                   contextIsCurrent
             else {
                 showError(L10n.betterTG("Forum.CheckFailed"))
                 return
             }
-            canManageTopics =
-                switch supergroup.status {
-                case .chatMemberStatusCreator:
-                    true
-                case .chatMemberStatusAdministrator(let administrator):
-                    administrator.rights.canManageTopics
-                default:
-                    false
-                }
+            self.standing = standing
+            canManageTopics = group.canManageTopics
             rightsResolved = true
             loadTask = nil
             load(reset: true)
@@ -390,8 +399,7 @@ import UIKit
 
     private func canPost(to topic: ForumTopic) -> Bool {
         let restricted = topic.info.isClosed || topic.info.isHidden
-        return MessageForwardingService.localEligibility(of: chat, for: preparedForward).isAllowed
-            && (!restricted || topic.info.isOutgoing || canManageTopics)
+        return destinationAllowsForward && (!restricted || topic.info.isOutgoing || canManageTopics)
     }
 
     private func applySnapshot() {

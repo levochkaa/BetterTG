@@ -164,13 +164,68 @@ struct PendingMessageForward: Equatable {
 enum MessageForwardContentRequirement: Hashable {
     case audio
     case basic
+    /// A checklist; Telegram doesn't forward checklists to channels.
+    case checklist
     case document
     case other
     case photo
     case poll
+    /// A non-anonymous poll or quiz; Telegram doesn't forward public polls to channels.
+    case publicPoll
     case video
     case videoNote
     case voiceNote
+}
+
+// MARK: - MessageForwardDestinationStanding
+
+/// The user's own standing in a destination. Telegram's send check (`canSendMessagesToPeer`) needs it besides the
+/// chat's default permissions: owners and admins aren't bound by the defaults, channels take posts only from admins
+/// who may post, and a secret chat takes messages only once it is active.
+enum MessageForwardDestinationStanding {
+    case direct
+    case group(MessageForwardGroupStanding)
+    case secret(isReady: Bool)
+
+    var isForum: Bool {
+        if case .group(let group) = self {
+            group.isForum
+        } else {
+            false
+        }
+    }
+}
+
+// MARK: - MessageForwardGroupStanding
+
+struct MessageForwardGroupStanding {
+    let status: ChatMemberStatus
+    /// A channel or broadcast group.
+    let isBroadcast: Bool
+    let isForum: Bool
+    /// Non-admin members pay Stars for each message, which BetterTG doesn't support.
+    let chargesStars: Bool
+
+    var canManageTopics: Bool {
+        switch status {
+        case .chatMemberStatusCreator:
+            true
+        case .chatMemberStatusAdministrator(let administrator):
+            administrator.rights.canManageTopics
+        default:
+            false
+        }
+    }
+
+    var paysForMessages: Bool {
+        guard chargesStars else { return false }
+        return switch status {
+        case .chatMemberStatusAdministrator, .chatMemberStatusCreator:
+            false
+        default:
+            true
+        }
+    }
 }
 
 // MARK: - MessageForwardDestinationEligibility
@@ -269,6 +324,14 @@ enum MessageForwardingError: LocalizedError, Equatable {
             canCopy = canCopy && resolvedProperties.canBeCopied
             canCopyToSecretChat = canCopyToSecretChat && resolvedProperties.canBeCopiedToSecretChat
             contentRequirements.insert(requirement(for: resolvedMessage.content))
+            switch resolvedMessage.content {
+            case .messageChecklist:
+                contentRequirements.insert(.checklist)
+            case .messagePoll(let poll) where !poll.poll.isAnonymous:
+                contentRequirements.insert(.publicPoll)
+            default:
+                break
+            }
             hasCaptions = hasCaptions || contentHasCaption(resolvedMessage.content)
         }
         guard canForward || canCopy else {
@@ -284,11 +347,45 @@ enum MessageForwardingError: LocalizedError, Equatable {
         )
     }
 
+    /// The user's standing in `chat`, read from TDLib's local supergroup, basic group or secret chat.
+    static func standing(
+        of chat: Chat,
+        client: TDLibClient,
+    ) async throws -> MessageForwardDestinationStanding {
+        switch chat.type {
+        case .chatTypePrivate:
+            return .direct
+        case .chatTypeSecret(let secretChat):
+            let secret = try await client.send(TDNativeRequests.getSecretChat(secretChatId: secretChat.secretChatId))
+            if case .secretChatStateReady = secret.state {
+                return .secret(isReady: true)
+            }
+            return .secret(isReady: false)
+        case .chatTypeBasicGroup(let basicGroupChat):
+            let group = try await client.getBasicGroup(basicGroupId: basicGroupChat.basicGroupId)
+            return .group(MessageForwardGroupStanding(
+                status: group.status, isBroadcast: false, isForum: false, chargesStars: false,
+            ))
+        case .chatTypeSupergroup(let supergroupChat):
+            let group = try await client.getSupergroup(supergroupId: supergroupChat.supergroupId)
+            return .group(MessageForwardGroupStanding(
+                status: group.status,
+                isBroadcast: group.isChannel || group.isBroadcastGroup,
+                isForum: group.isForum,
+                chargesStars: group.paidMessageStarCount > 0,
+            ))
+        }
+    }
+
     static func localEligibility(
         of chat: Chat,
+        standing: MessageForwardDestinationStanding,
         for prepared: PreparedMessageForward,
     ) -> MessageForwardDestinationEligibility {
-        if case .chatTypeSecret = chat.type {
+        let requirements = prepared.contentRequirements
+        switch standing {
+        case .secret(let isReady):
+            guard isReady else { return unavailable(L10n.betterTG("Forward.DestinationUnavailable")) }
             guard prepared.canCopyToSecretChat else {
                 return unavailable(L10n.betterTG("Forward.SecretChatCopyUnavailable"))
             }
@@ -297,26 +394,36 @@ enum MessageForwardingError: LocalizedError, Equatable {
                 reason: nil,
                 forcedMode: .copy(removeCaption: false),
             )
-        }
-        let permissions = chat.permissions
-        for requirement in prepared.contentRequirements {
-            let allowed =
-                switch requirement {
-                case .audio: permissions.canSendAudios
-                case .basic: permissions.canSendBasicMessages
-                case .document: permissions.canSendDocuments
-                case .other: permissions.canSendOtherMessages
-                case .photo: permissions.canSendPhotos
-                case .poll: permissions.canSendPolls
-                case .video: permissions.canSendVideos
-                case .videoNote: permissions.canSendVideoNotes
-                case .voiceNote: permissions.canSendVoiceNotes
-                }
-            if !allowed {
+        case .direct:
+            for requirement in requirements where !chat.permissions[keyPath: permission(for: requirement)] {
                 return unavailable(L10n.betterTG("Forward.NoPermission"))
             }
+            return .allowed
+        case .group(let group):
+            // ChatControllerForwardMessages: public polls and checklists never go to a channel.
+            if group.isBroadcast, requirements.contains(.publicPoll) {
+                return unavailable(L10n.telegram("Forward.ErrorPublicPollDisabledInChannels"))
+            }
+            if group.isBroadcast, requirements.contains(.checklist) {
+                return unavailable(L10n.telegram("Forward.ErrorTodoDisabledInChannels"))
+            }
+            if group.paysForMessages {
+                return unavailable(L10n.betterTG("Forward.PaidMessagesUnsupported"))
+            }
+            for requirement in requirements {
+                let allowed = CustomChat.allowsSending(
+                    permission(for: requirement),
+                    defaults: chat.permissions,
+                    status: group.status,
+                    postsOnly: group.isBroadcast,
+                    joinToSend: true,
+                )
+                if !allowed {
+                    return unavailable(L10n.betterTG("Forward.NoPermission"))
+                }
+            }
+            return .allowed
         }
-        return .allowed
     }
 
     @discardableResult static func send(
@@ -466,37 +573,27 @@ enum MessageForwardingError: LocalizedError, Equatable {
         for prepared: PreparedMessageForward,
         client: TDLibClient,
     ) async -> MessageForwardDestinationEligibility {
-        let localEligibility = localEligibility(of: chat, for: prepared)
+        let standing: MessageForwardDestinationStanding
+        do {
+            standing = try await self.standing(of: chat, client: client)
+        } catch {
+            return unavailable(L10n.betterTG("Forward.ChatCheckFailed"))
+        }
+        let localEligibility = localEligibility(of: chat, standing: standing, for: prepared)
         guard localEligibility.isAllowed else { return localEligibility }
 
-        if case .chatTypeSupergroup(let supergroupChat) = chat.type {
+        if case .group(let group) = standing, group.isForum {
+            guard case .messageTopicForum(let forumTopic) = topic else {
+                return unavailable(L10n.betterTG("Forward.ChooseTopic"))
+            }
             do {
-                let supergroup = try await client.getSupergroup(
-                    supergroupId: supergroupChat.supergroupId,
+                let resolvedTopic = try await client.getForumTopic(
+                    chatId: chat.id,
+                    forumTopicId: forumTopic.forumTopicId,
                 )
-                if supergroup.isForum {
-                    guard case .messageTopicForum(let forumTopic) = topic else {
-                        return unavailable(L10n.betterTG("Forward.ChooseTopic"))
-                    }
-                    let resolvedTopic = try await client.getForumTopic(
-                        chatId: chat.id,
-                        forumTopicId: forumTopic.forumTopicId,
-                    )
-                    let canManageTopics: Bool =
-                        switch supergroup.status {
-                        case .chatMemberStatusCreator:
-                            true
-                        case .chatMemberStatusAdministrator(let administrator):
-                            administrator.rights.canManageTopics
-                        default:
-                            false
-                        }
-                    let restricted = resolvedTopic.info.isClosed || resolvedTopic.info.isHidden
-                    guard !restricted || resolvedTopic.info.isOutgoing || canManageTopics else {
-                        return unavailable(L10n.betterTG("Forward.TopicClosed"))
-                    }
-                } else if topic != nil {
-                    return unavailable(L10n.betterTG("Forward.TopicsUnsupported"))
+                let restricted = resolvedTopic.info.isClosed || resolvedTopic.info.isHidden
+                guard !restricted || resolvedTopic.info.isOutgoing || group.canManageTopics else {
+                    return unavailable(L10n.betterTG("Forward.TopicClosed"))
                 }
             } catch {
                 return unavailable(L10n.betterTG("Forward.ChatCheckFailed"))
@@ -522,6 +619,22 @@ enum MessageForwardingError: LocalizedError, Equatable {
             }
         }
         return localEligibility
+    }
+
+    private static func permission(
+        for requirement: MessageForwardContentRequirement,
+    ) -> KeyPath<ChatPermissions, Bool> {
+        switch requirement {
+        case .audio: \.canSendAudios
+        case .basic: \.canSendBasicMessages
+        case .document: \.canSendDocuments
+        case .other: \.canSendOtherMessages
+        case .photo: \.canSendPhotos
+        case .checklist, .poll, .publicPoll: \.canSendPolls
+        case .video: \.canSendVideos
+        case .videoNote: \.canSendVideoNotes
+        case .voiceNote: \.canSendVoiceNotes
+        }
     }
 
     private static func unavailable(_ reason: String) -> MessageForwardDestinationEligibility {

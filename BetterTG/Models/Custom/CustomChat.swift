@@ -144,6 +144,33 @@ import TDLibKit
         self.draftMessage = draftMessage
     }
 
+    /// The group rule of `allowsSending` for callers that hold only the user's raw member status, such as the
+    /// Forward picker's destinations.
+    static func allowsSending(
+        _ permission: KeyPath<ChatPermissions, Bool>,
+        defaults: ChatPermissions,
+        status: ChatMemberStatus,
+        postsOnly: Bool,
+        joinToSend: Bool,
+        inReplyThread: Bool = false,
+    ) -> Bool {
+        switch status {
+        case .chatMemberStatusCreator(let creator):
+            creator.isMember
+        case .chatMemberStatusAdministrator(let administrator):
+            !postsOnly || administrator.rights.canPostMessages
+        case .chatMemberStatusMember:
+            !postsOnly && defaults[keyPath: permission]
+        case .chatMemberStatusRestricted(let restricted):
+            !postsOnly && restricted.isMember && restricted.permissions[keyPath: permission]
+                && defaults[keyPath: permission]
+        case .chatMemberStatusLeft:
+            inReplyThread && !postsOnly && !joinToSend && defaults[keyPath: permission]
+        case .chatMemberStatusBanned:
+            false
+        }
+    }
+
     /// Telegram's send check (`canSendMessagesToChat`, `PeerChannel.hasBannedPermission`): the owner and admins are
     /// not bound by the chat's default restrictions, a channel or broadcast group takes posts only from its owner and
     /// admins who may post, and a restricted member is bound by both their own and the default permissions.
@@ -170,21 +197,14 @@ import TDLibKit
         case .bot, .user:
             return defaults[keyPath: permission]
         }
-        return switch status {
-        case .chatMemberStatusCreator(let creator):
-            creator.isMember
-        case .chatMemberStatusAdministrator(let administrator):
-            !postsOnly || administrator.rights.canPostMessages
-        case .chatMemberStatusMember:
-            !postsOnly && defaults[keyPath: permission]
-        case .chatMemberStatusRestricted(let restricted):
-            !postsOnly && restricted.isMember && restricted.permissions[keyPath: permission]
-                && defaults[keyPath: permission]
-        case .chatMemberStatusLeft:
-            inReplyThread && !postsOnly && !joinToSend && defaults[keyPath: permission]
-        case .chatMemberStatusBanned:
-            false
-        }
+        return Self.allowsSending(
+            permission,
+            defaults: defaults,
+            status: status,
+            postsOnly: postsOnly,
+            joinToSend: joinToSend,
+            inReplyThread: inReplyThread,
+        )
     }
 
     func updatePrivateUser(_ user: User) {
