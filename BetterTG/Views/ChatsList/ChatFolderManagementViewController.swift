@@ -569,6 +569,9 @@ TelegramNavigationSearchProvider {
     private var chats = [CustomChat]()
     private var visibleChats = [CustomChat]()
     private var query = ""
+    /// Chats a query found beyond the loaded lists (searchChats, searchChatsOnServer, searchContacts).
+    private var searchedChats = [CustomChat]()
+    private var searchTask: Task<Void, Never>?
 
     var telegramNavigationSearch: UISearchController { searchController }
 
@@ -656,6 +659,13 @@ TelegramNavigationSearchProvider {
         return cell
     }
 
+    /// Telegram's picker is the whole main chat list (ChatListNode, groupId .root): its next page loads as the
+    /// end comes near.
+    override func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
+        guard query.isEmpty, indexPath.row >= visibleChats.count - 10, session.isCurrent else { return }
+        session.reader?.loadMoreMainChats()
+    }
+
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard session.scope(owner: self).isCurrent else { return }
@@ -680,8 +690,12 @@ TelegramNavigationSearchProvider {
     }
 
     func updateSearchResults(for searchController: UISearchController) {
-        query = searchController.searchBar.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let updated = searchController.searchBar.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard updated != query else { return }
+        query = updated
+        searchedChats = []
         applyFilter()
+        searchBeyondLoadedChats()
     }
 
     func submitFolderEdit(id: Int, folder: ChatFolder) {
@@ -691,6 +705,21 @@ TelegramNavigationSearchProvider {
             case .success: navigationController?.popViewController(animated: true)
             case .failure(let error): presentFolderError(error)
             }
+        }
+    }
+
+    /// ChatListFilterPresetController's picker searches every chat and contact, not only the loaded lists.
+    private func searchBeyondLoadedChats() {
+        searchTask?.cancel()
+        let query = query
+        guard !query.isEmpty, let reader = session.reader else { return }
+        searchTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            let found = await reader.searchChats(query)
+            guard !Task.isCancelled, let self, self.query == query, session.isCurrent else { return }
+            searchedChats = found
+            applyFilter()
         }
     }
 
@@ -790,11 +819,18 @@ TelegramNavigationSearchProvider {
     }
 
     private func applyFilter(reload: Bool = true) {
-        visibleChats = query.isEmpty
-            ? chats
-            : chats.filter {
-                $0.folderPickerTitle.localizedCaseInsensitiveContains(query)
+        if query.isEmpty {
+            visibleChats = chats
+        } else {
+            let matched = chats.filter { $0.folderPickerTitle.localizedCaseInsensitiveContains(query) }
+            let matchedIDs = Set(matched.map(\.id))
+            // A found chat that is loaded keeps its loaded row, which follows its updates; TDLib's search also finds
+            // chats by username or by a contact's name, which the title filter misses.
+            let loaded = Dictionary(chats.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            visibleChats = matched + searchedChats.compactMap { found in
+                matchedIDs.contains(found.id) ? nil : loaded[found.id] ?? found
             }
+        }
         if reload { tableView.reloadData() }
     }
 

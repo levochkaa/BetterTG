@@ -29,6 +29,10 @@ import UIKit
         let chosenChatLimit: () async -> Int?
         /// TDLib's count of the chats a folder definition covers (`getChatFolderChatCount`).
         let chatCount: (ChatFolder) async -> Int?
+        /// Loads the main chat list's next page, which reaches the pickers through the session's folders.
+        let loadMoreMainChats: () -> Void
+        /// Chats for a picker query beyond the loaded lists: TDLib's chat search, its server search and contacts.
+        let searchChats: (String) async -> [CustomChat]
     }
 
     private(set) var state = State.waiting
@@ -131,6 +135,38 @@ import UIKit
                 chatCount: { folder in
                     let client = ChatListActionAuthority().client
                     return try? await client.getChatFolderChatCount(folder: folder).count
+                },
+                loadMoreMainChats: {
+                    guard let main = rootVM.folders.first(where: { $0.id == 0 }) else { return }
+                    rootVM.loadMoreChats(in: main)
+                },
+                searchChats: { query in
+                    let client = ChatListActionAuthority().client
+                    var ids = [Int64]()
+                    if let local = try? await client.searchChats(limit: 50, query: query, typeFilter: nil) {
+                        ids += local.chatIds
+                    }
+                    if let server = try? await client.searchChatsOnServer(limit: 50, query: query, typeFilter: nil) {
+                        ids += server.chatIds
+                    }
+                    if let contacts = try? await client.searchContacts(query: query, limit: 50) {
+                        // A contact without a chat yet gets its private chat, whose ID is the user's.
+                        for userID in contacts.userIds where !ids.contains(userID) {
+                            guard !Task.isCancelled else { return [] }
+                            if let chat = try? await client.createPrivateChat(force: false, userId: userID) {
+                                ids.append(chat.id)
+                            }
+                        }
+                    }
+                    var seen = Set<Int64>()
+                    var chats = [CustomChat]()
+                    for id in ids where seen.insert(id).inserted {
+                        guard !Task.isCancelled else { return [] }
+                        if let chat = await rootVM.getCustomChatForNavigation(from: id, client: client) {
+                            chats.append(chat)
+                        }
+                    }
+                    return chats
                 },
             ),
         )
