@@ -147,6 +147,7 @@ import UIKit
             let author = await ChatSearchMemberListView.member(for: sender, client: client)
             guard let self, isCurrent(), let author else { return }
             authors[sender] = author
+            let messages = messages
             let rows = tableView.indexPathsForVisibleRows?.filter { indexPath in
                 guard messages.indices.contains(indexPath.row),
                       case .sender(let rowSender) = Self.author(of: messages[indexPath.row]) else { return false }
