@@ -85,7 +85,7 @@ struct ProfileAvatarGalleryItem: Hashable {
     var onRequestMoreItems: (() -> Void)?
 
     fileprivate let transitionSource: MediaGalleryTransitionTarget?
-    fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
+    fileprivate let transitionSourceProvider: ((ProfileAvatarGalleryItem) -> MediaGalleryTransitionTarget?)?
 
     private let accountID: UUID
     private let client: TDLibClient
@@ -140,7 +140,7 @@ struct ProfileAvatarGalleryItem: Hashable {
         selection: Int64,
         totalCount: Int,
         transitionSource: MediaGalleryTransitionTarget?,
-        transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?,
+        transitionSourceProvider: ((ProfileAvatarGalleryItem) -> MediaGalleryTransitionTarget?)?,
     ) {
         self.accountID = accountID
         self.client = client
@@ -382,8 +382,8 @@ struct ProfileAvatarGalleryItem: Hashable {
     }
 
     fileprivate func currentTransitionTarget() -> MediaGalleryTransitionTarget? {
-        guard let selectedItemID else { return nil }
-        return transitionSourceProvider?(selectedItemID)
+        guard items.indices.contains(selectedIndex) else { return nil }
+        return transitionSourceProvider?(items[selectedIndex])
     }
 
     private func makeLayout() -> UICollectionViewLayout {

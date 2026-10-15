@@ -63,6 +63,13 @@ ClientRestorableNavigationEntry {
         let totalCount: Int
         let trailingPhotoID: Int64?
         let userID: Int64?
+        /// A group or channel pages its photo history through its chat photo messages.
+        var chatID: Int64?
+        var nextMessageID: Int64 = 0
+
+        var hasHistory: Bool {
+            userID != nil || chatID != nil && nextMessageID != 0
+        }
     }
 
     private struct UserPhotoRoleSignature: Equatable {
@@ -106,7 +113,6 @@ ClientRestorableNavigationEntry {
     private var currentDetailTexts = [String]()
     private let avatarView = ProfileAvatarView()
     private lazy var avatarTapGesture = UITapGestureRecognizer(target: self, action: #selector(avatarPressed))
-    private let avatarLoadingIndicator = UIActivityIndicatorView(style: .medium)
     private let titleLabel = UILabel()
     private let statusLabel = UILabel()
     private let bioLabel = UILabel()
@@ -140,8 +146,6 @@ ClientRestorableNavigationEntry {
     private var messagesByID = [Int64: Message]()
     private var cancellables = Set<AnyCancellable>()
     private var infoTask: Task<Void, Never>?
-    private var avatarGalleryTask: Task<Void, Never>?
-    private var avatarGalleryRequestID: UUID?
     private var avatarHistoryTask: Task<Void, Never>?
     private var avatarHistoryRequestID: UUID?
     private var avatarReconciliationTask: Task<Void, Never>?
@@ -170,6 +174,8 @@ ClientRestorableNavigationEntry {
     private var avatarHistoryKnownPhotoIDs = Set<Int64>()
     private var avatarHistoryTrailingPhotoID: Int64?
     private var avatarHistoryUserID: Int64?
+    private var avatarHistoryChatID: Int64?
+    private var avatarHistoryNextMessageID = Int64.zero
     private var metadataGeneration = UInt64.zero
     private var fullInfoGeneration = UInt64.zero
     private var avatarMetadataGeneration = UInt64.zero
@@ -265,7 +271,7 @@ ClientRestorableNavigationEntry {
                 parent: self, accountID: accountID, actorID: accountUserID, chatID: customChat.id,
             ) == true)
             && presentedViewController == nil && activeMediaGallery == nil && activeAvatarGallery == nil
-            && avatarGalleryTask == nil && !isPresentingTelegramContextMenu
+            && !isPresentingTelegramContextMenu
     }
 
     /// A same-account client renewal (the app returning from the background) keeps an open shared-media gallery, as
@@ -338,7 +344,6 @@ ClientRestorableNavigationEntry {
 
     deinit {
         infoTask?.cancel()
-        avatarGalleryTask?.cancel()
         avatarHistoryTask?.cancel()
         avatarReconciliationTask?.cancel()
         chatMetadataTask?.cancel()
@@ -393,12 +398,10 @@ ClientRestorableNavigationEntry {
         sharedMessageRefresh?.stop()
         cancelSharedItemDownload(cancelInTDLib: true)
         metadataPreparation.cancel()
-        avatarGalleryTask?.cancel()
         avatarHistoryTask?.cancel()
         avatarReconciliationTask?.cancel()
         avatarHistoryRequestID = nil
         avatarReconciliationRequestID = nil
-        finishAvatarGalleryLoad()
     }
 
     override func viewDidLayoutSubviews() {
@@ -527,6 +530,13 @@ ClientRestorableNavigationEntry {
         }
     }
 
+    private static func chatPhotoItems(_ messages: [Message]) -> [ProfileAvatarGalleryItem] {
+        messages.compactMap { message in
+            guard case .messageChatChangePhoto(let change) = message.content else { return nil }
+            return ProfileAvatarGalleryItem(photo: change.photo)
+        }
+    }
+
     func scrollViewWillBeginDragging(_: UIScrollView) {
         sharedViewportGeneration &+= 1
         let hadPendingViewport = restoredViewport != nil
@@ -590,10 +600,8 @@ ClientRestorableNavigationEntry {
                 infoTask?.cancel()
                 permissionTask?.cancel()
                 chatMetadataTask?.cancel()
-                avatarGalleryTask?.cancel()
                 avatarHistoryTask?.cancel()
                 avatarReconciliationTask?.cancel()
-                avatarGalleryRequestID = nil
                 avatarHistoryRequestID = nil
                 avatarReconciliationRequestID = nil
                 sharedMessageRefresh?.stop()
@@ -920,10 +928,6 @@ ClientRestorableNavigationEntry {
         avatarTapGesture.isEnabled = avatarGalleryIsAvailable
         avatarView.addGestureRecognizer(avatarTapGesture)
         headerStack.addArrangedSubview(avatarView)
-        avatarLoadingIndicator.translatesAutoresizingMaskIntoConstraints = false
-        avatarLoadingIndicator.color = .white
-        avatarLoadingIndicator.hidesWhenStopped = true
-        avatarView.addSubview(avatarLoadingIndicator)
 
         titleLabel.font = .preferredFont(forTextStyle: .title2)
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -987,8 +991,6 @@ ClientRestorableNavigationEntry {
             headerStack.trailingAnchor.constraint(equalTo: profileHeaderView.trailingAnchor, constant: -20),
             avatarView.widthAnchor.constraint(equalToConstant: 96),
             avatarView.heightAnchor.constraint(equalToConstant: 96),
-            avatarLoadingIndicator.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            avatarLoadingIndicator.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
             actionStack.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
             actionStack.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
             sharedTabs.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 12),
@@ -1619,76 +1621,77 @@ ClientRestorableNavigationEntry {
 
     private func resetAvatarGalleryForMetadataChange() {
         avatarMetadataGeneration &+= 1
-        avatarGalleryTask?.cancel()
         avatarHistoryTask?.cancel()
         avatarReconciliationTask?.cancel()
-        avatarGalleryTask = nil
-        avatarGalleryRequestID = nil
         avatarHistoryTask = nil
         avatarHistoryRequestID = nil
         avatarReconciliationTask = nil
         avatarReconciliationRequestID = nil
-        if let activeAvatarGallery, contextIsCurrent {
-            let generation = avatarMetadataGeneration
-            let requestID = UUID()
-            avatarReconciliationRequestID = requestID
-            avatarReconciliationTask = Task { [weak self, weak activeAvatarGallery] in
-                guard let self else { return }
-                defer {
-                    if avatarReconciliationRequestID == requestID {
-                        avatarReconciliationRequestID = nil
-                        avatarReconciliationTask = nil
-                    }
-                }
-                guard let activeAvatarGallery else { return }
-                do {
-                    let payload = try await loadAvatarGalleryPayload()
-                    guard !Task.isCancelled,
-                          contextIsCurrent,
-                          avatarMetadataGeneration == generation,
-                          avatarReconciliationRequestID == requestID,
-                          self.activeAvatarGallery === activeAvatarGallery
-                    else { return }
-                    avatarHistoryRawOffset = payload.historyRawOffset
-                    avatarHistoryTotalCount = payload.historyTotalCount
-                    avatarHistoryExtraPhotoCount = payload.extraPhotoCount
-                    avatarHistoryKnownPhotoIDs = Set(payload.items.map(\.id))
-                    avatarHistoryTrailingPhotoID = payload.trailingPhotoID
-                    avatarHistoryUserID = payload.userID
-                    if payload.items.isEmpty {
-                        activeAvatarGallery.onRequestMoreItems = nil
-                        activeAvatarGallery.reconcileItems([], totalCount: 0)
-                        self.activeAvatarGallery = nil
-                        return
-                    }
-                    activeAvatarGallery.onRequestMoreItems = payload.userID == nil
-                        ? nil
-                        : { [weak self] in
-                            self?.loadMoreAvatarHistory()
-                        }
-                    activeAvatarGallery.reconcileItems(payload.items, totalCount: payload.totalCount)
-                } catch {
-                    guard !Task.isCancelled,
-                          avatarMetadataGeneration == generation,
-                          avatarReconciliationRequestID == requestID,
-                          self.activeAvatarGallery === activeAvatarGallery
-                    else { return }
-                    activeAvatarGallery.onRequestMoreItems = { [weak self] in
-                        self?.resetAvatarGalleryForMetadataChange()
-                    }
-                    activeAvatarGallery.showMoreItemsRetry()
-                }
-            }
-            avatarLoadingIndicator.stopAnimating()
+        if activeAvatarGallery != nil, contextIsCurrent {
+            reconcileActiveAvatarGallery()
             return
         }
-        avatarHistoryRawOffset = 0
-        avatarHistoryTotalCount = 0
-        avatarHistoryExtraPhotoCount = 0
-        avatarHistoryKnownPhotoIDs = []
-        avatarHistoryTrailingPhotoID = nil
-        avatarHistoryUserID = nil
-        avatarLoadingIndicator.stopAnimating()
+        adoptAvatarHistory(nil)
+    }
+
+    /// Telegram (AvatarGalleryController, reconcileItems) replaces the open gallery's list once the full one arrives
+    /// and keeps showing the same photo when it is still listed.
+    private func reconcileActiveAvatarGallery() {
+        guard let activeAvatarGallery, contextIsCurrent else { return }
+        let generation = avatarMetadataGeneration
+        let requestID = UUID()
+        avatarReconciliationRequestID = requestID
+        avatarReconciliationTask = Task { [weak self, weak activeAvatarGallery] in
+            guard let self else { return }
+            defer {
+                if avatarReconciliationRequestID == requestID {
+                    avatarReconciliationRequestID = nil
+                    avatarReconciliationTask = nil
+                }
+            }
+            guard let activeAvatarGallery else { return }
+            do {
+                let payload = try await loadAvatarGalleryPayload()
+                guard !Task.isCancelled,
+                      contextIsCurrent,
+                      avatarMetadataGeneration == generation,
+                      avatarReconciliationRequestID == requestID,
+                      self.activeAvatarGallery === activeAvatarGallery
+                else { return }
+                adoptAvatarHistory(payload)
+                if payload.items.isEmpty {
+                    activeAvatarGallery.onRequestMoreItems = nil
+                    activeAvatarGallery.reconcileItems([], totalCount: 0)
+                    self.activeAvatarGallery = nil
+                    return
+                }
+                activeAvatarGallery.onRequestMoreItems = payload.hasHistory
+                    ? { [weak self] in self?.loadMoreAvatarHistory() }
+                    : nil
+                activeAvatarGallery.reconcileItems(payload.items, totalCount: payload.totalCount)
+            } catch {
+                guard !Task.isCancelled,
+                      avatarMetadataGeneration == generation,
+                      avatarReconciliationRequestID == requestID,
+                      self.activeAvatarGallery === activeAvatarGallery
+                else { return }
+                activeAvatarGallery.onRequestMoreItems = { [weak self] in
+                    self?.resetAvatarGalleryForMetadataChange()
+                }
+                activeAvatarGallery.showMoreItemsRetry()
+            }
+        }
+    }
+
+    private func adoptAvatarHistory(_ payload: AvatarGalleryPayload?) {
+        avatarHistoryRawOffset = payload?.historyRawOffset ?? 0
+        avatarHistoryTotalCount = payload?.historyTotalCount ?? 0
+        avatarHistoryExtraPhotoCount = payload?.extraPhotoCount ?? 0
+        avatarHistoryKnownPhotoIDs = Set(payload?.items.map(\.id) ?? [])
+        avatarHistoryTrailingPhotoID = payload?.trailingPhotoID
+        avatarHistoryUserID = payload?.userID
+        avatarHistoryChatID = payload?.chatID
+        avatarHistoryNextMessageID = payload?.nextMessageID ?? 0
     }
 
     private func scheduleMetadataRender() {
@@ -2065,103 +2068,39 @@ ClientRestorableNavigationEntry {
         isSelfProfile ? L10n.telegram("Conversation.SavedMessages") : currentChatTitle
     }
 
+    /// Telegram (avatarGalleryFallbackItem) opens the current photo at once and reconciles the list when it arrives.
     @objc private func avatarPressed() {
         guard avatarGalleryIsAvailable,
-              avatarGalleryTask == nil,
+              activeAvatarGallery == nil,
               contextIsCurrent,
-              presentedViewController == nil
+              presentedViewController == nil,
+              let fallback = avatarGalleryFallbackItem
         else { return }
-        avatarLoadingIndicator.startAnimating()
-        let avatarGeneration = avatarMetadataGeneration
-        let requestID = UUID()
-        avatarGalleryRequestID = requestID
-        avatarGalleryTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let payload = try await loadAvatarGalleryPayload()
-                guard !Task.isCancelled,
-                      contextIsCurrent,
-                      avatarMetadataGeneration == avatarGeneration,
-                      avatarGalleryRequestID == requestID,
-                      view.window != nil,
-                      navigationController?.topViewController === self,
-                      presentedViewController == nil,
-                      let selectedItem = payload.items.first
-                else {
-                    finishAvatarGalleryLoad(requestID: requestID)
-                    return
-                }
-                let transitionSource = avatarTransitionTarget(item: selectedItem)
-                let gallery = ProfileAvatarGalleryViewController(
-                    accountID: accountID,
-                    client: client,
-                    items: payload.items,
-                    selection: selectedItem.id,
-                    totalCount: payload.totalCount,
-                    transitionSource: transitionSource,
-                    transitionSourceProvider: { [weak self] itemID in
-                        guard itemID == selectedItem.id else { return nil }
-                        return self?.avatarTransitionTarget(item: selectedItem)
-                    },
-                )
-                gallery.contextIsCurrent = { [weak self] in
-                    self?.contextIsCurrent == true
-                }
-                avatarHistoryRawOffset = payload.historyRawOffset
-                avatarHistoryTotalCount = payload.historyTotalCount
-                avatarHistoryExtraPhotoCount = payload.extraPhotoCount
-                avatarHistoryKnownPhotoIDs = Set(payload.items.map(\.id))
-                avatarHistoryTrailingPhotoID = payload.trailingPhotoID
-                avatarHistoryUserID = payload.userID
-                activeAvatarGallery = gallery
-                if payload.userID != nil {
-                    gallery.onRequestMoreItems = { [weak self] in
-                        self?.loadMoreAvatarHistory()
-                    }
-                }
-                finishAvatarGalleryLoad(requestID: requestID)
-                present(gallery, animated: true)
-            } catch {
-                guard !Task.isCancelled else { return }
-                let fallback = avatarGalleryFallbackItem
-                guard contextIsCurrent,
-                      avatarMetadataGeneration == avatarGeneration,
-                      avatarGalleryRequestID == requestID,
-                      view.window != nil,
-                      navigationController?.topViewController === self,
-                      presentedViewController == nil,
-                      let fallback
-                else {
-                    finishAvatarGalleryLoad(requestID: requestID)
-                    return
-                }
-                let transitionSource = avatarTransitionTarget(item: fallback)
-                let gallery = ProfileAvatarGalleryViewController(
-                    accountID: accountID,
-                    client: client,
-                    items: [fallback],
-                    selection: fallback.id,
-                    totalCount: 1,
-                    transitionSource: transitionSource,
-                    transitionSourceProvider: { [weak self] itemID in
-                        guard itemID == fallback.id else { return nil }
-                        return self?.avatarTransitionTarget(item: fallback)
-                    },
-                )
-                gallery.contextIsCurrent = { [weak self] in
-                    self?.contextIsCurrent == true
-                }
-                avatarHistoryRawOffset = 0
-                avatarHistoryTotalCount = 0
-                avatarHistoryExtraPhotoCount = 0
-                avatarHistoryKnownPhotoIDs = [fallback.id]
-                avatarHistoryTrailingPhotoID = nil
-                avatarHistoryUserID = nil
-                activeAvatarGallery = gallery
-                finishAvatarGalleryLoad(requestID: requestID)
-                present(gallery, animated: true)
-            }
+        avatarHistoryTask?.cancel()
+        avatarReconciliationTask?.cancel()
+        avatarHistoryTask = nil
+        avatarHistoryRequestID = nil
+        avatarReconciliationTask = nil
+        avatarReconciliationRequestID = nil
+        adoptAvatarHistory(nil)
+        avatarHistoryKnownPhotoIDs = [fallback.id]
+        let gallery = ProfileAvatarGalleryViewController(
+            accountID: accountID,
+            client: client,
+            items: [fallback],
+            selection: fallback.id,
+            totalCount: 1,
+            transitionSource: avatarTransitionTarget(item: fallback),
+            transitionSourceProvider: { [weak self] item in
+                self?.avatarTransitionTarget(item: item)
+            },
+        )
+        gallery.contextIsCurrent = { [weak self] in
+            self?.contextIsCurrent == true
         }
+        activeAvatarGallery = gallery
+        present(gallery, animated: true)
+        reconcileActiveAvatarGallery()
     }
 
     private func loadAvatarGalleryPayload() async throws -> AvatarGalleryPayload {
@@ -2228,63 +2167,69 @@ ClientRestorableNavigationEntry {
             )
         case .group(let group):
             let info = try await client.getBasicGroupFullInfo(basicGroupId: group.id)
-            let photo = info.photo ?? currentProfilePhoto
-            if let photo {
-                return AvatarGalleryPayload(
-                    extraPhotoCount: 0,
-                    historyRawOffset: 0,
-                    historyTotalCount: 0,
-                    items: [ProfileAvatarGalleryItem(photo: photo)],
-                    totalCount: 1,
-                    trailingPhotoID: nil,
-                    userID: nil,
-                )
-            }
+            return try await chatPhotoPayload(current: info.photo ?? currentProfilePhoto)
         case .supergroup(let group):
             let info = try await client.getSupergroupFullInfo(supergroupId: group.id)
-            let photo = info.photo ?? currentProfilePhoto
-            if let photo {
-                return AvatarGalleryPayload(
-                    extraPhotoCount: 0,
-                    historyRawOffset: 0,
-                    historyTotalCount: 0,
-                    items: [ProfileAvatarGalleryItem(photo: photo)],
-                    totalCount: 1,
-                    trailingPhotoID: nil,
-                    userID: nil,
-                )
-            }
+            return try await chatPhotoPayload(current: info.photo ?? currentProfilePhoto)
         }
-        if let fallback = avatarGalleryFallbackItem {
-            return AvatarGalleryPayload(
-                extraPhotoCount: 0,
-                historyRawOffset: 0,
-                historyTotalCount: 0,
-                items: [fallback],
-                totalCount: 1,
-                trailingPhotoID: nil,
-                userID: nil,
-            )
+    }
+
+    /// Telegram (RequestUserPhotos) lists a group's or channel's earlier photos from its chat photo messages, after
+    /// the current photo.
+    private func chatPhotoPayload(current: ChatPhoto?) async throws -> AvatarGalleryPayload {
+        let found = try await client.searchChatMessages(
+            chatId: customChat.id,
+            filter: .searchMessagesFilterChatPhoto,
+            fromMessageId: 0,
+            limit: 100,
+            offset: 0,
+            query: "",
+            senderId: nil,
+            topicId: nil,
+        )
+        let history = Self.chatPhotoItems(found.messages)
+        var items = [ProfileAvatarGalleryItem]()
+        if let current {
+            items.append(ProfileAvatarGalleryItem(photo: current))
+        } else if let fallback = avatarGalleryFallbackItem {
+            items.append(fallback)
         }
+        var knownIDs = Set(items.map(\.id))
+        for item in history where knownIDs.insert(item.id).inserted {
+            items.append(item)
+        }
+        let historyIDs = Set(history.map(\.id))
+        let extraPhotoCount = items.filter { !historyIDs.contains($0.id) }.count
         return AvatarGalleryPayload(
-            extraPhotoCount: 0,
+            extraPhotoCount: extraPhotoCount,
             historyRawOffset: 0,
-            historyTotalCount: 0,
-            items: [],
-            totalCount: 0,
+            historyTotalCount: found.totalCount,
+            items: items,
+            totalCount: found.nextFromMessageId == 0
+                ? items.count
+                : max(items.count, found.totalCount + extraPhotoCount),
             trailingPhotoID: nil,
             userID: nil,
+            chatID: customChat.id,
+            nextMessageID: found.nextFromMessageId,
         )
     }
 
     private func loadMoreAvatarHistory() {
         guard avatarHistoryTask == nil,
               avatarReconciliationTask == nil,
-              let userID = avatarHistoryUserID,
-              avatarHistoryRawOffset < avatarHistoryTotalCount,
-              let activeAvatarGallery,
+              activeAvatarGallery != nil,
               contextIsCurrent
         else { return }
+        if let userID = avatarHistoryUserID {
+            loadMoreUserPhotos(userID: userID)
+        } else if let chatID = avatarHistoryChatID, avatarHistoryNextMessageID != 0 {
+            loadMoreChatPhotos(chatID: chatID)
+        }
+    }
+
+    private func loadMoreUserPhotos(userID: Int64) {
+        guard avatarHistoryRawOffset < avatarHistoryTotalCount, let activeAvatarGallery else { return }
         let offset = avatarHistoryRawOffset
         let metadataGeneration = avatarMetadataGeneration
         let requestID = UUID()
@@ -2337,6 +2282,60 @@ ClientRestorableNavigationEntry {
         }
     }
 
+    private func loadMoreChatPhotos(chatID: Int64) {
+        guard let activeAvatarGallery else { return }
+        let fromMessageID = avatarHistoryNextMessageID
+        let metadataGeneration = avatarMetadataGeneration
+        let requestID = UUID()
+        avatarHistoryRequestID = requestID
+        avatarHistoryTask = Task { [weak self, weak activeAvatarGallery] in
+            guard let self else { return }
+            defer {
+                if avatarHistoryRequestID == requestID {
+                    avatarHistoryRequestID = nil
+                    avatarHistoryTask = nil
+                }
+            }
+            do {
+                let found = try await client.searchChatMessages(
+                    chatId: chatID,
+                    filter: .searchMessagesFilterChatPhoto,
+                    fromMessageId: fromMessageID,
+                    limit: 100,
+                    offset: 0,
+                    query: "",
+                    senderId: nil,
+                    topicId: nil,
+                )
+                guard let activeAvatarGallery,
+                      !Task.isCancelled,
+                      contextIsCurrent,
+                      avatarMetadataGeneration == metadataGeneration,
+                      avatarHistoryRequestID == requestID,
+                      avatarHistoryNextMessageID == fromMessageID,
+                      self.activeAvatarGallery === activeAvatarGallery
+                else { return }
+                avatarHistoryNextMessageID = found.nextFromMessageId
+                let newItems = Self.chatPhotoItems(found.messages).filter {
+                    self.avatarHistoryKnownPhotoIDs.insert($0.id).inserted
+                }
+                // The last page fixes the count at what the gallery holds.
+                activeAvatarGallery.appendItems(
+                    newItems,
+                    totalCount: found.nextFromMessageId == 0 ? 0 : found.totalCount + avatarHistoryExtraPhotoCount,
+                )
+            } catch {
+                guard let activeAvatarGallery,
+                      !Task.isCancelled,
+                      avatarMetadataGeneration == metadataGeneration,
+                      avatarHistoryRequestID == requestID,
+                      self.activeAvatarGallery === activeAvatarGallery
+                else { return }
+                activeAvatarGallery.showMoreItemsRetry()
+            }
+        }
+    }
+
     private func avatarTransitionTarget(item: ProfileAvatarGalleryItem) -> MediaGalleryTransitionTarget? {
         let itemContainsRenderedFile = item.photo.sizes.contains { $0.photo.id == renderedAvatarFileID }
         guard contextIsCurrent,
@@ -2356,15 +2355,6 @@ ClientRestorableNavigationEntry {
                     && avatarView.window != nil
             },
         )
-    }
-
-    private func finishAvatarGalleryLoad(requestID: UUID? = nil) {
-        if let requestID, avatarGalleryRequestID != requestID {
-            return
-        }
-        avatarGalleryRequestID = nil
-        avatarGalleryTask = nil
-        avatarLoadingIndicator.stopAnimating()
     }
 
     @objc private func tabChanged() {
