@@ -4983,7 +4983,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard let reply = chatVM.replyMessage else { return }
         let quote = chatVM.replyQuote
         var actions = [TelegramContextMenuAction(
-            title: L10n.betterTG("Composer.ReplyOptions.ShowMessage"),
+            title: L10n.telegram("Story.ViewMessage"),
             image: UIImage(systemName: "text.bubble"),
         ) { [weak self] in
             self?.navigate(to: .message(

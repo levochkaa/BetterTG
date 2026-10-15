@@ -851,3 +851,4 @@
 "Conversation.MessageOptionsQuoteSelect" = "Select Specific Quote";
 "Conversation.MessageOptionsQuoteRemove" = "Remove Quote";
 "Conversation.MessageOptionsReplyCancel" = "Do Not Reply";
+"Story.ViewMessage" = "View Message";
