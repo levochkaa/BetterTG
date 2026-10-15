@@ -250,6 +250,41 @@ Read-only code audits at `ba41fcd7`/`9a646c94` of profiles and shared media (P),
 
 Reviewed and OK: profile update provenance and history paging identity, grid edit/delete reconciliation, the gallery order and counter, avatar gallery list updates, editor write authorization, members paging; composer double-tap guards, `resolveSendContext` topic routing, draft isolation and clearing, edit attempt binding, document temporary-to-final IDs, picker import account checks, video conversion off main; chat list update isolation and ordering, row action scoping, preview read state, logout ownership. Not reviewed: `PeerProfileInfoPermission` and members restoration internals, voice/video note recording beyond A11-A17, quote selection UI, `ForwardMessagesViewController`, folder editor validation, the forum topic list, push relay internals.
 
+### Voice/video note and message content audits — 2026-10-15
+
+Read-only audits at `6c697153` (voice and video notes, V) and `1ac7d7e2` (message content, R).
+
+| ID | Sev | Finding | Status |
+|---|---|---|---|
+| V-1 | P1 | View-once and self-destructing voice notes play like ordinary ones (no conceal, no `openMessageContent`, unlimited replay, prefetched) | in progress (worker branch `codex/parity-voice-view`) |
+| R-1 | P1 | Bot inline keyboards and reply keyboards never render (`Message.replyMarkup` is unread) | in progress (worker branch `codex/parity-reply-markup`) |
+| V-2 / R-6 | P2 | Playing a voice note or a non-secret video note never calls `openMessageContent`; no unlistened dot | in progress with V-1 |
+| V-3 | P2 | A voice recording switched the session before stopping playback; a failed deactivation skipped the record category; a playing video note kept playing | fixed `ebb7341c`. Build only (the Simulator has no microphone, and the user's mic button is off limits) |
+| V-4 | P2 | Nothing kept the screen awake while recording | fixed `365173c5`: recording holds the idle timer, as Telegram's `pushIdleTimerExtension`. Build only |
+| V-5 | P2 | "Release to cancel" showed at 70 pt; release cancels only past 100 pt | fixed `4d403a33`. Build only |
+| R-2 | P2 | Polls, live locations and checklists show a plain Edit that throws; Stop Poll/Quiz and Stop Live Location are missing | in progress with R-1 |
+| R-3 | P2 | Game, story, checklist and giveaway messages fall to the unsupported fallback | open |
+| R-4 | P2 | A rolled dice shows only its emoji; the result is never visible | open |
+| R-5 | P2 | Contact messages lack Send Message and Add Contact | open |
+| V-6 | P3 | The recording chat action was sent once and expired | fixed `365173c5`: repeated every 4 s for voice and video notes. Build only |
+| V-7 | P3 | No playback speed, next-voice autoplay, raise-to-listen, playback header or muted video note autoplay | open |
+| V-8 | P3 | Voice playback never gave back the audio session | fixed `60181132`: the spoken-audio session Media activated is deactivated with `notifyOthersOnDeactivation` when playback ends |
+| V-9 / R-7 | P3 | The voice view downloads through the global client and an unscoped `updateFile` | in progress with V-1 |
+| V-10 | P3 | Voice progress moves in whole seconds; scrubbing a stopped note starts it | in progress with V-1 |
+| V-11 | P3 | The 50 ms recording timer publishes the whole ChatView refresh 20 times a second | open |
+| V-12 | P3 | Voice is recorded as 48 kHz WAV and encoded only after release | open |
+| V-13 | P3 | No view-once option when sending voice or video notes | open |
+| V-14 | P3 | Logging out never purges the account's voice and video draft stores | open |
+| V-15 | P3 | Hold-to-send waveforms use unnormalized meter readings (suspicion) | open |
+| V-16 | P3 | A successful send may delete the .ogg the sent message still points to (suspicion) | open |
+| R-8 | P3 | Public polls have no View Results or voter list, no Unvote item; vote errors only logged | open |
+| R-9 | P3 | Many service rows use generic titles without Telegram's values (calls, video chats, auto-delete, game score, proximity, web app data, theme, owner changes) | open |
+| R-10 | P3 | Service rows aren't tappable and show no media (pinned message jump, photo changes, wallpapers) | open |
+| R-11 | P3 | Bubbles lack the "edited" label, channel view counts and the comments button | open |
+| R-12 | P3 | The content probe still audits 104 cases at TDLib 1.8.66; the schema has 107 | open |
+
+Reviewed and OK: recording gesture thresholds, interruptions and backgrounding to preview, off-main encoding, frozen send context for voice and video notes, note limits, video note playback ownership; media, file, location, poll voting, rich message, link preview, reaction, reply/quote/forward header, delivery and spoiler rendering. Not reviewed: video note writer and segment composer internals, the recorder state machine, note stores' reconciliation, FFmpeg transcode, invoices, animated emoji interactions, reactors list, text entity actions, translate and report.
+
 ### Probe sweep — 2026-10-12
 
 Repeat on the merged build `e05d541` (localization merge): 86 of 91 probes report a pass; `draft-coding` passes in the app's tmp folder, and the four observation probes need live UI as above.
