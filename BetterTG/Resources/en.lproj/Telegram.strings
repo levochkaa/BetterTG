@@ -162,6 +162,10 @@
 "Conversation.EmptyPlaceholder" = "No messages here yet...";
 "Conversation.ContextMenuReply" = "Reply";
 "Conversation.ContextMenuCopy" = "Copy";
+"Generic.OpenHiddenLinkAlert" = "Open %@?";
+"Common.Yes" = "Yes";
+"Common.No" = "No";
+"Conversation.TextCopied" = "Text copied to clipboard";
 "Conversation.StopPoll" = "Stop Poll";
 "Conversation.StopQuiz" = "Stop Quiz";
 "Conversation.StopPollConfirmationTitle" = "If you stop this poll now, nobody will be able to vote in it anymore. This action cannot be undone.";

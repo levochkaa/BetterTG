@@ -22,6 +22,8 @@ enum MessageContentAction {
     case richContentLayoutChanged
     /// The disc over an uploading photo or video was tapped: delete the sending message, as Telegram does.
     case cancelSending(messageID: Int64)
+    /// An inline keyboard button under the message or inside one of its rich message blocks.
+    case pressInlineKeyboardButton(InlineKeyboardButtonPress)
 
     @MainActor func rejectPollSubmission(in store: MessagePollInteractionStore?) {
         if case .submitPollAnswer(_, _, let submission) = self { store?.failSubmission(submission) }
@@ -2231,6 +2233,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("poll:\(optionIDs.map(String.init).joined(separator: ","))")
                     case .cancelSending:
                         actions.append("cancel")
+                    case .pressInlineKeyboardButton:
+                        actions.append("button")
                     }
                 }
                 precondition(installed, "Fixture \(fixture.name) didn't install")

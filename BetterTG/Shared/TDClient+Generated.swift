@@ -216,6 +216,14 @@ extension TDClient {
         try await send(TDNativeRequests.getBasicGroupFullInfo(basicGroupId: basicGroupId))
     }
 
+    func getCallbackQueryAnswer(
+        chatId: Int64,
+        messageId: Int64,
+        payload: TDNativeCallbackQueryPayload,
+    ) async throws -> TDNativeCallbackQueryAnswer {
+        try await send(TDNativeRequests.getCallbackQueryAnswer(chatId: chatId, messageId: messageId, payload: payload))
+    }
+
     func getChat(chatId: Int64) async throws -> TDNativeChat {
         try await send(TDNativeRequests.getChat(chatId: chatId))
     }

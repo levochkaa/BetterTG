@@ -197,6 +197,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 && !swipeToReplyRecognizer.isEnabled && !selectionActive && !selectionOutgoing && !selectionCentered
                 && avatarView.isHidden && forwardView.isHidden && replyView.isHidden && textView.isHidden
                 && mediaView.isHidden && structuredContentView.isHidden && reactionView.isHidden
+                && inlineKeyboardView.isHidden
                 && timestampLabel.text == nil && mediaTimestampLabel.text == nil
                 && textView.attributedText.length == 0 && bubbleView.isHidden
                 && selectionControl.isHidden && selectionIndicatorView.isHidden
@@ -217,6 +218,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var selectionTouchBindingID: UUID?
     private let rowStack = UIStackView()
     private let bubbleContainerView = TelegramContextMenuExtractableView()
+    /// The bubble and Telegram's inline keyboard under it (`ChatMessageActionButtonsNode`), at one width.
+    private let bubbleColumn = UIStackView()
+    private let inlineKeyboardView = MessageInlineKeyboardView()
     private let bubbleStack = UIStackView()
     private let highlightOverlay = UIView()
     private var messageIsHighlighted = false
@@ -391,6 +395,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         refreshSpoilerAccessibility = nil
         textSpoilers.reset()
         reactionView.prepareForReuse()
+        inlineKeyboardView.prepareForReuse()
+        inlineKeyboardView.isHidden = true
         forwardView.prepareForReuse()
         replyView.prepareForReuse()
         forwardView.isHidden = true
@@ -748,6 +754,27 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         )
         reactionView.isHidden = !hasReactions
 
+        let keyboardRows: [[TDNativeInlineKeyboardButton]] =
+            if case .replyMarkupInlineKeyboard(let keyboard) = message.message.replyMarkup {
+                keyboard.rows
+            } else {
+                []
+            }
+        let keyboardMessageID = message.message.id
+        let keyboardTap: (TDNativeInlineKeyboardButton, UIView) -> Void = { [weak self] button, _ in
+            guard self?.actionBindingID == actionBindingID else { return }
+            onContentAction(.pressInlineKeyboardButton(InlineKeyboardButtonPress(
+                messageID: keyboardMessageID,
+                type: button.type,
+            )))
+        }
+        let hasKeyboard = inlineKeyboardView.configure(
+            rows: keyboardRows,
+            isInteractive: !selectionActive,
+            onTap: keyboardTap,
+        )
+        inlineKeyboardView.isHidden = !hasKeyboard
+
         timestampLabel.text = timestampText
         timestampLabel.textColor = timestampColor
         mediaTimestampLabel.text = timestampText
@@ -849,6 +876,16 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 onReactionTap(reaction.type)
                 return true
             })
+        }
+        // The cell reads as one element, so VoiceOver reaches the keyboard's buttons as actions.
+        if hasKeyboard, !selectionActive {
+            for (index, entry) in inlineKeyboardView.buttons.enumerated() {
+                let action = UIAccessibilityCustomAction(name: entry.button.text) { [weak self] _ in
+                    self?.inlineKeyboardView.activate(index)
+                    return true
+                }
+                metadataAccessibilityActions.append(action)
+            }
         }
         if selectionActive {
             metadataAccessibilityActions.append(UIAccessibilityCustomAction(
@@ -987,7 +1024,13 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         bubbleStack.alignment = .fill
         bubbleStack.spacing = 2
         bubbleView.addSubview(bubbleStack)
-        rowStack.addArrangedSubview(bubbleContainerView)
+        bubbleColumn.axis = .vertical
+        bubbleColumn.alignment = .fill
+        bubbleColumn.spacing = MessageInlineKeyboardView.spacing
+        bubbleColumn.addArrangedSubview(bubbleContainerView)
+        bubbleColumn.addArrangedSubview(inlineKeyboardView)
+        inlineKeyboardView.isHidden = true
+        rowStack.addArrangedSubview(bubbleColumn)
         rowStack.addArrangedSubview(trailingSpacer)
 
         forwardView.isHidden = true
@@ -1274,27 +1317,27 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
         if centered {
             rowStack.addArrangedSubview(leadingSpacer)
-            rowStack.addArrangedSubview(bubbleContainerView)
+            rowStack.addArrangedSubview(bubbleColumn)
             rowStack.addArrangedSubview(trailingSpacer)
             leadingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
             trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            bubbleContainerView.setContentHuggingPriority(.required, for: .horizontal)
+            bubbleColumn.setContentHuggingPriority(.required, for: .horizontal)
             let constraint = leadingSpacer.widthAnchor.constraint(equalTo: trailingSpacer.widthAnchor)
             constraint.isActive = true
             centeredSpacerConstraint = constraint
         } else if outgoing {
             rowStack.addArrangedSubview(leadingSpacer)
-            rowStack.addArrangedSubview(bubbleContainerView)
+            rowStack.addArrangedSubview(bubbleColumn)
             leadingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            bubbleContainerView.setContentHuggingPriority(.required, for: .horizontal)
+            bubbleColumn.setContentHuggingPriority(.required, for: .horizontal)
         } else {
             if showsAvatar {
                 rowStack.addArrangedSubview(avatarView)
             }
-            rowStack.addArrangedSubview(bubbleContainerView)
+            rowStack.addArrangedSubview(bubbleColumn)
             rowStack.addArrangedSubview(trailingSpacer)
             trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-            bubbleContainerView.setContentHuggingPriority(.required, for: .horizontal)
+            bubbleColumn.setContentHuggingPriority(.required, for: .horizontal)
         }
     }
 
@@ -1331,10 +1374,14 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 }
             preferredContentWidth = max(preferredContentWidth, width)
         }
-        let preferredBubbleWidth = min(
+        var preferredBubbleWidth = min(
             maximumBubbleWidth,
             ceil(mediaWidth > 0 ? mediaWidth : preferredContentWidth + 16),
         )
+        // Telegram widens the bubble to fit the inline keyboard's rows; a media bubble keeps the media's width.
+        if !inlineKeyboardView.isHidden, mediaWidth == 0 {
+            preferredBubbleWidth = min(maximumBubbleWidth, max(preferredBubbleWidth, inlineKeyboardView.minimumWidth))
+        }
         if abs(bubbleWidthConstraint.constant - preferredBubbleWidth) > 0.5 {
             bubbleWidthConstraint.constant = preferredBubbleWidth
         }

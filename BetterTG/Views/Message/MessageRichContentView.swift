@@ -652,29 +652,8 @@ final class MessageRichContentView: UIView, MessageSupplementView {
 
     private func perform(_ button: TDNativeInlineButton) {
         guard TDLib.shared.activeClient.id == client.id else { return }
-        switch button.type {
-        case .inlineKeyboardButtonTypeUrl(let value): open(value.url)
-        case .inlineKeyboardButtonTypeLoginUrl(let value): open(value.url)
-        case .inlineKeyboardButtonTypeWebApp(let value): open(value.url)
-        case .inlineKeyboardButtonTypeCopyText(let value): UIPasteboard.setPlainText(value.text)
-        case .inlineKeyboardButtonTypeUser(let value): open("tg://user?id=\(value.userId)")
-        case .inlineKeyboardButtonTypeCallback(let value):
-            tasks.append(Task { [weak self] in
-                guard let self else { return }
-                do {
-                    let answer = try await client.send(TDNativeRequests.getCallbackQueryAnswer(
-                        chatId: chatID,
-                        messageId: messageID,
-                        payload: .callbackQueryPayloadData(TDNativeCallbackQueryPayloadData(data: value.data)),
-                    ))
-                    guard !Task.isCancelled, TDLib.shared.activeClient.id == client.id else { return }
-                    if !answer.text.isEmpty { showError(answer.text) }
-                    if !answer.url.isEmpty { open(answer.url) }
-                } catch { showError(error.localizedDescription) }
-            })
-        case .inlineKeyboardButtonTypeDisabled: break
-        default: showError(L10n.betterTG("Chat.UnsupportedBetterTG"))
-        }
+        // The chat runs block buttons as it runs the keyboard under a message, after the row authority check.
+        onAction(.pressInlineKeyboardButton(InlineKeyboardButtonPress(messageID: messageID, type: button.type)))
     }
 
     private func open(_ value: String) {

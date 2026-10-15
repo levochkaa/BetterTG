@@ -154,6 +154,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return composer
     }()
 
+    private lazy var inlineKeyboardActions = InlineKeyboardActionPerformer(host: .init(
+        presenter: { [weak self] in self },
+        isCurrent: { [weak self] in
+            guard let self else { return false }
+            return routeIsRetained && chatVM.locationContextIsCurrent
+        },
+        showToast: { [weak self] text in self?.showChatToast(text) },
+        openUserProfile: { [weak self] userID in self?.openUserProfile(userID: userID) },
+        insertInlineQuery: { [weak self] query in self?.insertInlineQuery(query) },
+    ))
+
     private let messageSelectionToolbar = MessageSelectionToolbar()
     private var messageSelectionToolbarHeightConstraint: NSLayoutConstraint!
     private let scrollToLatestButton = UIButton(type: .system)
@@ -2062,12 +2073,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                                 weak polls = row.polls,
                             ] action in
                                 guard let self,
-                                      currentActionMessage(authority, cell: cell, intent: .content(action)) != nil
+                                      let current = currentActionMessage(
+                                          authority,
+                                          cell: cell,
+                                          intent: .content(action),
+                                      )
                                 else {
                                     action.rejectPollSubmission(in: polls)
                                     return
                                 }
-                                performContentAction(action)
+                                performContentAction(action, for: current)
                             },
                             onMediaTap: { [weak self, weak cell] messages, selection in
                                 guard let self, currentActionMessage(authority, cell: cell, intent: .media) != nil
@@ -3806,7 +3821,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         ))
     }
 
-    private func performContentAction(_ action: MessageContentAction) {
+    private func performContentAction(_ action: MessageContentAction, for message: CustomMessage) {
         switch action {
         case .richContentLayoutChanged:
             collectionView.collectionViewLayout.invalidateLayout()
@@ -3847,6 +3862,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .cancelSending(let messageID):
             // ChatMessageInteractiveMediaNode.progressPressed deletes a sending message for everyone.
             chatVM.deleteMessages(ids: [messageID], deleteForBoth: true)
+        case .pressInlineKeyboardButton(let press):
+            guard let source = message.sourceMessages.first(where: { $0.id == press.messageID }) else { return }
+            inlineKeyboardActions.perform(press, in: source, client: chatVM.client)
         }
     }
 
@@ -3926,6 +3944,45 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 }
                 : nil,
         )
+    }
+
+    /// A short notice above the composer, as Telegram's bot callback toast and copied-text overlay.
+    private func showChatToast(_ text: String) {
+        let bottomInset = showsComposer && composerView.frame.minY > 0
+            ? max(0, view.bounds.maxY - view.safeAreaInsets.bottom - composerView.frame.minY) + 8
+            : 8
+        TelegramUndoToast.show(text: text, in: view, bottomInset: bottomInset, undo: nil)
+    }
+
+    /// Telegram opens a user button's profile (`openPeer(.info)`): the private chat with the user, then its profile.
+    private func openUserProfile(userID: Int64) {
+        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
+              let accountID = location.accountID else { return }
+        let client = chatVM.client
+        Task { [weak self] in
+            guard let chat = try? await client.createPrivateChat(force: false, userId: userID),
+                  let customChat = await RootVM.shared.getCustomChatForNavigation(from: chat.id, client: client),
+                  let self, routeIsRetained, chatVM.locationContextIsCurrent,
+                  TDLib.shared.activeClient.id == client.id,
+                  navigationController?.topViewController === self else { return }
+            let profile = PeerProfileViewController(
+                customChat: customChat,
+                topic: nil,
+                client: client,
+                accountID: accountID,
+            )
+            profile.configureOpensChatItself()
+            navigationController?.pushViewController(profile, animated: true)
+        }
+    }
+
+    /// Telegram's switch inline button for this chat puts "@bot query" into the composer (`activateSwitchInline`).
+    private func insertInlineQuery(_ query: String) {
+        guard showsComposer, chatVM.locationContextIsCurrent, chatVM.editCustomMessage == nil,
+              chatVM.canWriteBasicMessages else { return }
+        chatVM.updateComposerTextFromUser(AttributedString(query))
+        composerView.update(from: chatVM)
+        composerView.focusInput()
     }
 
     private func galleryTransitionTarget(for messageID: Int64) -> MediaGalleryTransitionTarget? {

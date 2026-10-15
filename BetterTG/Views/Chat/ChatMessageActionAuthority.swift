@@ -105,6 +105,11 @@ import UIKit
         case .content(.cancelSending(let messageID)):
             guard let raw = sources.first(where: { $0.id == messageID }),
                   case .messageSendingStatePending = raw.sendingState else { return nil }
+        case .content(.pressInlineKeyboardButton(let press)):
+            // A button acts for a sent message of this row only.
+            guard let raw = sources.first(where: { $0.id == press.messageID }), raw.sendingState == nil else {
+                return nil
+            }
         case .content, .media, .selection:
             break
         }
