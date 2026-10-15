@@ -838,3 +838,11 @@
 "Conversation.ContextViewThread" = "View Thread";
 "Forward.ErrorPublicPollDisabledInChannels" = "Sorry, public polls can’t be forwarded to channels.";
 "Forward.ErrorTodoDisabledInChannels" = "Sorry, checklists can’t be forwarded to channels.";
+"Conversation.ForwardOptions.SenderNamesRemoved" = "Sender names removed";
+"Conversation.ForwardFrom" = "From: %@";
+"Conversation.ForwardOptions.ShowSendersNames" = "Show Senders' Names";
+"Conversation.ForwardOptions.HideSendersNames" = "Hide Senders' Names";
+"Conversation.ForwardOptions.ShowCaption" = "Show Captions";
+"Conversation.ForwardOptions.HideCaption" = "Hide Captions";
+"Conversation.ForwardOptions.ChangeRecipient" = "Change Recipient";
+"Conversation.ForwardOptionsCancel" = "Do Not Forward";

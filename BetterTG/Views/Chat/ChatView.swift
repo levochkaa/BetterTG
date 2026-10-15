@@ -601,6 +601,32 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             MessageSelectionToolbar.contentHeight + view.safeAreaInsets.bottom
     }
 
+    /// Hands a forward draft to its destination. A chat already open for it in the stack takes the draft, as in
+    /// Telegram (ChatControllerForwardMessages reuses the open chat), so one chat never gets a second composer.
+    static func openForward(
+        _ draft: PendingMessageForward,
+        in chat: CustomChat,
+        topic: ForumTopic?,
+        destination: ChatLocation,
+        navigationController: UINavigationController?,
+    ) {
+        guard let navigationController else { return }
+        let open = navigationController.viewControllers.last {
+            ($0 as? ChatViewController).map { $0.presentationMode == .full && $0.location == destination } == true
+        } as? ChatViewController
+        if let open {
+            if navigationController.topViewController !== open {
+                navigationController.popToViewController(open, animated: true)
+            }
+            open.chatVM.beginForward(draft)
+        } else {
+            navigationController.pushViewController(
+                ChatViewController(customChat: chat, location: destination, forumTopic: topic, pendingForward: draft),
+                animated: true,
+            )
+        }
+    }
+
     private static func isChatGalleryMedia(_ message: Message) -> Bool {
         switch message.content {
         case .messagePhoto, .messageVideo: true
@@ -1701,6 +1727,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             composerView.onInteractionSettled = { [weak self] in self?.retryClientRestoration() }
             composerView.onUserInteraction = { [weak self] in self?.abandonRestoredViewport() }
             composerView.onNavigateToMessage = { [weak self] target in self?.navigate(to: target) }
+            composerView.onChangeForwardRecipient = { [weak self] forward in
+                self?.presentForwardPicker(
+                    request: forward.prepared.request,
+                    initialMode: forward.mode,
+                    replacingForwardID: forward.id,
+                )
+            }
             composerView.onVoiceGestureActivityChange = { [weak self] active in
                 guard let self, voiceGestureDefersSystemGestures != active else { return }
                 voiceGestureDefersSystemGestures = active
@@ -5472,62 +5505,76 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func presentForwardPicker(forDisplayedMessageIDs displayedIDs: Set<DisplayedMessageID>) {
-        guard presentationMode == .full,
-              presentedViewController == nil,
-              let accountID = TDLib.shared.activeAccountID,
-              TDLib.shared.activeClient.id == chatVM.client.id
-        else { return }
         do {
             let request = try MessageForwardRequest(
                 sourceLocation: chatVM.location,
                 messageIDs: sourceMessageIDs(forDisplayedMessageIDs: displayedIDs),
             )
-            var seen = Set<Int64>()
-            let seedChats = RootVM.shared
-                .allFolders
-                .flatMap(\.chats)
-                .map(\.chat)
-                .filter { seen.insert($0.id).inserted }
-            let picker = ForwardMessagesViewController(
-                request: request,
-                client: chatVM.client,
-                accountID: accountID,
-                seedChats: seedChats,
-            )
-            picker.onSelect = { [weak self] chat, topic, draft in
-                guard let self, TDLib.shared.activeAccountID == accountID,
-                      TDLib.shared.activeClient.id == chatVM.client.id else { return }
-                endMessageSelection()
-                let destination = ChatLocation.current(
-                    chatID: chat.id,
-                    topic: topic.map { .messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId)) },
-                    client: chatVM.client,
-                )
-                if destination == location {
-                    chatVM.beginForward(draft)
-                } else {
-                    let controller = ChatViewController(
-                        customChat: chat,
-                        location: destination,
-                        forumTopic: topic,
-                        pendingForward: draft,
-                    )
-                    self.navigationController?.pushViewController(controller, animated: true)
-                }
-            }
-            let navigationController = TelegramNavigationController(rootViewController: picker)
-            navigationController.modalPresentationStyle = .fullScreen
-            present(navigationController, animated: true)
+            presentForwardPicker(request: request, initialMode: nil, replacingForwardID: nil)
         } catch {
-            let alert = UIAlertController(
-                title: L10n.betterTG("Chat.CantForward"),
-                message: (error as? LocalizedError)?.errorDescription
-                    ?? L10n.betterTG("Chat.ForwardFailed"),
-                preferredStyle: .alert,
-            )
-            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
-            present(alert, animated: true)
+            presentForwardRequestError(error)
         }
+    }
+
+    /// `replacingForwardID` is the composer's pending forward when Change Recipient reopens the picker: a choice
+    /// moves it to the new destination.
+    private func presentForwardPicker(
+        request: MessageForwardRequest,
+        initialMode: MessageForwardMode?,
+        replacingForwardID: UUID?,
+    ) {
+        guard presentationMode == .full,
+              presentedViewController == nil,
+              let accountID = TDLib.shared.activeAccountID,
+              TDLib.shared.activeClient.id == chatVM.client.id
+        else { return }
+        var seen = Set<Int64>()
+        let seedChats = RootVM.shared
+            .allFolders
+            .flatMap(\.chats)
+            .map(\.chat)
+            .filter { seen.insert($0.id).inserted }
+        let picker = ForwardMessagesViewController(
+            request: request,
+            client: chatVM.client,
+            accountID: accountID,
+            seedChats: seedChats,
+            initialMode: initialMode,
+        )
+        picker.onSelect = { [weak self] chat, topic, draft in
+            guard let self, TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == chatVM.client.id else { return }
+            endMessageSelection()
+            let destination = ChatLocation.current(
+                chatID: chat.id,
+                topic: topic.map { .messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId)) },
+                client: chatVM.client,
+            )
+            if let replacingForwardID, destination != location, chatVM.pendingForward?.id == replacingForwardID {
+                chatVM.pendingForward = nil
+            }
+            Self.openForward(
+                draft,
+                in: chat,
+                topic: topic,
+                destination: destination,
+                navigationController: navigationController,
+            )
+        }
+        let navigationController = TelegramNavigationController(rootViewController: picker)
+        navigationController.modalPresentationStyle = .fullScreen
+        present(navigationController, animated: true)
+    }
+
+    private func presentForwardRequestError(_ error: Error) {
+        let alert = UIAlertController(
+            title: L10n.betterTG("Chat.CantForward"),
+            message: (error as? LocalizedError)?.errorDescription
+                ?? L10n.betterTG("Chat.ForwardFailed"),
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        present(alert, animated: true)
     }
 
     private func prepareSelectedMessagesForDeletion() {

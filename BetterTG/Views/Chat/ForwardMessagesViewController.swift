@@ -12,16 +12,17 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private let client: TDLibClient
     private let accountID: UUID
     private let seedChats: [Chat]
+    /// Change Recipient keeps the options chosen in the composer.
+    private let initialMode: MessageForwardMode?
     private let pageController = UIPageViewController(transitionStyle: .scroll, navigationOrientation: .horizontal)
     private let folderPicker = FolderPickerView()
     private lazy var customNavigationBar = TelegramListNavigationBar(
         title: L10n.betterTG("Forward.Title"), placeholder: L10n.telegram("Common.Search"),
         leftImage: UIImage(systemName: "xmark"),
-        rightImage: UIImage(systemName: "ellipsis"),
+        rightImage: nil,
         leftAction: { [weak self] in self?.cancelPicker() },
-        rightAction: { [weak self] in self?.showOptions() },
+        rightAction: nil,
         leftAccessibilityLabel: L10n.telegram("Common.Close"),
-        rightAccessibilityLabel: L10n.telegram("Common.More"),
     )
     private var navigationHeight: NSLayoutConstraint!
     private var contentHeight = TelegramListNavigationBar.expandedContentHeight
@@ -45,11 +46,18 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
         TDLib.shared.activeAccountID == accountID && TDLib.shared.activeClient.id == client.id
     }
 
-    init(request: MessageForwardRequest, client: TDLibClient, accountID: UUID, seedChats: [Chat]) {
+    init(
+        request: MessageForwardRequest,
+        client: TDLibClient,
+        accountID: UUID,
+        seedChats: [Chat],
+        initialMode: MessageForwardMode? = nil,
+    ) {
         self.request = request
         self.client = client
         self.accountID = accountID
         self.seedChats = seedChats
+        self.initialMode = initialMode
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -140,7 +148,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
                 let prepared = try await MessageForwardingService.prepare(request: request, client: client)
                 guard !Task.isCancelled, contextIsCurrent else { return }
                 preparedForward = prepared
-                mode = prepared.defaultMode
+                mode = initialMode.flatMap { prepared.supports($0) ? $0 : nil } ?? prepared.defaultMode
                 var folders = RootVM.shared.folders
                 if !folders
                     .contains(where: { $0.id == 0 }) { folders.insert(CustomFolder(chats: [], type: .main), at: 0) }
@@ -295,54 +303,58 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
                 return
             }
             guard !Task.isCancelled, contextIsCurrent else { return }
-            let sender: String =
-                switch message.senderId {
-                case .messageSenderUser(let user):
-                    await (try? client.getUser(userId: user.userId))
-                        .map { [$0.firstName, $0.lastName].filter { !$0.isEmpty }.joined(separator: " ") } ?? L10n
-                        .betterTG("Forward.UnknownSender")
-                case .messageSenderChat(let source):
-                    await (try? client.getChat(chatId: source.chatId))?.title ?? L10n.betterTG("Chat.FallbackChatTitle")
-                }
+            let authors = await forwardAuthors()
             guard !Task.isCancelled, contextIsCurrent else { return }
             let draft = PendingMessageForward(
                 prepared: preparedForward,
                 mode: mode,
-                summary: "\(sender): \(ChatSummary.summary(for: message))",
+                authors: authors.joined(separator: ", "),
+                authorCount: authors.count,
+                messageSummary: ChatSummary.summary(for: message),
             )
             dismiss(animated: true) { [onSelect] in onSelect?(customChat, topic, draft) }
         }
     }
 
-    private func showOptions() {
-        guard let preparedForward else { return }
-        let sheet = UIAlertController(
-            title: L10n.betterTG("Forward.OptionsTitle"),
-            message: nil,
-            preferredStyle: .actionSheet,
-        )
-        func add(_ title: String, _ value: MessageForwardMode) {
-            sheet
-                .addAction(UIAlertAction(title: title + (mode == value ? " ✓" : ""), style: .default) { [weak self] _ in
-                    self?.mode = value
-                })
-        }
-        if preparedForward.canForward { add(L10n.telegram("Conversation.ForwardOptions.ShowSendersName"), .forward) }
-        if preparedForward.canCopy {
-            add(L10n.telegram("Conversation.ForwardOptions.HideSendersName"), .copy(removeCaption: false))
-            if preparedForward.hasCaptions {
-                add(L10n.betterTG("Forward.HideSenderAndCaptions"), .copy(removeCaption: true))
+    /// ForwardAccessoryPanelNode's author list: the original author of a forwarded message (its sender when the
+    /// origin is hidden), each once in message order, "You" for the account, a user's first name and a chat's title.
+    private func forwardAuthors() async -> [String] {
+        let accountUserID = TDLib.shared.activeAccount?.userID
+        var seen = Set<Int64>()
+        var names = [String]()
+        for messageID in request.messageIDs {
+            guard let message = try? await client.getMessage(chatId: request.sourceChatID, messageId: messageID)
+            else { continue }
+            let author: MessageSender =
+                switch message.forwardInfo?.origin {
+                case .messageOriginUser(let origin):
+                    .messageSenderUser(MessageSenderUser(userId: origin.senderUserId))
+                case .messageOriginChat(let origin):
+                    .messageSenderChat(MessageSenderChat(chatId: origin.senderChatId))
+                case .messageOriginChannel(let origin):
+                    .messageSenderChat(MessageSenderChat(chatId: origin.chatId))
+                case .messageOriginHiddenUser, nil:
+                    message.senderId
+                }
+            switch author {
+            case .messageSenderUser(let sender):
+                guard seen.insert(sender.userId).inserted else { continue }
+                if sender.userId == accountUserID {
+                    names.append(L10n.telegram("DialogList.You"))
+                } else if let user = try? await client.getUser(userId: sender.userId) {
+                    names.append(user.firstName.isEmpty ? user.lastName : user.firstName)
+                } else {
+                    names.append(L10n.betterTG("Forward.UnknownSender"))
+                }
+            case .messageSenderChat(let sender):
+                guard seen.insert(sender.chatId).inserted else { continue }
+                await names.append(
+                    (try? client.getChat(chatId: sender.chatId))?.title
+                        ?? L10n.betterTG("Chat.FallbackChatTitle"),
+                )
             }
         }
-        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        sheet.popoverPresentationController?.sourceView = customNavigationBar
-        sheet.popoverPresentationController?.sourceRect = CGRect(
-            x: customNavigationBar.bounds.maxX - 44,
-            y: 44,
-            width: 44,
-            height: 44,
-        )
-        present(sheet, animated: true)
+        return names
     }
 
     private func showError(_ message: String) {

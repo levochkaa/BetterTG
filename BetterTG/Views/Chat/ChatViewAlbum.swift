@@ -3121,13 +3121,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                         topic: topic.map { .messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId)) },
                         client: client,
                     )
-                    let controller = ChatViewController(
-                        customChat: chat,
-                        location: destination,
-                        forumTopic: topic,
-                        pendingForward: draft,
+                    ChatViewController.openForward(
+                        draft,
+                        in: chat,
+                        topic: topic,
+                        destination: destination,
+                        navigationController: NavigationStorage.shared.navigationController,
                     )
-                    NavigationStorage.shared.navigationController.pushViewController(controller, animated: true)
                 }
             }
             let navigationController = TelegramNavigationController(rootViewController: picker)

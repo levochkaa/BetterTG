@@ -106,9 +106,22 @@ struct PreparedMessageForward: Equatable {
     let canCopyToSecretChat: Bool
     let contentRequirements: Set<MessageForwardContentRequirement>
     let hasCaptions: Bool
+    /// Some message isn't the user's own original in Saved Messages (Telegram's `hasNotOwnMessages`). Only then can
+    /// sender names be toggled; otherwise they start hidden.
+    var hasNotOwnMessages = true
+    /// Some message isn't a dice roll; Telegram keeps the sender of a dice-only forward.
+    var hasNonDiceMessages = true
 
     var defaultMode: MessageForwardMode {
-        canForward ? .forward : .copy(removeCaption: false)
+        if canCopy, !canForward || !hasNotOwnMessages {
+            return .copy(removeCaption: false)
+        }
+        return .forward
+    }
+
+    /// ChatMessageActionOptions' `canHideNames`, limited to forwards TDLib allows both with and without names.
+    var canToggleSenderNames: Bool {
+        hasNotOwnMessages && hasNonDiceMessages && canForward && canCopy
     }
 
     func supports(_ mode: MessageForwardMode) -> Bool {
@@ -127,13 +140,51 @@ struct PreparedMessageForward: Equatable {
 struct PendingMessageForward: Equatable {
     let id = UUID()
     let prepared: PreparedMessageForward
-    let mode: MessageForwardMode
-    let summary: String
+    var mode: MessageForwardMode
+    /// Telegram's author list (ForwardAccessoryPanelNode): each original author once, "You" for the account.
+    let authors: String
+    let authorCount: Int
+    /// The preview of a single forwarded message.
+    let messageSummary: String
+    /// Hiding captions also hid the names, so showing captions shows them again (`unhideNamesOnCaptionChange`).
+    var restoresNamesWithCaptions = false
 
     var title: String {
         prepared.request.messageIDs.count == 1
             ? L10n.telegram("Conversation.ForwardOptions.ForwardTitleSingle")
             : L10n.telegramPlural("Conversation.ForwardOptions.ForwardTitle", count: prepared.request.messageIDs.count)
+    }
+
+    var text: String {
+        if mode.removesSender {
+            L10n.telegram("Conversation.ForwardOptions.SenderNamesRemoved")
+        } else if prepared.request.messageIDs.count == 1 {
+            "\(authors): \(messageSummary)"
+        } else {
+            L10n.telegram("Conversation.ForwardFrom", authors)
+        }
+    }
+
+    /// Telegram's Show/Hide Sender's Name: showing names also shows captions.
+    func withSenderNames(shown: Bool) -> PendingMessageForward {
+        var updated = self
+        updated.mode = shown ? .forward : .copy(removeCaption: mode.removesCaption)
+        updated.restoresNamesWithCaptions = false
+        return updated
+    }
+
+    /// Telegram's Show/Hide Captions: a copy is the only way to drop captions, so hiding them hides the names too
+    /// until captions are shown again.
+    func withCaptions(shown: Bool) -> PendingMessageForward {
+        var updated = self
+        if shown {
+            updated.mode = restoresNamesWithCaptions && prepared.canForward ? .forward : .copy(removeCaption: false)
+            updated.restoresNamesWithCaptions = false
+        } else {
+            updated.restoresNamesWithCaptions = !mode.removesSender
+            updated.mode = .copy(removeCaption: true)
+        }
+        return updated
     }
 
     /// The same forward through the account's renewed client. Message IDs belong to the account, so only the source
@@ -152,9 +203,13 @@ struct PendingMessageForward: Equatable {
                 request: request, canForward: prepared.canForward, canCopy: prepared.canCopy,
                 canCopyToSecretChat: prepared.canCopyToSecretChat,
                 contentRequirements: prepared.contentRequirements, hasCaptions: prepared.hasCaptions,
+                hasNotOwnMessages: prepared.hasNotOwnMessages, hasNonDiceMessages: prepared.hasNonDiceMessages,
             ),
             mode: mode,
-            summary: summary,
+            authors: authors,
+            authorCount: authorCount,
+            messageSummary: messageSummary,
+            restoresNamesWithCaptions: restoresNamesWithCaptions,
         )
     }
 }
@@ -297,6 +352,9 @@ enum MessageForwardingError: LocalizedError, Equatable {
         var canCopyToSecretChat = true
         var contentRequirements = Set<MessageForwardContentRequirement>()
         var hasCaptions = false
+        var hasNotOwnMessages = false
+        var hasNonDiceMessages = false
+        let accountUserID = TDLib.shared.activeAccount?.userID
         for messageID in request.messageIDs {
             try Task.checkCancellation()
             async let properties = client.getMessageProperties(
@@ -333,6 +391,16 @@ enum MessageForwardingError: LocalizedError, Equatable {
                 break
             }
             hasCaptions = hasCaptions || contentHasCaption(resolvedMessage.content)
+            // ChatMessageActionOptions: only an original message in the account's own chat is the user's own.
+            let isOwnOriginal = request.sourceChatID == accountUserID && resolvedMessage.forwardInfo == nil
+            hasNotOwnMessages = hasNotOwnMessages || !isOwnOriginal
+            let isDice =
+                if case .messageDice = resolvedMessage.content {
+                    true
+                } else {
+                    false
+                }
+            hasNonDiceMessages = hasNonDiceMessages || !isDice
         }
         guard canForward || canCopy else {
             throw MessageForwardingError.protectedMessages
@@ -344,6 +412,8 @@ enum MessageForwardingError: LocalizedError, Equatable {
             canCopyToSecretChat: canCopyToSecretChat,
             contentRequirements: contentRequirements,
             hasCaptions: hasCaptions,
+            hasNotOwnMessages: hasNotOwnMessages,
+            hasNonDiceMessages: hasNonDiceMessages,
         )
     }
 

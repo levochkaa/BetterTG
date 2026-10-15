@@ -494,8 +494,6 @@
 "Forward.Title" = "Forward to";
 "Forward.SourceUnavailable" = "This chat or the original message is no longer available.";
 "Forward.UnknownSender" = "User";
-"Forward.OptionsTitle" = "Forward Options";
-"Forward.HideSenderAndCaptions" = "Hide Sender and Captions";
 "Forum.LoadFailed" = "Topics couldn't be loaded.";
 "Forum.GeneralTopic" = "General";
 "Forum.TopicFallback" = "Topic";

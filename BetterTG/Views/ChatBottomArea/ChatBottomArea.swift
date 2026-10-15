@@ -44,6 +44,8 @@ final class ChatComposerView: UIView {
     var onInteractionSettled: (() -> Void)?
     var onUserInteraction: (() -> Void)?
     var onNavigateToMessage: ((MessageMetadataNavigationTarget) -> Void)?
+    /// Change Recipient in the forward options: reopens the Forward picker for this forward.
+    var onChangeForwardRecipient: ((PendingMessageForward) -> Void)?
     var onVoiceGestureActivityChange: ((Bool) -> Void)?
     var onConfirmVoiceTrimResume: (() -> Void)?
     var onCancelVideoNoteRecording: (() -> Void)?
@@ -556,7 +558,9 @@ final class ChatComposerView: UIView {
         } else if let forward = chatVM.pendingForward {
             showsReplyPreview = true
             closeReplyButton.isHidden = false
-            replySnippet.configure(title: forward.title, text: forward.summary) {}
+            replySnippet.configure(title: forward.title, text: forward.text) { [weak self] in
+                self?.showForwardOptions()
+            }
         } else if let reply = chatVM.replyMessage {
             showsReplyPreview = true
             closeReplyButton.isHidden = false
@@ -1628,6 +1632,72 @@ final class ChatComposerView: UIView {
             messageID: message.id,
             quote: quoteHighlight,
         )
+    }
+
+    /// Telegram's forward options (ChatMessageActionOptions `chatForwardOptions`) for the pending forward: sender
+    /// names, captions, Change Recipient and Do Not Forward. A secret chat always drops names, so it offers no names
+    /// item.
+    private func showForwardOptions() {
+        guard let forward = chatVM.pendingForward else { return }
+        let prepared = forward.prepared
+        var actions = [TelegramContextMenuAction]()
+        if prepared.canToggleSenderNames, chatVM.customChat.secretChatID == nil {
+            let hidden = forward.mode.removesSender
+            let key =
+                switch (hidden, forward.authorCount == 1) {
+                case (true, true): "Conversation.ForwardOptions.ShowSendersName"
+                case (true, false): "Conversation.ForwardOptions.ShowSendersNames"
+                case (false, true): "Conversation.ForwardOptions.HideSendersName"
+                case (false, false): "Conversation.ForwardOptions.HideSendersNames"
+                }
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(key),
+                image: UIImage(systemName: hidden ? "person.crop.circle" : "person.crop.circle.badge.xmark"),
+            ) { [weak self] in
+                self?.updatePendingForward(forward.id) { $0.withSenderNames(shown: hidden) }
+            })
+        }
+        if prepared.hasCaptions, prepared.canCopy {
+            let hidden = forward.mode.removesCaption
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(
+                    hidden ? "Conversation.ForwardOptions.ShowCaption" : "Conversation.ForwardOptions.HideCaption",
+                ),
+                image: UIImage(systemName: hidden ? "text.bubble" : "text.bubble.fill"),
+            ) { [weak self] in
+                self?.updatePendingForward(forward.id) { $0.withCaptions(shown: hidden) }
+            })
+        }
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("Conversation.ForwardOptions.ChangeRecipient"),
+            image: UIImage(systemName: "arrow.triangle.2.circlepath"),
+            startsNewSection: !actions.isEmpty,
+        ) { [weak self] in
+            guard let self, chatVM.pendingForward?.id == forward.id,
+                  let current = chatVM.pendingForward else { return }
+            onChangeForwardRecipient?(current)
+        })
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("Conversation.ForwardOptionsCancel"),
+            image: UIImage(systemName: "trash"),
+            isDestructive: true,
+        ) { [weak self] in
+            guard let self, chatVM.pendingForward?.id == forward.id else { return }
+            chatVM.pendingForward = nil
+        })
+        nearestViewController?.presentTelegramContextMenu(
+            sourceView: replySnippet,
+            actions: actions,
+            presentationStyle: .menuOnly,
+        )
+    }
+
+    private func updatePendingForward(
+        _ id: UUID,
+        _ transform: (PendingMessageForward) -> PendingMessageForward,
+    ) {
+        guard let forward = chatVM.pendingForward, forward.id == id else { return }
+        chatVM.pendingForward = transform(forward)
     }
 
     @objc private func cancelReplyOrEdit() {
