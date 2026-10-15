@@ -267,6 +267,8 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     private let folderInfo: ChatFolderInfo?
     private let originalName: ChatFolderName?
     private var draft: ChatFolder
+    /// The name this new folder was last given automatically; the user's own text in the field stops the naming.
+    private var automaticName = ""
     private lazy var nameField: UITextField = {
         let field = UITextField(frame: CGRect(x: 0, y: 0, width: 190, height: 36))
         field.placeholder = L10n.telegram("ChatListFolder.NamePlaceholder")
@@ -374,9 +376,11 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         case .include(let type):
             draft = draft.replacing(type, included: !draft.includes(type))
             tableView.reloadRows(at: [indexPath], with: .none)
+            updateAutomaticName()
         case .exclude(let type):
             draft = draft.replacing(type, excluded: !draft.excludes(type))
             tableView.reloadRows(at: [indexPath], with: .none)
+            updateAutomaticName()
         case .includedChats:
             selectChats(excluded: false)
         case .excludedChats:
@@ -430,6 +434,14 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         alert.preferredAction = saveAction
         present(alert, animated: true)
         return false
+    }
+
+    /// ChatListFilterPresetController: until the user edits it, a new folder is named after its one chosen chat
+    /// type, or Unread or Not Muted for all chats without read or muted ones (chatListFilterType).
+    private func updateAutomaticName() {
+        guard folderInfo == nil, (nameField.text ?? "") == automaticName else { return }
+        automaticName = draft.automaticName ?? ""
+        nameField.text = automaticName
     }
 
     private func selectChats(excluded: Bool) {
@@ -846,6 +858,24 @@ extension ChatFolder {
             && includeBots == other.includeBots && excludeMuted == other.excludeMuted
             && excludeRead == other.excludeRead && excludeArchived == other.excludeArchived
             && alwaysIncludedChatIDs == other.alwaysIncludedChatIDs && excludedChatIds == other.excludedChatIds
+    }
+
+    /// Telegram's chatListFilterType names: one chat type, or all types without read or muted chats; nil otherwise.
+    var automaticName: String? {
+        let types = ChatFolderInclusion.allCases.filter(includes)
+        if types.count == ChatFolderInclusion.allCases.count {
+            if excludeRead { return L10n.telegram("ChatListFolder.NameUnread") }
+            if excludeMuted { return L10n.telegram("ChatListFolder.NameNonMuted") }
+            return nil
+        }
+        guard types.count == 1, let type = types.first else { return nil }
+        return switch type {
+        case .contacts: L10n.telegram("ChatListFolder.NameContacts")
+        case .nonContacts: L10n.telegram("ChatListFolder.NameNonContacts")
+        case .groups: L10n.telegram("ChatListFolder.NameGroups")
+        case .channels: L10n.telegram("ChatListFolder.NameChannels")
+        case .bots: L10n.telegram("ChatListFolder.NameBots")
+        }
     }
 
     func includes(_ type: ChatFolderInclusion) -> Bool {

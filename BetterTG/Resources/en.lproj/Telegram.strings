@@ -857,3 +857,5 @@
 "ChatListFolder.DiscardConfirmation" = "You have changed the filter. Discard changes?";
 "ChatListFolder.DiscardDiscard" = "Discard";
 "ChatListFilter.SaveAlertActionSave" = "Save";
+"ChatListFolder.NameUnread" = "Unread";
+"ChatListFolder.NameNonMuted" = "Not Muted";
