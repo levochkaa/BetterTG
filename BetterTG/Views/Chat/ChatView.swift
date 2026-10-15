@@ -146,6 +146,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let navigationBackground = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let pinnedMessageBanner = PinnedMessageBannerView()
     private var pinnedMessageBannerHeightConstraint: NSLayoutConstraint!
+    private let voicePlaybackHeader = VoicePlaybackHeaderView()
+    private var voicePlaybackHeaderHeightConstraint: NSLayoutConstraint!
     private var pinnedMessageBannerTransitionGeneration = UInt64.zero
     private let composerKeyboardEdgeView = ComposerKeyboardEdgeView()
     private lazy var composerView: ChatComposerView = {
@@ -1436,12 +1438,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func configurePinnedMessageBanner() {
+        voicePlaybackHeader.translatesAutoresizingMaskIntoConstraints = false
+        voicePlaybackHeader.isHidden = true
+        view.addSubview(voicePlaybackHeader)
+        voicePlaybackHeaderHeightConstraint = voicePlaybackHeader.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            voicePlaybackHeader.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+            voicePlaybackHeader.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            voicePlaybackHeader.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            voicePlaybackHeaderHeightConstraint,
+        ])
+        configureVoicePlaybackHeader()
         pinnedMessageBanner.translatesAutoresizingMaskIntoConstraints = false
         pinnedMessageBanner.isHidden = true
         view.addSubview(pinnedMessageBanner)
         pinnedMessageBannerHeightConstraint = pinnedMessageBanner.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
-            pinnedMessageBanner.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+            pinnedMessageBanner.topAnchor.constraint(equalTo: voicePlaybackHeader.bottomAnchor),
             pinnedMessageBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             pinnedMessageBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             pinnedMessageBannerHeightConstraint,
@@ -1466,6 +1479,89 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             pinnedMessageBannerHeightConstraint.constant = PinnedMessageBannerView.contentHeight
         }
         updatePinnedMessageBanner(animated: false)
+    }
+
+    /// Telegram's playback header sits under the navigation bar while a voice note of this chat is loaded.
+    private func configureVoicePlaybackHeader() {
+        voicePlaybackHeader.onTogglePlayback = { Media.shared.togglePlayback() }
+        voicePlaybackHeader.onCycleRate = { Media.shared.cyclePlaybackRate() }
+        voicePlaybackHeader.onClose = { Media.shared.close() }
+        voicePlaybackHeader.onOpen = { [weak self] in
+            guard let self, let item = Media.shared.nowPlaying, item.chatID == chatVM.chatID else { return }
+            navigate(to: .message(chatID: item.chatID, messageID: item.messageID, quote: nil))
+        }
+        Publishers.CombineLatest4(
+            Media.shared.$nowPlaying,
+            Media.shared.$isPlaying,
+            Media.shared.$playbackPosition,
+            Media.shared.$playbackRate,
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] nowPlaying, isPlaying, position, rate in
+            self?.updateVoicePlaybackHeader(
+                nowPlaying: nowPlaying,
+                isPlaying: isPlaying,
+                position: position,
+                rate: rate,
+            )
+        }
+        .store(in: &cancellables)
+    }
+
+    private func updateVoicePlaybackHeader(
+        nowPlaying: Media.NowPlaying?,
+        isPlaying: Bool,
+        position: TimeInterval,
+        rate: Float,
+    ) {
+        guard voicePlaybackHeaderHeightConstraint != nil else { return }
+        let item = nowPlaying.flatMap { item in
+            presentationMode == .full && item.chatID == chatVM.chatID && item.accountID == location.accountID
+                ? item
+                : nil
+        }
+        if let item {
+            let duration = Media.shared.playbackDuration
+            voicePlaybackHeader.configure(.init(
+                title: voicePlaybackTitle(messageID: item.messageID),
+                subtitle: voicePlaybackSubtitle(),
+                isPlaying: isPlaying,
+                progress: duration > 0 ? CGFloat(position / duration) : 0,
+                rate: rate,
+            ))
+        }
+        let desiredHeight = item == nil ? 0 : VoicePlaybackHeaderView.contentHeight
+        guard abs(voicePlaybackHeaderHeightConstraint.constant - desiredHeight) > 0.5 else { return }
+        if item != nil { voicePlaybackHeader.isHidden = false }
+        voicePlaybackHeaderHeightConstraint.constant = desiredHeight
+        UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.2) {
+            self.view.layoutIfNeeded()
+        } completion: { [weak self] _ in
+            guard let self else { return }
+            voicePlaybackHeader.isHidden = voicePlaybackHeaderHeightConstraint.constant == 0
+            updateHistoryInsets()
+        }
+    }
+
+    /// MediaHeaderItemNode's voice title: the author's name, or the chat's for a channel post.
+    private func voicePlaybackTitle(messageID: Int64) -> String {
+        let message = chatVM.messages.first { message in
+            message.id == messageID || message.album.contains { $0.id == messageID }
+        }
+        if let user = message?.senderUser { return ServiceMessageText.displayTitle(user) }
+        return chatVM.customChat.displayTitle
+    }
+
+    /// "Voice Message" in private chats and channels; a group's title in groups.
+    private func voicePlaybackSubtitle() -> String {
+        switch chatVM.customChat.chat.type {
+        case .chatTypeBasicGroup:
+            chatVM.customChat.displayTitle
+        case .chatTypeSupergroup(let supergroup) where !supergroup.isChannel:
+            chatVM.customChat.displayTitle
+        default:
+            L10n.telegram("MusicPlayer.VoiceNote")
+        }
     }
 
     private func configureCollectionView() {
@@ -3144,9 +3240,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             } else {
                 view.safeAreaInsets.bottom + 8
             }
-        let visualTopInset = (
-            pinnedMessageBannerHeightConstraint?.constant ?? 0,
-        ) > 0
+        let visualTopInset = (pinnedMessageBannerHeightConstraint?.constant ?? 0) > 0
+            || (voicePlaybackHeaderHeightConstraint?.constant ?? 0) > 0
             ? pinnedMessageBanner.frame.maxY + 8
             : customNavigationBar.frame.maxY + 8
         let updatedInsets = UIEdgeInsets(top: visualBottomInset, left: 0, bottom: visualTopInset, right: 0)

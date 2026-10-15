@@ -7,13 +7,29 @@ import MediaPlayer
 final class Media: ObservableObject {
     // MARK: Internal
 
+    /// The message whose audio is loaded, for Telegram's playback header (MediaNavigationAccessoryHeaderNode).
+    struct NowPlaying: Equatable {
+        let accountID: UUID?
+        let chatID: Int64
+        let messageID: Int64
+    }
+
     static let shared = Media()
+    /// Telegram's playback speeds, cycled by the header's rate button (rateButtonPressed).
+    static let playbackRates: [Float] = [1, 1.5, 2]
+
+    private static let playbackRateKey = "BetterTG.voicePlaybackRate"
 
     @Published var savedMediaPath = ""
     @Published var isPlaying = false
     @Published var currentTime: Int32 = 0
     /// The position with its fraction, which a voice bubble's waveform follows; currentTime keeps whole seconds.
     @Published private(set) var playbackPosition: TimeInterval = 0
+    @Published private(set) var nowPlaying: NowPlaying?
+    @Published private(set) var playbackRate: Float = {
+        let stored = UserDefaults.standard.float(forKey: playbackRateKey)
+        return playbackRates.contains(stored) ? stored : 1
+    }()
 
     // MARK: Private
 
@@ -28,6 +44,10 @@ final class Media: ObservableObject {
     /// Media activated the spoken-audio session for its own playback, so it gives it back when playback ends.
     private var ownsPlaybackSession = false
 
+    var playbackDuration: TimeInterval {
+        TimeInterval(duration)
+    }
+
     private init() {
         setPublishers()
         setCommandCenterControls()
@@ -38,8 +58,29 @@ final class Media: ObservableObject {
         currentTime = 0
         playbackPosition = 0
         savedMediaPath = ""
+        nowPlaying = nil
         player.stop()
         nowPlayingCenter.nowPlayingInfo = nil
+    }
+
+    /// The header's close button: stops playback and gives the audio session back.
+    func close() {
+        stop()
+        releasePlaybackSession()
+    }
+
+    func togglePlayback() {
+        guard !savedMediaPath.isEmpty, player.hasItem else { return }
+        toggle()
+    }
+
+    /// 1X → 1.5X → 2X → 1X, kept for later notes as Telegram keeps its voice playback rate.
+    func cyclePlaybackRate() {
+        let index = Self.playbackRates.firstIndex(of: playbackRate) ?? 0
+        playbackRate = Self.playbackRates[(index + 1) % Self.playbackRates.count]
+        UserDefaults.standard.set(playbackRate, forKey: Self.playbackRateKey)
+        player.setRate(playbackRate)
+        nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(playbackRate) : 0
     }
 
     func beginExclusivePlayback() {
@@ -67,11 +108,12 @@ final class Media: ObservableObject {
         seekTo(max(0, min(TimeInterval(duration), timeInterval)))
     }
 
-    func toggle(with path: String, duration: Int) {
+    func toggle(with path: String, duration: Int, item: NowPlaying? = nil) {
         self.duration = duration
         if savedMediaPath.isEmpty || savedMediaPath != path {
             stop()
             savedMediaPath = path
+            nowPlaying = item
             player.load(
                 url: URL(fileURLWithPath: path),
                 autoplay: false,
@@ -84,10 +126,11 @@ final class Media: ObservableObject {
     }
 
     /// Loads a voice note paused at a position, so scrubbing a note that isn't playing doesn't start it.
-    func prepare(with path: String, duration: Int, at time: TimeInterval) {
+    func prepare(with path: String, duration: Int, at time: TimeInterval, item: NowPlaying? = nil) {
         stop()
         self.duration = duration
         savedMediaPath = path
+        nowPlaying = item
         playbackPosition = max(0, time)
         player.load(
             url: URL(fileURLWithPath: path),
@@ -247,6 +290,7 @@ final class Media: ObservableObject {
 
     private func play() {
         setAudioSessionPlayback()
+        player.setRate(playbackRate)
         player.play()
         isPlaying = true
         setNowPlaying()

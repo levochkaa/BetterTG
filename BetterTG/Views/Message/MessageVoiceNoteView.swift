@@ -42,6 +42,12 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
         isCurrentVoice && Media.shared.isPlaying
     }
 
+    /// What the chat's playback header names while this note plays.
+    private var nowPlayingItem: Media.NowPlaying? {
+        guard let message else { return nil }
+        return Media.NowPlaying(accountID: TDLib.shared.activeAccountID, chatID: message.chatId, messageID: message.id)
+    }
+
     /// An incoming note the user hasn't played, or a sent note its recipient hasn't played. A sent note's state is
     /// its recipient's, so Saved Messages and group or channel posts, which have no single recipient, show no dot.
     private var showsUnlistenedDot: Bool {
@@ -301,7 +307,7 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
             Media.shared.seek(to: time)
         } else if !Media.shared.isPlaying {
             // Scrubbing positions a note without starting it; the next tap plays from there.
-            Media.shared.prepare(with: localPath, duration: voiceNote.duration, at: time)
+            Media.shared.prepare(with: localPath, duration: voiceNote.duration, at: time, item: nowPlayingItem)
         } else {
             // Telegram scrubs only the current note, so another note's playback keeps going.
             render()
@@ -315,7 +321,7 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
         }
         guard let localPath, let voiceNote else { return }
         let starts = !isCurrentVoicePlaying
-        Media.shared.toggle(with: localPath, duration: voiceNote.duration)
+        Media.shared.toggle(with: localPath, duration: voiceNote.duration, item: nowPlayingItem)
         if starts { markListened() }
     }
 

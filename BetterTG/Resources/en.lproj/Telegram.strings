@@ -799,3 +799,6 @@
 "Chat.CallMessage.OutgoingGroupCall" = "Outgoing Group Call";
 "Notification.ChangedThemeGift" = "%1$@ changed chat theme to %2$@";
 "Notification.YouChangedThemeGift" = "You changed chat theme to %@";
+"MusicPlayer.VoiceNote" = "Voice Message";
+"VoiceOver.Media.PlaybackRateChange" = "Double tap to change";
+"VoiceOver.Media.PlaybackStop" = "Stop playback";
