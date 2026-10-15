@@ -356,6 +356,33 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let nextIndex: Int
     }
 
+    /// Moves rows only while the page reorders its pinned chats; the diffable source keeps its snapshot in step.
+    private final class ChatRowsDataSource: UITableViewDiffableDataSource<Section, Int64> {
+        var canMoveRow: ((IndexPath) -> Bool)?
+        /// The moved chat, the chat it was dropped onto, and whether it moved down.
+        var didMoveRow: ((Int64, Int64, Bool) -> Void)?
+
+        override func tableView(_: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+            canMoveRow?(indexPath) ?? false
+        }
+
+        override func tableView(_: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
+            canMoveRow?(indexPath) ?? false
+        }
+
+        override func tableView(
+            _ tableView: UITableView,
+            moveRowAt sourceIndexPath: IndexPath,
+            to destinationIndexPath: IndexPath,
+        ) {
+            let movedID = itemIdentifier(for: sourceIndexPath)
+            let referenceID = itemIdentifier(for: destinationIndexPath)
+            super.tableView(tableView, moveRowAt: sourceIndexPath, to: destinationIndexPath)
+            guard sourceIndexPath != destinationIndexPath, let movedID, let referenceID else { return }
+            didMoveRow?(movedID, referenceID, sourceIndexPath.row < destinationIndexPath.row)
+        }
+    }
+
     /// Telegram's service notifications account, which Telegram never archives.
     private static let serviceNotificationsUserID: Int64 = 777_000
 
@@ -386,7 +413,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var snapshotNeedsApply = false
     private var pendingSnapshotAnimated = false
     private var pendingSnapshotChangedIDs = Set<Int64>()
-    private var dataSource: UITableViewDiffableDataSource<Section, Int64>!
+    private var dataSource: ChatRowsDataSource!
+    private var pressGesture: ContextMenuPressGestureRecognizer?
+    /// Telegram's reorder mode for pinned chats; list updates wait until it ends so a drag is never interrupted.
+    private var isReorderingPinnedChats = false
+    private var reorderDoneButton: UIButton?
 
     var isInteractingWithList: Bool {
         guard isViewLoaded else { return false }
@@ -410,6 +441,19 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var isArchivePage: Bool {
         if case .archive = folder.type { return true }
         return false
+    }
+
+    /// The screen that owns this page: overlays sit there, above the folder picker on the main list.
+    private var overlayHost: UIViewController {
+        var host: UIViewController = self
+        while let parent = host.parent, !(parent is UINavigationController) {
+            host = parent
+        }
+        return host
+    }
+
+    private var overlayBottomInset: CGFloat {
+        showsStandaloneSearch ? 12 : 64
     }
 
     /// TDLib's limit for pinned chats in this page's list.
@@ -476,6 +520,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             return cell.contextPreviewView
         }
         tableView.addGestureRecognizer(pressGesture)
+        self.pressGesture = pressGesture
         configureDataSource()
         rebuildChatIndex()
         updateSnapshot(animated: false)
@@ -497,6 +542,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             }
         }
         #endif
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        endPinnedReorder()
     }
 
     override func viewDidLayoutSubviews() {
@@ -562,6 +612,28 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         if indexPath.row >= tableView.numberOfRows(inSection: indexPath.section) - 12 {
             loadMoreChatsIfNeeded()
         }
+    }
+
+    override func tableView(_: UITableView, editingStyleForRowAt _: IndexPath) -> UITableViewCell.EditingStyle {
+        .none
+    }
+
+    override func tableView(_: UITableView, shouldIndentWhileEditingRowAt _: IndexPath) -> Bool {
+        false
+    }
+
+    /// Telegram (ChatListNode.reorderItem) moves a pinned chat only among the pinned chats.
+    override func tableView(
+        _: UITableView,
+        targetIndexPathForMoveFromRowAt sourceIndexPath: IndexPath,
+        toProposedIndexPath proposedDestinationIndexPath: IndexPath,
+    ) -> IndexPath {
+        let pinnedCount = dataSource.snapshot()
+            .itemIdentifiers
+            .prefix { chat(for: $0)?.position.isPinned == true }
+            .count
+        guard pinnedCount > 0 else { return sourceIndexPath }
+        return IndexPath(row: min(proposedDestinationIndexPath.row, pinnedCount - 1), section: sourceIndexPath.section)
     }
 
     func clientRestorationViewport() -> ChatListViewportSnapshot {
@@ -631,6 +703,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     func setSearchActive(_ active: Bool, animated: Bool, preservingViewport: Bool = false) {
+        if active { endPinnedReorder() }
         let wasActive = searchActive
         if active, !wasActive {
             viewportBeforeSearch = isViewLoaded && didSetInitialSearchOffset ? clientRestorationViewport() : nil
@@ -674,10 +747,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private func configureDataSource() {
-        dataSource = UITableViewDiffableDataSource<
-            Section,
-            Int64,
-        >(tableView: tableView) { [weak self] tableView, indexPath, id in
+        dataSource = ChatRowsDataSource(tableView: tableView) { [weak self] tableView, indexPath, id in
             guard let self, let chat = chat(for: id),
                   let cell = tableView.dequeueReusableCell(
                       withIdentifier: ChatListCell.reuseIdentifier,
@@ -691,6 +761,15 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 client: actionAuthority.client,
             )
             return cell
+        }
+        dataSource.canMoveRow = { [weak self] indexPath in
+            guard let self, isReorderingPinnedChats, let id = dataSource.itemIdentifier(for: indexPath) else {
+                return false
+            }
+            return chat(for: id)?.position.isPinned == true
+        }
+        dataSource.didMoveRow = { [weak self] movedID, referenceID, movedDown in
+            self?.commitPinnedMove(movedID, relativeTo: referenceID, movedDown: movedDown)
         }
     }
 
@@ -768,7 +847,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private func applyPendingSnapshot() {
-        guard snapshotNeedsApply, !isApplyingSnapshot else { return }
+        guard snapshotNeedsApply, !isApplyingSnapshot, !isReorderingPinnedChats else { return }
         snapshotNeedsApply = false
         let animated = pendingSnapshotAnimated
         let changedIDs = pendingSnapshotChangedIDs
@@ -1070,6 +1149,16 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 _ = try await client.toggleChatIsPinned(chatId: chat.id, chatList: chatList, isPinned: !pinned)
             }
         })
+        // Telegram offers Reorder on a pinned item (ChatContextMenus, Chat.InlineTopicMenu.Reorder); BetterTG has no
+        // Edit mode, so this is the way into reordering pinned chats.
+        if pinned, folder.chats.filter(\.position.isPinned).count > 1, isSearchActive?() != true {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.InlineTopicMenu.Reorder"),
+                image: UIImage(systemName: "arrow.up.arrow.down"),
+            ) { [weak self] in
+                self?.beginPinnedReorder()
+            })
+        }
         if !isSavedMessages {
             actions.append(TelegramContextMenuAction(
                 title: muted
@@ -1134,16 +1223,78 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     /// Shown on the screen that owns this page, above the folder picker on the main list.
     private func showUndoToast(_ text: String, undo: (() -> Void)? = nil) {
-        var host: UIViewController = self
-        while let parent = host.parent, !(parent is UINavigationController) {
-            host = parent
-        }
         TelegramUndoToast.show(
             text: text,
-            in: host.view,
-            bottomInset: showsStandaloneSearch ? 12 : 64,
+            in: overlayHost.view,
+            bottomInset: overlayBottomInset,
             undo: undo,
         )
+    }
+
+    private func beginPinnedReorder() {
+        guard actionAuthority.scope(owner: self).isCurrent, !isReorderingPinnedChats, isSearchActive?() != true
+        else { return }
+        isReorderingPinnedChats = true
+        pressGesture?.isEnabled = false
+        tableView.setEditing(true, animated: true)
+
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = L10n.telegram("Common.Done")
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 28, bottom: 10, trailing: 28)
+        let button = UIButton(
+            configuration: configuration,
+            primaryAction: UIAction { [weak self] _ in self?.endPinnedReorder() },
+        )
+        button.translatesAutoresizingMaskIntoConstraints = false
+        let host: UIView = overlayHost.view
+        host.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.centerXAnchor.constraint(equalTo: host.centerXAnchor),
+            button.bottomAnchor.constraint(
+                equalTo: host.safeAreaLayoutGuide.bottomAnchor,
+                constant: -overlayBottomInset,
+            ),
+        ])
+        reorderDoneButton = button
+        UIAccessibility.post(notification: .layoutChanged, argument: button)
+    }
+
+    /// Leaves reorder mode and shows the list as TDLib now orders it.
+    private func endPinnedReorder() {
+        guard isReorderingPinnedChats else { return }
+        isReorderingPinnedChats = false
+        pressGesture?.isEnabled = true
+        reorderDoneButton?.removeFromSuperview()
+        reorderDoneButton = nil
+        guard isViewLoaded else { return }
+        tableView.setEditing(false, animated: true)
+        updateSnapshot(animated: true)
+    }
+
+    /// Telegram (ChatListNode.reorderItem) rebuilds the list's whole pinned order around the drop target, including
+    /// pinned chats this page does not show, and saves it at once. TDLib keeps a folder's pinned chats in the folder.
+    private func commitPinnedMove(_ movedID: Int64, relativeTo referenceID: Int64, movedDown: Bool) {
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        guard scope.isCurrent else {
+            endPinnedReorder()
+            return
+        }
+        let chatList = folder.chatList
+        var chatIDs = TelegramChatListStore.shared.pinnedChatIDs(in: chatList).filter { $0 != movedID }
+        if let index = chatIDs.firstIndex(of: referenceID) {
+            chatIDs.insert(movedID, at: movedDown ? index + 1 : index)
+        } else {
+            chatIDs.append(movedID)
+        }
+        let order = chatIDs
+        runAction(scope, onFailure: { [weak self] _ in
+            self?.endPinnedReorder()
+            self?.presentChatListActionFailure()
+        }) {
+            _ = try await client.send(TDNativeRequests.setPinnedChats(chatList: chatList, chatIds: order))
+        }
     }
 
     private func removeFromCurrentFolder(_ chat: CustomChat) {

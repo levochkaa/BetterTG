@@ -45,6 +45,8 @@ final class ChatListCell: UITableViewCell {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .systemBackground
         selectionStyle = .none
+        // Pinned rows show a reorder handle while the list reorders them.
+        showsReorderControl = true
         isAccessibilityElement = true
         configureViews()
         configureConstraints()
@@ -141,6 +143,7 @@ final class ChatListCell: UITableViewCell {
         configuredArchived = isArchived
         configuredClient = client
         pinned = chat.position.isPinned
+        backgroundColor = pinned ? .secondarySystemBackground : .systemBackground
         titleLabel.text = chat.displayTitle
         messageLabel.attributedText = summaryText(for: chat, client: client)
         let hasUnread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread

@@ -177,6 +177,19 @@ import TDLibKit
         )
     }
 
+    /// The list's pinned chats in TDLib's order, including chats the list cannot show, such as secret chats.
+    func pinnedChatIDs(in list: ChatList) -> [Int64] {
+        records.values
+            .compactMap { record -> (id: Int64, order: Int64)? in
+                guard let position = record.positions.first(where: { $0.list == list && $0.order != 0 }),
+                      position.isPinned
+                else { return nil }
+                return (record.id, position.order)
+            }
+            .sorted { $0.order == $1.order ? $0.id > $1.id : $0.order > $1.order }
+            .map(\.id)
+    }
+
     /// Whether `customChat(id:in:)` would return the chat, without building it.
     func listsChat(id: Int64, in list: ChatList) -> Bool {
         guard let record = records[id], record.positions.contains(where: { $0.list == list && $0.order != 0 })
