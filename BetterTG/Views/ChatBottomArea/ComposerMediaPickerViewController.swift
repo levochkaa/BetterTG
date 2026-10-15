@@ -1,5 +1,6 @@
 // ComposerMediaPickerViewController.swift
 
+import Combine
 import TDLibKit
 import UIKit
 
@@ -57,6 +58,7 @@ UISearchBarDelegate {
     private var loadTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var canUseCustomEmoji = false
+    private var clientChangeCancellable: AnyCancellable?
 
     private var mode: Mode {
         Mode(rawValue: segmentedControl.selectedSegmentIndex) ?? .emoji
@@ -101,6 +103,15 @@ UISearchBarDelegate {
         searchBar.isHidden = true
         searchBarHeightConstraint.constant = 0
         applyEmojiSnapshot()
+        // Its stickers and GIFs are the presenting client's files. A renewed client (the app returning from the
+        // background) closes the sheet so the chat can move to the new client, instead of losing the next tap.
+        clientChangeCancellable = TDLib.shared
+            .activeClientChanges
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, !contextIsCurrent, presentingViewController != nil, !isBeingDismissed else { return }
+                dismissPicker()
+            }
     }
 
     func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {

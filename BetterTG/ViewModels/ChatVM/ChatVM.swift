@@ -2491,6 +2491,9 @@ import UIKit
     }
 
     func sendSticker(_ sticker: Sticker) async {
+        // A sticker or GIF chosen while the composer's message is still sending goes out after it, as Telegram
+        // queues sends, instead of being dropped.
+        await waitForComposerSend()
         guard !sendingComposerMessage else { return }
         sendingComposerMessage = true
         let transitionID = UUID()
@@ -2545,6 +2548,7 @@ import UIKit
     }
 
     func sendAnimation(_ animation: Animation) async {
+        await waitForComposerSend()
         guard !sendingComposerMessage else { return }
         sendingComposerMessage = true
         let transitionID = UUID()
@@ -3710,6 +3714,19 @@ import UIKit
         reader.synchronize(ChatForumTopicReads.demandedIDs(
             chatID: chatID, messages: messages.flatMap(\.sourceMessages), composerTopics: composerTopics,
         ))
+    }
+
+    /// Waits up to 30 s for the composer's own send (text, media or documents) to finish.
+    private func waitForComposerSend() async {
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(30)
+        while sendingComposerMessage, clock.now < deadline, !Task.isCancelled, locationContextIsCurrent {
+            if let task = sendMessageTask {
+                await task.value
+            } else {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+        }
     }
 
     /// The input as a media caption, trimmed as sent text is, or nil when nothing is left. A caption over TDLib's
