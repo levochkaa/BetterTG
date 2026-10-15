@@ -2235,6 +2235,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 }
             }
             .store(in: &cancellables)
+        chatVM.recordingTimeChanged
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                guard let self, showsComposer, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+                composerView.updateRecordingTime()
+            }
+            .store(in: &cancellables)
         chatVM.replyKeyboard
             .$revision
             .receive(on: DispatchQueue.main)

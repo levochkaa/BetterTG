@@ -652,6 +652,12 @@ final class ChatComposerView: UIView {
         }
     }
 
+    /// The recording tick refreshes only the recording row instead of the whole composer.
+    func updateRecordingTime() {
+        guard chatVM.recordingVoiceNote, !videoNoteState.isActive else { return }
+        updateRecordingStatus()
+    }
+
     private func configureViews() {
         translatesAutoresizingMaskIntoConstraints = false
         backgroundColor = .clear

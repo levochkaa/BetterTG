@@ -58,6 +58,9 @@ import UIKit
     private static let historyPageSize = 30
 
     let messagesDidChange = PassthroughSubject<Void, Never>()
+    /// The 50 ms recording tick publishes here instead of `objectWillChange`, so only the composer's recording row
+    /// follows it, as Telegram updates only ChatTextInputAudioRecordingTimeNode.
+    let recordingTimeChanged = PassthroughSubject<Void, Never>()
     let messageBubblesWillDelete = PassthroughSubject<Set<DisplayedMessageID>, Never>()
     let sendTransitionAccepted = PassthroughSubject<ComposerSendTransitionAcceptance, Never>()
     let sendTransitionCancelled = PassthroughSubject<UUID, Never>()
@@ -104,7 +107,6 @@ import UIKit
     @Published var highlightedMessageId: Int64?
     @Published var displayedImages = [SelectedImage]()
     @Published var displayedDocuments = [SelectedDocument]()
-    @Published var timerCount = 0.0
     @Published var text: AttributedString = ""
     @Published var editMessageText: AttributedString = "" {
         didSet {
@@ -175,6 +177,7 @@ import UIKit
     /// A secret chat sends nothing until TDLib reports its state ready; nil until the state is known.
     private(set) var secretChatIsReady: Bool?
 
+    private var timerCountStorage = 0.0
     private var voiceFinalizationGeneration = UInt64.zero
     private var voiceDraftRefreshGeneration = UInt64.zero
     @Published private var pendingVoiceDraftIsFinalizing = false
@@ -292,6 +295,15 @@ import UIKit
     /// the input; the timeline holds the messages this send creates until the composer clears, so both change at once.
     /// Until the send call returns, any new pending outgoing message may be one of them; then only the returned ones.
     private var composerSendHold: (id: UUID, earlierMessageIDs: Set<Int64>, sentMessageIDs: Set<Int64>?)?
+
+    /// Discrete changes (start, stop, restored drafts) publish like the other state; the tick writes the storage.
+    var timerCount: Double {
+        get { timerCountStorage }
+        set {
+            objectWillChange.send()
+            timerCountStorage = newValue
+        }
+    }
 
     var canSendLivePhotos: Bool {
         if case .chatTypeSecret = customChat.chat.type {
@@ -5899,10 +5911,14 @@ import UIKit
         guard let audioRecorder else { return }
         let recorderTime = max(0, audioRecorder.currentTime)
         if recorderTime + 0.05 < voiceRecordingLastRecorderTime {
-            voiceRecordingTimerBaseline = timerCount
+            voiceRecordingTimerBaseline = timerCountStorage
         }
         voiceRecordingLastRecorderTime = recorderTime
-        timerCount = max(timerCount, voiceRecordingTimerBaseline + recorderTime)
+        let couldPause = canPauseVoiceRecording
+        timerCountStorage = max(timerCountStorage, voiceRecordingTimerBaseline + recorderTime)
+        // Pause becomes available half a second in; that one change still refreshes the whole composer.
+        if canPauseVoiceRecording != couldPause { objectWillChange.send() }
+        recordingTimeChanged.send()
     }
 
     private func sendMessageVoiceNote(
