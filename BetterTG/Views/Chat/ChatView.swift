@@ -5213,19 +5213,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             actions: menu(for: message),
             tracking: gesture,
             reactionsProvider: contextReactionsProvider(for: message),
-            quoteSelection: quoteTarget.flatMap { target in
-                allowsQuoteSelection(in: message, sourceMessageID: target.sourceMessageID)
-                    ? TelegramContextQuoteSelection(
-                        textView: target.textView,
-                        allowsCopy: message.properties.canBeCopied,
-                    ) { [
-                        weak self,
-                        weak message,
-                    ] range in
-                        guard let self, let message else { return }
-                        chatVM.beginQuoteReply(to: message, range: range, sourceMessageID: target.sourceMessageID)
-                    }
-                    : nil
+            quoteSelection: quoteTarget.flatMap { target -> TelegramContextQuoteSelection? in
+                // ChatMessageTextBubbleContentNode: text is selected to quote it or, where it can't be replied to,
+                // to copy part of it.
+                let canQuote = allowsQuoteSelection(in: message, sourceMessageID: target.sourceMessageID)
+                guard canQuote || allowsCopySelection(in: message, sourceMessageID: target.sourceMessageID)
+                else { return nil }
+                return TelegramContextQuoteSelection(
+                    textView: target.textView,
+                    allowsCopy: message.properties.canBeCopied,
+                    allowsQuote: canQuote,
+                ) { [weak self, weak message] range in
+                    guard let self, let message else { return }
+                    chatVM.beginQuoteReply(to: message, range: range, sourceMessageID: target.sourceMessageID)
+                }
             },
             onDismiss: { [weak self] in self?.retryClientRestoration() },
         )
@@ -6080,6 +6081,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let source = sourceMessageID.flatMap { id in message.sourceMessages.first { $0.id == id } } ?? message.message
         return message.properties.canBeReplied && !chatVM.isReadOnlyTopic && message.message.selfDestructType == nil
             && formattedText(from: source.content)?.text.isEmpty == false
+    }
+
+    /// Copyable text is selectable in any chat, including channels the user only reads and closed topics.
+    private func allowsCopySelection(in message: CustomMessage, sourceMessageID: Int64? = nil) -> Bool {
+        let source = sourceMessageID.flatMap { id in message.sourceMessages.first { $0.id == id } } ?? message.message
+        return message.properties.canBeCopied && formattedText(from: source.content)?.text.isEmpty == false
     }
 
     private func formattedText(from content: MessageContent) -> FormattedText? {

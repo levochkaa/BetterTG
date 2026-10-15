@@ -55,6 +55,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     private var contextQuoteAction: ((NSRange) -> Void)?
     /// Copy-protected text stays selectable for Quote; Copy, Share and dragging the text out stay unavailable.
     private var contextQuoteAllowsCopy = true
+    /// Read-only chats select text to copy it without offering Quote (ChatController's text selection actions).
+    private var contextQuoteAllowsQuote = true
     private lazy var quoteMenuInteraction = UIEditMenuInteraction(delegate: self)
     private var quoteMenuTask: Task<Void, Never>?
     private lazy var entityTapDelegate = QuoteTapDelegate(owner: self)
@@ -285,9 +287,10 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         }
     }
 
-    func setContextQuoteAction(_ action: ((NSRange) -> Void)?, allowsCopy: Bool = true) {
+    func setContextQuoteAction(_ action: ((NSRange) -> Void)?, allowsCopy: Bool = true, allowsQuote: Bool = true) {
         contextQuoteAction = action
         contextQuoteAllowsCopy = action == nil || allowsCopy
+        contextQuoteAllowsQuote = action == nil || allowsQuote
         if action != nil { lastQuoteSelection = nil }
         entityTapGesture.cancelsTouchesInView = action == nil
         isSelectable = action != nil && formattedText != nil
@@ -464,7 +467,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         guard !hidden else { return UIMenu(children: []) }
         let quote = UIAction(title: L10n.telegram("Conversation.ContextMenuQuote")) { _ in contextQuoteAction(range) }
         // TextSelectionNode drops Copy and Share for protected content and keeps Quote.
-        return UIMenu(children: contextQuoteAllowsCopy ? [quote] + suggestedActions : [quote])
+        let quoteActions: [UIMenuElement] = contextQuoteAllowsQuote ? [quote] : []
+        return UIMenu(children: quoteActions + (contextQuoteAllowsCopy ? suggestedActions : []))
     }
 
     private func renderText() {
