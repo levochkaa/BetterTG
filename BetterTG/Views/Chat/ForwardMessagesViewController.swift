@@ -31,6 +31,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private var preparationTask: Task<Void, Never>?
     private var selectionTask: Task<Void, Never>?
     private var accountCancellable: AnyCancellable?
+    private var clientCancellable: AnyCancellable?
     private var scrollObservation: NSKeyValueObservation?
     private var transition: (from: Int, to: Int, fromOffset: CGFloat, toOffset: CGFloat)?
     private var isChangingPage = false
@@ -107,6 +108,16 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
 
         accountCancellable = NotificationCenter.default
             .publisher(for: .telegramAccountsChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, !contextIsCurrent else { return }
+                cancelPicker()
+            }
+        // Returning from the background renews the account's TDLib client without an accounts change. The chat that
+        // presented the picker is rebuilt on the new client and drops a choice made here, so the picker closes
+        // instead of staying on screen with every tap and page load rejected.
+        clientCancellable = TDLib.shared
+            .activeClientChanges
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self, !contextIsCurrent else { return }
