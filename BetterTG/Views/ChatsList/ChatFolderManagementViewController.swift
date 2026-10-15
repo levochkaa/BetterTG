@@ -402,7 +402,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     private func selectChats(excluded: Bool) {
         let scope = session.scope(owner: self)
         guard scope.isCurrent else { return }
-        let selected = Set(excluded ? draft.excludedChatIds : draft.includedChatIds)
+        let selected = Set(excluded ? draft.excludedChatIds : draft.alwaysIncludedChatIDs)
         let controller = ChatFolderChatSelectionViewController(
             session: session,
             title: excluded
@@ -430,7 +430,8 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
             presentFolderError(message: L10n.betterTG("Folders.EnterNameError"))
             return
         }
-        guard draft.hasIncludedRule else {
+        // ChatListFilterPresetControllerState.isComplete: an existing folder needs only its name.
+        guard folderInfo != nil || draft.hasIncludedRule else {
             presentFolderError(message: L10n.betterTG("Folders.SelectIncludeError"))
             return
         }
@@ -758,8 +759,13 @@ extension ChatFolder {
     }
 
     var hasIncludedRule: Bool {
-        includeBots || includeChannels || includeContacts || includeGroups || includeNonContacts || !includedChatIds
-            .isEmpty
+        includeBots || includeChannels || includeContacts || includeGroups || includeNonContacts
+            || !alwaysIncludedChatIDs.isEmpty
+    }
+
+    /// Telegram's includePeers.peers: the folder's pinned chats, then its other always included chats.
+    var alwaysIncludedChatIDs: [Int64] {
+        pinnedChatIds + includedChatIds.filter { !pinnedChatIds.contains($0) }
     }
 
     func includes(_ type: ChatFolderInclusion) -> Bool {
@@ -799,11 +805,14 @@ extension ChatFolder {
     }
 
     func replacingIncludedChatIDs(_ selected: Set<Int64>) -> ChatFolder {
-        let retained = includedChatIds.filter(selected.contains)
-        let added = selected.subtracting(includedChatIds).sorted()
+        // A chat that stays selected keeps its pin and place; a deselected pinned chat leaves the folder.
+        let pinned = pinnedChatIds.filter(selected.contains)
+        let retained = includedChatIds.filter { selected.contains($0) && !pinned.contains($0) }
+        let added = selected.subtracting(pinnedChatIds).subtracting(includedChatIds).sorted()
         return replacing(
             excludedChatIds: excludedChatIds.filter { !selected.contains($0) },
             includedChatIds: retained + added,
+            pinnedChatIds: pinned,
         )
     }
 
@@ -939,7 +948,7 @@ private extension ChatFolderEditorViewController {
             case .includedChats:
                 L10n.telegramPlural(
                     "GlobalAutodeleteSettings.ApplyChatsSubject",
-                    count: folder.includedChatIds.count,
+                    count: folder.alwaysIncludedChatIDs.count,
                 )
             case .excludedChats:
                 L10n.telegramPlural(

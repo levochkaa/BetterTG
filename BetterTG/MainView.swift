@@ -743,7 +743,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         let controller = ChatFolderChatSelectionViewController(
             session: .live(rootVM: rootVM, authority: actionAuthority),
             title: L10n.telegram("ChatList.AddChatsToFolder"),
-            selectedChatIDs: Set(definition.includedChatIds),
+            selectedChatIDs: Set(definition.alwaysIncludedChatIDs),
         ) { selector, selectedChatIDs in
             selector.submitFolderEdit(id: info.id, folder: definition.replacingIncludedChatIDs(selectedChatIDs))
             return false
