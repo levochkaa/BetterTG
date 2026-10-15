@@ -683,6 +683,7 @@ final class TDLib: @unchecked Sendable {
                 await VoiceNoteDraftStore.shared.discardAccount(id)
                 await VoiceRecordingDraftStore.shared.discardAccount(id)
                 await VideoNoteRecordingDraftStore.shared.discardAccount(id)
+                await PendingMessageForwardStore.shared.discardAccount(id)
             }
             if removeDirectory, closed {
                 registry.removeDatabaseDirectory(for: id)

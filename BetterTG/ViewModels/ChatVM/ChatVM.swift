@@ -91,7 +91,11 @@ import UIKit
         didSet { queueForumTopicDemandRefresh() }
     }
 
-    @Published var pendingForward: PendingMessageForward?
+    @Published var pendingForward: PendingMessageForward? {
+        didSet {
+            if pendingForward != oldValue { storePendingForward() }
+        }
+    }
 
     @Published var replyMessage: CustomMessage? {
         didSet {
@@ -1001,6 +1005,7 @@ import UIKit
                 customChat.draftMessage
             }
         applyAuthoritativeDraft(routeDraftMessage, expectedRevision: composerRevision)
+        restoreStoredForwardIfNeeded()
         Task { [weak self] in
             guard let self else { return }
             guard !previewing, !isReadOnlyTopic else {
@@ -4275,6 +4280,55 @@ import UIKit
         reader.synchronize(ChatForumTopicReads.demandedIDs(
             chatID: chatID, messages: messages.flatMap(\.sourceMessages), composerTopics: composerTopics,
         ))
+    }
+
+    /// Telegram keeps a pending forward in the destination's interface state; BetterTG saves it per account and chat
+    /// location, and sending, Do Not Forward, a reply or another forward clears or replaces it.
+    private func storePendingForward() {
+        guard !previewing, accountID != nil else { return }
+        let destination = location.draftKey
+        if let pendingForward, let stored = StoredMessageForward(pendingForward, destination: destination) {
+            PendingMessageForwardStore.shared.save(stored)
+        } else {
+            PendingMessageForwardStore.shared.remove(destination: destination)
+        }
+    }
+
+    /// Brings back the forward saved for this chat location. Its messages are prepared again on the current client;
+    /// a forward they no longer allow, or one a reply or edit has since replaced, is dropped.
+    private func restoreStoredForwardIfNeeded() {
+        guard !previewing, pendingForward == nil, let accountID,
+              let stored = PendingMessageForwardStore.shared.forward(for: location.draftKey) else { return }
+        guard stored.source.accountID == accountID,
+              let request = try? MessageForwardRequest(
+                  sourceLocation: ChatLocation(
+                      accountID: accountID, chatID: stored.source.chatID, clientID: client.id,
+                      topic: stored.source.topic,
+                  ),
+                  messageIDs: stored.messageIDs,
+              )
+        else {
+            PendingMessageForwardStore.shared.remove(stored)
+            return
+        }
+        let client = client
+        Task { [weak self] in
+            do {
+                let prepared = try await MessageForwardingService.prepare(request: request, client: client)
+                guard let self, locationContextIsCurrent, pendingForward == nil else { return }
+                guard replyMessage == nil, editCustomMessage == nil else {
+                    PendingMessageForwardStore.shared.remove(stored)
+                    return
+                }
+                pendingForward = stored.pending(prepared: prepared)
+            } catch MessageForwardingError.accountChanged {
+                // Another account or client is active; the forward waits for this one.
+            } catch is CancellationError {
+            } catch {
+                guard let self, locationContextIsCurrent else { return }
+                PendingMessageForwardStore.shared.remove(stored)
+            }
+        }
     }
 
     /// The root messages that head the thread. TDLib leaves the rest of an automatically forwarded album outside the
