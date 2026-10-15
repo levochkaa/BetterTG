@@ -192,6 +192,64 @@ Read-only code audits at `224b76f9`; "confirmed" means the whole code path was t
 
 Reviewed and OK: TGS phase sync across loops, image loading and caches, animated file demand and download leases, inline media owners and pruning, gallery playback owners, Open in Chat account checks, video note playback and capture, reveal predecessors, custom emoji and frame caches, the F39 video output. Not reviewed: the profile avatar gallery, the profile shared-media gallery path, `GalleryFilePlayerView` range waiters, the video note writer finish path.
 
+### Post-merge audit, second pass — 2026-10-15
+
+Read-only code audits at `ba41fcd7`/`9a646c94` of profiles and shared media (P), the composer and sending (C), and the shell, chat list and accounts (L). "confirmed" means the whole code path was traced; runtime was not exercised by the audits.
+
+| ID | Sev | Finding | Status |
+|---|---|---|---|
+| C-1 | P1 | Send rights combined `canPostMessages` with the chat's default permissions: channel owners and admins could not post (TDLib leaves a channel's defaults all false), group admins were bound by default restrictions, a restricted member's own permissions were ignored, a left basic group kept its composer | fixed `3ef0c699`: Telegram's banned-permission model (`CustomChat.allowsSending`): owner and admins bypass the defaults, a channel needs the post right, a restricted member is bound by both; basic-group status follows updates |
+| L-1 | P1 | Chat deletion was wrong for every peer type: no "delete for me and X", groups only cleared history, channels and public groups had no item, an owner's delete for everyone used `deleteChatHistory(revoke:)` (rejected) with the error swallowed; no `leaveChat`, `deleteChat` or Clear History | in progress (worker branch `codex/parity-chat-delete`) |
+| L-2 | P1 | Chat list search only filtered titles of loaded rows; no TDLib chat, public or message search | in progress (worker branch `codex/parity-chat-search`) |
+| P-1 | P2 | Any edit or unconfirmed delete of a loaded grid item closed the open shared-media gallery and its PiP at once | fixed `54604a45`: only the affected items are revoked; the gallery keeps their pages covered until their revision is admitted, PiP closes only for its own item |
+| P-2 | P2 | A profile not opened from its own chat (forum Group Info, avatar Open Profile) stayed on "Reconnecting" with a blank grid after every foreground return | fixed `7c9c2c3b`: such a profile rebuilds itself through the renewed client |
+| P-3 | P2 | A renewal with the avatar gallery open dismissed it and popped the profile | open |
+| P-4 | P2 | Files, Links and Audio rows only jump to the message; Telegram opens the document, the URL or plays the track | open |
+| P-5 | P2 | Profiles opened away from their chat had no message, search or Message callbacks | fixed `7c9c2c3b` |
+| P-6 | P3 | Gallery paging does not scroll the grid to the current item, so closing on an off-screen item fades | open |
+| P-7 | P3 | Media sent while the profile is open never appears | open |
+| P-8 | P3 | Every grid snapshot reconfigures all cells and restarts uncached thumbnail loads | open |
+| P-9 | P3 | The avatar gallery's downloads are never cancelled in TDLib | open |
+| P-10 | P3 | Opening the avatar waits for two sequential requests; Telegram shows the current photo at once | open |
+| P-11 | P3 | Group and channel avatar galleries show only the current photo | open |
+| P-12 | P3 | The avatar gallery has no swipe-down dismissal and no Save/Share/Set as Main/Delete | open |
+| P-13 | P3 | The profile's own header avatar offered Open Profile and Search, which pushed copies | fixed `7c9c2c3b` |
+| P-14 | P3 | "Administrators" is shown to every member and subscriber (suspicion: a retry footer for subscribers) | open |
+| P-15 | P3 | Tapping a member opens the tag editor instead of the member's profile; no promote/restrict/remove | open |
+| P-16 | P3 | Any group update resets the visible member rows and rereads all pages | open |
+| P-17 | P3 | Voice, GIFs, Groups in Common and Members panes are missing | open |
+| C-2 | P2 | Text was sent untrimmed and unsplit; the server rejected over-long text after the composer cleared; whitespace enabled Send | fixed `7e26234a`: trimmed and split at 4096 as `breakChatInputText`; captions over `message_caption_length_max` stop before send. Simulator: a 4576-character paste sent as two messages split at a full stop; "  c7 edit probe  " sent trimmed (test messages deleted) |
+| C-3 | P2 | Failed text, photo, document, sticker and GIF messages had no Resend | fixed `45538cdf`: Resend and Resend N Messages in the message menu (`resendMessages`), as in Telegram's failed-message menu. A failed send was not reproduced on the Simulator |
+| C-4 | P2 | A pending forward is lost on a same-account client renewal | open |
+| C-5 | P2 | The album caption was attached to every item | fixed `00903bc7`: first item only |
+| C-6 | P2 | A GIF took the input's text as caption and cleared it | fixed `00903bc7`: the GIF is sent alone, the text stays, only the reply clears. Simulator: GIF sent with "gif caption probe" in the input arrived without a caption and the text stayed (test GIF deleted) |
+| C-7 | P2 | Edit mode left attachments, stickers and GIFs available | fixed `8f24e855`: editing offers only emoji input. Simulator: the attachment menu shows only Emoji, the picker only the emoji tabs |
+| C-8 | P2 | Photos are re-encoded at full resolution (quality 0.92); Telegram scales to 1280 px (2560 HD) | open |
+| C-9 | P3 | Slow mode and the voice/video note restriction are not modeled | open |
+| C-10 | P3 | The sticker sheet keeps the presenting client; a tap after a renewal is lost | open |
+| C-11 | P3 | Cancelling an edit clears a pending forward | open |
+| C-12 | P3 | An edit resets link preview options and caption-above-media | open |
+| C-13 | P3 | Temporary files of picked photos, videos and Live Photos are never deleted | open |
+| C-14 | P3 | The typing action is debounced 350 ms and sent while editing | open |
+| C-15 | P3 | A sticker or GIF tapped during another send is dropped silently | open |
+| C-16 | P3 | Edit mode survives deletion of the edited message (suspicion) | open |
+| L-3 | P2 | Secret chats never appear in the list | open |
+| L-4 | P2 | Switching accounts could delete a recovered account's database, and a directory was removed with whichever client was published | fixed `45ee11f4`: only an account whose own client reports a sign-in step is discarded, with its own client |
+| L-5 | P2 | Pinned chats can't be reordered (`setPinnedChats`) | open |
+| L-6 | P2 | Rows show no mention or reaction badge; Mark as Read keeps them | open |
+| L-7 | P2 | Login handles only phone, code and 2FA (no email, sign-up, QR, resend, wrong number) | open |
+| L-8 | P2 | A notification for an inactive account does nothing | open |
+| L-9 | P3 | An account switch shows "Waiting for authorization" until Ready | open |
+| L-10 | P3 | Folder updates rebuild every folder page and reload 100 chats per folder | open |
+| L-11 | P3 | Chat menu eligibility differs from `chatContextMenuItems` (Archive/Mute for Saved Messages, Mark as Unread for forums and channels, folder membership from loaded rows, swallowed pin errors) | in progress with L-1 |
+| L-12 | P3 | Voice, video note and rich drafts show "Draft:" with nothing after it | open |
+| L-13 | P3 | Deleting a shared folder never offers to leave its chats | open |
+| L-14 | P3 | The app icon badge is never set locally (suspicion) | open |
+| L-15 | P3 | Sender names in row prefixes are cached per client and never refreshed | open |
+| L-16 | P3 | Rows show no typing indicator | open |
+
+Reviewed and OK: profile update provenance and history paging identity, grid edit/delete reconciliation, the gallery order and counter, avatar gallery list updates, editor write authorization, members paging; composer double-tap guards, `resolveSendContext` topic routing, draft isolation and clearing, edit attempt binding, document temporary-to-final IDs, picker import account checks, video conversion off main; chat list update isolation and ordering, row action scoping, preview read state, logout ownership. Not reviewed: `PeerProfileInfoPermission` and members restoration internals, voice/video note recording beyond A11-A17, quote selection UI, `ForwardMessagesViewController`, folder editor validation, the forum topic list, push relay internals.
+
 ### Probe sweep — 2026-10-12
 
 Repeat on the merged build `e05d541` (localization merge): 86 of 91 probes report a pass; `draft-coding` passes in the app's tmp folder, and the four observation probes need live UI as above.
