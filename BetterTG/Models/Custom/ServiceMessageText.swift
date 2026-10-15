@@ -7,13 +7,27 @@ import TDLibKit
 /// universalServiceMessageString) for the actions BetterTG shows. Names are resolved before the row is built, so
 /// the bubble has its final height on first layout; other actions keep MessageContentPresentation's title.
 enum ServiceMessageText {
+    enum ChatKind {
+        case privateChat
+        case secretChat
+        case basicGroup
+        case supergroup
+        case channel
+        case unknown
+    }
+
     struct Context {
         let author: String
         let isOutgoing: Bool
         let isChannel: Bool
         let senderUserID: Int64?
-        let names: [Int64: String]
+        /// Display names by user ID, and by chat ID for chats named as senders.
+        var names: [Int64: String]
         let pinned: Message?
+        var accountUserID: Int64?
+        var chatKind = ChatKind.unknown
+        var chatTitle = ""
+        var gameTitle: String?
     }
 
     static func resolve(
@@ -46,10 +60,34 @@ enum ServiceMessageText {
         if case .messagePinMessage(let value) = message.content {
             pinned = try? await client.getMessage(chatId: message.chatId, messageId: value.messageId)
         }
-        return make(message.content, context: Context(
+        var context = Context(
             author: author, isOutgoing: message.isOutgoing, isChannel: isChannel,
             senderUserID: senderUserID, names: names, pinned: pinned,
-        ))
+        )
+        if needsAccount(message.content) {
+            context.accountUserID = try? await client.getMe().id
+        }
+        if needsChat(message.content), let chat = try? await client.getChat(chatId: message.chatId) {
+            context.chatTitle = chat.title
+            context.chatKind = chatKind(chat.type)
+        }
+        switch message.content {
+        case .messageGameScore(let value) where value.gameMessageId != 0:
+            if let game = try? await client.getMessage(chatId: message.chatId, messageId: value.gameMessageId),
+               case .messageGame(let content) = game.content
+            {
+                context.gameTitle = content.game.title
+            }
+        case .messageProximityAlertTriggered(let value):
+            for sender in [value.travelerId, value.watcherId] {
+                guard case .messageSenderChat(let chat) = sender, context.names[chat.chatId] == nil else { continue }
+                if let title = try? await client.getChat(chatId: chat.chatId)
+                    .title { context.names[chat.chatId] = title }
+            }
+        default:
+            break
+        }
+        return make(message.content, context: context)
     }
 
     static func make(_ content: MessageContent, context: Context) -> String? {
@@ -101,9 +139,41 @@ enum ServiceMessageText {
             case .messageContactRegistered:
                 author.isEmpty ? nil : telegram("Notification.Joined", author)
             case .messageVideoChatStarted:
-                hasAuthor
-                    ? telegram("Notification.VoiceChatStarted", author)
-                    : telegram("Notification.VoiceChatStartedChannel")
+                context.senderUserID == nil || author.isEmpty
+                    ? telegram(context.isChannel
+                        ? "Notification.LiveStreamStarted"
+                        : "Notification.VoiceChatStartedChannel")
+                    : telegram("Notification.VoiceChatStarted", author)
+            case .messageVideoChatEnded(let value):
+                videoChatEnded(duration: value.duration, context: context)
+            case .messageVideoChatScheduled(let value):
+                videoChatScheduled(startDate: value.startDate, context: context)
+            case .messageInviteVideoChatParticipants(let value):
+                videoChatInvitation(value.userIds, context: context)
+            case .messageCall(let value):
+                callTitle(value.discardReason, isOutgoing: context.isOutgoing)
+            case .messageGroupCall(let value):
+                telegram(
+                    value.wasMissed
+                        ? "Chat.CallMessage.DeclinedGroupCall"
+                        : !value.isActive && value.duration == 0
+                            ? "Chat.CallMessage.MissedGroupCall"
+                            : context.isOutgoing
+                                ? "Chat.CallMessage.OutgoingGroupCall"
+                                : "Chat.CallMessage.IncomingGroupCall",
+                )
+            case .messageChatSetMessageAutoDeleteTime(let value):
+                autoDeleteTimer(value.messageAutoDeleteTime, fromUserID: value.fromUserId, context: context)
+            case .messageGameScore(let value):
+                gameScore(value.score, context: context)
+            case .messageProximityAlertTriggered(let value):
+                proximityAlert(traveler: value.travelerId, watcher: value.watcherId, distance: value.distance, context)
+            case .messageWebAppDataSent(let value):
+                telegram("Notification.WebAppSentData", value.buttonText)
+            case .messageChatSetTheme(let value):
+                chatTheme(value.theme, context: context)
+            case .messageChatSetBackground(let value):
+                chatBackground(onlyForSelf: value.onlyForSelf, isSame: value.oldBackgroundMessageId != 0, context)
             case .messageForumTopicCreated:
                 telegram("Notification.ForumTopicCreated")
             case .messageForumTopicIsClosedToggled(let value):
@@ -137,21 +207,294 @@ enum ServiceMessageText {
         switch content {
         case .messageChatAddMembers(let value): value.memberUserIds
         case .messageChatDeleteMember(let value): [value.userId]
+        case .messageInviteVideoChatParticipants(let value): value.userIds
+        case .messageProximityAlertTriggered(let value):
+            [value.travelerId, value.watcherId].compactMap { sender in
+                if case .messageSenderUser(let user) = sender { user.userId } else { nil }
+            }
         default: []
         }
     }
 
     private static func handles(_ content: MessageContent) -> Bool {
         switch content {
-        case .messageBasicGroupChatCreate, .messageChatAddMembers, .messageChatChangePhoto,
-             .messageChatChangeTitle, .messageChatDeleteMember, .messageChatDeletePhoto, .messageChatJoinByLink,
-             .messageChatJoinByRequest, .messageContactRegistered, .messageForumTopicCreated, .messageForumTopicEdited,
-             .messageForumTopicIsClosedToggled, .messagePinMessage, .messageScreenshotTaken,
-             .messageSupergroupChatCreate, .messageVideoChatStarted:
+        case .messageBasicGroupChatCreate, .messageCall, .messageChatAddMembers,
+             .messageChatChangePhoto, .messageChatChangeTitle, .messageChatDeleteMember, .messageChatDeletePhoto,
+             .messageChatJoinByLink, .messageChatJoinByRequest, .messageChatSetBackground,
+             .messageChatSetMessageAutoDeleteTime,
+             .messageChatSetTheme, .messageContactRegistered, .messageForumTopicCreated,
+             .messageForumTopicEdited, .messageForumTopicIsClosedToggled, .messageGameScore, .messageGroupCall,
+             .messageInviteVideoChatParticipants, .messagePinMessage, .messageProximityAlertTriggered,
+             .messageScreenshotTaken,
+             .messageSupergroupChatCreate, .messageVideoChatEnded, .messageVideoChatScheduled, .messageVideoChatStarted,
+             .messageWebAppDataSent:
             true
         default:
             false
         }
+    }
+
+    private static func needsAccount(_ content: MessageContent) -> Bool {
+        switch content {
+        case .messageChatSetMessageAutoDeleteTime, .messageInviteVideoChatParticipants, .messageProximityAlertTriggered:
+            true
+        default:
+            false
+        }
+    }
+
+    private static func needsChat(_ content: MessageContent) -> Bool {
+        switch content {
+        case .messageChatSetBackground, .messageChatSetMessageAutoDeleteTime: true
+        default: false
+        }
+    }
+
+    private static func chatKind(_ type: ChatType) -> ChatKind {
+        switch type {
+        case .chatTypePrivate: .privateChat
+        case .chatTypeSecret: .secretChat
+        case .chatTypeBasicGroup: .basicGroup
+        case .chatTypeSupergroup(let value): value.isChannel ? .channel : .supergroup
+        }
+    }
+
+    /// Telegram's phoneCall wording. TDLib's declined is Telegram's busy and disconnected its disconnect.
+    private static func callTitle(_ reason: CallDiscardReason, isOutgoing: Bool) -> String {
+        switch reason {
+        case .callDiscardReasonDisconnected:
+            telegram("Notification.CallCanceled")
+        case .callDiscardReasonDeclined, .callDiscardReasonMissed:
+            telegram(isOutgoing ? "Notification.CallCanceled" : "Notification.CallMissed")
+        default:
+            telegram(isOutgoing ? "Notification.CallOutgoing" : "Notification.CallIncoming")
+        }
+    }
+
+    /// A chat author (a channel or an anonymous admin) gets the impersonal wording, as Telegram does for a channel
+    /// author; a broadcast channel's call is a live stream.
+    private static func videoChatEnded(duration: Int, context: Context) -> String {
+        let value = callDuration(duration)
+        guard context.senderUserID != nil, !context.author.isEmpty else {
+            return telegram(context.isChannel ? "Notification.LiveStreamEnded" : "Notification.VoiceChatEnded", value)
+        }
+        return telegram("Notification.VoiceChatEndedGroup", context.author, value)
+    }
+
+    /// humanReadableStringForTimestamp with the time always shown and no "yesterday".
+    private static func videoChatScheduled(startDate: Int, context: Context) -> String {
+        let date = Foundation.Date(timeIntervalSince1970: TimeInterval(startDate))
+        let day =
+            if Calendar.current.isDateInToday(date) {
+                "Today"
+            } else if Calendar.current.isDateInTomorrow(date) {
+                "Tomorrow"
+            } else {
+                ""
+            }
+        let value = day.isEmpty
+            ? date.formatted(date: .abbreviated, time: .shortened)
+            : date.formatted(date: .omitted, time: .shortened)
+        guard context.senderUserID != nil, !context.author.isEmpty else {
+            return telegram(
+                context.isChannel
+                    ? "Notification.LiveStreamScheduled\(day)"
+                    : "Notification.VoiceChatScheduled\(day)Channel",
+                value,
+            )
+        }
+        return telegram("Notification.VoiceChatScheduled\(day)", context.author, value)
+    }
+
+    private static func videoChatInvitation(_ ids: [Int64], context: Context) -> String? {
+        let author = context.author
+        guard !author.isEmpty else { return nil }
+        if ids.count == 1, let accountUserID = context.accountUserID, ids[0] == accountUserID {
+            return telegram("Notification.VoiceChatInvitationForYou", author)
+        }
+        let names = ids.compactMap { context.names[$0] }
+        guard !names.isEmpty else { return nil }
+        return telegram("Notification.VoiceChatInvitation", author, names.joined(separator: ", "))
+    }
+
+    /// messageAutoremoveTimeoutUpdated: the wording depends on the chat type; secret chats keep the self-destruct
+    /// timer strings. A chat whose type isn't known keeps the generic title.
+    private static func autoDeleteTimer(_ timeout: Int, fromUserID: Int64, context: Context) -> String? {
+        let author = context.author
+        let isYou = context.isOutgoing
+        let time = timeInterval(timeout)
+        func byAuthor(_ key: String, _ arguments: CVarArg...) -> String? {
+            author.isEmpty
+                ? nil
+                : AppLocalization.shared.telegramString(key, arguments: [author as CVarArg] + arguments)
+        }
+        switch context.chatKind {
+        case .privateChat:
+            if timeout > 0 {
+                if fromUserID != 0 {
+                    return fromUserID == context.accountUserID
+                        ? telegram("Conversation.AutoremoveTimerSetUserGlobalYou", time)
+                        : byAuthor("Conversation.AutoremoveTimerSetUserGlobal", time)
+                }
+                return isYou
+                    ? telegram("Conversation.AutoremoveTimerSetUserYou", time)
+                    : byAuthor("Conversation.AutoremoveTimerSetUser", time)
+            }
+            return isYou
+                ? telegram("Conversation.AutoremoveTimerRemovedUserYou")
+                : byAuthor("Conversation.AutoremoveTimerRemovedUser")
+        case .basicGroup, .supergroup:
+            if isYou {
+                return timeout > 0
+                    ? telegram("Conversation.AutoremoveTimerSetUserYou", time)
+                    : telegram("Conversation.AutoremoveTimerRemovedUserYou")
+            }
+            return timeout > 0
+                ? telegram("Conversation.AutoremoveTimerSetGroup", time)
+                : telegram("Conversation.AutoremoveTimerRemovedGroup")
+        case .channel:
+            guard timeout > 0 else { return telegram("Conversation.AutoremoveTimerRemovedChannel") }
+            return isYou
+                ? telegram("Conversation.AutoremoveTimerSetUserYou", time)
+                : telegram("Conversation.AutoremoveTimerSetChannel", time)
+        case .secretChat:
+            if timeout > 0 {
+                return isYou
+                    ? telegram("Notification.MessageLifetimeChangedOutgoing", time)
+                    : byAuthor("Notification.MessageLifetimeChanged", time)
+            }
+            return isYou
+                ? telegram("Notification.MessageLifetimeRemovedOutgoing")
+                : byAuthor("Notification.MessageLifetimeRemoved")
+        case .unknown:
+            return nil
+        }
+    }
+
+    private static func gameScore(_ score: Int, context: Context) -> String? {
+        guard context.isOutgoing || !context.author.isEmpty else { return nil }
+        let form = context.gameTitle == nil ? "Simple" : "Extended"
+        let key = context.isOutgoing ? "ServiceMessage.GameScoreSelf\(form)" : "ServiceMessage.GameScore\(form)"
+        return AppLocalization.shared
+            .telegramPluralString(key, count: score)
+            .replacingOccurrences(of: "{name}", with: context.author)
+            .replacingOccurrences(of: "{game}", with: context.gameTitle ?? "")
+    }
+
+    private static func proximityAlert(
+        traveler: MessageSender,
+        watcher: MessageSender,
+        distance: Int,
+        _ context: Context,
+    ) -> String? {
+        let distance = Measurement(value: Double(distance), unit: UnitLength.meters)
+            .formatted(.measurement(width: .wide, usage: .road))
+        let travelerID = senderID(traveler)
+        let watcherID = senderID(watcher)
+        if let accountUserID = context.accountUserID, travelerID == accountUserID {
+            return context.names[watcherID].map { telegram("Notification.ProximityYouReached", distance, $0) }
+        }
+        if let accountUserID = context.accountUserID, watcherID == accountUserID {
+            return context.names[travelerID].map { telegram("Notification.ProximityReachedYou", $0, distance) }
+        }
+        guard let from = context.names[travelerID], let to = context.names[watcherID] else { return nil }
+        return telegram("Notification.ProximityReached", from, distance, to)
+    }
+
+    private static func chatTheme(_ theme: ChatTheme?, context: Context) -> String? {
+        let byChat = context.senderUserID == nil
+        guard let theme else {
+            if byChat { return telegram("Notification.ChannelDisabledTheme") }
+            if context.isOutgoing { return telegram("Notification.YouDisabledTheme") }
+            return context.author.isEmpty ? nil : telegram("Notification.DisabledTheme", context.author)
+        }
+        var emoji = ""
+        var giftTitle: String?
+        switch theme {
+        case .chatThemeEmoji(let value):
+            emoji = value.name
+        case .chatThemeGift(let value):
+            let gift = value.giftTheme.gift
+            giftTitle = "\(gift.title) #\(gift.number.formatted())"
+        }
+        if byChat { return telegram("Notification.ChannelChangedTheme", giftTitle ?? emoji) }
+        if context.isOutgoing {
+            return giftTitle.map { telegram("Notification.YouChangedThemeGift", $0) }
+                ?? telegram("Notification.YouChangedTheme", emoji)
+        }
+        guard !context.author.isEmpty else { return nil }
+        return giftTitle.map { telegram("Notification.ChangedThemeGift", context.author, $0) }
+            ?? telegram("Notification.ChangedTheme", context.author, emoji)
+    }
+
+    /// setChatWallpaper and setSameChatWallpaper. TDLib marks a repeated background with the earlier message's ID;
+    /// "for both" applies only to private chats.
+    private static func chatBackground(onlyForSelf: Bool, isSame: Bool, _ context: Context) -> String? {
+        if isSame {
+            if context.isOutgoing { return telegram("Notification.YouChangedToSameWallpaper") }
+            return context.author.isEmpty ? nil : telegram("Notification.ChangedToSameWallpaper", context.author)
+        }
+        let isGroup = context.chatKind == .basicGroup || context.chatKind == .supergroup
+        if context.isOutgoing {
+            if context.chatKind == .privateChat, !onlyForSelf, !context.chatTitle.isEmpty {
+                return telegram("Notification.YouChangedWallpaperBoth", context.chatTitle)
+            }
+            return telegram(isGroup ? "Notification.YouChangedGroupWallpaper" : "Notification.YouChangedWallpaper")
+        }
+        switch context.chatKind {
+        case .basicGroup, .supergroup:
+            return telegram("Notification.GroupChangedWallpaper")
+        case .channel:
+            return telegram("Notification.ChannelChangedWallpaper")
+        case .privateChat, .secretChat:
+            return context.author.isEmpty ? nil : telegram("Notification.ChangedWallpaper", context.author)
+        case .unknown:
+            return nil
+        }
+    }
+
+    private static func senderID(_ sender: MessageSender) -> Int64 {
+        switch sender {
+        case .messageSenderUser(let user): user.userId
+        case .messageSenderChat(let chat): chat.chatId
+        }
+    }
+
+    /// Telegram's timeIntervalString (generic usage).
+    private static func timeInterval(_ seconds: Int) -> String {
+        let day = 24 * 60 * 60
+        let (key, count): (String, Int) =
+            if seconds < 60 {
+                ("MessageTimer.Seconds", max(1, seconds))
+            } else if seconds < 60 * 60 {
+                ("MessageTimer.Minutes", seconds / 60)
+            } else if seconds < day {
+                ("MessageTimer.Hours", seconds / (60 * 60))
+            } else if seconds < day * 7 {
+                ("MessageTimer.Days", seconds / day)
+            } else if seconds < day * 30 {
+                ("MessageTimer.Weeks", seconds / (day * 7))
+            } else if seconds < day * 365 {
+                ("MessageTimer.Months", seconds / (day * 30))
+            } else {
+                ("MessageTimer.Years", seconds / (day * 365))
+            }
+        return AppLocalization.shared.telegramPluralString(key, count: max(1, count))
+    }
+
+    /// Telegram's callDurationString.
+    private static func callDuration(_ seconds: Int) -> String {
+        let (key, count): (String, Int) =
+            if seconds < 60 {
+                ("Call.Seconds", seconds)
+            } else if seconds < 60 * 60 {
+                ("Call.Minutes", seconds / 60)
+            } else if seconds < 24 * 60 * 60 {
+                ("Call.Hours", seconds / (60 * 60))
+            } else {
+                ("Call.Days", seconds / (24 * 60 * 60))
+            }
+        return AppLocalization.shared.telegramPluralString(key, count: max(1, count))
     }
 
     private static func addedMembers(_ ids: [Int64], context: Context) -> String? {

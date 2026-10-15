@@ -596,6 +596,18 @@ extension TDNativeMessage {
     }
 }
 
+extension TDNativeMessageCall {
+    init(discardReason: TDNativeCallDiscardReason, duration: Int, isVideo: Bool, uniqueId: Int64) {
+        self.init(uniqueId: uniqueId, isVideo: isVideo, discardReason: discardReason, duration: duration)
+    }
+}
+
+extension TDNativeMessageChatSetMessageAutoDeleteTime {
+    init(fromUserId: Int64, messageAutoDeleteTime: Int) {
+        self.init(messageAutoDeleteTime: messageAutoDeleteTime, fromUserId: fromUserId)
+    }
+}
+
 extension TDNativeMessageDice {
     init(
         emoji: String,
@@ -632,6 +644,32 @@ extension TDNativeMessageForwardInfo {
             date: date,
             source: source,
             publicServiceAnnouncementType: publicServiceAnnouncementType,
+        )
+    }
+}
+
+extension TDNativeMessageGameScore {
+    init(gameId: Int64, gameMessageId: Int64, score: Int) {
+        self.init(gameMessageId: gameMessageId, gameId: gameId, score: score)
+    }
+}
+
+extension TDNativeMessageGroupCall {
+    init(
+        duration: Int,
+        isActive: Bool,
+        isVideo: Bool,
+        otherParticipantIds: [TDNativeMessageSender],
+        uniqueId: Int64,
+        wasMissed: Bool,
+    ) {
+        self.init(
+            uniqueId: uniqueId,
+            isActive: isActive,
+            wasMissed: wasMissed,
+            isVideo: isVideo,
+            duration: duration,
+            otherParticipantIds: otherParticipantIds,
         )
     }
 }
@@ -744,6 +782,12 @@ extension TDNativeMessageProperties {
             hasProtectedContentByOtherUser: hasProtectedContentByOtherUser,
             needShowStatistics: needShowStatistics,
         )
+    }
+}
+
+extension TDNativeMessageProximityAlertTriggered {
+    init(distance: Int, travelerId: TDNativeMessageSender, watcherId: TDNativeMessageSender) {
+        self.init(travelerId: travelerId, watcherId: watcherId, distance: distance)
     }
 }
 
