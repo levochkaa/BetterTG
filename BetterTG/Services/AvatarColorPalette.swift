@@ -198,7 +198,8 @@ extension User {
     }
 }
 
-private extension String {
+extension String {
+    /// The first letter of a title for Telegram's avatar placeholder.
     var telegramAvatarFirstLetter: String? {
         first.map { String($0).uppercased() }
     }

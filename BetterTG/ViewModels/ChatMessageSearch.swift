@@ -124,8 +124,8 @@ import TDLibKit
         isLoading = true
         onChange?()
         load(waitsForTyping: false) { [weak self] in
-            guard let self, let currentIndex, currentIndex + 1 < messageIDs.count else { return }
-            show(index: currentIndex + 1)
+            guard let self, let index = self.currentIndex, index + 1 < messageIDs.count else { return }
+            show(index: index + 1)
         }
     }
 
