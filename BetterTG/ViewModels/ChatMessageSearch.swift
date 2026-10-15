@@ -29,6 +29,8 @@ import TDLibKit
 
     /// The found messages, for highlighting the query in their text.
     private(set) var resultIDs = Set<Int64>()
+    /// The found messages themselves, for the results list.
+    private(set) var foundMessages = [Int64: Message]()
     private(set) var currentIndex: Int?
     private(set) var isLoading = false
 
@@ -60,8 +62,13 @@ import TDLibKit
     }
 
     /// More results remain to load.
-    private var hasMorePages: Bool {
+    var hasMorePages: Bool {
         isSecretChat ? !nextSecretOffset.isEmpty : nextFromMessageID != 0
+    }
+
+    /// Telegram's list mode counts every result ("N messages").
+    var totalResultCount: Int {
+        hasMorePages ? max(totalCount, messageIDs.count) : messageIDs.count
     }
 
     init(client: TDLibClient, location: ChatLocation, isSecretChat: Bool = false, isCurrent: @escaping () -> Bool) {
@@ -150,6 +157,20 @@ import TDLibKit
         show(index: currentIndex - 1)
     }
 
+    /// A result picked in the list: it becomes the current one and the chat shows it.
+    func select(messageID: Int64) {
+        guard let index = messageIDs.firstIndex(of: messageID), isCurrent() else { return }
+        show(index: index)
+    }
+
+    /// The list's next page, without moving the current result.
+    func loadMore() {
+        guard isActive, !isLoading, hasMorePages, isCurrent() else { return }
+        isLoading = true
+        onChange?()
+        load(waitsForTyping: false) {}
+    }
+
     func reset() {
         query = ""
         sender = nil
@@ -167,6 +188,7 @@ import TDLibKit
         task?.cancel()
         task = nil
         messageIDs = []
+        foundMessages = [:]
         currentIndex = nil
         totalCount = 0
         nextFromMessageID = 0
@@ -202,9 +224,12 @@ import TDLibKit
                     topicId: location.topic,
                 )
                 guard owns(requestGeneration) else { return }
-                let added = (found?.messages ?? [])
+                let addedMessages = (found?.messages ?? [])
                     .filter { location.matches(message: $0) && seen.insert($0.id).inserted }
-                    .map(\.id)
+                let added = addedMessages.map(\.id)
+                for message in addedMessages {
+                    foundMessages[message.id] = message
+                }
                 messageIDs += added
                 totalCount = max(totalCount, found?.totalCount ?? 0)
                 fromMessageID = found?.messages.isEmpty == false ? found?.nextFromMessageId ?? 0 : 0
@@ -235,7 +260,11 @@ import TDLibKit
                 ))
             guard owns(requestGeneration) else { return }
             var seen = Set(messageIDs)
-            messageIDs += (found?.messages ?? []).filter { seen.insert($0.id).inserted }.map(\.id)
+            let added = (found?.messages ?? []).filter { seen.insert($0.id).inserted }
+            for message in added {
+                foundMessages[message.id] = message
+            }
+            messageIDs += added.map(\.id)
             totalCount = max(totalCount, found?.totalCount ?? 0)
             nextSecretOffset = found?.messages.isEmpty == false ? found?.nextOffset ?? "" : ""
             isLoading = false

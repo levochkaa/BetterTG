@@ -83,6 +83,24 @@ final class ChatListCell: UITableViewCell {
         updateBackground(highlighted: selected, animated: animated)
     }
 
+    /// The chat list's date: the time today, the weekday within a week, else the day.
+    static func dateText(timestamp: Int) -> String {
+        let date = Foundation.Date(timeIntervalSince1970: TimeInterval(timestamp))
+        let calendar = Calendar.current
+        if calendar.isDateInToday(date) {
+            return date.formatted(date: .omitted, time: .shortened)
+        }
+        if let days = calendar.dateComponents([.day], from: date, to: .now).day,
+           (0...6).contains(days)
+        {
+            return date.formatted(.dateTime.weekday(.abbreviated))
+        }
+        if calendar.component(.year, from: date) == calendar.component(.year, from: .now) {
+            return date.formatted(.dateTime.month(.abbreviated).day())
+        }
+        return date.formatted(.dateTime.day().month(.twoDigits).year(.twoDigits))
+    }
+
     /// Telegram draws a secret chat's title in green after a lock (`ChatListItem`, `secretTitleColor`).
     private static func title(for chat: CustomChat, font: UIFont) -> NSAttributedString {
         guard chat.secretChatID != nil else {
@@ -103,20 +121,7 @@ final class ChatListCell: UITableViewCell {
 
     private static func dateText(for chat: CustomChat) -> String? {
         guard let timestamp = chat.draftMessage?.date ?? chat.lastMessage?.date else { return nil }
-        let date = Foundation.Date(timeIntervalSince1970: TimeInterval(timestamp))
-        let calendar = Calendar.current
-        if calendar.isDateInToday(date) {
-            return date.formatted(date: .omitted, time: .shortened)
-        }
-        if let days = calendar.dateComponents([.day], from: date, to: .now).day,
-           (0...6).contains(days)
-        {
-            return date.formatted(.dateTime.weekday(.abbreviated))
-        }
-        if calendar.component(.year, from: date) == calendar.component(.year, from: .now) {
-            return date.formatted(.dateTime.month(.abbreviated).day())
-        }
-        return date.formatted(.dateTime.day().month(.twoDigits).year(.twoDigits))
+        return dateText(timestamp: timestamp)
     }
 
     /// Telegram (ChatListItem) shows an unseen mention first, then unseen reactions. The mention badge greys only in

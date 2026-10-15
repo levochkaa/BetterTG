@@ -1232,3 +1232,9 @@
 "Settings.NotificationsAndSounds" = "Notifications and Sounds";
 "Settings.PrivacySettings" = "Privacy and Security";
 "Settings.SavedMessages" = "Saved Messages";
+"Chat.BottomSearchPanel.MessageCountFormat" = "%1$@ %2$@";
+"Chat.BottomSearchPanel.MessageCount_1" = "message";
+"Chat.BottomSearchPanel.MessageCount_any" = "messages";
+"Chat.BottomSearchPanel.DisplayModeFormat" = "Show as %@";
+"Chat.BottomSearchPanel.DisplayModeChat" = "Chat";
+"Chat.BottomSearchPanel.DisplayModeList" = "List";

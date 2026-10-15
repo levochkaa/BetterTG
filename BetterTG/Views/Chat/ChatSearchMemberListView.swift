@@ -66,7 +66,8 @@ import UIKit
         task?.cancel()
     }
 
-    private static func member(for sender: MessageSender, client: TDLibClient) async -> Member? {
+    /// Also names the authors of the search results list.
+    static func member(for sender: MessageSender, client: TDLibClient) async -> Member? {
         switch sender {
         case .messageSenderUser(let value):
             guard let user = try? await client.getUser(userId: value.userId) else { return nil }

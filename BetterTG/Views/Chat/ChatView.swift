@@ -218,6 +218,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private lazy var messageSearch = makeMessageSearch()
     private let messageSearchPanel = ChatSearchPanel()
     private var messageSearchMemberList: ChatSearchMemberListView?
+    /// Telegram's displayHistoryFilterAsList: the results show as a list over the chat.
+    private var messageSearchShowsList = false
+    private var messageSearchResultsList: ChatSearchResultsListView?
     private var messageSearchQuery = ""
     /// Telegram's ChatSearchDomain: picking a member after "from:", or the member whose messages are searched.
     private var messageSearchChoosesMember = false
@@ -1946,6 +1949,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             self?.customNavigationBar.dismissSearchKeyboard()
             self?.messageSearch.showNewer()
         }
+        messageSearchPanel.onDisplayMode = { [weak self] in self?.toggleMessageSearchListMode() }
         view.addSubview(messageSearchPanel)
         // The controls sit on the keyboard, or on the safe area while it is hidden; the material reaches the bottom.
         let keyboardAttachment = messageSearchPanel.contentBottomAnchor.constraint(
@@ -5049,9 +5053,61 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             status: status,
             showsMembers: canSearchMessagesByMember && !messageSearchChoosesMember && messageSearchMember == nil
                 && queryIsEmpty,
+            showsDisplayMode: status.hasResults,
+            isListMode: messageSearchShowsList,
+            resultCount: messageSearch.totalResultCount,
         )
+        updateMessageSearchResultsList()
         guard messageSearchActive else { return }
         customNavigationBar.setSearchResultFound(status == .noResults ? false : nil)
+    }
+
+    /// ChatTagSearchInputPanelNode's Show as List / Show as Chat.
+    private func toggleMessageSearchListMode() {
+        guard messageSearchActive, !messageSearchChoosesMember, chatVM.locationContextIsCurrent else { return }
+        messageSearchShowsList.toggle()
+        customNavigationBar.dismissSearchKeyboard()
+        updateMessageSearchPanel()
+    }
+
+    /// The list stays in list mode across queries, as Telegram's does, and shows while there is a search to list.
+    private func updateMessageSearchResultsList() {
+        guard messageSearchActive, messageSearchShowsList, !messageSearchChoosesMember, messageSearch.isActive else {
+            messageSearchResultsList?.removeFromSuperview()
+            messageSearchResultsList = nil
+            return
+        }
+        let list: ChatSearchResultsListView
+        if let current = messageSearchResultsList {
+            list = current
+        } else {
+            list = ChatSearchResultsListView(client: chatVM.client, accountID: chatVM.accountID) { [weak self] in
+                guard let self else { return false }
+                return !clientOwnerRetired && chatVM.locationContextIsCurrent
+            }
+            list.translatesAutoresizingMaskIntoConstraints = false
+            list.onSelect = { [weak self] id in self?.selectMessageSearchListResult(id) }
+            list.onNeedsMore = { [weak self] in self?.messageSearch.loadMore() }
+            view.insertSubview(list, belowSubview: messageSearchPanel)
+            NSLayoutConstraint.activate([
+                list.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+                list.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                list.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                list.bottomAnchor.constraint(equalTo: messageSearchPanel.topAnchor),
+            ])
+            messageSearchResultsList = list
+        }
+        let found = messageSearch.foundMessages
+        list.update(messages: messageSearch.messageIDs.compactMap { found[$0] }, isLoading: messageSearch.isLoading)
+    }
+
+    /// ChatControllerNode's messageSelected: back to the chat at the picked result, which becomes the current one.
+    private func selectMessageSearchListResult(_ messageID: Int64) {
+        guard messageSearchActive, chatVM.locationContextIsCurrent else { return }
+        messageSearchShowsList = false
+        customNavigationBar.dismissSearchKeyboard()
+        messageSearch.select(messageID: messageID)
+        updateMessageSearchPanel()
     }
 
     private func setMessageSearchPanelVisible(_ visible: Bool) {
@@ -5097,6 +5153,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         messageSearchChoosesMember = false
         messageSearchMember = nil
         messageSearchQuery = ""
+        messageSearchShowsList = false
         hideMessageSearchMemberList()
         updateMessageSearchPanel()
     }
