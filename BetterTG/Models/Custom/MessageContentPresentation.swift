@@ -43,8 +43,8 @@ struct MessageContentPresentation {
         case unsupported(ServiceContent)
     }
 
-    static let auditedTDLibCaseCount = 104
-    static let auditedTDLibRevision = "1.8.66-022d6020"
+    static let auditedTDLibCaseCount = 107
+    static let auditedTDLibRevision = "1.8.68-c15d3f5a"
 
     let formattedText: FormattedText?
     let isVisualMedia: Bool

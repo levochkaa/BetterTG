@@ -278,10 +278,10 @@ Read-only audits at `6c697153` (voice and video notes, V) and `1ac7d7e2` (messag
 | V-15 | P3 | Hold-to-send waveforms use unnormalized meter readings (suspicion) | open |
 | V-16 | P3 | A successful send may delete the .ogg the sent message still points to (suspicion) | open |
 | R-8 | P3 | Public polls have no View Results or voter list, no Unvote item; vote errors only logged | open |
-| R-9 | P3 | Many service rows use generic titles without Telegram's values (calls, video chats, auto-delete, game score, proximity, web app data, theme, owner changes) | open |
+| R-9 | P3 | Many service rows use generic titles without Telegram's values (calls, video chats, auto-delete, game score, proximity, web app data, theme, owner changes) | fixed `2de7def3`: calls, group calls, video chats (started, ended, scheduled, invitations), auto-delete timers by chat type, game scores, proximity alerts, web app data, themes and wallpapers use Telegram's ServiceMessageStrings wording with names, durations, times and distances. `-ui-probe-service-text` passes 18 cases against the active language pack. Owner left/changed keep BetterTG's titles: Telegram iOS has no wording for them yet |
 | R-10 | P3 | Service rows aren't tappable and show no media (pinned message jump, photo changes, wallpapers) | open |
 | R-11 | P3 | Bubbles lack the "edited" label, channel view counts and the comments button | open |
-| R-12 | P3 | The content probe still audits 104 cases at TDLib 1.8.66; the schema has 107 | open |
+| R-12 | P3 | The content probe still audits 104 cases at TDLib 1.8.66; the schema has 107 | fixed: the probe records 107 cases at 1.8.68-c15d3f5a; the exhaustive switch already compiles against all 107 |
 
 Reviewed and OK: recording gesture thresholds, interruptions and backgrounding to preview, off-main encoding, frozen send context for voice and video notes, note limits, video note playback ownership; media, file, location, poll voting, rich message, link preview, reaction, reply/quote/forward header, delivery and spoiler rendering. Not reviewed: video note writer and segment composer internals, the recorder state machine, note stores' reconciliation, FFmpeg transcode, invoices, animated emoji interactions, reactors list, text entity actions, translate and report.
 
