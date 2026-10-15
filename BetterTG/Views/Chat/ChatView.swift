@@ -172,6 +172,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let scrollToLatestButton = UIButton(type: .system)
     private let unreadBadgeLabel = TelegramUnreadBadgeLabel(minimumDiameter: 20, horizontalPadding: 11)
     private var scrollToLatestButtonVisible = false
+    private let mentionsButton = ChatHistoryNavigationButton(
+        symbolName: "at", accessibilityLabel: L10n.betterTG("Accessibility.NextUnreadMention"),
+    )
+    private let reactionsButton = ChatHistoryNavigationButton(
+        symbolName: "heart", accessibilityLabel: L10n.betterTG("Accessibility.NextUnreadReaction"),
+    )
+    private var mentionsButtonBottomConstraint: NSLayoutConstraint?
+    private var reactionsButtonBottomConstraint: NSLayoutConstraint?
+    /// Mentions and reactions shown, and whether they stack on the scroll-to-latest button.
+    private var unreadJumpLayout: (mentions: Bool, reactions: Bool, latest: Bool)?
+    private var unreadJumpTask: Task<Void, Never>?
     private var didPresentMicrophoneError = false
     private var didPresentVoiceNoteError = false
     private var didPresentVideoNoteError = false
@@ -539,9 +550,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         restoreVisibleInlineVideoPlayback()
         acknowledgeCommittedVisibleMessages(requestHistory: true)
-        if presentationMode == .full {
-            chatVM.readAllReactions()
-        }
         #if DEBUG
         if viewportCompletionProbe == nil, presentationMode == .full, chatVM.customChat.isSavedMessages,
            ChatViewportCompletionProbe.enabled
@@ -2153,6 +2161,121 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             unreadBadgeLabel.centerXAnchor.constraint(equalTo: scrollToLatestButton.centerXAnchor),
             unreadBadgeLabel.heightAnchor.constraint(equalToConstant: 20),
         ])
+        configureUnreadJumpButtons()
+    }
+
+    /// Telegram's mention and reaction buttons stack above the scroll-to-latest button, or take its place while it is
+    /// hidden; a tap jumps to the earliest unread one and a long press offers clearing them all.
+    private func configureUnreadJumpButtons() {
+        for button in [mentionsButton, reactionsButton] {
+            view.addSubview(button)
+            button.trailingAnchor.constraint(equalTo: scrollToLatestButton.trailingAnchor).isActive = true
+            button.addGestureRecognizer(UILongPressGestureRecognizer(
+                target: self, action: #selector(showUnreadJumpMenu(_:)),
+            ))
+        }
+        mentionsButtonBottomConstraint = mentionsButton.bottomAnchor
+            .constraint(equalTo: scrollToLatestButton.bottomAnchor)
+        reactionsButtonBottomConstraint = reactionsButton.bottomAnchor
+            .constraint(equalTo: scrollToLatestButton.bottomAnchor)
+        mentionsButtonBottomConstraint?.isActive = true
+        reactionsButtonBottomConstraint?.isActive = true
+        mentionsButton.addTarget(self, action: #selector(jumpToUnreadMention), for: .touchUpInside)
+        reactionsButton.addTarget(self, action: #selector(jumpToUnreadReaction), for: .touchUpInside)
+        Publishers.Merge3(
+            chatVM.$chatUnreadMentionCount.map { _ in () },
+            chatVM.$chatUnreadReactionCount.map { _ in () },
+            chatVM.$forumTopic.map { _ in () },
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in DispatchQueue.main.async { self?.updateUnreadJumpButtons(animated: true) } }
+        .store(in: &cancellables)
+        updateUnreadJumpButtons(animated: false)
+    }
+
+    private func updateUnreadJumpButtons(animated: Bool) {
+        guard let mentionsButtonBottomConstraint, let reactionsButtonBottomConstraint else { return }
+        let allowed = presentationMode == .full && !messageSearchActive && !isSelectingMessages
+        let mentions = chatVM.unreadMentionCount
+        let reactions = chatVM.unreadReactionCount
+        mentionsButton.setCount(mentions)
+        reactionsButton.setCount(reactions)
+        let layout = (
+            mentions: allowed && mentions > 0,
+            reactions: allowed && reactions > 0,
+            latest: scrollToLatestButtonVisible,
+        )
+        if let unreadJumpLayout, unreadJumpLayout == layout { return }
+        unreadJumpLayout = layout
+        let step: CGFloat = 36 + 12
+        let mentionsOffset = layout.latest ? step : 0
+        let reactionsOffset = mentionsOffset + (layout.mentions ? step : 0)
+        let changes = {
+            mentionsButtonBottomConstraint.constant = -mentionsOffset
+            reactionsButtonBottomConstraint.constant = -reactionsOffset
+            for (button, visible) in [(self.mentionsButton, layout.mentions), (
+                self.reactionsButton,
+                layout.reactions,
+            )] {
+                button.alpha = visible ? 1 : 0
+                button.transform = visible ? .identity : ChatHistoryNavigationButton.hiddenTransform
+            }
+            self.view.layoutIfNeeded()
+        }
+        mentionsButton.isUserInteractionEnabled = layout.mentions
+        reactionsButton.isUserInteractionEnabled = layout.reactions
+        guard animated, view.window != nil else {
+            changes()
+            return
+        }
+        UIView.animate(
+            withDuration: 0.38,
+            delay: 0,
+            usingSpringWithDamping: 0.78,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+            animations: changes,
+        )
+    }
+
+    @objc private func jumpToUnreadMention() {
+        jumpToUnread(reactions: false)
+    }
+
+    @objc private func jumpToUnreadReaction() {
+        jumpToUnread(reactions: true)
+    }
+
+    private func jumpToUnread(reactions: Bool) {
+        unreadJumpTask?.cancel()
+        unreadJumpTask = Task { [weak self] in
+            guard let self, let messageID = await chatVM.earliestUnreadMessageID(reactions: reactions),
+                  !Task.isCancelled, !clientOwnerRetired else { return }
+            unreadJumpTask = nil
+            navigate(to: .message(chatID: chatVM.chatID, messageID: messageID, quote: nil))
+        }
+    }
+
+    @objc private func showUnreadJumpMenu(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, let button = gesture.view as? ChatHistoryNavigationButton else { return }
+        let action =
+            if button === mentionsButton {
+                TelegramContextMenuAction(
+                    title: L10n.telegram("WebSearch.RecentSectionClear"),
+                    image: UIImage(systemName: "checkmark.message"),
+                ) { [weak self] in self?.chatVM.readAllMentions() }
+            } else {
+                TelegramContextMenuAction(
+                    title: L10n.telegram("Conversation.ReadAllReactions"),
+                    image: UIImage(systemName: "checkmark.message"),
+                ) { [weak self] in self?.chatVM.readAllReactions() }
+            }
+        presentTelegramContextMenu(
+            sourceView: button,
+            actions: [action],
+            tracking: gesture,
+            presentationStyle: .sourceMorph,
+        )
     }
 
     private func updateScrollToLatestButtonVisibility(animated: Bool) {
@@ -2160,6 +2283,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard restoredViewport?.pending != true else { return }
         let isAwayFromLatest = collectionView.contentOffset.y + collectionView.adjustedContentInset.top > 160
         let visible = isAwayFromLatest && !messageSearchActive && !isSelectingMessages
+        defer { updateUnreadJumpButtons(animated: animated) }
         guard scrollToLatestButtonVisible != visible else { return }
         scrollToLatestButtonVisible = visible
         let changes = {

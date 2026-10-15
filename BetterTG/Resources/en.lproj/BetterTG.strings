@@ -581,3 +581,5 @@
 "Accessibility.VideoNoteCameraPreview" = "Video note camera preview";
 
 "Login.WaitingForAuthorization" = "Waiting for authorization";
+"Accessibility.NextUnreadMention" = "Next mention";
+"Accessibility.NextUnreadReaction" = "Next reaction";

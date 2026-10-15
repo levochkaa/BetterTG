@@ -852,3 +852,5 @@
 "Conversation.MessageOptionsQuoteRemove" = "Remove Quote";
 "Conversation.MessageOptionsReplyCancel" = "Do Not Reply";
 "Story.ViewMessage" = "View Message";
+"WebSearch.RecentSectionClear" = "Clear";
+"Conversation.ReadAllReactions" = "Read All Reactions";

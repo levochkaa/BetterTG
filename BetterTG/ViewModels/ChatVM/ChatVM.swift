@@ -149,6 +149,10 @@ import UIKit
     /// A failed poll vote, Retract Vote, Stop Poll or Stop Sharing, shown once by the chat.
     @Published var messageActionErrorMessage: String?
     @Published private(set) var forumTopic: ForumTopic?
+    /// The chat's unread mentions and reactions behind Telegram's history navigation buttons. A forum topic route
+    /// counts from its `ForumTopic`, and TDLib keeps no count for a reply thread.
+    @Published var chatUnreadMentionCount = 0
+    @Published var chatUnreadReactionCount = 0
     @Published private(set) var forumTopicInfo: ForumTopicInfo?
     @Published private(set) var forumTopicsByID = [Int: ForumTopic]()
     /// A thread route's `getMessageThread` answer. Its root messages head the history, as Telegram's thread head.

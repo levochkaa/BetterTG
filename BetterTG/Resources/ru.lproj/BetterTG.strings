@@ -580,3 +580,5 @@
 "Accessibility.VideoNoteCameraPreview" = "Превью камеры для видеосообщения";
 
 "Login.WaitingForAuthorization" = "Ожидание авторизации";
+"Accessibility.NextUnreadMention" = "Следующее упоминание";
+"Accessibility.NextUnreadReaction" = "Следующая реакция";

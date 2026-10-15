@@ -33,6 +33,24 @@ extension ChatVM {
             guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
             customChat.unreadCount = update.unreadCount
         }
+        chatUnreadMentionCount = customChat.chat.unreadMentionCount
+        chatUnreadReactionCount = customChat.chat.unreadReactionCount
+        observeCurrentUpdate(.updateChatUnreadMentionCount) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
+            chatUnreadMentionCount = update.unreadMentionCount
+        }
+        observeCurrentUpdate(.updateMessageMentionRead) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
+            chatUnreadMentionCount = update.unreadMentionCount
+        }
+        observeCurrentUpdate(.updateChatUnreadReactionCount) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
+            chatUnreadReactionCount = update.unreadReactionCount
+        }
+        observeCurrentUpdate(.updateMessageUnreadReactions) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
+            chatUnreadReactionCount = update.unreadReactionCount
+        }
         observeCurrentUpdate(.updateNewMessage) { [weak self] update, authority in
             guard let self,
                   locationContextIsCurrent,
