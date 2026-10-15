@@ -365,11 +365,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     /// Moves rows only while the page reorders its pinned chats; the diffable source keeps its snapshot in step.
     private final class ChatRowsDataSource: UITableViewDiffableDataSource<Section, Int64> {
         var canMoveRow: ((IndexPath) -> Bool)?
+        /// Rows that offer swipe actions; UIKit asks for them only on editable rows.
+        var canSwipeRow: ((IndexPath) -> Bool)?
         /// The moved chat, the chat it was dropped onto, and whether it moved down.
         var didMoveRow: ((Int64, Int64, Bool) -> Void)?
 
         override func tableView(_: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
-            canMoveRow?(indexPath) ?? false
+            canMoveRow?(indexPath) == true || canSwipeRow?(indexPath) == true
         }
 
         override func tableView(_: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
@@ -397,6 +399,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     let folder: CustomFolder
     var onSearchScrollOffsetChange: ((CGFloat) -> Void)?
     var isSearchActive: (() -> Bool)?
+    /// The main screen leaves a pan that starts near a side edge to folder paging, as Telegram's chat list does.
+    var allowsRowSwipe: (() -> Bool)?
     var onListInteractionEnded: (() -> Void)?
 
     private let showsStandaloneSearch: Bool
@@ -623,8 +627,29 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }
     }
 
-    override func tableView(_: UITableView, editingStyleForRowAt _: IndexPath) -> UITableViewCell.EditingStyle {
-        .none
+    override func tableView(
+        _ tableView: UITableView,
+        editingStyleForRowAt _: IndexPath,
+    ) -> UITableViewCell.EditingStyle {
+        // Reordering shows only the grip; outside it the style lets UIKit offer the row's swipe actions.
+        tableView.isEditing ? .none : .delete
+    }
+
+    /// Telegram's reveal options (ChatListItem `revealOptions`): Mute or Unmute, Delete, then Archive or Unarchive
+    /// with the last one on a full swipe; the archive offers Pin or Unpin, Delete and Unarchive.
+    override func tableView(
+        _: UITableView,
+        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath,
+    ) -> UISwipeActionsConfiguration? {
+        swipeConfiguration(at: indexPath, leading: false)
+    }
+
+    /// Telegram's left reveal options (`leftRevealOptions`): Read or Unread, then Pin or Unpin, outside the archive.
+    override func tableView(
+        _: UITableView,
+        leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath,
+    ) -> UISwipeActionsConfiguration? {
+        swipeConfiguration(at: indexPath, leading: true)
     }
 
     override func tableView(_: UITableView, shouldIndentWhileEditingRowAt _: IndexPath) -> Bool {
@@ -776,6 +801,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 return false
             }
             return chat(for: id)?.position.isPinned == true
+        }
+        dataSource.canSwipeRow = { [weak self] indexPath in
+            guard let self, !isReorderingPinnedChats, let id = dataSource.itemIdentifier(for: indexPath) else {
+                return false
+            }
+            return chat(for: id) != nil
         }
         dataSource.didMoveRow = { [weak self] movedID, referenceID, movedDown in
             self?.commitPinnedMove(movedID, relativeTo: referenceID, movedDown: movedDown)
@@ -1061,8 +1092,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let unread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
         let archived = chat.chat.positions.contains { $0.list == .chatListArchive && $0.order != 0 }
         let muted = rootVM.isMuted(chat)
-        let chatList = folder.chatList
-        let pinLimit = pinLimitType
         // Telegram (ChatContextMenus, chatContextMenuItems) keeps Saved Messages out of Archive and Mute, service
         // notifications out of Archive, and offers Mark as Unread only outside forums.
         let isSavedMessages = chat.isSavedMessages
@@ -1126,34 +1155,14 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 title: L10n.telegram("ChatList.Context.MarkAsRead"),
                 image: UIImage(systemName: "envelope.open"),
             ) { [weak self] in
-                self?.runAction(scope) {
-                    if let messageID = chat.lastMessage?.id {
-                        // Best effort: the unread mark cleared below is what the row shows.
-                        _ = try? await client.viewMessages(
-                            chatId: chat.id,
-                            forceRead: true,
-                            messageIds: [messageID],
-                            source: nil,
-                        )
-                        try scope.check()
-                    }
-                    _ = try await client.toggleChatIsMarkedAsUnread(chatId: chat.id, isMarkedAsUnread: false)
-                    // Telegram's Mark as Read also marks mentions seen (updateMarkAllMentionsSeen); it leaves unseen
-                    // reactions, which the chat reads when they are shown.
-                    if chat.chat.unreadMentionCount > 0 {
-                        try scope.check()
-                        _ = try await client.send(TDNativeRequests.readAllChatMentions(chatId: chat.id))
-                    }
-                }
+                self?.markRead(chat, scope: scope, client: client)
             })
         } else if !isForum {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("ChatList.Context.MarkAsUnread"),
                 image: UIImage(systemName: "envelope.badge"),
             ) { [weak self] in
-                self?.runAction(scope) {
-                    _ = try await client.toggleChatIsMarkedAsUnread(chatId: chat.id, isMarkedAsUnread: true)
-                }
+                self?.markUnread(chat, scope: scope, client: client)
             })
         }
         if !isSavedMessages, !isServiceNotifications {
@@ -1163,19 +1172,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                     : L10n.telegram("ChatList.Context.Archive"),
                 image: UIImage(systemName: archived ? "tray.and.arrow.up" : "archivebox"),
             ) { [weak self] in
-                self?.runAction(scope) { [weak self] in
-                    _ = try await client.addChatToList(
-                        chatId: chat.id,
-                        chatList: archived ? .chatListMain : .chatListArchive,
-                    )
-                    // Telegram (ChatListController, archiveChats) offers Undo after archiving.
-                    guard !archived, let self, scope.isCurrent else { return }
-                    showUndoToast(L10n.telegram("ChatList.UndoArchiveTitle")) { [weak self] in
-                        self?.runAction(scope) {
-                            _ = try await client.addChatToList(chatId: chat.id, chatList: .chatListMain)
-                        }
-                    }
-                }
+                self?.setArchived(chat, !archived, scope: scope, client: client)
             })
         }
         actions.append(TelegramContextMenuAction(
@@ -1184,16 +1181,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 : L10n.telegram("ChatList.Context.Pin"),
             image: UIImage(systemName: pinned ? "pin.slash.fill" : "pin.fill"),
         ) { [weak self] in
-            self?.runAction(scope, onFailure: { [weak self] error in
-                // Telegram (toggleItemPinned, limitExceeded) shows the pin limit.
-                self?.presentFailure(
-                    limit: !pinned && error.isTDLibLimit("maximum number of pinned chats") ? pinLimit : nil,
-                    scope: scope,
-                    client: client,
-                )
-            }) {
-                _ = try await client.toggleChatIsPinned(chatId: chat.id, chatList: chatList, isPinned: !pinned)
-            }
+            self?.setPinned(chat, !pinned, scope: scope, client: client)
         })
         // Telegram offers Reorder on a pinned item (ChatContextMenus, Chat.InlineTopicMenu.Reorder); BetterTG has no
         // Edit mode, so this is the way into reordering pinned chats.
@@ -1212,14 +1200,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                     : L10n.telegram("ChatList.Context.Mute"),
                 image: UIImage(systemName: muted ? "speaker.wave.2.fill" : "speaker.slash.fill"),
             ) { [weak self] in
-                self?.runAction(scope) {
-                    _ = try await client.setChatNotificationSettings(
-                        chatId: chat.id,
-                        notificationSettings: chat.chat.notificationSettings.withMuteFor(
-                            muted ? 0 : Int(Int32.max),
-                        ),
-                    )
-                }
+                self?.setMuted(chat, !muted, scope: scope, client: client)
             })
         }
         // Telegram offers Delete for every chat in the list; the sheet decides between deleting, leaving and
@@ -1230,12 +1211,199 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             isDestructive: true,
             startsNewSection: true,
         ) { [weak self] in
-            guard let self else { return }
-            ChatListChatRemoval(chat: chat, client: client, scope: scope, host: self) { [weak self] status in
-                self?.showUndoToast(status)
-            }.start()
+            self?.deleteChat(chat, scope: scope, client: client)
         })
         return actions
+    }
+
+    // MARK: Row actions
+
+    private func swipeChat(at indexPath: IndexPath) -> CustomChat? {
+        guard actionAuthority.scope(owner: self).isCurrent, !isReorderingPinnedChats, allowsRowSwipe?() != false,
+              let id = dataSource.itemIdentifier(for: indexPath)
+        else { return nil }
+        return chat(for: id)
+    }
+
+    private func swipeConfiguration(at indexPath: IndexPath, leading: Bool) -> UISwipeActionsConfiguration? {
+        guard let chat = swipeChat(at: indexPath) else { return nil }
+        let actions = leading ? leadingSwipeActions(for: chat) : Array(trailingSwipeActions(for: chat).reversed())
+        let configuration = UISwipeActionsConfiguration(actions: actions)
+        configuration.performsFirstActionWithFullSwipe = !actions.isEmpty
+        return configuration
+    }
+
+    private func swipeAction(
+        _ key: String,
+        _ symbol: String,
+        _ color: UIColor,
+        perform: @escaping () -> Void,
+    ) -> UIContextualAction {
+        let action = UIContextualAction(style: .normal, title: L10n.telegram(key)) { _, _, completion in
+            perform()
+            completion(true)
+        }
+        action.image = UIImage(systemName: symbol)
+        action.backgroundColor = color
+        return action
+    }
+
+    /// In Telegram's order, left to right.
+    private func trailingSwipeActions(for chat: CustomChat) -> [UIContextualAction] {
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        let isArchiveList = folder.chatList == .chatListArchive
+        var actions = [UIContextualAction]()
+        if isArchiveList {
+            let pinned = chat.position.isPinned
+            actions.append(swipeAction(
+                pinned ? "DialogList.Unpin" : "DialogList.Pin",
+                pinned ? "pin.slash.fill" : "pin.fill",
+                .systemGreen,
+            ) { [weak self] in self?.setPinned(chat, !pinned, scope: scope, client: client) })
+        } else if !chat.isSavedMessages {
+            let muted = rootVM.isMuted(chat)
+            actions.append(swipeAction(
+                muted ? "ChatList.Unmute" : "ChatList.Mute",
+                muted ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                .systemOrange,
+            ) { [weak self] in self?.setMuted(chat, !muted, scope: scope, client: client) })
+        }
+        actions.append(swipeAction("Common.Delete", "trash.fill", .systemRed) { [weak self] in
+            self?.deleteChat(chat, scope: scope, client: client)
+        })
+        if isArchiveList {
+            actions.append(swipeAction("ChatList.UnarchiveAction", "tray.and.arrow.up.fill", .systemGray) {
+                [weak self] in self?.setArchived(chat, false, scope: scope, client: client)
+            })
+        } else if !chat.isSavedMessages, chat.user?.id != Self.serviceNotificationsUserID {
+            // A custom folder offers Archive only when it hides archived chats (ChatListItemFilterData).
+            let canArchive =
+                switch folder.type {
+                case .main: true
+                case .archive: false
+                case .folder(_, let definition): definition.excludeArchived
+                }
+            if canArchive {
+                actions.append(swipeAction("ChatList.ArchiveAction", "archivebox.fill", .systemGray) {
+                    [weak self] in self?.setArchived(chat, true, scope: scope, client: client)
+                })
+            }
+        }
+        return actions
+    }
+
+    private func leadingSwipeActions(for chat: CustomChat) -> [UIContextualAction] {
+        guard folder.chatList != .chatListArchive else { return [] }
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        var actions = [UIContextualAction]()
+        let unread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
+        let isForum = chat.supergroup.map { $0.isForum || $0.isDirectMessagesGroup } ?? false
+        if unread {
+            actions.append(swipeAction("DialogList.Read", "envelope.open.fill", .systemGray) { [weak self] in
+                self?.markRead(chat, scope: scope, client: client)
+            })
+        } else if !isForum {
+            actions.append(swipeAction("DialogList.Unread", "envelope.badge.fill", .systemBlue) { [weak self] in
+                self?.markUnread(chat, scope: scope, client: client)
+            })
+        }
+        let pinned = chat.position.isPinned
+        let isCustomFolder =
+            if case .folder = folder.type {
+                true
+            } else {
+                false
+            }
+        if pinned || !(isCustomFolder && chat.secretChatID != nil) {
+            actions.append(swipeAction(
+                pinned ? "DialogList.Unpin" : "DialogList.Pin",
+                pinned ? "pin.slash.fill" : "pin.fill",
+                .systemGreen,
+            ) { [weak self] in self?.setPinned(chat, !pinned, scope: scope, client: client) })
+        }
+        return actions
+    }
+
+    /// Shared by the context menu and the swipe actions.
+    private func markRead(_ chat: CustomChat, scope: ChatListActionScope, client: TDLibClient) {
+        runAction(scope) {
+            if let messageID = chat.lastMessage?.id {
+                // Best effort: the unread mark cleared below is what the row shows.
+                _ = try? await client.viewMessages(
+                    chatId: chat.id,
+                    forceRead: true,
+                    messageIds: [messageID],
+                    source: nil,
+                )
+                try scope.check()
+            }
+            _ = try await client.toggleChatIsMarkedAsUnread(chatId: chat.id, isMarkedAsUnread: false)
+            // Telegram's Mark as Read also marks mentions seen (updateMarkAllMentionsSeen); it leaves unseen
+            // reactions, which the chat reads when they are shown.
+            if chat.chat.unreadMentionCount > 0 {
+                try scope.check()
+                _ = try await client.send(TDNativeRequests.readAllChatMentions(chatId: chat.id))
+            }
+        }
+    }
+
+    private func markUnread(_ chat: CustomChat, scope: ChatListActionScope, client: TDLibClient) {
+        runAction(scope) {
+            _ = try await client.toggleChatIsMarkedAsUnread(chatId: chat.id, isMarkedAsUnread: true)
+        }
+    }
+
+    private func setArchived(
+        _ chat: CustomChat,
+        _ archive: Bool,
+        scope: ChatListActionScope,
+        client: TDLibClient,
+    ) {
+        runAction(scope) { [weak self] in
+            _ = try await client.addChatToList(
+                chatId: chat.id,
+                chatList: archive ? .chatListArchive : .chatListMain,
+            )
+            // Telegram (ChatListController, archiveChats) offers Undo after archiving.
+            guard archive, let self, scope.isCurrent else { return }
+            showUndoToast(L10n.telegram("ChatList.UndoArchiveTitle")) { [weak self] in
+                self?.runAction(scope) {
+                    _ = try await client.addChatToList(chatId: chat.id, chatList: .chatListMain)
+                }
+            }
+        }
+    }
+
+    private func setPinned(_ chat: CustomChat, _ pin: Bool, scope: ChatListActionScope, client: TDLibClient) {
+        let pinLimit = pinLimitType
+        let chatList = folder.chatList
+        runAction(scope, onFailure: { [weak self] error in
+            // Telegram (toggleItemPinned, limitExceeded) shows the pin limit.
+            self?.presentFailure(
+                limit: pin && error.isTDLibLimit("maximum number of pinned chats") ? pinLimit : nil,
+                scope: scope,
+                client: client,
+            )
+        }) {
+            _ = try await client.toggleChatIsPinned(chatId: chat.id, chatList: chatList, isPinned: pin)
+        }
+    }
+
+    private func setMuted(_ chat: CustomChat, _ mute: Bool, scope: ChatListActionScope, client: TDLibClient) {
+        runAction(scope) {
+            _ = try await client.setChatNotificationSettings(
+                chatId: chat.id,
+                notificationSettings: chat.chat.notificationSettings.withMuteFor(mute ? Int(Int32.max) : 0),
+            )
+        }
+    }
+
+    private func deleteChat(_ chat: CustomChat, scope: ChatListActionScope, client: TDLibClient) {
+        ChatListChatRemoval(chat: chat, client: client, scope: scope, host: self) { [weak self] status in
+            self?.showUndoToast(status)
+        }.start()
     }
 
     @objc private func chatLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {

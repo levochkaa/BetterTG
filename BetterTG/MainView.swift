@@ -53,6 +53,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     /// A non-empty query shows TDLib results over every folder page, as Telegram's search container does.
     private var isShowingSearchResults = false
     private var pageScrollObservation: NSKeyValueObservation?
+    private let pagingEdgeGate = FolderPagingEdgeGate()
     private var interactiveFolderTransition: (
         fromID: Int,
         toID: Int,
@@ -461,6 +462,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             pageScrollObservation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] scrollView, _ in
                 self?.updateInteractiveFolderSelection(from: scrollView)
             }
+            // A pan from an edge zone belongs to the row's swipe actions, one from the middle to folder paging.
+            pagingEdgeGate.onTouchBegan = { [weak self, weak scrollView] atEdge in
+                guard let self, let scrollView, !scrollView.isDragging, !scrollView.isDecelerating else { return }
+                scrollView.isScrollEnabled = !atEdge || folderControllers.count <= 1
+            }
+            pageController.view.addGestureRecognizer(pagingEdgeGate)
         }
         NSLayoutConstraint.activate([
             pageController.view.topAnchor.constraint(equalTo: view.topAnchor),
@@ -640,6 +647,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             )
             controller.setSearchActive(customNavigationBar.isSearchActive, animated: false, preservingViewport: true)
             controller.isSearchActive = { [weak self] in self?.customNavigationBar.isSearchActive == true }
+            controller.allowsRowSwipe = { [weak self] in
+                guard let self else { return false }
+                return folderControllers.count <= 1 || pagingEdgeGate.touchStartedAtEdge
+            }
             controller.onSearchScrollOffsetChange = { [weak self, weak controller] offset in
                 guard let self, currentFolderController === controller, !isShowingSearchResults else { return }
                 customNavigationBar.applyScroll(offset: offset)

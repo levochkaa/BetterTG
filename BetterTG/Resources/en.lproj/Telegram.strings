@@ -871,3 +871,8 @@
 "ChatList.Unmute" = "Unmute";
 "ChatList.CloseAction" = "Close";
 "ChatList.StartAction" = "Start";
+"DialogList.Pin" = "Pin";
+"DialogList.Unpin" = "Unpin";
+"DialogList.Read" = "Read";
+"ChatList.ArchiveAction" = "Archive";
+"ChatList.UnarchiveAction" = "Unarchive";
