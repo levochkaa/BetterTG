@@ -529,6 +529,13 @@
 "ScheduledMessages.TodoUnavailable" = "Completing tasks will become available after the message is published.";
 "CreateTodo.TaskPlaceholder" = "Task";
 "CreateTodo.Save" = "Save";
+"Notification.Story" = "Story";
+"Chat.MessageForwardInfo.StoryHeader" = "Forwarded story from";
+"Chat.MessageForwardInfo.ExpiredStoryHeader" = "Expired story from";
+"Conversation.StoryMentionTextIncoming" = "%@ mentioned you\nin a story";
+"Conversation.StoryMentionTextOutgoing" = "You mentioned %@\nin a story";
+"Conversation.StoryExpiredMentionTextIncoming" = "The story you were mentioned in\nis no longer available";
+"Conversation.StoryExpiredMentionTextOutgoing" = "The story where you mentioned %@\n is no longer available";
 "Conversation.ForwardOptions.Title_0" = "%@ Messages";
 "Conversation.ForwardOptions.Title_1" = "%@ Message";
 "Conversation.ForwardOptions.Title_2" = "%@ Messages";

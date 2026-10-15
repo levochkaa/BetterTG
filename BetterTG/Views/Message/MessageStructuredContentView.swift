@@ -333,6 +333,7 @@ final class MessageStructuredContentView: UIView {
             case is ServiceMessageContentView: "service"
             case is ChecklistMessageContentView: "checklist"
             case is GameMessageContentView: "game"
+            case is StoryMessageContentView: "story"
             default: "none"
             }
         }
@@ -419,6 +420,8 @@ final class MessageStructuredContentView: UIView {
                 )
             case .service(let content):
                 ServiceMessageContentView(content: content, isUnsupported: false, client: client, onAction: onAction)
+            case .story(let story):
+                StoryMessageContentView(content: story, chatID: chatID, client: client, onAction: onAction)
             case .unsupported(let content):
                 ServiceMessageContentView(content: content, isUnsupported: true)
             }
@@ -2711,6 +2714,7 @@ final class TelegramContactDetailsViewController: UIViewController {
             let expectedNames = [
                 "file", "file", "attachmentAlbum", "contact", "contact", "location", "location",
                 "poll", "poll", "dice", "stickerGlyph", "service", "service", "checklist", "checklist", "game",
+                "story", "story",
             ]
             let actionProof = actions.contains("poll:0") && actions.contains("poll:0,1")
                 && actions.filter { $0 == "checklist:2:true" }.count == 1
@@ -2841,6 +2845,17 @@ final class TelegramContactDetailsViewController: UIViewController {
                     text: FormattedText(entities: [], text: ""),
                     title: "Parity Game",
                 )))),
+                // No poster chat: the story reads as expired without a request.
+                Fixture(name: "story", messageID: 917, content: .messageStory(MessageStory(
+                    storyId: 1,
+                    storyPosterChatId: 0,
+                    viaMention: false,
+                ))),
+                Fixture(name: "story-mention", messageID: 918, content: .messageStory(MessageStory(
+                    storyId: 1,
+                    storyPosterChatId: 0,
+                    viaMention: true,
+                ))),
             ]
         }
 

@@ -89,7 +89,6 @@
 "Message.Unsupported" = "Неподдерживаемое сообщение";
 "Message.Unsupported.TDLib" = "Это сообщение не поддерживается текущей версией TDLib.";
 "Message.Unsupported.Paid" = "Платные функции, Premium, Stars, TON, подарки, бусты и коллекционные предметы в BetterTG не поддерживаются.";
-"Message.Unsupported.Story" = "Пересланные истории пока не поддерживаются.";
 "Message.Unsupported.Invoice" = "Платежи в BetterTG не поддерживаются.";
 "Accessibility.HidePinnedMessage" = "Скрыть закреплённое сообщение";
 "Accessibility.OpenPinnedMessageHint" = "Открывает закреплённое сообщение";

@@ -608,6 +608,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         swipeReplyThreshold = message.message.isOutgoing ? 60 : 45
         swipeToReplyRecognizer.isEnabled = onSwipeToReply != nil && !selectionActive
         let presentation = message.contentPresentation
+        // Service rows and Telegram's story-mention card sit centered without a bubble.
+        let isCentered = presentation.isService || presentation.isStoryMention
         let visibleReactions = message.message.selfDestructType == nil
             && message.message.ephemeralMessageId == 0
             ? MessageReactionStateReducer.visible(message.reactions)
@@ -615,13 +617,13 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         configureAlignment(
             outgoing: message.message.isOutgoing,
             showsAvatar: showsProfileImage,
-            centered: presentation.isService,
+            centered: isCentered,
         )
         configureSelection(
             active: selectionActive,
             selected: selected,
             outgoing: message.message.isOutgoing,
-            centered: presentation.isService,
+            centered: isCentered,
         )
 
         let isUnframedMediaMessage =
@@ -658,11 +660,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         let hasBubbleText = message.formattedText != nil || message.forwardPresentation != nil || message
             .replyPresentation != nil
         // The comments bar sits on the bubble, as under Telegram's media posts.
-        bubbleView.backgroundColor = presentation.isService
+        bubbleView.backgroundColor = isCentered
             || (commentSource == nil && (isStandaloneUnframedMedia || (usesFullBleedMedia && !hasBubbleText)))
             ? .clear
             : .secondarySystemBackground
-        let usesEdgeToEdgeContent = usesFullBleedMedia || presentation.isService
+        let usesEdgeToEdgeContent = usesFullBleedMedia || isCentered
         bubbleTopConstraint.constant = usesEdgeToEdgeContent ? 0 : 6
         bubbleLeadingConstraint.constant = usesEdgeToEdgeContent ? 0 : 8
         bubbleTrailingConstraint.constant = usesEdgeToEdgeContent ? 0 : -8
@@ -790,7 +792,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             client: client,
             canAddReactions: canAddReactions,
             mutationInFlight: message.reactionMutationInFlight,
-            horizontalAlignment: presentation.isService
+            horizontalAlignment: isCentered
                 ? .center
                 : (message.message.isOutgoing ? .right : .left),
             onTap: onReactionTap,
@@ -842,9 +844,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             color: delivery == .failed ? .systemRed : .white,
         )
         let hasVisualMedia = hasMedia && message.hasVisualMedia
-        timestampLabel.isHidden = (displayedFormattedText != nil && !previewBelowText) || hasVisualMedia || presentation
-            .isService
-        mediaTimestampLabel.isHidden = displayedFormattedText != nil || !hasVisualMedia || presentation.isService
+        timestampLabel.isHidden = (displayedFormattedText != nil && !previewBelowText) || hasVisualMedia || isCentered
+        mediaTimestampLabel.isHidden = displayedFormattedText != nil || !hasVisualMedia || isCentered
         mediaView.bringSubviewToFront(mediaTimestampLabel)
 
         if let sender = message.senderUser, showsProfileImage, !message.message.isOutgoing {

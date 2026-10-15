@@ -915,6 +915,12 @@ extension TDNativeMessageReplyToMessage {
     }
 }
 
+extension TDNativeMessageStory {
+    init(storyId: Int, storyPosterChatId: Int64, viaMention: Bool) {
+        self.init(storyPosterChatId: storyPosterChatId, storyId: storyId, viaMention: viaMention)
+    }
+}
+
 extension TDNativeMessageText {
     init(
         linkPreview: TDNativeLinkPreview?,

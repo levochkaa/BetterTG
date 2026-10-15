@@ -42,6 +42,14 @@ struct MessageContentPresentation {
         let isScheduled: Bool
     }
 
+    /// A shared story or a story mention (TelegramMediaStory). Built from content alone, it reads as incoming.
+    struct SharedStoryContent {
+        let posterChatID: Int64
+        let storyID: Int
+        let viaMention: Bool
+        let isOutgoing: Bool
+    }
+
     enum Supplement {
         case animatedEmoji(emoji: String, content: AnimatedEmoji)
         case audio(Audio)
@@ -56,6 +64,7 @@ struct MessageContentPresentation {
         case poll(MessagePoll)
         case richMessage(TDNativeRichMessage)
         case service(ServiceContent)
+        case story(SharedStoryContent)
         case unsupported(ServiceContent)
     }
 
@@ -72,11 +81,17 @@ struct MessageContentPresentation {
         return false
     }
 
+    /// Telegram lays out a story mention as a centered card without a bubble (ChatMessageStoryMentionContentNode).
+    var isStoryMention: Bool {
+        if case .story(let story) = supplement { return story.viaMention }
+        return false
+    }
+
     static func make(_ message: Message) -> Self {
         switch message.content {
         case .messageDice:
             make(message.content).dated(message.date)
-        case .messageChecklist:
+        case .messageChecklist, .messageStory:
             make(message.content).attributed(to: message)
         case .messageLiveLocation(let liveLocation):
             make(liveLocation, date: message.date)
@@ -303,10 +318,17 @@ struct MessageContentPresentation {
             )
         case .messageStakeDice:
             return excludedPaidContent(title: L10n.betterTG("Message.StakeDice"))
-        case .messageStory:
-            return unsupported(
-                title: L10n.telegram("Message.Story"),
-                detail: L10n.betterTG("Message.Unsupported.Story"),
+        case .messageStory(let message):
+            return Self(
+                formattedText: nil,
+                isVisualMedia: false,
+                summary: L10n.telegram("Notification.Story"),
+                supplement: .story(SharedStoryContent(
+                    posterChatID: message.storyPosterChatId,
+                    storyID: message.storyId,
+                    viaMention: message.viaMention,
+                    isOutgoing: false,
+                )),
             )
         case .messageChecklist(let message):
             // Telegram's chat list reads a checklist as its title (ChatListItemStrings).
@@ -632,7 +654,7 @@ struct MessageContentPresentation {
         )
     }
 
-    /// A checklist's kind, count and marking depend on who sent the message and how.
+    /// A checklist's kind, count and marking, and a story mention's wording depend on who sent the message and how.
     private func attributed(to message: Message) -> Self {
         let attributed: Supplement =
             switch supplement {
@@ -642,6 +664,13 @@ struct MessageContentPresentation {
                     author: message.senderId,
                     isOutgoing: message.isOutgoing,
                     isScheduled: message.schedulingState != nil,
+                ))
+            case .story(let content):
+                .story(SharedStoryContent(
+                    posterChatID: content.posterChatID,
+                    storyID: content.storyID,
+                    viaMention: content.viaMention,
+                    isOutgoing: message.isOutgoing,
                 ))
             default:
                 supplement

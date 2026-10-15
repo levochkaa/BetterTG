@@ -541,6 +541,14 @@ extension TDClient {
         ))
     }
 
+    func getStory(onlyLocal: Bool, storyId: Int, storyPosterChatId: Int64) async throws -> TDNativeStory {
+        try await send(TDNativeRequests.getStory(
+            storyPosterChatId: storyPosterChatId,
+            storyId: storyId,
+            onlyLocal: onlyLocal,
+        ))
+    }
+
     func getSupergroup(supergroupId: Int64) async throws -> TDNativeSupergroup {
         try await send(TDNativeRequests.getSupergroup(supergroupId: supergroupId))
     }
