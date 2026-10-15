@@ -27,7 +27,8 @@ import UserNotifications
     private var registrationRefreshTask: Task<Void, Never>?
     private var revocationRetryTask: Task<Void, Never>?
     private var synchronizationRequested = false
-    private var pendingRoute: PushNotificationRoute?
+    /// A tapped notification waiting for its account's client to be ready.
+    private var routeOpening: AnyCancellable?
     private var lastOpenedRoute: PushNotificationRoute?
     private var handledQuickReplyRequestIdentifiers = Set<String>()
     private var cancellables = Set<AnyCancellable>()
@@ -68,7 +69,6 @@ import UserNotifications
                 telegramReady = true
                 log("Push relay TDLib authorization is ready")
                 scheduleSynchronization()
-                openPendingRouteIfPossible()
             }
             .store(in: &cancellables)
 
@@ -138,11 +138,7 @@ import UserNotifications
     func handleNotificationResponse(userInfo: [AnyHashable: Any]) {
         guard let route = PushNotificationRoute(userInfo: userInfo) else { return }
         log("Push notification response received: event=\(route.event ?? "unknown")")
-        if !telegramReady {
-            pendingRoute = route
-            return
-        }
-        open(route: route)
+        openWhenReady(route)
     }
 
     func handleNotificationResponse(_ response: UNNotificationResponse) async {
@@ -473,10 +469,39 @@ import UserNotifications
         log("TDLib Web Push endpoint deregistered: receiverId=\(receiver.id)")
     }
 
-    private func openPendingRouteIfPossible() {
-        guard let pendingRoute else { return }
-        self.pendingRoute = nil
-        open(route: pendingRoute)
+    /// Telegram (AppDelegate.openChatWhenReady) switches to the notification's account and opens the chat once that
+    /// account's client is ready; a later tap replaces a route still waiting. The switch waits for a ready client as
+    /// well, so it never runs while the notification service owns TDLib (L-8).
+    private func openWhenReady(_ route: PushNotificationRoute) {
+        let targetAccountID = route.accountId.flatMap { userID in
+            TDLib.shared.accounts.first { $0.userID == userID }?.id
+        }
+        var switchedAccount = false
+        routeOpening = TDLib.shared
+            .readyClientChanges
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] source in
+                guard let self, let source, source == TDLib.shared.activeUpdateSource,
+                      source.accountID == TDLib.shared.activeAccountID else { return }
+                guard let targetAccountID, source.accountID != targetAccountID else {
+                    routeOpening = nil
+                    open(route: route)
+                    return
+                }
+                // Another account became ready after the switch: the user chose it, and the route is dropped.
+                guard !switchedAccount else {
+                    routeOpening = nil
+                    return
+                }
+                switchedAccount = true
+                log("Push route switches to its account")
+                do {
+                    try TDLib.shared.switchToAccount(targetAccountID)
+                } catch {
+                    routeOpening = nil
+                    log("Unable to switch to the push route's account: \(error.localizedDescription)")
+                }
+            }
     }
 
     private func scheduleSynchronizationRetry() {
