@@ -357,12 +357,14 @@ import UIKit
                         previous[id] = topic.isPinned
                     }
                 }
+                // The topic list keeps a hidden General above its rows; it can't take messages, so the picker drops it.
                 let merged = ForumTopicPageState.merging(
                     // A failed reset can be retried through loadMore with reset=false.
                     // A raw head always replaces the preceding query's accepted rows.
                     existing: requestedCursor == .zero || acceptedQuery != currentQuery ? [] : topics,
                     incoming: incoming,
                 )
+                .filter { !$0.info.isHidden }
                 if requestedCursor == .zero {
                     pinnedOrder.acceptHead(
                         page.topics, eligible: Set(merged.map(\.info.forumTopicId)),

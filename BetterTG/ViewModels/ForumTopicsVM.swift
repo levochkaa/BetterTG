@@ -357,7 +357,7 @@ import TDLibKit
                     } ?? false
                     // The server may match fuzzy/transliterated queries. Only a newer
                     // different name can invalidate that returned membership locally.
-                    if topic.info.isHidden || (renamed && !self.topicMatchesQuery(topic.info)) {
+                    if topic.info.leavesTopicList || (renamed && !self.topicMatchesQuery(topic.info)) {
                         removed.insert(topic.info.forumTopicId)
                     }
                     return topic
@@ -455,16 +455,19 @@ import TDLibKit
             guard let index = topics.firstIndex(where: {
                 $0.info.forumTopicId == update.info.forumTopicId
             }) else {
-                if previous != update.info, !update.info.isHidden, topicMatchesQuery(update.info) {
+                if previous != update.info, !update.info.leavesTopicList, topicMatchesQuery(update.info) {
                     refreshTopic(id: update.info.forumTopicId, afterCurrent: false)
                 }
                 return
             }
             let retainedName = acceptedQuery == query ? topics[index].info.name : nil
-            if update.info.isHidden || !topicMatchesQuery(update.info, retaining: retainedName) {
+            if update.info.leavesTopicList || !topicMatchesQuery(update.info, retaining: retainedName) {
                 topics.remove(at: index)
             } else if topics[index].info != update.info {
+                let movesAboveList = topics[index].info.isHidden != update.info.isHidden
                 topics[index] = topics[index].replacing(info: update.info)
+                // Hiding General moves it above the list; unhiding returns it to its place.
+                if movesAboveList { sortTopics() }
             }
         }
         observeCurrentUpdate(.updateForumTopic) { [weak self] update in
@@ -598,7 +601,7 @@ import TDLibKit
             pendingTopicRefreshes[id] = nil
             let retainedName = retainedTopicName(id: id)
             if let info = infoUpdates[id]?.value,
-               info.isHidden || !topicMatchesQuery(info, retaining: retainedName) { continue }
+               info.leavesTopicList || !topicMatchesQuery(info, retaining: retainedName) { continue }
             startTopicRefresh(id: id, retainedName: retainedName)
         }
     }
@@ -612,7 +615,7 @@ import TDLibKit
         guard contextIsCurrent, id > 0 else { return }
         let retainedName = retainedTopicName(id: id)
         if let info = infoUpdates[id]?.value,
-           info.isHidden || !topicMatchesQuery(info, retaining: retainedName) { return }
+           info.leavesTopicList || !topicMatchesQuery(info, retaining: retainedName) { return }
         guard loading || topicRequestIDs[id] == nil || afterCurrent else { return }
         if pendingTopicRefreshes[id] == nil { pendingTopicOrder.append(id) }
         pendingTopicRefreshes[id] = (pendingTopicRefreshes[id] ?? false) || afterCurrent
@@ -663,7 +666,7 @@ import TDLibKit
                   let topic = acceptFullTopic(response, read: read) else { return }
             let currentName = retainedTopicName(id: id)
             let unchangedName = currentName == retainedName ? retainedName : nil
-            if topic.info.isHidden || !topicMatchesQuery(topic.info, retaining: unchangedName) {
+            if topic.info.leavesTopicList || !topicMatchesQuery(topic.info, retaining: unchangedName) {
                 topics.removeAll { $0.info.forumTopicId == id }
                 return
             }

@@ -88,6 +88,9 @@ import UIKit
     private var preparedClient: ForumTopicsClientEnvironment.Metadata?
     private var preparationFailure: (id: UUID, source: TdUpdateSource, binding: UUID)?
     private var retryScheduled = false
+    /// Measures the hidden General's row so it rests exactly under the top, like the search field.
+    private lazy var sizingCell = ForumTopicCell(style: .default, reuseIdentifier: nil)
+    private var hiddenRowHeightCache: (key: String, height: CGFloat)?
 
     var displayedChatID: Int64 { viewModel.customChat.id }
 
@@ -107,6 +110,18 @@ import UIKit
         return routeIsRetained && !identityRevoked && (actorID == nil || actorID == environment.currentActor())
             && source == environment.currentSource() && source == readySource
             && environment.currentAccount() == viewModel.location.accountID
+    }
+
+    /// The resting offset from the top that hides the search field and a hidden General below it.
+    private var collapsedTopOffset: CGFloat {
+        ChatListNavigationSearchView.scrollHeight + hiddenTopRowHeight
+    }
+
+    private var hiddenTopRowHeight: CGFloat {
+        let first = IndexPath(row: 0, section: 0)
+        guard tableView.numberOfSections > 0, tableView.numberOfRows(inSection: 0) > 0,
+              hiddenTopic(at: first) != nil else { return 0 }
+        return tableView.rectForRow(at: first).height
     }
 
     init(
@@ -188,7 +203,7 @@ import UIKit
         if !didSetInitialSearchOffset, tableView.bounds.height > 0 {
             didSetInitialSearchOffset = true
             tableView.setContentOffset(
-                CGPoint(x: 0, y: -tableView.adjustedContentInset.top + ChatListNavigationSearchView.scrollHeight),
+                CGPoint(x: 0, y: -tableView.adjustedContentInset.top + collapsedTopOffset),
                 animated: false,
             )
             updateNavigationBar()
@@ -218,8 +233,23 @@ import UIKit
         let top = -scrollView.adjustedContentInset.top
         let distance = targetContentOffset.pointee.y - top
         let searchHeight = ChatListNavigationSearchView.scrollHeight
-        guard distance > 0, distance < searchHeight else { return }
-        targetContentOffset.pointee.y = top + (distance < searchHeight / 2 ? 0 : searchHeight)
+        let hiddenHeight = hiddenTopRowHeight
+        if distance > 0, distance < searchHeight {
+            targetContentOffset.pointee.y = top + (distance < searchHeight / 2 ? 0 : searchHeight)
+        } else if hiddenHeight > 0, distance > searchHeight, distance < searchHeight + hiddenHeight {
+            // A hidden General pulled past half its height stays revealed; otherwise it tucks back under the top.
+            targetContentOffset.pointee.y = top + searchHeight
+                + (distance - searchHeight < hiddenHeight / 2 ? 0 : hiddenHeight)
+        }
+    }
+
+    func tableView(_: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        hiddenTopic(at: indexPath).map(hiddenRowHeight) ?? UITableView.automaticDimension
+    }
+
+    func tableView(_: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
+        // An exact estimate keeps the hidden row's offset right before UIKit ever displays it.
+        hiddenTopic(at: indexPath).map(hiddenRowHeight) ?? tableView.estimatedRowHeight
     }
 
     func scrollViewDidScroll(_: UIScrollView) {
@@ -310,6 +340,41 @@ import UIKit
         navigationBarView.applyScroll(offset: didSetInitialSearchOffset
             ? tableView.contentOffset.y + tableView.adjustedContentInset.top
             : ChatListNavigationSearchView.scrollHeight)
+    }
+
+    /// The hidden General, kept as the first row: Telegram leaves it above the list until it is pulled down
+    /// (ChatListNode's hidden thread entry, ChatListItem `hiddenOffset`).
+    private func hiddenTopic(at indexPath: IndexPath) -> ForumTopic? {
+        guard indexPath.section == 0, indexPath.row == 0, let id = dataSource?.itemIdentifier(for: indexPath),
+              let topic = snapshotState.topic(id: id), topic.info.isHidden else { return nil }
+        return topic
+    }
+
+    private func hiddenRowHeight(_ topic: ForumTopic) -> CGFloat {
+        let width = tableView.bounds.width
+        let key = "\(width)|\(topic.info.name)|\(traitCollection.preferredContentSizeCategory.rawValue)"
+        if let cache = hiddenRowHeightCache, cache.key == key { return cache.height }
+        sizingCell.configure(
+            topic: topic,
+            client: snapshotState.client(id: topic.info.forumTopicId) ?? viewModel.client,
+            muted: isMuted(topic),
+        )
+        sizingCell.bounds.size = CGSize(width: width, height: tableView.estimatedRowHeight)
+        sizingCell.layoutIfNeeded()
+        let height = sizingCell.systemLayoutSizeFitting(
+            CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel,
+        )
+        .height
+        .rounded(.up)
+        hiddenRowHeightCache = (key, height)
+        return height
+    }
+
+    /// Short lists get enough travel to tuck the search field and a hidden General under the top.
+    private func updateSearchTravel() {
+        tableView.searchScrollRange = navigationBarView.isSearchActive ? 0 : collapsedTopOffset
     }
 
     private func restorationState() -> ClientRestorationState {
@@ -582,7 +647,7 @@ import UIKit
         }
         navigationBarView.onSearchActiveChange = { [weak self] active in
             guard let self else { return }
-            tableView.searchScrollRange = active ? 0 : ChatListNavigationSearchView.scrollHeight
+            tableView.searchScrollRange = active ? 0 : collapsedTopOffset
             let height = active
                 ? ChatListNavigationSearchView.scrollHeight
                 : TelegramListNavigationBar.expandedContentHeight
@@ -686,7 +751,15 @@ import UIKit
         // A page covered by a pushed chat (a topic just created and opened) has no window. An animated diff there
         // left the table showing the old rows on return, so the new topic only appeared after reopening the forum.
         let animated = viewportRestoration.pending == nil && view.window != nil
+        // A list resting with the search field and any hidden General tucked under the top keeps them there as a
+        // hidden General arrives, changes height or returns to the list.
+        let tucksTop = didSetInitialSearchOffset && viewportRestoration.pending == nil
+            && !navigationBarView.isSearchActive && !tableView.isTracking && !tableView.isDecelerating
+            && abs(tableView.contentOffset.y + tableView.adjustedContentInset.top - collapsedTopOffset) <= 0.5
         dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
+            if tucksTop, let self, !tableView.isTracking, !tableView.isDecelerating {
+                keepTopCollapsed(animated: true)
+            }
             let finish: () -> Void = { [weak self] in
                 self?.completeSnapshot(batch.token, viewportToken: token, model: model, binding: binding)
             }
@@ -697,7 +770,15 @@ import UIKit
             #endif
             finish()
         }
+        updateSearchTravel()
+        if tucksTop { keepTopCollapsed(animated: false) }
         updateBackgroundView()
+    }
+
+    private func keepTopCollapsed(animated: Bool) {
+        let target = -tableView.adjustedContentInset.top + collapsedTopOffset
+        guard abs(tableView.contentOffset.y - target) > 0.5 else { return }
+        tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: target), animated: animated)
     }
 
     private func completeSnapshot(_ token: UUID, viewportToken: UUID, model: ForumTopicsVM, binding: UUID) {
@@ -990,11 +1071,19 @@ import UIKit
         let canManage = chat.canManageForumTopics
         let canOpenClose = canManage || topic.info.isOutgoing
         var actions = [TelegramContextMenuAction]()
-        if canManage, !topic.info.isClosed || isGeneral {
+        if canManage, !topic.info.isHidden, !topic.info.isClosed || isGeneral {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram(topic.isPinned ? "ChatList.Context.Unpin" : "ChatList.Context.Pin"),
                 image: UIImage(systemName: topic.isPinned ? "pin.slash.fill" : "pin.fill"),
             ) { [weak self] in self?.togglePinned(topic) })
+        }
+        // Telegram offers this as General's swipe action (forumGeneralRevealOptions) to the creator and topic managers.
+        if isGeneral, canManage {
+            let hidden = topic.info.isHidden
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(hidden ? "ChatList.ThreadUnhideAction" : "ChatList.ThreadHideAction"),
+                image: UIImage(systemName: hidden ? "eye" : "eye.slash"),
+            ) { [weak self] in self?.setGeneralHidden(!hidden) })
         }
         if topic.unreadCount > 0, let lastMessageID = topic.lastMessage?.id {
             actions.append(TelegramContextMenuAction(
@@ -1151,6 +1240,23 @@ import UIKit
         } onFailure: { [weak self] in
             guard !topic.isPinned else { return }
             self?.presentPinLimit()
+        }
+    }
+
+    /// Telegram's setPeerThreadHidden: General moves above the list or back into it, with Telegram's toast.
+    /// updateForumTopicInfo then moves the row; a list resting at its top keeps the hidden General tucked away.
+    private func setGeneralHidden(_ hidden: Bool) {
+        performTopicRequest { client, chatID in
+            _ = try await client.send(TDNativeRequests.toggleGeneralForumTopicIsHidden(
+                chatId: chatID,
+                isHidden: hidden,
+            ))
+        } onSuccess: { [weak self] in
+            guard let self else { return }
+            let text = hidden
+                ? L10n.telegram("ChatList.GeneralHidden") + "\n" + L10n.telegram("ChatList.GeneralHiddenInfo")
+                : L10n.telegram("ChatList.GeneralUnhidden")
+            TelegramUndoToast.show(text: text, in: view, bottomInset: 12, undo: nil)
         }
     }
 

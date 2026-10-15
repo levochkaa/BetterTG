@@ -862,3 +862,8 @@
 "ChatListFolderSettings.RecommendedFoldersSection" = "RECOMMENDED FOLDERS";
 "ChatListFolderSettings.AddRecommended" = "ADD";
 "Chat.PanelRestartTopic" = "Restart Topic";
+"ChatList.ThreadHideAction" = "Hide";
+"ChatList.ThreadUnhideAction" = "Unhide";
+"ChatList.GeneralHidden" = "General hidden";
+"ChatList.GeneralHiddenInfo" = "Pull down to see the general topic.";
+"ChatList.GeneralUnhidden" = "General unhidden";

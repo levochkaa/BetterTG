@@ -145,6 +145,14 @@ extension ForumTopic {
     }
 }
 
+extension ForumTopicInfo {
+    /// TDLib hides only General, which Telegram keeps above the topic list (ChatListNodeEntries, the hidden General
+    /// thread); any other hidden topic leaves the list.
+    var leavesTopicList: Bool {
+        isHidden && !isGeneral
+    }
+}
+
 // MARK: - ForumTopicPinnedOrder
 
 /// Only a server head supplies pin positions. Unknown/new pins keep ordinary
@@ -187,11 +195,13 @@ struct ForumTopicPinnedOrder {
 
     func applying(to chronological: [ForumTopic]) -> [ForumTopic] {
         let byID = Dictionary(uniqueKeysWithValues: chronological.map { ($0.info.forumTopicId, $0) })
+        // A hidden General sits above everything, pins included, revealed by pulling the list down.
+        let hidden = chronological.filter(\.info.isHidden)
         let pinned = ids.compactMap { id in
             byID[id].flatMap { $0.isPinned && !$0.info.isHidden ? $0 : nil }
         }
-        let ranked = Set(pinned.map(\.info.forumTopicId))
-        return pinned + chronological.filter { !ranked.contains($0.info.forumTopicId) }
+        let placed = Set((hidden + pinned).map(\.info.forumTopicId))
+        return hidden + pinned + chronological.filter { !placed.contains($0.info.forumTopicId) }
     }
 }
 
@@ -207,7 +217,7 @@ enum ForumTopicPageState {
         })
         for topic in incoming {
             byID[topic.info.forumTopicId] =
-                if topic.info.isHidden {
+                if topic.info.leavesTopicList {
                     nil
                 } else {
                     topic
