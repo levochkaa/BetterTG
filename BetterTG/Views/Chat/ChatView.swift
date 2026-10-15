@@ -3798,10 +3798,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .richContentLayoutChanged:
             collectionView.collectionViewLayout.invalidateLayout()
         case .openContact(let contact):
-            let details = TelegramContactDetailsViewController(contact: contact)
-            let navigation = TelegramNavigationController(rootViewController: details)
-            navigation.modalPresentationStyle = .pageSheet
-            present(navigation, animated: true)
+            // ChatMessageContactBubbleContentNode.contactTap: a Telegram user opens their profile.
+            if contact.userId != 0 {
+                openContactProfile(userID: contact.userId)
+            } else {
+                presentContactDetails(contact)
+            }
+        case .messageContact(let userID):
+            navigate(to: .user(userID: userID))
+        case .viewContact(let contact):
+            presentContactDetails(contact)
+        case .diceTapped(let emoji):
+            presentDiceTooltip(emoji: emoji)
         case .openDocument(let url):
             let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
             activity.popoverPresentationController?.sourceView = view
@@ -3827,6 +3835,84 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             // ChatMessageInteractiveMediaNode.progressPressed deletes a sending message for everyone.
             chatVM.deleteMessages(ids: [messageID], deleteForBoth: true)
         }
+    }
+
+    private func presentContactDetails(_ contact: Contact) {
+        guard presentedViewController == nil else { return }
+        let details = TelegramContactDetailsViewController(contact: contact, client: chatVM.client)
+        details.onSendMessage = { [weak self] userID in
+            self?.dismiss(animated: true) { [weak self] in
+                self?.navigate(to: .user(userID: userID))
+            }
+        }
+        let navigation = TelegramNavigationController(rootViewController: details)
+        navigation.modalPresentationStyle = .pageSheet
+        present(navigation, animated: true)
+    }
+
+    /// Opens a shared Telegram contact's profile on this chat's client, or this chat's own profile when the contact
+    /// is its peer.
+    private func openContactProfile(userID: Int64) {
+        guard let accountID = location.accountID else { return }
+        metadataNavigationTask?.cancel()
+        let client = chatVM.client
+        metadataNavigationTask = Task { [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            defer { if !Task.isCancelled { metadataNavigationTask = nil
+                retryClientRestoration()
+            } }
+            let chat = try? await client.createPrivateChat(force: false, userId: userID)
+            guard !Task.isCancelled,
+                  TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == client.id
+            else { return }
+            guard let chat,
+                  let customChat = await RootVM.shared.getCustomChatForNavigation(from: chat.id, client: client)
+            else {
+                presentMetadataUnavailable()
+                return
+            }
+            guard !Task.isCancelled, chatVM.locationContextIsCurrent, routeIsRetained,
+                  let navigation = navigationController, navigation.topViewController === self
+            else { return }
+            if customChat.id == location.chatID, let profile = makeProfile(customChat: customChat) {
+                navigation.pushViewController(profile, animated: true)
+            } else {
+                let profile = PeerProfileViewController(
+                    customChat: customChat,
+                    topic: nil,
+                    client: client,
+                    accountID: accountID,
+                )
+                profile.configureOpensChatItself()
+                navigation.pushViewController(profile, animated: true)
+            }
+            metadataNavigationTask = nil
+        }
+    }
+
+    /// Telegram's displayDiceTooltip: the emoji's hint, with Send when this chat accepts dice.
+    private func presentDiceTooltip(emoji: String) {
+        let scalars = emoji.unicodeScalars.filter { $0.value != 0xFE0F }
+        let key = "Conversation.Dice.u" + scalars.map { String(format: "%02X", $0.value) }.joined()
+        let text = L10n.telegram(key)
+        guard text != key else { return }
+        let canSend = (try? chatVM.resolveSendContext(for: .sticker, replyingTo: nil)) != nil
+        let bottomInset = showsComposer && composerView.frame.minY > 0
+            ? max(0, view.safeAreaLayoutGuide.layoutFrame.maxY - composerView.frame.minY) + 8
+            : 8
+        TelegramUndoToast.show(
+            text: text,
+            in: view,
+            bottomInset: bottomInset,
+            actionTitle: L10n.telegram("Conversation.SendDice"),
+            undo: canSend
+                ? { [weak self] in
+                    guard let self else { return }
+                    Task { await self.chatVM.sendDice(emoji) }
+                }
+                : nil,
+        )
     }
 
     private func galleryTransitionTarget(for messageID: Int64) -> MediaGalleryTransitionTarget? {

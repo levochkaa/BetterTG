@@ -61,6 +61,9 @@ extension RootVM {
                 if let error { log("App badge update failed: \(error.localizedDescription)") }
             }
         }
+        nc.scopedPublisher(&cancellables, for: .updateDiceEmojis) { event in
+            DiceEmojiStore.update(event.value.emojis, clientID: event.source.clientID)
+        }
         nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { event in
             let update = event.value
             SelectedDocumentFileStore.complete(

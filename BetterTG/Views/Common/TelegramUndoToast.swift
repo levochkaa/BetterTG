@@ -3,7 +3,7 @@
 import UIKit
 
 /// Telegram's bottom undo overlay (UndoOverlayController), in BetterTG's dark-glass style: a message with an
-/// optional Undo action that dismisses itself after five seconds. A new toast replaces the visible one.
+/// optional action (Undo by default) that dismisses itself after five seconds. A new toast replaces the visible one.
 @MainActor final class TelegramUndoToast: UIView {
     // MARK: Private
 
@@ -20,7 +20,7 @@ import UIKit
         fatalError("init(coder:) has not been implemented")
     }
 
-    private init(text: String, undo: (() -> Void)?) {
+    private init(text: String, actionTitle: String?, undo: (() -> Void)?) {
         self.undo = undo
         super.init(frame: .zero)
         overrideUserInterfaceStyle = .dark
@@ -42,7 +42,7 @@ import UIKit
         effectView.contentView.addSubview(label)
 
         undoButton.translatesAutoresizingMaskIntoConstraints = false
-        undoButton.setTitle(L10n.telegram("Undo.Undo"), for: .normal)
+        undoButton.setTitle(actionTitle ?? L10n.telegram("Undo.Undo"), for: .normal)
         undoButton.titleLabel?.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
             for: .systemFont(ofSize: 15, weight: .semibold),
             maximumPointSize: 19,
@@ -83,9 +83,15 @@ import UIKit
         return point.x >= buttonFrame.minX - 8 ? undoButton : hit
     }
 
-    static func show(text: String, in host: UIView, bottomInset: CGFloat, undo: (() -> Void)?) {
+    static func show(
+        text: String,
+        in host: UIView,
+        bottomInset: CGFloat,
+        actionTitle: String? = nil,
+        undo: (() -> Void)?,
+    ) {
         current?.dismiss(animated: false)
-        let toast = TelegramUndoToast(text: text, undo: undo)
+        let toast = TelegramUndoToast(text: text, actionTitle: actionTitle, undo: undo)
         toast.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(toast)
         NSLayoutConstraint.activate([

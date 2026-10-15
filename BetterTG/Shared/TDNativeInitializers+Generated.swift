@@ -305,6 +305,12 @@ extension TDNativeForwardSource {
     }
 }
 
+extension TDNativeImportedContact {
+    init(firstName: String, lastName: String, note: TDNativeFormattedText, phoneNumber: String) {
+        self.init(phoneNumber: phoneNumber, firstName: firstName, lastName: lastName, note: note)
+    }
+}
+
 extension TDNativeInputAnimation {
     init(
         addedStickerFileIds: [Int],
@@ -344,6 +350,12 @@ extension TDNativeInputMessageAnimation {
             showCaptionAboveMedia: showCaptionAboveMedia,
             hasSpoiler: hasSpoiler,
         )
+    }
+}
+
+extension TDNativeInputMessageDice {
+    init(clearDraft: Bool, emoji: String) {
+        self.init(emoji: emoji, clearDraft: clearDraft)
     }
 }
 

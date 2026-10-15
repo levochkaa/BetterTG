@@ -14,8 +14,12 @@ struct MessageContentPresentation {
 
     struct DiceContent {
         let emoji: String
-        let sticker: Sticker?
+        /// The roll's animation layers: one sticker, or the slot machine's background, three reels and lever in
+        /// Telegram's SlotMachineAnimationNode order. Rolling dice carry the initial state, rolled dice the final one.
+        let stickers: [Sticker]
         let value: Int
+        /// Unix time of the message, or 0 when the presentation was built from content alone.
+        let messageDate: Int
     }
 
     struct ServiceContent {
@@ -53,6 +57,9 @@ struct MessageContentPresentation {
     }
 
     static func make(_ message: Message) -> Self {
+        if case .messageDice = message.content {
+            return make(message.content).dated(message.date)
+        }
         guard case .messageLiveLocation(let liveLocation) = message.content else {
             return make(message.content)
         }
@@ -75,6 +82,17 @@ struct MessageContentPresentation {
 
     static func make(_ content: MessageContent) -> Self {
         make(content, liveLocationDeadline: nil, liveLocationIndefinite: false)
+    }
+
+    static func diceStickers(_ dice: DiceStickers?) -> [Sticker] {
+        switch dice {
+        case .diceStickersRegular(let regular):
+            [regular.sticker]
+        case .diceStickersSlotMachine(let slot):
+            [slot.background, slot.leftReel, slot.centerReel, slot.rightReel, slot.lever]
+        case nil:
+            []
+        }
     }
 
     private static func make(
@@ -233,14 +251,16 @@ struct MessageContentPresentation {
                 supplement: .animatedEmoji(emoji: message.emoji, content: message.animatedEmoji),
             )
         case .messageDice(let message):
+            let state = message.value == 0 ? message.initialState : message.finalState
             return Self(
                 formattedText: nil,
                 isVisualMedia: true,
                 summary: message.value > 0 ? "\(message.emoji) \(message.value)" : message.emoji,
                 supplement: .dice(DiceContent(
                     emoji: message.emoji,
-                    sticker: message.value == 0 ? regularDiceSticker(message.initialState) : nil,
+                    stickers: diceStickers(state),
                     value: message.value,
+                    messageDate: 0,
                 )),
             )
         case .messageGame:
@@ -510,14 +530,6 @@ struct MessageContentPresentation {
         String(format: "%.5f, %.5f", location.latitude, location.longitude)
     }
 
-    private static func regularDiceSticker(_ dice: DiceStickers?) -> Sticker? {
-        guard let dice else { return nil }
-        if case .diceStickersRegular(let regular) = dice {
-            return regular.sticker
-        }
-        return nil
-    }
-
     /// Telegram's actor wording for a service action, once its names are resolved. The wording already names the
     /// changed value, so the generic detail line is dropped.
     func replacingServiceTitle(_ title: String?) -> Self {
@@ -527,6 +539,21 @@ struct MessageContentPresentation {
             isVisualMedia: isVisualMedia,
             summary: title,
             supplement: .service(ServiceContent(detail: nil, symbolName: content.symbolName, title: title)),
+        )
+    }
+
+    private func dated(_ date: Int) -> Self {
+        guard case .dice(let dice) = supplement else { return self }
+        return Self(
+            formattedText: formattedText,
+            isVisualMedia: isVisualMedia,
+            summary: summary,
+            supplement: .dice(DiceContent(
+                emoji: dice.emoji,
+                stickers: dice.stickers,
+                value: dice.value,
+                messageDate: date,
+            )),
         )
     }
 }

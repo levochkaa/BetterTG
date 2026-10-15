@@ -8,6 +8,18 @@ extension TDClient {
         try await send(TDNativeRequests.addChatToList(chatId: chatId, chatList: chatList))
     }
 
+    func addContact(
+        contact: TDNativeImportedContact,
+        sharePhoneNumber: Bool,
+        userId: Int64,
+    ) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.addContact(
+            userId: userId,
+            contact: contact,
+            sharePhoneNumber: sharePhoneNumber,
+        ))
+    }
+
     func addMessageReaction(
         chatId: Int64,
         isBig: Bool,

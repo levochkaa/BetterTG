@@ -1463,7 +1463,8 @@ enum TDMediaPrefetcher {
             case .messageAnimatedEmoji(let emoji):
                 stickerFiles(emoji.animatedEmoji.sticker)
             case .messageDice(let dice):
-                dice.value == 0 ? stickerFiles(regularSticker(dice.initialState)) : []
+                MessageContentPresentation.diceStickers(dice.value == 0 ? dice.initialState : dice.finalState)
+                    .flatMap { stickerFiles($0) }
             case .messageVideo(let video):
                 [video.video.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
             default:
@@ -1534,11 +1535,6 @@ enum TDMediaPrefetcher {
         guard let sticker else { return [] }
         return [sticker.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
             + [(sticker.sticker, decodeKind(for: sticker.format))]
-    }
-
-    private static func regularSticker(_ dice: DiceStickers?) -> Sticker? {
-        guard let dice, case .diceStickersRegular(let regular) = dice else { return nil }
-        return regular.sticker
     }
 }
 

@@ -9,7 +9,14 @@ import UIKit
 
 enum MessageContentAction {
     case openDocument(URL)
+    /// The contact card itself: a Telegram user opens their profile, anyone else the contact sheet.
     case openContact(Contact)
+    /// The card's MESSAGE button (ChatMessageContactBubbleContentNode.messageButtonPressed).
+    case messageContact(userID: Int64)
+    /// The card's ADD or VIEW CONTACT button, which opens the contact sheet as Telegram's openMessage does.
+    case viewContact(Contact)
+    /// A rolled die was tapped: Telegram's displayDiceTooltip offers to send the same emoji.
+    case diceTapped(emoji: String)
     case openLocation(location: Location, title: String)
     case submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission)
     case richContentLayoutChanged
@@ -213,6 +220,7 @@ final class MessageStructuredContentView: UIView {
             case is ContactMessageContentView: "contact"
             case is LocationMessageContentView: "location"
             case is PollMessageContentView: "poll"
+            case is DiceMessageContentView: "dice"
             case is StickerGlyphContentView: "stickerGlyph"
             case is ServiceMessageContentView: "service"
             default: "none"
@@ -252,13 +260,19 @@ final class MessageStructuredContentView: UIView {
         let view: (UIView & MessageSupplementView)? =
             switch presentation.supplement {
             case .animatedEmoji(let emoji, let content):
-                StickerGlyphContentView(emoji: emoji, sticker: content.sticker, value: nil, client: client)
+                StickerGlyphContentView(emoji: emoji, sticker: content.sticker, client: client)
             case .audio(let audio):
                 TelegramFileMessageView(audio: audio, client: client, onAction: onAction)
             case .contact(let contact):
                 ContactMessageContentView(contact: contact, onAction: onAction)
             case .dice(let dice):
-                StickerGlyphContentView(emoji: dice.emoji, sticker: dice.sticker, value: dice.value, client: client)
+                DiceMessageContentView(
+                    content: dice,
+                    messageID: messageID,
+                    chatID: chatID,
+                    client: client,
+                    onAction: onAction,
+                )
             case .document(let document):
                 TelegramFileMessageView(document: document, client: client, onAction: onAction)
             case .location(let location):
@@ -773,6 +787,8 @@ private final class ContactMessageContentView: UIControl, MessageSupplementView 
     private let avatarLabel = UILabel()
     private let nameLabel = UILabel()
     private let phoneLabel = UILabel()
+    private let buttonSeparator = UIView()
+    private let buttonStack = UIStackView()
     private let contact: Contact
     private let onAction: (MessageContentAction) -> Void
 
@@ -845,9 +861,11 @@ private final class ContactMessageContentView: UIControl, MessageSupplementView 
         phoneLabel.adjustsFontForContentSizeCategory = true
         addSubview(phoneLabel)
 
+        configureButtons()
+
         NSLayoutConstraint.activate([
             avatarLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            avatarLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            avatarLabel.topAnchor.constraint(equalTo: topAnchor, constant: 7),
             avatarLabel.widthAnchor.constraint(equalToConstant: 40),
             avatarLabel.heightAnchor.constraint(equalToConstant: 40),
             nameLabel.leadingAnchor.constraint(equalTo: avatarLabel.trailingAnchor, constant: 10),
@@ -856,15 +874,77 @@ private final class ContactMessageContentView: UIControl, MessageSupplementView 
             phoneLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             phoneLabel.trailingAnchor.constraint(equalTo: nameLabel.trailingAnchor),
             phoneLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 2),
-            phoneLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
+            buttonSeparator.topAnchor.constraint(greaterThanOrEqualTo: phoneLabel.bottomAnchor, constant: 8),
+            buttonSeparator.topAnchor.constraint(greaterThanOrEqualTo: avatarLabel.bottomAnchor, constant: 8),
+            buttonSeparator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
+            buttonSeparator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            buttonSeparator.heightAnchor.constraint(equalToConstant: 1 / max(traitCollection.displayScale, 1)),
+            buttonStack.topAnchor.constraint(equalTo: buttonSeparator.bottomAnchor),
+            buttonStack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            buttonStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            buttonStack.heightAnchor.constraint(greaterThanOrEqualToConstant: 33),
+            buttonStack.bottomAnchor.constraint(equalTo: bottomAnchor),
             widthAnchor.constraint(greaterThanOrEqualToConstant: 220),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 54),
         ])
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
         isAccessibilityElement = true
         accessibilityTraits = [.button]
         accessibilityLabel = "\(L10n.telegram("Message.Contact")), \(displayedName), \(phoneLabel.text ?? "")"
         accessibilityHint = L10n.betterTG("Accessibility.OpenContactHint")
+    }
+
+    /// ChatMessageContactBubbleContentNode's buttons: MESSAGE for a Telegram user, and ADD, which opens the contact
+    /// sheet with its Add Contact action. Without a device address book, a non-Telegram contact gets VIEW CONTACT,
+    /// Telegram's title when there is nothing to add or message.
+    private func configureButtons() {
+        buttonSeparator.translatesAutoresizingMaskIntoConstraints = false
+        buttonSeparator.backgroundColor = UIColor.tintColor.withAlphaComponent(0.2)
+        addSubview(buttonSeparator)
+
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        buttonStack.axis = .horizontal
+        buttonStack.distribution = .fillEqually
+        addSubview(buttonStack)
+
+        let userID = contact.userId
+        let contact = contact
+        if userID != 0 {
+            buttonStack.addArrangedSubview(button(title: L10n.telegram("Conversation.ContactMessage")) { [weak self] in
+                self?.onAction(.messageContact(userID: userID))
+            })
+        }
+        let viewTitle = userID != 0
+            ? L10n.telegram("Conversation.ContactAddContact")
+            : L10n.telegram("Conversation.ViewContactDetails")
+        buttonStack.addArrangedSubview(button(title: viewTitle) { [weak self] in
+            self?.onAction(.viewContact(contact))
+        })
+        // The card is one accessibility element, so its buttons are offered as its actions.
+        accessibilityCustomActions = buttonStack.arrangedSubviews.compactMap { view in
+            guard let button = view as? UIButton, let title = button.configuration?.attributedTitle else { return nil }
+            return UIAccessibilityCustomAction(name: String(title.characters).capitalized) { _ in
+                button.sendActions(for: .primaryActionTriggered)
+                return true
+            }
+        }
+    }
+
+    private func button(title: String, action: @escaping () -> Void) -> UIButton {
+        var configuration = UIButton.Configuration.plain()
+        configuration.attributedTitle = AttributedString(
+            title.uppercased(),
+            attributes: AttributeContainer([
+                .font: UIFontMetrics(forTextStyle: .footnote).scaledFont(
+                    for: .systemFont(ofSize: 14, weight: .semibold),
+                    maximumPointSize: 18,
+                ),
+            ]),
+        )
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+        configuration.titleLineBreakMode = .byTruncatingTail
+        let button = UIButton(configuration: configuration, primaryAction: UIAction { _ in action() })
+        button.tintColor = .tintColor
+        return button
     }
 
     @objc private func tapped() {
@@ -1475,7 +1555,7 @@ private final class StickerGlyphContentView: UIView, MessageSupplementView {
     private let emojiLabel = UILabel()
     private var stickerView: CustomEmojiInlineView?
 
-    init(emoji: String, sticker: Sticker?, value: Int?, client: TDLibClient) {
+    init(emoji: String, sticker: Sticker?, client: TDLibClient) {
         super.init(frame: .zero)
         emojiLabel.translatesAutoresizingMaskIntoConstraints = false
         emojiLabel.text = emoji
@@ -1507,8 +1587,7 @@ private final class StickerGlyphContentView: UIView, MessageSupplementView {
             heightAnchor.constraint(equalToConstant: 184),
         ])
         isAccessibilityElement = true
-        accessibilityLabel = value
-            .flatMap { $0 > 0 ? L10n.betterTG("Accessibility.DiceValue", emoji, Int($0)) : nil } ?? emoji
+        accessibilityLabel = emoji
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -1522,6 +1601,160 @@ private final class StickerGlyphContentView: UIView, MessageSupplementView {
 
     func setPlaybackVisible(_ isVisible: Bool) {
         stickerView?.setPlaybackVisible(isVisible)
+    }
+}
+
+// MARK: - DiceRollPlayback
+
+/// Decides how a die animates. Telegram plays the roll once when a rolling die gets its value and when an incoming
+/// result is inserted (ChatMessageAnimatedStickerItemNode.setupItem and animateInsertion), and otherwise shows the
+/// roll's last frame. Rows here are rebuilt on every content update, so the roll's start time outlives the view.
+@MainActor private enum DiceRollPlayback {
+    private struct Key: Hashable {
+        let clientID: Int32
+        let chatID: Int64
+        let messageID: Int64
+    }
+
+    /// A result first shown within this window of its message date counts as freshly inserted. An outgoing die
+    /// changes its message ID when it's sent, so the rolling-to-value transition is also caught this way.
+    private static let freshRollWindow: ClosedRange<TimeInterval> = -30...10
+    private static let capacity = 512
+    private static var rolling = Set<Key>()
+    private static var rollStarts = [Key: CFTimeInterval]()
+
+    static func mode(
+        clientID: Int32,
+        chatID: Int64,
+        messageID: Int64,
+        value: Int,
+        messageDate: Int,
+    ) -> TGSStickerView.PlaybackMode {
+        let key = Key(clientID: clientID, chatID: chatID, messageID: messageID)
+        guard value > 0 else {
+            if rolling.count >= capacity { rolling.removeAll() }
+            rolling.insert(key)
+            return .loop
+        }
+        if let start = rollStarts[key] {
+            return start.isFinite ? .once(startedAt: start) : .stillEnd
+        }
+        if rollStarts.count >= capacity { rollStarts.removeAll() }
+        let wasRolling = rolling.remove(key) != nil
+        let age = Foundation.Date().timeIntervalSince1970 - TimeInterval(messageDate)
+        let isFresh = wasRolling || (messageDate > 0 && freshRollWindow.contains(age))
+        let start = isFresh ? CACurrentMediaTime() : -.infinity
+        rollStarts[key] = start
+        return isFresh ? .once(startedAt: start) : .stillEnd
+    }
+}
+
+// MARK: - DiceMessageContentView
+
+/// Telegram's dice bubble (ManagedDiceAnimationNode, SlotMachineAnimationNode): a rolling die loops its initial
+/// state, a result plays or shows the final state that lands on the value, and the slot machine stacks its
+/// background, reels and lever. Tapping a rolled die asks the chat to offer sending the same emoji.
+private final class DiceMessageContentView: UIControl, MessageSupplementView {
+    private let emojiLabel = UILabel()
+    private let emoji: String
+    private let isRolled: Bool
+    private let onAction: (MessageContentAction) -> Void
+    private var stickerViews = [TGSStickerView]()
+    private var fallbackViews = [CustomEmojiInlineView]()
+
+    init(
+        content: MessageContentPresentation.DiceContent,
+        messageID: Int64,
+        chatID: Int64,
+        client: TDLibClient,
+        onAction: @escaping (MessageContentAction) -> Void,
+    ) {
+        self.emoji = content.emoji
+        self.isRolled = content.value > 0
+        self.onAction = onAction
+        super.init(frame: .zero)
+
+        emojiLabel.translatesAutoresizingMaskIntoConstraints = false
+        emojiLabel.text = content.emoji
+        emojiLabel.textAlignment = .center
+        emojiLabel.font = .systemFont(ofSize: 96)
+        emojiLabel.adjustsFontSizeToFitWidth = true
+        emojiLabel.isHidden = !content.stickers.isEmpty
+        addSubview(emojiLabel)
+        pin(emojiLabel)
+
+        let mode = DiceRollPlayback.mode(
+            clientID: client.id,
+            chatID: chatID,
+            messageID: messageID,
+            value: content.value,
+            messageDate: content.messageDate,
+        )
+        for sticker in content.stickers {
+            let layerView: UIView
+            if case .stickerFormatTgs = sticker.format {
+                let view = TGSStickerView()
+                view.configure(
+                    file: sticker.sticker,
+                    client: client,
+                    thumbnail: sticker.thumbnail,
+                    displaySize: nil,
+                    onTap: nil,
+                )
+                view.playbackMode = mode
+                stickerViews.append(view)
+                layerView = view
+            } else {
+                let view = CustomEmojiInlineView()
+                view.configure(sticker: sticker, client: client)
+                fallbackViews.append(view)
+                layerView = view
+            }
+            layerView.isUserInteractionEnabled = false
+            addSubview(layerView)
+            pin(layerView)
+        }
+
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: 184),
+            heightAnchor.constraint(equalToConstant: 184),
+        ])
+        addTarget(self, action: #selector(tapped), for: .touchUpInside)
+        isAccessibilityElement = true
+        accessibilityTraits = isRolled ? [.image, .button] : [.image]
+        accessibilityLabel = isRolled ? L10n.betterTG("Accessibility.DiceValue", emoji, content.value) : emoji
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func prepareForReuse() {
+        stickerViews.forEach { $0.prepareForReuse() }
+        fallbackViews.forEach { $0.prepareForReuse() }
+        stickerViews = []
+        fallbackViews = []
+    }
+
+    func setPlaybackVisible(_ isVisible: Bool) {
+        stickerViews.forEach { $0.setPlaybackVisible(isVisible) }
+        fallbackViews.forEach { $0.setPlaybackVisible(isVisible) }
+    }
+
+    private func pin(_ view: UIView) {
+        view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: topAnchor),
+            view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            view.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    /// Telegram's displayDiceTooltip returns early until the die has a value.
+    @objc private func tapped() {
+        guard isRolled else { return }
+        onAction(.diceTapped(emoji: emoji))
     }
 }
 
@@ -1582,7 +1815,13 @@ private final class ServiceMessageContentView: UIView, MessageSupplementView {
 // MARK: - TelegramContactDetailsViewController
 
 final class TelegramContactDetailsViewController: UIViewController {
+    /// Called with the contact's user ID when Send Message is chosen; the presenter dismisses and opens the chat.
+    var onSendMessage: ((Int64) -> Void)?
+
     private let contact: Contact
+    private let client: TDLibClient?
+    private var addContactButton: UIButton?
+    private var contactStateTask: Task<Void, Never>?
 
     private var displayName: String {
         let value = [contact.firstName, contact.lastName]
@@ -1631,14 +1870,19 @@ final class TelegramContactDetailsViewController: UIViewController {
             }
     }
 
-    init(contact: Contact) {
+    init(contact: Contact, client: TDLibClient? = nil) {
         self.contact = contact
+        self.client = client
         super.init(nibName: nil, bundle: nil)
         title = L10n.telegram("Message.Contact")
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        contactStateTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -1703,6 +1947,26 @@ final class TelegramContactDetailsViewController: UIViewController {
         actions.axis = .horizontal
         actions.distribution = .fillEqually
         actions.spacing = 10
+        // DeviceContactInfoController's vcard screen: Send Message for a Telegram user, then adding them.
+        if contact.userId != 0, client != nil {
+            let userID = contact.userId
+            actions.addArrangedSubview(actionButton(
+                title: L10n.telegram("UserInfo.SendMessage"),
+                symbol: "message.fill",
+            ) { [weak self] in
+                self?.onSendMessage?(userID)
+            })
+            let addButton = actionButton(
+                title: L10n.telegram("UserInfo.AddContact"),
+                symbol: "person.crop.circle.badge.plus",
+            ) { [weak self] in
+                self?.presentAddContact()
+            }
+            addButton.isHidden = true
+            addContactButton = addButton
+            actions.addArrangedSubview(addButton)
+            loadContactState()
+        }
         if !contact.phoneNumber.isEmpty {
             actions
                 .addArrangedSubview(actionButton(
@@ -1781,6 +2045,86 @@ final class TelegramContactDetailsViewController: UIViewController {
         let digits = contact.phoneNumber.filter { $0.isNumber || $0 == "+" }
         guard !digits.isEmpty, let url = URL(string: "tel:\(digits)") else { return }
         UIApplication.shared.open(url)
+    }
+
+    /// Add Contact shows only for a user who isn't already in this account's contacts.
+    private func loadContactState() {
+        guard let client else { return }
+        let userID = contact.userId
+        contactStateTask = Task { [weak self] in
+            let user = try? await client.getUser(userId: userID)
+            guard !Task.isCancelled, let self, TDLib.shared.activeClient.id == client.id, let user else { return }
+            addContactButton?.isHidden = user.isContact
+        }
+    }
+
+    /// Telegram's New Contact step, reduced to the name: the user is added to this account's contacts without
+    /// sharing the phone number.
+    private func presentAddContact() {
+        guard let client, presentedViewController == nil else { return }
+        let alert = UIAlertController(title: L10n.telegram("AddContact.Title"), message: nil, preferredStyle: .alert)
+        alert.addTextField { [contact] field in
+            field.placeholder = L10n.telegram("UserInfo.FirstNamePlaceholder")
+            field.text = contact.firstName
+            field.autocapitalizationType = .words
+        }
+        alert.addTextField { [contact] field in
+            field.placeholder = L10n.telegram("UserInfo.LastNamePlaceholder")
+            field.text = contact.lastName
+            field.autocapitalizationType = .words
+        }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        let create = UIAlertAction(title: L10n.telegram("Compose.Create"), style: .default) { [
+            weak self,
+            weak alert,
+        ] _ in
+            let firstName = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let lastName = alert?.textFields?.last?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            self?.addContact(client: client, firstName: firstName, lastName: lastName)
+        }
+        alert.addAction(create)
+        alert.preferredAction = create
+        present(alert, animated: true)
+    }
+
+    private func addContact(client: TDLibClient, firstName: String, lastName: String) {
+        guard !firstName.isEmpty || !lastName.isEmpty else { return }
+        let userID = contact.userId
+        let phoneNumber = contact.phoneNumber
+        addContactButton?.isEnabled = false
+        Task { [weak self] in
+            do {
+                _ = try await client.addContact(
+                    contact: ImportedContact(
+                        firstName: firstName,
+                        lastName: lastName,
+                        note: FormattedText(entities: [], text: ""),
+                        phoneNumber: phoneNumber,
+                    ),
+                    sharePhoneNumber: false,
+                    userId: userID,
+                )
+                guard let self, TDLib.shared.activeClient.id == client.id else { return }
+                addContactButton?.isHidden = true
+                let name = [firstName, lastName].filter { !$0.isEmpty }.joined(separator: " ")
+                TelegramUndoToast.show(
+                    text: L10n.telegram("AddContact.StatusSuccess", name),
+                    in: view,
+                    bottomInset: 8,
+                    undo: nil,
+                )
+            } catch {
+                guard let self else { return }
+                addContactButton?.isEnabled = true
+                let alert = UIAlertController(
+                    title: nil,
+                    message: L10n.telegram("Login.UnknownError"),
+                    preferredStyle: .alert,
+                )
+                alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+                present(alert, animated: true)
+            }
+        }
     }
 }
 
@@ -1873,6 +2217,12 @@ final class TelegramContactDetailsViewController: UIViewController {
                         break
                     case .openContact:
                         actions.append("contact")
+                    case .messageContact:
+                        actions.append("contact-message")
+                    case .viewContact:
+                        actions.append("contact-view")
+                    case .diceTapped:
+                        actions.append("dice")
                     case .openDocument:
                         actions.append("document")
                     case .openLocation:
@@ -1907,8 +2257,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                 return size.width > 0 && size.height > 0
             }
             let expectedNames = [
-                "file", "file", "attachmentAlbum", "contact", "location", "location",
-                "poll", "poll", "stickerGlyph", "stickerGlyph", "service", "service",
+                "file", "file", "attachmentAlbum", "contact", "contact", "location", "location",
+                "poll", "poll", "dice", "stickerGlyph", "service", "service",
             ]
             let actionProof = actions.contains("poll:0") && actions.contains("poll:0,1")
             let proof = "MessageContent probe: tdlib=\(MessageContentPresentation.auditedTDLibRevision), "
@@ -1967,6 +2317,13 @@ final class TelegramContactDetailsViewController: UIViewController {
                 Fixture(name: "document", messageID: 902, content: documentMessage),
                 Fixture(name: "attachment-album", messageID: 903, content: audioMessage, album: albumMessages),
                 Fixture(name: "contact", messageID: 904, content: .messageContact(MessageContact(contact: contact))),
+                Fixture(name: "contact-user", messageID: 914, content: .messageContact(MessageContact(contact: Contact(
+                    firstName: contact.firstName,
+                    lastName: contact.lastName,
+                    phoneNumber: contact.phoneNumber,
+                    userId: 777_000,
+                    vcard: "",
+                )))),
                 Fixture(
                     name: "location",
                     messageID: 905,

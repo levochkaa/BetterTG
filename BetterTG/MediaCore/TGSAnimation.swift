@@ -49,9 +49,29 @@ enum TGSAnimationRepository {
 // MARK: - TGSStickerView
 
 final class TGSStickerView: UIControl, AnimatedFileView {
+    /// How the sticker plays once loaded. Dice use the play-once and still-end modes, as Telegram's
+    /// ManagedDiceAnimationNode plays a fresh roll once and shows an old roll at its last frame.
+    enum PlaybackMode: Equatable {
+        case loop
+        /// Plays from the point the roll reached since `startedAt` (a `CACurrentMediaTime` value) to the end and
+        /// holds the last frame.
+        case once(startedAt: CFTimeInterval)
+        case stillEnd
+    }
+
     // MARK: Internal
 
     var onFirstFrameReady: (() -> Void)?
+
+    var playbackMode = PlaybackMode.loop {
+        didSet {
+            guard playbackMode != oldValue, let animation = animationView.animation else { return }
+            animationView.stop()
+            animationView.currentProgress = initialProgress(for: animation)
+            animationView.forceDisplayUpdate()
+            updatePlayback()
+        }
+    }
 
     // MARK: Private
 
@@ -161,6 +181,7 @@ final class TGSStickerView: UIControl, AnimatedFileView {
 
         animationView.stop()
         animationView.animation = nil
+        playbackMode = .loop
         animationView.isHidden = true
         thumbnailView.isHidden = false
         thumbnailView.cancel()
@@ -217,7 +238,7 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         }
 
         animationView.animation = animation
-        animationView.currentProgress = synchronizedProgress(for: animation)
+        animationView.currentProgress = initialProgress(for: animation)
         animationView.forceDisplayUpdate()
         animationView.isHidden = false
         thumbnailView.isHidden = true
@@ -227,13 +248,51 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     }
 
     private func updatePlayback() {
+        if case .stillEnd = playbackMode {
+            animationView.pause()
+            return
+        }
+        if case .once = playbackMode, !playbackEnabled, animationView.animation != nil {
+            // With autoplay off the result stays readable at the roll's last frame.
+            animationView.pause()
+            animationView.currentProgress = 1
+            return
+        }
         let shouldPlay = fileRequest?.isCurrent == true && playbackVisible && window != nil
             && playbackEnabled && animationView.animation != nil
         if shouldPlay {
             guard !animationView.isAnimationPlaying else { return }
-            playSynchronized()
+            if case .once = playbackMode {
+                playOnce()
+            } else {
+                playSynchronized()
+            }
         } else {
             animationView.pause()
+        }
+    }
+
+    private func playOnce() {
+        guard animationView.currentProgress < 1 else { return }
+        animationView.play(
+            fromProgress: animationView.currentProgress,
+            toProgress: 1,
+            loopMode: .playOnce,
+        ) { [weak self] finished in
+            guard finished, let self, case .once = playbackMode else { return }
+            animationView.currentProgress = 1
+        }
+    }
+
+    private func initialProgress(for animation: LottieAnimation) -> AnimationProgressTime {
+        switch playbackMode {
+        case .loop:
+            return synchronizedProgress(for: animation)
+        case .stillEnd:
+            return 1
+        case .once(let startedAt):
+            guard animation.duration.isFinite, animation.duration > 0 else { return 1 }
+            return min(1, max(0, (CACurrentMediaTime() - startedAt) / animation.duration))
         }
     }
 

@@ -2660,6 +2660,35 @@ import UIKit
         }
     }
 
+    /// Telegram's dice tooltip Send action: the same emoji goes out as a new roll, without the composer's reply.
+    func sendDice(_ emoji: String) async {
+        await waitForComposerSend()
+        guard !sendingComposerMessage else { return }
+        if let wait = slowModeWaitMessage() {
+            sendErrorMessage = wait
+            return
+        }
+        sendingComposerMessage = true
+        defer { sendingComposerMessage = false }
+        do {
+            let context = try resolveSendContext(for: .sticker, replyingTo: nil)
+            let message = try await client.sendMessage(
+                chatId: context.chatID,
+                inputMessageContent: .inputMessageDice(InputMessageDice(clearDraft: false, emoji: emoji)),
+                options: nil,
+                replyMarkup: nil,
+                replyTo: context.replyTo,
+                topicId: context.destinationTopic,
+            )
+            guard locationContextIsCurrent,
+                  context.matches(message: message)
+            else { throw ChatSendContextError.unexpectedDestination }
+            sendErrorMessage = nil
+        } catch {
+            sendErrorMessage = error.localizedDescription
+        }
+    }
+
     func sendAnimation(_ animation: Animation) async {
         await waitForComposerSend()
         guard !sendingComposerMessage else { return }
@@ -2946,6 +2975,7 @@ import UIKit
     }
 
     func sendMessageText() async throws -> (context: ResolvedSendContext, messages: [Message]) {
+        if let dice = try await sendTextAsDice() { return dice }
         let context = try resolveSendContext(
             for: .text,
             replyingTo: replyMessage,
@@ -3850,6 +3880,38 @@ import UIKit
         reader.synchronize(ChatForumTopicReads.demandedIDs(
             chatID: chatID, messages: messages.flatMap(\.sourceMessages), composerTopics: composerTopics,
         ))
+    }
+
+    /// ChatControllerNode.sendCurrentMessage: outside secret chats, text that is only one of the server's dice emoji
+    /// (without a custom emoji) is rolled as a die and keeps the reply.
+    private func sendTextAsDice() async throws -> (context: ResolvedSendContext, messages: [Message])? {
+        if case .chatTypeSecret = customChat.chat.type { return nil }
+        let emoji = String(text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard DiceEmojiStore.contains(emoji, clientID: client.id),
+              !getEntities(from: text).contains(where: {
+                  if case .textEntityTypeCustomEmoji = $0.type {
+                      true
+                  } else {
+                      false
+                  }
+              }),
+              let context = try? resolveSendContext(
+                  for: .sticker,
+                  replyingTo: replyMessage,
+                  useCurrentReplyOverride: true,
+              )
+        else { return nil }
+        let message = try await client.sendMessage(
+            chatId: context.chatID,
+            inputMessageContent: .inputMessageDice(InputMessageDice(clearDraft: false, emoji: emoji)),
+            options: nil,
+            replyMarkup: nil,
+            replyTo: context.replyTo,
+            topicId: context.destinationTopic,
+        )
+        guard context.matches(message: message) else { throw ChatSendContextError.unexpectedDestination }
+        try? await cancelChatAction(in: context)
+        return (context, [message])
     }
 
     /// TDLib expires a chat action after a few seconds; Telegram repeats "recording audio" while the recording lasts.
