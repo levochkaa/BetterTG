@@ -62,6 +62,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     private var lastLayoutWidth = CGFloat.zero
     private var maximumLayoutWidth = Utils.maxMessageContentWidth
     private let statusLabel = UILabel()
+    private var status = MessageStatusLine(text: "")
+    private var statusColor = UIColor.secondaryLabel
     private var customEmojiPlacements = [CustomEmojiPlacement]()
     private var customEmojiTask: Task<Void, Never>?
     private var customEmojiGeneration = 0
@@ -132,6 +134,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         client: TDLibClient,
         statusText: String,
         statusColor: UIColor,
+        statusViewCount: String? = nil,
         maximumWidth: CGFloat = Utils.maxMessageContentWidth,
         spoilersRevealed: Bool = false,
         spoilerState: MessageTextSpoilerState? = nil,
@@ -147,7 +150,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         configurePresentation(
             state: state,
             client: client,
-            statusText: statusText,
+            status: MessageStatusLine(viewCount: statusViewCount, text: statusText),
             statusColor: statusColor,
             maximumWidth: maximumWidth,
             richAttributedText: richAttributedText,
@@ -156,6 +159,21 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
 
     func configurePresentation(
         state: MessageTextSpoilerState, client: TDLibClient?, statusText: String, statusColor: UIColor,
+        maximumWidth: CGFloat, richAttributedText: NSAttributedString? = nil,
+    ) {
+        configurePresentation(
+            state: state,
+            client: client,
+            status: MessageStatusLine(text: statusText),
+            statusColor: statusColor,
+            maximumWidth: maximumWidth,
+            richAttributedText: richAttributedText,
+        )
+    }
+
+    /// The status trails the last line as in Telegram's text bubble; it shows the view count after an eye icon.
+    func configurePresentation(
+        state: MessageTextSpoilerState, client: TDLibClient?, status: MessageStatusLine, statusColor: UIColor,
         maximumWidth: CGFloat, richAttributedText: NSAttributedString? = nil,
     ) {
         spoilerState = state
@@ -168,8 +186,10 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             if state.revealed { onRevealSpoilers?() }
         }
         maximumLayoutWidth = maximumWidth
-        statusLabel.text = statusText
-        statusLabel.textColor = statusColor
+        self.status = status
+        self.statusColor = statusColor
+        // The label's font follows its attributed text, so the status keeps its own.
+        statusLabel.attributedText = status.attributedText(font: .caption, color: statusColor)
         statusLabel.sizeToFit()
         renderText()
     }
@@ -199,6 +219,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         lastSpoilerRects.removeAll()
         attributedText = NSAttributedString()
         statusLabel.text = nil
+        status = MessageStatusLine(text: "")
+        statusColor = .secondaryLabel
         accessibilityLabel = nil
         accessibilityValue = nil
         accessibilityCustomActions = nil
@@ -329,8 +351,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             configurePresentation(
                 state: MessageTextSpoilerState(text: state.original, source: nil, revealed: true),
                 client: emojiClient,
-                statusText: statusLabel.text ?? "",
-                statusColor: statusLabel.textColor,
+                status: status,
+                statusColor: statusColor,
                 maximumWidth: maximumLayoutWidth,
                 richAttributedText: richAttributedText,
             )

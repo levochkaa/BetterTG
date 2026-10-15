@@ -180,6 +180,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     private static let timelineContentTransform = CGAffineTransform(scaleX: 1, y: -1)
 
+    /// The label's font follows its attributed text, so the status keeps its own.
+    private static let statusFont = UIFont.preferredFont(forTextStyle: .caption2)
+
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
@@ -238,7 +241,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var refreshSpoilerAccessibility: (() -> Void)?
     private let reactionView = MessageReactionStripView()
     private let timestampLabel = UILabel()
-    private let mediaTimestampLabel = UILabel()
+    private let mediaTimestampLabel = MessageMediaStatusLabel()
     private let leadingSpacer = UIView()
     private let trailingSpacer = UIView()
     private let swipeToReplyIndicator = SwipeToReplyIndicatorView()
@@ -722,7 +725,16 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
         let timestamp = Self.timeFormatter.string(from: message.date)
         let delivery = message.deliveryState
-        let timestampText = [timestamp, delivery.symbol].filter { !$0.isEmpty }.joined(separator: " ")
+        // Telegram reads the status of a caption from its message and that of an album from its first message.
+        let statusSource = displayedFormattedText == nil
+            ? message.deliverySourceMessage
+            : message.sourceMessages.first { $0.id == textSourceID } ?? message.message
+        let statusLine = MessageStatusLine.make(
+            statusSource,
+            isChannel: chat.isBroadcastChannel,
+            time: timestamp,
+            deliverySymbol: delivery.symbol,
+        )
         let timestampColor: UIColor = delivery == .failed ? .systemRed : .secondaryLabel
         if let formatted = displayedFormattedText {
             textView.isHidden = false
@@ -730,8 +742,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             textView.configure(
                 formattedText: formatted,
                 client: client,
-                statusText: previewBelowText ? "" : timestampText,
+                statusText: previewBelowText ? "" : statusLine.text,
                 statusColor: timestampColor,
+                statusViewCount: previewBelowText ? nil : statusLine.viewCount,
                 maximumWidth: maximumTextWidth(for: bounds.width),
                 spoilersRevealed: message.spoilersRevealed,
                 spoilerState: textSpoilers.states[textSourceID],
@@ -775,10 +788,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         )
         inlineKeyboardView.isHidden = !hasKeyboard
 
-        timestampLabel.text = timestampText
-        timestampLabel.textColor = timestampColor
-        mediaTimestampLabel.text = timestampText
-        mediaTimestampLabel.textColor = delivery == .failed ? .systemRed : .white
+        timestampLabel.attributedText = statusLine.attributedText(font: Self.statusFont, color: timestampColor)
+        mediaTimestampLabel.attributedText = statusLine.attributedText(
+            font: Self.statusFont,
+            color: delivery == .failed ? .systemRed : .white,
+        )
         let hasVisualMedia = hasMedia && message.hasVisualMedia
         timestampLabel.isHidden = (displayedFormattedText != nil && !previewBelowText) || hasVisualMedia || presentation
             .isService
@@ -1037,12 +1051,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         replyView.isHidden = true
         mediaView.isHidden = true
         textView.isHidden = true
-        timestampLabel.font = .preferredFont(forTextStyle: .caption2)
+        timestampLabel.font = Self.statusFont
         timestampLabel.textAlignment = .right
         timestampLabel.isHidden = true
 
         mediaTimestampLabel.translatesAutoresizingMaskIntoConstraints = false
-        mediaTimestampLabel.font = .preferredFont(forTextStyle: .caption2)
+        mediaTimestampLabel.font = Self.statusFont
         mediaTimestampLabel.textAlignment = .center
         mediaTimestampLabel.backgroundColor = UIColor.black.withAlphaComponent(0.55)
         mediaTimestampLabel.layer.cornerRadius = 8
@@ -1412,6 +1426,23 @@ private extension CustomMessage {
             return album.contains { MessageContentPresentation.make($0).isVisualMedia }
         }
         return contentPresentation.isVisualMedia
+    }
+}
+
+// MARK: - MessageMediaStatusLabel
+
+/// The status over media (Telegram's `ImageOutgoing` date and status), padded inside its dark capsule so a view
+/// count or "edited" keeps clear of the rounded ends.
+private final class MessageMediaStatusLabel: UILabel {
+    private static let horizontalPadding: CGFloat = 6
+
+    override var intrinsicContentSize: CGSize {
+        let size = super.intrinsicContentSize
+        return CGSize(width: size.width + Self.horizontalPadding * 2, height: size.height)
+    }
+
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.insetBy(dx: Self.horizontalPadding, dy: 0))
     }
 }
 

@@ -190,6 +190,7 @@
 "Conversation.PinMessageAlert.OnlyPin" = "Only Pin";
 "Conversation.UnpinMessageAlert" = "Would you like to unpin this message?";
 "Conversation.PinnedMessage" = "Pinned Message";
+"Conversation.MessageEditedLabel" = "edited";
 
 "Message.Photo" = "Photo";
 "Message.Video" = "Video";

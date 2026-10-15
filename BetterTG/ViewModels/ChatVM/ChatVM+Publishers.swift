@@ -91,7 +91,7 @@ extension ChatVM {
                   TDLib.shared.activeClient.id == client.id
             else { return }
             notePartialMessageUpdate([update.messageId])
-            messages.first(where: { $0.id == update.messageId })?.reactions = update.interactionInfo?.reactions
+            applyInteractionInfo(update.interactionInfo, messageID: update.messageId)
         }
         observeCurrentUpdate(.updateMessageUnreadReactions) { [weak self] update, _ in
             guard let self, update.chatId == customChat.id,
@@ -399,6 +399,26 @@ extension ChatVM {
         refreshMessage(id: update.messageId, authority: authority)
     }
 
+    /// Reactions keep their own optimistic state; view counts and the comment thread (Telegram's
+    /// ViewCountMessageAttribute and ReplyThreadMessageAttribute) live in the message's interaction info, which an
+    /// album keeps per member.
+    private func applyInteractionInfo(_ info: MessageInteractionInfo?, messageID: Int64) {
+        guard let message = messages.first(where: { $0.sourceMessages.contains { $0.id == messageID } }) else {
+            return
+        }
+        if message.id == messageID {
+            message.reactions = info?.reactions
+            if message.message.interactionInfo != info {
+                message.message = message.message.replacingInteractionInfo(info)
+            }
+        }
+        if let index = message.album.firstIndex(where: { $0.id == messageID }),
+           message.album[index].interactionInfo != info
+        {
+            message.album[index] = message.album[index].replacingInteractionInfo(info)
+        }
+    }
+
     private func refreshMessage(id: Int64, authority: ChatUpdateDeliveryAuthority) {
         guard acceptsUpdate(authority) else { return }
         notePartialMessageUpdate([id], refresh: true)
@@ -454,5 +474,58 @@ extension ChatVM {
     private func refreshMetadata(for message: CustomMessage, authority: ChatUpdateDeliveryAuthority) {
         guard acceptsUpdate(authority) else { return }
         notePartialMessageUpdate([message.id], refresh: true)
+    }
+}
+
+private extension Message {
+    /// TDLib reports interaction changes without the message; the copy keeps every other field.
+    func replacingInteractionInfo(_ info: MessageInteractionInfo?) -> Message {
+        Message(
+            id: id,
+            senderId: senderId,
+            receiverId: receiverId,
+            chatId: chatId,
+            sendingState: sendingState,
+            schedulingState: schedulingState,
+            isOutgoing: isOutgoing,
+            isPinned: isPinned,
+            isFromOffline: isFromOffline,
+            canBeSaved: canBeSaved,
+            hasTimestampedMedia: hasTimestampedMedia,
+            isChannelPost: isChannelPost,
+            isPaidStarSuggestedPost: isPaidStarSuggestedPost,
+            isPaidGramSuggestedPost: isPaidGramSuggestedPost,
+            containsUnreadMention: containsUnreadMention,
+            containsUnreadPollVotes: containsUnreadPollVotes,
+            date: date,
+            editDate: editDate,
+            forwardInfo: forwardInfo,
+            importInfo: importInfo,
+            interactionInfo: info,
+            unreadReactions: unreadReactions,
+            factCheck: factCheck,
+            suggestedPostInfo: suggestedPostInfo,
+            replyTo: replyTo,
+            topicId: topicId,
+            selfDestructType: selfDestructType,
+            selfDestructIn: selfDestructIn,
+            autoDeleteIn: autoDeleteIn,
+            viaBotUserId: viaBotUserId,
+            guestBotCallerId: guestBotCallerId,
+            senderBusinessBotUserId: senderBusinessBotUserId,
+            senderBoostCount: senderBoostCount,
+            senderTag: senderTag,
+            paidMessageStarCount: paidMessageStarCount,
+            authorSignature: authorSignature,
+            mediaAlbumId: mediaAlbumId,
+            effectId: effectId,
+            restrictionInfo: restrictionInfo,
+            summaryLanguageCode: summaryLanguageCode,
+            content: content,
+            ephemeralContent: ephemeralContent,
+            replyMarkup: replyMarkup,
+            ephemeralMessageId: ephemeralMessageId,
+            chatInstance: chatInstance,
+        )
     }
 }
