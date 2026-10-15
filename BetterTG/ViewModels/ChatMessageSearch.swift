@@ -8,6 +8,8 @@ import TDLibKit
 /// Telegram's in-chat search results (ChatSearchResultsState): the found messages of one chat location, newest first,
 /// the current one and the pages still to load. The chat starts on the newest result and steps with the panel's arrows
 /// (ChatControllerLoadDisplayNode.navigateMessageSearch). `isCurrent` gates every request and result.
+/// A secret chat's messages exist only on this device, so it is searched locally with searchSecretMessages, as
+/// Telegram searches a secret chat's local history.
 @MainActor final class ChatMessageSearch {
     private static let typingDelay = Duration.milliseconds(250)
     private static let pageLimit = 50
@@ -27,9 +29,12 @@ import TDLibKit
 
     private let client: TDLibClient
     private let location: ChatLocation
+    private let isSecretChat: Bool
     private let isCurrent: () -> Bool
     private var totalCount = 0
     private var nextFromMessageID = Int64.zero
+    /// searchSecretMessages pages with an opaque offset; empty once the last page loaded.
+    private var nextSecretOffset = ""
     private var generation = UInt64.zero
     private var task: Task<Void, Never>?
 
@@ -40,18 +45,24 @@ import TDLibKit
     var status: ChatSearchPanel.Status {
         guard isActive else { return .idle }
         guard let currentIndex else { return isLoading ? .loading : .noResults }
-        let total = nextFromMessageID == 0 ? messageIDs.count : max(totalCount, messageIDs.count)
+        let total = hasMorePages ? max(totalCount, messageIDs.count) : messageIDs.count
         return .results(
             position: currentIndex + 1,
             total: total,
-            canGoOlder: currentIndex + 1 < messageIDs.count || nextFromMessageID != 0,
+            canGoOlder: currentIndex + 1 < messageIDs.count || hasMorePages,
             canGoNewer: currentIndex > 0,
         )
     }
 
-    init(client: TDLibClient, location: ChatLocation, isCurrent: @escaping () -> Bool) {
+    /// More results remain to load.
+    private var hasMorePages: Bool {
+        isSecretChat ? !nextSecretOffset.isEmpty : nextFromMessageID != 0
+    }
+
+    init(client: TDLibClient, location: ChatLocation, isSecretChat: Bool = false, isCurrent: @escaping () -> Bool) {
         self.client = client
         self.location = location
+        self.isSecretChat = isSecretChat
         self.isCurrent = isCurrent
     }
 
@@ -120,7 +131,7 @@ import TDLibKit
             show(index: currentIndex + 1)
             return
         }
-        guard nextFromMessageID != 0 else { return }
+        guard hasMorePages else { return }
         isLoading = true
         onChange?()
         load(waitsForTyping: false) { [weak self] in
@@ -154,6 +165,7 @@ import TDLibKit
         currentIndex = nil
         totalCount = 0
         nextFromMessageID = 0
+        nextSecretOffset = ""
         isLoading = false
     }
 
@@ -163,6 +175,10 @@ import TDLibKit
         let sender = sender
         let client = client
         let location = location
+        if isSecretChat {
+            loadSecret(query: query, waitsForTyping: waitsForTyping, completion: completion)
+            return
+        }
         task = Task { [weak self] in
             if waitsForTyping { try? await Task.sleep(for: Self.typingDelay) }
             guard let self, owns(requestGeneration) else { return }
@@ -191,6 +207,32 @@ import TDLibKit
                 if !added.isEmpty || fromMessageID == 0 || skippedPages > Self.maximumSkippedPages { break }
             }
             nextFromMessageID = fromMessageID
+            isLoading = false
+            task = nil
+            completion()
+            onChange?()
+        }
+    }
+
+    /// searchSecretMessages reads TDLib's local database; it needs a query and has no sender filter.
+    private func loadSecret(query: String, waitsForTyping: Bool, completion: @escaping () -> Void) {
+        let requestGeneration = generation
+        let client = client
+        let chatID = location.chatID
+        let offset = nextSecretOffset
+        task = Task { [weak self] in
+            if waitsForTyping { try? await Task.sleep(for: Self.typingDelay) }
+            guard let self, owns(requestGeneration) else { return }
+            let found: FoundMessages? = query.isEmpty
+                ? nil
+                : try? await client.send(TDNativeRequests.searchSecretMessages(
+                    chatId: chatID, query: query, offset: offset, limit: Self.pageLimit, filter: nil,
+                ))
+            guard owns(requestGeneration) else { return }
+            var seen = Set(messageIDs)
+            messageIDs += (found?.messages ?? []).filter { seen.insert($0.id).inserted }.map(\.id)
+            totalCount = max(totalCount, found?.totalCount ?? 0)
+            nextSecretOffset = found?.messages.isEmpty == false ? found?.nextOffset ?? "" : ""
             isLoading = false
             task = nil
             completion()

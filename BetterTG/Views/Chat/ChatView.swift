@@ -5027,7 +5027,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     // MARK: Message search
 
     private func makeMessageSearch() -> ChatMessageSearch {
-        let search = ChatMessageSearch(client: chatVM.client, location: chatVM.location) { [weak self] in
+        let search = ChatMessageSearch(
+            client: chatVM.client,
+            location: chatVM.location,
+            isSecretChat: chatVM.customChat.secretChatID != nil,
+        ) { [weak self] in
             guard let self else { return false }
             return !clientOwnerRetired && chatVM.locationContextIsCurrent
         }
