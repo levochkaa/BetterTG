@@ -266,10 +266,6 @@
 "Message.LiveForHours" = "Live for %1$dh %2$dm";
 "Message.LiveForMinutes" = "Live for %1$dm %2$ds";
 "Message.LiveForSeconds" = "Live for %ds";
-"Poll.Anonymous" = "Anonymous";
-"Poll.Public" = "Public";
-"Poll.Poll" = "Poll";
-"Poll.Closed" = "Closed";
 "Poll.SelectMultiple" = "Select one or more answers";
 "Poll.RestrictionClosed" = "Poll closed";
 "Poll.RestrictionUnsent" = "Send the poll to vote";

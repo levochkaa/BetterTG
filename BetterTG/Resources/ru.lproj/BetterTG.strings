@@ -266,10 +266,6 @@
 "Message.LiveForHours" = "Ещё %1$d ч %2$d мин";
 "Message.LiveForMinutes" = "Ещё %1$d мин %2$d с";
 "Message.LiveForSeconds" = "Ещё %d с";
-"Poll.Anonymous" = "Анонимный";
-"Poll.Public" = "Публичный";
-"Poll.Poll" = "Опрос";
-"Poll.Closed" = "Завершён";
 "Poll.SelectMultiple" = "Выберите один или несколько ответов";
 "Poll.RestrictionClosed" = "Опрос завершён";
 "Poll.RestrictionUnsent" = "Отправьте опрос, чтобы голосовать";

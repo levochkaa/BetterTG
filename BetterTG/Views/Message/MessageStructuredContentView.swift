@@ -60,6 +60,9 @@ enum MessageContentAction {
 
     let changes = PassthroughSubject<Int64, Never>()
 
+    /// The quiz whose explanation is open (Telegram's `currentPollMessageWithTooltip`), one at a time.
+    private(set) var explanationMessageID: Int64?
+
     private var entries = [Int64: Entry]()
     private var timeoutWorkItems = [Int64: DispatchWorkItem]()
 
@@ -111,6 +114,19 @@ enum MessageContentAction {
 
     func currentSubmission(messageID: Int64) -> Submission? {
         entries[messageID]?.submission
+    }
+
+    func setExplanationVisible(_ visible: Bool, messageID: Int64) {
+        let previous = explanationMessageID
+        if visible {
+            guard previous != messageID else { return }
+            explanationMessageID = messageID
+            if let previous { changes.send(previous) }
+        } else {
+            guard previous == messageID else { return }
+            explanationMessageID = nil
+        }
+        changes.send(messageID)
     }
 
     @discardableResult func failSubmission(_ submission: Submission) -> Bool {
@@ -1142,8 +1158,10 @@ private final class LocationMessageContentView: UIControl, MessageSupplementView
 // MARK: - PollMessageContentView
 
 private final class PollMessageContentView: UIView, MessageSupplementView {
+    private let explanationView = PollExplanationView()
     private let questionLabel = UILabel()
     private let typeLabel = UILabel()
+    private let solutionButton = UIButton(type: .system)
     private let optionsStack = UIStackView()
     private let footerLabel = UILabel()
     private let voteButton = UIButton(type: .system)
@@ -1154,6 +1172,10 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     private var optionViews = [Int: PollOptionContentView]()
     private var currentSelection = Set<Int>()
     private var storeCancellable: AnyCancellable?
+    private var questionTopToView: NSLayoutConstraint!
+    private var questionTopToExplanation: NSLayoutConstraint!
+    private var voteButtonHeight: NSLayoutConstraint!
+    private var voteButtonCollapsed: NSLayoutConstraint!
 
     private var interactionState: MessagePollInteractionStore.State {
         interactionStore.state(messageID: messageID, sourceSelection: currentSelection)
@@ -1168,9 +1190,10 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         return false
     }
 
+    /// Telegram stops taking answers once one is chosen: results replace the choices, and the message menu's
+    /// Retract Vote clears the answer.
     private var canOfferVote: Bool {
-        guard !content.poll.isClosed, content.poll.voteRestrictionReason == nil else { return false }
-        return currentSelection.isEmpty || content.poll.allowsRevoting
+        !content.poll.isClosed && content.poll.voteRestrictionReason == nil && currentSelection.isEmpty
     }
 
     private var canVote: Bool {
@@ -1201,29 +1224,50 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         isQuiz && showsResults && !correctOptionIndices.isEmpty
     }
 
+    /// ChatMessagePollBubbleContentNode shows the lamp for a quiz's solution once the quiz is answered or closed.
+    private var quizExplanation: FormattedText? {
+        guard case .pollTypeQuiz(let quiz) = content.poll.type, !quiz.explanation.text.isEmpty,
+              content.poll.isClosed || !currentSelection.isEmpty else { return nil }
+        return quiz.explanation
+    }
+
+    /// The multiple-answer Vote button (ChatMessagePollBubbleContentNode.updateSelection), until the poll is
+    /// answered.
+    private var showsVoteButton: Bool {
+        content.poll.allowsMultipleAnswers && canOfferVote
+    }
+
     private var pollTypeText: String {
-        var values = [String]()
-        values.append(content.poll.isAnonymous ? L10n.betterTG("Poll.Anonymous") : L10n.betterTG("Poll.Public"))
-        values.append(isQuiz ? L10n.telegram("MessagePoll.LabelQuiz") : L10n.betterTG("Poll.Poll"))
-        if content.poll.isClosed { values.append(L10n.betterTG("Poll.Closed")) }
-        return values.joined(separator: " • ")
+        if content.poll.isClosed { return L10n.telegram("MessagePoll.LabelClosed") }
+        return switch (isQuiz, content.poll.isAnonymous) {
+        case (false, true): L10n.telegram("MessagePoll.LabelAnonymous")
+        case (false, false): L10n.telegram("MessagePoll.LabelPoll")
+        case (true, true): L10n.telegram("MessagePoll.LabelAnonymousQuiz")
+        case (true, false): L10n.telegram("MessagePoll.LabelQuiz")
+        }
+    }
+
+    /// Telegram's voters line: No votes or N votes, and Nobody answered yet or N answered for a quiz.
+    private var votersText: String {
+        let count = content.poll.totalVoterCount
+        if isQuiz {
+            return count == 0
+                ? L10n.telegram("MessagePoll.QuizNoUsers")
+                : L10n.telegramPlural("MessagePoll.QuizCount", count: count)
+        }
+        return count == 0
+            ? L10n.telegram("MessagePoll.NoVotes")
+            : L10n.telegramPlural("MessagePoll.VotedCount", count: count)
     }
 
     private var footerText: String {
         var values = [String]()
-        let count = content.poll.totalVoterCount
-        values.append(L10n.telegramPlural("MessagePoll.VotedCount", count: count))
+        // The voters line gives way to the Vote button, as in Telegram.
+        if !showsVoteButton { values.append(votersText) }
         if let restriction = content.poll.voteRestrictionReason {
             values.append(pollRestrictionText(restriction))
         } else if content.poll.allowsMultipleAnswers, canVote {
             values.append(L10n.betterTG("Poll.SelectMultiple"))
-        }
-        if case .pollTypeQuiz(let quiz) = content.poll.type,
-           showsResults,
-           !quiz.explanation.text.isEmpty,
-           !currentSelection.isEmpty || content.poll.isClosed
-        {
-            values.append(quiz.explanation.text)
         }
         return values.joined(separator: " • ")
     }
@@ -1244,8 +1288,9 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         configureViews()
         self.storeCancellable = interactionStore.changes
             .filter { $0 == messageID }
-            .sink { [weak self] _ in self?.renderSelection() }
+            .sink { [weak self] _ in self?.interactionStoreChanged() }
         renderSelection()
+        renderExplanation()
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -1269,6 +1314,12 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     #endif
 
     private func configureViews() {
+        explanationView.translatesAutoresizingMaskIntoConstraints = false
+        explanationView.isHidden = true
+        explanationView.closeButton.addTarget(self, action: #selector(closeExplanationTapped), for: .touchUpInside)
+        if let quizExplanation { explanationView.configure(text: quizExplanation) }
+        addSubview(explanationView)
+
         questionLabel.translatesAutoresizingMaskIntoConstraints = false
         questionLabel.attributedText = NSAttributedString(getAttributedString(from: content.poll.question))
         questionLabel.font = .preferredFont(forTextStyle: .body).withWeight(.semibold)
@@ -1283,6 +1334,16 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         typeLabel.textColor = .systemBlue
         typeLabel.adjustsFontForContentSizeCategory = true
         addSubview(typeLabel)
+
+        solutionButton.translatesAutoresizingMaskIntoConstraints = false
+        solutionButton.setImage(
+            UIImage(systemName: "lightbulb", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15)),
+            for: .normal,
+        )
+        solutionButton.tintColor = .systemBlue
+        solutionButton.accessibilityLabel = L10n.telegram("MessagePoll.Explanation")
+        solutionButton.addTarget(self, action: #selector(solutionTapped), for: .touchUpInside)
+        addSubview(solutionButton)
 
         optionsStack.translatesAutoresizingMaskIntoConstraints = false
         optionsStack.axis = .vertical
@@ -1310,24 +1371,36 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         voteButton.setTitle(L10n.telegram("MessagePoll.SubmitVote"), for: .normal)
         voteButton.titleLabel?.font = .preferredFont(forTextStyle: .callout).withWeight(.semibold)
         voteButton.addTarget(self, action: #selector(voteTapped), for: .touchUpInside)
-        voteButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 38).isActive = true
+        voteButtonHeight = voteButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 38)
+        voteButtonCollapsed = voteButton.heightAnchor.constraint(equalToConstant: 0)
         addSubview(voteButton)
 
         footerLabel.translatesAutoresizingMaskIntoConstraints = false
-        footerLabel.text = footerText
         footerLabel.font = .preferredFont(forTextStyle: .caption1)
         footerLabel.textColor = .secondaryLabel
         footerLabel.numberOfLines = 0
         footerLabel.adjustsFontForContentSizeCategory = true
         addSubview(footerLabel)
 
+        questionTopToView = questionLabel.topAnchor.constraint(equalTo: topAnchor, constant: 3)
+        questionTopToExplanation = questionLabel.topAnchor.constraint(
+            equalTo: explanationView.bottomAnchor,
+            constant: 8,
+        )
         NSLayoutConstraint.activate([
-            questionLabel.topAnchor.constraint(equalTo: topAnchor, constant: 3),
+            explanationView.topAnchor.constraint(equalTo: topAnchor, constant: 3),
+            explanationView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            explanationView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            questionTopToView,
             questionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             questionLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
             typeLabel.topAnchor.constraint(equalTo: questionLabel.bottomAnchor, constant: 2),
             typeLabel.leadingAnchor.constraint(equalTo: questionLabel.leadingAnchor),
-            typeLabel.trailingAnchor.constraint(equalTo: questionLabel.trailingAnchor),
+            typeLabel.trailingAnchor.constraint(lessThanOrEqualTo: solutionButton.leadingAnchor, constant: -4),
+            solutionButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            solutionButton.centerYAnchor.constraint(equalTo: typeLabel.centerYAnchor),
+            solutionButton.widthAnchor.constraint(equalToConstant: 32),
+            solutionButton.heightAnchor.constraint(equalToConstant: 28),
             optionsStack.topAnchor.constraint(equalTo: typeLabel.bottomAnchor, constant: 9),
             optionsStack.leadingAnchor.constraint(equalTo: leadingAnchor),
             optionsStack.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -1358,7 +1431,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
                 selection.insert(index)
             }
         } else {
-            selection = currentSelection == Set([index]) && content.poll.allowsRevoting ? [] : [index]
+            selection = [index]
         }
         interactionStore.setPendingSelection(
             selection,
@@ -1378,15 +1451,48 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
             view.setPendingSelected(state.pendingSelection.contains(index))
         }
         let hasSelectionChange = state.pendingSelection != currentSelection
-        voteButton.isHidden = !content.poll.allowsMultipleAnswers || !canOfferVote
+        let showsButton = showsVoteButton
+        voteButton.isHidden = !showsButton
+        if showsButton {
+            voteButtonCollapsed.isActive = false
+            voteButtonHeight.isActive = true
+        } else {
+            voteButtonHeight.isActive = false
+            voteButtonCollapsed.isActive = true
+        }
         voteButton.isEnabled = hasSelectionChange && canVote
         voteButton.alpha = voteButton.isEnabled ? 1 : 0.45
-        voteButton.setTitle(
-            state.pendingSelection.isEmpty && !currentSelection.isEmpty
-                ? L10n.telegram("Conversation.UnvotePoll")
-                : L10n.telegram("MessagePoll.SubmitVote"),
-            for: .normal,
-        )
+        footerLabel.text = footerText
+    }
+
+    /// Shows the quiz's explanation above the poll while it is open, and the lamp otherwise. Returns whether the
+    /// explanation appeared or went away.
+    @discardableResult private func renderExplanation() -> Bool {
+        let shown = quizExplanation != nil && interactionStore.explanationMessageID == messageID
+        solutionButton.isHidden = quizExplanation == nil || shown
+        guard shown == explanationView.isHidden else { return false }
+        explanationView.isHidden = !shown
+        if shown {
+            questionTopToView.isActive = false
+            questionTopToExplanation.isActive = true
+        } else {
+            questionTopToExplanation.isActive = false
+            questionTopToView.isActive = true
+        }
+        return true
+    }
+
+    private func interactionStoreChanged() {
+        renderSelection()
+        if renderExplanation() { onAction(.richContentLayoutChanged) }
+    }
+
+    @objc private func solutionTapped() {
+        interactionStore.setExplanationVisible(true, messageID: messageID)
+    }
+
+    @objc private func closeExplanationTapped() {
+        interactionStore.setExplanationVisible(false, messageID: messageID)
     }
 
     @objc private func voteTapped() {
@@ -1516,19 +1622,22 @@ private final class PollOptionContentView: UIControl {
         percentageLabel.accessibilityValue = String(showsResults ? option.votePercentage : 0)
         self.relativeProgress = showsResults ? min(1, max(0, relativeProgress)) : 0
         progressView.isHidden = !showsResults
+        // ChatMessagePollOptionNode: a chosen quiz answer is green or red, the right answer you didn't choose is
+        // marked in the poll's color, and other results carry no mark.
         if incorrect {
             resultImage = UIImage(systemName: "xmark.circle.fill")
             resultTint = .systemRed
-        } else if correct {
-            resultImage = UIImage(systemName: "checkmark.circle.fill")
-            resultTint = .systemGreen
         } else if option.isChosen {
+            resultImage = UIImage(systemName: "checkmark.circle.fill")
+            resultTint = correct ? .systemGreen : .systemBlue
+        } else if correct {
             resultImage = UIImage(systemName: "checkmark.circle.fill")
             resultTint = .systemBlue
         } else {
-            resultImage = UIImage(systemName: "circle")
+            resultImage = showsResults ? nil : UIImage(systemName: "circle")
             resultTint = .systemBlue
         }
+        progressView.backgroundColor = (option.isChosen ? resultTint : UIColor.systemBlue).withAlphaComponent(0.12)
         selectionView.image = resultImage
         selectionView.tintColor = resultTint
         isEnabled = enabled
@@ -1554,6 +1663,84 @@ private final class PollOptionContentView: UIControl {
 
     @objc private func tapped() {
         onTap?(index)
+    }
+}
+
+// MARK: - PollExplanationView
+
+/// Telegram's quiz answer block (ChatMessageQuizAnswerBubbleContentNode): Explanation with the solution and a close
+/// button, above the poll.
+private final class PollExplanationView: UIView {
+    let closeButton = UIButton(type: .system)
+
+    private let accentView = UIView()
+    private let titleLabel = UILabel()
+    private let textLabel = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = UIColor.systemBlue.withAlphaComponent(0.1)
+        layer.cornerRadius = 6
+        layer.cornerCurve = .continuous
+        clipsToBounds = true
+
+        accentView.translatesAutoresizingMaskIntoConstraints = false
+        accentView.backgroundColor = .systemBlue
+        addSubview(accentView)
+
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = L10n.telegram("MessagePoll.Explanation")
+        titleLabel.font = .preferredFont(forTextStyle: .subheadline).withWeight(.semibold)
+        titleLabel.textColor = .systemBlue
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.accessibilityTraits = .header
+        addSubview(titleLabel)
+
+        textLabel.translatesAutoresizingMaskIntoConstraints = false
+        textLabel.numberOfLines = 0
+        textLabel.adjustsFontForContentSizeCategory = true
+        addSubview(textLabel)
+
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setImage(
+            UIImage(
+                systemName: "xmark",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold),
+            ),
+            for: .normal,
+        )
+        closeButton.tintColor = .systemBlue
+        closeButton.accessibilityLabel = L10n.telegram("Common.Close")
+        addSubview(closeButton)
+
+        NSLayoutConstraint.activate([
+            accentView.topAnchor.constraint(equalTo: topAnchor),
+            accentView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            accentView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            accentView.widthAnchor.constraint(equalToConstant: 3),
+            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            titleLabel.leadingAnchor.constraint(equalTo: accentView.trailingAnchor, constant: 8),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -4),
+            closeButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 36),
+            closeButton.heightAnchor.constraint(equalToConstant: 30),
+            textLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+            textLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            textLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            textLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
+        ])
+        accessibilityElements = [titleLabel, textLabel, closeButton]
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(text: FormattedText) {
+        textLabel.attributedText = NSAttributedString(getAttributedString(from: text))
+        textLabel.font = .preferredFont(forTextStyle: .subheadline)
+        textLabel.textColor = .label
     }
 }
 
