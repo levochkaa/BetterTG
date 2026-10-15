@@ -244,12 +244,21 @@ final class TelegramListNavigationBar: UIView {
 final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     // MARK: Internal
 
+    /// Telegram's search domains (ChatSearchDomain): the whole chat, picking a member after "from:", or one member.
+    enum SearchMemberScope: Equatable {
+        case none
+        case choosing
+        case chosen(String)
+    }
+
     static let contentHeight: CGFloat = 44
 
     var onBack: (() -> Void)?
     var onSelectionCancel: (() -> Void)?
     var onSearchQueryChange: ((String) -> Void)?
     var onSearchActiveChange: ((Bool) -> Void)?
+    /// The "from:" prefix or the member token was erased; receives the scope it left.
+    var onSearchMemberScopeCleared: ((SearchMemberScope) -> Void)?
     var onProfile: (() -> Void)?
     /// Shown instead of the avatar by `setShowsMoreButton(true)`; receives the button as the menu source.
     var onMore: ((UIView) -> Void)?
@@ -266,7 +275,10 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private let avatarView = ProfileAvatarView()
     private let moreButton = UIButton(type: .system)
     private var showsMoreButton = false
-    private let searchField = UISearchTextField()
+    private let searchField = ChatSearchTextField()
+    private var searchMemberScope = SearchMemberScope.none
+    private var defaultSearchLeftView: UIView?
+    private let searchMemberPrefixLabel = UILabel()
     private let closeButton = UIButton(type: .system)
     private let selectionCancelButton = UIButton(type: .system)
     private var searchActive = false
@@ -362,6 +374,42 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
     func setSearchResultFound(_ found: Bool?) {
         searchField.textColor = found == false ? .systemRed : .label
+    }
+
+    /// ChatSearchNavigationContentNode: the "from:" prefix while a member is picked, then the member's token.
+    func setSearchMemberScope(_ scope: SearchMemberScope) {
+        searchMemberScope = scope
+        searchField.text = ""
+        searchField.textColor = .label
+        switch scope {
+        case .none:
+            searchField.tokens = []
+            searchField.leftView = defaultSearchLeftView
+            searchField.placeholder = L10n.telegram("Conversation.SearchPlaceholder")
+        case .choosing:
+            searchField.tokens = []
+            searchMemberPrefixLabel.sizeToFit()
+            searchField.leftView = searchMemberPrefixLabel
+            searchField.placeholder = L10n.telegram("Conversation.SearchByName.Placeholder")
+        case .chosen(let title):
+            searchField.leftView = defaultSearchLeftView
+            searchField.placeholder = nil
+            searchField.tokens = [UISearchToken(icon: UIImage(systemName: "person.fill"), text: title)]
+        }
+    }
+
+    func dismissSearchKeyboard() {
+        searchField.resignFirstResponder()
+    }
+
+    func focusSearchField() {
+        guard searchActive else { return }
+        searchField.becomeFirstResponder()
+    }
+
+    /// Closes the search as its close button does.
+    func cancelSearch() {
+        endSearch()
     }
 
     /// Telegram shows More in place of the avatar for a forum read as messages
@@ -464,7 +512,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         addSubview(moreButton)
 
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.placeholder = L10n.telegram("Conversation.ContextMenuSearchMessages")
+        searchField.placeholder = L10n.telegram("Conversation.SearchPlaceholder")
         searchField.clearButtonMode = .whileEditing
         searchField.returnKeyType = .search
         searchField.autocorrectionType = .no
@@ -478,6 +526,18 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         searchField.alpha = 0
         searchField.isHidden = true
         searchField.addTarget(self, action: #selector(searchChanged), for: .editingChanged)
+        searchField.onDeleteBackward = { [weak self] wasEmpty in
+            guard let self else { return }
+            switch searchMemberScope {
+            case .choosing where wasEmpty: clearSearchMemberScopeFromInput()
+            case .chosen where searchField.tokens.isEmpty: clearSearchMemberScopeFromInput()
+            case .choosing, .chosen, .none: break
+            }
+        }
+        defaultSearchLeftView = searchField.leftView
+        searchMemberPrefixLabel.text = L10n.telegram("Conversation.SearchByName.Prefix")
+        searchMemberPrefixLabel.font = .preferredFont(forTextStyle: .body)
+        searchMemberPrefixLabel.textColor = .label
         addSubview(searchField)
 
         closeButton.translatesAutoresizingMaskIntoConstraints = false
@@ -587,6 +647,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     @objc private func endSearch() {
         guard searchActive else { return }
         searchActive = false
+        setSearchMemberScope(.none)
         searchField.text = ""
         searchField.resignFirstResponder()
         onSearchQueryChange?("")
@@ -606,7 +667,31 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
     @objc private func searchChanged() {
         searchField.textColor = .label
+        if case .chosen = searchMemberScope, searchField.tokens.isEmpty {
+            clearSearchMemberScopeFromInput()
+            return
+        }
         onSearchQueryChange?(searchField.text ?? "")
+    }
+
+    private func clearSearchMemberScopeFromInput() {
+        let previous = searchMemberScope
+        guard previous != .none else { return }
+        searchMemberScope = .none
+        onSearchMemberScopeCleared?(previous)
+    }
+}
+
+// MARK: - ChatSearchTextField
+
+/// Reports Backspace, so an empty field can drop Telegram's "from:" prefix or the member token.
+private final class ChatSearchTextField: UISearchTextField {
+    var onDeleteBackward: ((_ wasEmpty: Bool) -> Void)?
+
+    override func deleteBackward() {
+        let wasEmpty = (text ?? "").isEmpty && tokens.isEmpty
+        super.deleteBackward()
+        onDeleteBackward?(wasEmpty)
     }
 }
 

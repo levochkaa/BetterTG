@@ -583,3 +583,5 @@
 "Login.WaitingForAuthorization" = "Waiting for authorization";
 "Accessibility.NextUnreadMention" = "Next mention";
 "Accessibility.NextUnreadReaction" = "Next reaction";
+"Accessibility.SearchOlderResult" = "Previous result";
+"Accessibility.SearchNewerResult" = "Next result";

@@ -955,3 +955,10 @@
 "ChatList.PanelNewChatsAvailable_any" = "%d New Chats Available";
 "Conversation.MessageOptionsReplyInAnotherChat" = "Reply in Another Chat";
 "Conversation.MoveReplyToAnotherChatTitle" = "Reply in...";
+"Conversation.SearchNoResults" = "No Results";
+"Conversation.CalendarSearch.Title" = "Search";
+"Conversation.CalendarSearch.Done" = "Done";
+"Conversation.SearchByName.Prefix" = "from: ";
+"Conversation.SearchByName.Placeholder" = "Search Members";
+"Conversation.SearchPlaceholder" = "Search this chat";
+"Chat.JumpToDate" = "Jump to Date";

@@ -582,3 +582,5 @@
 "Login.WaitingForAuthorization" = "Ожидание авторизации";
 "Accessibility.NextUnreadMention" = "Следующее упоминание";
 "Accessibility.NextUnreadReaction" = "Следующая реакция";
+"Accessibility.SearchOlderResult" = "Предыдущий результат";
+"Accessibility.SearchNewerResult" = "Следующий результат";

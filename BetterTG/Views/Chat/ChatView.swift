@@ -214,8 +214,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// `currentMessageWithLoadingReplyThread`).
     private var commentsThreadLoad: (id: UUID, displayedID: DisplayedMessageID)?
     private var messageHighlightTask: Task<Void, Never>?
-    private var searchTask: Task<Void, Never>?
     private var messageSearchActive = false
+    private lazy var messageSearch = makeMessageSearch()
+    private let messageSearchPanel = ChatSearchPanel()
+    private var messageSearchMemberList: ChatSearchMemberListView?
+    private var messageSearchQuery = ""
+    /// Telegram's ChatSearchDomain: picking a member after "from:", or the member whose messages are searched.
+    private var messageSearchChoosesMember = false
+    private var messageSearchMember: ChatSearchMemberListView.Member?
+    private var messageDateJumpTask: Task<Void, Never>?
     private var isTerminatingNavigation = false
     private var composerLeadingConstraint: NSLayoutConstraint?
     private var composerTrailingConstraint: NSLayoutConstraint?
@@ -378,6 +385,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var keepsPersistentReplyKeyboard: Bool {
         chatVM.supportsReplyKeyboard && chatVM.customChat.bot != nil
             && chatVM.replyKeyboard.offeredKeyboard?.markup.isPersistent == true
+    }
+
+    /// Telegram offers "from:" in groups only (ChatTagSearchInputPanelNode.canSearchMembers).
+    private var canSearchMessagesByMember: Bool {
+        switch chatVM.customChat.type {
+        case .group: true
+        case .supergroup(let group): !group.isChannel && !group.isDirectMessagesGroup
+        case .bot, .user: false
+        }
     }
 
     convenience init(
@@ -1504,7 +1520,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             self?.endMessageSelection()
         }
         customNavigationBar.onSearchQueryChange = { [weak self] query in
-            self?.searchMessages(query: query)
+            self?.messageSearchQueryChanged(query)
+        }
+        customNavigationBar.onSearchMemberScopeCleared = { [weak self] previous in
+            self?.messageSearchMemberScopeCleared(previous)
         }
         customNavigationBar.onSearchActiveChange = { [weak self] active in
             guard let self else { return }
@@ -1515,9 +1534,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             composerView.setHiddenForSearch(active)
             updateScrollToLatestButtonVisibility(animated: true)
             if !active {
-                searchTask?.cancel()
+                resetMessageSearch()
                 customNavigationBar.setSearchResultFound(nil)
             }
+            setMessageSearchPanelVisible(active)
             view.setNeedsLayout()
             updatePinnedMessageBanner(animated: true)
         }
@@ -1904,8 +1924,44 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 ? composerView.topAnchor
                 : view.safeAreaLayoutGuide.bottomAnchor)
             configureMessageSelectionToolbar()
+            configureMessageSearchPanel()
         }
         NSLayoutConstraint.activate(constraints)
+    }
+
+    private func configureMessageSearchPanel() {
+        messageSearchPanel.translatesAutoresizingMaskIntoConstraints = false
+        messageSearchPanel.isHidden = true
+        messageSearchPanel.alpha = 0
+        messageSearchPanel.onCalendar = { [weak self] in self?.presentMessageSearchCalendar() }
+        messageSearchPanel.onMembers = { [weak self] in self?.beginMessageSearchMemberChoice() }
+        messageSearchPanel.onOlder = { [weak self] in
+            self?.customNavigationBar.dismissSearchKeyboard()
+            self?.messageSearch.showOlder()
+        }
+        messageSearchPanel.onNewer = { [weak self] in
+            self?.customNavigationBar.dismissSearchKeyboard()
+            self?.messageSearch.showNewer()
+        }
+        view.addSubview(messageSearchPanel)
+        // The controls sit on the keyboard, or on the safe area while it is hidden; the material reaches the bottom.
+        let keyboardAttachment = messageSearchPanel.contentBottomAnchor.constraint(
+            equalTo: view.keyboardLayoutGuide.topAnchor,
+        )
+        keyboardAttachment.priority = .defaultHigh
+        let safeAreaAttachment = messageSearchPanel.contentBottomAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+        )
+        safeAreaAttachment.priority = UILayoutPriority(UILayoutPriority.defaultHigh.rawValue - 1)
+        NSLayoutConstraint.activate([
+            messageSearchPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            messageSearchPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            messageSearchPanel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            messageSearchPanel.contentBottomAnchor.constraint(lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor),
+            messageSearchPanel.contentBottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor),
+            keyboardAttachment,
+            safeAreaAttachment,
+        ])
     }
 
     private func configureMessageSelectionToolbar() {
@@ -3615,10 +3671,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             if isSelectingMessages, messageSelectionToolbar.frame.minY > 0 {
                 view.bounds.maxY - messageSelectionToolbar.frame.minY + 8
             } else if messageSearchActive {
-                max(
-                    view.safeAreaInsets.bottom,
-                    view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY,
-                ) + 8
+                if messageSearchPanel.superview != nil, messageSearchPanel.frame.minY > 0 {
+                    view.bounds.maxY - messageSearchPanel.frame.minY + 8
+                } else {
+                    max(
+                        view.safeAreaInsets.bottom,
+                        view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY,
+                    ) + 8
+                }
             } else if showsComposer, composerView.frame.minY > 0 {
                 max(view.safeAreaInsets.bottom, view.bounds.maxY - composerView.frame.minY) + 10
             } else {
@@ -4931,38 +4991,158 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
-    private func searchMessages(query: String) {
-        searchTask?.cancel()
-        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedQuery.isEmpty else {
-            customNavigationBar.setSearchResultFound(nil)
+    // MARK: Message search
+
+    private func makeMessageSearch() -> ChatMessageSearch {
+        let search = ChatMessageSearch(client: chatVM.client, location: chatVM.location) { [weak self] in
+            guard let self else { return false }
+            return !clientOwnerRetired && chatVM.locationContextIsCurrent
+        }
+        search.onChange = { [weak self] in self?.updateMessageSearchPanel() }
+        search.onNavigate = { [weak self] id in self?.scrollToMessage(id: id) }
+        return search
+    }
+
+    private func updateMessageSearchPanel() {
+        let status: ChatSearchPanel.Status = messageSearchChoosesMember ? .idle : messageSearch.status
+        let queryIsEmpty = messageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        messageSearchPanel.update(
+            status: status,
+            showsMembers: canSearchMessagesByMember && !messageSearchChoosesMember && messageSearchMember == nil
+                && queryIsEmpty,
+        )
+        guard messageSearchActive else { return }
+        customNavigationBar.setSearchResultFound(status == .noResults ? false : nil)
+    }
+
+    private func setMessageSearchPanelVisible(_ visible: Bool) {
+        guard messageSearchPanel.superview != nil else { return }
+        if visible {
+            updateMessageSearchPanel()
+            messageSearchPanel.isHidden = false
+        }
+        UIView.animate(withDuration: 0.2) {
+            self.messageSearchPanel.alpha = visible ? 1 : 0
+        } completion: { _ in
+            if !self.messageSearchActive { self.messageSearchPanel.isHidden = true }
+        }
+    }
+
+    private func messageSearchQueryChanged(_ query: String) {
+        messageSearchQuery = query
+        if messageSearchChoosesMember {
+            messageSearchMemberList?.update(query: query)
+        } else {
+            messageSearch.update(query: query, sender: messageSearchMember?.sender)
+        }
+        updateMessageSearchPanel()
+    }
+
+    private func resetMessageSearch() {
+        messageSearch.reset()
+        messageSearchChoosesMember = false
+        messageSearchMember = nil
+        messageSearchQuery = ""
+        hideMessageSearchMemberList()
+        updateMessageSearchPanel()
+    }
+
+    /// ChatPanelInterfaceInteraction.toggleMembersSearch(true): the field shows "from:" and lists the members.
+    private func beginMessageSearchMemberChoice() {
+        guard messageSearchActive, canSearchMessagesByMember, chatVM.locationContextIsCurrent else { return }
+        messageSearchChoosesMember = true
+        messageSearchMember = nil
+        messageSearchQuery = ""
+        messageSearch.reset()
+        customNavigationBar.setSearchMemberScope(.choosing)
+        customNavigationBar.focusSearchField()
+        showMessageSearchMemberList()
+        updateMessageSearchPanel()
+    }
+
+    private func selectMessageSearchMember(_ member: ChatSearchMemberListView.Member) {
+        guard messageSearchActive, messageSearchChoosesMember else { return }
+        messageSearchChoosesMember = false
+        messageSearchMember = member
+        messageSearchQuery = ""
+        hideMessageSearchMemberList()
+        customNavigationBar.setSearchMemberScope(.chosen(member.compactTitle))
+        messageSearch.update(query: "", sender: member.sender)
+        updateMessageSearchPanel()
+    }
+
+    /// Erasing the member's token returns to the member list and erasing "from:" to the whole chat, as Telegram's
+    /// toggleMembersSearch(false) steps back one domain.
+    private func messageSearchMemberScopeCleared(_ previous: TelegramChatNavigationBar.SearchMemberScope) {
+        guard messageSearchActive else { return }
+        if case .chosen = previous {
+            beginMessageSearchMemberChoice()
             return
         }
+        messageSearchChoosesMember = false
+        messageSearchMember = nil
+        messageSearchQuery = ""
+        hideMessageSearchMemberList()
+        customNavigationBar.setSearchMemberScope(.none)
+        messageSearch.update(query: "", sender: nil)
+        updateMessageSearchPanel()
+    }
 
-        searchTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(250))
-            guard let self, !Task.isCancelled else { return }
-            let client = chatVM.client
-            let location = chatVM.location
-            let result = try? await client.searchChatMessages(
-                chatId: location.chatID,
-                filter: nil,
-                fromMessageId: 0,
-                limit: 50,
-                offset: 0,
-                query: normalizedQuery,
-                senderId: nil,
-                topicId: location.topic,
-            )
-            guard !Task.isCancelled,
-                  TDLib.shared.activeAccountID == location.accountID,
-                  TDLib.shared.activeClient.id == location.clientID
-            else { return }
-            let firstID = result?.messages.first(where: { location.matches(message: $0) })?.id
-            customNavigationBar.setSearchResultFound(firstID != nil)
-            if let firstID {
-                scrollToMessage(id: firstID)
+    private func showMessageSearchMemberList() {
+        if messageSearchMemberList == nil {
+            let list = ChatSearchMemberListView(
+                client: chatVM.client, chatID: chatVM.location.chatID, accountID: chatVM.accountID,
+            ) { [weak self] in
+                guard let self else { return false }
+                return !clientOwnerRetired && chatVM.locationContextIsCurrent
             }
+            list.translatesAutoresizingMaskIntoConstraints = false
+            list.onSelect = { [weak self] member in self?.selectMessageSearchMember(member) }
+            view.insertSubview(list, belowSubview: messageSearchPanel)
+            NSLayoutConstraint.activate([
+                list.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+                list.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                list.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                list.bottomAnchor.constraint(equalTo: messageSearchPanel.topAnchor),
+            ])
+            messageSearchMemberList = list
+        }
+        messageSearchMemberList?.update(query: "")
+    }
+
+    private func hideMessageSearchMemberList() {
+        messageSearchMemberList?.cancel()
+        messageSearchMemberList?.removeFromSuperview()
+        messageSearchMemberList = nil
+    }
+
+    /// ChatControllerOpenCalendarSearch with isMedia false: pick a day, then the search closes and the chat jumps to
+    /// the first message sent on that day or later.
+    private func presentMessageSearchCalendar() {
+        guard messageSearchActive, presentedViewController == nil, chatVM.locationContextIsCurrent else { return }
+        customNavigationBar.dismissSearchKeyboard()
+        let picker = ChatSearchDatePickerViewController { [weak self] date in self?.jumpToMessageSearchDate(date) }
+        let navigation = UINavigationController(rootViewController: picker)
+        if let sheet = navigation.sheetPresentationController {
+            sheet.detents = [.large()]
+            sheet.prefersGrabberVisible = true
+        }
+        present(navigation, animated: true)
+    }
+
+    private func jumpToMessageSearchDate(_ date: Date) {
+        guard !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+        let start = Int(Calendar.current.startOfDay(for: date).timeIntervalSince1970)
+        let client = chatVM.client
+        let location = chatVM.location
+        customNavigationBar.cancelSearch()
+        messageDateJumpTask?.cancel()
+        messageDateJumpTask = Task { [weak self] in
+            let id = await ChatMessageSearch.firstMessageID(sentSince: start, in: location, client: client)
+            guard let self, !Task.isCancelled else { return }
+            messageDateJumpTask = nil
+            guard let id, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+            scrollToMessage(id: id)
         }
     }
 
