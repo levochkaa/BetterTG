@@ -286,7 +286,27 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private var showsComposer: Bool {
         presentationMode == .full
-            && (location.isTopicScoped || chatVM.isAllMessagesForum || chatVM.canShowComposer)
+            && (location.forumTopicID != nil || chatVM.isAllMessagesForum || chatVM.canShowComposer)
+    }
+
+    /// A reply thread is titled "N Comments" or "N Replies", with only typing activity below (ChatTitleView,
+    /// `.replyThread`). A forum topic shows its chat below the topic name.
+    private var headerTitleAndStatus: (title: String, status: String) {
+        if let title = chatVM.messageThreadTitle {
+            return (title, chatVM.actionStatus)
+        }
+        let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
+        let status =
+            if location.isTopicScoped {
+                chatVM.isReadOnlyTopic
+                    ? (chatVM.forumTopicInfo?.isClosed == true || chatVM.forumTopicInfo?.isHidden == true
+                        ? L10n.betterTG("Forum.ClosedTopicReadOnly")
+                        : L10n.betterTG("Forum.ReadOnlyStatus", chatVM.customChat.displayTitle))
+                    : chatVM.customChat.displayTitle
+            } else {
+                chatVM.headerStatus
+            }
+        return (title, status)
     }
 
     private var isNearLatest: Bool {
@@ -348,6 +368,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         presentationMode: PresentationMode = .full,
         targetMessageID: Int64? = nil,
         targetQuote: MessageQuoteHighlight? = nil,
+        messageThread: MessageThreadInfo? = nil,
         pendingForward: PendingMessageForward? = nil,
         tdlib: TDLib = .shared,
     ) {
@@ -359,6 +380,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             customChat: customChat,
             location: resolvedLocation,
             forumTopic: forumTopic,
+            messageThread: messageThread,
             previewing: presentationMode == .contextPreview,
             client: tdlib.activeClient,
         )
@@ -2453,17 +2475,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateChatHeader() {
         let chat = chatVM.customChat.chat
-        let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
-        let status =
-            if location.isTopicScoped {
-                chatVM.isReadOnlyTopic
-                    ? (chatVM.forumTopicInfo?.isClosed == true || chatVM.forumTopicInfo?.isHidden == true
-                        ? L10n.betterTG("Forum.ClosedTopicReadOnly")
-                        : L10n.betterTG("Forum.ReadOnlyStatus", chatVM.customChat.displayTitle))
-                    : chatVM.customChat.displayTitle
-            } else {
-                chatVM.headerStatus
-            }
+        let (title, status) = headerTitleAndStatus
         let statusColor: UIColor = chatVM.headerStatusIsActive ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
             title: title,
@@ -2501,26 +2513,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updateStatus() {
-        let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
-        let status =
-            if location.isTopicScoped {
-                chatVM.isReadOnlyTopic
-                    ? (chatVM.forumTopicInfo?.isClosed == true || chatVM.forumTopicInfo?.isHidden == true
-                        ? L10n.betterTG("Forum.ClosedTopicReadOnly")
-                        : L10n.betterTG("Forum.ReadOnlyStatus", chatVM.customChat.displayTitle))
-                    : chatVM.customChat.displayTitle
-            } else {
-                chatVM.headerStatus
-            }
+        let (title, status) = headerTitleAndStatus
         let statusColor: UIColor = chatVM.headerStatusIsActive ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
             title: title,
             status: status,
             statusColor: statusColor,
         )
-        let unreadCount = location.isTopicScoped
-            ? (chatVM.forumTopic?.unreadCount ?? 0)
-            : chatVM.customChat.unreadCount
+        // TDLib reports a thread's unread count only in its one-off read, so a thread shows none.
+        let unreadCount =
+            if location.messageThreadID != nil {
+                0
+            } else if location.isTopicScoped {
+                chatVM.forumTopic?.unreadCount ?? 0
+            } else {
+                chatVM.customChat.unreadCount
+            }
         unreadBadgeLabel.text = unreadCount > 0 ? compactNumericCountString(unreadCount) : nil
         unreadBadgeLabel.isHidden = unreadCount == 0
         scrollToLatestButton.accessibilityValue = unreadCount == 0
@@ -3912,6 +3920,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 metadataNavigationTask = nil
                 return
             }
+            // Telegram leaves a reply thread for a message outside it and shows the message in its chat.
+            if currentLocation.messageThreadID != nil {
+                guard !Task.isCancelled, chatVM.locationContextIsCurrent, routeIsRetained,
+                      message.chatId == currentLocation.chatID else { return }
+                NavigationStorage.shared.push(.customChat(
+                    chatVM.customChat,
+                    targetMessageID: messageID,
+                    targetQuote: quote,
+                ))
+                metadataNavigationTask = nil
+                return
+            }
             guard case .messageTopicForum(let forumTopic) = message.topicId,
                   let topic = try? await client.getForumTopic(
                       chatId: currentLocation.chatID,
@@ -4047,8 +4067,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// Telegram's `openMessageReplies`: a post's comments are a thread in the channel's discussion group, found with
-    /// `getMessageThread` on this chat's client. BetterTG has no thread chat yet, so the group opens at the thread's
-    /// first message, which the comments reply to.
+    /// `getMessageThread` on this chat's client, and open as that thread's own chat (`ChatLocation.replyThread`).
     private func openComments(messageID: Int64, displayedID: DisplayedMessageID) {
         guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
               navigationController?.topViewController === self, commentsThreadLoad == nil
@@ -4087,7 +4106,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 presentMetadataUnavailable()
                 return
             }
-            NavigationStorage.shared.push(.customChat(discussion, targetMessageID: thread.messageThreadId))
+            NavigationStorage.shared.push(.customChat(
+                discussion,
+                location: currentLocation.withMessageThread(chatID: thread.chatId, id: thread.messageThreadId),
+                messageThread: thread,
+            ))
             metadataNavigationTask = nil
         }
     }

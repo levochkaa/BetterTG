@@ -150,6 +150,11 @@ import UIKit
     @Published private(set) var forumTopic: ForumTopic?
     @Published private(set) var forumTopicInfo: ForumTopicInfo?
     @Published private(set) var forumTopicsByID = [Int: ForumTopic]()
+    /// A thread route's `getMessageThread` answer. Its root messages head the history, as Telegram's thread head.
+    @Published private(set) var messageThread: MessageThreadInfo?
+    /// The thread root's reply info, kept current by `updateMessageInteractionInfo`: the reply count that titles the
+    /// chat and the thread's read watermarks.
+    @Published private(set) var messageThreadReplyInfo: MessageReplyInfo?
     @Published var errorShown = false
     var loadingMessagesTask: Task<Void, Never>?
     var cancellables = Set<AnyCancellable>()
@@ -251,6 +256,8 @@ import UIKit
     private var allMessagesTopicReads: ChatForumTopicReads?
     private var allMessagesTopicReadsRetired = false
     private var forumTopicDemandRefreshQueued = false
+    private var messageThreadTask: Task<MessageThreadInfo?, Never>?
+    private var messageThreadReplyInfoRevision = UInt64.zero
 
     private var activeChatAction: ChatAction?
     private var activeChatActionContext: ResolvedSendContext?
@@ -334,8 +341,37 @@ import UIKit
             && !customChat.chat.viewAsTopics
     }
 
+    /// A forum topic keeps its composer to explain why it can't be written to. A reply thread without write access
+    /// behaves like a chat without it.
     var isReadOnlyTopic: Bool {
-        location.isTopicScoped && !canWriteAnyMessage
+        location.forumTopicID != nil && !canWriteAnyMessage
+    }
+
+    /// Telegram's `ChatReplyThreadMessage.isChannelPost`: the thread starts at a channel post that the channel
+    /// forwarded to its discussion group (`SourceReferenceMessageAttribute`, TDLib's `forwardInfo.source`). Nil
+    /// until the thread is read.
+    var messageThreadIsChannelPost: Bool? {
+        guard let threadID = location.messageThreadID, let messageThread else { return nil }
+        let root = messageThread.messages.first { $0.id == threadID } ?? messageThread.messages.last
+        return root.map { $0.forwardInfo?.source != nil }
+    }
+
+    /// Telegram's `ChatTitleContent.replyThread` (ChatTitleView): "N Comments" in a channel post's discussion and
+    /// "N Replies" in a group message's thread, or the bare noun before the first one. Until the thread is read, a
+    /// channel's discussion group is assumed to show comments.
+    var messageThreadTitle: String? {
+        guard location.messageThreadID != nil else { return nil }
+        let key = messageThreadShowsComments ? "Conversation.TitleComments" : "Conversation.TitleReplies"
+        let count = messageThreadReplyInfo?.replyCount ?? 0
+        guard count > 0 else { return L10n.telegram(key + "Empty") }
+        // The plural form brackets its count, as in "[%@]Comments"; the format places the count itself.
+        var noun = L10n.telegramPlural(key, count: count)
+        if let start = noun.firstIndex(of: "["), let end = noun.firstIndex(of: "]"), start < end {
+            noun.removeSubrange(start...end)
+        } else {
+            noun = noun.trimmingCharacters(in: CharacterSet(charactersIn: "0123456789-,."))
+        }
+        return L10n.telegram(key + "Format", "\(count)", noun)
     }
 
     var isAllMessagesForum: Bool {
@@ -431,6 +467,11 @@ import UIKit
            let placeholder = replyKeyboard.placeholder(replyMessageID: replyMessage?.id)
         {
             return placeholder
+        }
+        if location.messageThreadID != nil {
+            return L10n.telegram(messageThreadShowsComments
+                ? "Conversation.InputTextPlaceholderComment"
+                : "Conversation.InputTextPlaceholderReply")
         }
         if isAllMessagesForum {
             let info = replyMessage
@@ -692,6 +733,10 @@ import UIKit
         }
     }
 
+    private var messageThreadShowsComments: Bool {
+        messageThreadIsChannelPost ?? (customChat.supergroup?.hasLinkedChat == true)
+    }
+
     private var pendingVideoRetryStatusMessage: String? {
         guard let failed = pendingVideoNote?.failedSendState else { return nil }
         if failed.requiredPaidMessageStarCount > 0 {
@@ -763,11 +808,12 @@ import UIKit
         customChat: CustomChat,
         location: ChatLocation? = nil,
         forumTopic: ForumTopic? = nil,
+        messageThread: MessageThreadInfo? = nil,
         previewing: Bool = false,
         client: TDLibClient? = nil,
     ) {
         self.init(
-            customChat: customChat, location: location, forumTopic: forumTopic,
+            customChat: customChat, location: location, forumTopic: forumTopic, messageThread: messageThread,
             previewing: previewing, restoration: nil, history: nil, visibleMessageIDs: [], client: client ?? td,
         )
     }
@@ -826,6 +872,7 @@ import UIKit
         customChat: CustomChat,
         location: ChatLocation?,
         forumTopic: ForumTopic?,
+        messageThread: MessageThreadInfo?,
         previewing: Bool,
         restoration: ChatComposerRestorationState?,
         history: ChatHistoryRestorationState?,
@@ -859,6 +906,12 @@ import UIKit
             _ = voiceRecordingLifecycle.suspend(.background)
         }
         self.memberCount = customChat.group?.memberCount ?? customChat.supergroup?.memberCount ?? 0
+        if let messageThread, messageThread.chatId == resolvedLocation.chatID,
+           messageThread.messageThreadId == resolvedLocation.messageThreadID
+        {
+            self.messageThread = messageThread
+            self.messageThreadReplyInfo = messageThread.replyInfo
+        }
         log("init \(customChat.chat.id)")
         if let user = customChat.user {
             updateOnlineStatus(from: user.status)
@@ -888,6 +941,9 @@ import UIKit
         observeVoiceRecordingPreviewPlayer()
         observeVoiceRecordingInterruptions()
         loadGroupInfo()
+        if resolvedLocation.messageThreadID != nil, self.messageThread == nil {
+            loadMessageThread()
+        }
         loadMessages()
         if isReadOnlyTopic, forumTopicInfo == nil, forumTopicTask == nil {
             loadForumTopic()
@@ -902,6 +958,8 @@ import UIKit
         let routeDraftMessage: DraftMessage? =
             if previewing {
                 nil
+            } else if resolvedLocation.messageThreadID != nil {
+                canWriteBasicMessages ? self.messageThread?.draftMessage : nil
             } else if resolvedLocation.isTopicScoped {
                 canWriteBasicMessages ? forumTopic?.draftMessage : nil
             } else {
@@ -1020,7 +1078,7 @@ import UIKit
         else { return nil }
         return transfer.commit(to: location, currentSource: TDLib.shared.activeUpdateSource) { snapshot in
             ChatVM(
-                customChat: customChat, location: location, forumTopic: forumTopic,
+                customChat: customChat, location: location, forumTopic: forumTopic, messageThread: nil,
                 previewing: false, restoration: snapshot, history: history,
                 visibleMessageIDs: visibleMessageIDs, client: client,
             )
@@ -1271,6 +1329,7 @@ import UIKit
 
     func retryMessageRefresh() {
         guard locationContextIsCurrent else { return }
+        if location.messageThreadID != nil, messageThread == nil { loadMessageThread() }
         retryAllMessagesForumTopics()
         messageRefresh?.retryFailures()
         latestRestorationFailed = false
@@ -1506,6 +1565,14 @@ import UIKit
             loadingMessagesTask = nil
             return
         }
+        // The thread's root heads its history, so a thread page waits for the thread's read.
+        if location.messageThreadID != nil, messageThread == nil {
+            _ = await loadMessageThread()?.value
+            guard !Task.isCancelled, locationContextIsCurrent else {
+                loadingMessagesTask = nil
+                return
+            }
+        }
         let readToken = messageRefresh?.beginRead()
         // TDLib may return a short page while it fills its local cache. Keep reading until a
         // full page arrives, the history ends, or two reads in a row make no progress.
@@ -1552,6 +1619,11 @@ import UIKit
         guard !Task.isCancelled, locationContextIsCurrent else {
             loadingMessagesTask = nil
             return
+        }
+        // `getMessageThreadHistory` lists the replies only; Telegram adds the thread's root once the history reaches
+        // its start (ChatHistoryEntriesForView, `addedThreadHead`).
+        if location.messageThreadID != nil, reachedEnd || noProgressCount >= 2 {
+            history.append(contentsOf: messageThreadHead(excluding: knownIDs))
         }
         let customMessages = await history.filter { location.matches(message: $0) }.asyncMap { chatMessage in
             await getCustomMessage(from: chatMessage)
@@ -1829,6 +1901,9 @@ import UIKit
         guard !ids.isEmpty else { return }
         let client = client
         let accountID = accountID
+        // A thread's messages are read in the thread (`messages.readDiscussion`); without the source TDLib would
+        // read the whole discussion group up to them.
+        let source: MessageSource? = location.messageThreadID == nil ? nil : .messageSourceMessageThreadHistory
         Task {
             guard TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
@@ -1837,12 +1912,14 @@ import UIKit
                 chatId: chatID,
                 forceRead: true,
                 messageIds: ids,
-                source: nil,
+                source: source,
             )
         }
     }
 
     func readAllReactions() {
+        // TDLib reads reactions per chat or forum topic only; a thread must not clear the whole discussion group.
+        guard location.messageThreadID == nil else { return }
         let client = client
         let accountID = accountID
         Task {
@@ -2115,6 +2192,49 @@ import UIKit
                 }
             } catch {} // Keep current scalar state; the existing Ready/user refresh can retry.
         }
+    }
+
+    /// Reads the thread route's `MessageThreadInfo` on this chat's client; concurrent callers share one read.
+    @discardableResult func loadMessageThread() -> Task<MessageThreadInfo?, Never>? {
+        guard let threadID = location.messageThreadID else { return nil }
+        if let messageThreadTask { return messageThreadTask }
+        guard messageThread == nil, locationContextIsCurrent else { return nil }
+        let client = client
+        let location = location
+        let expectedComposerRevision = composerRevision
+        let expectedReplyInfoRevision = messageThreadReplyInfoRevision
+        let task = Task<MessageThreadInfo?, Never> { [weak self] in
+            let info = try? await client.getMessageThread(chatId: location.chatID, messageId: threadID)
+            guard let self else { return nil }
+            messageThreadTask = nil
+            guard !Task.isCancelled, locationContextIsCurrent, let info,
+                  info.chatId == location.chatID, info.messageThreadId == threadID else { return nil }
+            messageThread = info
+            // A root update that arrived during the read is newer than the read's reply info.
+            if messageThreadReplyInfoRevision == expectedReplyInfoRevision {
+                messageThreadReplyInfo = info.replyInfo
+            }
+            if canWriteBasicMessages {
+                applyAuthoritativeDraft(info.draftMessage, expectedRevision: expectedComposerRevision)
+            }
+            // Rows built before the read kept their reply to the post; fence their in-flight reads and drop it.
+            let rootReplies = messages.filter {
+                $0.replyPresentation != nil && self.hidesReplyToThreadRoot($0.message)
+            }
+            notePartialMessageUpdate(rootReplies.map(\.id))
+            rootReplies.forEach { $0.replyPresentation = nil }
+            insertMessageThreadHeadIfNeeded()
+            return info
+        }
+        messageThreadTask = task
+        return task
+    }
+
+    /// TDLib republishes the thread root's reply info as replies arrive and are read.
+    func receiveMessageThreadRootInteractionInfo(_ info: MessageInteractionInfo?) {
+        guard location.messageThreadID != nil, locationContextIsCurrent, let replyInfo = info?.replyInfo else { return }
+        messageThreadReplyInfoRevision &+= 1
+        messageThreadReplyInfo = replyInfo
     }
 
     func refreshPinnedMessages() {
@@ -2417,7 +2537,7 @@ import UIKit
     }
 
     func getCustomMessage(from message: Message) async -> CustomMessage {
-        async let replyPresentation = metadataResolver.replyPresentation(for: message)
+        async let replyPresentation = threadAwareReplyPresentation(for: message)
         async let forwardPresentation = metadataResolver.forwardPresentation(for: message.forwardInfo)
         async let properties = try? client.getMessageProperties(chatId: message.chatId, messageId: message.id)
         let customMessage = await CustomMessage(
@@ -2549,7 +2669,8 @@ import UIKit
                 || !displayedImages.isEmpty
                 || !displayedDocuments.isEmpty
                 || editCustomMessage != nil
-            awaitingAuthoritativeDraftClear = location.isTopicScoped && !hasNewComposerState
+            // Only a forum topic reports its cleared draft back; TDLib keeps a thread's draft locally.
+            awaitingAuthoritativeDraftClear = location.forumTopicID != nil && !hasNewComposerState
             composerIsDirty = awaitingAuthoritativeDraftClear
                 || hasNewComposerState
                 || !draftClearSucceeded
@@ -2564,7 +2685,7 @@ import UIKit
             if hasNewComposerState {
                 cancelPendingDraftClearRetry()
                 await updateDraft()
-            } else if location.isTopicScoped {
+            } else if location.forumTopicID != nil {
                 loadForumTopic()
             }
             if transitionKind != .media {
@@ -4042,6 +4163,51 @@ import UIKit
         ))
     }
 
+    /// The root messages that head the thread. TDLib leaves the rest of an automatically forwarded album outside the
+    /// thread, so only members carrying the thread's topic belong to this route.
+    private func messageThreadHead(excluding knownIDs: Set<Int64>) -> [Message] {
+        guard location.messageThreadID != nil, let messageThread else { return [] }
+        return messageThread.messages.filter { location.matches(message: $0) && !knownIDs.contains($0.id) }
+    }
+
+    /// A history that reached its start before the thread was read gets its head now.
+    private func insertMessageThreadHeadIfNeeded() {
+        guard !hasMoreMessages, loadingMessagesTask == nil, !restorationWaitsForViewport,
+              latestRestorationCursor == nil, locationContextIsCurrent else { return }
+        let head = messageThreadHead(excluding: Set(messages.flatMap { $0.sourceMessages.map(\.id) }))
+        guard !head.isEmpty else { return }
+        loadingMessagesTask = Task { [weak self] in
+            guard let self else { return }
+            let readToken = messageRefresh?.beginRead()
+            let loaded = await head.asyncMap { await self.getCustomMessage(from: $0) }
+            guard !Task.isCancelled, locationContextIsCurrent else {
+                loadingMessagesTask = nil
+                return
+            }
+            let current = readToken.map {
+                self.messageRefresh?
+                    .takeCurrentValues(loaded.map(ChatHistoryMessageValue.init), token: $0)
+                    .map { $0.makeMessage() } ?? []
+            } ?? loaded
+            messages = canonicalMessages(merging: messages, with: current, replacingExisting: true)
+            loadingMessagesTask = nil
+            driveMessageRefresh()
+        }
+    }
+
+    /// Telegram drops a comment's reply header when it answers the channel post itself without a quote: the post
+    /// heads the thread (ChatMessageBubbleItemNode, `replyThread.isChannelPost`).
+    private func hidesReplyToThreadRoot(_ message: Message) -> Bool {
+        guard let threadID = location.messageThreadID, messageThreadIsChannelPost == true,
+              case .messageReplyToMessage(let reply) = message.replyTo else { return false }
+        return reply.chatId == message.chatId && reply.messageId == threadID && reply.quote == nil
+    }
+
+    private func threadAwareReplyPresentation(for message: Message) async -> MessageReplyPresentation? {
+        guard !hidesReplyToThreadRoot(message) else { return nil }
+        return await metadataResolver.replyPresentation(for: message)
+    }
+
     /// ChatControllerNode.sendCurrentMessage: outside secret chats, text that is only one of the server's dice emoji
     /// (without a custom emoji) is rolled as a die and keeps the reply.
     private func sendTextAsDice() async throws -> (context: ResolvedSendContext, messages: [Message])? {
@@ -5068,6 +5234,16 @@ import UIKit
                     forumTopicId: forumTopicID,
                     fromMessageId: fromMessageId,
                     limit: limit,
+                    offset: offset,
+                )
+                .messages
+            } else if let threadID = location.messageThreadID {
+                // Any message of the thread names it; the root is the one the route keeps.
+                try? await client.getMessageThreadHistory(
+                    chatId: location.chatID,
+                    fromMessageId: fromMessageId,
+                    limit: limit,
+                    messageId: threadID,
                     offset: offset,
                 )
                 .messages
@@ -6344,9 +6520,9 @@ import UIKit
             cancelPendingDraftClearRetry()
             await updateDraft()
         } else {
-            awaitingAuthoritativeDraftClear = location.isTopicScoped
+            awaitingAuthoritativeDraftClear = location.forumTopicID != nil
             composerIsDirty = awaitingAuthoritativeDraftClear || !draftClearSucceeded
-            if location.isTopicScoped {
+            if location.forumTopicID != nil {
                 loadForumTopic()
             }
         }

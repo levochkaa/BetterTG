@@ -158,6 +158,7 @@
 
 "Conversation.InputTextPlaceholder" = "Message";
 "Conversation.InputTextPlaceholderReply" = "Reply";
+"Conversation.InputTextPlaceholderComment" = "Comment";
 "Conversation.EditingMessagePanelTitle" = "Edit Message";
 "Conversation.EmptyPlaceholder" = "No messages here yet...";
 "Conversation.ContextMenuReply" = "Reply";
@@ -196,6 +197,14 @@
 "Conversation.MessageViewCommentsFormat" = "%1$@ %2$@";
 "Conversation.MessageLeaveComment" = "Leave a Comment";
 "Conversation.MessageLeaveCommentShort" = "Comment";
+"Conversation.TitleCommentsEmpty" = "Comments";
+"Conversation.TitleComments_1" = "[%@]Comment";
+"Conversation.TitleComments_any" = "[%@]Comments";
+"Conversation.TitleCommentsFormat" = "%1$@ %2$@";
+"Conversation.TitleRepliesEmpty" = "Replies";
+"Conversation.TitleReplies_1" = "[%@]Reply";
+"Conversation.TitleReplies_any" = "[%@]Replies";
+"Conversation.TitleRepliesFormat" = "%1$@ %2$@";
 
 "Message.Photo" = "Photo";
 "Message.Video" = "Video";

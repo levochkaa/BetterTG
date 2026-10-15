@@ -17,6 +17,16 @@ struct ChatLocation: Hashable {
         }
     }
 
+    /// A reply thread of a non-forum supergroup, Telegram's `ChatLocation.replyThread`: a channel post's comments
+    /// in its discussion group, or the replies to a group message. The identifier is the thread's root message.
+    var messageThreadID: Int64? {
+        if case .messageTopicThread(let thread) = topic {
+            thread.messageThreadId
+        } else {
+            nil
+        }
+    }
+
     var isTopicScoped: Bool {
         topic != nil
     }
@@ -44,6 +54,15 @@ struct ChatLocation: Hashable {
             chatID: chatID,
             clientID: clientID,
             topic: .messageTopicForum(MessageTopicForum(forumTopicId: id)),
+        )
+    }
+
+    func withMessageThread(chatID: Int64, id: Int64) -> ChatLocation {
+        ChatLocation(
+            accountID: accountID,
+            chatID: chatID,
+            clientID: clientID,
+            topic: .messageTopicThread(MessageTopicThread(messageThreadId: id)),
         )
     }
 

@@ -92,6 +92,9 @@ extension ChatVM {
             else { return }
             notePartialMessageUpdate([update.messageId])
             applyInteractionInfo(update.interactionInfo, messageID: update.messageId)
+            if update.messageId == location.messageThreadID {
+                receiveMessageThreadRootInteractionInfo(update.interactionInfo)
+            }
         }
         observeCurrentUpdate(.updateMessageUnreadReactions) { [weak self] update, _ in
             guard let self, update.chatId == customChat.id,

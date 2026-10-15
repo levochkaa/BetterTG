@@ -58,6 +58,7 @@ import UIKit
             let forumTopic,
             let targetMessageID,
             let targetQuote,
+            let messageThread,
         ):
             let client = TDLib.shared.activeClient
             let resolvedLocation = location ?? ChatLocation.current(
@@ -68,7 +69,8 @@ import UIKit
                   resolvedLocation.clientID == client.id,
                   resolvedLocation.chatID == customChat.id
             else { return }
-            if resolvedLocation.forumTopicID == nil,
+            // A forum opens as its topic list; a topic or a reply thread opens as its own chat.
+            if resolvedLocation.topic == nil,
                customChat.chat.viewAsTopics
             {
                 controller = ForumTopicsViewController(
@@ -85,6 +87,7 @@ import UIKit
                     forumTopic: forumTopic,
                     targetMessageID: targetMessageID,
                     targetQuote: targetQuote,
+                    messageThread: messageThread,
                 )
             }
         case .archive(let customFolder):

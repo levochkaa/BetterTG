@@ -13,6 +13,7 @@ enum Route {
         forumTopic: ForumTopic? = nil,
         targetMessageID: Int64? = nil,
         targetQuote: MessageQuoteHighlight? = nil,
+        messageThread: MessageThreadInfo? = nil,
     )
     case archive(CustomFolder)
 }
