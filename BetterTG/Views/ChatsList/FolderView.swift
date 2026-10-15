@@ -349,6 +349,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         case main
     }
 
+    /// What an empty page shows: Telegram's empty-folder text, or a loading list while it is not known yet.
+    private enum EmptyState {
+        case empty
+        case loading
+    }
+
     private struct VisibleRowAnchor {
         let id: Int64
         let minYRelativeToOffset: CGFloat
@@ -413,6 +419,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var snapshotNeedsApply = false
     private var pendingSnapshotAnimated = false
     private var pendingSnapshotChangedIDs = Set<Int64>()
+    /// The last applied snapshot had no rows.
+    private var showsNoRows = false
+    private var emptyState: EmptyState?
     private var dataSource: ChatRowsDataSource!
     private var pressGesture: ContextMenuPressGestureRecognizer?
     /// Telegram's reorder mode for pinned chats; list updates wait until it ends so a drag is never interrupted.
@@ -920,7 +929,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             loadMoreChatsIfNeeded()
             DispatchQueue.main.async { [weak self] in self?.applyPendingSnapshot() }
         }
-        tableView.backgroundView = displayedChats.isEmpty ? emptyLabel() : nil
+        showsNoRows = displayedChats.isEmpty
+        updateEmptyState()
     }
 
     /// The topmost visible row that stays among its neighbours: a chat that itself moves keeps no place to hold.
@@ -969,6 +979,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private func updateLoadingFooter() {
+        updateEmptyState()
         if let error = folder.loadError {
             let button = UIButton(type: .system)
             button.frame.size = CGSize(width: tableView.bounds.width, height: 52)
@@ -980,6 +991,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             }, for: .touchUpInside)
             tableView.tableFooterView = button
         } else if folder.isLoading {
+            // An empty list shows its loading indicator in the middle instead.
+            guard !showsNoRows else {
+                tableView.tableFooterView = nil
+                return
+            }
             let spinner = UIActivityIndicatorView(style: .medium)
             spinner.frame.size = CGSize(width: tableView.bounds.width, height: 44)
             spinner.startAnimating()
@@ -988,6 +1004,40 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             tableView.tableFooterView = nil
             loadMoreChatsIfNeeded()
         }
+    }
+
+    /// Telegram shows a loading list until it knows a list is empty: the list of an account whose client is still
+    /// starting, or one whose first chats are loading, is not empty yet (L-9).
+    private func updateEmptyState() {
+        let state: EmptyState? =
+            if !showsNoRows {
+                nil
+            } else if folder.loadError != nil || !folder.hasMoreChats {
+                .empty
+            } else {
+                .loading
+            }
+        guard state != emptyState else { return }
+        emptyState = state
+        tableView.backgroundView =
+            switch state {
+            case .empty: emptyLabel()
+            case .loading: loadingPlaceholder()
+            case nil: nil
+            }
+    }
+
+    private func loadingPlaceholder() -> UIView {
+        let container = UIView()
+        let spinner = UIActivityIndicatorView(style: .medium)
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.startAnimating()
+        container.addSubview(spinner)
+        NSLayoutConstraint.activate([
+            spinner.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        ])
+        return container
     }
 
     private func emptyLabel() -> UIView {

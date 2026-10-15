@@ -116,6 +116,20 @@ final class TDLib: @unchecked Sendable {
         return activeVODRanges
     }
 
+    /// The active account signed in before, and its own client has reported nothing past its start
+    /// (WaitTdlibParameters) yet. Telegram keeps its chat list on screen while an account's state loads, so the root
+    /// keeps the main shell with a loading list for this account instead of the sign-in screen (L-9). A sign-in step,
+    /// a logout or a close ends it; an account that never signed in has no user ID and gets the sign-in screen.
+    @MainActor var activeAccountIsStarting: Bool {
+        guard let activeAccountID, activeAccount?.userID != nil,
+              let source = activeUpdateSource, source.accountID == activeAccountID,
+              let snapshot = authorizationState.current, snapshot.source == source
+        else { return false }
+        guard let state = snapshot.state else { return true }
+        if case .authorizationStateWaitTdlibParameters = state { return true }
+        return false
+    }
+
     /// The active account is a sign-in that never finished: its own client reports a login step. Only such an
     /// account is discarded when the user switches away. An account whose client has not answered yet (a recovered
     /// or migrated account before its first Ready, or one still activating while the previous account's client is

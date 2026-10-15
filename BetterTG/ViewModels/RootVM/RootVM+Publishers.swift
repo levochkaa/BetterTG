@@ -43,6 +43,11 @@ extension RootVM {
             .authorizationStateWaitPhoneNumber,
             .authorizationStateWaitCode,
             .authorizationStateWaitPassword,
+            .authorizationStateWaitEmailAddress,
+            .authorizationStateWaitEmailCode,
+            .authorizationStateWaitOtherDeviceConfirmation,
+            .authorizationStateWaitRegistration,
+            .authorizationStateWaitPremiumPurchase,
         ]) { [weak self] _ in
             self?.synchronizeAuthorization()
         }
@@ -105,10 +110,13 @@ extension RootVM {
     private func synchronizeAuthorization() {
         // Legacy void auth notifications are wakeups, never authority for the
         // account that happens to own this root when main-queue delivery occurs.
-        let ready = activeAccountID == TDLib.shared.activeAccountID && TDLib.shared.isActiveAccountReady
+        let ownsActiveAccount = activeAccountID == TDLib.shared.activeAccountID
+        let ready = ownsActiveAccount && TDLib.shared.isActiveAccountReady
         // A foreground restore renews the same account's client; until it reports a real state, keep the shell.
         if !ready, loggedIn, activeAccountID != nil, activeAccountID == TDLib.shared.renewingAccountID { return }
-        loggedIn = ready
+        // An account switch keeps the shell as well, with the new account's list loading, while that account's client
+        // starts; Telegram shows its chat list then. Only an account without a session gets the sign-in screen (L-9).
+        loggedIn = ready || ownsActiveAccount && TDLib.shared.activeAccountIsStarting
     }
 
     func restoreChatListContext() {
@@ -291,7 +299,8 @@ extension RootVM {
     }
 
     func loadMoreChats(in folder: CustomFolder) {
-        guard loggedIn, allFolders.contains(where: { $0 === folder }),
+        // The shell of a starting account loads nothing before its client is ready; the ready notification loads.
+        guard loggedIn, TDLib.shared.isActiveAccountReady, allFolders.contains(where: { $0 === folder }),
               !folder.isLoading, folder.hasMoreChats else { return }
         let client = td
         let accountID = activeAccountID
