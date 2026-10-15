@@ -585,3 +585,7 @@
 "Accessibility.NextUnreadReaction" = "Next reaction";
 "Accessibility.SearchOlderResult" = "Previous result";
 "Accessibility.SearchNewerResult" = "Next result";
+"Story.Unsupported" = "This story can't be shown in BetterTG.";
+"Story.PlaybackFailed" = "This story couldn't be played.";
+"Accessibility.NextStory" = "Next story";
+"Accessibility.PreviousStory" = "Previous story";

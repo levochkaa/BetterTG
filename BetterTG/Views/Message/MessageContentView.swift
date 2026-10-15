@@ -1114,6 +1114,8 @@ final class TDImageLoadingView: UIImageView {
     // MARK: Internal
 
     private(set) var loadedPath: String?
+    /// Runs each time the full image (not its placeholder) is shown, as the story viewer starts a photo's clock then.
+    var onFullImage: (() -> Void)?
 
     #if DEBUG
         var debugDecode: ((String, Int) async -> UIImage?)?
@@ -1398,6 +1400,7 @@ final class TDImageLoadingView: UIImageView {
         } else {
             image = decoded
         }
+        onFullImage?()
     }
 }
 

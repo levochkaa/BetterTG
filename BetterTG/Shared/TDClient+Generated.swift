@@ -76,6 +76,10 @@ extension TDClient {
         try await send(TDNativeRequests.closeChat(chatId: chatId))
     }
 
+    func closeStory(storyId: Int, storyPosterChatId: Int64) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.closeStory(storyPosterChatId: storyPosterChatId, storyId: storyId))
+    }
+
     func createBasicGroupChat(basicGroupId: Int64, force: Bool) async throws -> TDNativeChat {
         try await send(TDNativeRequests.createBasicGroupChat(basicGroupId: basicGroupId, force: force))
     }
@@ -238,6 +242,10 @@ extension TDClient {
 
     func getChat(chatId: Int64) async throws -> TDNativeChat {
         try await send(TDNativeRequests.getChat(chatId: chatId))
+    }
+
+    func getChatActiveStories(chatId: Int64) async throws -> TDNativeChatActiveStories {
+        try await send(TDNativeRequests.getChatActiveStories(chatId: chatId))
     }
 
     func getChatAdministrators(chatId: Int64) async throws -> TDNativeChatAdministrators {
@@ -607,6 +615,10 @@ extension TDClient {
 
     func openMessageContent(chatId: Int64, messageId: Int64) async throws -> TDNativeOk {
         try await send(TDNativeRequests.openMessageContent(chatId: chatId, messageId: messageId))
+    }
+
+    func openStory(storyId: Int, storyPosterChatId: Int64) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.openStory(storyPosterChatId: storyPosterChatId, storyId: storyId))
     }
 
     func pinChatMessage(

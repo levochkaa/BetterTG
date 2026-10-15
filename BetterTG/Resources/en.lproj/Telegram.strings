@@ -1001,3 +1001,10 @@
 "StickerPack.RemoveStickerCount_any" = "Remove %@ Stickers";
 "StickerPack.RemoveStickerCount_many" = "Remove %@ Stickers";
 "StickerPack.RemoveStickerCount_0" = "Remove %@ Stickers";
+"Time.JustNow" = "just now";
+"Time.MinutesAgo_1" = "%@ minute ago";
+"Time.MinutesAgo_any" = "%@ minutes ago";
+"Time.HoursAgo_1" = "%@ hour ago";
+"Time.HoursAgo_any" = "%@ hours ago";
+"Time.YesterdayAt" = "yesterday at %@";
+"Story.HeaderEdited" = "edited";

@@ -584,3 +584,7 @@
 "Accessibility.NextUnreadReaction" = "Следующая реакция";
 "Accessibility.SearchOlderResult" = "Предыдущий результат";
 "Accessibility.SearchNewerResult" = "Следующий результат";
+"Story.Unsupported" = "Эту историю нельзя показать в BetterTG.";
+"Story.PlaybackFailed" = "Не удалось воспроизвести эту историю.";
+"Accessibility.NextStory" = "Следующая история";
+"Accessibility.PreviousStory" = "Предыдущая история";
