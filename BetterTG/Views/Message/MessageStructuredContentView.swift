@@ -17,6 +17,10 @@ enum MessageContentAction {
     case viewContact(Contact)
     /// A rolled die was tapped: Telegram's displayDiceTooltip offers to send the same emoji.
     case diceTapped(emoji: String)
+    /// A service row was tapped: open the message its action refers to.
+    case openServiceTarget(messageID: Int64)
+    /// A changed chat photo in a service row was tapped.
+    case openChatPhoto(ChatPhoto)
     case openLocation(location: Location, title: String)
     case submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission)
     case richContentLayoutChanged
@@ -296,7 +300,7 @@ final class MessageStructuredContentView: UIView {
                     client: client, state: richContentState ?? MessageRichContentState(), onAction: onAction,
                 )
             case .service(let content):
-                ServiceMessageContentView(content: content, isUnsupported: false)
+                ServiceMessageContentView(content: content, isUnsupported: false, client: client, onAction: onAction)
             case .unsupported(let content):
                 ServiceMessageContentView(content: content, isUnsupported: true)
             }
@@ -1762,11 +1766,21 @@ private final class DiceMessageContentView: UIControl, MessageSupplementView {
 
 // MARK: - ServiceMessageContentView
 
-private final class ServiceMessageContentView: UIView, MessageSupplementView {
+private final class ServiceMessageContentView: UIControl, MessageSupplementView {
     private let titleLabel = UILabel()
     private let detailLabel = UILabel()
+    private var photoView: TDImageLoadingView?
+    private let content: MessageContentPresentation.ServiceContent
+    private let onAction: ((MessageContentAction) -> Void)?
 
-    init(content: MessageContentPresentation.ServiceContent, isUnsupported: Bool) {
+    init(
+        content: MessageContentPresentation.ServiceContent,
+        isUnsupported: Bool,
+        client: TDLibClient? = nil,
+        onAction: ((MessageContentAction) -> Void)? = nil,
+    ) {
+        self.content = content
+        self.onAction = onAction
         super.init(frame: .zero)
         backgroundColor = isUnsupported ? .clear : UIColor.secondarySystemBackground.withAlphaComponent(0.92)
         layer.cornerRadius = isUnsupported ? 0 : 11
@@ -1793,8 +1807,37 @@ private final class ServiceMessageContentView: UIView, MessageSupplementView {
         detailLabel.isHidden = content.detail == nil
         addSubview(detailLabel)
 
+        // ChatMessageActionBubbleContentNode shows a changed chat photo above the text.
+        let titleTop: NSLayoutConstraint
+        if let photo = content.photo, let client, !isUnsupported {
+            let photoView = TDImageLoadingView()
+            photoView.translatesAutoresizingMaskIntoConstraints = false
+            photoView.contentMode = .scaleAspectFill
+            photoView.clipsToBounds = true
+            photoView.layer.cornerRadius = 32
+            photoView.isUserInteractionEnabled = true
+            photoView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(photoTapped)))
+            photoView.load(
+                photo: Photo(hasStickers: false, minithumbnail: photo.minithumbnail, sizes: photo.sizes),
+                preferredSize: .bCrop,
+                maximumPixelSize: 320,
+                client: client,
+            )
+            addSubview(photoView)
+            self.photoView = photoView
+            NSLayoutConstraint.activate([
+                photoView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+                photoView.centerXAnchor.constraint(equalTo: centerXAnchor),
+                photoView.widthAnchor.constraint(equalToConstant: 64),
+                photoView.heightAnchor.constraint(equalToConstant: 64),
+            ])
+            titleTop = titleLabel.topAnchor.constraint(equalTo: photoView.bottomAnchor, constant: 6)
+        } else {
+            titleTop = titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 7)
+        }
+
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            titleTop,
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             detailLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
@@ -1805,13 +1848,44 @@ private final class ServiceMessageContentView: UIView, MessageSupplementView {
         ])
         isAccessibilityElement = true
         accessibilityLabel = [content.title, content.detail].compactMap(\.self).joined(separator: ", ")
+        if content.targetMessageID != nil, !isUnsupported {
+            addTarget(self, action: #selector(tapped), for: .touchUpInside)
+            accessibilityTraits = .button
+        } else if content.photo != nil, !isUnsupported {
+            accessibilityTraits = .button
+        }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func prepareForReuse() {}
+    override func accessibilityActivate() -> Bool {
+        if content.targetMessageID != nil {
+            tapped()
+            return true
+        }
+        if content.photo != nil {
+            photoTapped()
+            return true
+        }
+        return false
+    }
+
+    func prepareForReuse() {
+        photoView?.cancel()
+    }
+
+    /// ChatController's action taps open the message the action refers to.
+    @objc private func tapped() {
+        guard let messageID = content.targetMessageID else { return }
+        onAction?(.openServiceTarget(messageID: messageID))
+    }
+
+    @objc private func photoTapped() {
+        guard let photo = content.photo else { return }
+        onAction?(.openChatPhoto(photo))
+    }
 }
 
 // MARK: - TelegramContactDetailsViewController
@@ -2225,6 +2299,10 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("contact-view")
                     case .diceTapped:
                         actions.append("dice")
+                    case .openServiceTarget:
+                        actions.append("service-target")
+                    case .openChatPhoto:
+                        actions.append("chat-photo")
                     case .openDocument:
                         actions.append("document")
                     case .openLocation:

@@ -26,6 +26,11 @@ struct MessageContentPresentation {
         let detail: String?
         let symbolName: String
         let title: String
+        /// The message a tap opens (ChatController's action taps: a pinned message, the game, the earlier same
+        /// wallpaper, the checklist or the poll).
+        var targetMessageID: Int64?
+        /// The new chat photo Telegram shows in the row; a tap opens it in the avatar gallery.
+        var photo: ChatPhoto?
     }
 
     enum Supplement {
@@ -301,10 +306,18 @@ struct MessageContentPresentation {
             return service(title: L10n.betterTG("Service.VideoChatEnded"), symbolName: "video.slash")
         case .messageInviteVideoChatParticipants:
             return service(title: L10n.betterTG("Service.VideoChatInvited"), symbolName: "person.badge.plus")
-        case .messagePollOptionAdded:
-            return service(title: L10n.betterTG("Service.PollOptionAdded"), symbolName: "chart.bar.doc.horizontal")
-        case .messagePollOptionDeleted:
-            return service(title: L10n.betterTG("Service.PollOptionRemoved"), symbolName: "chart.bar.doc.horizontal")
+        case .messagePollOptionAdded(let message):
+            return service(
+                title: L10n.betterTG("Service.PollOptionAdded"),
+                symbolName: "chart.bar.doc.horizontal",
+                targetMessageID: message.pollMessageId,
+            )
+        case .messagePollOptionDeleted(let message):
+            return service(
+                title: L10n.betterTG("Service.PollOptionRemoved"),
+                symbolName: "chart.bar.doc.horizontal",
+                targetMessageID: message.pollMessageId,
+            )
         case .messageBasicGroupChatCreate:
             return service(title: L10n.telegram("Notification.CreatedGroup"), symbolName: "person.2")
         case .messageSupergroupChatCreate:
@@ -315,8 +328,8 @@ struct MessageContentPresentation {
                 detail: nonEmptyString(message.title),
                 symbolName: "pencil",
             )
-        case .messageChatChangePhoto:
-            return service(title: L10n.betterTG("Service.PhotoChanged"), symbolName: "photo")
+        case .messageChatChangePhoto(let message):
+            return service(title: L10n.betterTG("Service.PhotoChanged"), symbolName: "photo", photo: message.photo)
         case .messageChatDeletePhoto:
             return service(title: L10n.betterTG("Service.PhotoRemoved"), symbolName: "photo.badge.minus")
         case .messageChatOwnerLeft:
@@ -360,12 +373,20 @@ struct MessageContentPresentation {
             return service(title: L10n.betterTG("Service.GroupUpgraded"), symbolName: "arrow.up.circle")
         case .messageChatUpgradeFrom:
             return service(title: L10n.betterTG("Service.UpgradedFromGroup"), symbolName: "arrow.up.circle")
-        case .messagePinMessage:
-            return service(title: L10n.betterTG("Service.MessagePinned"), symbolName: "pin")
+        case .messagePinMessage(let message):
+            return service(
+                title: L10n.betterTG("Service.MessagePinned"),
+                symbolName: "pin",
+                targetMessageID: message.messageId,
+            )
         case .messageScreenshotTaken:
             return service(title: L10n.betterTG("Service.Screenshot"), symbolName: "camera.viewfinder")
-        case .messageChatSetBackground:
-            return service(title: L10n.betterTG("Service.BackgroundChanged"), symbolName: "photo.on.rectangle")
+        case .messageChatSetBackground(let message):
+            return service(
+                title: L10n.betterTG("Service.BackgroundChanged"),
+                symbolName: "photo.on.rectangle",
+                targetMessageID: message.oldBackgroundMessageId,
+            )
         case .messageChatSetTheme:
             return service(title: L10n.betterTG("Service.ThemeChanged"), symbolName: "paintpalette")
         case .messageChatSetMessageAutoDeleteTime:
@@ -398,8 +419,12 @@ struct MessageContentPresentation {
                 title: firstNonEmpty(message.text, L10n.betterTG("Service.Generic")),
                 symbolName: "info.circle",
             )
-        case .messageGameScore:
-            return service(title: L10n.betterTG("Service.GameScore"), symbolName: "trophy")
+        case .messageGameScore(let message):
+            return service(
+                title: L10n.betterTG("Service.GameScore"),
+                symbolName: "trophy",
+                targetMessageID: message.gameMessageId,
+            )
         case .messageManagedBotCreated:
             return service(title: L10n.betterTG("Service.ManagedBotCreated"), symbolName: "cpu")
         case .messagePaymentRefunded, .messagePaymentSuccessful, .messagePaymentSuccessfulBot,
@@ -417,10 +442,18 @@ struct MessageContentPresentation {
             return excludedPaidContent(title: L10n.betterTG("Message.GiftOffer"))
         case .messageDirectMessagePriceChanged, .messagePaidMessagePriceChanged, .messagePaidMessagesRefunded:
             return excludedPaidContent(title: L10n.betterTG("Message.PaidMessages"))
-        case .messageChecklistTasksDone:
-            return service(title: L10n.betterTG("Service.ChecklistDone"), symbolName: "checklist")
-        case .messageChecklistTasksAdded:
-            return service(title: L10n.betterTG("Service.ChecklistAdded"), symbolName: "checklist")
+        case .messageChecklistTasksDone(let message):
+            return service(
+                title: L10n.betterTG("Service.ChecklistDone"),
+                symbolName: "checklist",
+                targetMessageID: message.checklistMessageId,
+            )
+        case .messageChecklistTasksAdded(let message):
+            return service(
+                title: L10n.betterTG("Service.ChecklistAdded"),
+                symbolName: "checklist",
+                targetMessageID: message.checklistMessageId,
+            )
         case .messageSuggestedPostApprovalFailed:
             return service(title: L10n.betterTG("Service.SuggestedPostFailed"), symbolName: "exclamationmark.circle")
         case .messageSuggestedPostApproved:
@@ -472,6 +505,8 @@ struct MessageContentPresentation {
         title: String,
         detail: String? = nil,
         symbolName: String,
+        targetMessageID: Int64? = nil,
+        photo: ChatPhoto? = nil,
     ) -> Self {
         Self(
             formattedText: nil,
@@ -481,6 +516,8 @@ struct MessageContentPresentation {
                 detail: detail,
                 symbolName: symbolName,
                 title: title,
+                targetMessageID: targetMessageID.flatMap { $0 == 0 ? nil : $0 },
+                photo: photo,
             )),
         )
     }
@@ -538,7 +575,13 @@ struct MessageContentPresentation {
             formattedText: formattedText,
             isVisualMedia: isVisualMedia,
             summary: title,
-            supplement: .service(ServiceContent(detail: nil, symbolName: content.symbolName, title: title)),
+            supplement: .service(ServiceContent(
+                detail: nil,
+                symbolName: content.symbolName,
+                title: title,
+                targetMessageID: content.targetMessageID,
+                photo: content.photo,
+            )),
         )
     }
 

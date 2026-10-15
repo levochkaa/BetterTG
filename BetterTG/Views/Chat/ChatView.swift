@@ -3866,6 +3866,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             presentContactDetails(contact)
         case .diceTapped(let emoji):
             presentDiceTooltip(emoji: emoji)
+        case .openServiceTarget(let messageID):
+            navigate(to: .message(chatID: chatVM.chatID, messageID: messageID, quote: nil))
+        case .openChatPhoto(let photo):
+            presentChatPhoto(photo)
         case .openDocument(let url):
             let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
             activity.popoverPresentationController?.sourceView = view
@@ -3894,6 +3898,27 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             guard let source = message.sourceMessages.first(where: { $0.id == press.messageID }) else { return }
             inlineKeyboardActions.perform(press, in: source, client: chatVM.client)
         }
+    }
+
+    /// Telegram opens a photoUpdated action's image in the avatar gallery (`.chatAvatars`).
+    private func presentChatPhoto(_ photo: ChatPhoto) {
+        guard presentedViewController == nil, let accountID = location.accountID else { return }
+        let item = ProfileAvatarGalleryItem(photo: photo)
+        let gallery = ProfileAvatarGalleryViewController(
+            accountID: accountID,
+            client: chatVM.client,
+            items: [item],
+            selection: item.id,
+            totalCount: 1,
+            transitionSource: nil,
+            transitionSourceProvider: nil,
+        )
+        gallery.contextIsCurrent = { [weak self] in
+            guard let self else { return false }
+            return TDLib.shared.activeAccountID == accountID && chatVM.locationContextIsCurrent
+        }
+        gallery.allowsSaving = !chatVM.customChat.chat.hasProtectedContent
+        present(gallery, animated: true)
     }
 
     private func presentContactDetails(_ contact: Contact) {
