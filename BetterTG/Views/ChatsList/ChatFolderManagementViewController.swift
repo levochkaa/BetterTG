@@ -12,6 +12,9 @@ final class ChatFoldersViewController: UITableViewController {
     private let session: FolderFlowSession
     private var folders: [CustomFolder]
     private var cancellables = Set<AnyCancellable>()
+    /// TDLib's chat count for each folder, with the definition it was counted for.
+    private var chatCounts = [Int: (definition: ChatFolder, chats: Int)]()
+    private var chatCountTasks = [Int: Task<Void, Never>]()
 
     private var customFolders: [CustomFolder] {
         folders.filter {
@@ -53,6 +56,7 @@ final class ChatFoldersViewController: UITableViewController {
             guard let self else { return }
             folders = session.folders
             tableView.reloadData()
+            refreshChatCounts()
         }.store(in: &cancellables)
     }
 
@@ -76,10 +80,12 @@ final class ChatFoldersViewController: UITableViewController {
         let folder = customFolders[indexPath.row]
         var configuration = cell.defaultContentConfiguration()
         configuration.text = folder.name
-        configuration.secondaryText = L10n.telegramPlural(
-            "GlobalAutodeleteSettings.ApplyChatsSubject",
-            count: folder.chats.count,
-        )
+        // The loaded rows are only the list's first pages; Telegram shows the folder's whole count, or none for 0.
+        configuration.secondaryText = chatCounts[folder.id].flatMap { entry in
+            entry.chats > 0
+                ? L10n.telegramPlural("GlobalAutodeleteSettings.ApplyChatsSubject", count: entry.chats)
+                : nil
+        }
         configuration.image = UIImage(systemName: "folder.fill")
         configuration.imageProperties.tintColor = .systemBlue
         cell.contentConfiguration = configuration
@@ -118,6 +124,30 @@ final class ChatFoldersViewController: UITableViewController {
         }
         delete.image = UIImage(systemName: "trash")
         return UISwipeActionsConfiguration(actions: [delete])
+    }
+
+    /// Counts each folder whose definition changed since it was last counted.
+    private func refreshChatCounts() {
+        guard let reader = session.reader, session.isCurrent else { return }
+        for folder in customFolders {
+            guard case .folder(_, let definition) = folder.type else { continue }
+            let id = folder.id
+            if chatCountTasks[id] != nil { continue }
+            if let known = chatCounts[id], known.definition.hasSameEditableContent(as: definition) { continue }
+            chatCountTasks[id] = Task { [weak self] in
+                let count = await reader.chatCount(definition)
+                guard let self else { return }
+                chatCountTasks[id] = nil
+                guard session.isCurrent else { return }
+                // A failed count shows none, like an empty folder, until the definition changes.
+                chatCounts[id] = (definition, count ?? 0)
+                if let row = customFolders.firstIndex(where: { $0.id == id }) {
+                    tableView.reloadRows(at: [IndexPath(row: row, section: 0)], with: .none)
+                }
+                // A definition that changed while it was counted is counted again.
+                refreshChatCounts()
+            }
+        }
     }
 
     @objc private func addFolder() {

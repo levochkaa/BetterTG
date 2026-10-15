@@ -27,6 +27,8 @@ import UIKit
         /// `chat_folder_chosen_chat_count_max`: how many non-secret chats a folder may pin and include, or exclude,
         /// and as many secret chats again.
         let chosenChatLimit: () async -> Int?
+        /// TDLib's count of the chats a folder definition covers (`getChatFolderChatCount`).
+        let chatCount: (ChatFolder) async -> Int?
     }
 
     private(set) var state = State.waiting
@@ -125,6 +127,10 @@ import UIKit
                         name: "chat_folder_chosen_chat_count_max",
                     ) else { return nil }
                     return max(1, Int(clamping: value.value))
+                },
+                chatCount: { folder in
+                    let client = ChatListActionAuthority().client
+                    return try? await client.getChatFolderChatCount(folder: folder).count
                 },
             ),
         )
