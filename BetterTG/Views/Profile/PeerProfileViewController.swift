@@ -175,6 +175,9 @@ ClientRestorableNavigationEntry {
     private var renderedAvatarFileID: Int?
     private var renderedAvatarItemID: Int64?
     private weak var activeMediaGallery: MediaGalleryViewController?
+    /// The Files or Audio row whose file is downloading to open or play, as Telegram's list pane downloads in place.
+    private var sharedItemDownload: (messageID: Int64, fileID: Int, task: Task<Void, Never>, updates: AnyCancellable?)?
+    private var sharedItemProgress = [Int64: Float]()
     private weak var activeAvatarGallery: ProfileAvatarGalleryViewController?
     private lazy var mediaPlaybackContext = MediaGalleryPlaybackContext(
         client: client,
@@ -385,6 +388,7 @@ ClientRestorableNavigationEntry {
         super.viewDidDisappear(animated)
         guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
         sharedMessageRefresh?.stop()
+        cancelSharedItemDownload(cancelInTDLib: true)
         metadataPreparation.cancel()
         avatarGalleryTask?.cancel()
         avatarHistoryTask?.cancel()
@@ -577,6 +581,7 @@ ClientRestorableNavigationEntry {
                 }
                 clientOwnerRetired = true
                 metadataPreparation.cancel()
+                cancelSharedItemDownload(cancelInTDLib: false)
                 historyRequest.invalidate()
                 historyTask?.cancel()
                 infoTask?.cancel()
@@ -609,6 +614,8 @@ ClientRestorableNavigationEntry {
         let performed = sharedMessageRefresh?.perform(id: id) {
             if currentSharedTab == .media, SharedMediaGridPreview.opensGallery(message) {
                 openMediaGallery(selectedMessage: message)
+            } else if currentSharedTab != .media, openSharedItem(message) {
+                // Telegram opens a file, plays a track and opens a link from the list (`PeerInfoScreenOpenMessage`).
             } else {
                 // Rich and paid media messages share the photo and video index; the gallery plays only photo and
                 // video messages, so these open where they were sent.
@@ -667,6 +674,133 @@ ClientRestorableNavigationEntry {
         opensChatItself = true
         onOpenMessage = { [weak self] messageID in self?.openChat(targetMessageID: messageID) }
         onSearch = { [weak self] in self?.openChatSearch() }
+    }
+
+    /// Opens a Files, Audio or Links row's content; false when it has none and the message opens in the chat.
+    private func openSharedItem(_ message: Message) -> Bool {
+        switch message.content {
+        case .messageDocument(let value):
+            openSharedFile(value.document.document, of: message, isAudio: false, duration: 0)
+            return true
+        case .messageAudio(let value):
+            openSharedFile(value.audio.audio, of: message, isAudio: true, duration: value.audio.duration)
+            return true
+        default:
+            guard let link = SharedLink(message: message) else { return false }
+            open(link)
+            return true
+        }
+    }
+
+    private func openSharedFile(_ file: File, of message: Message, isAudio: Bool, duration: Int) {
+        guard contextIsCurrent else { return }
+        if file.local.isDownloadingCompleted, !file.local.path.isEmpty,
+           FileManager.default.fileExists(atPath: file.local.path)
+        {
+            finishOpening(path: file.local.path, isAudio: isAudio, duration: duration)
+            return
+        }
+        // A second tap on a downloading row cancels it, as the chat's file view does.
+        if let download = sharedItemDownload, download.messageID == message.id {
+            cancelSharedItemDownload(cancelInTDLib: true)
+            return
+        }
+        cancelSharedItemDownload(cancelInTDLib: true)
+        let client = client
+        let fileID = file.id
+        let messageID = message.id
+        setSharedItemProgress(0, for: messageID)
+        let updates = TDImageLoadingView.fileUpdates(source: restorationIdentity.origin, fileID: fileID)
+            .sink { [weak self] file in
+                guard let self, sharedItemDownload?.fileID == fileID, file.expectedSize > 0 else { return }
+                setSharedItemProgress(Float(file.local.downloadedSize) / Float(file.expectedSize), for: messageID)
+            }
+        let task = Task { [weak self] in
+            let downloaded = try? await client.downloadFile(
+                fileId: fileID, limit: 0, offset: 0, priority: 32, synchronous: true,
+            )
+            guard let self, !Task.isCancelled, sharedItemDownload?.messageID == messageID else { return }
+            cancelSharedItemDownload(cancelInTDLib: false)
+            guard let downloaded, downloaded.local.isDownloadingCompleted, contextIsCurrent,
+                  navigationController?.topViewController === self, presentedViewController == nil else { return }
+            finishOpening(path: downloaded.local.path, isAudio: isAudio, duration: duration)
+        }
+        sharedItemDownload = (messageID, fileID, task, updates)
+    }
+
+    private func finishOpening(path: String, isAudio: Bool, duration: Int) {
+        if isAudio {
+            Media.shared.toggle(with: path, duration: duration)
+            return
+        }
+        // The chat opens a document the same way (`MessageContentAction.openDocument`).
+        let activity = UIActivityViewController(activityItems: [URL(fileURLWithPath: path)], applicationActivities: nil)
+        activity.popoverPresentationController?.sourceView = view
+        activity.popoverPresentationController?.sourceRect = CGRect(
+            x: view.bounds.midX,
+            y: view.bounds.midY,
+            width: 1,
+            height: 1,
+        )
+        present(activity, animated: true)
+    }
+
+    private func cancelSharedItemDownload(cancelInTDLib: Bool) {
+        guard let download = sharedItemDownload else { return }
+        sharedItemDownload = nil
+        download.task.cancel()
+        download.updates?.cancel()
+        setSharedItemProgress(nil, for: download.messageID)
+        guard cancelInTDLib else { return }
+        let client = client
+        Task { _ = try? await client.cancelDownloadFile(fileId: download.fileID, onlyIfPending: false) }
+    }
+
+    private func setSharedItemProgress(_ progress: Float?, for messageID: Int64) {
+        sharedItemProgress[messageID] = progress
+        guard isViewLoaded, let path = dataSource.indexPath(for: messageID),
+              let cell = collectionView.cellForItem(at: path) as? SharedMediaRowCell else { return }
+        cell.setDownloadProgress(progress)
+    }
+
+    private func open(_ link: SharedLink) {
+        guard contextIsCurrent else { return }
+        // A link hidden behind other text asks first, as Telegram's concealed links do.
+        guard link.isConcealed else {
+            TelegramLinkRouter.shared.open(link.url, from: self)
+            return
+        }
+        let alert = UIAlertController(
+            title: L10n.telegram("OpenLinkConfirmation.Title"), message: link.url.absoluteString,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert
+            .addAction(UIAlertAction(
+                title: L10n.telegram("OpenLinkConfirmation.Open"),
+                style: .default,
+            ) { [weak self] _ in
+                TelegramLinkRouter.shared.open(link.url, from: self)
+            })
+        present(alert, animated: true)
+    }
+
+    /// Telegram's list items keep View in Chat in their context menu.
+    @objc private func sharedRowLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, currentSharedTab != .media, contextIsCurrent,
+              let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
+              let id = dataSource.itemIdentifier(for: path), messagesByID[id] != nil,
+              sharedMessageRefresh?.allows(id) == true,
+              let cell = collectionView.cellForItem(at: path) else { return }
+        presentTelegramContextMenu(sourceView: cell, actions: [
+            TelegramContextMenuAction(
+                title: L10n.telegram("SharedMedia.ViewInChat"),
+                image: UIImage(systemName: "bubble.left"),
+            ) { [weak self] in
+                guard let self, contextIsCurrent, sharedMessageRefresh?.allows(id) == true else { return }
+                onOpenMessage?(id)
+            },
+        ])
     }
 
     private func restoreViewportIfNeeded() {
@@ -883,6 +1017,9 @@ ClientRestorableNavigationEntry {
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .systemBackground
         collectionView.delegate = self
+        collectionView.addGestureRecognizer(UILongPressGestureRecognizer(
+            target: self, action: #selector(sharedRowLongPressed(_:)),
+        ))
         collectionView.alwaysBounceVertical = true
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.register(
@@ -1003,6 +1140,7 @@ ClientRestorableNavigationEntry {
                 for: indexPath,
             ) as? SharedMediaRowCell
             cell?.configure(message: message)
+            cell?.setDownloadProgress(sharedItemProgress[message.id])
             return cell ?? UICollectionViewCell()
         }
     }
@@ -2214,6 +2352,7 @@ ClientRestorableNavigationEntry {
     }
 
     @objc private func tabChanged() {
+        cancelSharedItemDownload(cancelInTDLib: true)
         sharedViewportGeneration &+= 1
         restoredViewport = nil
         historyRequest.invalidate()
@@ -2564,6 +2703,53 @@ final class SharedMediaGridCell: UICollectionViewCell {
     }
 }
 
+// MARK: - SharedLink
+
+/// The link a Links row opens: the first URL in the text, a text link (concealed behind other text), or the link
+/// preview's page.
+struct SharedLink {
+    let url: URL
+    let isConcealed: Bool
+
+    init?(message: Message) {
+        let presentation = MessageContentPresentation.make(message)
+        if let text = presentation.formattedText {
+            for entity in text.entities {
+                switch entity.type {
+                case .textEntityTypeTextUrl(let value):
+                    if let url = getUrl(from: value.url) {
+                        self.init(url: url, isConcealed: true)
+                        return
+                    }
+                case .textEntityTypeUrl:
+                    let utf16 = text.text.utf16
+                    guard entity.offset >= 0, entity.length > 0, entity.offset + entity.length <= utf16.count
+                    else { continue }
+                    let range = stringRange(for: text.text, start: entity.offset, length: entity.length)
+                    if let url = getUrl(from: String(text.text[range])) {
+                        self.init(url: url, isConcealed: false)
+                        return
+                    }
+                default:
+                    continue
+                }
+            }
+        }
+        if case .messageText(let value) = message.content, let preview = value.linkPreview,
+           let url = getUrl(from: preview.url)
+        {
+            self.init(url: url, isConcealed: false)
+            return
+        }
+        return nil
+    }
+
+    private init(url: URL, isConcealed: Bool) {
+        self.url = url
+        self.isConcealed = isConcealed
+    }
+}
+
 // MARK: - SharedMediaGridPreview
 
 /// The picture of a photo and video index item that is neither a photo nor a video message: the first photo, video or
@@ -2707,6 +2893,7 @@ final class SharedMediaRowCell: UICollectionViewCell {
     private let iconView = UIImageView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
+    private let progressView = UIProgressView(progressViewStyle: .default)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -2720,7 +2907,8 @@ final class SharedMediaRowCell: UICollectionViewCell {
         subtitleLabel.font = .preferredFont(forTextStyle: .caption1)
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.textColor = .secondaryLabel
-        let labels = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
+        progressView.isHidden = true
+        let labels = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, progressView])
         labels.translatesAutoresizingMaskIntoConstraints = false
         labels.axis = .vertical
         labels.spacing = 2
@@ -2742,6 +2930,7 @@ final class SharedMediaRowCell: UICollectionViewCell {
     func configurePending(state: PeerProfileSharedMessageRefresh.State) {
         contentView.isHidden = false
         accessibilityElementsHidden = false
+        setDownloadProgress(nil)
         titleLabel.text = state == .retry
             ? L10n.betterTG("Profile.RefreshFailed")
             : L10n.betterTG("Profile.LoadingMessage")
@@ -2757,6 +2946,7 @@ final class SharedMediaRowCell: UICollectionViewCell {
     func configure(message: Message) {
         contentView.isHidden = false
         accessibilityElementsHidden = false
+        setDownloadProgress(nil)
         let presentation = MessageContentPresentation.make(message)
         titleLabel.text = presentation.summary
         subtitleLabel.text = profileDateString(message.date)
@@ -2764,6 +2954,13 @@ final class SharedMediaRowCell: UICollectionViewCell {
         isAccessibilityElement = true
         accessibilityTraits = .button
         accessibilityLabel = "\(presentation.summary), \(profileDateString(message.date))"
+    }
+
+    /// A file downloading to open or play; nil hides the bar.
+    func setDownloadProgress(_ progress: Float?) {
+        progressView.isHidden = progress == nil
+        progressView.progress = progress ?? 0
+        accessibilityValue = progress.map { L10n.betterTG("Accessibility.PercentDownloaded", Int($0 * 100)) }
     }
 
     private func icon(for content: MessageContent) -> String {
