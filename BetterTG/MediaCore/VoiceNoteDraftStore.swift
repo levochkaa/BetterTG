@@ -40,6 +40,9 @@ struct VoiceNoteSendDraft: Codable, ChatDraftSendScoped {
     var temporaryMessageID: Int64?
     let waveform: Data
     var destination: ChatDraftKey? = nil
+    /// Sent with TDLib's immediate self-destruct type, Telegram's play-once voice. Drafts saved before it was added
+    /// decode as nil.
+    var isViewOnce: Bool? = nil
 }
 
 // MARK: - VoiceNoteSendOutcome

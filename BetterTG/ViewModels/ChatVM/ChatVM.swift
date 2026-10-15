@@ -115,6 +115,8 @@ import UIKit
     }
 
     @Published var recordingVoiceNote = false
+    /// Telegram's play-once toggle on a locked or previewed voice recording (ChatTextInputPanelNode.viewOnce).
+    @Published var sendsVoiceViewOnce = false
     @Published private(set) var voiceRecordingInteractionState = VoiceRecordingInteractionState.idle
     @Published private(set) var startingVoiceNote = false
     @Published private(set) var loadingVoiceDraft = true
@@ -399,6 +401,12 @@ import UIKit
 
     var canShowComposer: Bool {
         !previewing && (canWriteAnyMessage || pendingForward != nil)
+    }
+
+    /// Telegram offers play-once voice only in a cloud chat with another user that isn't a bot.
+    var canSendVoiceViewOnce: Bool {
+        guard case .chatTypePrivate = customChat.chat.type, case .user = customChat.type else { return false }
+        return !customChat.isSavedMessages
     }
 
     var canRecordVoiceNote: Bool {
@@ -3687,6 +3695,7 @@ import UIKit
             let recorder = try makeVoiceRecorder(url: url)
             audioRecorder = recorder
             recordingVoiceNote = true
+            sendsVoiceViewOnce = false
             voiceRecordingInteractionState = .holding
             voiceRecordingTimerBaseline = 0
             voiceRecordingLastRecorderTime = recorder.currentTime
@@ -5557,6 +5566,7 @@ import UIKit
             temporaryMessageID: nil,
             waveform: VoiceNoteCodec.encodeWaveform(peakPowers: peakPowers),
             destination: context?.draftKey ?? location.draftKey,
+            isViewOnce: takeVoiceViewOnce(),
         )
         activeVoiceRecordingContext = nil
         pendingVoiceReplyMessage = reply
@@ -5676,6 +5686,7 @@ import UIKit
             temporaryMessageID: nil,
             waveform: draft.waveform,
             destination: draft.destination,
+            isViewOnce: takeVoiceViewOnce(),
         )
         voiceRecordingDraftTask = VoiceRecordingDraftPreservation.start(for: location.draftKey) { [self] in
             var adoptedSendDraft: VoiceNoteSendDraft?
@@ -5923,6 +5934,7 @@ import UIKit
             temporaryMessageID: nil,
             waveform: VoiceNoteCodec.encodeWaveform(peakPowers: peakPowers),
             destination: recordingContext?.draftKey ?? location.draftKey,
+            isViewOnce: takeVoiceViewOnce(),
         )
         activeVoiceRecordingContext = nil
         pendingVoiceReplyMessage = reply
@@ -5949,6 +5961,12 @@ import UIKit
         recordingTimeChanged.send()
     }
 
+    /// The play-once choice belongs to the recording being sent and resets, as Telegram's does after a send.
+    private func takeVoiceViewOnce() -> Bool? {
+        defer { sendsVoiceViewOnce = false }
+        return sendsVoiceViewOnce && canSendVoiceViewOnce ? true : nil
+    }
+
     private func sendMessageVoiceNote(
         fileURL: URL,
         draft: VoiceNoteSendDraft,
@@ -5973,7 +5991,7 @@ import UIKit
                         waveform: draft.waveform,
                     ),
                     caption: draft.caption,
-                    selfDestructType: nil,
+                    selfDestructType: draft.isViewOnce == true ? .messageSelfDestructTypeImmediately : nil,
                 ),
             ),
             options: nil,

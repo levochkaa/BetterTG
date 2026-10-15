@@ -205,6 +205,7 @@
 "Accessibility.RecordVideoMessage" = "Записать видеосообщение";
 "Accessibility.VoiceRecordingLocked" = "Запись голоса закреплена, %@";
 "Accessibility.PauseVoiceRecording" = "Приостановить запись голоса";
+"Accessibility.PlayOnce" = "Прослушать один раз";
 "Accessibility.RecordingVoiceMessage" = "Запись голосового сообщения, %@";
 "Accessibility.ResumeVoiceRecording" = "Продолжить запись голоса";
 "Accessibility.PauseVoicePreview" = "Приостановить прослушивание записи";

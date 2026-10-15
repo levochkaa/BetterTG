@@ -802,3 +802,4 @@
 "MusicPlayer.VoiceNote" = "Voice Message";
 "VoiceOver.Media.PlaybackRateChange" = "Double tap to change";
 "VoiceOver.Media.PlaybackStop" = "Stop playback";
+"Chat.PlayVoiceMessageOnceTooltip" = "The recipients will be able to listen to it only once.";

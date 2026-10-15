@@ -1698,6 +1698,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             composerView.onToggleVideoNotePreview = { [weak self] in
                 self?.videoNoteRecorder?.togglePreviewPlayback()
             }
+            composerView.onViewOnceEnabled = { [weak self] text in self?.showChatToast(text) }
             composerView.onUpdateVideoNoteTrim = { [weak self] start, end, updatedEnd, finished in
                 self?.videoNoteRecorder?.updateTrim(
                     start: start,

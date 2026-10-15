@@ -54,6 +54,8 @@ final class ChatComposerView: UIView {
     var onStartVideoNoteRecording: (() async -> Bool)?
     var onToggleVideoNotePreview: (() -> Void)?
     var onUpdateVideoNoteTrim: ((Double, Double, Bool, Bool) -> Void)?
+    /// Shows Telegram's tooltip when play-once is turned on.
+    var onViewOnceEnabled: ((String) -> Void)?
     /// A reply keyboard button and the message whose keyboard it belongs to.
     var onReplyKeyboardButton: ((TDNativeKeyboardButton, Int64) -> Void)?
 
@@ -99,6 +101,8 @@ final class ChatComposerView: UIView {
     private let recordingLabel = UILabel()
     private let recordingGestureOverlay = RecordingGestureOverlayView()
     private let recordingSendButton = UIButton(type: .system)
+    /// Telegram's play-once toggle for a locked or previewed voice recording (ChatRecordingViewOnceButtonNode).
+    private let recordingViewOnceButton = UIButton(type: .system)
     private lazy var recordingGestureRecognizer: UILongPressGestureRecognizer = {
         let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(actionLongPressed(_:)))
         recognizer.minimumPressDuration = 0
@@ -901,11 +905,18 @@ final class ChatComposerView: UIView {
         recordingRow.addArrangedSubview(recordingPreviewPlayButton)
         recordingRow.addArrangedSubview(recordingPreviewContainer)
         recordingRow.addArrangedSubview(recordingLabel)
+        recordingViewOnceButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 20, weight: .medium),
+            forImageIn: .normal,
+        )
+        recordingViewOnceButton.isHidden = true
+        recordingRow.addArrangedSubview(recordingViewOnceButton)
         recordingRow.addArrangedSubview(recordingSendButton)
         for button in [
             cancelRecordingButton,
             recordingPauseResumeButton,
             recordingPreviewPlayButton,
+            recordingViewOnceButton,
             recordingSendButton,
         ] {
             button.widthAnchor.constraint(equalToConstant: 34).isActive = true
@@ -934,6 +945,7 @@ final class ChatComposerView: UIView {
         actionButton.addTarget(self, action: #selector(actionTouchDown(_:)), for: .touchDown)
         actionButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
         recordingSendButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
+        recordingViewOnceButton.addTarget(self, action: #selector(toggleViewOnce), for: .touchUpInside)
         addGestureRecognizer(recordingGestureRecognizer)
         addSubview(recordingGestureOverlay)
 
@@ -1420,6 +1432,7 @@ final class ChatComposerView: UIView {
 
     private func updateRecordingStatus() {
         defer { updateRecordingGesturePresentation() }
+        recordingViewOnceButton.isHidden = true
         if videoNoteState.isActive {
             updateVideoRecordingStatus()
             return
@@ -1447,6 +1460,7 @@ final class ChatComposerView: UIView {
             recordingPauseResumeButton.isEnabled = chatVM.canPauseVoiceRecording
             recordingPauseResumeButton.alpha = chatVM.canPauseVoiceRecording ? 1 : 0.45
             recordingSendButton.isHidden = false
+            updateViewOnceButton()
         case .holding:
             recordingLabel.text = "● \(chatVM.formattedTimerCount)"
             recordingLabel.accessibilityLabel = L10n.betterTG(
@@ -1485,6 +1499,7 @@ final class ChatComposerView: UIView {
             recordingSendButton.isHidden = false
             recordingSendButton.isEnabled = chatVM.voiceRecordingPreviewReady
             recordingSendButton.alpha = chatVM.voiceRecordingPreviewReady ? 1 : 0.45
+            updateViewOnceButton()
         case .pausing:
             recordingLabel.text = L10n.betterTG("Composer.Preparing")
             recordingLabel.accessibilityLabel = L10n.betterTG("Accessibility.PreparingVoicePreview")
@@ -2095,6 +2110,26 @@ final class ChatComposerView: UIView {
             onCancelVideoNoteRecording?()
         } else {
             chatVM.cancelVoiceRecording()
+        }
+    }
+
+    private func updateViewOnceButton() {
+        guard chatVM.canSendVoiceViewOnce else { return }
+        let isOn = chatVM.sendsVoiceViewOnce
+        recordingViewOnceButton.isHidden = false
+        recordingViewOnceButton.setImage(UIImage(systemName: isOn ? "1.circle.fill" : "1.circle"), for: .normal)
+        recordingViewOnceButton.tintColor = isOn ? .systemBlue : .secondaryLabel
+        recordingViewOnceButton.accessibilityLabel = L10n.betterTG("Accessibility.PlayOnce")
+        recordingViewOnceButton.accessibilityTraits = isOn ? [.button, .selected] : .button
+    }
+
+    /// ChatTextInputPanelNode.viewOncePressed: toggles play-once and explains it when turned on.
+    @objc private func toggleViewOnce() {
+        guard chatVM.canSendVoiceViewOnce else { return }
+        chatVM.sendsVoiceViewOnce.toggle()
+        updateViewOnceButton()
+        if chatVM.sendsVoiceViewOnce {
+            onViewOnceEnabled?(L10n.telegram("Chat.PlayVoiceMessageOnceTooltip"))
         }
     }
 

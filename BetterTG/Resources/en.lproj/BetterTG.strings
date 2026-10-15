@@ -205,6 +205,7 @@
 "Accessibility.RecordVideoMessage" = "Record video message";
 "Accessibility.VoiceRecordingLocked" = "Voice recording locked, %@";
 "Accessibility.PauseVoiceRecording" = "Pause voice recording";
+"Accessibility.PlayOnce" = "Play once";
 "Accessibility.RecordingVoiceMessage" = "Recording voice message, %@";
 "Accessibility.ResumeVoiceRecording" = "Resume voice recording";
 "Accessibility.PauseVoicePreview" = "Pause voice recording preview";
