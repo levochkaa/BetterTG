@@ -1287,3 +1287,17 @@
 "Compose.NewEncryptedChat" = "New Secret Chat";
 "Compose.NewEncryptedChatTitle" = "New Secret Chat";
 "TwoStepAuth.FloodError" = "Limit exceeded. Please try again later.";
+"Compose.NewGroup" = "New Group";
+"Compose.NewGroupTitle" = "New Group";
+"Compose.GroupTokenListPlaceholder" = "Search for contacts or usernames";
+"Common.Next" = "Next";
+"CreateGroup.SoftUserLimitAlert" = "You will be able to add more users after you finish creating the group and convert it to a supergroup.";
+"CreateGroup.PeersTitleDelimeter" = ", ";
+"CreateGroup.PeersTitleLastDelimeter" = " and ";
+"CreateGroup.AutoDeleteTitle" = "Auto-Delete Messages";
+"CreateGroup.AutoDeleteText" = "Automatically delete messages sent in this group for everyone after a period of time.";
+"Autoremove.SetCustomTime" = "Set Custom Time...";
+"GroupInfo.GroupNamePlaceholder" = "Group Name";
+"GroupInfo.SetGroupPhoto" = "Set Group Photo";
+"Privacy.GroupsAndChannels.InviteToChannelMultipleError" = "Sorry, you can't create a group with these users due to their privacy settings.";
+"Common.ActionNotAllowedError" = "Sorry, you are not allowed to do this.";

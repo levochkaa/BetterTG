@@ -127,6 +127,9 @@ final class NewMessageViewController: SettingsListViewController, UISearchResult
     /// ComposeControllerNode's options above the contacts.
     private func optionRows() -> [SettingsRow] {
         [
+            optionRow("Compose.NewGroup", symbol: "person.2") { [weak self] in
+                self?.push(ComposeContactPickerViewController(mode: .newGroup))
+            },
             optionRow("Compose.NewEncryptedChat", symbol: "lock") { [weak self] in
                 self?.push(ComposeContactPickerViewController(mode: .secretChat))
             },
