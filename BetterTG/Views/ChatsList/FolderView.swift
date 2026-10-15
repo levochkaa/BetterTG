@@ -795,6 +795,24 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         )
     }
 
+    /// Telegram opens a chat's stories from its avatar (ChatListItem.avatarStoryTapGesture) and then pages through
+    /// the other posters, unseen ones first as its story subscriptions are ordered; here those are the page's chats
+    /// with stories, in list order within each group.
+    private func openStories(from chatID: Int64, sourceView: UIView) {
+        guard actionAuthority.scope(owner: self).isCurrent, !isReorderingPinnedChats, !tableView.isEditing,
+              overlayHost.presentedViewController == nil else { return }
+        let posters = orderedChats.compactMap { chat in chat.activeStoryState.map { (chat.id, $0) } }
+        let unseen = posters.filter { $0.1.ringStyle != .seen }.map(\.0)
+        let seen = posters.filter { $0.1.ringStyle == .seen }.map(\.0)
+        StoryViewerController.present(
+            .activeStories(chatIDs: unseen + seen, initialChatID: chatID),
+            client: actionAuthority.client,
+            from: overlayHost,
+            sourceView: sourceView,
+            sourceIsAvatar: true,
+        )
+    }
+
     private func configureDataSource() {
         dataSource = ChatRowsDataSource(tableView: tableView) { [weak self] tableView, indexPath, id in
             guard let self, let chat = chat(for: id),
@@ -803,6 +821,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                       for: indexPath,
                   ) as? ChatListCell
             else { return UITableViewCell() }
+            cell.onOpenStories = { [weak self] sourceView in
+                self?.openStories(from: id, sourceView: sourceView)
+            }
             cell.configure(
                 chat: chat,
                 isMuted: rootVM.isMuted(chat),

@@ -11,6 +11,11 @@ final class ChatListCell: UITableViewCell {
 
     static let reuseIdentifier = "ChatListCell"
 
+    /// Opens the chat's stories from its avatar, zooming from the given view (ChatListItem.avatarStoryTapGesture).
+    var onOpenStories: ((UIView) -> Void)? {
+        didSet { updateStoryInteraction() }
+    }
+
     // MARK: Private
 
     private let rowView = UIView()
@@ -18,6 +23,9 @@ final class ChatListCell: UITableViewCell {
     private let pinView = UIImageView(image: UIImage(systemName: "pin.fill"))
     private let muteView = UIImageView(image: UIImage(systemName: "speaker.slash.fill"))
     private let avatarView = ProfileAvatarView()
+    /// Telegram's story ring around the avatar (ChatListItem: 2.33 pt, 1.33 pt once seen).
+    private let storyRingView = StoryAvatarRingView(activeLineWidth: 2.33, inactiveLineWidth: 1.33)
+    private lazy var storyTapGesture = UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
     private let titleLabel = UILabel()
     private let messageLabel = UILabel()
     /// Telegram's mention or reaction badge, left of the unread count (ChatListItem, mentionBadgeNode).
@@ -61,6 +69,7 @@ final class ChatListCell: UITableViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         avatarView.prepareForReuse()
+        onOpenStories = nil
         activityCancellable = nil
     }
 
@@ -208,6 +217,11 @@ final class ChatListCell: UITableViewCell {
                 client: client,
             )
         }
+        let storyStyle = chat.activeStoryState?.ringStyle
+        storyRingView.style = storyStyle
+        let avatarScale = StoryAvatarRingView.avatarScale(diameter: 60, lineWidth: 2.33)
+        avatarView.transform = storyStyle == nil ? .identity : CGAffineTransform(scaleX: avatarScale, y: avatarScale)
+        updateStoryInteraction()
         accessibilityLabel = [
             chat.displayTitle,
             messageLabel.text,
@@ -230,6 +244,27 @@ final class ChatListCell: UITableViewCell {
             .compactMap(\.self)
             .joined(separator: ", ")
         accessibilityTraits = .button
+    }
+
+    /// The avatar opens stories only while the chat has some and the list offers it; otherwise a tap selects the row.
+    private func updateStoryInteraction() {
+        let isAvailable = storyRingView.style != nil && onOpenStories != nil
+        storyTapGesture.isEnabled = isAvailable
+        accessibilityCustomActions = isAvailable
+            ? [UIAccessibilityCustomAction(name: L10n.telegram("Chat.StoryMentionAction")) { [weak self] _ in
+                self?.openStories() ?? false
+            }]
+            : nil
+    }
+
+    @objc private func avatarTapped() {
+        _ = openStories()
+    }
+
+    private func openStories() -> Bool {
+        guard storyRingView.style != nil, let onOpenStories else { return false }
+        onOpenStories(avatarView)
+        return true
     }
 
     /// Telegram replaces the row's message with who is typing or sending, while they do (`ChatListTypingNode`).
@@ -295,10 +330,14 @@ final class ChatListCell: UITableViewCell {
         rowView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(rowView)
 
-        for item in [avatarView, titleLabel, headerAccessoryRow, messageLabel, trailingBadges, separatorView] {
+        for item in [
+            avatarView, storyRingView, titleLabel, headerAccessoryRow, messageLabel, trailingBadges, separatorView,
+        ] {
             item.translatesAutoresizingMaskIntoConstraints = false
             rowView.addSubview(item)
         }
+        avatarView.addGestureRecognizer(storyTapGesture)
+        storyTapGesture.isEnabled = false
         separatorView.backgroundColor = .separator
 
         headerAccessoryRow.axis = .horizontal
@@ -369,6 +408,10 @@ final class ChatListCell: UITableViewCell {
             avatarView.centerYAnchor.constraint(equalTo: rowView.centerYAnchor),
             avatarView.widthAnchor.constraint(equalToConstant: 60),
             avatarView.heightAnchor.constraint(equalToConstant: 60),
+            storyRingView.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
+            storyRingView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
+            storyRingView.widthAnchor.constraint(equalToConstant: 60),
+            storyRingView.heightAnchor.constraint(equalToConstant: 60),
             titleLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10),
             titleLabel.topAnchor.constraint(equalTo: rowView.topAnchor, constant: 9),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: headerAccessoryRow.leadingAnchor, constant: -6),
