@@ -854,3 +854,6 @@
 "Story.ViewMessage" = "View Message";
 "WebSearch.RecentSectionClear" = "Clear";
 "Conversation.ReadAllReactions" = "Read All Reactions";
+"ChatListFolder.DiscardConfirmation" = "You have changed the filter. Discard changes?";
+"ChatListFolder.DiscardDiscard" = "Discard";
+"ChatListFilter.SaveAlertActionSave" = "Save";

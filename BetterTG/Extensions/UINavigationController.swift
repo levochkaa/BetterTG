@@ -79,13 +79,18 @@ UINavigationControllerDelegate {
 
         let velocity = panGesture.velocity(in: view)
         guard abs(velocity.x) > abs(velocity.y) else { return false }
-        return switch view.effectiveUserInterfaceLayoutDirection {
-        case .leftToRight:
-            velocity.x > 0
-        case .rightToLeft:
-            velocity.x < 0
-        @unknown default:
-            velocity.x > 0
-        }
+        let movesBack =
+            switch view.effectiveUserInterfaceLayoutDirection {
+            case .leftToRight:
+                velocity.x > 0
+            case .rightToLeft:
+                velocity.x < 0
+            @unknown default:
+                velocity.x > 0
+            }
+        guard movesBack else { return false }
+        // The swipe asks the screen as Back does (Telegram's NavigationController checks attemptNavigation).
+        if let handler = topViewController as? TelegramNavigationAttemptHandling { return handler.attemptNavigation() }
+        return true
     }
 }

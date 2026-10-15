@@ -15,6 +15,14 @@ protocol TelegramEmbeddedNavigationChrome: AnyObject {}
     var telegramNavigationSearch: UISearchController { get }
 }
 
+// MARK: - TelegramNavigationAttemptHandling
+
+/// Telegram's ViewController.attemptNavigation: a screen with unsaved changes can hold Back and the swipe back.
+@MainActor protocol TelegramNavigationAttemptHandling: AnyObject {
+    /// True when the screen may leave now; false once it has taken over, for example to ask about unsaved changes.
+    func attemptNavigation() -> Bool
+}
+
 // MARK: - MainViewController + TelegramEmbeddedNavigationChrome
 
 extension MainViewController: TelegramEmbeddedNavigationChrome {}
@@ -78,7 +86,10 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         }
         bar.layer.zPosition = 1000
         controller.view.addSubview(bar)
-        bar.onBack = { [weak navigation] in navigation?.popViewController(animated: true) }
+        bar.onBack = { [weak navigation, weak controller] in
+            if let handler = controller as? TelegramNavigationAttemptHandling, !handler.attemptNavigation() { return }
+            navigation?.popViewController(animated: true)
+        }
         bar.onHeightChange = { [weak self] in self?.refresh() }
     }
 

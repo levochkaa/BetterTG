@@ -256,7 +256,9 @@ final class ChatFolderOrderViewController: UITableViewController {
 
 // MARK: - ChatFolderEditorViewController
 
-final class ChatFolderEditorViewController: UITableViewController, UITextFieldDelegate {
+final class ChatFolderEditorViewController: UITableViewController, UITextFieldDelegate,
+    TelegramNavigationAttemptHandling
+{
     // MARK: Private
 
     private let session: FolderFlowSession
@@ -397,6 +399,37 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
               let swiftRange = Range(range, in: current)
         else { return false }
         return current.replacingCharacters(in: swiftRange, with: string).count <= 12
+    }
+
+    /// ChatListFilterPresetController's attemptNavigation: Back from an existing folder whose draft differs from the
+    /// folder as it is now asks to save or discard. A new folder leaves without asking, as in Telegram.
+    func attemptNavigation() -> Bool {
+        guard let folderInfo,
+              case .folder(_, let current) = session.folders.first(where: { $0.id == Int(folderInfo.id) })?.type
+        else { return true }
+        let name = nameField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !draft.replacingName(name, preserving: originalName).hasSameEditableContent(as: current) else {
+            return true
+        }
+        guard presentedViewController == nil else { return false }
+        nameField.resignFirstResponder()
+        let alert = UIAlertController(
+            title: nil,
+            message: L10n.telegram("ChatListFolder.DiscardConfirmation"),
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("ChatListFolder.DiscardDiscard"), style: .default) {
+            [weak self] _ in
+            self?.navigationController?.popViewController(animated: true)
+        })
+        let saveAction = UIAlertAction(title: L10n.telegram("ChatListFilter.SaveAlertActionSave"), style: .default) {
+            [weak self] _ in
+            self?.save()
+        }
+        alert.addAction(saveAction)
+        alert.preferredAction = saveAction
+        present(alert, animated: true)
+        return false
     }
 
     private func selectChats(excluded: Bool) {
@@ -766,6 +799,17 @@ extension ChatFolder {
     /// Telegram's includePeers.peers: the folder's pinned chats, then its other always included chats.
     var alwaysIncludedChatIDs: [Int64] {
         pinnedChatIds + includedChatIds.filter { !pinnedChatIds.contains($0) }
+    }
+
+    /// The fields the folder editor changes. Pinned and included chats compare as one list, as Telegram's
+    /// attemptNavigation compares includePeers.peers.
+    func hasSameEditableContent(as other: ChatFolder) -> Bool {
+        name.text == other.name.text && name.animateCustomEmoji == other.name.animateCustomEmoji
+            && includeContacts == other.includeContacts && includeNonContacts == other.includeNonContacts
+            && includeGroups == other.includeGroups && includeChannels == other.includeChannels
+            && includeBots == other.includeBots && excludeMuted == other.excludeMuted
+            && excludeRead == other.excludeRead && excludeArchived == other.excludeArchived
+            && alwaysIncludedChatIDs == other.alwaysIncludedChatIDs && excludedChatIds == other.excludedChatIds
     }
 
     func includes(_ type: ChatFolderInclusion) -> Bool {
