@@ -143,7 +143,7 @@ import UIKit
     @Published private(set) var pinnedMessage: Message?
     @Published private(set) var locallyHiddenPinnedMessageID: Int64?
     @Published var pinErrorMessage: String?
-    /// A failed Stop Poll or Stop Sharing, shown once by the chat.
+    /// A failed poll vote, Retract Vote, Stop Poll or Stop Sharing, shown once by the chat.
     @Published var messageActionErrorMessage: String?
     @Published private(set) var forumTopic: ForumTopic?
     @Published private(set) var forumTopicInfo: ForumTopicInfo?
@@ -1879,9 +1879,12 @@ import UIKit
                     optionIds: optionIDs,
                 )
             } catch {
-                if pollInteractionStore.failSubmission(submission) {
-                    log("Couldn't submit poll answer for \(messageID): \(error.localizedDescription)")
-                }
+                // Telegram rolls the choice back on a failed vote (requestSelectMessagePollOptions). A submission
+                // that already timed out or was replaced stays silent.
+                guard pollInteractionStore.failSubmission(submission) else { return }
+                log("Couldn't submit poll answer for \(messageID): \(error.localizedDescription)")
+                guard locationContextIsCurrent, TDLib.shared.activeClient.id == client.id else { return }
+                messageActionErrorMessage = (error as? TDLibError)?.message ?? error.localizedDescription
             }
         }
     }
@@ -2241,8 +2244,32 @@ import UIKit
     func stopPoll(_ message: CustomMessage) {
         guard message.properties.canBeEdited,
               case .messagePoll(let poll) = message.message.content, !poll.poll.isClosed else { return }
-        performContentStop(message) { client, chatID, messageID in
+        performMessageContentRequest(message) { client, chatID, messageID in
             _ = try await client.stopPoll(chatId: chatID, messageId: messageID, replyMarkup: nil)
+        }
+    }
+
+    /// Telegram's Retract Vote (ChatInterfaceStateContextMenus): an open, sent poll with a chosen answer that may be
+    /// answered again (`revotingDisabled` there, `allowsRevoting` here). TDLib answers a quiz only once.
+    func canRetractPollVote(_ message: CustomMessage) -> Bool {
+        guard !isReadOnlyTopic, locationContextIsCurrent, location.matches(message: message.message),
+              message.message.sendingState == nil, message.message.schedulingState == nil,
+              case .messagePoll(let content) = message.message.content,
+              pollInteractionStore.currentSubmission(messageID: message.id) == nil
+        else { return false }
+        let poll = content.poll
+        if case .pollTypeQuiz = poll.type { return false }
+        return !poll.isClosed && poll.allowsRevoting
+            && poll.options.contains(where: \.isChosen)
+            && !poll.options.contains(where: \.isBeingChosen)
+    }
+
+    /// Retract Vote (requestUnvoteInMessage) is `setPollAnswer` with no options; the cleared poll arrives through
+    /// updateMessageContent.
+    func retractPollVote(_ message: CustomMessage) {
+        guard canRetractPollVote(message) else { return }
+        performMessageContentRequest(message) { client, chatID, messageID in
+            _ = try await client.setPollAnswer(chatId: chatID, messageId: messageID, optionIds: [])
         }
     }
 
@@ -2251,7 +2278,7 @@ import UIKit
     func stopLiveLocation(_ message: CustomMessage) {
         guard message.properties.canBeEdited, message.message.isOutgoing,
               case .messageLiveLocation(let live) = message.message.content, live.expiresIn > 0 else { return }
-        performContentStop(message) { client, chatID, messageID in
+        performMessageContentRequest(message) { client, chatID, messageID in
             _ = try await client.editMessageLiveLocation(
                 chatId: chatID,
                 messageId: messageID,
@@ -4051,7 +4078,8 @@ import UIKit
         }
     }
 
-    private func performContentStop(
+    /// Sends a request that changes a message's content on this chat's client and shows its failure once.
+    private func performMessageContentRequest(
         _ message: CustomMessage,
         request: @escaping (TDLibClient, Int64, Int64) async throws -> Void,
     ) {

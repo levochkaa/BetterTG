@@ -4758,6 +4758,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 self?.chatVM.beginMessageEditing(message)
             })
         }
+        // Telegram lists Retract Vote ahead of Stop Poll.
+        if chatVM.canRetractPollVote(message) {
+            elements.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.UnvotePoll"),
+                image: UIImage(systemName: "arrow.uturn.backward.circle"),
+            ) { [weak self, weak message] in
+                guard let self, let message else { return }
+                chatVM.retractPollVote(message)
+            })
+        }
         if let stopAction = contentStopAction(for: message) {
             elements.append(stopAction)
         }
