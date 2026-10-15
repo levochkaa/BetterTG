@@ -1088,15 +1088,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                         try scope.check()
                     }
                     _ = try await client.toggleChatIsMarkedAsUnread(chatId: chat.id, isMarkedAsUnread: false)
-                    // Telegram's Mark as Read also marks mentions seen (updateMarkAllMentionsSeen); unseen reactions
-                    // are read here too so neither badge outlives the unread count.
+                    // Telegram's Mark as Read also marks mentions seen (updateMarkAllMentionsSeen); it leaves unseen
+                    // reactions, which the chat reads when they are shown.
                     if chat.chat.unreadMentionCount > 0 {
                         try scope.check()
                         _ = try await client.send(TDNativeRequests.readAllChatMentions(chatId: chat.id))
-                    }
-                    if chat.chat.unreadReactionCount > 0 {
-                        try scope.check()
-                        _ = try await client.readAllChatReactions(chatId: chat.id)
                     }
                 }
             })
