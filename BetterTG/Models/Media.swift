@@ -23,6 +23,8 @@ final class Media: ObservableObject {
     private let nowPlayingCenter = MPNowPlayingInfoCenter.default()
     private let commandCenter = MPRemoteCommandCenter.shared()
     private var cancellables = Set<AnyCancellable>()
+    /// Media activated the spoken-audio session for its own playback, so it gives it back when playback ends.
+    private var ownsPlaybackSession = false
 
     private init() {
         setPublishers()
@@ -79,6 +81,7 @@ final class Media: ObservableObject {
     }
 
     func setAudioSessionRecord() {
+        ownsPlaybackSession = false
         // A failed deactivation (a player still holds the session) must not skip the record category.
         try? audioSession.setActive(false)
         do {
@@ -122,6 +125,7 @@ final class Media: ObservableObject {
                     isPlaying = true
                 case .ended, .failed:
                     stop()
+                    releasePlaybackSession()
                 case .buffering, .idle, .paused, .preparing:
                     isPlaying = false
                 }
@@ -209,9 +213,18 @@ final class Media: ObservableObject {
                 .allowBluetoothA2DP,
             ])
             try audioSession.setActive(true)
+            ownsPlaybackSession = true
         } catch {
             log("Error setting audioSessionPlayback: \(error)")
         }
+    }
+
+    /// When a voice note finishes, other apps' audio (music, podcasts) resumes, as after Telegram's playback.
+    private func releasePlaybackSession() {
+        guard ownsPlaybackSession else { return }
+        ownsPlaybackSession = false
+        guard audioSession.category == .playback, audioSession.mode == .spokenAudio else { return }
+        try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     private func play() {
