@@ -2506,29 +2506,16 @@ import UIKit
         }
         markComposerDirty()
         replySelectionGeneration &+= 1
-        let generation = replySelectionGeneration
         replyMessage = message
-        replyQuote = nil
+        // Built synchronously so a send right after choosing Quote keeps it.
+        replyQuote = MessageQuoteBuilder.make(
+            from: formattedText,
+            maximumLength: MessageQuoteLengthStore.maximumLength(clientID: client.id),
+            range: range,
+        )
         replyInputOverride = nil
         replyFallbackPresentation = nil
         reconcileActiveChatActionAfterReplyChange()
-        let client = client
-        Task { [weak self, weak message] in
-            guard let self, let message else { return }
-            let maximumLength: Int =
-                if case .optionValueInteger(let value) = try? await client.getOption(
-                    name: "message_reply_quote_length_max",
-                ) {
-                    max(1, Int(clamping: value.value))
-                } else {
-                    1024
-                }
-            guard replySelectionGeneration == generation,
-                  replyMessage === message,
-                  let quote = MessageQuoteBuilder.make(from: formattedText, maximumLength: maximumLength, range: range)
-            else { return }
-            replyQuote = quote
-        }
     }
 
     func cancelReply(markDirty: Bool = true) {

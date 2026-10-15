@@ -64,6 +64,16 @@ extension RootVM {
         nc.scopedPublisher(&cancellables, for: .updateDiceEmojis) { event in
             DiceEmojiStore.update(event.value.emojis, clientID: event.source.clientID)
         }
+        nc.scopedPublisher(&cancellables, for: .updateOption) { event in
+            guard event.value.name == MessageQuoteLengthStore.optionName else { return }
+            let length: Int64? =
+                if case .optionValueInteger(let value) = event.value.value {
+                    value.value
+                } else {
+                    nil
+                }
+            MessageQuoteLengthStore.update(length, clientID: event.source.clientID)
+        }
         nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { event in
             let update = event.value
             SelectedDocumentFileStore.complete(
