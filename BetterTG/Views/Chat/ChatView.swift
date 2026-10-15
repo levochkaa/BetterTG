@@ -6007,6 +6007,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
             ) { UIPasteboard.setFormattedText(text) })
         }
+        if message.properties.canGetLink {
+            elements.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuCopyLink"),
+                image: UIImage(systemName: "link"),
+            ) { [weak self, weak message] in
+                guard let self, let message else { return }
+                copyMessageLink(message)
+            })
+        }
         elements.append(contentsOf: stickerAndAnimationActions(for: message))
         if canOfferPinAction(for: message) {
             if message.isPinned {
@@ -6065,6 +6074,36 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ))
         }
         return elements
+    }
+
+    /// Telegram's Copy Link (getMessageLink): an album's link, or a thread's or topic's in one, and the toast that
+    /// says a private link works only for members.
+    private func copyMessageLink(_ message: CustomMessage) {
+        let client = chatVM.client
+        let currentLocation = location
+        let isAlbum =
+            if case .album = message.displayedID {
+                true
+            } else {
+                false
+            }
+        let messageID = message.id
+        Task { [weak self] in
+            let link = try? await client.send(TDNativeRequests.getMessageLink(
+                chatId: currentLocation.chatID,
+                messageId: messageID,
+                mediaTimestamp: 0,
+                checklistTaskId: 0,
+                pollOptionId: "",
+                forAlbum: isAlbum,
+                inMessageThread: currentLocation.isTopicScoped,
+            ))
+            guard let self, chatVM.locationContextIsCurrent, let link else { return }
+            UIPasteboard.setPlainText(link.link)
+            showChatToast(L10n.telegram(link.isPublic
+                    ? "Conversation.LinkCopied"
+                    : "Conversation.PrivateMessageLinkCopiedLong"))
+        }
     }
 
     private func synchronizeNativeSelection() {
