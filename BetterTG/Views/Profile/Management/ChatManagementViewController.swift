@@ -148,6 +148,13 @@ final class ChatManagementViewController: SettingsListViewController {
                 value: memberCount > 0 ? memberCount.formatted(.number) : nil,
             ) { [weak self] in self?.openMembers() })
         }
+        if !isChannel, target.rights?.canRestrictMembers == true {
+            rows.append(disclosure(
+                L10n.telegram("GroupInfo.Permissions"),
+                symbol: "key",
+                value: ChatPermissionsViewController.summary(target.chat.permissions, isForum: target.isForum),
+            ) { [weak self] in self?.push(ChatPermissionsViewController(target: target)) })
+        }
         if isAdministrator {
             let count = target.supergroupInfo?.administratorCount ?? 0
             rows.append(disclosure(

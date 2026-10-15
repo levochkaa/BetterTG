@@ -1452,3 +1452,17 @@
 "PeerInfo.DeleteChannelTitle" = "Delete for All";
 "PeerInfo.DeleteGroupText" = "Are you sure you want to delete the group **%@** and all of its messages for all members of the group?";
 "PeerInfo.DeleteGroupTitle" = "Delete for All";
+"GroupInfo.Permissions" = "Permissions";
+"GroupInfo.Permissions.AddException" = "Add Exception";
+"GroupInfo.Permissions.SectionTitle" = "WHAT CAN MEMBERS OF THIS GROUP DO?";
+"GroupInfo.Permissions.SlowmodeHeader" = "SLOWMODE";
+"GroupInfo.Permissions.SlowmodeInfo" = "Members will be restricted to send one message per this interval.";
+"GroupInfo.Permissions.SlowmodeValue.Off" = "Off";
+"GroupInfo.Permissions.Title" = "Permissions";
+"GroupPermission.Delete" = "Delete Exception";
+"GroupPermission.Duration" = "Duration";
+"GroupPermission.NewTitle" = "New Exception";
+"GroupPermission.NotAvailableInPublicGroups" = "This permission is not available in public groups.";
+"GroupPermission.SectionTitle" = "WHAT CAN THIS MEMBER DO?";
+"GroupPermission.Title" = "Exception";
+"MessageTimer.Forever" = "Forever";
