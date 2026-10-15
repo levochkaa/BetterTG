@@ -511,6 +511,8 @@ TelegramNavigationSearchProvider {
     private var candidateListRanks = [Int64: Int]()
     private let searchController = UISearchController(searchResultsController: nil)
     private var selectedChatIDs: Set<Int64>
+    /// TDLib's per-folder limit for the chats this picker chooses; unknown until the option is read.
+    private var chosenChatLimit: Int?
     private var chats = [CustomChat]()
     private var visibleChats = [CustomChat]()
     private var query = ""
@@ -550,6 +552,7 @@ TelegramNavigationSearchProvider {
         searchController.searchBar.placeholder = L10n.telegram("ChatListFilter.AddChatsSearchPlaceholder")
         definesPresentationContext = true
         sessionObservation = session.bind(self) { [weak self] in self?.reloadCandidates() }
+        loadChosenChatLimit()
     }
 
     #if DEBUG
@@ -603,10 +606,15 @@ TelegramNavigationSearchProvider {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard session.scope(owner: self).isCurrent else { return }
-        let chatID = visibleChats[indexPath.row].id
+        let chat = visibleChats[indexPath.row]
+        let chatID = chat.id
         if selectedChatIDs.contains(chatID) {
             selectedChatIDs.remove(chatID)
         } else {
+            if let limit = chosenChatLimit, chosenCount(secret: chat.secretChatID != nil) >= limit {
+                presentChosenChatLimit(limit)
+                return
+            }
             selectedChatIDs.insert(chatID)
         }
         tableView.reloadRows(at: [indexPath], with: .none)
@@ -631,6 +639,34 @@ TelegramNavigationSearchProvider {
             case .failure(let error): presentFolderError(error)
             }
         }
+    }
+
+    private func loadChosenChatLimit() {
+        guard let reader = session.reader else { return }
+        Task { [weak self] in
+            let limit = await reader.chosenChatLimit()
+            guard let self, session.isCurrent else { return }
+            chosenChatLimit = limit
+        }
+    }
+
+    /// TDLib counts non-secret and secret chats against the limit separately. A selected chat the picker has not
+    /// loaded counts as non-secret.
+    private func chosenCount(secret: Bool) -> Int {
+        let secretIDs = Set(chats.lazy.filter { $0.secretChatID != nil }.map(\.id))
+        return selectedChatIDs.filter { secretIDs.contains($0) == secret }.count
+    }
+
+    /// Telegram's limit screen without its Premium offer: the selection stops at TDLib's limit.
+    private func presentChosenChatLimit(_ limit: Int) {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: L10n.telegram("Premium.LimitReached"),
+            message: L10n.telegram("Premium.MaxChatsInFolderFinalText", "\(limit)").withoutTelegramMarkup,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        present(alert, animated: true)
     }
 
     private func reloadCandidates() {

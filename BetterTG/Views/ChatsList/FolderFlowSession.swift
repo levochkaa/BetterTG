@@ -21,7 +21,16 @@ import UIKit
         let write: (Mutation) async throws -> Void
     }
 
+    /// TDLib reads the folder screens make beyond the loaded chat lists. Callers check that the session is still
+    /// current when a read returns. Probe sessions have none.
+    struct Reader {
+        /// `chat_folder_chosen_chat_count_max`: how many non-secret chats a folder may pin and include, or exclude,
+        /// and as many secret chats again.
+        let chosenChatLimit: () async -> Int?
+    }
+
     private(set) var state = State.waiting
+    let reader: Reader?
 
     private let accountID: UUID?
     private let currentSource: () -> TdUpdateSource?
@@ -54,11 +63,13 @@ import UIKit
         clientChanges: AnyPublisher<TdUpdateSource, Never>, modelChanges: AnyPublisher<Void, Never>,
         folders: @escaping () -> [CustomFolder], allFolders: @escaping () -> [CustomFolder],
         resolve: @escaping (TdUpdateSource) -> Endpoint?,
+        reader: Reader? = nil,
     ) {
         self.accountID = initialSource?.accountID
         self.currentSource = currentSource
         self.ownerAccount = ownerAccount
         self.resolve = resolve
+        self.reader = reader
         self.readFolders = folders
         self.readAllFolders = allFolders
         clientChanges.sink { [weak self] source in
@@ -107,6 +118,15 @@ import UIKit
                     }
                 }
             },
+            reader: Reader(
+                chosenChatLimit: {
+                    let client = ChatListActionAuthority().client
+                    guard case .optionValueInteger(let value) = try? await client.getOption(
+                        name: "chat_folder_chosen_chat_count_max",
+                    ) else { return nil }
+                    return max(1, Int(clamping: value.value))
+                },
+            ),
         )
     }
 
