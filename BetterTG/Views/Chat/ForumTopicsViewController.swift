@@ -264,8 +264,9 @@ import UIKit
         tableView.deselectRow(at: indexPath, animated: true)
         guard presentationMode == .standard, snapshotState.canSelect,
               let topicID = dataSource.itemIdentifier(for: indexPath),
-              snapshotState.topic(id: topicID) != nil,
-              let topic = viewModel.topicForOpening(id: topicID, rawQuery: searchQuery)
+              let displayed = snapshotState.topic(id: topicID),
+              snapshotState.client(id: topicID)?.id == viewModel.client.id,
+              let topic = viewModel.topicForOpening(displayed)
         else { return }
         open(topic: topic, targetMessageID: nil, quote: nil, model: viewModel, binding: bindingID)
     }

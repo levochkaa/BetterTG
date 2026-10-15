@@ -259,10 +259,11 @@ import TDLibKit
         drainHeadRefresh()
     }
 
-    func topicForOpening(id: Int, rawQuery: String) -> ForumTopic? {
-        let normalized = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard contextIsCurrent, normalized == query, normalized == acceptedQuery else { return nil }
-        return topics.first { $0.info.forumTopicId == id }
+    /// A displayed row opens even while a new query's page loads; a newer copy of the same topic wins.
+    func topicForOpening(_ displayed: ForumTopic) -> ForumTopic? {
+        let id = displayed.info.forumTopicId
+        guard contextIsCurrent, displayed.info.chatId == location.chatID, id > 0 else { return nil }
+        return topics.first { $0.info.forumTopicId == id } ?? displayed
     }
 
     /// TDLib reports a deleted topic only through its deleted messages; drop the row once deletion succeeds.
