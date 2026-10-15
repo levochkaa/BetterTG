@@ -1227,3 +1227,8 @@
 "StorageManagement.SectionsDescription" = "All media will stay in the Telegram cloud and can be re-downloaded if you need it again.";
 "StorageManagement.Title" = "Storage Usage";
 "StorageManagement.TitleCleared" = "Storage Cleared";
+"Settings.ChatSettings" = "Data and Storage";
+"Settings.Devices" = "Devices";
+"Settings.NotificationsAndSounds" = "Notifications and Sounds";
+"Settings.PrivacySettings" = "Privacy and Security";
+"Settings.SavedMessages" = "Saved Messages";
