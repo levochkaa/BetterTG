@@ -588,6 +588,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         onSwipeToReply: (() -> Void)?,
         onSelectionToggle: (() -> Void)?,
         onReactionTap: @escaping (ReactionType) -> Void,
+        onReactionLongPress: ((ReactionType) -> Void)? = nil,
         onMetadataNavigate: @escaping (MessageMetadataNavigationTarget) -> Void,
         onReplyQuoteExpand: @escaping () -> Void,
         onContentAction: @escaping (MessageContentAction) -> Void,
@@ -824,6 +825,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 ? .center
                 : (message.message.isOutgoing ? .right : .left),
             onTap: onReactionTap,
+            onLongPress: message.reactions?.canGetAddedReactions == true ? onReactionLongPress : nil,
         )
         reactionView.isHidden = !hasReactions
 

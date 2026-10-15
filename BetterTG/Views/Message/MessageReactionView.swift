@@ -15,6 +15,9 @@ final class MessageReactionStripView: UIView {
         layoutMetrics(width: maximumLayoutWidth).size
     }
 
+    /// The chips open who reacted on a long press, so the message's own press yields to them.
+    private(set) var handlesLongPress = false
+
     private let itemSpacing = CGFloat(6)
     private let lineSpacing = CGFloat(6)
     private var buttons = [MessageReactionButton]()
@@ -66,11 +69,13 @@ final class MessageReactionStripView: UIView {
         mutationInFlight: Bool,
         horizontalAlignment: NSTextAlignment,
         onTap: @escaping (ReactionType) -> Void,
+        onLongPress: ((ReactionType) -> Void)? = nil,
     ) -> Bool {
         prepareForReuse()
         let visibleReactions = MessageReactionStateReducer.visible(reactions)
         guard !visibleReactions.isEmpty else { return false }
         self.horizontalAlignment = horizontalAlignment
+        handlesLongPress = onLongPress != nil
         let unreadTypes = Set(unreadReactions.map(\.type))
         var customButtons = [Int64: [MessageReactionButton]]()
         for reaction in visibleReactions {
@@ -80,6 +85,7 @@ final class MessageReactionStripView: UIView {
                 unread: unreadTypes.contains(reaction.type),
                 interactionEnabled: !mutationInFlight && (canAddReactions || reaction.isChosen),
                 onTap: onTap,
+                onLongPress: onLongPress,
             )
             button.setPlaybackVisible(playbackVisible)
             buttons.append(button)
@@ -130,6 +136,7 @@ final class MessageReactionStripView: UIView {
 
     func prepareForReuse() {
         generation &+= 1
+        handlesLongPress = false
         customEmojiTask?.cancel()
         customEmojiTask = nil
         for button in buttons {
@@ -227,6 +234,11 @@ private final class MessageReactionButton: UIControl {
     private var customEmojiView: CustomEmojiInlineView?
     private var reactionType: ReactionType?
     private var onTap: ((ReactionType) -> Void)?
+    private var onLongPress: ((ReactionType) -> Void)?
+    private lazy var longPressRecognizer = UILongPressGestureRecognizer(
+        target: self,
+        action: #selector(longPressed(_:)),
+    )
     private var playbackVisible = false
 
     override init(frame: CGRect) {
@@ -266,6 +278,9 @@ private final class MessageReactionButton: UIControl {
             unreadDot.heightAnchor.constraint(equalToConstant: 5),
         ])
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
+        longPressRecognizer.minimumPressDuration = 0.4
+        longPressRecognizer.isEnabled = false
+        addGestureRecognizer(longPressRecognizer)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -285,10 +300,13 @@ private final class MessageReactionButton: UIControl {
         unread: Bool,
         interactionEnabled: Bool,
         onTap: @escaping (ReactionType) -> Void,
+        onLongPress: ((ReactionType) -> Void)? = nil,
     ) {
         prepareForReuse()
         reactionType = reaction.type
         self.onTap = onTap
+        self.onLongPress = onLongPress
+        longPressRecognizer.isEnabled = onLongPress != nil
         emojiLabel.text = reaction.type.standardEmoji ?? "◇"
         countLabel.text = compactNumericCountString(reaction.totalCount)
         unreadDot.isHidden = !unread
@@ -351,11 +369,20 @@ private final class MessageReactionButton: UIControl {
         countLabel.text = nil
         reactionType = nil
         onTap = nil
+        onLongPress = nil
+        longPressRecognizer.isEnabled = false
     }
 
     @objc private func tapped() {
         guard let reactionType else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.55)
         onTap?(reactionType)
+    }
+
+    /// ChatMessageReactionsNode: a long press on a reaction lists who chose it.
+    @objc private func longPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, let reactionType, let onLongPress else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        onLongPress(reactionType)
     }
 }

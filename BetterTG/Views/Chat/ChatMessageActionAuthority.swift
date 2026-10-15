@@ -8,6 +8,8 @@ import UIKit
     enum Intent {
         case reply, selection, quote, media
         case reaction(ReactionType)
+        /// Who reacted with this reaction, from a long press on its chip.
+        case reactionList(ReactionType)
         case metadata(MessageMetadataNavigationTarget)
         case content(MessageContentAction)
     }
@@ -88,6 +90,9 @@ import UIKit
                   chosen == MessageReactionStateReducer.isChosen(type, in: renderValue.reactions),
                   message.reactions?.reactions.contains(where: { $0.type == type }) == true,
                   state.canAddReactions || chosen else { return nil }
+        case .reactionList(let type):
+            guard message.reactions?.canGetAddedReactions == true,
+                  message.reactions?.reactions.contains(where: { $0.type == type }) == true else { return nil }
         case .metadata(let target):
             guard target == replyTarget || target == forwardTarget else { return nil }
         case .quote:

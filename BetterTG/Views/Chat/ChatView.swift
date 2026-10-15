@@ -302,6 +302,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                   case .message = dataSource.itemIdentifier(for: indexPath),
                   let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
             else { return nil }
+            // A reaction chip that lists who reacted takes the long press itself.
+            var touched = collectionView.hitTest(point, with: nil)
+            while let current = touched, current !== cell {
+                if (current as? MessageReactionStripView)?.handlesLongPress == true { return nil }
+                touched = current.superview
+            }
             return cell.contextPreviewView
         }
         gesture.onPressCancelled = { [weak self] in self?.retryClientRestoration() }
@@ -2634,6 +2640,24 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                                 )
                                 else { return }
                                 chatVM.toggleReaction(on: current, type: type, isBig: false)
+                            },
+                            onReactionLongPress: { [weak self, weak cell] type in
+                                guard let self, let current = currentActionMessage(
+                                    authority,
+                                    cell: cell,
+                                    intent: .reactionList(type),
+                                )
+                                else { return }
+                                MessageInteractionsViewController.present(
+                                    .reactions(
+                                        isOutgoing: current.message.isOutgoing,
+                                        count: current.reactions?.reactions.first { $0.type == type }?.totalCount ?? 0,
+                                        type: type,
+                                    ),
+                                    chatID: current.message.chatId,
+                                    messageID: current.id,
+                                    from: self,
+                                )
                             },
                             onMetadataNavigate: { [weak self, weak cell] target in
                                 guard let self,

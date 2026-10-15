@@ -11,8 +11,9 @@ import UIKit
 final class MessageInteractionsViewController: SettingsListViewController {
     enum Kind {
         case viewers
-        /// `count` is the message's reaction total, the title until TDLib returns its own.
-        case reactions(isOutgoing: Bool, count: Int)
+        /// `count` is the message's reaction total, the title until TDLib returns its own. `type` lists one reaction,
+        /// as a long press on its chip does.
+        case reactions(isOutgoing: Bool, count: Int, type: ReactionType? = nil)
     }
 
     private struct Entry {
@@ -114,7 +115,7 @@ final class MessageInteractionsViewController: SettingsListViewController {
             case .viewers:
                 totalCount.map { L10n.telegramPlural("Conversation.ContextMenuSeen", count: $0) }
                     ?? L10n.betterTG("Message.SeenBy")
-            case .reactions(let isOutgoing, let count):
+            case .reactions(let isOutgoing, let count, _):
                 L10n.telegramPlural(
                     isOutgoing ? "Chat.OutgoingContextReactionCount" : "Chat.ContextReactionCount",
                     count: totalCount ?? count,
@@ -152,11 +153,11 @@ final class MessageInteractionsViewController: SettingsListViewController {
                     }
                 }
                 count = viewers?.viewers.count ?? 0
-            case .reactions:
+            case .reactions(_, _, let reactionType):
                 let page = try? await client.send(TDNativeRequests.getMessageAddedReactions(
                     chatId: chatID,
                     messageId: messageID,
-                    reactionType: nil,
+                    reactionType: reactionType,
                     offset: offset,
                     limit: Self.pageSize,
                 ))
