@@ -53,6 +53,8 @@
 "Conversation.ContextMenuReply" = "Reply";
 "Conversation.ContextMenuCopy" = "Copy";
 "Conversation.ContextMenuDelete" = "Delete";
+"Conversation.MessageDialogRetry" = "Resend";
+"Conversation.MessageDialogRetryAll" = "Resend %1$d Messages";
 "Conversation.ContextMenuOpenProfile" = "Open Profile";
 "Conversation.ContextMenuSearchMessages" = "Search Messages";
 "Conversation.DeleteMessagesForMe" = "Delete for me";

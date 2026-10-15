@@ -4416,6 +4416,24 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return readOnlyActions
         }
         var elements = [TelegramContextMenuAction]()
+        let resendableIDs = chatVM.resendableMessageIDs(in: message)
+        if !resendableIDs.isEmpty {
+            elements.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.MessageDialogRetry"),
+                image: UIImage(systemName: "arrow.clockwise"),
+            ) { [weak self] in
+                self?.chatVM.resendMessages(ids: resendableIDs)
+            })
+            let groups = chatVM.resendableMessageGroups()
+            if groups.count > 1 {
+                elements.append(TelegramContextMenuAction(
+                    title: L10n.telegram("Conversation.MessageDialogRetryAll", groups.count),
+                    image: UIImage(systemName: "arrow.clockwise"),
+                ) { [weak self] in
+                    self?.chatVM.resendMessages(ids: groups.flatMap(\.self))
+                })
+            }
+        }
         if message.properties.canBeReplied {
             elements
                 .append(TelegramContextMenuAction(

@@ -1611,6 +1611,43 @@ import UIKit
         deleteMessages(ids: ids, deleteForBoth: deleteForBoth)
     }
 
+    /// The failed items of a row that TDLib can send again. Voice and video notes the composer still owns keep their
+    /// own retry there.
+    func resendableMessageIDs(in message: CustomMessage) -> [Int64] {
+        guard !isReadOnlyTopic, locationContextIsCurrent else { return [] }
+        let composerOwnedIDs = Set([
+            pendingVoiceNote?.failedSendState?.messageID, pendingVideoNote?.failedSendState?.messageID,
+        ].compactMap(\.self))
+        return (message.album.isEmpty ? [message.message] : message.album).compactMap { source in
+            guard case .messageSendingStateFailed(let state) = source.sendingState, state.canRetry,
+                  !composerOwnedIDs.contains(source.id) else { return nil }
+            return source.id
+        }
+    }
+
+    /// Telegram's failed-message menu: Resend for the row, and Resend All for every failed row
+    /// (`requestRedeliveryOfFailedMessages`). An album is one row.
+    func resendableMessageGroups() -> [[Int64]] {
+        messages.map(resendableMessageIDs(in:)).filter { !$0.isEmpty }
+    }
+
+    func resendMessages(ids: [Int64]) {
+        guard !isReadOnlyTopic, locationContextIsCurrent, !ids.isEmpty else { return }
+        let client = client
+        let chatID = chatID
+        // TDLib replaces each failed message with a new pending one through its usual updates.
+        Task { [weak self] in
+            do {
+                _ = try await client.resendMessages(
+                    chatId: chatID, messageIds: ids.sorted(), paidMessageStarCount: 0, quote: nil,
+                )
+            } catch {
+                guard let self, locationContextIsCurrent else { return }
+                sendErrorMessage = error.localizedDescription
+            }
+        }
+    }
+
     func deleteMessages(ids rawIDs: [Int64], deleteForBoth: Bool) {
         guard !isReadOnlyTopic, locationContextIsCurrent else { return }
         let ids = Array(Set(rawIDs)).sorted()
