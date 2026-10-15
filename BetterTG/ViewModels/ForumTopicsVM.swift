@@ -74,6 +74,11 @@ import TDLibKit
         return ChatVM.memberStatus(memberCount: memberCount, onlineMemberCount: onlineMemberCount)
     }
 
+    /// Only live TDLib reads also search the forum's messages; probe models with injected reads never reach TDLib.
+    var searchesMessages: Bool {
+        usesTransport && reads.opensChat
+    }
+
     private var contextIsCurrent: Bool {
         usesTransport && !retired && reads.currentSource()?.matches(location) == true
             && client.id == location.clientID

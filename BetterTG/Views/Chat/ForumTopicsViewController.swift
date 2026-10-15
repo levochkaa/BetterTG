@@ -26,10 +26,25 @@ import UIKit
 
     private enum Section {
         case topics
+        case messages
+    }
+
+    private enum Item: Hashable {
+        case topic(Int)
+        case message(Int64)
+        case messagesLoading
+
+        var topicID: Int? {
+            if case .topic(let id) = self {
+                id
+            } else {
+                nil
+            }
+        }
     }
 
     /// Moves rows only while the list reorders its pinned topics; the diffable source keeps its snapshot in step.
-    private final class TopicRowsDataSource: UITableViewDiffableDataSource<Section, Int> {
+    private final class TopicRowsDataSource: UITableViewDiffableDataSource<Section, Item> {
         var canMoveRow: ((IndexPath) -> Bool)?
         /// The moved topic, the topic it was dropped onto, and whether it moved down.
         var didMoveRow: ((Int, Int, Bool) -> Void)?
@@ -47,13 +62,15 @@ import UIKit
             moveRowAt sourceIndexPath: IndexPath,
             to destinationIndexPath: IndexPath,
         ) {
-            let movedID = itemIdentifier(for: sourceIndexPath)
-            let referenceID = itemIdentifier(for: destinationIndexPath)
+            let movedID = itemIdentifier(for: sourceIndexPath)?.topicID
+            let referenceID = itemIdentifier(for: destinationIndexPath)?.topicID
             super.tableView(tableView, moveRowAt: sourceIndexPath, to: destinationIndexPath)
             guard sourceIndexPath != destinationIndexPath, let movedID, let referenceID else { return }
             didMoveRow?(movedID, referenceID, sourceIndexPath.row < destinationIndexPath.row)
         }
     }
+
+    private static let loadingRowHeight: CGFloat = 44
 
     #if DEBUG
     var probeSnapshotCompletion: ((@escaping () -> Void) -> Void)?
@@ -104,6 +121,10 @@ import UIKit
     private var isReorderingPinnedTopics = false
     private var reorderDoneButton: UIButton?
     private var pinnedOrderSave: Task<Void, Never>?
+    /// The forum's messages found for the current query, shown below its topics.
+    private var messageSearch: ForumMessageSearch?
+    /// Row models for found messages, kept while UIKit may still show them.
+    private var messageRows = [Int64: ForumMessageSearch.Result]()
     private var snapshotState = ForumTopicsSnapshotState()
     private var cancellables = Set<AnyCancellable>()
     private var ownershipCancellables = Set<AnyCancellable>()
@@ -302,12 +323,28 @@ import UIKit
     }
 
     func tableView(_: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        hiddenTopic(at: indexPath).map(hiddenRowHeight) ?? UITableView.automaticDimension
+        if dataSource?.itemIdentifier(for: indexPath) == .messagesLoading { return Self.loadingRowHeight }
+        return hiddenTopic(at: indexPath).map(hiddenRowHeight) ?? UITableView.automaticDimension
     }
 
     func tableView(_: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
         // An exact estimate keeps the hidden row's offset right before UIKit ever displays it.
         hiddenTopic(at: indexPath).map(hiddenRowHeight) ?? tableView.estimatedRowHeight
+    }
+
+    func tableView(_: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        dataSource?.sectionIdentifier(for: section) == .messages ? ChatListSearchSectionHeaderView.height : 0
+    }
+
+    /// Telegram titles the found messages below a forum's topics (ChatListSearchListPaneNode, Messages).
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        guard dataSource?.sectionIdentifier(for: section) == .messages,
+              let header = tableView.dequeueReusableHeaderFooterView(
+                  withIdentifier: ChatListSearchSectionHeaderView.reuseIdentifier,
+              ) as? ChatListSearchSectionHeaderView
+        else { return nil }
+        header.configure(title: L10n.telegram("DialogList.SearchSectionMessages"), actionTitle: nil, action: nil)
+        return header
     }
 
     func tableView(_: UITableView, editingStyleForRowAt _: IndexPath) -> UITableViewCell.EditingStyle {
@@ -324,7 +361,9 @@ import UIKit
         targetIndexPathForMoveFromRowAt sourceIndexPath: IndexPath,
         toProposedIndexPath proposedDestinationIndexPath: IndexPath,
     ) -> IndexPath {
-        let ids = dataSource.snapshot().itemIdentifiers
+        let snapshot = dataSource.snapshot()
+        guard snapshot.indexOfSection(.topics) != nil else { return sourceIndexPath }
+        let ids = snapshot.itemIdentifiers(inSection: .topics).compactMap(\.topicID)
         let pinnedRows = ids.indices.filter { row in
             snapshotState.topic(id: ids[row]).map { $0.isPinned && !$0.info.isHidden } == true
         }
@@ -382,7 +421,12 @@ import UIKit
     func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard presentationMode == .standard, snapshotState.canSelect,
-              let topicID = dataSource.itemIdentifier(for: indexPath),
+              let item = dataSource.itemIdentifier(for: indexPath) else { return }
+        if case .message(let messageID) = item, let result = messageRows[messageID] {
+            openMessageResult(result)
+            return
+        }
+        guard let topicID = item.topicID,
               let displayed = snapshotState.topic(id: topicID),
               snapshotState.client(id: topicID)?.id == viewModel.client.id,
               let topic = viewModel.topicForOpening(displayed)
@@ -391,7 +435,10 @@ import UIKit
     }
 
     func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
-        if contextIsCurrent, snapshotState.canSelect, indexPath.row >= max(0, snapshotState.displayedIDs.count - 5) {
+        guard contextIsCurrent, snapshotState.canSelect else { return }
+        if dataSource.sectionIdentifier(for: indexPath.section) == .messages {
+            if indexPath.row >= tableView.numberOfRows(inSection: indexPath.section) - 5 { messageSearch?.loadMore() }
+        } else if indexPath.row >= max(0, snapshotState.displayedIDs.count - 5) {
             viewModel.loadMore()
         }
     }
@@ -404,7 +451,10 @@ import UIKit
             viewportRestoration.cancel()
             previousSearchQuery = normalized
         }
-        if contextIsCurrent { viewModel.search(query) }
+        if contextIsCurrent {
+            viewModel.search(query)
+            messageSearch?.update(query: query)
+        }
         retryClientRestoration()
     }
 
@@ -429,7 +479,7 @@ import UIKit
     /// The hidden General, kept as the first row: Telegram leaves it above the list until it is pulled down
     /// (ChatListNode's hidden thread entry, ChatListItem `hiddenOffset`).
     private func hiddenTopic(at indexPath: IndexPath) -> ForumTopic? {
-        guard indexPath.section == 0, indexPath.row == 0, let id = dataSource?.itemIdentifier(for: indexPath),
+        guard indexPath.section == 0, indexPath.row == 0, let id = dataSource?.itemIdentifier(for: indexPath)?.topicID,
               let topic = snapshotState.topic(id: id), topic.info.isHidden else { return nil }
         return topic
     }
@@ -466,7 +516,7 @@ import UIKit
         let pages = viewModel.restorationState(rawQuery: query)
         let viewport = viewportRestoration.pending ?? (isViewLoaded
             ? ChatListViewportSnapshot.capture(
-                tableView: tableView, chatID: { dataSource.itemIdentifier(for: $0).map(Int64.init) },
+                tableView: tableView, chatID: { dataSource.itemIdentifier(for: $0)?.topicID.map(Int64.init) },
             )
             : .init(chatID: nil, rowMinYRelativeToViewport: 0, offsetFromTop: 0))
         return ClientRestorationState(
@@ -525,6 +575,9 @@ import UIKit
         targetResolutionTask?.cancel()
         targetResolutionTask = nil
         cancellables.removeAll()
+        messageSearch?.retire()
+        messageSearch = nil
+        messageRows.removeAll()
         viewModel.retire()
     }
 
@@ -619,6 +672,7 @@ import UIKit
                 if source == nil { cancelPreparation(clearFailure: false) }
                 if contextIsCurrent, isViewLoaded {
                     viewModel.search(searchQuery)
+                    messageSearch?.update(query: searchQuery)
                     applySnapshot(viewModel.topics, client: viewModel.client)
                 }
                 retryClientRestoration()
@@ -675,7 +729,7 @@ import UIKit
             usable: tableView.bounds.height > 0 && !tableView.isDragging && !tableView.isDecelerating,
         ) else { return }
         viewport.restore(tableView: tableView, indexPath: { id in
-            Int(exactly: id).flatMap { dataSource.indexPath(for: $0) }
+            Int(exactly: id).flatMap { dataSource.indexPath(for: .topic($0)) }
         })
     }
 
@@ -700,6 +754,15 @@ import UIKit
             pressGesture = press
         }
         tableView.register(ForumTopicCell.self, forCellReuseIdentifier: ForumTopicCell.reuseID)
+        tableView.register(
+            ChatListSearchLoadingCell.self,
+            forCellReuseIdentifier: ChatListSearchLoadingCell.reuseIdentifier,
+        )
+        tableView.register(
+            ChatListSearchSectionHeaderView.self,
+            forHeaderFooterViewReuseIdentifier: ChatListSearchSectionHeaderView.reuseIdentifier,
+        )
+        tableView.sectionHeaderTopPadding = 0
         view.addSubview(tableView)
         NSLayoutConstraint.activate([
             tableView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -754,16 +817,31 @@ import UIKit
     }
 
     private func configureDataSource() {
-        dataSource = TopicRowsDataSource(tableView: tableView) { [weak self] tableView, indexPath, topicID in
-            let topic = self?.snapshotState.topic(id: topicID)
-            return ForumTopicCell.dequeue(
-                from: tableView, at: indexPath,
-                topic: topic, client: self?.snapshotState.client(id: topicID),
-                muted: topic.map { self?.isMuted($0) == true } ?? false,
-            )
+        dataSource = TopicRowsDataSource(tableView: tableView) { [weak self] tableView, indexPath, item in
+            switch item {
+            case .topic(let topicID):
+                let topic = self?.snapshotState.topic(id: topicID)
+                return ForumTopicCell.dequeue(
+                    from: tableView, at: indexPath,
+                    topic: topic, client: self?.snapshotState.client(id: topicID),
+                    muted: topic.map { self?.isMuted($0) == true } ?? false,
+                )
+            case .message(let messageID):
+                // Telegram shows a found message in its topic's row (ChatListItem in a `.forum` location).
+                let result = self?.messageRows[messageID]
+                return ForumTopicCell.dequeue(
+                    from: tableView, at: indexPath,
+                    topic: result.map { $0.topic.showing(foundMessage: $0.message) }, client: self?.viewModel.client,
+                )
+            case .messagesLoading:
+                return tableView.dequeueReusableCell(
+                    withIdentifier: ChatListSearchLoadingCell.reuseIdentifier,
+                    for: indexPath,
+                )
+            }
         }
         dataSource.canMoveRow = { [weak self] indexPath in
-            guard let self, isReorderingPinnedTopics, let id = dataSource.itemIdentifier(for: indexPath),
+            guard let self, isReorderingPinnedTopics, let id = dataSource.itemIdentifier(for: indexPath)?.topicID,
                   let topic = snapshotState.topic(id: id) else { return false }
             return topic.isPinned && !topic.info.isHidden
         }
@@ -775,6 +853,20 @@ import UIKit
     private func observeState() {
         let model = viewModel
         let binding = bindingID
+        messageSearch?.retire()
+        messageSearch = nil
+        if presentationMode == .standard, model.searchesMessages {
+            let search = ForumMessageSearch(client: model.client, chatID: model.location.chatID) { [weak self] in
+                self?.owns(model, binding: binding) == true
+            }
+            search.onChange = { [weak self] in
+                guard let self, owns(model, binding: binding) else { return }
+                applySnapshot(model.topics, client: model.client)
+            }
+            messageSearch = search
+            search.noteTopics(model.topics)
+            search.update(query: searchQuery)
+        }
         model.$memberCount
             .combineLatest(model.$onlineMemberCount)
             .receive(on: DispatchQueue.main)
@@ -801,6 +893,7 @@ import UIKit
             .receive(on: DispatchQueue.main)
             .sink { [weak self] topics in
                 guard let self, owns(model, binding: binding) else { return }
+                messageSearch?.noteTopics(topics)
                 applySnapshot(topics, client: model.client)
             }
             .store(in: &cancellables)
@@ -829,10 +922,21 @@ import UIKit
     private func drainSnapshot() {
         guard !retired, !isReorderingPinnedTopics, let batch = snapshotState.begin() else { return }
         let previousIDs = Set(dataSource.snapshot().itemIdentifiers)
-        var snapshot = NSDiffableDataSourceSnapshot<Section, Int>()
+        var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
         snapshot.appendSections([.topics])
-        snapshot.appendItems(batch.ids)
-        let retainedIDs = batch.ids.filter(previousIDs.contains)
+        snapshot.appendItems(batch.ids.map(Item.topic))
+        // Found messages follow the topics while a query is entered.
+        let messageResults = messageSearch?.results ?? []
+        for result in messageResults {
+            messageRows[result.message.id] = result
+        }
+        var messageItems = messageResults.map { Item.message($0.message.id) }
+        if messageSearch?.isLoading == true { messageItems.append(.messagesLoading) }
+        if !messageItems.isEmpty {
+            snapshot.appendSections([.messages])
+            snapshot.appendItems(messageItems)
+        }
+        let retainedIDs = snapshot.itemIdentifiers.filter { $0 != .messagesLoading && previousIDs.contains($0) }
         if !retainedIDs.isEmpty {
             snapshot.reconfigureItems(retainedIDs)
         }
@@ -898,11 +1002,15 @@ import UIKit
         // A removed row can move the table while its animation runs without the bar following; after a topic was
         // deleted the search slot stayed open with the search field collapsed, leaving an empty band.
         updateNavigationBar()
+        let shownMessages = Set(dataSource.snapshot().itemIdentifiers.compactMap { item -> Int64? in
+            if case .message(let id) = item { id } else { nil }
+        })
+        messageRows = messageRows.filter { shownMessages.contains($0.key) }
         if owns(model, binding: binding) {
             restoreViewportIfNeeded()
             if view.window != nil, navigationController?.topViewController === self,
                tableView.indexPathsForVisibleRows?.contains(where: {
-                   $0.row >= max(0, self.snapshotState.displayedIDs.count - 5)
+                   $0.section == 0 && $0.row >= max(0, self.snapshotState.displayedIDs.count - 5)
                }) == true { model.loadMore() }
         }
         retryClientRestoration()
@@ -925,7 +1033,9 @@ import UIKit
             tableView.backgroundView = button
             return
         }
-        guard viewModel.topics.isEmpty else {
+        // Found messages, or the row loading them, fill the list on their own.
+        guard viewModel.topics.isEmpty, messageSearch?.results.isEmpty != false, messageSearch?.isLoading != true
+        else {
             tableView.backgroundView = nil
             return
         }
@@ -1012,6 +1122,21 @@ import UIKit
             targetQuote: quote,
         ))
         return true
+    }
+
+    /// Telegram opens a found message in its topic, scrolled to the message (ChatListSearchListPaneNode, message
+    /// interaction in a `.forum` location).
+    private func openMessageResult(_ result: ForumMessageSearch.Result) {
+        let model = viewModel
+        guard owns(model, binding: bindingID), result.message.chatId == model.location.chatID,
+              navigationController?.topViewController === self else { return }
+        NavigationStorage.shared.push(.customChat(
+            model.customChat,
+            location: model.location.withForumTopic(id: result.topic.info.forumTopicId),
+            forumTopic: result.topic,
+            targetMessageID: result.message.id,
+            targetQuote: nil,
+        ))
     }
 
     /// Telegram's forum title opens the group's info (ChatListController.updateForum, tapped).
@@ -1148,7 +1273,7 @@ import UIKit
         guard gesture.state == .began, presentationMode == .standard, contextIsCurrent,
               presentedViewController == nil,
               let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
-              let topicID = dataSource.itemIdentifier(for: path),
+              let topicID = dataSource.itemIdentifier(for: path)?.topicID,
               let topic = snapshotState.topic(id: topicID),
               let cell = tableView.cellForRow(at: path) as? ForumTopicCell
         else { return }

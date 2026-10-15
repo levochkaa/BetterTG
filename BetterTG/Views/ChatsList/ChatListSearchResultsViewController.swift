@@ -586,7 +586,7 @@ import UIKit
 // MARK: - ChatListSearchSectionHeaderView
 
 /// Telegram's ChatListSearchItemHeader: an uppercased caption with an optional trailing action.
-private final class ChatListSearchSectionHeaderView: UITableViewHeaderFooterView {
+final class ChatListSearchSectionHeaderView: UITableViewHeaderFooterView {
     static let reuseIdentifier = "ChatListSearchSectionHeaderView"
     static let height: CGFloat = 28
 
@@ -746,7 +746,7 @@ private final class ChatListSearchPeerCell: UITableViewCell {
 // MARK: - ChatListSearchLoadingCell
 
 /// Stands in for Telegram's message placeholders while messages load.
-private final class ChatListSearchLoadingCell: UITableViewCell {
+final class ChatListSearchLoadingCell: UITableViewCell {
     static let reuseIdentifier = "ChatListSearchLoadingCell"
 
     private let indicator = UIActivityIndicatorView(style: .medium)
