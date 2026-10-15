@@ -962,3 +962,15 @@
 "Conversation.SearchByName.Placeholder" = "Search Members";
 "Conversation.SearchPlaceholder" = "Search this chat";
 "Chat.JumpToDate" = "Jump to Date";
+"PeerInfo.ButtonMore" = "More";
+"PeerInfo.ButtonMute" = "Mute";
+"PeerInfo.ButtonUnmute" = "Unmute";
+"PeerInfo.TooltipUnmuted" = "Notifications are unmuted.";
+"PeerInfo.EnableAutoDelete" = "Enable Auto-Delete";
+"PeerInfo.AdjustAutoDelete" = "Adjust Auto-Delete";
+"PeerInfo.AutoDeleteDisable" = "Disable";
+"Conversation.AutoremoveChanged" = "Auto-Delete timer set to %@";
+"Conversation.AutoremoveOff" = "Auto-Delete is now off.";
+"PeerInfo.ClearMessages" = "Clear Messages";
+"Conversation.DeleteMessagesFor" = "Delete for me and %@";
+"Group.LeaveGroup" = "Leave Group";

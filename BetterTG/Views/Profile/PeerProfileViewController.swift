@@ -161,6 +161,12 @@ ClientRestorableNavigationEntry {
         symbol: "person.badge.key.fill",
         action: #selector(administratorsPressed),
     )
+    private lazy var moreActionButton = profileButton(
+        title: L10n.telegram("PeerInfo.ButtonMore"),
+        symbol: "ellipsis",
+        action: #selector(morePressed),
+    )
+    private var moreMenuTask: Task<Void, Never>?
     private let profileHeaderView = UIView()
     private let sharedTabs = FolderPickerView()
     private var selectedSharedTab = SharedTab.media
@@ -402,6 +408,7 @@ ClientRestorableNavigationEntry {
         historyTask?.cancel()
         sharedTabCountTask?.cancel()
         groupsInCommonTask?.cancel()
+        moreMenuTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -1047,6 +1054,7 @@ ClientRestorableNavigationEntry {
 
         actionStack.addArrangedSubview(membersActionButton)
         actionStack.addArrangedSubview(administratorsActionButton)
+        actionStack.addArrangedSubview(moreActionButton)
         updateActionAvailability()
 
         if let tab = restoration?.tab { selectedSharedTab = tab }
@@ -1867,6 +1875,8 @@ ClientRestorableNavigationEntry {
 
     private func updateActionAvailability() {
         messageActionButton.isHidden = isSelfProfile
+        // Telegram's Mute and More act on the whole chat; a topic's profile and Saved Messages have their own.
+        moreActionButton.isHidden = isSelfProfile || topic != nil
         membersActionButton.isHidden =
             switch customChat.type {
             case .group:
@@ -2816,6 +2826,32 @@ ClientRestorableNavigationEntry {
 
     @objc private func searchPressed() {
         onSearch?()
+    }
+
+    /// Telegram's Mute and More header buttons, read from the chat's current settings.
+    @objc private func morePressed() {
+        guard moreMenuTask == nil, presentedViewController == nil else { return }
+        let scope = ChatListActionAuthority().scope(owner: self)
+        let client = client
+        guard scope.isCurrent, client.id == TDLib.shared.activeClient.id else { return }
+        let chatID = customChat.id
+        moreMenuTask = Task { [weak self] in
+            let chat = try? await client.getChat(chatId: chatID)
+            guard let self else { return }
+            moreMenuTask = nil
+            guard let chat, scope.isCurrent, presentedViewController == nil else { return }
+            let menu = PeerProfileMoreMenu(
+                customChat: customChat,
+                chat: chat,
+                client: client,
+                canChangeInfo: infoPermission.canChangeInfo,
+                scope: scope,
+                host: self,
+            )
+            presentTelegramContextMenu(
+                sourceView: moreActionButton, actions: menu.actions(), presentationStyle: .sourceMorph,
+            )
+        }
     }
 }
 
