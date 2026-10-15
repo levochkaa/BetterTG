@@ -43,6 +43,17 @@
 "DialogList.SearchLabel" = "Search for messages or users";
 "DialogList.SearchLabelCompact" = "Search";
 "DialogList.Typing" = "typing";
+"DialogList.SingleTypingSuffix" = "%@ is typing";
+"DialogList.SingleRecordingAudioSuffix" = "%@ is recording audio";
+"DialogList.SingleUploadingPhotoSuffix" = "%@ is sending photo";
+"DialogList.SingleUploadingVideoSuffix" = "%@ is sending video";
+"DialogList.SingleRecordingVideoMessageSuffix" = "%@ is recording video";
+"DialogList.SingleUploadingFileSuffix" = "%@ is sending file";
+"DialogList.SinglePlayingGameSuffix" = "%@ is playing a game";
+"DialogList.SingleChoosingStickerSuffix" = "%@ is choosing sticker";
+"DialogList.MultipleTypingSuffix" = "%d are typing";
+"DialogList.MultipleTyping" = "%@ and %@";
+"DialogList.MultipleTypingPair" = "%@ and %@ are typing";
 "DialogList.Draft" = "Draft";
 "DialogList.Unread" = "Unread";
 

@@ -1,5 +1,6 @@
 // ChatsListItemView.swift
 
+import Combine
 import TDLibKit
 import UIKit
 
@@ -38,6 +39,7 @@ final class ChatListCell: UITableViewCell {
     private var configuredMuted = false
     private var configuredArchived = false
     private var configuredClient: TDLibClient?
+    private var activityCancellable: AnyCancellable?
 
     var contextPreviewView: UIView { rowView }
 
@@ -59,6 +61,7 @@ final class ChatListCell: UITableViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         avatarView.prepareForReuse()
+        activityCancellable = nil
     }
 
     override func setHighlighted(_ highlighted: Bool, animated: Bool) {
@@ -145,7 +148,17 @@ final class ChatListCell: UITableViewCell {
         pinned = chat.position.isPinned
         backgroundColor = pinned ? .secondarySystemBackground : .systemBackground
         titleLabel.text = chat.displayTitle
-        messageLabel.attributedText = summaryText(for: chat, client: client)
+        messageLabel.attributedText = activityText(for: chat, client: client) ?? summaryText(for: chat, client: client)
+        let chatID = chat.id
+        activityCancellable = ChatListActivities.shared
+            .changes
+            .filter { $0 == chatID }
+            .sink { [weak self] _ in
+                guard let self, let chat = configuredChat, chat.id == chatID,
+                      let client = configuredClient else { return }
+                messageLabel.attributedText = activityText(for: chat, client: client)
+                    ?? summaryText(for: chat, client: client)
+            }
         let hasUnread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
         let mentionBadge = Self.mentionBadgeImage(for: chat, isMuted: isMuted, isArchived: isArchived)
         mentionBadgeView.image = mentionBadge
@@ -206,6 +219,12 @@ final class ChatListCell: UITableViewCell {
             .compactMap(\.self)
             .joined(separator: ", ")
         accessibilityTraits = .button
+    }
+
+    /// Telegram replaces the row's message with who is typing or sending, while they do (`ChatListTypingNode`).
+    private func activityText(for chat: CustomChat, client: TDLibClient) -> NSAttributedString? {
+        guard let text = ChatListActivities.shared.text(for: chat, client: client), !text.isEmpty else { return nil }
+        return NSAttributedString(string: text + "…", attributes: [.foregroundColor: UIColor.secondaryLabel])
     }
 
     private func summaryText(for chat: CustomChat, client: TDLibClient) -> NSAttributedString? {

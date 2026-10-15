@@ -130,6 +130,8 @@ import TDLibKit
             mutate(value.chatId) { $0.messageAutoDeleteTime = value.messageAutoDeleteTime }
         case .updateChatActionBar(let value):
             mutate(value.chatId) { $0.actionBar = value.actionBar }
+        case .updateChatAction(let value):
+            ChatListActivities.shared.receive(value, clientID: clientID)
         case .updateChatReplyMarkup(let value):
             mutate(value.chatId) { $0.replyMarkupMessageId = value.replyMarkupMessage?.id ?? 0 }
         case .updateChatVideoChat(let value):
