@@ -331,7 +331,7 @@ final class TDLib: @unchecked Sendable {
     /// attempt's unauthorized client is closed and its directory removed, as switching away from it does.
     @MainActor func restartActiveSignIn(accountID: UUID) throws {
         guard let discarded = activeAccount, discarded.id == accountID, discarded.userID == nil,
-              !isActiveAccountReady else { throw TelegramAccountError.unavailable }
+              !isActiveAccountReady, activeAccountAwaitsSignIn else { throw TelegramAccountError.unavailable }
         let previous = activeClientSnapshot()
         let now = Date()
         let replacement = TelegramAccount(
