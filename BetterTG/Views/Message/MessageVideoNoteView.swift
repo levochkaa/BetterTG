@@ -354,6 +354,11 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
                 self?.pauseForCompetingPlayback()
             }
             .store(in: &cancellables)
+        NotificationCenter.default
+            .publisher(for: .voiceRecordingWillStart)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.pauseForCompetingPlayback() }
+            .store(in: &cancellables)
     }
 
     private func observeBinding(_ backend: VideoNotePlaybackBackend) {

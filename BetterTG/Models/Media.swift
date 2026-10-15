@@ -79,8 +79,9 @@ final class Media: ObservableObject {
     }
 
     func setAudioSessionRecord() {
+        // A failed deactivation (a player still holds the session) must not skip the record category.
+        try? audioSession.setActive(false)
         do {
-            try audioSession.setActive(false)
             try audioSession.setCategory(.playAndRecord, mode: .default, policy: .default, options: [
                 .allowAirPlay,
                 .allowBluetoothHFP,

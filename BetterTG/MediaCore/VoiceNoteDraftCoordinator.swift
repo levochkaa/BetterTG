@@ -104,4 +104,6 @@ final class VoiceNoteDraftCoordinator {
 
 extension Notification.Name {
     static let voiceNoteDraftResolved = Self("voiceNoteDraftResolved")
+    /// A voice recording is about to take the audio session; inline playback such as a video note pauses.
+    static let voiceRecordingWillStart = Self("voiceRecordingWillStart")
 }

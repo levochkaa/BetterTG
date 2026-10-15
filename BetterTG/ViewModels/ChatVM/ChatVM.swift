@@ -3485,8 +3485,11 @@ import UIKit
         ) else { return false }
         activeVoiceRecordingContext = recordingContext
         pendingVoiceReplyMessage = replySnapshot
-        Media.shared.setAudioSessionRecord()
+        // Playback lets go of the session first, as the video note capture does; switching under a loaded player
+        // can fail the deactivation and leave the session unable to record.
         Media.shared.stop()
+        nc.post(name: .voiceRecordingWillStart, object: nil)
+        Media.shared.setAudioSessionRecord()
         
         let url = URL(filePath: NSTemporaryDirectory()).appending(path: "\(UUID().uuidString).wav")
         recordingVoiceNoteURL = url
