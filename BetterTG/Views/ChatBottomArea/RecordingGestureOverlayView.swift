@@ -94,7 +94,8 @@ final class RecordingGestureOverlayView: UIView {
             systemName: translation.y < -60 ? "lock.fill" : "lock.open.fill",
             withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold),
         )
-        hint.text = translation.x < -70
+        // The same distance as the release that cancels (Telegram's -100 pt haptic and cancel).
+        hint.text = translation.x < -100
             ? L10n.betterTG("Composer.ReleaseToCancel")
             : "‹  \(L10n.telegram("Conversation.SlideToCancel"))"
         hint.alpha = max(0, 1 + translation.y / 70)
