@@ -419,6 +419,9 @@
 "Watch.LastSeen.WithinAWeek" = "within a week";
 "Watch.LastSeen.WithinAMonth" = "within a month";
 "GroupInfo.ActionAddRank" = "Add Member Tag";
+"GroupInfo.ActionEditRank" = "Edit Member Tag";
+"GroupInfo.ActionEditAdminRank" = "Edit Admin Tag";
+"GroupInfo.ActionSend" = "Send Message";
 "UserInfo.FirstNamePlaceholder" = "First Name";
 "UserInfo.LastNamePlaceholder" = "Last Name";
 "Settings.About" = "Bio";

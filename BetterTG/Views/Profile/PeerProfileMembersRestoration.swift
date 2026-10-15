@@ -129,6 +129,7 @@ struct PeerProfileMembersRevalidation {
         cell.isAccessibilityElement = true
         cell.accessibilityLabel = content.text
         cell.accessibilityHint = nil
+        cell.accessibilityCustomActions = nil
         cell.accessibilityTraits = .staticText
     }
 }

@@ -39,6 +39,34 @@ import UIKit
     private struct Seed {
         let id: MemberID
         let role: String
+        /// The member as its page read it; an administrators row knows only its ownership and title.
+        let status: ChatMemberStatus?
+        let isAdministrator: Bool
+        let isOwner: Bool
+        let tag: String
+
+        init(
+            id: MemberID,
+            role: String,
+            status: ChatMemberStatus? = nil,
+            isAdministrator: Bool = false,
+            isOwner: Bool = false,
+            tag: String = "",
+        ) {
+            self.id = id
+            self.role = role
+            self.status = status
+            self.isAdministrator = isAdministrator
+            self.isOwner = isOwner
+            self.tag = tag
+        }
+    }
+
+    /// What the row menu needs to offer tag editing without a read: the chat and the account's own status in it.
+    private struct MemberActionContext {
+        var chatType: ChatType
+        var permissions: ChatPermissions
+        var actorStatus: ChatMemberStatus
     }
 
     /// The group fields the list depends on: who is in it and what the account may see. Other changes (title, photo,
@@ -101,6 +129,10 @@ import UIKit
     private var resolutionTask: Task<Void, Never>?
     private var reloadTask: Task<Void, Never>?
     private var tagPreparationTask: Task<Void, Never>?
+    private var memberNavigationTask: Task<Void, Never>?
+    private var memberNavigationGeneration = UInt64.zero
+    private var actionContext: MemberActionContext?
+    private var actionContextTask: Task<Void, Never>?
     private var loadGeneration = UInt64.zero
     /// Name and role resolution survives a reread that keeps the rows; only a reset drops it.
     private var rowGeneration = UInt64.zero
@@ -127,7 +159,8 @@ import UIKit
     }
 
     private var isQuiescent: Bool {
-        tagPreparationTask == nil && presentedViewController == nil && !isPresentingTelegramContextMenu
+        tagPreparationTask == nil && memberNavigationTask == nil && presentedViewController == nil
+            && !isPresentingTelegramContextMenu
             && !tableView.isTracking && !tableView.isDragging && !tableView.isDecelerating
     }
 
@@ -178,6 +211,8 @@ import UIKit
         resolutionTask?.cancel()
         reloadTask?.cancel()
         tagPreparationTask?.cancel()
+        memberNavigationTask?.cancel()
+        actionContextTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -186,6 +221,9 @@ import UIKit
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 58
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "member")
+        tableView.addGestureRecognizer(UILongPressGestureRecognizer(
+            target: self, action: #selector(memberLongPressed(_:)),
+        ))
         configureDataSource()
         #if DEBUG
         if isRestorationProbe { applySnapshot()
@@ -244,22 +282,26 @@ import UIKit
         }
         nc.scopedPublisher(&cancellables, for: .updateBasicGroup) { [weak self] event in
             guard let self, contextIsCurrent, event.source == identity.origin,
-                  source.group == .basic(event.value.basicGroup.id),
-                  groupRevision.observe(GroupListSignature(event.value.basicGroup)) else { return }
+                  source.group == .basic(event.value.basicGroup.id) else { return }
+            actionContext?.actorStatus = event.value.basicGroup.status
+            guard groupRevision.observe(GroupListSignature(event.value.basicGroup)) else { return }
             scheduleReload()
         }
         nc.scopedPublisher(&cancellables, for: .updateSupergroup) { [weak self] event in
             guard let self, contextIsCurrent, event.source == identity.origin,
-                  source.group == .supergroup(event.value.supergroup.id),
-                  groupRevision.observe(GroupListSignature(event.value.supergroup)) else { return }
+                  source.group == .supergroup(event.value.supergroup.id) else { return }
+            actionContext?.actorStatus = event.value.supergroup.status
+            guard groupRevision.observe(GroupListSignature(event.value.supergroup)) else { return }
             scheduleReload()
         }
         nc.scopedPublisher(&cancellables, for: .updateChatPermissions) { [weak self] event in
             guard let self, contextIsCurrent, event.source == identity.origin,
-                  event.value.chatId == source.chatID,
-                  permissionsRevision.observe(event.value.permissions) else { return }
+                  event.value.chatId == source.chatID else { return }
+            actionContext?.permissions = event.value.permissions
+            guard permissionsRevision.observe(event.value.permissions) else { return }
             scheduleReload()
         }
+        loadActionContext()
         applySnapshot()
     }
 
@@ -315,50 +357,13 @@ import UIKit
 
     override func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard tagPreparationTask == nil,
-              contextIsCurrent,
-              let accountUserID,
-              let memberID = dataSource.itemIdentifier(for: indexPath),
-              case .user(let targetUserID) = memberID,
-              let title = rows[memberID]?.title
-        else { return }
-        tableView.isUserInteractionEnabled = false
-        tagPreparationTask = Task { [weak self] in
+        guard let memberID = dataSource.itemIdentifier(for: indexPath), rows[memberID] != nil else { return }
+        // Telegram opens the member's profile (`PeerInfoScreenOpenMember`); tag editing moved to the row menu.
+        openMember(memberID) { [weak self] chat in
             guard let self else { return }
-            do {
-                let authority = try await PeerProfileMemberTagAuthority.resolve(
-                    accountID: accountID,
-                    accountUserID: accountUserID,
-                    chatID: source.chatID,
-                    targetUserID: targetUserID,
-                    client: client,
-                )
-                guard !Task.isCancelled, contextIsCurrent else { return }
-                tagPreparationTask = nil
-                tableView.isUserInteractionEnabled = true
-                let editor = PeerProfileMemberTagViewController(
-                    accountID: accountID,
-                    accountUserID: accountUserID,
-                    chatID: source.chatID,
-                    initialAuthority: authority,
-                    targetTitle: title,
-                    targetUserID: targetUserID,
-                )
-                editor.onSaved = { [weak self] in
-                    guard let self, contextIsCurrent else { return }
-                    scheduleReload()
-                }
-                tagRetention.editor = editor
-                navigationController?.pushViewController(editor, animated: true)
-            } catch is CancellationError {
-                tagPreparationTask = nil
-                tableView.isUserInteractionEnabled = true
-            } catch {
-                guard contextIsCurrent else { return }
-                tagPreparationTask = nil
-                tableView.isUserInteractionEnabled = true
-                presentTagError(error)
-            }
+            let profile = PeerProfileViewController(customChat: chat, topic: nil, client: client, accountID: accountID)
+            profile.configureOpensChatItself()
+            navigationController?.pushViewController(profile, animated: true)
         }
     }
 
@@ -369,7 +374,27 @@ import UIKit
     }
 
     private static func seed(for member: ChatMember) -> Seed {
-        Seed(id: MemberID(member.memberId), role: role(for: member))
+        let isAdministrator: Bool
+        let isOwner: Bool
+        switch member.status {
+        case .chatMemberStatusCreator:
+            isAdministrator = true
+            isOwner = true
+        case .chatMemberStatusAdministrator:
+            isAdministrator = true
+            isOwner = false
+        case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember, .chatMemberStatusRestricted:
+            isAdministrator = false
+            isOwner = false
+        }
+        return Seed(
+            id: MemberID(member.memberId),
+            role: role(for: member),
+            status: member.status,
+            isAdministrator: isAdministrator,
+            isOwner: isOwner,
+            tag: member.tag,
+        )
     }
 
     private static func role(for member: ChatMember) -> String {
@@ -402,6 +427,25 @@ import UIKit
         case .userStatusLastWeek: L10n.telegram("Watch.LastSeen.WithinAWeek")
         case .userStatusLastMonth: L10n.telegram("Watch.LastSeen.WithinAMonth")
         case .userStatusEmpty, .userStatusOffline: ""
+        }
+    }
+
+    /// A user member's private chat, which TDLib opens locally for a known user, or the chat that is a member.
+    private static func chatID(of memberID: MemberID, client: TDLibClient) async -> Int64? {
+        switch memberID {
+        case .user(let userID):
+            try? await client.createPrivateChat(force: false, userId: userID).id
+        case .chat(let chatID):
+            chatID
+        }
+    }
+
+    private static func accountStatus(in group: Source.Group, client: TDLibClient) async -> ChatMemberStatus? {
+        switch group {
+        case .basic(let id):
+            try? await client.getBasicGroup(basicGroupId: id).status
+        case .supergroup(let id):
+            try? await client.getSupergroup(supergroupId: id).status
         }
     }
 
@@ -457,6 +501,144 @@ import UIKit
         })
     }
 
+    /// Telegram's member menu (`openMemberContextMenu`): Send Message for anyone else, then the tag where the account
+    /// may edit it. Promote, Restrict and Remove are not offered yet.
+    @objc private func memberLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, contextIsCurrent, isQuiescent,
+              let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+              let memberID = dataSource.itemIdentifier(for: path), rows[memberID] != nil,
+              let cell = tableView.cellForRow(at: path) else { return }
+        presentTelegramContextMenu(sourceView: cell, actions: memberActions(for: memberID))
+    }
+
+    private func memberActions(for memberID: MemberID) -> [TelegramContextMenuAction] {
+        var actions = [TelegramContextMenuAction]()
+        if memberID != .user(accountUserID ?? 0) {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("GroupInfo.ActionSend"),
+                image: UIImage(systemName: "bubble.left"),
+            ) { [weak self] in
+                self?.openMember(memberID) { NavigationStorage.shared.push(.customChat($0)) }
+            })
+        }
+        if let title = tagActionTitle(for: memberID) {
+            actions.append(TelegramContextMenuAction(title: title, image: UIImage(systemName: "tag")) { [weak self] in
+                self?.openTagEditor(for: memberID)
+            })
+        }
+        return actions
+    }
+
+    /// The menu title when the account may edit this member's tag, by the editor's own rule.
+    private func tagActionTitle(for memberID: MemberID) -> String? {
+        guard let accountUserID, case .user(let targetUserID) = memberID,
+              let seed = seeds[memberID], let actionContext else { return nil }
+        let targetStatus = seed.status
+        // An administrators row has no member status: the owner is never tagged by others, and the editor reads
+        // the rest when it opens.
+        if targetStatus == nil, seed.isOwner, targetUserID != accountUserID { return nil }
+        do {
+            try PeerProfileMemberTagAuthority.check(
+                chatType: actionContext.chatType,
+                permissions: actionContext.permissions,
+                actorStatus: actionContext.actorStatus,
+                targetStatus: targetStatus,
+                actorID: accountUserID,
+                targetID: targetUserID,
+            )
+        } catch {
+            return nil
+        }
+        if seed.isAdministrator { return L10n.telegram("GroupInfo.ActionEditAdminRank") }
+        return seed.tag.isEmpty ? L10n.telegram("GroupInfo.ActionAddRank") : L10n.telegram("GroupInfo.ActionEditRank")
+    }
+
+    /// Resolves the member's chat in this client, as a tap or Send Message opens it: a user's private chat, or
+    /// the chat that is a member itself.
+    private func openMember(_ memberID: MemberID, open: @escaping (CustomChat) -> Void) {
+        guard memberNavigationTask == nil, tagPreparationTask == nil, contextIsCurrent else { return }
+        let client = client
+        memberNavigationGeneration &+= 1
+        let generation = memberNavigationGeneration
+        memberNavigationTask = Task { [weak self] in
+            let chatID = await Self.chatID(of: memberID, client: client)
+            var chat: CustomChat?
+            if let chatID, self?.contextIsCurrent == true {
+                chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client)
+            }
+            guard let self, memberNavigationGeneration == generation else { return }
+            memberNavigationTask = nil
+            guard !Task.isCancelled, let chat, contextIsCurrent,
+                  navigationController?.topViewController === self else { return }
+            open(chat)
+        }
+    }
+
+    private func openTagEditor(for memberID: MemberID) {
+        guard tagPreparationTask == nil,
+              memberNavigationTask == nil,
+              contextIsCurrent,
+              let accountUserID,
+              case .user(let targetUserID) = memberID,
+              let title = rows[memberID]?.title
+        else { return }
+        tableView.isUserInteractionEnabled = false
+        tagPreparationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let authority = try await PeerProfileMemberTagAuthority.resolve(
+                    accountID: accountID,
+                    accountUserID: accountUserID,
+                    chatID: source.chatID,
+                    targetUserID: targetUserID,
+                    client: client,
+                )
+                guard !Task.isCancelled, contextIsCurrent else { return }
+                tagPreparationTask = nil
+                tableView.isUserInteractionEnabled = true
+                let editor = PeerProfileMemberTagViewController(
+                    accountID: accountID,
+                    accountUserID: accountUserID,
+                    chatID: source.chatID,
+                    initialAuthority: authority,
+                    targetTitle: title,
+                    targetUserID: targetUserID,
+                )
+                editor.onSaved = { [weak self] in
+                    guard let self, contextIsCurrent else { return }
+                    scheduleReload()
+                }
+                tagRetention.editor = editor
+                navigationController?.pushViewController(editor, animated: true)
+            } catch is CancellationError {
+                tagPreparationTask = nil
+                tableView.isUserInteractionEnabled = true
+            } catch {
+                guard contextIsCurrent else { return }
+                tagPreparationTask = nil
+                tableView.isUserInteractionEnabled = true
+                presentTagError(error)
+            }
+        }
+    }
+
+    /// The chat and the account's status in it, read once and kept current by the group and permission updates.
+    private func loadActionContext() {
+        let client = client
+        let chatID = source.chatID
+        let group = source.group
+        actionContextTask = Task { [weak self] in
+            guard let chat = try? await client.getChat(chatId: chatID) else { return }
+            let actorStatus = await Self.accountStatus(in: group, client: client)
+            guard let self, !Task.isCancelled, contextIsCurrent, let actorStatus else { return }
+            actionContextTask = nil
+            actionContext = MemberActionContext(
+                chatType: chat.type, permissions: chat.permissions, actorStatus: actorStatus,
+            )
+            applySnapshot()
+        }
+    }
+
     private func loadFailureText(_ message: String) -> String {
         switch source {
         case .administrators: L10n.betterTG("Profile.AdminsLoadFailed", message)
@@ -483,19 +665,19 @@ import UIKit
             content.secondaryTextProperties.color = .secondaryLabel
             content.prefersSideBySideTextAndSecondaryText = false
             cell.contentConfiguration = content
-            let canInspectTag = accountUserID != nil && {
-                if case .user = id {
-                    true
-                } else {
-                    false
-                }
-            }()
-            cell.selectionStyle = canInspectTag ? .default : .none
-            cell.accessoryType = canInspectTag ? .disclosureIndicator : .none
+            cell.selectionStyle = .default
+            cell.accessoryType = .none
             cell.isAccessibilityElement = true
             cell.accessibilityLabel = row.accessibilityLabel
-            cell.accessibilityHint = canInspectTag ? L10n.betterTG("Accessibility.MemberTagHint") : nil
-            cell.accessibilityTraits = canInspectTag ? .button : .staticText
+            cell.accessibilityHint = L10n.betterTG("Accessibility.OpenMemberProfileHint")
+            cell.accessibilityTraits = .button
+            // The row menu's actions, for VoiceOver.
+            cell.accessibilityCustomActions = memberActions(for: id).map { action in
+                UIAccessibilityCustomAction(name: action.title) { _ in
+                    action.handler()
+                    return true
+                }
+            }
             return cell
         }
     }
@@ -549,6 +731,9 @@ import UIKit
                         return Seed(
                             id: .user(administrator.userId),
                             role: role,
+                            isAdministrator: true,
+                            isOwner: administrator.isOwner,
+                            tag: administrator.customTitle,
                         )
                     }
                     pageRawCount = page.count
@@ -799,10 +984,12 @@ import UIKit
         resolutionTask?.cancel()
         reloadTask?.cancel()
         tagPreparationTask?.cancel()
+        memberNavigationTask?.cancel()
         loadTask = nil
         resolutionTask = nil
         reloadTask = nil
         tagPreparationTask = nil
+        memberNavigationTask = nil
         tableView.isUserInteractionEnabled = false
         navigationItem.prompt = identity.revoked
             ? L10n.betterTG("Session.AccountInactive")
@@ -889,10 +1076,14 @@ import UIKit
         resolutionTask?.cancel()
         reloadTask?.cancel()
         tagPreparationTask?.cancel()
+        memberNavigationTask?.cancel()
+        actionContextTask?.cancel()
         loadTask = nil
         resolutionTask = nil
         reloadTask = nil
         tagPreparationTask = nil
+        memberNavigationTask = nil
+        actionContextTask = nil
         pendingResolutionIDs.removeAll()
         cancellables.removeAll()
     }
@@ -1142,8 +1333,37 @@ struct PeerProfileMemberTagAuthority {
         actorID: Int64,
         targetID: Int64,
     ) throws -> Self {
-        let actor = snapshot.actor, target = snapshot.target
-        switch snapshot.chatType {
+        let target = snapshot.target
+        try check(
+            chatType: snapshot.chatType,
+            permissions: snapshot.permissions,
+            actorStatus: snapshot.actor.status,
+            targetStatus: target.status,
+            actorID: actorID,
+            targetID: targetID,
+        )
+        let editorTitle =
+            switch target.status {
+            case .chatMemberStatusAdministrator, .chatMemberStatusCreator:
+                L10n.betterTG("Profile.EditAdminTitle")
+            case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember,
+                 .chatMemberStatusRestricted:
+                target.tag.isEmpty ? L10n.telegram("GroupInfo.ActionAddRank") : L10n.betterTG("Profile.EditMemberTag")
+            }
+        return Self(baselineTag: target.tag, editorTitle: editorTitle)
+    }
+
+    /// Who may edit whose tag. The member list asks with what it already read, without a target status for an
+    /// administrators row; the editor asks again with fresh reads before it opens and before it writes.
+    @MainActor static func check(
+        chatType: ChatType,
+        permissions: ChatPermissions,
+        actorStatus: ChatMemberStatus,
+        targetStatus: ChatMemberStatus?,
+        actorID: Int64,
+        targetID: Int64,
+    ) throws {
+        switch chatType {
         case .chatTypeBasicGroup:
             break
         case .chatTypeSupergroup(let supergroup) where !supergroup.isChannel:
@@ -1151,15 +1371,15 @@ struct PeerProfileMemberTagAuthority {
         case .chatTypePrivate, .chatTypeSecret, .chatTypeSupergroup:
             throw PeerProfileMemberTagError.unsupportedChat
         }
-        guard targetIsActive(target.status) else {
+        if let targetStatus, !targetIsActive(targetStatus) {
             throw PeerProfileMemberTagError.inactiveMember
         }
         if targetID == actorID {
-            guard snapshot.permissions.canEditTag else { throw PeerProfileMemberTagError.permissionDenied }
+            guard permissions.canEditTag else { throw PeerProfileMemberTagError.permissionDenied }
         } else {
             let actorIsCreator: Bool
             let actorCanManageTags: Bool
-            switch actor.status {
+            switch actorStatus {
             case .chatMemberStatusCreator:
                 actorIsCreator = true
                 actorCanManageTags = true
@@ -1172,7 +1392,7 @@ struct PeerProfileMemberTagAuthority {
                 actorCanManageTags = false
             }
             guard actorCanManageTags else { throw PeerProfileMemberTagError.permissionDenied }
-            switch target.status {
+            switch targetStatus {
             case .chatMemberStatusCreator:
                 throw PeerProfileMemberTagError.permissionDenied
             case .chatMemberStatusAdministrator(let administrator):
@@ -1180,19 +1400,10 @@ struct PeerProfileMemberTagAuthority {
                     throw PeerProfileMemberTagError.permissionDenied
                 }
             case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember,
-                 .chatMemberStatusRestricted:
+                 .chatMemberStatusRestricted, nil:
                 break
             }
         }
-        let editorTitle =
-            switch target.status {
-            case .chatMemberStatusAdministrator, .chatMemberStatusCreator:
-                L10n.betterTG("Profile.EditAdminTitle")
-            case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember,
-                 .chatMemberStatusRestricted:
-                target.tag.isEmpty ? L10n.telegram("GroupInfo.ActionAddRank") : L10n.betterTG("Profile.EditMemberTag")
-            }
-        return Self(baselineTag: target.tag, editorTitle: editorTitle)
     }
 
     private static func targetIsActive(_ status: ChatMemberStatus) -> Bool {

@@ -453,7 +453,7 @@
 "Session.Reconnecting" = "Reconnecting…";
 "Session.ReconnectingKeepsChanges" = "Reconnecting… Your changes are kept.";
 "Session.Saving" = "Saving…";
-"Accessibility.MemberTagHint" = "Shows member tag controls";
+"Accessibility.OpenMemberProfileHint" = "Opens the member's profile";
 "Accessibility.TagCharacterCount" = "%d of 16 characters";
 "Accessibility.ProfilePhotoOf" = "%@ profile photo";
 "Accessibility.OpenProfilePhotosHint" = "Opens profile photos";

@@ -453,7 +453,7 @@
 "Session.Reconnecting" = "Переподключение…";
 "Session.ReconnectingKeepsChanges" = "Переподключение… Изменения сохранены.";
 "Session.Saving" = "Сохранение…";
-"Accessibility.MemberTagHint" = "Показывает настройки тега участника";
+"Accessibility.OpenMemberProfileHint" = "Открывает профиль участника";
 "Accessibility.TagCharacterCount" = "%d из 16 символов";
 "Accessibility.ProfilePhotoOf" = "Фото профиля: %@";
 "Accessibility.OpenProfilePhotosHint" = "Открывает фото профиля";
