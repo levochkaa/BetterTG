@@ -38,7 +38,21 @@ enum MessageQuoteBuilder {
               isCharacterBoundary(requested.location),
               isCharacterBoundary(NSMaxRange(requested))
         else { return nil }
-        var range = NSRange(location: requested.location, length: min(max(1, maximumLength), requested.length))
+        // trimStringWithEntities: spaces and line feeds around the selection are not quoted, before the length limit.
+        func isTrimmed(_ offset: Int) -> Bool {
+            let unit = nativeText.character(at: offset)
+            return (unit == 0x20 || unit == 0x0A) && nativeText.rangeOfComposedCharacterSequence(at: offset).length == 1
+        }
+        var lowerBound = requested.location
+        var upperBound = NSMaxRange(requested)
+        while lowerBound < upperBound, isTrimmed(lowerBound) {
+            lowerBound += 1
+        }
+        while upperBound > lowerBound, isTrimmed(upperBound - 1) {
+            upperBound -= 1
+        }
+        guard upperBound > lowerBound else { return nil }
+        var range = NSRange(location: lowerBound, length: min(max(1, maximumLength), upperBound - lowerBound))
         while range.length > 0, !isCharacterBoundary(NSMaxRange(range)) {
             range.length -= 1
         }

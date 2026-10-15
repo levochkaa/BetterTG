@@ -102,6 +102,18 @@ import UIKit
             from: FormattedText(entities: [], text: "a👨‍👩‍👧‍👦b"),
             maximumLength: 5, range: NSRange(location: 1, length: 11),
         ) == nil)
+        let trimmedQuote = MessageQuoteBuilder.make(
+            from: FormattedText(entities: [], text: "a\n bc \nd"),
+            maximumLength: 1, range: NSRange(location: 1, length: 6),
+        )
+        check(
+            "quote trims spaces and line feeds before the limit",
+            trimmedQuote?.position == 3 && trimmedQuote?.text.text == "b",
+        )
+        check("blank quote falls back to a plain reply", MessageQuoteBuilder.make(
+            from: FormattedText(entities: [], text: "a \nb"),
+            maximumLength: 1024, range: NSRange(location: 1, length: 2),
+        ) == nil)
         let path = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("custom-emoji-text-probe.txt")
         try? lines.joined(separator: "\n").write(to: path, atomically: true, encoding: .utf8)
