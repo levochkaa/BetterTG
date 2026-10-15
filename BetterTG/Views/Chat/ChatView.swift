@@ -401,6 +401,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     deinit {
         clientPreparationTask?.cancel()
         prefetchTasks.values.forEach { $0.task?.cancel() }
+        // Rows that were prefetched but never shown still have TDLib downloads; nothing else will cancel them.
+        let unshownPlaybackFiles = Array(prefetchedPlaybackFiles.values)
+        if !unshownPlaybackFiles.isEmpty {
+            Task {
+                for files in unshownPlaybackFiles {
+                    for fileID in files.fileIDs {
+                        _ = try? await files.client.cancelDownloadFile(fileId: fileID, onlyIfPending: true)
+                    }
+                }
+            }
+        }
         MainActor.assumeIsolated {
             for owner in inlineVideoPlaybackOwners.values {
                 owner.onReturnToInline = nil
