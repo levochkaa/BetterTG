@@ -240,7 +240,9 @@ extension RootVM {
                 #endif
                 if let existing = updated.first(where: { $0.id == id }) {
                     existing.chat = latest.chat
-                    existing.position = latest.position
+                    // A held list keeps its order until the renewed client's order is complete, so rows do not
+                    // swap while positions arrive one update at a time.
+                    if !renewalHeldFolderIDs.contains(folder.id) { existing.position = latest.position }
                     existing.unreadCount = latest.unreadCount
                     existing.lastMessage = latest.lastMessage
                     existing.draftMessage = latest.draftMessage
@@ -298,14 +300,54 @@ extension RootVM {
                     guard !Task.isCancelled, activeAccountID == accountID, td.id == client.id else { return }
                     if let error = error as? TDLibError, error.code == 404 {
                         folder.hasMoreChats = false
-                        if renewing { endChatListRenewalHold(folderID: folder.id) }
+                        break
                     } else {
                         folder.loadError = error.localizedDescription
+                        return
                     }
-                    return
                 }
             }
-            if renewing, !Task.isCancelled { endChatListRenewalHold(folderID: folder.id) }
+            if renewing, !Task.isCancelled {
+                await endChatListRenewalHoldOnceStored(
+                    folder,
+                    client: client,
+                    accountID: accountID,
+                    limit: desiredCount,
+                )
+            }
         }
+    }
+
+    /// TDLib answers `loadChats` before this app has consumed the updates it sent first, so ending the hold on the
+    /// answer dropped every held row the store did not have yet: the list collapsed to a few dozen rows, lost its
+    /// position, and grew back one row at a time. The store also fills its positions one update at a time, so rows
+    /// it has can still stand in an interim order that swaps pinned rows and back. The hold now ends once the store
+    /// lists every held chat that the renewed client still lists, in the client's order, or at the hold's deadline.
+    private func endChatListRenewalHoldOnceStored(
+        _ folder: CustomFolder, client: TDLibClient, accountID: UUID?, limit: Int,
+    ) async {
+        let heldIDs = Set(folder.chats.map(\.id))
+        let store = TelegramChatListStore.shared
+        var checks = 0
+        var awaitedIDs = [Int64]()
+        while !Task.isCancelled, renewalHeldFolderIDs.contains(folder.id), activeAccountID == accountID,
+              td.id == client.id
+        {
+            // A message arriving meanwhile reorders the list for real, so the client's order is read again.
+            if checks % 16 == 0 {
+                let listedIDs = await (try? client.getChats(chatList: folder.chatList, limit: limit).chatIds) ?? []
+                awaitedIDs = listedIDs.filter { heldIDs.contains($0) }
+                guard !Task.isCancelled, activeAccountID == accountID, td.id == client.id else { return }
+            }
+            checks += 1
+            let awaited = Set(awaitedIDs)
+            let storedIDs = store.chatIDs(in: folder.chatList).filter {
+                awaited.contains($0) && store.listsChat(id: $0, in: folder.chatList)
+            }
+            if storedIDs == awaitedIDs { break }
+            try? await Task.sleep(for: .milliseconds(32))
+        }
+        guard !Task.isCancelled, activeAccountID == accountID, td.id == client.id else { return }
+        endChatListRenewalHold(folderID: folder.id)
     }
 }

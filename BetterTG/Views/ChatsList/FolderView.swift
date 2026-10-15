@@ -290,6 +290,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         case main
     }
 
+    private struct VisibleRowAnchor {
+        let id: Int64
+        let minYRelativeToOffset: CGFloat
+        let previousIndex: Int
+        let nextIndex: Int
+    }
+
     // MARK: Internal
 
     let folder: CustomFolder
@@ -728,6 +735,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             let offset = tableView.contentOffset.y + tableView.adjustedContentInset.top
             return offset <= ChatListNavigationSearchView.scrollHeight + 0.5 ? offset : nil
         }()
+        // A list scrolled away from its top keeps its visible rows still, as Telegram's chat list does: a chat that
+        // moves or arrives above the viewport shifts only the rows above it. UIKit otherwise re-anchors the batch
+        // update on its own focus and can leave the list a fraction of a row off.
+        let previousIDs = dataSource.snapshot().itemIdentifiers
+        let visibleAnchor = restingTopOffset == nil && previousIDs != snapshot.itemIdentifiers
+            ? stableVisibleRow(from: previousIDs, to: snapshot.itemIdentifiers)
+            : nil
         let applyToken = clientViewportRestoration.beginApply()
         defer {
             if let restingTopOffset {
@@ -736,8 +750,14 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                     tableView.contentOffset = CGPoint(x: tableView.contentOffset.x, y: target)
                 }
             }
+            if let visibleAnchor {
+                tableView.layoutIfNeeded()
+                restoreVisibleRow(visibleAnchor)
+            }
         }
-        dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
+        // Rows that would slide under a compensating offset change in place instead.
+        let shiftsVisibleRows = visibleAnchor.map { $0.previousIndex != $0.nextIndex } ?? false
+        dataSource.apply(snapshot, animatingDifferences: animated && !shiftsVisibleRows) { [weak self] in
             guard let self else { return }
             isApplyingSnapshot = false
             // UIKit can re-anchor the previous first row during the update animation; bring the top back.
@@ -747,6 +767,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                     tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: target), animated: true)
                 }
             }
+            if let visibleAnchor, !isInteractingWithList, !tableView.isTracking {
+                restoreVisibleRow(visibleAnchor)
+            }
             clientViewportRestoration.completeApply(applyToken)
             if !didSetInitialSearchOffset { view.setNeedsLayout() }
             let retainedIDs = Set(dataSource.snapshot().itemIdentifiers).union(folder.chats.map(\.id))
@@ -755,6 +778,44 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             DispatchQueue.main.async { [weak self] in self?.applyPendingSnapshot() }
         }
         tableView.backgroundView = displayedChats.isEmpty ? emptyLabel() : nil
+    }
+
+    /// The topmost visible row that stays among its neighbours: a chat that itself moves keeps no place to hold.
+    private func stableVisibleRow(from previousIDs: [Int64], to nextIDs: [Int64]) -> VisibleRowAnchor? {
+        guard didSetInitialSearchOffset, clientViewportRestoration.pending == nil, !isInteractingWithList,
+              !tableView.isTracking
+        else { return nil }
+        let nextIndexes = Dictionary(nextIDs.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let viewportTop = tableView.contentOffset.y + tableView.adjustedContentInset.top
+        let anchors = (tableView.indexPathsForVisibleRows ?? []).sorted().compactMap { indexPath -> VisibleRowAnchor? in
+            let previousIndex = indexPath.row
+            guard previousIDs.indices.contains(previousIndex) else { return nil }
+            let id = previousIDs[previousIndex]
+            guard let nextIndex = nextIndexes[id] else { return nil }
+            let keepsPrevious = previousIndex > 0 && nextIndex > 0
+                && previousIDs[previousIndex - 1] == nextIDs[nextIndex - 1]
+            let keepsNext = previousIndex + 1 < previousIDs.count && nextIndex + 1 < nextIDs.count
+                && previousIDs[previousIndex + 1] == nextIDs[nextIndex + 1]
+            guard keepsPrevious || keepsNext else { return nil }
+            return VisibleRowAnchor(
+                id: id,
+                minYRelativeToOffset: tableView.rectForRow(at: indexPath).minY - tableView.contentOffset.y,
+                previousIndex: previousIndex,
+                nextIndex: nextIndex,
+            )
+        }
+        return anchors.first { $0.minYRelativeToOffset + tableView.contentOffset.y >= viewportTop - 0.5 }
+            ?? anchors.first
+    }
+
+    private func restoreVisibleRow(_ anchor: VisibleRowAnchor) {
+        guard let indexPath = dataSource.indexPath(for: anchor.id) else { return }
+        let insets = tableView.adjustedContentInset
+        let minimum = -insets.top
+        let maximum = max(minimum, tableView.contentSize.height - tableView.bounds.height + insets.bottom)
+        let target = min(max(tableView.rectForRow(at: indexPath).minY - anchor.minYRelativeToOffset, minimum), maximum)
+        guard abs(tableView.contentOffset.y - target) > 0.5 else { return }
+        tableView.contentOffset = CGPoint(x: tableView.contentOffset.x, y: target)
     }
 
     private func loadMoreChatsIfNeeded() {

@@ -176,6 +176,13 @@ import TDLibKit
         )
     }
 
+    /// Whether `customChat(id:in:)` would return the chat, without building it.
+    func listsChat(id: Int64, in list: ChatList) -> Bool {
+        guard let record = records[id], record.positions.contains(where: { $0.list == list && $0.order != 0 })
+        else { return false }
+        return peerType(for: record) != nil
+    }
+
     private func peerType(for record: ChatListRecord) -> CustomChat.CustomChatType? {
         switch record.type {
         case .chatTypePrivate(let peer):

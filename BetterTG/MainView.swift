@@ -558,10 +558,17 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             return
         }
 
-        for controller in folderControllers {
+        // A folder whose object survives keeps its controller, so a configuration reload (as after a client renewal)
+        // neither reloads nor repositions its list.
+        let survivingControllers = Dictionary(
+            folderControllers.map { (ObjectIdentifier($0.folder), $0) },
+            uniquingKeysWith: { first, _ in first },
+        )
+        for controller in folderControllers where !rootVM.folders.contains(where: { $0 === controller.folder }) {
             restorationViewports[controller.folder.id] = controller.clientRestorationViewport()
         }
         folderControllers = rootVM.folders.map { folder in
+            if let controller = survivingControllers[ObjectIdentifier(folder)] { return controller }
             let controller = FolderViewController(
                 folder: folder, rootVM: rootVM, showsStandaloneSearch: false, actionAuthority: actionAuthority,
                 restorationViewport: restorationViewports.removeValue(forKey: folder.id),
@@ -603,6 +610,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         rootVM.currentFolder = id
         folderPicker.select(id: id, animated: animated)
         applySearchScrollOffset(offset: folderControllers[targetIndex].searchScrollOffset, animated: animated)
+        guard currentFolderController !== folderControllers[targetIndex] else { return }
         pageController.setViewControllers([folderControllers[targetIndex]], direction: direction, animated: animated)
     }
 
