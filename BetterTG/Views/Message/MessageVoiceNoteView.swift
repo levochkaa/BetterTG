@@ -6,21 +6,30 @@ import UIKit
 
 // MARK: - VoiceNotePlaybackView
 
+/// Telegram's voice message bubble (ChatMessageInteractiveFileNode). The note's file loads through the client that
+/// listed its message and follows only that client's file updates; the bubble never follows a replacement client.
 final class VoiceNotePlaybackView: UIView, ReusableMediaView {
     // MARK: Private
 
     private let playButton = UIButton(type: .system)
     private let waveformView = TelegramWaveformView()
     private let durationLabel = UILabel()
+    private var message: Message?
     private var voiceNote: VoiceNote?
+    private var backend: VideoNotePlaybackBackend?
     private var localPath: String?
+    private var configurationID = UUID()
     private var downloadTask: Task<Void, Never>?
-    private var fileCancellable: AnyCancellable?
+    private var bindings = Set<AnyCancellable>()
     private var cancellables = Set<AnyCancellable>()
 
-    private var isCurrentVoicePlaying: Bool {
+    private var isCurrentVoice: Bool {
         guard let localPath else { return false }
-        return Media.shared.savedMediaPath == localPath && Media.shared.isPlaying
+        return Media.shared.savedMediaPath == localPath
+    }
+
+    private var isCurrentVoicePlaying: Bool {
+        isCurrentVoice && Media.shared.isPlaying
     }
 
     override init(frame: CGRect) {
@@ -57,42 +66,37 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
 
     // MARK: Internal
 
-    func configure(voiceNote: VoiceNote) {
+    func configure(message: Message, client: TDLibClient, context: MediaGalleryPlaybackContext?) {
         prepareForReuse()
+        guard case .messageVoiceNote(let value) = message.content else { return }
+        let voiceNote = value.voiceNote
+        self.message = message
         self.voiceNote = voiceNote
         waveformView.samples = Self.decodeWaveform(voiceNote.waveform)
-        update(file: voiceNote.voice)
-        fileCancellable = nc.publisher(for: .updateFile)
-            .receive(on: DispatchQueue.main)
-            .filter { $0.file.id == voiceNote.voice.id }
-            .sink { [weak self] in self?.update(file: $0.file) }
-        downloadTask = Task { [weak self] in
-            let downloaded = try? await td.downloadFile(
-                fileId: voiceNote.voice.id,
-                limit: 0,
-                offset: 0,
-                priority: 1,
-                synchronous: false,
-            )
-            guard let self, let downloaded else { return }
-            await MainActor.run { self.update(file: downloaded) }
+        // File IDs belong to the client that listed the message, so the note loads only through that client.
+        if let backend = VideoNotePlaybackBackend.captured(client: client, context: context) {
+            self.backend = backend
+            observe(backend)
+            update(file: voiceNote.voice)
+            startDownload(using: backend)
         }
         render()
     }
 
     func prepareForReuse() {
-        let fileID = voiceNote?.voice.id
+        configurationID = UUID()
+        bindings.removeAll()
         downloadTask?.cancel()
         downloadTask = nil
-        fileCancellable?.cancel()
-        fileCancellable = nil
+        if let backend, let fileID = voiceNote?.voice.id, localPath == nil {
+            Task { await backend.cancelDownload(fileID) }
+        }
+        backend = nil
+        message = nil
         voiceNote = nil
         localPath = nil
         waveformView.samples = []
         waveformView.progress = 0
-        if let fileID {
-            Task { try? await td.cancelDownloadFile(fileId: fileID, onlyIfPending: true) }
-        }
     }
 
     private func configureViews() {
@@ -139,8 +143,37 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
         ])
     }
 
+    private func observe(_ backend: VideoNotePlaybackBackend) {
+        let bindingID = configurationID
+        backend.observe(&bindings, for: .updateFile) { [weak self] event in
+            guard let self, configurationID == bindingID, event.source == backend.source, backend.isCurrent()
+            else { return }
+            update(file: event.value.file)
+        }
+        backend.clientChanges
+            .sink { [weak self] _ in
+                guard let self, configurationID == bindingID, !backend.isCurrent() else { return }
+                downloadTask?.cancel()
+                downloadTask = nil
+            }
+            .store(in: &bindings)
+    }
+
+    private func startDownload(using backend: VideoNotePlaybackBackend) {
+        guard localPath == nil, let fileID = voiceNote?.voice.id else { return }
+        let bindingID = configurationID
+        downloadTask = Task { [weak self] in
+            let downloaded = try? await backend.download(fileID, false)
+            guard let self, configurationID == bindingID else { return }
+            downloadTask = nil
+            guard let downloaded, backend.isCurrent() else { return }
+            update(file: downloaded)
+        }
+    }
+
     private func update(file: File) {
-        guard voiceNote?.voice.id == file.id, file.local.isDownloadingCompleted else { return }
+        guard voiceNote?.voice.id == file.id, file.local.isDownloadingCompleted,
+              !file.local.path.isEmpty else { return }
         localPath = file.local.path
         render()
     }
@@ -151,10 +184,11 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
             UIImage(systemName: isCurrentVoicePlaying ? "pause.fill" : "play.fill"),
             for: .normal,
         )
-        let current = Media.shared.savedMediaPath == localPath ? Int(Media.shared.currentTime) : 0
-        durationLabel.text = "\(format(current)) / \(format(voiceNote.duration))"
+        // Telegram's waveform follows the exact position; whole seconds made it jump once a second.
+        let position = isCurrentVoice ? Media.shared.playbackPosition : 0
+        durationLabel.text = "\(format(Int(position))) / \(format(voiceNote.duration))"
         waveformView.progress = voiceNote.duration > 0
-            ? min(1, max(0, CGFloat(current) / CGFloat(voiceNote.duration)))
+            ? min(1, max(0, CGFloat(position / Double(voiceNote.duration))))
             : 0
         let enabled = localPath != nil
         playButton.isEnabled = enabled
@@ -168,10 +202,16 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
 
     private func seek(to progress: CGFloat) {
         guard let localPath, let voiceNote else { return }
-        if Media.shared.savedMediaPath != localPath {
-            Media.shared.toggle(with: localPath, duration: voiceNote.duration)
+        let time = TimeInterval(progress) * TimeInterval(voiceNote.duration)
+        if isCurrentVoice {
+            Media.shared.seek(to: time)
+        } else if !Media.shared.isPlaying {
+            // Scrubbing positions a note without starting it; the next tap plays from there.
+            Media.shared.prepare(with: localPath, duration: voiceNote.duration, at: time)
+        } else {
+            // Telegram scrubs only the current note, so another note's playback keeps going.
+            render()
         }
-        Media.shared.seek(to: TimeInterval(progress) * TimeInterval(voiceNote.duration))
     }
 
     @objc private func toggle() {

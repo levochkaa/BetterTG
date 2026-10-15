@@ -12,6 +12,8 @@ final class Media: ObservableObject {
     @Published var savedMediaPath = ""
     @Published var isPlaying = false
     @Published var currentTime: Int32 = 0
+    /// The position with its fraction, which a voice bubble's waveform follows; currentTime keeps whole seconds.
+    @Published private(set) var playbackPosition: TimeInterval = 0
 
     // MARK: Private
 
@@ -34,6 +36,7 @@ final class Media: ObservableObject {
     func stop() {
         isPlaying = false
         currentTime = 0
+        playbackPosition = 0
         savedMediaPath = ""
         player.stop()
         nowPlayingCenter.nowPlayingInfo = nil
@@ -80,6 +83,20 @@ final class Media: ObservableObject {
         }
     }
 
+    /// Loads a voice note paused at a position, so scrubbing a note that isn't playing doesn't start it.
+    func prepare(with path: String, duration: Int, at time: TimeInterval) {
+        stop()
+        self.duration = duration
+        savedMediaPath = path
+        playbackPosition = max(0, time)
+        player.load(
+            url: URL(fileURLWithPath: path),
+            autoplay: false,
+            prefersFFmpegAudioFallback: true,
+            initialTime: max(0, time),
+        )
+    }
+
     func setAudioSessionRecord() {
         ownsPlaybackSession = false
         // A failed deactivation (a player still holds the session) must not skip the record category.
@@ -112,6 +129,7 @@ final class Media: ObservableObject {
             .sink { [weak self] time in
                 guard let self else { return }
                 currentTime = Int32(time)
+                playbackPosition = time
                 changeCurrentTime()
             }
             .store(in: &cancellables)

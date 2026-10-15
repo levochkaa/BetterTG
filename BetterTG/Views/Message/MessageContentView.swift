@@ -101,9 +101,9 @@ final class MessageMediaView: UIView {
                     photoView.showUploadProgress(for: item, client: client) { onCancelSending(messageID) }
                 }
                 view = photoView
-            case .messageVoiceNote(let voice):
+            case .messageVoiceNote:
                 let voiceView = VoiceNotePlaybackView()
-                voiceView.configure(voiceNote: voice.voiceNote)
+                voiceView.configure(message: item, client: client, context: mediaRevealSession?.context)
                 view = voiceView
             case .messageVideoNote:
                 let videoNoteView = VideoNotePlaybackView()
