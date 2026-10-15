@@ -97,6 +97,11 @@ import UIKit
         }
     }
 
+    /// Telegram's `botStartPayload`: a bot link's start parameter waits for the user's Start
+    /// (ChatBotStartInputPanelNode) instead of the text input.
+    @Published private(set) var botStartParameter: String?
+    @Published private(set) var isStartingBot = false
+
     @Published var replyMessage: CustomMessage? {
         didSet {
             queueForumTopicDemandRefresh()
@@ -2616,6 +2621,33 @@ import UIKit
         ))
         replyFallbackPresentation = nil
         reconcileActiveChatActionAfterReplyChange()
+    }
+
+    /// OpenResolvedUrl's `.botStart` with interactive behaviour: a `t.me/bot?start=` link shows Start in the bot's
+    /// chat, and nothing is sent until the user taps it.
+    func beginBotStart(parameter: String) {
+        guard !previewing, case .bot = customChat.type else { return }
+        botStartParameter = parameter
+    }
+
+    /// ChatController.startBot: `sendBotStartMessage` sends /start with the parameter; the panel goes once it's sent.
+    func sendBotStart() {
+        guard let parameter = botStartParameter, !isStartingBot, locationContextIsCurrent,
+              case .chatTypePrivate(let privateChat) = customChat.chat.type else { return }
+        isStartingBot = true
+        let client = client
+        let chatID = chatID
+        Task { [weak self] in
+            let message = try? await client.send(TDNativeRequests.sendBotStartMessage(
+                botUserId: privateChat.userId,
+                chatId: chatID,
+                parameter: parameter,
+            ))
+            guard let self else { return }
+            isStartingBot = false
+            guard locationContextIsCurrent else { return }
+            if message != nil, botStartParameter == parameter { botStartParameter = nil }
+        }
     }
 
     func cancelReply(markDirty: Bool = true) {

@@ -93,6 +93,7 @@ final class ChatComposerView: UIView {
     private let replyKeyboardInputView = ReplyKeyboardInputView()
     private let actionButton = UIButton(type: .system)
     private let restrictionLabel = UILabel()
+    private let botStartButton = UIButton(type: .system)
     private let recordingRow = UIStackView()
     private lazy var recordingRowHeightConstraint = recordingRow.heightAnchor.constraint(equalToConstant: 36)
     private let cancelRecordingButton = UIButton(type: .system)
@@ -434,7 +435,9 @@ final class ChatComposerView: UIView {
         lastReplyID = chatVM.replyMessage?.id
         lastEditID = chatVM.editCustomMessage?.id
         let targetText = chatVM.editCustomMessage == nil ? chatVM.text : chatVM.editMessageText
-        let canWrite = chatVM.canWriteAnyMessage || chatVM.pendingForward != nil
+        // A bot link's Start replaces the input until it's sent (ChatBotStartInputPanelNode).
+        let showsBotStart = chatVM.botStartParameter != nil && chatVM.editCustomMessage == nil
+        let canWrite = (chatVM.canWriteAnyMessage || chatVM.pendingForward != nil) && !showsBotStart
         let canWriteText = chatVM.canWriteBasicMessages
         textView.isEditable = canWriteText
         textView.isSelectable = canWriteText
@@ -604,7 +607,10 @@ final class ChatComposerView: UIView {
             rebuildDocuments()
         }
         restrictionLabel.text = chatVM.composerRestrictionText
-        restrictionLabel.isHidden = canWrite
+        restrictionLabel.isHidden = canWrite || showsBotStart
+        botStartButton.isHidden = !showsBotStart
+        botStartButton.isEnabled = !chatVM.isStartingBot
+        if showsBotStart, textView.isFirstResponder { textView.resignFirstResponder() }
         let isRecordingVideoNote = videoNoteState.isActive
         let isRecordingMedia = chatVM.recordingVoiceNote || isRecordingVideoNote
         photosScroll.isHidden = !canWrite || chatVM.displayedImages.isEmpty
@@ -816,6 +822,17 @@ final class ChatComposerView: UIView {
         restrictionLabel.textAlignment = .center
         restrictionLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
 
+        botStartButton.setTitle(L10n.telegram("Bot.Start"), for: .normal)
+        botStartButton.titleLabel?.font = UIFontMetrics(forTextStyle: .body).scaledFont(
+            for: .systemFont(ofSize: 17),
+            maximumPointSize: 22,
+        )
+        botStartButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        botStartButton.accessibilityIdentifier = "bot-start"
+        botStartButton.isHidden = true
+        botStartButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        botStartButton.addAction(UIAction { [weak self] _ in self?.chatVM.sendBotStart() }, for: .touchUpInside)
+
         recordingRowHeightConstraint.priority = UILayoutPriority(999)
         recordingRow.axis = .horizontal
         recordingRow.alignment = .center
@@ -939,6 +956,7 @@ final class ChatComposerView: UIView {
         rootStack.addArrangedSubview(inputRow)
         rootStack.addArrangedSubview(recordingRow)
         rootStack.addArrangedSubview(restrictionLabel)
+        rootStack.addArrangedSubview(botStartButton)
         rootStack.setCustomSpacing(6, after: photosScroll)
         rootStack.setCustomSpacing(6, after: documentsScroll)
     }

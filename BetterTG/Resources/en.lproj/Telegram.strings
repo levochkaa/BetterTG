@@ -1270,3 +1270,4 @@
 "MemberRequests.RequestToJoinSentDescriptionChannel" = "You will be added to the channel once it admins approve your request.";
 "MemberRequests.RequestToJoinSentDescriptionGroup" = "You will be added to the group once it admins approve your request.";
 "TwoStepAuth.FloodError" = "Limit exceeded. Please try again later.";
+"Bot.Start" = "Start";

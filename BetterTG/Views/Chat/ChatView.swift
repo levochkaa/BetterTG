@@ -711,6 +711,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    /// A bot start link for a chat the router has just created shows Start before the chat appears.
+    func beginBotStart(parameter: String) {
+        chatVM.beginBotStart(parameter: parameter)
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === collectionView else { return }
         recordMessageNavigationGeometry("scroll")
