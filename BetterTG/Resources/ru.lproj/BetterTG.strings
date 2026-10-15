@@ -435,10 +435,16 @@
 "Profile.SharedFilesLoadFailed" = "Не удалось загрузить файлы.";
 "Profile.SharedLinksLoadFailed" = "Не удалось загрузить ссылки.";
 "Profile.SharedAudioLoadFailed" = "Не удалось загрузить аудио.";
+"Profile.SharedVoiceLoadFailed" = "Не удалось загрузить голосовые сообщения.";
+"Profile.SharedGIFsLoadFailed" = "Не удалось загрузить GIF.";
+"Profile.SharedGroupsLoadFailed" = "Не удалось загрузить общие группы.";
 "Profile.SharedMediaEmpty" = "Нет медиа";
 "Profile.SharedFilesEmpty" = "Нет файлов";
 "Profile.SharedLinksEmpty" = "Нет ссылок";
 "Profile.SharedAudioEmpty" = "Нет аудио";
+"Profile.SharedVoiceEmpty" = "Нет голосовых сообщений";
+"Profile.SharedGIFsEmpty" = "Нет GIF";
+"Profile.SharedGroupsEmpty" = "Нет общих групп";
 "Profile.Title" = "Профиль";
 "Profile.ForumStatus" = "форум";
 "Profile.ReloadFailed" = "Не удалось обновить профиль.";

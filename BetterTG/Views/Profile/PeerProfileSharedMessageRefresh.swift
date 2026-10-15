@@ -274,6 +274,20 @@ private extension PeerProfileViewController.SharedTab {
             } else {
                 false
             }
+        case .voice:
+            switch message.content {
+            case .messageVideoNote, .messageVoiceNote: true
+            default: false
+            }
+        case .gifs:
+            if case .messageAnimation = message.content {
+                true
+            } else {
+                false
+            }
+        case .groupsInCommon:
+            // Groups lists chats; no message belongs to it.
+            false
         case .links:
             switch message.content {
             case .messageGame: false

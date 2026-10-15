@@ -248,6 +248,20 @@ extension TDClient {
         ))
     }
 
+    func getChatMessageCount(
+        chatId: Int64,
+        topicId: TDNativeMessageTopic?,
+        filter: TDNativeSearchMessagesFilter,
+        returnLocal: Bool,
+    ) async throws -> TDNativeCount {
+        try await send(TDNativeRequests.getChatMessageCount(
+            chatId: chatId,
+            topicId: topicId,
+            filter: filter,
+            returnLocal: returnLocal,
+        ))
+    }
+
     func getChatMessagePosition(
         chatId: Int64,
         filter: TDNativeSearchMessagesFilter,
@@ -342,6 +356,10 @@ extension TDClient {
             offsetForumTopicId: offsetForumTopicId,
             limit: limit,
         ))
+    }
+
+    func getGroupsInCommon(userId: Int64, offsetChatId: Int64, limit: Int) async throws -> TDNativeChats {
+        try await send(TDNativeRequests.getGroupsInCommon(userId: userId, offsetChatId: offsetChatId, limit: limit))
     }
 
     func getLanguagePackInfo(languagePackId: String) async throws -> TDNativeLanguagePackInfo {

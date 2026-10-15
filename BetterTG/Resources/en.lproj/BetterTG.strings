@@ -435,10 +435,16 @@
 "Profile.SharedFilesLoadFailed" = "Couldn't load shared files.";
 "Profile.SharedLinksLoadFailed" = "Couldn't load shared links.";
 "Profile.SharedAudioLoadFailed" = "Couldn't load shared audio.";
+"Profile.SharedVoiceLoadFailed" = "Couldn't load voice messages.";
+"Profile.SharedGIFsLoadFailed" = "Couldn't load GIFs.";
+"Profile.SharedGroupsLoadFailed" = "Couldn't load groups in common.";
 "Profile.SharedMediaEmpty" = "No shared media";
 "Profile.SharedFilesEmpty" = "No shared files";
 "Profile.SharedLinksEmpty" = "No shared links";
 "Profile.SharedAudioEmpty" = "No shared audio";
+"Profile.SharedVoiceEmpty" = "No voice messages";
+"Profile.SharedGIFsEmpty" = "No GIFs";
+"Profile.SharedGroupsEmpty" = "No groups in common";
 "Profile.Title" = "Profile";
 "Profile.ForumStatus" = "forum";
 "Profile.ReloadFailed" = "Couldn't reload profile.";

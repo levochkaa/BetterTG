@@ -8,18 +8,26 @@ import UIKit
 
 @MainActor final class PeerProfileViewController: UIViewController, UICollectionViewDelegate,
 ClientRestorableNavigationEntry {
+    /// Telegram's panes in its order (`peerInfoAvailableMediaPanes`, then Groups for a user). A pane shows only when
+    /// it has content.
     enum SharedTab: Int, CaseIterable {
         case media
         case files
-        case links
         case audio
+        case voice
+        case links
+        case gifs
+        case groupsInCommon
 
         var title: String {
             switch self {
             case .media: L10n.telegram("PeerInfo.PaneMedia")
             case .files: L10n.telegram("PeerInfo.PaneFiles")
-            case .links: L10n.telegram("PeerInfo.PaneLinks")
             case .audio: L10n.telegram("PeerInfo.PaneAudio")
+            case .voice: L10n.telegram("PeerInfo.PaneVoiceAndVideo")
+            case .links: L10n.telegram("PeerInfo.PaneLinks")
+            case .gifs: L10n.telegram("PeerInfo.PaneGifs")
+            case .groupsInCommon: L10n.telegram("PeerInfo.PaneGroups")
             }
         }
 
@@ -27,8 +35,11 @@ ClientRestorableNavigationEntry {
             switch self {
             case .media: L10n.betterTG("Profile.SharedMediaLoadFailed")
             case .files: L10n.betterTG("Profile.SharedFilesLoadFailed")
-            case .links: L10n.betterTG("Profile.SharedLinksLoadFailed")
             case .audio: L10n.betterTG("Profile.SharedAudioLoadFailed")
+            case .voice: L10n.betterTG("Profile.SharedVoiceLoadFailed")
+            case .links: L10n.betterTG("Profile.SharedLinksLoadFailed")
+            case .gifs: L10n.betterTG("Profile.SharedGIFsLoadFailed")
+            case .groupsInCommon: L10n.betterTG("Profile.SharedGroupsLoadFailed")
             }
         }
 
@@ -36,18 +47,30 @@ ClientRestorableNavigationEntry {
             switch self {
             case .media: L10n.betterTG("Profile.SharedMediaEmpty")
             case .files: L10n.betterTG("Profile.SharedFilesEmpty")
-            case .links: L10n.betterTG("Profile.SharedLinksEmpty")
             case .audio: L10n.betterTG("Profile.SharedAudioEmpty")
+            case .voice: L10n.betterTG("Profile.SharedVoiceEmpty")
+            case .links: L10n.betterTG("Profile.SharedLinksEmpty")
+            case .gifs: L10n.betterTG("Profile.SharedGIFsEmpty")
+            case .groupsInCommon: L10n.betterTG("Profile.SharedGroupsEmpty")
             }
         }
 
-        var filter: SearchMessagesFilter {
+        /// The message index a pane lists; Groups lists chats instead.
+        var filter: SearchMessagesFilter? {
             switch self {
             case .media: .searchMessagesFilterPhotoAndVideo
             case .files: .searchMessagesFilterDocument
-            case .links: .searchMessagesFilterUrl
             case .audio: .searchMessagesFilterAudio
+            case .voice: .searchMessagesFilterVoiceAndVideoNote
+            case .links: .searchMessagesFilterUrl
+            case .gifs: .searchMessagesFilterAnimation
+            case .groupsInCommon: nil
             }
+        }
+
+        /// Media and GIFs show a grid of previews; the other panes list their items.
+        var isGrid: Bool {
+            self == .media || self == .gifs
         }
     }
 
@@ -189,6 +212,19 @@ ClientRestorableNavigationEntry {
     /// The Files or Audio row whose file is downloading to open or play, as Telegram's list pane downloads in place.
     private var sharedItemDownload: (messageID: Int64, fileID: Int, task: Task<Void, Never>, updates: AnyCancellable?)?
     private var sharedItemProgress = [Int64: Float]()
+    /// Panes with content, nil until the first counts arrive. A pane whose count is unknown stays until it is known.
+    private var availableSharedTabs: [SharedTab]?
+    private var sharedTabCounts = [SharedTab: Int]()
+    private var sharedTabCountsLoaded = false
+    private var sharedTabCountTask: Task<Void, Never>?
+    private var sharedTabsHeightConstraint: NSLayoutConstraint!
+    private var groupsInCommonCount: Int?
+    private var groupsInCommon = [Int64]()
+    private var groupsByID = [Int64: CustomChat]()
+    private var groupsInCommonOffset = Int64.zero
+    private var groupsInCommonHasMore = true
+    private var groupsInCommonTask: Task<Void, Never>?
+    private var groupsInCommonGeneration = UInt64.zero
     private weak var activeAvatarGallery: ProfileAvatarGalleryViewController?
     private lazy var mediaPlaybackContext = MediaGalleryPlaybackContext(
         client: client,
@@ -364,6 +400,8 @@ ClientRestorableNavigationEntry {
         chatMetadataTask?.cancel()
         permissionTask?.cancel()
         historyTask?.cancel()
+        sharedTabCountTask?.cancel()
+        groupsInCommonTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -383,7 +421,8 @@ ClientRestorableNavigationEntry {
                 self?.restoreViewportIfNeeded()
             }
         } else {
-            loadMore()
+            // The first pane loads once the counts show which panes have content.
+            applySnapshot()
         }
     }
 
@@ -552,6 +591,12 @@ ClientRestorableNavigationEntry {
         }
     }
 
+    private static func groupSubtitle(_ chat: CustomChat) -> String? {
+        let count = chat.supergroup?.memberCount ?? chat.group?.memberCount ?? 0
+        guard count > 0 else { return nil }
+        return memberCountText(count, isChannel: chat.supergroup?.isChannel == true)
+    }
+
     func scrollViewWillBeginDragging(_: UIScrollView) {
         sharedViewportGeneration &+= 1
         let hadPendingViewport = restoredViewport != nil
@@ -612,6 +657,8 @@ ClientRestorableNavigationEntry {
                 cancelSharedItemDownload(cancelInTDLib: false)
                 historyRequest.invalidate()
                 historyTask?.cancel()
+                sharedTabCountTask?.cancel()
+                groupsInCommonTask?.cancel()
                 infoTask?.cancel()
                 permissionTask?.cancel()
                 chatMetadataTask?.cancel()
@@ -634,17 +681,25 @@ ClientRestorableNavigationEntry {
     }
 
     func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        if currentSharedTab == .groupsInCommon {
+            // Telegram's Groups pane opens the group (`PeerInfoGroupsInCommonPaneNode`).
+            guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath), let chat = groupsByID[id]
+            else { return }
+            NavigationStorage.shared.push(.customChat(chat))
+            return
+        }
         guard let id = dataSource.itemIdentifier(for: indexPath),
               let message = messagesByID[id]
         else { return }
         let performed = sharedMessageRefresh?.perform(id: id) {
             if currentSharedTab == .media, SharedMediaGridPreview.opensGallery(message) {
                 openMediaGallery(selectedMessage: message)
-            } else if currentSharedTab != .media, openSharedItem(message) {
-                // Telegram opens a file, plays a track and opens a link from the list (`PeerInfoScreenOpenMessage`).
+            } else if !currentSharedTab.isGrid, openSharedItem(message) {
+                // Telegram opens a file, plays a track or voice message and opens a link from the list
+                // (`PeerInfoScreenOpenMessage`).
             } else {
-                // Rich and paid media messages share the photo and video index; the gallery plays only photo and
-                // video messages, so these open where they were sent.
+                // Rich and paid media messages share the photo and video index, and the gallery plays only photo and
+                // video messages: these, GIFs and video messages open where they were sent.
                 onOpenMessage?(message.id)
             }
         }
@@ -653,7 +708,8 @@ ClientRestorableNavigationEntry {
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         (cell as? SharedMediaGridCell)?.resumeLoading()
-        guard historyError == nil, indexPath.item >= max(0, messagesByID.count - 6) else { return }
+        let itemCount = currentSharedTab == .groupsInCommon ? groupsInCommon.count : messagesByID.count
+        guard historyError == nil, indexPath.item >= max(0, itemCount - 6) else { return }
         loadMore()
     }
 
@@ -711,6 +767,11 @@ ClientRestorableNavigationEntry {
         case .messageAudio(let value):
             openSharedFile(value.audio.audio, of: message, isAudio: true, duration: value.audio.duration)
             return true
+        case .messageVoiceNote(let value):
+            openSharedFile(value.voiceNote.voice, of: message, isAudio: true, duration: value.voiceNote.duration)
+            return true
+        case .messageVideoNote:
+            return false
         default:
             guard let link = SharedLink(message: message) else { return false }
             open(link)
@@ -990,10 +1051,13 @@ ClientRestorableNavigationEntry {
 
         if let tab = restoration?.tab { selectedSharedTab = tab }
         sharedTabs.translatesAutoresizingMaskIntoConstraints = false
+        // Until the counts arrive only a restored pane shows, as Telegram shows no panes before it knows them.
         sharedTabs.configure(
-            items: SharedTab.allCases.map { .init(id: $0.rawValue, title: $0.title) },
+            items: restoration == nil ? [] : [.init(id: selectedSharedTab.rawValue, title: selectedSharedTab.title)],
             selectedID: selectedSharedTab.rawValue,
         )
+        sharedTabs.alpha = restoration == nil ? 0 : 1
+        sharedTabsHeightConstraint = sharedTabs.heightAnchor.constraint(equalToConstant: 58)
         sharedTabs.onSelection = { [weak self] id in
             guard let self, let tab = SharedTab(rawValue: id), tab != selectedSharedTab else { return }
             selectedSharedTab = tab
@@ -1011,7 +1075,7 @@ ClientRestorableNavigationEntry {
             sharedTabs.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 12),
             sharedTabs.leadingAnchor.constraint(equalTo: profileHeaderView.leadingAnchor),
             sharedTabs.trailingAnchor.constraint(equalTo: profileHeaderView.trailingAnchor),
-            sharedTabs.heightAnchor.constraint(equalToConstant: 58),
+            sharedTabsHeightConstraint,
             sharedTabs.bottomAnchor.constraint(equalTo: profileHeaderView.bottomAnchor, constant: -8),
         ])
     }
@@ -1050,6 +1114,10 @@ ClientRestorableNavigationEntry {
         collectionView.register(
             SharedMediaPendingCell.self,
             forCellWithReuseIdentifier: SharedMediaPendingCell.reuseIdentifier,
+        )
+        collectionView.register(
+            SharedGroupRowCell.self,
+            forCellWithReuseIdentifier: SharedGroupRowCell.reuseIdentifier,
         )
         view.addSubview(collectionView)
         collectionView.addSubview(profileHeaderView)
@@ -1094,7 +1162,7 @@ ClientRestorableNavigationEntry {
 
     private func makeLayout() -> UICollectionViewLayout {
         UICollectionViewCompositionalLayout { [weak self] _, _ in
-            guard self?.currentSharedTab == .media else {
+            guard self?.currentSharedTab.isGrid == true else {
                 let size = NSCollectionLayoutSize(
                     widthDimension: .fractionalWidth(1),
                     heightDimension: .estimated(64),
@@ -1127,10 +1195,20 @@ ClientRestorableNavigationEntry {
         dataSource = UICollectionViewDiffableDataSource<Section, Int64>(
             collectionView: collectionView,
         ) { [weak self] collectionView, indexPath, id in
-            guard let self, let message = messagesByID[id] else { return UICollectionViewCell() }
+            guard let self else { return UICollectionViewCell() }
+            if currentSharedTab == .groupsInCommon {
+                guard let chat = groupsByID[id],
+                      let cell = collectionView.dequeueReusableCell(
+                          withReuseIdentifier: SharedGroupRowCell.reuseIdentifier, for: indexPath,
+                      ) as? SharedGroupRowCell
+                else { return UICollectionViewCell() }
+                cell.configure(chat: chat, subtitle: Self.groupSubtitle(chat), accountID: accountID, client: client)
+                return cell
+            }
+            guard let message = messagesByID[id] else { return UICollectionViewCell() }
             guard sharedMessageRefresh?.allows(id) == true else {
                 let state = sharedMessageRefresh?.state(for: id) ?? .loading
-                if currentSharedTab != .media {
+                if !currentSharedTab.isGrid {
                     let cell = collectionView.dequeueReusableCell(
                         withReuseIdentifier: SharedMediaRowCell.reuseIdentifier, for: indexPath,
                     ) as? SharedMediaRowCell
@@ -1143,7 +1221,7 @@ ClientRestorableNavigationEntry {
                 cell?.configure(state: state)
                 return cell ?? UICollectionViewCell()
             }
-            if currentSharedTab == .media {
+            if currentSharedTab.isGrid {
                 let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: SharedMediaGridCell.reuseIdentifier,
                     for: indexPath,
@@ -1296,12 +1374,19 @@ ClientRestorableNavigationEntry {
         if isViewLoaded {
             if source == restorationIdentity.origin {
                 if sharedMessageRefresh == nil { configureSharedMessageRefresh() }
+                // The pane counts and the Groups pane read once this client is ready.
+                if !sharedTabCountsLoaded, sharedTabCountTask == nil { loadSharedTabAvailability() }
                 resumeSharedHistoryIfNeeded()
             } else {
                 sharedMessageRefresh?.stop()
                 sharedMessageRefresh = nil
                 historyTask?.cancel()
                 historyTask = nil
+                sharedTabCountTask?.cancel()
+                sharedTabCountTask = nil
+                groupsInCommonGeneration &+= 1
+                groupsInCommonTask?.cancel()
+                groupsInCommonTask = nil
                 if source.map({ $0.accountID != accountID }) ?? false || !keepsGalleryThroughClientRenewal {
                     revokeSharedMessages(Set(messagesByID.keys), closesGallery: true)
                 }
@@ -1609,6 +1694,10 @@ ClientRestorableNavigationEntry {
             status: nil,
             photo: selectedPhoto,
         )
+        if !isSelfProfile, groupsInCommonCount != info.groupInCommonCount {
+            groupsInCommonCount = info.groupInCommonCount
+            updateSharedTabAvailability()
+        }
         if roleSignatureChanged, !photoIDWillChange, activeAvatarGallery != nil {
             resetAvatarGalleryForMetadataChange()
         }
@@ -1792,6 +1881,9 @@ ClientRestorableNavigationEntry {
 
     private func configureSharedMessageRefresh() {
         sharedMessageRefresh?.stop()
+        sharedMessageRefresh = nil
+        // Groups lists chats, which no message refresh covers.
+        guard let filter = currentSharedTab.filter else { return }
         let source = restorationIdentity.origin
         let tab = currentSharedTab
         let client = client
@@ -1813,7 +1905,7 @@ ClientRestorableNavigationEntry {
             searchMembership: { messageID in
                 // Offset -1 starts the page at the message itself, so it is returned if the tab's filter matches.
                 try await client.searchChatMessages(
-                    chatId: chatID, filter: tab.filter, fromMessageId: messageID, limit: 2, offset: -1, query: "",
+                    chatId: chatID, filter: filter, fromMessageId: messageID, limit: 2, offset: -1, query: "",
                     senderId: nil, topicId: topic,
                 )
                 .messages
@@ -1837,6 +1929,10 @@ ClientRestorableNavigationEntry {
     }
 
     private func resumeSharedHistoryIfNeeded() {
+        if currentSharedTab == .groupsInCommon {
+            if groupsInCommon.isEmpty, historyError == nil { loadMore() }
+            return
+        }
         sharedMessageRefresh?.resume(
             needsPage: messagesByID.isEmpty || historyRequest.needsResume,
             hasError: historyError != nil,
@@ -1930,11 +2026,22 @@ ClientRestorableNavigationEntry {
                       fullInfoGeneration == generation
                 else { return }
                 infoTask = nil
+                // Without the user's full info the common groups are unknown, and the other panes go on without them.
+                if groupsInCommonCount == nil {
+                    groupsInCommonCount = 0
+                    updateSharedTabAvailability()
+                }
             }
         }
     }
 
     private func loadMore() {
+        // Before the counts arrive only a restored pane reads; afterwards only a pane with content does.
+        guard availableSharedTabs?.contains(currentSharedTab) ?? (restoration != nil) else { return }
+        guard let filter = currentSharedTab.filter else {
+            loadMoreGroupsInCommon()
+            return
+        }
         guard restoredViewport == nil, historyTask == nil, hasMore, contextIsCurrent,
               let refresh = sharedMessageRefresh, let readToken = refresh.beginPage() else { return }
         let fromMessageID = oldestMessageID ?? 0
@@ -1954,7 +2061,7 @@ ClientRestorableNavigationEntry {
             do {
                 let result = try await client.searchChatMessages(
                     chatId: customChat.id,
-                    filter: requestedTab.filter,
+                    filter: filter,
                     fromMessageId: fromMessageID,
                     limit: 30,
                     offset: 0,
@@ -2009,6 +2116,10 @@ ClientRestorableNavigationEntry {
     }
 
     private func applySnapshot(animated: Bool = true, completion: (() -> Void)? = nil) {
+        if currentSharedTab == .groupsInCommon {
+            applyGroupsSnapshot(animated: animated, completion: completion)
+            return
+        }
         let messages = sortedSharedMessages
         // Revoke accepted same-ID revisions before either grid cells or the gallery can use old pixels.
         let admitted = messages.filter { sharedMessageRefresh?.allows($0.id) == true }
@@ -2022,7 +2133,7 @@ ClientRestorableNavigationEntry {
             sharedMessageRefresh?.allows($0.id) == true,
         ) })
         let existing = messages.map(\.id).filter(existingIDs.contains)
-        let changedKinds = currentSharedTab == .media
+        let changedKinds = currentSharedTab.isGrid
             ? existing.filter { sharedCellReadiness[$0] != readiness[$0] }
             : []
         let signatures = Dictionary(uniqueKeysWithValues: messages.map { message in
@@ -2054,7 +2165,12 @@ ClientRestorableNavigationEntry {
             )
             activeMediaGallery?.updateTotalMessageCount(sharedTotalMessageCount)
         }
-        guard messages.isEmpty else {
+        updateEmptyBackground(isEmpty: messages.isEmpty, isLoading: historyTask != nil)
+    }
+
+    /// The pane's empty, loading or retry text. A profile without any pane shows nothing, as Telegram does.
+    private func updateEmptyBackground(isEmpty: Bool, isLoading: Bool) {
+        guard isEmpty, availableSharedTabs?.isEmpty != true else {
             collectionView.backgroundView = nil
             return
         }
@@ -2069,7 +2185,9 @@ ClientRestorableNavigationEntry {
             collectionView.backgroundView = button
         } else {
             let label = UILabel()
-            label.text = historyTask == nil ? currentSharedTab.emptyText : L10n.betterTG("Profile.Loading")
+            label.text = isLoading || availableSharedTabs == nil
+                ? L10n.betterTG("Profile.Loading")
+                : currentSharedTab.emptyText
             label.textAlignment = .center
             label.textColor = .secondaryLabel
             collectionView.backgroundView = label
@@ -2430,9 +2548,145 @@ ClientRestorableNavigationEntry {
         hasMore = true
         historyError = nil
         sharedTotalMessageCount = nil
+        groupsInCommonGeneration &+= 1
+        groupsInCommonTask?.cancel()
+        groupsInCommonTask = nil
+        groupsInCommon = []
+        groupsByID = [:]
+        groupsInCommonOffset = 0
+        groupsInCommonHasMore = true
         configureSharedMessageRefresh()
         collectionView.collectionViewLayout.invalidateLayout()
+        // An empty snapshot comes first: chat IDs and message IDs never share a cell across panes.
+        applySnapshot(animated: false)
         loadMore()
+    }
+
+    /// Telegram shows a pane only when it has content (`peerInfoAvailableMediaPanes`). TDLib's local counts answer at
+    /// once; a count TDLib does not know locally comes from the server, and its pane shows meanwhile.
+    private func loadSharedTabAvailability() {
+        sharedTabCountTask?.cancel()
+        let client = client
+        let chatID = customChat.id
+        let topic = topic
+        let filters = SharedTab.allCases.compactMap { tab in tab.filter.map { (tab, $0) } }
+        sharedTabCountTask = Task { [weak self] in
+            var counts = [SharedTab: Int]()
+            var unknown = [(SharedTab, SearchMessagesFilter)]()
+            for (tab, filter) in filters {
+                guard !Task.isCancelled else { return }
+                let local = try? await client.getChatMessageCount(
+                    chatId: chatID, topicId: topic, filter: filter, returnLocal: true,
+                )
+                if let count = local?.count, count >= 0 {
+                    counts[tab] = count
+                } else {
+                    unknown.append((tab, filter))
+                }
+            }
+            guard self?.applySharedTabCounts(counts) == true else { return }
+            for (tab, filter) in unknown {
+                let remote = try? await client.getChatMessageCount(
+                    chatId: chatID, topicId: topic, filter: filter, returnLocal: false,
+                )
+                guard let count = remote?.count, count >= 0 else { continue }
+                guard self?.applySharedTabCounts([tab: count]) == true else { return }
+            }
+            if !Task.isCancelled { self?.sharedTabCountTask = nil }
+        }
+    }
+
+    /// Records counts read by the current client; false once the read is stale.
+    private func applySharedTabCounts(_ counts: [SharedTab: Int]) -> Bool {
+        guard !Task.isCancelled, contextIsCurrent else { return false }
+        sharedTabCounts.merge(counts) { _, new in new }
+        sharedTabCountsLoaded = true
+        updateSharedTabAvailability()
+        return true
+    }
+
+    /// Shows the panes with content and keeps the selection on one of them. A user's Groups pane waits for the
+    /// common group count from the full info.
+    private func updateSharedTabAvailability() {
+        guard sharedTabCountsLoaded else { return }
+        let listsGroups = customChat.user != nil && !isSelfProfile
+        if listsGroups, groupsInCommonCount == nil { return }
+        let tabs = SharedTab.allCases.filter { tab in
+            guard tab.filter != nil else { return listsGroups && (groupsInCommonCount ?? 0) > 0 }
+            return sharedTabCounts[tab].map { $0 > 0 } ?? true
+        }
+        guard tabs != availableSharedTabs else { return }
+        let wasResolved = availableSharedTabs != nil
+        availableSharedTabs = tabs
+        let previousTab = selectedSharedTab
+        if !tabs.contains(selectedSharedTab), let first = tabs.first {
+            selectedSharedTab = first
+        }
+        sharedTabs.configure(
+            items: tabs.map { .init(id: $0.rawValue, title: $0.title) },
+            selectedID: tabs.isEmpty ? nil : selectedSharedTab.rawValue,
+        )
+        sharedTabs.alpha = tabs.isEmpty ? 0 : 1
+        sharedTabs.isUserInteractionEnabled = !tabs.isEmpty
+        sharedTabsHeightConstraint.constant = tabs.isEmpty ? 0 : 58
+        view.setNeedsLayout()
+        if selectedSharedTab != previousTab || tabs.isEmpty {
+            tabChanged()
+        } else if !wasResolved {
+            // The first counts start the selected pane, or refresh a restored one's empty text.
+            if restoration == nil { loadMore() }
+            applySnapshot(animated: false)
+        }
+    }
+
+    /// Telegram's Groups pane (`PeerInfoGroupsInCommonPaneNode`): the groups shared with this user, a page at a time.
+    private func loadMoreGroupsInCommon() {
+        guard restoredViewport == nil, groupsInCommonTask == nil, groupsInCommonHasMore, contextIsCurrent,
+              let userID = customChat.user?.id else { return }
+        let client = client
+        let offset = groupsInCommonOffset
+        let generation = groupsInCommonGeneration
+        historyError = nil
+        groupsInCommonTask = Task { [weak self] in
+            do {
+                let page = try await client.getGroupsInCommon(userId: userID, offsetChatId: offset, limit: 50)
+                var loaded = [CustomChat]()
+                for chatID in page.chatIds {
+                    guard self?.readsGroupsInCommon(generation) == true else { return }
+                    if let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client) {
+                        loaded.append(chat)
+                    }
+                }
+                guard let self, readsGroupsInCommon(generation) else { return }
+                groupsInCommonTask = nil
+                for chat in loaded where groupsByID[chat.id] == nil {
+                    groupsByID[chat.id] = chat
+                    groupsInCommon.append(chat.id)
+                }
+                groupsInCommonOffset = page.chatIds.last ?? offset
+                groupsInCommonHasMore = !page.chatIds.isEmpty && groupsInCommon.count < page.totalCount
+                applySnapshot()
+            } catch {
+                guard let self, readsGroupsInCommon(generation) else { return }
+                groupsInCommonTask = nil
+                historyError = SharedTab.groupsInCommon.loadFailedText
+                applySnapshot()
+            }
+        }
+        if groupsInCommon.isEmpty { applySnapshot() }
+    }
+
+    private func readsGroupsInCommon(_ generation: UInt64) -> Bool {
+        !Task.isCancelled && groupsInCommonGeneration == generation && contextIsCurrent
+            && currentSharedTab == .groupsInCommon
+    }
+
+    private func applyGroupsSnapshot(animated: Bool, completion: (() -> Void)?) {
+        var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
+        snapshot.appendSections([.messages])
+        snapshot.appendItems(groupsInCommon)
+        dataSource.apply(snapshot, animatingDifferences: animated) { completion?() }
+        updateEmptyBackground(isEmpty: groupsInCommon.isEmpty, isLoading: groupsInCommonTask != nil)
     }
 
     @objc private func messagePressed() {
@@ -2747,6 +3001,19 @@ final class SharedMediaGridCell: UICollectionViewCell {
                 imageView.loadPlaceholder(data: video.video.minithumbnail?.data, client: client)
             }
             videoBadge.isHidden = false
+        case .messageAnimation(let animation):
+            if let thumbnail = animation.animation.thumbnail {
+                imageView.load(
+                    file: thumbnail.file,
+                    placeholderData: animation.animation.minithumbnail?.data,
+                    maximumPixelSize: 480,
+                    accountID: accountID,
+                    client: client,
+                )
+            } else {
+                imageView.loadPlaceholder(data: animation.animation.minithumbnail?.data, client: client)
+            }
+            videoBadge.isHidden = true
         default:
             if let preview = SharedMediaGridPreview(message: message) {
                 if let file = preview.file {
@@ -3032,11 +3299,20 @@ final class SharedMediaRowCell: UICollectionViewCell {
         setDownloadProgress(nil)
         let presentation = MessageContentPresentation.make(message)
         titleLabel.text = presentation.summary
-        subtitleLabel.text = profileDateString(message.date)
+        // A voice or video message shows its length after the date, as Telegram's Voice pane does.
+        let duration: Int? =
+            switch message.content {
+            case .messageVoiceNote(let value): value.voiceNote.duration
+            case .messageVideoNote(let value): value.videoNote.duration
+            default: nil
+            }
+        let date = profileDateString(message.date)
+        let subtitle = duration.map { "\(date) · \(String(format: "%d:%02d", $0 / 60, $0 % 60))" } ?? date
+        subtitleLabel.text = subtitle
         iconView.image = UIImage(systemName: icon(for: message.content))
         isAccessibilityElement = true
         accessibilityTraits = .button
-        accessibilityLabel = "\(presentation.summary), \(profileDateString(message.date))"
+        accessibilityLabel = "\(presentation.summary), \(subtitle)"
     }
 
     /// A file downloading to open or play; nil hides the bar.
@@ -3050,8 +3326,73 @@ final class SharedMediaRowCell: UICollectionViewCell {
         switch content {
         case .messageDocument: "doc.fill"
         case .messageAudio: "music.note"
+        case .messageVoiceNote: "mic.fill"
+        case .messageVideoNote: "video.circle.fill"
         default: "link"
         }
+    }
+}
+
+// MARK: - SharedGroupRowCell
+
+/// A group shared with the user, after Telegram's ContactsPeerItem in the Groups pane.
+final class SharedGroupRowCell: UICollectionViewCell {
+    static let reuseIdentifier = "SharedGroupRowCell"
+
+    private let avatarView = ProfileAvatarView()
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        avatarView.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(avatarView)
+        titleLabel.font = .preferredFont(forTextStyle: .body)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.lineBreakMode = .byTruncatingTail
+        subtitleLabel.font = .preferredFont(forTextStyle: .caption1)
+        subtitleLabel.adjustsFontForContentSizeCategory = true
+        subtitleLabel.textColor = .secondaryLabel
+        let labels = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
+        labels.translatesAutoresizingMaskIntoConstraints = false
+        labels.axis = .vertical
+        labels.spacing = 2
+        contentView.addSubview(labels)
+        NSLayoutConstraint.activate([
+            contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
+            avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
+            avatarView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            avatarView.widthAnchor.constraint(equalToConstant: 40),
+            avatarView.heightAnchor.constraint(equalToConstant: 40),
+            labels.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 12),
+            labels.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
+            labels.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            labels.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 8),
+            labels.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -8),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        avatarView.prepareForReuse()
+    }
+
+    func configure(chat: CustomChat, subtitle: String?, accountID: UUID, client: TDLibClient) {
+        titleLabel.text = chat.displayTitle
+        subtitleLabel.text = subtitle
+        subtitleLabel.isHidden = subtitle == nil
+        avatarView.configure(
+            file: chat.chat.photo?.small,
+            minithumbnail: chat.chat.photo?.minithumbnail,
+            placeholder: chat.telegramAvatarPlaceholder,
+            accountID: accountID,
+            client: client,
+        )
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = [chat.displayTitle, subtitle].compactMap(\.self).joined(separator: ", ")
     }
 }
 

@@ -429,6 +429,9 @@
 "PeerInfo.PaneMedia" = "Media";
 "PeerInfo.PaneFiles" = "Files";
 "PeerInfo.PaneLinks" = "Links";
+"PeerInfo.PaneVoiceAndVideo" = "Voice";
+"PeerInfo.PaneGifs" = "GIFs";
+"PeerInfo.PaneGroups" = "Groups";
 "PeerInfo.PaneAudio" = "Audio";
 "PeerInfo.ButtonMessage" = "Message";
 "Channel.Info.Management" = "Admins";
