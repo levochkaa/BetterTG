@@ -126,7 +126,21 @@ final class NewMessageViewController: SettingsListViewController, UISearchResult
 
     /// ComposeControllerNode's options above the contacts.
     private func optionRows() -> [SettingsRow] {
-        []
+        [
+            optionRow("Compose.NewEncryptedChat", symbol: "lock") { [weak self] in
+                self?.push(ComposeContactPickerViewController(mode: .secretChat))
+            },
+        ]
+    }
+
+    /// ContactListActionItem: an accent title with its icon.
+    private func optionRow(_ key: String, symbol: String, action: @escaping () -> Void) -> SettingsRow {
+        SettingsRow(title: L10n.telegram(key), style: .action(destructive: false), symbol: symbol, action: action)
+    }
+
+    private func push(_ controller: UIViewController) {
+        guard contextIsCurrent, navigationController?.topViewController === self else { return }
+        navigationController?.pushViewController(controller, animated: true)
     }
 
     private func searchSections() -> [SettingsSection] {
