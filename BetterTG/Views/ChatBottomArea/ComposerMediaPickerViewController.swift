@@ -25,6 +25,10 @@ UISearchBarDelegate {
         case pack(Int64)
         case recentEmoji
         case emojiCategory(EmojiCatalog.Category)
+        /// StickerPaneSearchContentNode's trending pane title, above the trending packs.
+        case trending
+        /// A pack found by a search or trending; its stickers open the pack.
+        case foundPack(Int64)
     }
 
     private enum ItemID: Hashable {
@@ -70,6 +74,8 @@ UISearchBarDelegate {
     private var savedAnimations = [Animation]()
     private var stickers = [Int: Sticker]()
     private var sectionTitles = [Section: String]()
+    /// A found pack's sticker count, at the end of its header.
+    private var sectionDetails = [Section: String]()
     private var favoriteStickerIDs = Set<Int>()
     private var loadTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
@@ -143,6 +149,23 @@ UISearchBarDelegate {
         }
     }
 
+    /// StickerPaneSearchContentNode: the installed packs matching the query (searchStickerSets), then the server's
+    /// (searchStickerSetsRemotely), for a single emoji or at least two characters.
+    private static func foundStickerSets(query: String, client: TDLibClient) async -> [TDNativeStickerSetInfo] {
+        let isSingleEmoji = query.count == 1 && query.unicodeScalars.contains { $0.properties.isEmojiPresentation }
+        guard query.count >= 2 || isSingleEmoji else { return [] }
+        async let installedRequest = client.send(TDNativeRequests.searchInstalledStickerSets(
+            stickerType: .stickerTypeRegular, query: query, limit: 20,
+        ))
+        async let remoteRequest = client.send(TDNativeRequests.searchStickerSets(
+            stickerType: .stickerTypeRegular, query: query,
+        ))
+        let installed = await (try? installedRequest)?.sets ?? []
+        let remote = await (try? remoteRequest)?.sets ?? []
+        var seen = Set<Int64>()
+        return (installed + remote).filter { seen.insert($0.id).inserted }
+    }
+
     func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard contextIsCurrent,
               let item = dataSource.itemIdentifier(for: indexPath)
@@ -154,6 +177,8 @@ UISearchBarDelegate {
         case .emoji(_, let emoji):
             RecentEmojiStore.shared.record(emoji, accountID: accountID)
             onEmoji?(emoji)
+        case .groupedSticker(.foundPack(let setID), _):
+            openStickerSet(setID)
         case .groupedSticker(_, let id), .sticker(let id):
             guard let sticker = stickers[id] else { return }
             if case .stickerFullTypeCustomEmoji = sticker.fullType {
@@ -198,6 +223,23 @@ UISearchBarDelegate {
             guard let self, !Task.isCancelled else { return }
             await reload(query: searchText.trimmingCharacters(in: .whitespacesAndNewlines))
         }
+    }
+
+    /// StickerPaneSearchContentNode shows Telegram's trending packs while the search field is active and empty.
+    func searchBarTextDidBeginEditing(_ searchBar: UISearchBar) {
+        guard mode == .stickers, (searchBar.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return }
+        loadTask?.cancel()
+        searchTask?.cancel()
+        loadTask = Task { [weak self] in await self?.loadTrendingStickerSets() }
+    }
+
+    func searchBarTextDidEndEditing(_ searchBar: UISearchBar) {
+        guard mode == .stickers, (searchBar.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return }
+        loadTask?.cancel()
+        searchTask?.cancel()
+        loadTask = Task { [weak self] in await self?.loadStickerGroups() }
     }
 
     private func configureViews() {
@@ -357,7 +399,15 @@ UISearchBarDelegate {
                 for: indexPath,
             ) as? ComposerSectionHeaderView
             let section = self?.dataSource.sectionIdentifier(for: indexPath.section)
-            header?.configure(title: section.flatMap { self?.sectionTitles[$0] } ?? "")
+            var action: (() -> Void)?
+            if case .foundPack(let setID) = section {
+                action = { [weak self] in self?.openStickerSet(setID) }
+            }
+            header?.configure(
+                title: section.flatMap { self?.sectionTitles[$0] } ?? "",
+                detail: section.flatMap { self?.sectionDetails[$0] },
+                action: action,
+            )
             return header
         }
     }
@@ -415,19 +465,26 @@ UISearchBarDelegate {
             applySnapshot(values.map { .sticker($0.sticker.id) }.uniqued())
         case .stickers:
             guard !query.isEmpty else {
-                await loadStickerGroups()
+                if searchBar.isFirstResponder {
+                    await loadTrendingStickerSets()
+                } else {
+                    await loadStickerGroups()
+                }
                 return
             }
-            let result = try? await client.getStickers(
+            async let request = client.getStickers(
                 chatId: chatID,
                 limit: 100,
                 query: query,
                 stickerType: .stickerTypeRegular,
             )
-            guard !Task.isCancelled, contextIsCurrent else { return }
+            async let packsRequest = Self.foundStickerSets(query: query, client: client)
+            let result = try? await request
+            let packs = await packsRequest
+            guard !Task.isCancelled, contextIsCurrent, mode == .stickers else { return }
             let values = Self.sendableStickers(result?.stickers ?? [])
-            stickers = Dictionary(uniqueKeysWithValues: values.map { ($0.sticker.id, $0) })
-            applySnapshot(values.map { .sticker($0.sticker.id) })
+            stickers = Dictionary(values.map { ($0.sticker.id, $0) }, uniquingKeysWith: { _, latest in latest })
+            applyStickerSets(packs, stickers: values, heading: nil)
         case .gifs:
             if savedAnimations.isEmpty {
                 savedAnimations = await (try? client.getSavedAnimations().animations) ?? []
@@ -459,6 +516,7 @@ UISearchBarDelegate {
             titles[section] = category.title
         }
         sectionTitles = titles
+        sectionDetails = [:]
         dataSource.apply(snapshot, animatingDifferences: false)
         collectionView.backgroundView = nil
         for (section, button) in emojiCategoryButtons {
@@ -496,6 +554,7 @@ UISearchBarDelegate {
 
     private func applySnapshot(_ items: [ItemID]) {
         sectionTitles = [:]
+        sectionDetails = [:]
         var snapshot = NSDiffableDataSourceSnapshot<Section, ItemID>()
         snapshot.appendSections([.content])
         snapshot.appendItems(items)
@@ -540,6 +599,7 @@ UISearchBarDelegate {
 
     private func applyStickerGroups(_ groups: [(Section, [Sticker])], titles: [Section: String]) {
         sectionTitles = titles
+        sectionDetails = [:]
         var snapshot = NSDiffableDataSourceSnapshot<Section, ItemID>()
         for (section, values) in groups {
             for sticker in values {
@@ -550,6 +610,62 @@ UISearchBarDelegate {
             snapshot.appendSections([section])
             snapshot.appendItems(items, toSection: section)
         }
+        dataSource.apply(snapshot, animatingDifferences: false)
+        collectionView.backgroundView = snapshot.numberOfItems == 0 ? emptyLabel() : nil
+    }
+
+    /// StickerPaneSearchContentNode's trending pane (ChatMediaInputTrendingPane): Telegram's trending packs.
+    private func loadTrendingStickerSets() async {
+        let result = try? await client.send(TDNativeRequests.getTrendingStickerSets(
+            stickerType: .stickerTypeRegular, offset: 0, limit: 30,
+        ))
+        guard !Task.isCancelled, contextIsCurrent, mode == .stickers, searchBar.isFirstResponder,
+              (searchBar.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return }
+        applyStickerSets(
+            result?.sets ?? [],
+            stickers: [],
+            heading: L10n.telegram("StickerPacksSettings.FeaturedPacks"),
+        )
+    }
+
+    /// The matching stickers, then each pack with a row of its first stickers under its title and sticker count.
+    /// A pack's stickers and header open its preview, where it can be added or sent from.
+    private func applyStickerSets(_ packs: [TDNativeStickerSetInfo], stickers values: [Sticker], heading: String?) {
+        var titles = [Section: String]()
+        var details = [Section: String]()
+        var snapshot = NSDiffableDataSourceSnapshot<Section, ItemID>()
+        if !values.isEmpty {
+            snapshot.appendSections([.content])
+            snapshot.appendItems(values.map { .sticker($0.sticker.id) }.uniqued(), toSection: .content)
+        }
+        var packSections = [(Section, [Sticker])]()
+        for pack in packs {
+            // A row of covers; BetterTG sends no Premium stickers.
+            let covers = Array(Self.sendableStickers(pack.covers).prefix(4))
+            guard !covers.isEmpty else { continue }
+            let section = Section.foundPack(pack.id)
+            packSections.append((section, covers))
+            titles[section] = pack.title
+            details[section] = L10n.telegramPlural(
+                "StickerPack.StickerCount",
+                count: pack.size,
+                formattedCount: pack.size.formatted(.number),
+            )
+        }
+        if let heading, !packSections.isEmpty {
+            snapshot.appendSections([.trending])
+            titles[.trending] = heading
+        }
+        for (section, covers) in packSections {
+            for sticker in covers {
+                stickers[sticker.sticker.id] = sticker
+            }
+            snapshot.appendSections([section])
+            snapshot.appendItems(covers.map { .groupedSticker(section, $0.sticker.id) }.uniqued(), toSection: section)
+        }
+        sectionTitles = titles
+        sectionDetails = details
         dataSource.apply(snapshot, animatingDifferences: false)
         collectionView.backgroundView = snapshot.numberOfItems == 0 ? emptyLabel() : nil
     }
@@ -659,7 +775,7 @@ UISearchBarDelegate {
             if let toast {
                 TelegramUndoToast.show(text: toast, in: view, bottomInset: 12, undo: nil)
             }
-            guard mode == .stickers, (searchBar.text ?? "").isEmpty else { return }
+            guard mode == .stickers, (searchBar.text ?? "").isEmpty, !searchBar.isFirstResponder else { return }
             loadTask?.cancel()
             loadTask = Task { [weak self] in await self?.loadStickerGroups() }
         }
@@ -865,11 +981,14 @@ private final class ComposerAnimationCell: UICollectionViewCell {
 
 // MARK: - ComposerSectionHeaderView
 
-/// A sticker group's title, as Telegram's keyboard heads Favorite Stickers, Recently Used and each pack.
+/// A sticker group's title, as Telegram's keyboard heads Favorite Stickers, Recently Used and each pack. A found pack's
+/// header also shows its sticker count and opens the pack.
 private final class ComposerSectionHeaderView: UICollectionReusableView {
     static let reuseIdentifier = "ComposerSectionHeaderView"
 
     private let label = UILabel()
+    private let detailLabel = UILabel()
+    private var action: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -878,11 +997,21 @@ private final class ComposerSectionHeaderView: UICollectionReusableView {
         label.adjustsFontForContentSizeCategory = true
         label.textColor = .secondaryLabel
         label.lineBreakMode = .byTruncatingTail
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         addSubview(label)
+        detailLabel.translatesAutoresizingMaskIntoConstraints = false
+        detailLabel.font = .preferredFont(forTextStyle: .footnote)
+        detailLabel.adjustsFontForContentSizeCategory = true
+        detailLabel.textColor = .tertiaryLabel
+        detailLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        addSubview(detailLabel)
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: detailLabel.leadingAnchor, constant: -8),
             label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            detailLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            detailLabel.firstBaselineAnchor.constraint(equalTo: label.firstBaselineAnchor),
         ])
     }
 
@@ -890,10 +1019,16 @@ private final class ComposerSectionHeaderView: UICollectionReusableView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(title: String) {
+    func configure(title: String, detail: String? = nil, action: (() -> Void)? = nil) {
         label.text = title
-        accessibilityTraits = .header
+        detailLabel.text = detail
+        self.action = action
+        accessibilityTraits = action == nil ? .header : [.header, .button]
         isAccessibilityElement = true
-        accessibilityLabel = title
+        accessibilityLabel = [title, detail].compactMap(\.self).joined(separator: ", ")
+    }
+
+    @objc private func tapped() {
+        action?()
     }
 }

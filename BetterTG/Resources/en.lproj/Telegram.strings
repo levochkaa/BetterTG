@@ -1247,3 +1247,6 @@
 "Conversation.DeleteTimer.Apply" = "Set Auto-Delete";
 "Conversation.DeleteTimer.Disable" = "Disable Auto-Delete";
 "Emoji.FrequentlyUsed" = "Recently Used";
+"StickerPacksSettings.FeaturedPacks" = "Trending Stickers";
+"StickerPack.StickerCount_1" = "1 sticker";
+"StickerPack.StickerCount_any" = "%@ stickers";
