@@ -9,6 +9,7 @@ import UIKit
 /// New Secret Chat (ContactSelectionController) starts a secret chat with the tapped person (createNewSecretChat)
 /// and opens it in place of the compose screens. New Group (ContactMultiselectionController in `.groupCreation`)
 /// checks people, shows them as chips above the list and goes on to the group's name with Next.
+/// A new channel's subscribers (`.channelCreation`) join it with Next (addChatMembers), which also skips them.
 final class ComposeContactPickerViewController: SettingsListViewController, UISearchResultsUpdating,
 ComposeFlowScreen {
     enum Mode {
@@ -16,6 +17,8 @@ ComposeFlowScreen {
         case secretChat
         /// The members of a new basic group, which counts the account too.
         case newGroup
+        /// People to add to a channel just created; the channel opens after them.
+        case channelSubscribers(chatID: Int64)
     }
 
     private static let searchDelay = Duration.milliseconds(250)
@@ -56,7 +59,7 @@ ComposeFlowScreen {
     /// Who the mode lists: a secret chat is only with a person.
     private var allowsPerson: (ComposeContact) -> Bool {
         switch mode {
-        case .secretChat: { !$0.isBot }
+        case .channelSubscribers, .secretChat: { !$0.isBot }
         case .newGroup: { _ in true }
         }
     }
@@ -64,7 +67,7 @@ ComposeFlowScreen {
     private var isMultipleSelection: Bool {
         switch mode {
         case .secretChat: false
-        case .newGroup: true
+        case .channelSubscribers, .newGroup: true
         }
     }
 
@@ -100,6 +103,10 @@ ComposeFlowScreen {
             searchController.searchBar.placeholder = L10n.telegram("Compose.GroupTokenListPlaceholder")
             navigationItem.rightBarButtonItem = nextButton
             loadLimits()
+        case .channelSubscribers:
+            title = L10n.telegram("GroupInfo.AddParticipantTitle")
+            searchController.searchBar.placeholder = L10n.telegram("Compose.GroupTokenListPlaceholder")
+            navigationItem.rightBarButtonItem = nextButton
         }
         tokenView.onRemove = { [weak self] id in self?.deselect(id) }
         searchController.searchResultsUpdater = self
@@ -229,7 +236,7 @@ ComposeFlowScreen {
         switch mode {
         case .secretChat:
             startSecretChat(with: contact)
-        case .newGroup:
+        case .channelSubscribers, .newGroup:
             toggle(contact)
         }
     }
@@ -293,6 +300,33 @@ ComposeFlowScreen {
             return
         case .newGroup:
             navigationController?.pushViewController(CreateGroupViewController(members: selected), animated: true)
+        case .channelSubscribers(let chatID):
+            addSubscribers(to: chatID)
+        }
+    }
+
+    // MARK: Channel subscribers
+
+    /// ChannelVisibilityController's next in the initial setup: the checked people join (addChatMembers), then the
+    /// channel opens in place of the compose screens, also when nobody is checked or adding fails, as in Telegram.
+    private func addSubscribers(to chatID: Int64) {
+        guard actionTask == nil, contextIsCurrent else { return }
+        searchController.searchBar.resignFirstResponder()
+        setBusy(true)
+        let client = client
+        let userIDs = selected.map(\.userID)
+        actionTask = Task { [weak self] in
+            if !userIDs.isEmpty {
+                _ = try? await client.send(TDNativeRequests.addChatMembers(chatId: chatID, userIds: userIDs))
+            }
+            let opened = await ComposeContacts.open(chatID: chatID, client: client) {
+                self?.contextIsCurrent == true
+            }
+            guard let self else { return }
+            actionTask = nil
+            setBusy(false)
+            // The channel exists; without its chat this flow ends at the chat list.
+            if !opened, contextIsCurrent { NavigationStorage.shared.popToRoot() }
         }
     }
 
