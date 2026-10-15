@@ -511,62 +511,6 @@ enum MessageForwardingError: LocalizedError, Equatable {
         return sentCount
     }
 
-    @discardableResult static func sendComment(
-        _ comment: FormattedText,
-        prepared: PreparedMessageForward,
-        to destination: MessageForwardDestination,
-        client: TDLibClient,
-        accountID: UUID,
-    ) async throws -> Message {
-        guard !comment.text.isEmpty else {
-            throw MessageForwardingError.emptySelection
-        }
-        guard TDLib.shared.activeAccountID == accountID,
-              TDLib.shared.activeClient.id == client.id
-        else { throw MessageForwardingError.accountChanged }
-        let destinationChat = try await client.getChat(chatId: destination.chatID)
-        guard destinationChat.permissions.canSendBasicMessages else {
-            throw MessageForwardingError.destinationUnavailable(L10n.betterTG("Forward.CommentNotAllowed"))
-        }
-        let commentPrepared = PreparedMessageForward(
-            request: prepared.request,
-            canForward: true,
-            canCopy: true,
-            canCopyToSecretChat: true,
-            contentRequirements: [.basic],
-            hasCaptions: false,
-        )
-        let commentEligibility = await eligibility(
-            of: destinationChat,
-            topic: destination.topic,
-            for: commentPrepared,
-            client: client,
-        )
-        guard commentEligibility.isAllowed else {
-            throw MessageForwardingError.destinationUnavailable(
-                commentEligibility.reason ?? L10n.betterTG("Forward.CommentDestinationUnavailable"),
-            )
-        }
-        guard TDLib.shared.activeAccountID == accountID,
-              TDLib.shared.activeClient.id == client.id
-        else { throw MessageForwardingError.accountChanged }
-        let message = try await client.sendMessage(
-            chatId: destination.chatID,
-            inputMessageContent: .inputMessageText(InputMessageText(
-                clearDraft: false,
-                linkPreviewOptions: nil,
-                text: comment,
-            )),
-            options: nil,
-            replyMarkup: nil,
-            replyTo: nil,
-            topicId: destination.topic,
-        )
-        guard destination.accepts(message)
-        else { throw MessageForwardingError.destinationUnavailable(L10n.betterTG("Forward.DifferentTopic")) }
-        return message
-    }
-
     static func eligibility(
         of chat: Chat,
         topic: MessageTopic?,

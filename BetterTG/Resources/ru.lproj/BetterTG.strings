@@ -482,8 +482,6 @@
 "Forward.NoPermission" = "У вас нет прав отправлять сюда сообщения такого типа.";
 "Forward.ChatCantReceive" = "Этот чат не может принять выбранные сообщения.";
 "Forward.DifferentTopic" = "Telegram вернул другую тему.";
-"Forward.CommentNotAllowed" = "В этот чат нельзя отправить комментарий.";
-"Forward.CommentDestinationUnavailable" = "Сюда нельзя отправить комментарий.";
 "Forward.ChooseTopic" = "Выберите тему форума перед пересылкой.";
 "Forward.TopicClosed" = "Эта тема закрыта.";
 "Forward.TopicsUnsupported" = "Этот чат не поддерживает темы форума.";

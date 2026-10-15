@@ -482,8 +482,6 @@
 "Forward.NoPermission" = "You don't have permission to send this message type here.";
 "Forward.ChatCantReceive" = "This chat can't receive the selected messages.";
 "Forward.DifferentTopic" = "Telegram returned a different topic.";
-"Forward.CommentNotAllowed" = "You can't send a comment to this chat.";
-"Forward.CommentDestinationUnavailable" = "This destination can't receive a comment.";
 "Forward.ChooseTopic" = "Choose a forum topic before forwarding.";
 "Forward.TopicClosed" = "This topic is closed.";
 "Forward.TopicsUnsupported" = "This chat doesn't support forum topics.";
