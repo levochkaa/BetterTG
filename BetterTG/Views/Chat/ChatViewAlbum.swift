@@ -858,6 +858,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     var onRequestMoreMessages: (() -> Void)?
     var paginationIsCurrent: (() -> Bool)?
     var onGalleryRestored: ((MediaGalleryViewController) -> Void)?
+    /// Called once the gallery's dismissal finishes, so its owner can act on state it held back while covered.
+    var onDismissed: (() -> Void)?
     var contextIsCurrent: (() -> Bool)?
     var onPrepareOpenMessageID: ((Int64) async -> Bool)? {
         didSet {
@@ -1206,6 +1208,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         if shouldReleasePlaybackOwnersAfterDisappearance {
             releasePlaybackOwnersForDismissal()
         }
+        if isBeingDismissed { onDismissed?() }
     }
 
     override func viewWillTransition(

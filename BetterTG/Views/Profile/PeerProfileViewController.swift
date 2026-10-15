@@ -259,6 +259,14 @@ ClientRestorableNavigationEntry {
             && avatarGalleryTask == nil && !isPresentingTelegramContextMenu
     }
 
+    /// A same-account client renewal (the app returning from the background) keeps an open shared-media gallery, as
+    /// it keeps the chat's: the gallery reloads its items through the renewed client, and this profile is replaced
+    /// once the gallery closes.
+    private var keepsMediaGalleryThroughClientRenewal: Bool {
+        activeMediaGallery != nil && !clientOwnerRetired && !restorationIdentity.revoked && accountUserID != nil
+            && TDLib.shared.activeAccountID == accountID && TDLib.shared.activeAccount?.userID == accountUserID
+    }
+
     init(
         customChat: CustomChat, topic: MessageTopic?, client: TDLibClient, accountID: UUID,
         restoration: PeerProfileRestorationState? = nil,
@@ -1006,8 +1014,11 @@ ClientRestorableNavigationEntry {
             guard let self, contextIsCurrent, currentSharedTab == originatingTab else { return }
             loadMore()
         }
-        gallery.contextIsCurrent = { [accountID, clientID = client.id] in
-            TDLib.shared.activeAccountID == accountID && TDLib.shared.activeClient.id == clientID
+        gallery.contextIsCurrent = { [weak self] in
+            // A same-account client renewal keeps the route: the gallery reloads its items through the renewed
+            // client, and this profile is replaced once the gallery closes.
+            guard let self else { return false }
+            return TDLib.shared.activeAccountID == accountID && !clientOwnerRetired && !restorationIdentity.revoked
         }
         gallery.onPrepareOpenMessageID = onPrepareGalleryReturn
         gallery.openInChatTransitionSourceProvider = galleryReturnTarget
@@ -1018,6 +1029,16 @@ ClientRestorableNavigationEntry {
             restoredGallery
                 .updateMessages(sortedSharedMessages.filter { self.sharedMessageRefresh?.allows($0.id) == true })
             restoredGallery.updateTotalMessageCount(sharedTotalMessageCount)
+        }
+        gallery.onDismissed = { [weak self, weak gallery] in
+            guard let self, let gallery, activeMediaGallery === gallery else { return }
+            activeMediaGallery = nil
+            // A client renewed while the gallery covered this profile replaces the profile now, without waiting
+            // for the next scroll.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !contextIsCurrent else { return }
+                handleAccountChange()
+            }
         }
         activeMediaGallery = gallery
         (navigationController ?? self).present(gallery, animated: true)
@@ -1082,7 +1103,9 @@ ClientRestorableNavigationEntry {
                 sharedMessageRefresh = nil
                 historyTask?.cancel()
                 historyTask = nil
-                revokeSharedMessages(Set(messagesByID.keys))
+                if source.map({ $0.accountID != accountID }) ?? false || !keepsMediaGalleryThroughClientRenewal {
+                    revokeSharedMessages(Set(messagesByID.keys))
+                }
             }
         }
         retryClientRestoration()
@@ -1150,10 +1173,15 @@ ClientRestorableNavigationEntry {
             parent: self, accountID: accountID, actorID: accountUserID, chatID: customChat.id,
         ) == true { return }
         if canWaitForClientRestoration {
-            navigationItem.prompt = L10n.betterTG("Session.Reconnecting")
+            // The replacement usually lands within a frame; the prompt marks only a restoration that takes longer.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self, !clientOwnerRetired, !contextIsCurrent, canWaitForClientRestoration else { return }
+                navigationItem.prompt = L10n.betterTG("Session.Reconnecting")
+            }
             retryClientRestoration()
             return
         }
+        if keepsMediaGalleryThroughClientRenewal { return }
         let leaveProfile: () -> Void = { [weak self] in
             guard let self,
                   let navigationController,
