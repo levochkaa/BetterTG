@@ -1246,3 +1246,4 @@
 "Conversation.DeleteTimer.SetupTitle" = "Auto-Delete After...";
 "Conversation.DeleteTimer.Apply" = "Set Auto-Delete";
 "Conversation.DeleteTimer.Disable" = "Disable Auto-Delete";
+"Emoji.FrequentlyUsed" = "Recently Used";

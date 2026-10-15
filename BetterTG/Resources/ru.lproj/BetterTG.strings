@@ -589,3 +589,11 @@
 "Accessibility.NextStory" = "Следующая история";
 "Accessibility.PreviousStory" = "Предыдущая история";
 "Accessibility.OpenStoriesHint" = "Открывает истории";
+"Emoji.Category.People" = "Смайлики и люди";
+"Emoji.Category.AnimalsAndNature" = "Животные и природа";
+"Emoji.Category.FoodAndDrink" = "Еда и напитки";
+"Emoji.Category.Activity" = "Активность";
+"Emoji.Category.TravelAndPlaces" = "Путешествия и места";
+"Emoji.Category.Objects" = "Предметы";
+"Emoji.Category.Symbols" = "Символы";
+"Emoji.Category.Flags" = "Флаги";

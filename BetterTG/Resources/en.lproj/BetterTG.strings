@@ -590,3 +590,11 @@
 "Accessibility.NextStory" = "Next story";
 "Accessibility.PreviousStory" = "Previous story";
 "Accessibility.OpenStoriesHint" = "Opens the stories";
+"Emoji.Category.People" = "Smileys & People";
+"Emoji.Category.AnimalsAndNature" = "Animals & Nature";
+"Emoji.Category.FoodAndDrink" = "Food & Drink";
+"Emoji.Category.Activity" = "Activity";
+"Emoji.Category.TravelAndPlaces" = "Travel & Places";
+"Emoji.Category.Objects" = "Objects";
+"Emoji.Category.Symbols" = "Symbols";
+"Emoji.Category.Flags" = "Flags";

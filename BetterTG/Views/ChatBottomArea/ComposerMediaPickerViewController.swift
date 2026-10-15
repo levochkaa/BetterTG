@@ -16,17 +16,21 @@ UISearchBarDelegate {
     }
 
     /// Telegram's sticker tab groups (EmojiPagerContentSignals): Favorite Stickers, Recently Used, then every installed
-    /// pack in the user's order. Searches and the other tabs use one plain section.
+    /// pack in the user's order. The emoji tab has Recently Used and Telegram's emoji categories. Searches and the
+    /// other tabs use one plain section.
     private enum Section: Hashable {
         case content
         case favorites
         case recent
         case pack(Int64)
+        case recentEmoji
+        case emojiCategory(EmojiCatalog.Category)
     }
 
     private enum ItemID: Hashable {
         case animation(Int)
-        case emoji(String)
+        /// An emoji can be in Recently Used and its category at once.
+        case emoji(Section, String)
         case sticker(Int)
         /// A sticker can be in Favorites, Recently Used and its pack at once.
         case groupedSticker(Section, Int)
@@ -34,11 +38,8 @@ UISearchBarDelegate {
 
     /// Telegram shows up to 20 recently used stickers.
     private static let recentStickerLimit = 20
-
-    private static let emojis =
-        "😀 😃 😄 😁 😆 😅 😂 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😋 😜 🤪 🤨 🧐 🤓 😎 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 🤗 🤔 🫡 🤭 🤫 🤥 😶 😐 😑 😬 🙄 😯 😮 😲 🥱 😴 🤤 😪 😵 🤐 🤢 🤮 🤧 😷 🤒 🤕 👍 👎 👏 🙌 🫶 ❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💯 🔥 🎉 ✨ 🚀"
-            .split(separator: " ")
-            .map(String.init)
+    /// The emoji tab's category bar sits where the other tabs have their search field.
+    private static let emojiCategoryBarHeight: CGFloat = 36
 
     var onAnimation: ((Animation) -> Void)?
     var onDismiss: (() -> Void)?
@@ -60,6 +61,9 @@ UISearchBarDelegate {
     ])
     private let searchBar = UISearchBar()
     private var searchBarHeightConstraint: NSLayoutConstraint!
+    /// Telegram's emoji category icons (EntityKeyboardTopPanelComponent's static emoji segments) with Recently Used.
+    private let emojiCategoryBar = UIStackView()
+    private var emojiCategoryButtons = [(Section, UIButton)]()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     private var dataSource: UICollectionViewDiffableDataSource<Section, ItemID>!
     private var animations = [Int: Animation]()
@@ -115,7 +119,7 @@ UISearchBarDelegate {
         }
         segmentedControl.selectedSegmentIndex = Mode.emoji.rawValue
         searchBar.isHidden = true
-        searchBarHeightConstraint.constant = 0
+        searchBarHeightConstraint.constant = Self.emojiCategoryBarHeight
         applyEmojiSnapshot()
         // Its stickers and GIFs are the presenting client's files. A renewed client (the app returning from the
         // background) closes the sheet so the chat can move to the new client, instead of losing the next tap.
@@ -147,7 +151,8 @@ UISearchBarDelegate {
             return
         }
         switch item {
-        case .emoji(let emoji):
+        case .emoji(_, let emoji):
+            RecentEmojiStore.shared.record(emoji, accountID: accountID)
             onEmoji?(emoji)
         case .groupedSticker(_, let id), .sticker(let id):
             guard let sticker = stickers[id] else { return }
@@ -180,6 +185,11 @@ UISearchBarDelegate {
         (cell as? ComposerAnimationCell)?.setPlaybackVisible(false)
     }
 
+    func scrollViewDidScroll(_: UIScrollView) {
+        guard mode == .emoji else { return }
+        updateEmojiCategoryHighlight()
+    }
+
     func searchBar(_: UISearchBar, textDidChange searchText: String) {
         loadTask?.cancel()
         searchTask?.cancel()
@@ -201,6 +211,7 @@ UISearchBarDelegate {
         searchBar.searchBarStyle = .minimal
         view.addSubview(searchBar)
         searchBarHeightConstraint = searchBar.heightAnchor.constraint(equalToConstant: 44)
+        configureEmojiCategoryBar()
 
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .systemBackground
@@ -241,7 +252,32 @@ UISearchBarDelegate {
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            emojiCategoryBar.topAnchor.constraint(equalTo: searchBar.topAnchor),
+            emojiCategoryBar.bottomAnchor.constraint(equalTo: searchBar.bottomAnchor),
+            emojiCategoryBar.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor),
+            emojiCategoryBar.trailingAnchor.constraint(equalTo: searchBar.trailingAnchor),
         ])
+    }
+
+    private func configureEmojiCategoryBar() {
+        emojiCategoryBar.translatesAutoresizingMaskIntoConstraints = false
+        emojiCategoryBar.axis = .horizontal
+        emojiCategoryBar.distribution = .fillEqually
+        let entries = [(Section.recentEmoji, "clock", L10n.telegram("Emoji.FrequentlyUsed"))]
+            + EmojiCatalog.Category.allCases.map { (Section.emojiCategory($0), $0.symbolName, $0.title) }
+        for (section, symbol, title) in entries {
+            let button = UIButton(type: .system)
+            button.setImage(
+                UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 17)),
+                for: .normal,
+            )
+            button.tintColor = .secondaryLabel
+            button.accessibilityLabel = title
+            button.addAction(UIAction { [weak self] _ in self?.scrollToEmojiSection(section) }, for: .touchUpInside)
+            emojiCategoryBar.addArrangedSubview(button)
+            emojiCategoryButtons.append((section, button))
+        }
+        view.addSubview(emojiCategoryBar)
     }
 
     private func makeLayout() -> UICollectionViewLayout {
@@ -287,7 +323,7 @@ UISearchBarDelegate {
         ) { [weak self] collectionView, indexPath, item in
             guard let self else { return UICollectionViewCell() }
             switch item {
-            case .emoji(let emoji):
+            case .emoji(_, let emoji):
                 let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: ComposerEmojiCell.reuseIdentifier,
                     for: indexPath,
@@ -335,7 +371,8 @@ UISearchBarDelegate {
             : L10n.telegram("StickersSearch.SearchStickersPlaceholder")
         if mode == .customEmoji { searchBar.placeholder = L10n.betterTG("CustomEmoji.Search") }
         searchBar.isHidden = mode == .emoji
-        searchBarHeightConstraint.constant = mode == .emoji ? 0 : 44
+        emojiCategoryBar.isHidden = mode != .emoji
+        searchBarHeightConstraint.constant = mode == .emoji ? Self.emojiCategoryBarHeight : 44
         collectionView.collectionViewLayout.invalidateLayout()
         switch mode {
         case .emoji:
@@ -404,8 +441,57 @@ UISearchBarDelegate {
         }
     }
 
+    /// EmojiPagerContentSignals: Recently Used (the account's latest emoji), then Telegram's static emoji by category.
+    /// An emoji used now moves to the front the next time the tab opens, so the grid stays put under the finger.
     private func applyEmojiSnapshot() {
-        applySnapshot(Self.emojis.map(ItemID.emoji))
+        var titles = [Section: String]()
+        var snapshot = NSDiffableDataSourceSnapshot<Section, ItemID>()
+        let recent = RecentEmojiStore.shared.emojis(accountID: accountID).uniqued()
+        if !recent.isEmpty {
+            snapshot.appendSections([.recentEmoji])
+            snapshot.appendItems(recent.map { .emoji(.recentEmoji, $0) }, toSection: .recentEmoji)
+            titles[.recentEmoji] = L10n.telegram("Emoji.FrequentlyUsed")
+        }
+        for category in EmojiCatalog.Category.allCases {
+            let section = Section.emojiCategory(category)
+            snapshot.appendSections([section])
+            snapshot.appendItems(category.emojis.uniqued().map { .emoji(section, $0) }, toSection: section)
+            titles[section] = category.title
+        }
+        sectionTitles = titles
+        dataSource.apply(snapshot, animatingDifferences: false)
+        collectionView.backgroundView = nil
+        for (section, button) in emojiCategoryButtons {
+            button.isHidden = snapshot.indexOfSection(section) == nil
+        }
+        updateEmojiCategoryHighlight()
+    }
+
+    /// EntityKeyboardTopPanelComponent's segment tap: the category's header moves to the top.
+    private func scrollToEmojiSection(_ section: Section) {
+        guard mode == .emoji, let index = dataSource.snapshot().indexOfSection(section) else { return }
+        collectionView.layoutIfNeeded()
+        guard let header = collectionView.layoutAttributesForSupplementaryElement(
+            ofKind: UICollectionView.elementKindSectionHeader,
+            at: IndexPath(item: 0, section: index),
+        ) else { return }
+        let inset = collectionView.adjustedContentInset
+        let maximum = max(-inset.top, collectionView.contentSize.height + inset.bottom - collectionView.bounds.height)
+        let offset = min(max(header.frame.minY - inset.top, -inset.top), maximum)
+        collectionView.setContentOffset(CGPoint(x: 0, y: offset), animated: true)
+    }
+
+    /// The bar marks the category at the top of the grid.
+    private func updateEmojiCategoryHighlight() {
+        let snapshot = dataSource.snapshot()
+        let topSection = collectionView.indexPathsForVisibleItems.map(\.section).min() ?? 0
+        let current = snapshot.sectionIdentifiers.indices.contains(topSection)
+            ? snapshot.sectionIdentifiers[topSection]
+            : nil
+        for (section, button) in emojiCategoryButtons {
+            button.tintColor = section == current ? .tintColor : .secondaryLabel
+            button.accessibilityTraits = section == current ? [.button, .selected] : .button
+        }
     }
 
     private func applySnapshot(_ items: [ItemID]) {
@@ -622,6 +708,37 @@ UISearchBarDelegate {
 
     private func dismissPicker() {
         dismiss(animated: true, completion: onDismiss)
+    }
+}
+
+// MARK: - EmojiCatalog.Category
+
+/// The emoji tab's category names and the icons of its bar, in the order of Telegram's StaticEmojiSegment.
+private extension EmojiCatalog.Category {
+    var title: String {
+        switch self {
+        case .people: L10n.betterTG("Emoji.Category.People")
+        case .animalsAndNature: L10n.betterTG("Emoji.Category.AnimalsAndNature")
+        case .foodAndDrink: L10n.betterTG("Emoji.Category.FoodAndDrink")
+        case .activity: L10n.betterTG("Emoji.Category.Activity")
+        case .travelAndPlaces: L10n.betterTG("Emoji.Category.TravelAndPlaces")
+        case .objects: L10n.betterTG("Emoji.Category.Objects")
+        case .symbols: L10n.betterTG("Emoji.Category.Symbols")
+        case .flags: L10n.betterTG("Emoji.Category.Flags")
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .people: "face.smiling"
+        case .animalsAndNature: "pawprint"
+        case .foodAndDrink: "fork.knife"
+        case .activity: "soccerball"
+        case .travelAndPlaces: "car"
+        case .objects: "lightbulb"
+        case .symbols: "heart"
+        case .flags: "flag"
+        }
     }
 }
 
