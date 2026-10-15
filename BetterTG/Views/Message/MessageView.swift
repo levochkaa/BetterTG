@@ -345,6 +345,26 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
     }
 
+    /// The text a quote selection works on: the message text, or in a file or music album the caption of the item
+    /// at `point` (in the cell's coordinates), else the album's only caption, with that item's message ID.
+    func contextQuoteTarget(at point: CGPoint) -> (textView: MessageTextContentView, sourceMessageID: Int64?)? {
+        guard structuredContentView.handlesAlbumCaptions else { return (textView, nil) }
+        let items = structuredContentView.albumCaptionItems
+        if let pressed = items.first(where: { $0.view.convert($0.view.bounds, to: self).contains(point) }) {
+            guard let caption = pressed.caption else { return nil }
+            return (caption, pressed.messageID)
+        }
+        let captioned = items.filter { $0.caption != nil }
+        guard captioned.count == 1, let only = captioned.first, let caption = only.caption else { return nil }
+        return (caption, only.messageID)
+    }
+
+    /// The caption a quote of `messageID` is in: an album item's, or the message text.
+    func contextQuoteTextView(forMessageID messageID: Int64) -> MessageTextContentView? {
+        guard structuredContentView.handlesAlbumCaptions else { return textView }
+        return structuredContentView.albumCaptionItems.first { $0.messageID == messageID }?.caption
+    }
+
     /// Collection layout attributes own the cell's alpha/transform. Keep deletion
     /// inside that boundary while retaining the inverted timeline's content flip.
     func setDeletionPresentation(alpha: CGFloat, transform: CGAffineTransform) {
@@ -508,8 +528,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         CATransaction.commit()
     }
 
-    func highlightQuote(_ quote: MessageQuoteHighlight) {
-        textView.highlightQuote(position: quote.position, length: quote.length)
+    func highlightQuote(_ quote: MessageQuoteHighlight, messageID: Int64) {
+        contextQuoteTextView(forMessageID: messageID)?.highlightQuote(position: quote.position, length: quote.length)
     }
 
     @discardableResult func restoreInlineVideoPlaybackOwner(_ owner: GalleryVideoPlaybackOwner) -> Bool {

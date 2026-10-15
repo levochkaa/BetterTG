@@ -320,6 +320,11 @@ final class MessageStructuredContentView: UIView {
 
     private var supplementView: (UIView & MessageSupplementView)?
 
+    /// A file or music album's items, top to bottom, each with its caption view if it has a caption.
+    var albumCaptionItems: [(messageID: Int64, view: UIView, caption: MessageTextContentView?)] {
+        (supplementView as? AttachmentAlbumMessageView)?.captionItems ?? []
+    }
+
     #if DEBUG
         var debugSupplementName: String {
             switch supplementView {
@@ -459,6 +464,10 @@ final class MessageStructuredContentView: UIView {
 private final class AttachmentAlbumMessageView: UIView, MessageSupplementView {
     private let itemViews: [AttachmentAlbumItemView]
 
+    var captionItems: [(messageID: Int64, view: UIView, caption: MessageTextContentView?)] {
+        itemViews.map { ($0.messageID, $0, $0.captionView) }
+    }
+
     init?(
         messages: [Message],
         client: TDLibClient,
@@ -471,6 +480,7 @@ private final class AttachmentAlbumMessageView: UIView, MessageSupplementView {
             switch message.content {
             case .messageAudio(let audio):
                 itemViews.append(AttachmentAlbumItemView(
+                    messageID: message.id,
                     audio: audio,
                     client: client,
                     spoilerState: textSpoilers?.states[message.id],
@@ -478,6 +488,7 @@ private final class AttachmentAlbumMessageView: UIView, MessageSupplementView {
                 ))
             case .messageDocument(let document):
                 itemViews.append(AttachmentAlbumItemView(
+                    messageID: message.id,
                     document: document,
                     client: client,
                     spoilerState: textSpoilers?.states[message.id],
@@ -518,26 +529,32 @@ private final class AttachmentAlbumMessageView: UIView, MessageSupplementView {
 // MARK: - AttachmentAlbumItemView
 
 private final class AttachmentAlbumItemView: UIView {
+    let messageID: Int64
+    private(set) var captionView: MessageTextContentView?
+
     private let fileView: TelegramFileMessageView
-    private var captionView: MessageTextContentView?
 
     init(
+        messageID: Int64,
         audio: MessageAudio,
         client: TDLibClient,
         spoilerState: MessageTextSpoilerState?,
         onAction: @escaping (MessageContentAction) -> Void,
     ) {
+        self.messageID = messageID
         self.fileView = TelegramFileMessageView(audio: audio.audio, client: client, onAction: onAction)
         super.init(frame: .zero)
         configure(fileView: fileView, caption: audio.caption, client: client, spoilerState: spoilerState)
     }
 
     init(
+        messageID: Int64,
         document: MessageDocument,
         client: TDLibClient,
         spoilerState: MessageTextSpoilerState?,
         onAction: @escaping (MessageContentAction) -> Void,
     ) {
+        self.messageID = messageID
         self.fileView = TelegramFileMessageView(document: document.document, client: client, onAction: onAction)
         super.init(frame: .zero)
         configure(fileView: fileView, caption: document.caption, client: client, spoilerState: spoilerState)

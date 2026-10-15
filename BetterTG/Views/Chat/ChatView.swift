@@ -3970,7 +3970,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard message(for: displayedMessageID)?.sourceMessages.contains(where: {
             $0.id == destination.targetMessageID
         }) == true else { return }
-        cell.highlightQuote(destination.quote)
+        cell.highlightQuote(destination.quote, messageID: destination.targetMessageID)
     }
 
     private func showMedia(_ messages: [Message], selection: Int64) {
@@ -5206,23 +5206,27 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
               let message = message(for: displayedMessageID),
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
         else { return }
+        // A file or music album quotes the caption of the file under the finger, replying to that file.
+        let quoteTarget = cell.contextQuoteTarget(at: gesture.location(in: cell))
         presentTelegramContextMenu(
             sourceView: cell.contextPreviewView,
             actions: menu(for: message),
             tracking: gesture,
             reactionsProvider: contextReactionsProvider(for: message),
-            quoteSelection: allowsQuoteSelection(in: message)
-                ? TelegramContextQuoteSelection(
-                    textView: cell.contextQuoteTextView,
-                    allowsCopy: message.properties.canBeCopied,
-                ) { [
-                    weak self,
-                    weak message,
-                ] range in
-                    guard let self, let message else { return }
-                    chatVM.beginQuoteReply(to: message, range: range)
-                }
-                : nil,
+            quoteSelection: quoteTarget.flatMap { target in
+                allowsQuoteSelection(in: message, sourceMessageID: target.sourceMessageID)
+                    ? TelegramContextQuoteSelection(
+                        textView: target.textView,
+                        allowsCopy: message.properties.canBeCopied,
+                    ) { [
+                        weak self,
+                        weak message,
+                    ] range in
+                        guard let self, let message else { return }
+                        chatVM.beginQuoteReply(to: message, range: range, sourceMessageID: target.sourceMessageID)
+                    }
+                    : nil
+            },
             onDismiss: { [weak self] in self?.retryClientRestoration() },
         )
     }
@@ -5232,24 +5236,26 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func presentReplyOptions(from sourceView: UIView) {
         guard let reply = chatVM.replyMessage else { return }
         let quote = chatVM.replyQuote
+        // A quote from an album file's caption replies to that file.
+        let targetID = chatVM.replyTargetMessageID ?? reply.id
         var actions = [TelegramContextMenuAction(
             title: L10n.telegram("Story.ViewMessage"),
             image: UIImage(systemName: "text.bubble"),
         ) { [weak self] in
             self?.navigate(to: .message(
                 chatID: reply.message.chatId,
-                messageID: reply.id,
+                messageID: targetID,
                 quote: quote.flatMap { MessageQuoteHighlight(text: $0.text.text, position: $0.position) },
             ))
         }]
-        if reply.message.chatId == chatVM.chatID, allowsQuoteSelection(in: reply) {
+        if reply.message.chatId == chatVM.chatID, allowsQuoteSelection(in: reply, sourceMessageID: targetID) {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("Conversation.MessageOptionsQuoteSelect"),
                 image: UIImage(systemName: "text.quote"),
             ) { [weak self] in
                 guard let self else { return }
-                if !presentReplyQuoteSelection(messageID: reply.id, requiresFullyVisible: true) {
-                    scrollToMessage(id: reply.id, opensQuoteSelection: true)
+                if !presentReplyQuoteSelection(messageID: targetID, requiresFullyVisible: true) {
+                    scrollToMessage(id: targetID, opensQuoteSelection: true)
                 }
             })
         }
@@ -5277,23 +5283,24 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     @discardableResult private func presentReplyQuoteSelection(messageID: Int64, requiresFullyVisible: Bool) -> Bool {
         guard let displayedID = chatVM.displayedMessageID(containing: messageID),
               let indexPath = dataSource.indexPath(for: .message(displayedID)),
-              let message = message(for: displayedID), message.id == messageID,
-              allowsQuoteSelection(in: message),
-              let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+              let message = message(for: displayedID),
+              let source = message.sourceMessages.first(where: { $0.id == messageID }),
+              allowsQuoteSelection(in: message, sourceMessageID: messageID),
+              let cell = collectionView.cellForItem(at: indexPath) as? MessageCell,
+              let textView = cell.contextQuoteTextView(forMessageID: messageID)
         else { return false }
         if requiresFullyVisible,
            !collectionView.bounds.inset(by: collectionView.adjustedContentInset).contains(cell.frame) { return false }
-        let textView = cell.contextQuoteTextView
         var quoteRange: NSRange?
-        if chatVM.replyMessage?.id == messageID, let quote = chatVM.replyQuote,
+        if chatVM.replyTargetMessageID == messageID, let quote = chatVM.replyQuote,
            let resolved = MessageQuoteHighlight(text: quote.text.text, position: quote.position)?
-               .resolved(in: message.message.content)
+               .resolved(in: source.content)
         {
             quoteRange = NSRange(location: resolved.position, length: resolved.length)
         }
         let applyQuote: (NSRange) -> Void = { [weak self, weak message] range in
             guard let self, let message else { return }
-            chatVM.beginQuoteReply(to: message, range: range)
+            chatVM.beginQuoteReply(to: message, range: range, sourceMessageID: messageID)
         }
         let presented = presentTelegramContextMenu(
             sourceView: cell.contextPreviewView,
@@ -6067,10 +6074,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     /// ChatMessageTextBubbleContentNode: Quote follows the ability to reply; copy protection removes only Copy and
     /// Share. Secret chats and self-destructing messages never offer it.
-    private func allowsQuoteSelection(in message: CustomMessage) -> Bool {
+    /// `sourceMessageID` is the album file whose caption is quoted; nil, or the message's own ID, quotes its text.
+    private func allowsQuoteSelection(in message: CustomMessage, sourceMessageID: Int64? = nil) -> Bool {
         if case .chatTypeSecret = chatVM.customChat.chat.type { return false }
+        let source = sourceMessageID.flatMap { id in message.sourceMessages.first { $0.id == id } } ?? message.message
         return message.properties.canBeReplied && !chatVM.isReadOnlyTopic && message.message.selfDestructType == nil
-            && formattedText(from: message.message.content)?.text.isEmpty == false
+            && formattedText(from: source.content)?.text.isEmpty == false
     }
 
     private func formattedText(from content: MessageContent) -> FormattedText? {

@@ -743,6 +743,12 @@ import UIKit
         }
     #endif
 
+    /// The message the reply goes to: an album item a quote came from, or the replied message.
+    var replyTargetMessageID: Int64? {
+        if case .inputMessageReplyToMessage(let reply) = replyInputOverride { return reply.messageId }
+        return replyMessage?.id
+    }
+
     private var usesOrdinaryDeliveryReceipts: Bool {
         guard location.topic == nil, !customChat.chat.viewAsTopics, !customChat.isSavedMessages else { return false }
         if case .chatTypeSupergroup(let type) = customChat.chat.type {
@@ -2552,13 +2558,19 @@ import UIKit
         reconcileActiveChatActionAfterReplyChange()
     }
 
-    func beginQuoteReply(to message: CustomMessage, range: NSRange) {
+    /// A quote from a file or music album's caption replies to the item it is in (`sourceMessageID`), as Telegram
+    /// replies to the file whose caption is quoted.
+    func beginQuoteReply(to message: CustomMessage, range: NSRange, sourceMessageID: Int64? = nil) {
         guard location.matches(message: message.message) else { return }
         pendingForward = nil
         if isAllMessagesForum, let topicID = message.forumTopicID {
             refreshForumTopic(id: topicID)
         }
-        guard let formattedText = message.formattedText, !formattedText.text.isEmpty else {
+        let source = sourceMessageID.flatMap { id in
+            message.sourceMessages.first { $0.id == id && id != message.id }
+        }
+        let quotedText = source.flatMap { MessageContentPresentation.make($0).formattedText } ?? message.formattedText
+        guard let formattedText = quotedText, !formattedText.text.isEmpty else {
             beginReply(to: message)
             return
         }
@@ -2571,7 +2583,14 @@ import UIKit
             maximumLength: MessageQuoteLengthStore.maximumLength(clientID: client.id),
             range: range,
         )
-        replyInputOverride = nil
+        replyInputOverride = source.map { item -> InputMessageReplyTo in
+            .inputMessageReplyToMessage(InputMessageReplyToMessage(
+                checklistTaskId: 0,
+                messageId: item.id,
+                pollOptionId: "",
+                quote: replyQuote,
+            ))
+        }
         replyFallbackPresentation = nil
         reconcileActiveChatActionAfterReplyChange()
     }
