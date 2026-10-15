@@ -14,10 +14,14 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
     private let playButton = UIButton(type: .system)
     private let waveformView = TelegramWaveformView()
     private let durationLabel = UILabel()
+    /// Telegram's consumable-content dot: the note has not been listened to yet (by the user, or by the recipient of
+    /// an outgoing note).
+    private let unlistenedDot = UIView()
     private var message: Message?
     private var voiceNote: VoiceNote?
     private var backend: VideoNotePlaybackBackend?
     private var localPath: String?
+    private var isListened = true
     private var configurationID = UUID()
     private var downloadTask: Task<Void, Never>?
     private var bindings = Set<AnyCancellable>()
@@ -30,6 +34,15 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
 
     private var isCurrentVoicePlaying: Bool {
         isCurrentVoice && Media.shared.isPlaying
+    }
+
+    /// An incoming note the user hasn't played, or a sent note its recipient hasn't played. A sent note's state is
+    /// its recipient's, so Saved Messages and group or channel posts, which have no single recipient, show no dot.
+    private var showsUnlistenedDot: Bool {
+        guard !isListened, let message else { return false }
+        guard message.isOutgoing else { return true }
+        return message.sendingState == nil && message.chatId > 0
+            && message.chatId != TDLib.shared.activeAccount?.userID
     }
 
     override init(frame: CGRect) {
@@ -72,6 +85,7 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
         let voiceNote = value.voiceNote
         self.message = message
         self.voiceNote = voiceNote
+        isListened = value.isListened
         waveformView.samples = Self.decodeWaveform(voiceNote.waveform)
         // File IDs belong to the client that listed the message, so the note loads only through that client.
         if let backend = VideoNotePlaybackBackend.captured(client: client, context: context) {
@@ -95,6 +109,7 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
         message = nil
         voiceNote = nil
         localPath = nil
+        isListened = true
         waveformView.samples = []
         waveformView.progress = 0
     }
@@ -124,6 +139,12 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
         durationLabel.textAlignment = .left
         addSubview(durationLabel)
 
+        unlistenedDot.translatesAutoresizingMaskIntoConstraints = false
+        unlistenedDot.backgroundColor = .systemBlue
+        unlistenedDot.layer.cornerRadius = 3
+        unlistenedDot.isHidden = true
+        addSubview(unlistenedDot)
+
         NSLayoutConstraint.activate([
             playButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             playButton.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -136,8 +157,12 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
             waveformView.heightAnchor.constraint(equalToConstant: 30),
             durationLabel.topAnchor.constraint(equalTo: waveformView.bottomAnchor, constant: 1),
             durationLabel.leadingAnchor.constraint(equalTo: waveformView.leadingAnchor),
-            durationLabel.trailingAnchor.constraint(equalTo: waveformView.trailingAnchor),
             durationLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3),
+            unlistenedDot.leadingAnchor.constraint(equalTo: durationLabel.trailingAnchor, constant: 4),
+            unlistenedDot.trailingAnchor.constraint(lessThanOrEqualTo: waveformView.trailingAnchor),
+            unlistenedDot.centerYAnchor.constraint(equalTo: durationLabel.centerYAnchor),
+            unlistenedDot.widthAnchor.constraint(equalToConstant: 6),
+            unlistenedDot.heightAnchor.constraint(equalToConstant: 6),
             widthAnchor.constraint(greaterThanOrEqualToConstant: 225),
             heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
         ])
@@ -194,6 +219,8 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
         playButton.isEnabled = enabled
         playButton.alpha = enabled ? 1 : 0.45
         waveformView.isEnabled = enabled
+        unlistenedDot.isHidden = !showsUnlistenedDot
+        playButton.accessibilityValue = showsUnlistenedDot ? L10n.betterTG("Accessibility.VoiceNotListened") : nil
     }
 
     private func format(_ duration: Int) -> String {
@@ -216,7 +243,28 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
 
     @objc private func toggle() {
         guard let localPath, let voiceNote else { return }
+        let starts = !isCurrentVoicePlaying
         Media.shared.toggle(with: localPath, duration: voiceNote.duration)
+        if starts { markListened() }
+    }
+
+    /// Telegram marks a voice message consumed when its playback starts (PeerMessagesMediaPlaylist
+    /// onItemPlaybackStarted). TDLib's openMessageContent on the message's own client marks it listened, which the
+    /// sender sees; an outgoing note stays unlistened until its recipient plays it.
+    private func markListened() {
+        guard !isListened, let message, !message.isOutgoing, let backend, backend.isCurrent() else { return }
+        isListened = true
+        render()
+        let bindingID = configurationID
+        Task { [weak self] in
+            do {
+                try await backend.open(message.chatId, message.id)
+            } catch {
+                guard let self, configurationID == bindingID else { return }
+                isListened = false
+                render()
+            }
+        }
     }
 }
 

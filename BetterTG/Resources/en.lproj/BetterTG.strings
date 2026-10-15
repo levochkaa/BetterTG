@@ -529,6 +529,7 @@
 "Accessibility.UnreadMentions" = "%d unread mentions";
 "Accessibility.UnreadReactions" = "%d unread reactions";
 "Accessibility.UnreadPollVotes" = "%d unread poll votes";
+"Accessibility.VoiceNotListened" = "Not listened";
 
 "VideoNote.RetryPaidUnsupported" = "This video-message retry requires a paid-message flow, which BetterTG doesn’t support.";
 "VideoNote.RetryNeedsAnotherReply" = "This failed video message can’t be retried with the original reply or sender.";

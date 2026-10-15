@@ -45,6 +45,8 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     private var videoNote: VideoNote?
     private var representedPath: String?
     private var isSecret = false
+    /// False until the note is watched; the first play of an incoming note marks it viewed.
+    private var isViewed = true
     private var message: Message?
     private var backend: VideoNotePlaybackBackend?
     private var configurationID = UUID()
@@ -178,6 +180,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         {
             videoNote = value.videoNote
             self.message = message
+            if value.isViewed { isViewed = true }
             update(file: value.videoNote.video)
             return true
         }
@@ -187,6 +190,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         self.message = message
         self.backend = backend
         isSecret = value.isSecret
+        isViewed = value.isViewed
         sideConstraint.constant = min(260, max(180, CGFloat(videoNote.length)))
         durationLabel.text = format(videoNote.duration)
         secretBlurView.isHidden = !isSecret
@@ -222,6 +226,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         representedPath = nil
         videoNote = nil
         isSecret = false
+        isViewed = true
         message = nil
         backend = nil
         isRevoked = false
@@ -632,6 +637,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             player.pause()
         } else if case .ended = currentPlayerState {
             guard beginExclusivePlayback() else { return }
+            markViewed()
             let bindingID = configurationID
             player.seek(to: 0) { [weak self] in
                 guard let self, configurationID == bindingID, backend?.isCurrent() == true,
@@ -640,7 +646,24 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             }
         } else {
             guard beginExclusivePlayback() else { return }
+            markViewed()
             player.play()
+        }
+    }
+
+    /// Telegram marks an instant video consumed when its playback starts. TDLib's openMessageContent on the message's
+    /// own client marks it viewed, which the sender sees.
+    private func markViewed() {
+        guard !isViewed, !isSecret, let message, !message.isOutgoing, let backend, backend.isCurrent() else { return }
+        isViewed = true
+        let bindingID = configurationID
+        Task { [weak self] in
+            do {
+                try await backend.open(message.chatId, message.id)
+            } catch {
+                guard let self, configurationID == bindingID else { return }
+                isViewed = false
+            }
         }
     }
 
