@@ -176,6 +176,8 @@ ClientRestorableNavigationEntry {
     private var avatarHistoryUserID: Int64?
     private var avatarHistoryChatID: Int64?
     private var avatarHistoryNextMessageID = Int64.zero
+    /// The open avatar gallery has its full list, not only the photo it opened on.
+    private var avatarGalleryListLoaded = false
     private var metadataGeneration = UInt64.zero
     private var fullInfoGeneration = UInt64.zero
     private var avatarMetadataGeneration = UInt64.zero
@@ -274,12 +276,25 @@ ClientRestorableNavigationEntry {
             && !isPresentingTelegramContextMenu
     }
 
-    /// A same-account client renewal (the app returning from the background) keeps an open shared-media gallery, as
-    /// it keeps the chat's: the gallery reloads its items through the renewed client, and this profile is replaced
-    /// once the gallery closes.
-    private var keepsMediaGalleryThroughClientRenewal: Bool {
-        activeMediaGallery != nil && !clientOwnerRetired && !restorationIdentity.revoked && accountUserID != nil
+    /// A same-account client renewal (the app returning from the background) keeps an open shared-media or avatar
+    /// gallery, as it keeps the chat's: the gallery moves its items to the renewed client, and this profile is
+    /// replaced once the gallery closes.
+    private var keepsGalleryThroughClientRenewal: Bool {
+        (activeMediaGallery != nil || activeAvatarGallery != nil) && !clientOwnerRetired && !restorationIdentity
+            .revoked && accountUserID != nil
             && TDLib.shared.activeAccountID == accountID && TDLib.shared.activeAccount?.userID == accountUserID
+    }
+
+    /// The open avatar gallery's client while it belongs to this account: the profile's own client, or the renewed
+    /// client the gallery moved its photos to.
+    private var avatarGalleryClient: TDLibClient? {
+        guard let activeAvatarGallery,
+              !clientOwnerRetired,
+              !restorationIdentity.revoked,
+              TDLib.shared.activeAccountID == accountID,
+              TDLib.shared.activeClient.id == activeAvatarGallery.client.id
+        else { return nil }
+        return activeAvatarGallery.client
     }
 
     /// The screen under this profile already shows its chat (a forum's topic list for Group Info).
@@ -1287,7 +1302,7 @@ ClientRestorableNavigationEntry {
                 sharedMessageRefresh = nil
                 historyTask?.cancel()
                 historyTask = nil
-                if source.map({ $0.accountID != accountID }) ?? false || !keepsMediaGalleryThroughClientRenewal {
+                if source.map({ $0.accountID != accountID }) ?? false || !keepsGalleryThroughClientRenewal {
                     revokeSharedMessages(Set(messagesByID.keys), closesGallery: true)
                 }
             }
@@ -1365,7 +1380,7 @@ ClientRestorableNavigationEntry {
             retryClientRestoration()
             return
         }
-        if keepsMediaGalleryThroughClientRenewal { return }
+        if keepsGalleryThroughClientRenewal { return }
         let leaveProfile: () -> Void = { [weak self] in
             guard let self,
                   let navigationController,
@@ -1627,7 +1642,7 @@ ClientRestorableNavigationEntry {
         avatarHistoryRequestID = nil
         avatarReconciliationTask = nil
         avatarReconciliationRequestID = nil
-        if activeAvatarGallery != nil, contextIsCurrent {
+        if avatarGalleryClient != nil {
             reconcileActiveAvatarGallery()
             return
         }
@@ -1637,7 +1652,7 @@ ClientRestorableNavigationEntry {
     /// Telegram (AvatarGalleryController, reconcileItems) replaces the open gallery's list once the full one arrives
     /// and keeps showing the same photo when it is still listed.
     private func reconcileActiveAvatarGallery() {
-        guard let activeAvatarGallery, contextIsCurrent else { return }
+        guard let activeAvatarGallery, let client = avatarGalleryClient else { return }
         let generation = avatarMetadataGeneration
         let requestID = UUID()
         avatarReconciliationRequestID = requestID
@@ -1651,14 +1666,15 @@ ClientRestorableNavigationEntry {
             }
             guard let activeAvatarGallery else { return }
             do {
-                let payload = try await loadAvatarGalleryPayload()
+                let payload = try await loadAvatarGalleryPayload(client: client)
                 guard !Task.isCancelled,
-                      contextIsCurrent,
+                      avatarGalleryClient?.id == client.id,
                       avatarMetadataGeneration == generation,
                       avatarReconciliationRequestID == requestID,
                       self.activeAvatarGallery === activeAvatarGallery
                 else { return }
                 adoptAvatarHistory(payload)
+                avatarGalleryListLoaded = true
                 if payload.items.isEmpty {
                     activeAvatarGallery.onRequestMoreItems = nil
                     activeAvatarGallery.reconcileItems([], totalCount: 0)
@@ -2084,6 +2100,7 @@ ClientRestorableNavigationEntry {
         avatarReconciliationRequestID = nil
         adoptAvatarHistory(nil)
         avatarHistoryKnownPhotoIDs = [fallback.id]
+        avatarGalleryListLoaded = false
         let gallery = ProfileAvatarGalleryViewController(
             accountID: accountID,
             client: client,
@@ -2096,14 +2113,43 @@ ClientRestorableNavigationEntry {
             },
         )
         gallery.contextIsCurrent = { [weak self] in
-            self?.contextIsCurrent == true
+            // A same-account client renewal keeps the gallery: it moves its photos to the renewed client, and this
+            // profile is replaced once the gallery closes.
+            guard let self else { return false }
+            return TDLib.shared.activeAccountID == accountID && !clientOwnerRetired && !restorationIdentity.revoked
+        }
+        gallery.onClientRenewed = { [weak self] in
+            guard let self else { return }
+            // A page or the list requested through the previous client is dropped; ask the renewed one.
+            avatarHistoryTask?.cancel()
+            avatarHistoryTask = nil
+            avatarHistoryRequestID = nil
+            if !avatarGalleryListLoaded || avatarReconciliationTask != nil {
+                reconcileActiveAvatarGallery()
+            }
+        }
+        gallery.onDismissed = { [weak self, weak gallery] in
+            guard let self, let gallery, activeAvatarGallery === gallery else { return }
+            activeAvatarGallery = nil
+            avatarHistoryTask?.cancel()
+            avatarReconciliationTask?.cancel()
+            avatarHistoryTask = nil
+            avatarHistoryRequestID = nil
+            avatarReconciliationTask = nil
+            avatarReconciliationRequestID = nil
+            // A client renewed while the gallery covered this profile replaces the profile now.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !contextIsCurrent else { return }
+                handleAccountChange()
+            }
         }
         activeAvatarGallery = gallery
         present(gallery, animated: true)
         reconcileActiveAvatarGallery()
     }
 
-    private func loadAvatarGalleryPayload() async throws -> AvatarGalleryPayload {
+    private func loadAvatarGalleryPayload(client: TDLibClient) async throws -> AvatarGalleryPayload {
+        try await prepareAvatarGalleryClient(client)
         switch customChat.type {
         case .bot(let user), .user(let user):
             let info = try await client.getUserFullInfo(userId: user.id)
@@ -2167,16 +2213,16 @@ ClientRestorableNavigationEntry {
             )
         case .group(let group):
             let info = try await client.getBasicGroupFullInfo(basicGroupId: group.id)
-            return try await chatPhotoPayload(current: info.photo ?? currentProfilePhoto)
+            return try await chatPhotoPayload(current: info.photo ?? currentProfilePhoto, client: client)
         case .supergroup(let group):
             let info = try await client.getSupergroupFullInfo(supergroupId: group.id)
-            return try await chatPhotoPayload(current: info.photo ?? currentProfilePhoto)
+            return try await chatPhotoPayload(current: info.photo ?? currentProfilePhoto, client: client)
         }
     }
 
     /// Telegram (RequestUserPhotos) lists a group's or channel's earlier photos from its chat photo messages, after
     /// the current photo.
-    private func chatPhotoPayload(current: ChatPhoto?) async throws -> AvatarGalleryPayload {
+    private func chatPhotoPayload(current: ChatPhoto?, client: TDLibClient) async throws -> AvatarGalleryPayload {
         let found = try await client.searchChatMessages(
             chatId: customChat.id,
             filter: .searchMessagesFilterChatPhoto,
@@ -2218,17 +2264,22 @@ ClientRestorableNavigationEntry {
     private func loadMoreAvatarHistory() {
         guard avatarHistoryTask == nil,
               avatarReconciliationTask == nil,
-              activeAvatarGallery != nil,
-              contextIsCurrent
+              let client = avatarGalleryClient
         else { return }
         if let userID = avatarHistoryUserID {
-            loadMoreUserPhotos(userID: userID)
+            loadMoreUserPhotos(userID: userID, client: client)
         } else if let chatID = avatarHistoryChatID, avatarHistoryNextMessageID != 0 {
-            loadMoreChatPhotos(chatID: chatID)
+            loadMoreChatPhotos(chatID: chatID, client: client)
         }
     }
 
-    private func loadMoreUserPhotos(userID: Int64) {
+    /// A renewed client knows the chat's photos only once it has loaded the chat.
+    private func prepareAvatarGalleryClient(_ client: TDLibClient) async throws {
+        guard client.id != self.client.id else { return }
+        _ = try await client.getChat(chatId: customChat.id)
+    }
+
+    private func loadMoreUserPhotos(userID: Int64, client: TDLibClient) {
         guard avatarHistoryRawOffset < avatarHistoryTotalCount, let activeAvatarGallery else { return }
         let offset = avatarHistoryRawOffset
         let metadataGeneration = avatarMetadataGeneration
@@ -2243,12 +2294,13 @@ ClientRestorableNavigationEntry {
                 }
             }
             do {
+                try await prepareAvatarGalleryClient(client)
                 let result = try await client.getUserProfilePhotos(limit: 100, offset: offset, userId: userID)
                 guard let activeAvatarGallery else {
                     return
                 }
                 guard !Task.isCancelled,
-                      contextIsCurrent,
+                      avatarGalleryClient?.id == client.id,
                       avatarMetadataGeneration == metadataGeneration,
                       avatarHistoryRequestID == requestID,
                       avatarHistoryRawOffset == offset,
@@ -2282,7 +2334,7 @@ ClientRestorableNavigationEntry {
         }
     }
 
-    private func loadMoreChatPhotos(chatID: Int64) {
+    private func loadMoreChatPhotos(chatID: Int64, client: TDLibClient) {
         guard let activeAvatarGallery else { return }
         let fromMessageID = avatarHistoryNextMessageID
         let metadataGeneration = avatarMetadataGeneration
@@ -2297,6 +2349,7 @@ ClientRestorableNavigationEntry {
                 }
             }
             do {
+                try await prepareAvatarGalleryClient(client)
                 let found = try await client.searchChatMessages(
                     chatId: chatID,
                     filter: .searchMessagesFilterChatPhoto,
@@ -2309,7 +2362,7 @@ ClientRestorableNavigationEntry {
                 )
                 guard let activeAvatarGallery,
                       !Task.isCancelled,
-                      contextIsCurrent,
+                      avatarGalleryClient?.id == client.id,
                       avatarMetadataGeneration == metadataGeneration,
                       avatarHistoryRequestID == requestID,
                       avatarHistoryNextMessageID == fromMessageID,

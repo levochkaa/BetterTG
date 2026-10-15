@@ -72,6 +72,56 @@ struct ProfileAvatarGalleryItem: Hashable {
             )],
         )
     }
+
+    private init(
+        addedDate: Int,
+        animation: AnimatedChatPhoto?,
+        id: Int64,
+        minithumbnail: Minithumbnail?,
+        photo: Photo,
+    ) {
+        self.addedDate = addedDate
+        self.animation = animation
+        self.id = id
+        self.minithumbnail = minithumbnail
+        self.photo = photo
+    }
+
+    @MainActor private static func remoteFile(_ file: File, client: TDLibClient) async -> File? {
+        guard !file.remote.id.isEmpty else { return nil }
+        return try? await client.send(TDNativeRequests.getRemoteFile(remoteFileId: file.remote.id, fileType: nil))
+    }
+
+    /// The same photo with the files the gallery uses, resolved by remote ID on another client of the same account.
+    @MainActor func rebound(on client: TDLibClient) async -> ProfileAvatarGalleryItem? {
+        guard let size = largestSize, let image = await Self.remoteFile(size.photo, client: client) else { return nil }
+        var animation: AnimatedChatPhoto?
+        if let current = self.animation {
+            guard let file = await Self.remoteFile(current.file, client: client) else { return nil }
+            animation = AnimatedChatPhoto(
+                length: current.length,
+                file: file,
+                mainFrameTimestamp: current.mainFrameTimestamp,
+            )
+        }
+        return ProfileAvatarGalleryItem(
+            addedDate: addedDate,
+            animation: animation,
+            id: id,
+            minithumbnail: minithumbnail,
+            photo: Photo(
+                hasStickers: photo.hasStickers,
+                minithumbnail: photo.minithumbnail,
+                sizes: [PhotoSize(
+                    height: size.height,
+                    photo: image,
+                    progressiveSizes: size.progressiveSizes,
+                    type: size.type,
+                    width: size.width,
+                )],
+            ),
+        )
+    }
 }
 
 // MARK: - ProfileAvatarGalleryViewController
@@ -83,12 +133,17 @@ struct ProfileAvatarGalleryItem: Hashable {
 
     var contextIsCurrent: (() -> Bool)?
     var onRequestMoreItems: (() -> Void)?
+    var onDismissed: (() -> Void)?
+    /// The gallery moved to the account's renewed client; requests for it now go through `client`.
+    var onClientRenewed: (() -> Void)?
+
+    /// The profile's client, or the same account's renewed client the gallery moved its files to.
+    private(set) var client: TDLibClient
 
     fileprivate let transitionSource: MediaGalleryTransitionTarget?
     fileprivate let transitionSourceProvider: ((ProfileAvatarGalleryItem) -> MediaGalleryTransitionTarget?)?
 
     private let accountID: UUID
-    private let client: TDLibClient
     private var items: [ProfileAvatarGalleryItem]
     private var selectedIndex: Int
     private var totalCount: Int
@@ -102,6 +157,8 @@ struct ProfileAvatarGalleryItem: Hashable {
     private let counterLabel = UILabel()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     private var transitionController: ProfileAvatarGalleryTransitionController?
+    private var clientRenewalCancellable: AnyCancellable?
+    private var clientRenewalTask: Task<Void, Never>?
 
     fileprivate var selectedItemID: Int64? {
         items.indices.contains(selectedIndex) ? items[selectedIndex].id : nil
@@ -155,10 +212,15 @@ struct ProfileAvatarGalleryItem: Hashable {
         let transitionController = ProfileAvatarGalleryTransitionController()
         self.transitionController = transitionController
         transitioningDelegate = transitionController
+        observeClientRenewal()
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        clientRenewalTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -191,7 +253,12 @@ struct ProfileAvatarGalleryItem: Hashable {
         super.viewDidDisappear(animated)
         let cells = collectionView.visibleCells.compactMap { $0 as? ProfileAvatarGalleryCell }
         cells.forEach { $0.setPlaybackVisible(false) }
-        if isBeingDismissed { cells.forEach { $0.setDownloadsActive(false) } }
+        guard isBeingDismissed else { return }
+        cells.forEach { $0.setDownloadsActive(false) }
+        clientRenewalTask?.cancel()
+        clientRenewalTask = nil
+        clientRenewalCancellable = nil
+        onDismissed?()
     }
 
     override func viewWillTransition(
@@ -384,6 +451,88 @@ struct ProfileAvatarGalleryItem: Hashable {
     fileprivate func currentTransitionTarget() -> MediaGalleryTransitionTarget? {
         guard items.indices.contains(selectedIndex) else { return nil }
         return transitionSourceProvider?(items[selectedIndex])
+    }
+
+    /// TDLib's client is renewed when the app returns from the background. As the media gallery does, this one stays
+    /// open for the same account and moves its photos to the renewed client.
+    private func observeClientRenewal() {
+        let accountID = accountID
+        clientRenewalCancellable = TDLib.shared
+            .readyClientChanges
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] source in
+                guard let self, let source, source.accountID == accountID else { return }
+                renewClient(source)
+            }
+    }
+
+    private func renewClient(_ source: TdUpdateSource) {
+        guard source.clientID != client.id,
+              !isBeingDismissed,
+              TDLib.shared.activeUpdateSource == source,
+              TDLib.shared.activeClient.id == source.clientID,
+              contextIsCurrent?() != false
+        else { return }
+        let renewed = TDLib.shared.activeClient
+        let items = items
+        clientRenewalTask?.cancel()
+        clientRenewalTask = Task { [weak self] in
+            // File IDs belong to one client: each photo is found again by its remote ID.
+            var rebound = [Int64: ProfileAvatarGalleryItem]()
+            for item in items {
+                guard !Task.isCancelled else { return }
+                if let item = await item.rebound(on: renewed) { rebound[item.id] = item }
+            }
+            guard let self, !Task.isCancelled, TDLib.shared.activeUpdateSource == source else { return }
+            clientRenewalTask = nil
+            adoptRenewedClient(renewed, source: source, items: rebound)
+        }
+    }
+
+    private func adoptRenewedClient(
+        _ renewed: TDLibClient,
+        source: TdUpdateSource,
+        items rebound: [Int64: ProfileAvatarGalleryItem],
+        attempt: Int = 0,
+    ) {
+        guard !isBeingDismissed, TDLib.shared.activeUpdateSource == source, contextIsCurrent?() != false else { return }
+        // An insert or a transition owns the pager; adopt the client once it settles.
+        guard !paginationMutationInProgress, transitionCoordinator == nil else {
+            guard attempt < 20 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                self?.adoptRenewedClient(renewed, source: source, items: rebound, attempt: attempt + 1)
+            }
+            return
+        }
+        guard let selectedItemID, rebound[selectedItemID] != nil else {
+            // The shown photo is gone from the renewed client.
+            close()
+            return
+        }
+        let previousCount = items.count
+        client = renewed
+        items = items.compactMap { rebound[$0.id] }
+        selectedIndex = items.firstIndex { $0.id == selectedItemID } ?? 0
+        totalCount = max(totalCount - (previousCount - items.count), items.count)
+        // A reconciliation or page loaded through the previous client carries its file IDs.
+        pendingReconciliation = nil
+        paginationRequestedItemCount = nil
+        onClientRenewed?()
+        guard isViewLoaded else { return }
+        if items.count != previousCount {
+            collectionView.reloadData()
+        } else {
+            // Reconfiguring keeps each page's cell, so the shown photo stays on screen while it reloads.
+            collectionView.reconfigureItems(at: items.indices.map { IndexPath(item: $0, section: 0) })
+        }
+        collectionView.layoutIfNeeded()
+        collectionView.scrollToItem(
+            at: IndexPath(item: selectedIndex, section: 0),
+            at: .centeredHorizontally,
+            animated: false,
+        )
+        updateCounter()
+        requestMoreItemsIfNeeded(near: selectedIndex)
     }
 
     private func makeLayout() -> UICollectionViewLayout {
@@ -644,6 +793,9 @@ private final class ProfileAvatarMediaView: UIScrollView, UIScrollViewDelegate {
     }
 
     func configure(item: ProfileAvatarGalleryItem, origin: TDImageOrigin) {
+        // The same photo again (a list update or a client renewal) keeps its pixels and zoom until the new file loads.
+        let keptImage = representedItem?.id == item.id ? imageView.image : nil
+        let keptZoom: (scale: CGFloat, offset: CGPoint)? = keptImage == nil ? nil : (zoomScale, contentOffset)
         prepareForReuse()
         guard let imageSize = item.largestSize else { return }
         representedItem = item
@@ -655,7 +807,12 @@ private final class ProfileAvatarMediaView: UIScrollView, UIScrollViewDelegate {
             imageFileID: imageSize.photo.id,
             itemID: item.id,
         )
-        imageView.image = item.minithumbnail.flatMap { UIImage(data: $0.data) }
+        imageView.image = keptImage ?? item.minithumbnail.flatMap { UIImage(data: $0.data) }
+        if let keptZoom, keptZoom.scale > minimumZoomScale {
+            layoutIfNeeded()
+            setZoomScale(keptZoom.scale, animated: false)
+            contentOffset = keptZoom.offset
+        }
         updateImage(file: imageSize.photo)
         if let animation = item.animation {
             updateAnimation(file: animation.file)
@@ -777,7 +934,10 @@ private final class ProfileAvatarMediaView: UIScrollView, UIScrollViewDelegate {
               file.local.isDownloadingCompleted,
               !file.local.path.isEmpty
         else { return }
-        let key = "\(represented.accountID.uuidString):\(represented.clientID):\(file.id)" as NSString
+        // The remote unique ID names the same photo on a renewed client, whose file IDs differ.
+        let key = (file.remote.uniqueId.isEmpty
+            ? "\(represented.accountID.uuidString):\(represented.clientID):\(file.id)"
+            : "\(represented.accountID.uuidString):\(file.remote.uniqueId)") as NSString
         if let cached = Self.imageCache.object(forKey: key) {
             imageView.image = cached
             displayedImageFileID = file.id
