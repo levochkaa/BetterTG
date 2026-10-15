@@ -512,7 +512,11 @@ final class AppLocalization: @unchecked Sendable {
             }
             return (bundledTelegramString(key + "_any"), "en")
         }
-        return Self.format(result.0, localeID: result.1, arguments: [(formattedCount ?? String(count)) as NSString])
+        // Telegram's plural strings take the count as %@, and a few as %d.
+        let argument: CVarArg = result.0.contains("%d")
+            ? Int32(clamping: count)
+            : (formattedCount ?? String(count)) as NSString
+        return Self.format(result.0, localeID: result.1, arguments: [argument])
     }
 
     func betterTGString(_ key: String, arguments: [CVarArg] = []) -> String {

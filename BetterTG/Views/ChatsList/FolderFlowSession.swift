@@ -10,7 +10,8 @@ import UIKit
         case create(ChatFolder)
         case edit(Int, ChatFolder)
         case reorder([Int], Int)
-        case delete(Int)
+        /// Telegram removes a shared folder together with the chats the user chose to quit.
+        case delete(Int, leaveChatIDs: [Int64] = [])
     }
 
     enum State { case waiting, ready, saving, uncertain, revoked }
@@ -100,8 +101,8 @@ import UIKit
                     case .reorder(let ids, let mainPosition):
                         _ = try await client.reorderChatFolders(chatFolderIds: ids, mainChatListPosition: mainPosition)
                         return
-                    case .delete(let id):
-                        _ = try await client.deleteChatFolder(chatFolderId: id, leaveChatIds: [])
+                    case .delete(let id, let leaveChatIDs):
+                        _ = try await client.deleteChatFolder(chatFolderId: id, leaveChatIds: leaveChatIDs)
                         return
                     }
                 }

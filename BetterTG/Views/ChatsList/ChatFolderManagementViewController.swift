@@ -129,23 +129,22 @@ final class ChatFoldersViewController: UITableViewController {
 
     private func confirmRemoval(of folder: CustomFolder) {
         let scope = session.scope(owner: self)
-        guard scope.isCurrent, case .folder(let info, _) = folder.type else { return }
-        let alert = UIAlertController(
-            title: L10n.telegram("ChatList.RemoveFolderAction"),
-            message: L10n.telegram("ChatList.RemoveFolderConfirmation"),
-            preferredStyle: .alert,
+        guard scope.isCurrent, case .folder(let info, let definition) = folder.type else { return }
+        // The session's endpoint writes on the active client; its scope is current only while that client is.
+        ChatFolderRemoval.confirm(
+            info: info,
+            folder: definition,
+            from: self,
+            scope: scope,
+            client: TDLib.shared.activeClient,
+            remove: { [weak self] leaveChatIDs in
+                guard let self, scope.isCurrent else { return }
+                session.mutate(.delete(info.id, leaveChatIDs: leaveChatIDs), owner: self) { [weak self] result in
+                    if case .failure(let error) = result { self?.presentFolderError(error) }
+                }
+            },
+            failure: { [weak self] error in self?.presentFolderError(error) },
         )
-        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        alert.addAction(UIAlertAction(
-            title: L10n.telegram("ChatList.RemoveFolderAction"),
-            style: .destructive,
-        ) { [weak self] _ in
-            guard let self, scope.isCurrent else { return }
-            session.mutate(.delete(info.id), owner: self) { [weak self] result in
-                if case .failure(let error) = result { self?.presentFolderError(error) }
-            }
-        })
-        present(alert, animated: true)
     }
 }
 
