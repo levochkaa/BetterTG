@@ -48,11 +48,13 @@ enum MessageDeliveryState: Equatable {
 enum MessageDeliveryReceiptScope: Equatable {
     case chat
     case forum(Int)
+    case thread(Int64)
 
     init?(topic: MessageTopic?) {
         switch topic {
         case nil: self = .chat
         case .messageTopicForum(let forum) where forum.forumTopicId > 0: self = .forum(forum.forumTopicId)
+        case .messageTopicThread(let thread) where thread.messageThreadId > 0: self = .thread(thread.messageThreadId)
         default: return nil
         }
     }
@@ -60,7 +62,7 @@ enum MessageDeliveryReceiptScope: Equatable {
 
 // MARK: - ChatDeliveryReceiptState
 
-/// One immutable chat or explicit forum-topic receipt key. Cached history values are not
+/// One immutable chat, explicit forum-topic or reply-thread receipt key. Cached history values are not
 /// accepted here: only a scoped update or a revision-fenced fresh read can seed it.
 struct ChatDeliveryReceiptState {
     struct Read {
@@ -134,6 +136,37 @@ struct ChatDeliveryReceiptState {
             source: source,
             location: location,
         )
+    }
+
+    /// A reply thread's watermark is its root's reply info (Telegram's `maxReadOutgoingMessageId` of the thread),
+    /// read with `getMessageThread`.
+    @discardableResult mutating func finishThreadRead(
+        _ read: Read,
+        thread: MessageThreadInfo?,
+        source: TdUpdateSource?,
+        location: ChatLocation,
+    ) -> Bool {
+        guard location.messageThreadID != nil else { return false }
+        let matches = thread?.chatId == location.chatID && thread?.messageThreadId == location.messageThreadID
+        return finishValue(
+            read,
+            value: matches ? thread?.replyInfo?.lastReadOutboxMessageId : nil,
+            source: source,
+            location: location,
+        )
+    }
+
+    /// TDLib republishes the root's reply info when the thread's outbox is read (`updateReadChannelDiscussionOutbox`).
+    @discardableResult mutating func receiveThreadRoot(
+        _ replyInfo: MessageReplyInfo,
+        chatID: Int64,
+        messageID: Int64,
+        source: TdUpdateSource?,
+        location: ChatLocation,
+    ) -> Bool {
+        guard permits(source, location: location), chatID == location.chatID,
+              messageID == location.messageThreadID else { return false }
+        return acceptUpdate(replyInfo.lastReadOutboxMessageId)
     }
 
     mutating func retire() {

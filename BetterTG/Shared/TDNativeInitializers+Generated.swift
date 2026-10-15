@@ -825,6 +825,24 @@ extension TDNativeMessageReactions {
     }
 }
 
+extension TDNativeMessageReplyInfo {
+    init(
+        lastMessageId: Int64,
+        lastReadInboxMessageId: Int64,
+        lastReadOutboxMessageId: Int64,
+        recentReplierIds: [TDNativeMessageSender],
+        replyCount: Int,
+    ) {
+        self.init(
+            replyCount: replyCount,
+            recentReplierIds: recentReplierIds,
+            lastReadInboxMessageId: lastReadInboxMessageId,
+            lastReadOutboxMessageId: lastReadOutboxMessageId,
+            lastMessageId: lastMessageId,
+        )
+    }
+}
+
 extension TDNativeMessageReplyToMessage {
     init(
         chatId: Int64,
@@ -856,6 +874,26 @@ extension TDNativeMessageText {
         text: TDNativeFormattedText,
     ) {
         self.init(text: text, linkPreview: linkPreview, linkPreviewOptions: linkPreviewOptions)
+    }
+}
+
+extension TDNativeMessageThreadInfo {
+    init(
+        chatId: Int64,
+        draftMessage: TDNativeDraftMessage?,
+        messageThreadId: Int64,
+        messages: [TDNativeMessage],
+        replyInfo: TDNativeMessageReplyInfo?,
+        unreadMessageCount: Int,
+    ) {
+        self.init(
+            chatId: chatId,
+            messageThreadId: messageThreadId,
+            replyInfo: replyInfo,
+            unreadMessageCount: unreadMessageCount,
+            messages: messages,
+            draftMessage: draftMessage,
+        )
     }
 }
 

@@ -737,6 +737,14 @@ import UIKit
         messageThreadIsChannelPost ?? (customChat.supergroup?.hasLinkedChat == true)
     }
 
+    /// A reply thread lives in a non-forum supergroup, and its root's reply info carries the thread's watermark.
+    private var usesThreadDeliveryReceipts: Bool {
+        guard let id = location.messageThreadID, id > 0, !customChat.isSavedMessages,
+              case .chatTypeSupergroup(let type) = customChat.chat.type,
+              let group = customChat.supergroup, group.id == type.supergroupId else { return false }
+        return !type.isChannel && !group.isChannel && !group.isForum && !group.isDirectMessagesGroup
+    }
+
     private var pendingVideoRetryStatusMessage: String? {
         guard let failed = pendingVideoNote?.failedSendState else { return nil }
         if failed.requiredPaidMessageStarCount > 0 {
@@ -911,6 +919,17 @@ import UIKit
         {
             self.messageThread = messageThread
             self.messageThreadReplyInfo = messageThread.replyInfo
+            // The route's thread read is fresh: it seeds the thread's receipt like the read below would.
+            if usesThreadDeliveryReceipts,
+               let read = deliveryReceipts.beginRead(
+                   source: TDLib.shared.activeUpdateSource,
+                   location: resolvedLocation,
+               )
+            {
+                deliveryReceipts.finishThreadRead(
+                    read, thread: messageThread, source: TDLib.shared.activeUpdateSource, location: resolvedLocation,
+                )
+            }
         }
         log("init \(customChat.chat.id)")
         if let user = customChat.user {
@@ -1148,7 +1167,8 @@ import UIKit
             && deliveryReceipts.permits(TDLib.shared.activeUpdateSource, location: location)
         for message in messages {
             message.updateDeliveryState(
-                permitsFinalStatus: (usesOrdinaryDeliveryReceipts || usesForumDeliveryReceipts) && current
+                permitsFinalStatus: (usesOrdinaryDeliveryReceipts || usesForumDeliveryReceipts
+                    || usesThreadDeliveryReceipts) && current
                     && message.deliverySourceMessage.chatId == location.chatID,
                 readOutbox: current ? deliveryReceipts.lastReadOutbox : nil,
                 topic: location.topic,
@@ -1186,6 +1206,12 @@ import UIKit
     }
 
     func loadDeliveryReceiptIfNeeded() {
+        if location.messageThreadID != nil {
+            if usesThreadDeliveryReceipts, locationContextIsCurrent, deliveryReceipts.lastReadOutbox == nil {
+                loadMessageThread()
+            }
+            return
+        }
         if let id = location.forumTopicID, id > 0 {
             guard locationContextIsCurrent, forumTopicTask == nil,
                   deliveryReceipts.lastReadOutbox == nil else { return }
@@ -2194,11 +2220,16 @@ import UIKit
         }
     }
 
-    /// Reads the thread route's `MessageThreadInfo` on this chat's client; concurrent callers share one read.
+    /// Reads the thread route's `MessageThreadInfo` on this chat's client; concurrent callers share one read. A
+    /// thread already read is read again only for a missing receipt watermark.
     @discardableResult func loadMessageThread() -> Task<MessageThreadInfo?, Never>? {
         guard let threadID = location.messageThreadID else { return nil }
         if let messageThreadTask { return messageThreadTask }
-        guard messageThread == nil, locationContextIsCurrent else { return nil }
+        let needsReceipt = usesThreadDeliveryReceipts && deliveryReceipts.lastReadOutbox == nil
+        guard messageThread == nil || needsReceipt, locationContextIsCurrent else { return nil }
+        let receiptRead = needsReceipt
+            ? deliveryReceipts.beginRead(source: TDLib.shared.activeUpdateSource, location: location)
+            : nil
         let client = client
         let location = location
         let expectedComposerRevision = composerRevision
@@ -2207,13 +2238,20 @@ import UIKit
             let info = try? await client.getMessageThread(chatId: location.chatID, messageId: threadID)
             guard let self else { return nil }
             messageThreadTask = nil
-            guard !Task.isCancelled, locationContextIsCurrent, let info,
-                  info.chatId == location.chatID, info.messageThreadId == threadID else { return nil }
+            let accepted = info.flatMap { $0.chatId == location.chatID && $0.messageThreadId == threadID ? $0 : nil }
+            if let receiptRead, deliveryReceipts.finishThreadRead(
+                receiptRead, thread: accepted, source: TDLib.shared.activeUpdateSource, location: location,
+            ) {
+                refreshDeliveryStates()
+            }
+            guard !Task.isCancelled, locationContextIsCurrent, let info = accepted else { return nil }
+            let isFirstRead = messageThread == nil
             messageThread = info
             // A root update that arrived during the read is newer than the read's reply info.
             if messageThreadReplyInfoRevision == expectedReplyInfoRevision {
                 messageThreadReplyInfo = info.replyInfo
             }
+            guard isFirstRead else { return info }
             if canWriteBasicMessages {
                 applyAuthoritativeDraft(info.draftMessage, expectedRevision: expectedComposerRevision)
             }
@@ -2231,10 +2269,20 @@ import UIKit
     }
 
     /// TDLib republishes the thread root's reply info as replies arrive and are read.
-    func receiveMessageThreadRootInteractionInfo(_ info: MessageInteractionInfo?) {
-        guard location.messageThreadID != nil, locationContextIsCurrent, let replyInfo = info?.replyInfo else { return }
+    func receiveMessageThreadRootInteractionInfo(
+        _ info: MessageInteractionInfo?,
+        messageID: Int64,
+        source: TdUpdateSource?,
+    ) {
+        guard messageID == location.messageThreadID, locationContextIsCurrent,
+              let replyInfo = info?.replyInfo else { return }
         messageThreadReplyInfoRevision &+= 1
         messageThreadReplyInfo = replyInfo
+        if usesThreadDeliveryReceipts, deliveryReceipts.receiveThreadRoot(
+            replyInfo, chatID: location.chatID, messageID: messageID, source: source, location: location,
+        ) {
+            refreshDeliveryStates()
+        }
     }
 
     func refreshPinnedMessages() {

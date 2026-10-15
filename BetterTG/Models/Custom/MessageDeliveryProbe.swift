@@ -159,6 +159,7 @@ import UIKit
                 try await ProbeFixtures.waitForActiveAccount()
                 try verifyReceipts()
                 try verifyForumReceipts()
+                try verifyThreadReceipts()
                 try verifyStates()
                 try await verifyCells()
                 try await verifyUnavailableCells()
@@ -173,6 +174,7 @@ import UIKit
                     + "shared-action-authority/native-cell/old-AX-media-binding/payload-source-permissions/exact-poll=true; "
                     + "selection-control/synthetic-down-reconfigure-up/cancel-outside-reset/one-shot/AX=true; "
                     + "explicit-forum/raw-topic/revision/echo-dedup/late-draft/targeted-cell=true; "
+                    + "reply-thread/root-reply-info/other-thread/revision-fence=true; "
                     + "all-messages-forum/shared-reader/canonical-topic/targeted-cell/seed-reset=true; "
                     + "final-self/whole-ChatVM/live-peer-read/real-deletion-window/snapshot-ownership=unverified; "
                     + "loaded-media/suspended-pan/context-menu-actions/physical-selection-touch=unverified; RPC/sends=0"
@@ -419,10 +421,10 @@ import UIKit
             )
         }
         for wrongTopic in [
-            MessageTopic.messageTopicThread(.init(messageThreadId: 7)),
-            .messageTopicDirectMessages(.init(directMessagesChatTopicId: 7)),
+            MessageTopic.messageTopicDirectMessages(.init(directMessagesChatTopicId: 7)),
             .messageTopicSavedMessages(.init(savedMessagesTopicId: 7)),
             .messageTopicForum(.init(forumTopicId: 0)),
+            .messageTopicThread(.init(messageThreadId: 0)),
         ] {
             let wrong = ChatLocation(accountID: location.accountID, chatID: 100, clientID: 1, topic: wrongTopic)
             var unsupported = ChatDeliveryReceiptState(location: wrong)
@@ -1184,6 +1186,88 @@ import UIKit
             lastReadInboxMessageId: inbox, lastReadOutboxMessageId: outbox,
             notificationSettings: forumTopic().notificationSettings, unreadMentionCount: 0,
             unreadPollVoteCount: 0, unreadReactionCount: 0,
+        )
+    }
+
+    /// A reply thread's receipt follows its root's reply info only: chat and forum watermarks, another thread's read
+    /// and a read older than a root update never move it.
+    private static func verifyThreadReceipts() throws {
+        let location = ChatLocation(accountID: UUID(), chatID: 100, clientID: 1, topic: nil)
+            .withMessageThread(chatID: 100, id: 7)
+        let source = TdUpdateSource(accountID: location.accountID!, clientID: 1)
+        var state = ChatDeliveryReceiptState(location: location)
+        let first = state.beginRead(source: source, location: location)!
+        try require(
+            !state.receive(.init(chatId: 100, lastReadOutboxMessageId: .max), source: source, location: location)
+                && !state.receive(forumUpdate(outbox: .max), source: source, location: location)
+                && !state.finishRead(first, value: .max, source: source, location: location)
+                && !state.finishForumRead(first, topic: forumTopic(outbox: .max), source: source, location: location),
+            "thread route accepted a chat or forum watermark",
+        )
+        try require(
+            !state.finishThreadRead(first, thread: threadInfo(id: 8, outbox: .max), source: source, location: location)
+                && state.lastReadOutbox == nil,
+            "another thread's read seeded this receipt",
+        )
+        let fresh = state.beginRead(source: source, location: location)!
+        try require(
+            state.finishThreadRead(fresh, thread: threadInfo(outbox: 10), source: source, location: location)
+                && state.lastReadOutbox == 10,
+            "thread read did not seed its receipt",
+        )
+        let late = state.beginRead(source: source, location: location)!
+        try require(
+            !state.receiveThreadRoot(
+                threadReply(outbox: 12),
+                chatID: 100,
+                messageID: 8,
+                source: source,
+                location: location,
+            )
+                && !state.receiveThreadRoot(
+                    threadReply(outbox: 12), chatID: 101, messageID: 7, source: source, location: location,
+                )
+                && state.receiveThreadRoot(
+                    threadReply(outbox: 12), chatID: 100, messageID: 7, source: source, location: location,
+                )
+                && !state.finishThreadRead(late, thread: threadInfo(outbox: 11), source: source, location: location)
+                && state.lastReadOutbox == 12,
+            "thread root update failed to advance or fence the receipt",
+        )
+        try require(
+            MessageDeliveryState.resolve(
+                fixture(id: 12, topic: location.topic), permitsFinalStatus: true, readOutbox: 12, topic: location.topic,
+            ) == .read
+                && MessageDeliveryState.resolve(
+                    fixture(id: 13, topic: location.topic), permitsFinalStatus: true, readOutbox: 12,
+                    topic: location.topic,
+                ) == .delivered
+                && MessageDeliveryState.resolve(
+                    fixture(id: 11), permitsFinalStatus: true, readOutbox: 12, topic: location.topic,
+                ) == .none,
+            "thread receipt crossed its thread",
+        )
+        state.retire()
+        try require(
+            !state.receiveThreadRoot(
+                threadReply(outbox: .max), chatID: 100, messageID: 7, source: source, location: location,
+            ),
+            "retired thread receipt revived",
+        )
+    }
+
+    private static func threadInfo(id: Int64 = 7, chatID: Int64 = 100, outbox: Int64) -> MessageThreadInfo {
+        MessageThreadInfo(
+            chatId: chatID, draftMessage: nil, messageThreadId: id, messages: [],
+            replyInfo: threadReply(outbox: outbox),
+            unreadMessageCount: 0,
+        )
+    }
+
+    private static func threadReply(outbox: Int64) -> MessageReplyInfo {
+        MessageReplyInfo(
+            lastMessageId: outbox, lastReadInboxMessageId: 0, lastReadOutboxMessageId: outbox, recentReplierIds: [],
+            replyCount: 1,
         )
     }
 

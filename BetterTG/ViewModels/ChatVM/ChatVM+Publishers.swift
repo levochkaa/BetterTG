@@ -85,16 +85,16 @@ extension ChatVM {
             guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
             refreshMessage(id: update.messageId, authority: authority)
         }
-        observeCurrentUpdate(.updateMessageInteractionInfo) { [weak self] update, _ in
+        observeCurrentUpdate(.updateMessageInteractionInfo) { [weak self] update, authority in
             guard let self, update.chatId == customChat.id,
                   TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }
             notePartialMessageUpdate([update.messageId])
             applyInteractionInfo(update.interactionInfo, messageID: update.messageId)
-            if update.messageId == location.messageThreadID {
-                receiveMessageThreadRootInteractionInfo(update.interactionInfo)
-            }
+            receiveMessageThreadRootInteractionInfo(
+                update.interactionInfo, messageID: update.messageId, source: authority.source,
+            )
         }
         observeCurrentUpdate(.updateMessageUnreadReactions) { [weak self] update, _ in
             guard let self, update.chatId == customChat.id,
