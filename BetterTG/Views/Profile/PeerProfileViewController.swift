@@ -581,9 +581,11 @@ ClientRestorableNavigationEntry {
               let message = messagesByID[id]
         else { return }
         let performed = sharedMessageRefresh?.perform(id: id) {
-            if currentSharedTab == .media {
+            if currentSharedTab == .media, SharedMediaGridPreview.opensGallery(message) {
                 openMediaGallery(selectedMessage: message)
             } else {
+                // Rich and paid media messages share the photo and video index; the gallery plays only photo and
+                // video messages, so these open where they were sent.
                 onOpenMessage?(message.id)
             }
         }
@@ -2285,7 +2287,12 @@ final class SharedMediaGridCell: UICollectionViewCell {
     private var renderedAllowsPixels = false
 
     private var allowsPixels: Bool {
-        guard let representedMessage, let context, permit?.matches(context) == true else { return false }
+        guard let representedMessage, let context else { return false }
+        if MediaRevealSession.Key(message: representedMessage) == nil {
+            // No reveal session covers these items: only an unspoilered preview shows its pixels.
+            return context.isCurrent && SharedMediaGridPreview(message: representedMessage)?.hasSpoiler == false
+        }
+        guard permit?.matches(context) == true else { return false }
         return MediaRevealPermit.allows(representedMessage, permit: permit, requiresPermit: true)
     }
 
@@ -2464,9 +2471,119 @@ final class SharedMediaGridCell: UICollectionViewCell {
             }
             videoBadge.isHidden = false
         default:
-            imageView.loadPlaceholder(data: nil, origin: nil)
-            videoBadge.isHidden = true
+            if let preview = SharedMediaGridPreview(message: message) {
+                if let file = preview.file {
+                    imageView.load(
+                        file: file,
+                        placeholderData: preview.minithumbnail,
+                        maximumPixelSize: 480,
+                        accountID: accountID,
+                        client: client,
+                    )
+                } else {
+                    imageView.loadPlaceholder(data: preview.minithumbnail, client: client)
+                }
+                videoBadge.isHidden = !preview.isVideo
+            } else {
+                imageView.loadPlaceholder(data: nil, origin: nil)
+                videoBadge.isHidden = true
+            }
         }
+    }
+}
+
+// MARK: - SharedMediaGridPreview
+
+/// The picture of a photo and video index item that is neither a photo nor a video message: the first photo, video or
+/// animation block of a rich message, or the first item of paid media. Telegram's grid likewise shows a message's
+/// first image or file (`PeerInfoVisualMediaPaneNode`, `message.effectiveMedia`).
+struct SharedMediaGridPreview {
+    let file: File?
+    let minithumbnail: Data?
+    let isVideo: Bool
+    let hasSpoiler: Bool
+
+    init?(message: Message) {
+        switch message.content {
+        case .messageRichMessage(let rich):
+            guard let preview = Self.first(in: rich.message.blocks, depth: 0) else { return nil }
+            self = preview
+        case .messagePaidMedia(let paid):
+            guard let media = paid.media.first else { return nil }
+            switch media {
+            case .paidMediaPhoto(let value):
+                self = Self(photo: value.photo, hasSpoiler: false)
+            case .paidMediaVideo(let value):
+                self = Self(
+                    file: value.video.thumbnail?.file, minithumbnail: value.video.minithumbnail?.data, isVideo: true,
+                    hasSpoiler: false,
+                )
+            case .paidMediaPreview(let value):
+                self = Self(
+                    file: nil,
+                    minithumbnail: value.minithumbnail?.data,
+                    isVideo: value.duration > 0,
+                    hasSpoiler: false,
+                )
+            case .paidMediaUnsupported:
+                return nil
+            }
+        default:
+            return nil
+        }
+    }
+
+    private init(file: File?, minithumbnail: Data?, isVideo: Bool, hasSpoiler: Bool) {
+        self.file = file
+        self.minithumbnail = minithumbnail
+        self.isVideo = isVideo
+        self.hasSpoiler = hasSpoiler
+    }
+
+    private init(photo: Photo, hasSpoiler: Bool) {
+        self.init(
+            file: (photo.sizes.getSize(.yBox) ?? photo.sizes.first)?.photo, minithumbnail: photo.minithumbnail?.data,
+            isVideo: false, hasSpoiler: hasSpoiler,
+        )
+    }
+
+    static func opensGallery(_ message: Message) -> Bool {
+        switch message.content {
+        case .messagePhoto, .messageVideo: true
+        default: false
+        }
+    }
+
+    private static func first(in blocks: [TDNativePageBlock], depth: Int) -> Self? {
+        guard depth < 16 else { return nil }
+        for block in blocks.prefix(64) {
+            let preview: Self? =
+                switch block {
+                case .pageBlockPhoto(let value):
+                    value.photo.map { Self(photo: $0, hasSpoiler: value.hasSpoiler) }
+                case .pageBlockVideo(let value):
+                    value.video.map {
+                        Self(
+                            file: $0.thumbnail?.file, minithumbnail: $0.minithumbnail?.data, isVideo: true,
+                            hasSpoiler: value.hasSpoiler,
+                        )
+                    }
+                case .pageBlockAnimation(let value):
+                    value.animation.map {
+                        Self(
+                            file: $0.thumbnail?.file, minithumbnail: $0.minithumbnail?.data, isVideo: true,
+                            hasSpoiler: value.hasSpoiler,
+                        )
+                    }
+                case .pageBlockCover(let value): first(in: [value.cover], depth: depth + 1)
+                case .pageBlockCollage(let value): first(in: value.blocks, depth: depth + 1)
+                case .pageBlockSlideshow(let value): first(in: value.blocks, depth: depth + 1)
+                case .pageBlockEmbeddedPost(let value): first(in: value.blocks, depth: depth + 1)
+                default: nil
+                }
+            if let preview { return preview }
+        }
+        return nil
     }
 }
 
