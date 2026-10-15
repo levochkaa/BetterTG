@@ -205,6 +205,12 @@ import UIKit
         return L10n.telegramPlural(key, count: count, formattedCount: count.formatted(.number))
     }
 
+    /// RootVM.isMuted for the forum's latest settings: its own mute, else its scope's.
+    private static func forumIsMuted(_ settings: ChatNotificationSettings, scope: ScopeNotificationSettings?) -> Bool {
+        if settings.useDefaultMuteFor, let scope { return scope.muteFor > 0 }
+        return settings.muteFor > 0
+    }
+
     func scrollViewWillEndDragging(
         _ scrollView: UIScrollView, withVelocity _: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>,
     ) {
@@ -621,6 +627,20 @@ import UIKit
                 navigationBarView.setSubtitle(model.headerStatus)
             }
             .store(in: &cancellables)
+        // Rows on the default mute inherit the forum's; Telegram's thread index view re-emits with the peer's
+        // notification settings. Reconfigure them when that inherited state changes.
+        let scope = model.customChat.notificationSettingsScope
+        model.$chatNotificationSettings
+            .combineLatest(RootVM.shared.$scopeNotificationSettings.map { $0[scope] })
+            .map { Self.forumIsMuted($0, scope: $1) }
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, owns(model, binding: binding) else { return }
+                applySnapshot(model.topics, client: model.client)
+            }
+            .store(in: &cancellables)
         model.$topics
             .receive(on: DispatchQueue.main)
             .sink { [weak self] topics in
@@ -932,7 +952,10 @@ import UIKit
     private func isMuted(_ topic: ForumTopic) -> Bool {
         let settings = topic.notificationSettings
         guard settings.useDefaultMuteFor else { return settings.muteFor > 0 }
-        return RootVM.shared.isMuted(viewModel.customChat)
+        return Self.forumIsMuted(
+            viewModel.chatNotificationSettings,
+            scope: RootVM.shared.scopeNotificationSettings[viewModel.customChat.notificationSettingsScope],
+        )
     }
 
     /// Telegram's topic menu (ChatListController, `.forum` item) over a preview of the topic's chat.

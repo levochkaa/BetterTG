@@ -28,6 +28,8 @@ import TDLibKit
     @Published private(set) var errorMessage: String?
     @Published private(set) var memberCount: Int
     @Published private(set) var onlineMemberCount = 0
+    /// The forum's own notification settings, which topics on the default mute inherit.
+    @Published private(set) var chatNotificationSettings: ChatNotificationSettings
 
     #if DEBUG
     private(set) var probeQueries = [String]()
@@ -111,6 +113,7 @@ import TDLibKit
         self.location = location
         self.client = client
         self.memberCount = customChat.supergroup?.memberCount ?? 0
+        self.chatNotificationSettings = customChat.chat.notificationSettings
         self.usesTransport = usesTransport
         self.reads = reads ?? .live(client: client)
         if let restoration, restoration.accepts(location) {
@@ -424,6 +427,11 @@ import TDLibKit
         observeCurrentUpdate(.updateChatOnlineMemberCount) { [weak self] update in
             guard let self, contextIsCurrent, update.chatId == location.chatID else { return }
             onlineMemberCount = update.onlineMemberCount
+        }
+        // A navigation-hydrated chat isn't updated by the chat list, so the forum's mute is read here.
+        observeCurrentUpdate(.updateChatNotificationSettings) { [weak self] update in
+            guard let self, contextIsCurrent, update.chatId == location.chatID else { return }
+            chatNotificationSettings = update.notificationSettings
         }
         observeCurrentUpdate(.updateSupergroup) { [weak self] update in
             guard let self, contextIsCurrent, update.supergroup.id == customChat.supergroup?.id,
