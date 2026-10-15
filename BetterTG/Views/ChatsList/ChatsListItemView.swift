@@ -113,20 +113,13 @@ final class ChatListCell: UITableViewCell {
     /// Telegram (ChatListItem) shows an unseen mention first, then unseen reactions. The mention badge greys only in
     /// the archive, the reaction badge for a muted chat.
     private static func mentionBadgeImage(for chat: CustomChat, isMuted: Bool, isArchived: Bool) -> UIImage? {
-        let symbol: String
-        let color: UIColor
         if chat.chat.unreadMentionCount > 0 {
-            symbol = "at.circle.fill"
-            color = isArchived ? .systemGray : .systemBlue
+            ChatListMentionBadge.image(.mention, inactive: isArchived)
         } else if chat.chat.unreadReactionCount > 0 {
-            symbol = "heart.circle.fill"
-            color = isMuted ? .systemGray : .systemPink
+            ChatListMentionBadge.image(.reaction, inactive: isMuted)
         } else {
-            return nil
+            nil
         }
-        let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
-            .applying(UIImage.SymbolConfiguration(paletteColors: [.white, color]))
-        return UIImage(systemName: symbol, withConfiguration: configuration)
     }
 
     private static func deliveryState(for chat: CustomChat) -> (

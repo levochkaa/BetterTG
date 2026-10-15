@@ -1423,6 +1423,10 @@ final class ForumTopicCell: UITableViewCell {
     private let previewLabel = UILabel()
     private let dateLabel = UILabel()
     private let unreadBadge = TelegramUnreadBadgeLabel(minimumDiameter: 20, horizontalPadding: 8)
+    /// Telegram's mention, reaction or poll-vote badge, left of the unread count (ChatListItem, mentionBadgeNode).
+    private let mentionBadgeView = UIImageView()
+    private var mentionBesideCountConstraint: NSLayoutConstraint!
+    private var mentionAtEdgeConstraint: NSLayoutConstraint!
     private let pinView = UIImageView(image: UIImage(systemName: "pin.fill"))
     private let closedView = UIImageView(image: UIImage(systemName: "lock.fill"))
     private let muteView = UIImageView(image: UIImage(systemName: "speaker.slash.fill"))
@@ -1504,21 +1508,26 @@ final class ForumTopicCell: UITableViewCell {
         pinView.isHidden = !topic.isPinned || hasUnreadIndicator
         closedView.isHidden = !topic.info.isClosed
         muteView.isHidden = !muted
-        // Telegram greys a muted topic's unread count.
+        // Telegram (ChatListItem) shows the count and, separately, an unseen mention, else reactions, else poll
+        // votes. A muted topic greys its count, reaction and poll-vote badges; the mention badge stays blue.
         unreadBadge.backgroundColor = muted ? .systemGray : .systemBlue
-        unreadBadge.text =
-            if topic.unreadCount > 0 {
-                compactNumericCountString(topic.unreadCount)
-            } else if topic.unreadMentionCount > 0 {
-                "@"
+        unreadBadge.text = topic.unreadCount > 0 ? compactNumericCountString(topic.unreadCount) : nil
+        unreadBadge.isHidden = topic.unreadCount == 0
+        mentionBadgeView.image =
+            if topic.unreadMentionCount > 0 {
+                ChatListMentionBadge.image(.mention, inactive: false)
             } else if topic.unreadReactionCount > 0 {
-                "●"
+                ChatListMentionBadge.image(.reaction, inactive: muted)
             } else if topic.unreadPollVoteCount > 0 {
-                "!"
+                ChatListMentionBadge.image(.pollVote, inactive: muted)
             } else {
                 nil
             }
-        unreadBadge.isHidden = !hasUnreadIndicator
+        mentionBadgeView.isHidden = mentionBadgeView.image == nil
+        // Telegram keeps 6 pt between the mention badge and the unread count.
+        mentionAtEdgeConstraint.isActive = false
+        mentionBesideCountConstraint.isActive = !unreadBadge.isHidden
+        mentionAtEdgeConstraint.isActive = unreadBadge.isHidden
         backgroundColor = topic.isPinned ? .secondarySystemBackground : .systemBackground
         contentView.backgroundColor = backgroundColor
         accessibilityLabel = [
@@ -1584,6 +1593,8 @@ final class ForumTopicCell: UITableViewCell {
         dateLabel.text = nil
         unreadBadge.text = nil
         unreadBadge.isHidden = true
+        mentionBadgeView.image = nil
+        mentionBadgeView.isHidden = true
         pinView.isHidden = true
         closedView.isHidden = true
         muteView.isHidden = true
@@ -1643,6 +1654,19 @@ final class ForumTopicCell: UITableViewCell {
         unreadBadge.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         unreadBadge.isAccessibilityElement = false
         contentView.addSubview(unreadBadge)
+        mentionBadgeView.translatesAutoresizingMaskIntoConstraints = false
+        mentionBadgeView.contentMode = .scaleAspectFit
+        mentionBadgeView.isHidden = true
+        mentionBadgeView.isAccessibilityElement = false
+        contentView.addSubview(mentionBadgeView)
+        mentionBesideCountConstraint = mentionBadgeView.trailingAnchor.constraint(
+            equalTo: unreadBadge.leadingAnchor,
+            constant: -6,
+        )
+        mentionAtEdgeConstraint = mentionBadgeView.trailingAnchor.constraint(
+            equalTo: contentView.trailingAnchor,
+            constant: -14,
+        )
 
         NSLayoutConstraint.activate([
             iconView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10),
@@ -1670,10 +1694,15 @@ final class ForumTopicCell: UITableViewCell {
             previewLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             previewLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
             previewLabel.trailingAnchor.constraint(lessThanOrEqualTo: unreadBadge.leadingAnchor, constant: -8),
+            previewLabel.trailingAnchor.constraint(lessThanOrEqualTo: mentionBadgeView.leadingAnchor, constant: -8),
             previewLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -10),
             unreadBadge.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -14),
             unreadBadge.centerYAnchor.constraint(equalTo: previewLabel.centerYAnchor),
             unreadBadge.heightAnchor.constraint(equalToConstant: 20),
+            mentionAtEdgeConstraint,
+            mentionBadgeView.centerYAnchor.constraint(equalTo: previewLabel.centerYAnchor),
+            mentionBadgeView.widthAnchor.constraint(equalToConstant: ChatListMentionBadge.diameter),
+            mentionBadgeView.heightAnchor.constraint(equalToConstant: ChatListMentionBadge.diameter),
         ])
     }
 }
