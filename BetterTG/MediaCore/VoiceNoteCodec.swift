@@ -114,6 +114,17 @@ enum VoiceNoteCodec {
                     outputURL = encodedURL
                     precondition(encodedURL != inputURL && encodedURL.pathExtension == "ogg")
                     writeDebugProbeResult("Voice codec probe stage: encoded")
+                    // How long sending waits for the post-release encode of a minute in the recorder's format.
+                    let minuteURL = temporaryDirectory.appendingPathComponent("bettertg-voice-codec-minute.wav")
+                    try makePCMProbeInput(at: minuteURL, frameCount: 48000 * 60, frequency: 220, amplitude: 0.3)
+                    let encodeClock = ContinuousClock()
+                    let encodeStart = encodeClock.now
+                    let minuteOutput = try await encodeOggOpus(from: minuteURL)
+                    let minuteEncode = encodeClock.now - encodeStart
+                    try? FileManager.default.removeItem(at: minuteURL)
+                    try? FileManager.default.removeItem(at: minuteOutput)
+                    let minuteMilliseconds = minuteEncode.components.seconds * 1000
+                        + minuteEncode.components.attoseconds / 1_000_000_000_000_000
                     let playbackURL = await FFmpegAudioPlaybackCache.shared.playableURL(for: encodedURL)
                     let reusedPlaybackURL = await FFmpegAudioPlaybackCache.shared.playableURL(for: encodedURL)
                     precondition(playbackURL != encodedURL)
@@ -278,6 +289,7 @@ enum VoiceNoteCodec {
                     await VoiceRecordingDraftStore.shared.discard(id: recordingDraft.id)
                     recordingProbeDraftID = nil
                     let proof = "Voice codec probe: Ogg/Opus valid, \(size?.intValue ?? 0) bytes; "
+                        + "encode-60s=\(minuteMilliseconds)ms; "
                         + "waveform round-trip \(packedWaveform.count) bytes; "
                         + "cached PCM playback \(playbackFile.length) frames; durable retry/location isolated; "
                             + "base-draft/frozen-topic restored; "
