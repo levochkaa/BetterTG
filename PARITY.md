@@ -354,19 +354,19 @@ Audit and fixes from `codex/parity-chat-tools` and `codex/parity-stories` (cherr
 | S-2 | P2 | No jump to a date (`getChatMessageByDate` unused) | fixed `27867360`: Telegram's day picker; jumps to the first message of the day (Telegram keeps the time of day). Simulator: the calendar sheet opened from the panel, Done closed search at the chosen day |
 | S-3 | P2 | No "from:" member search | fixed `27867360`: "from:" lists members (`searchChatMembers`), a token scopes the search |
 | S-4 | P3 | Placeholder differs from "Search this chat" | fixed `27867360` |
-| S-5 | P3 | No results-as-list mode | open |
-| S-6 | P3 | Matched text isn't highlighted in bubbles | open |
+| S-5 | P3 | No results-as-list mode | fixed `6130fed6`, `ac2e1185` (cherry-picked from `codex/parity-next4`): Show as List with author, text and date rows, paging, and a tap back to the chat at that result. Simulator: "3 messages" list for "parity", a row tap returned at 2 of 3 |
+| S-6 | P3 | Matched text isn't highlighted in bubbles | fixed `2e376636`: Telegram's substring highlight in text and captions, not over hidden spoilers. Simulator: "parity" highlighted in three bubbles |
 | S-7 | P2 | Profile lacks Mute, Auto-Delete, Clear Messages, Leave/Delete; the auto-delete timer can't be set | fixed `088af4eb`: a More menu with Telegram's mute presets, auto-delete 1 day/1 week/1 month/off, Clear Messages and the removal sheet |
-| S-8 | P3 | No custom mute duration or Auto-Delete "Other…" | open |
+| S-8 | P3 | No custom mute duration or Auto-Delete "Other…" | fixed `5e304bb9`: Mute until a date and time, Auto-Delete Other with Telegram's 16 periods. Build only |
 | S-9 | P3 | Chat-list Delete/Clear runs at once; Telegram waits 5 s behind Undo | fixed `9768eda9`: the row hides at once and the request runs after the 5 s Undo toast; Undo restores it; Clear History waits without hiding. Build only: testing Undo means deleting a real chat |
 | S-10 | P2 | The sticker tab is one flat list | fixed `f5ec896c`: Favorites, Recently Used and installed packs with titles |
 | S-11 | P2 | A sticker in a message opens the gallery; no pack preview or Add/Remove | fixed `f5ec896c`, `128758cc`: the pack sheet with Add/Remove and Copy Link |
 | S-12 | P3 | No Add to/Remove from Favorites, Remove from Recents | fixed `f5ec896c`, `128758cc` |
 | S-13 | P3 | GIFs can't be saved from messages or deleted | fixed `f5ec896c`, `128758cc` |
-| S-14 | P3 | GIF search only filters saved GIFs | open |
-| S-15 | P3 | The emoji tab is a fixed list of 100 | open |
-| S-16 | P3 | No sticker pack search or trending packs | open |
-| S-17 | P3 | Secret chats search returns nothing (Telegram searches locally) | open |
+| S-14 | P3 | GIF search only filters saved GIFs | fixed `c067585e`: inline queries to `animation_search_bot_username`, sent with `sendInlineQueryResultMessage` only on tap. Build only |
+| S-15 | P3 | The emoji tab is a fixed list of 100 | fixed `a5be6b5e`: Telegram's emoji1 list in 8 categories with an icon bar and 20 recent per account. Simulator: the tab shows Smileys & People and the category bar |
+| S-16 | P3 | No sticker pack search or trending packs | fixed `77743a0f`: installed and server pack search below matching stickers, Trending Stickers on an empty focused field. Build only |
+| S-17 | P3 | Secret chats search returns nothing (Telegram searches locally) | fixed `49594c37`: `searchSecretMessages` with offset paging. Build only: no secret chat on the account |
 | ST-1 | P2 | No story viewer; shared stories and mentions were untappable, no rings | fixed `7fdaec19`, `45d3e06d`, `2dd7048d`, `31f7ef3f`: a UIKit viewer (segments, header, caption, quarter taps, hold to pause, drag to dismiss, poster paging, `openStory`/`closeStory`, story updates scoped to the client), opened from story bubbles, the profile avatar ring and chat list avatar rings. `-ui-probe-story-viewer` passes; no chat in the list had active stories at 05:31, so the viewer wasn't opened live. Not ported: replies and reactions, story areas, viewers list, the more menu, stealth mode, the cube transition |
 | SE-1 | P2 | Settings had only accounts, theme, language, animated media, version and logout | fixed `cdd3c243`, `200e10e8`, `518def60`, `dfbbf295`, `f7cd0497`, `ae7084d4`, `b8e743a3` (cherry-picked from `codex/parity-settings`): profile header with Edit Profile (name, bio, birthday, photo, username with live availability), Saved Messages, Devices (sessions, terminate, inactive TTL), Chat Folders, Privacy and Security (blocked users, 2FA status, default auto-delete, eight rule editors with exceptions, account TTL), Notifications (scopes, exceptions, reset), Data and Storage (storage by type and chat, clear cache, network usage). Simulator (read-only): the header, Devices with 21 sessions, Privacy values (165 blocked, phone nobody (+1)), Notifications counts (32/11/12 exceptions) and Data totals (586.1 MB, 1.76 GB). Skipped: auto-download presets and Keep Media (BetterTG has no auto-download or periodic cleanup), Premium/Gifts/Business items, QR login, websites, change number |
 
