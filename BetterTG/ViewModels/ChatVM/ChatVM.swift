@@ -4392,24 +4392,24 @@ import UIKit
     }
 
     private func permissionAllows(_ kind: ChatSendContentKind) -> Bool {
-        guard customChat.canPostMessages else { return false }
-        let permissions = currentChatPermissions
-        return switch kind {
-        case .animation, .sticker:
-            permissions.canSendOtherMessages
-        case .document:
-            permissions.canSendDocuments
-        case .photo:
-            permissions.canSendPhotos
-        case .text:
-            permissions.canSendBasicMessages
-        case .video:
-            permissions.canSendVideos
-        case .videoNote:
-            permissions.canSendVideoNotes
-        case .voiceNote:
-            permissions.canSendVoiceNotes
-        }
+        let permission: KeyPath<ChatPermissions, Bool> =
+            switch kind {
+            case .animation, .sticker:
+                \.canSendOtherMessages
+            case .document:
+                \.canSendDocuments
+            case .photo:
+                \.canSendPhotos
+            case .text:
+                \.canSendBasicMessages
+            case .video:
+                \.canSendVideos
+            case .videoNote:
+                \.canSendVideoNotes
+            case .voiceNote:
+                \.canSendVoiceNotes
+            }
+        return customChat.allowsSending(permission, defaults: currentChatPermissions)
     }
 
     private func removeTemporaryDocuments(_ urls: [URL]) {

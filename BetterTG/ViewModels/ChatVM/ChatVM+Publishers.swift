@@ -194,6 +194,12 @@ extension ChatVM {
         observeCurrentUpdate(.updateBasicGroup) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.basicGroup.id == customChat.group?.id else { return }
             memberCount = update.basicGroup.memberCount
+            // The member status decides who may send (`CustomChat.allowsSending`): leaving or being promoted
+            // changes the composer at once.
+            if customChat.group?.status != update.basicGroup.status {
+                customChat.type = .group(update.basicGroup)
+                objectWillChange.send()
+            }
         }
         observeCurrentUpdate(.updateBasicGroupFullInfo) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.basicGroupId == customChat.group?.id else { return }
