@@ -61,10 +61,7 @@ enum PhotoPickerSelectionLoader {
     private static func load(_ result: PHPickerResult, completion: @escaping (SelectedImage?) -> Void) {
         let provider = result.itemProvider
         guard provider.canLoadObject(ofClass: PHLivePhoto.self) else {
-            provider.loadObject(ofClass: UIImage.self) { object, error in
-                if let error { log("Error loading picked image: \(error)") }
-                completion(writeImage(object as? UIImage))
-            }
+            loadPhoto(provider, completion: completion)
             return
         }
         provider.loadObject(ofClass: PHLivePhoto.self) { object, error in
@@ -95,7 +92,7 @@ enum PhotoPickerSelectionLoader {
                 }
                 PHAssetResourceManager.default().writeData(for: video, toFile: videoURL, options: options) { error in
                     defer { try? FileManager.default.removeItem(at: photoURL) }
-                    guard error == nil, var selected = writeImage(UIImage(contentsOfFile: photoURL.path)) else {
+                    guard error == nil, var selected = writeImage(contentsOf: photoURL) else {
                         try? FileManager.default.removeItem(at: videoURL)
                         completion(nil)
                         return
@@ -104,6 +101,30 @@ enum PhotoPickerSelectionLoader {
                     completion(selected)
                 }
             }
+        }
+    }
+
+    /// Reads the library file instead of a decoded image, so only the sent size is decoded.
+    private static func loadPhoto(_ provider: NSItemProvider, completion: @escaping (SelectedImage?) -> Void) {
+        guard provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else {
+            loadDecodedPhoto(provider, completion: completion)
+            return
+        }
+        provider.loadFileRepresentation(forTypeIdentifier: UTType.image.identifier) { url, error in
+            // The file exists only during this handler.
+            guard let url else {
+                log("Error loading picked image file: \(String(describing: error))")
+                completion(nil)
+                return
+            }
+            completion(writeImage(contentsOf: url))
+        }
+    }
+
+    private static func loadDecodedPhoto(_ provider: NSItemProvider, completion: @escaping (SelectedImage?) -> Void) {
+        provider.loadObject(ofClass: UIImage.self) { object, error in
+            if let error { log("Error loading picked image: \(error)") }
+            completion(writeImage(object as? UIImage))
         }
     }
 }
