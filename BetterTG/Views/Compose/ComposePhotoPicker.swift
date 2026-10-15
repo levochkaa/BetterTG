@@ -7,22 +7,25 @@ import UIKit
 // MARK: - ComposePhotoHeaderView
 
 /// The photo of Telegram's create screens (ItemListAvatarAndNameInfoItem with a pending avatar): the picked photo or
-/// a camera placeholder, with Set Group Photo or Set Channel Photo.
+/// a camera placeholder, with Set Group Photo or Set Channel Photo. An existing chat's photo shows the same way.
 final class ComposePhotoHeaderView: UIView {
     static let height: CGFloat = 150
 
     var onSetPhoto: ((UIView) -> Void)?
 
+    private let avatarView = ProfileAvatarView()
     private let photoView = UIImageView()
     private let placeholderView = UIImageView(image: UIImage(systemName: "camera.fill"))
     private let setPhotoButton = UIButton(type: .system)
 
     init(buttonTitle: String) {
         super.init(frame: .zero)
-        for subview in [photoView, setPhotoButton] as [UIView] {
+        for subview in [avatarView, photoView, setPhotoButton] as [UIView] {
             subview.translatesAutoresizingMaskIntoConstraints = false
             addSubview(subview)
         }
+        avatarView.isUserInteractionEnabled = false
+        avatarView.isHidden = true
         photoView.backgroundColor = .systemBlue.withAlphaComponent(0.15)
         photoView.contentMode = .scaleAspectFill
         photoView.layer.cornerRadius = 40
@@ -40,6 +43,10 @@ final class ComposePhotoHeaderView: UIView {
         setPhotoButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
         setPhotoButton.addTarget(self, action: #selector(setPhotoPressed), for: .touchUpInside)
         NSLayoutConstraint.activate([
+            avatarView.topAnchor.constraint(equalTo: photoView.topAnchor),
+            avatarView.leadingAnchor.constraint(equalTo: photoView.leadingAnchor),
+            avatarView.widthAnchor.constraint(equalTo: photoView.widthAnchor),
+            avatarView.heightAnchor.constraint(equalTo: photoView.heightAnchor),
             photoView.topAnchor.constraint(equalTo: topAnchor, constant: 16),
             photoView.centerXAnchor.constraint(equalTo: centerXAnchor),
             photoView.widthAnchor.constraint(equalToConstant: 80),
@@ -59,7 +66,26 @@ final class ComposePhotoHeaderView: UIView {
 
     func setPhoto(_ image: UIImage?) {
         photoView.image = image
-        placeholderView.isHidden = image != nil
+        placeholderView.isHidden = image != nil || !avatarView.isHidden
+        photoView.backgroundColor = avatarView.isHidden || image != nil
+            ? .systemBlue.withAlphaComponent(0.15)
+            : .clear
+    }
+
+    /// The chat's current photo, or its letters, under a newly picked one.
+    func setCurrentPhoto(_ peer: SettingsPeer?, client: TDLibClient, accountID: UUID?) {
+        avatarView.isHidden = peer == nil
+        if let peer {
+            avatarView.configure(
+                file: peer.file,
+                minithumbnail: peer.minithumbnail,
+                placeholder: peer.placeholder,
+                accountID: accountID,
+                accountUserID: 0,
+                client: client,
+            )
+        }
+        setPhoto(photoView.image)
     }
 
     func setEnabled(_ enabled: Bool) {

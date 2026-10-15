@@ -356,6 +356,21 @@ ClientRestorableNavigationEntry {
         isSelfProfile ? nil : customChat.activeStoryState?.ringStyle
     }
 
+    /// The owner or an administrator of this group or channel, who reaches Telegram's management screens.
+    private var isChatAdministrator: Bool {
+        let status: ChatMemberStatus? =
+            switch customChat.type {
+            case .group(let group): group.status
+            case .supergroup(let group): group.status
+            case .bot, .user: nil
+            }
+        return switch status {
+        case .chatMemberStatusAdministrator?: true
+        case .chatMemberStatusCreator(let creator)?: creator.isMember
+        default: false
+        }
+    }
+
     init(
         customChat: CustomChat, topic: MessageTopic?, client: TDLibClient, accountID: UUID,
         restoration: PeerProfileRestorationState? = nil,
@@ -1939,7 +1954,9 @@ ClientRestorableNavigationEntry {
             if let user = customChat.user {
                 user.id == accountUserID
             } else {
-                infoPermission.canChangeInfo
+                // Telegram's edit mode is the owner's and the admins' (PeerInfoScreen `canEditPeerInfo` and the
+                // management items); the name fields need Change Info.
+                infoPermission.canChangeInfo || isChatAdministrator
             }
         navigationItem.rightBarButtonItem = canEdit
             ? UIBarButtonItem(
@@ -2830,6 +2847,23 @@ ClientRestorableNavigationEntry {
 
     @objc private func editPressed() {
         guard contextIsCurrent else { return }
+        if customChat.user == nil, isChatAdministrator || infoPermission.canChangeInfo {
+            let isChannel =
+                if case .supergroup(let group) = customChat.type {
+                    group.isChannel
+                } else {
+                    false
+                }
+            navigationController?.pushViewController(ChatManagementViewController(
+                chatID: customChat.id,
+                isChannel: isChannel,
+                accountID: accountID,
+                accountUserID: accountUserID,
+                openMembers: { [weak self] in self?.membersPressed() },
+                openAdministrators: { [weak self] in self?.administratorsPressed() },
+            ), animated: true)
+            return
+        }
         let mode: PeerProfileEditViewController.Mode
         if let user = customChat.user, user.id == accountUserID {
             mode = .selfProfile(
