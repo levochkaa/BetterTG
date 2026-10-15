@@ -120,6 +120,13 @@ import UIKit
             // The bar opens the thread of a sent post of this row only.
             guard let raw = sources.first(where: { $0.id == messageID }), raw.sendingState == nil,
                   raw.interactionInfo?.replyInfo != nil else { return nil }
+        case .content(.toggleChecklistTask(let toggle)):
+            // TDLib marks the tasks of a published checklist the account may complete.
+            guard !state.isReadOnly, let raw = sources.first(where: { $0.id == toggle.messageID }),
+                  raw.sendingState == nil, raw.schedulingState == nil,
+                  case .messageChecklist(let content) = raw.content, content.list.canMarkTasksAsDone,
+                  let task = content.list.tasks.first(where: { $0.id == toggle.taskID }),
+                  (task.completedBy == nil) == toggle.isDone else { return nil }
         case .content, .media, .selection:
             break
         }

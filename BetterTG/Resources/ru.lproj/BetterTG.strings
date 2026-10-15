@@ -77,7 +77,6 @@
 "Message.Spoiler" = "Спойлер";
 "Message.PaidMedia" = "Платные медиа";
 "Message.StakeDice" = "Кубик со ставкой";
-"Message.Checklist" = "Список задач";
 "Message.Invoice" = "Счёт";
 "Message.ChatBoost" = "Буст чата";
 "Message.Payment" = "Платёж";
@@ -92,7 +91,6 @@
 "Message.Unsupported.Paid" = "Платные функции, Premium, Stars, TON, подарки, бусты и коллекционные предметы в BetterTG не поддерживаются.";
 "Message.Unsupported.Game" = "Игры пока не поддерживаются.";
 "Message.Unsupported.Story" = "Пересланные истории пока не поддерживаются.";
-"Message.Unsupported.Checklist" = "Списки задач пока не поддерживаются.";
 "Message.Unsupported.Invoice" = "Платежи в BetterTG не поддерживаются.";
 "Accessibility.HidePinnedMessage" = "Скрыть закреплённое сообщение";
 "Accessibility.OpenPinnedMessageHint" = "Открывает закреплённое сообщение";

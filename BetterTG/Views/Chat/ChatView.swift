@@ -4063,7 +4063,56 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             inlineKeyboardActions.perform(press, in: source, client: chatVM.client)
         case .openComments(let messageID):
             openComments(messageID: messageID, displayedID: message.displayedID)
+        case .toggleChecklistTask(let toggle):
+            chatVM.toggleChecklistTask(toggle) { [weak self] in
+                self?.showChatToast(ChatVM.checklistPremiumRequiredText)
+            }
+        case .checklistToggleUnavailable(let messageID):
+            presentChecklistToggleUnavailable(messageID: messageID, in: message)
         }
+    }
+
+    /// Telegram's displayTodoToggleUnavailable: a forwarded checklist can't change, a scheduled one waits for its
+    /// publication, marking needs Telegram Premium, and otherwise the author keeps the tasks to themselves.
+    private func presentChecklistToggleUnavailable(messageID: Int64, in message: CustomMessage) {
+        guard let source = message.sourceMessages.first(where: { $0.id == messageID }) else { return }
+        if source.forwardInfo != nil {
+            showChatToast(L10n.telegram("Chat.Todo.CompletionLimitedForward"))
+            return
+        }
+        if source.schedulingState != nil {
+            chatVM.messageActionErrorMessage = L10n.telegram("ScheduledMessages.TodoUnavailable")
+            return
+        }
+        let author = message.senderUser?.compactDisplayTitle ?? chatVM.customChat.chat.title
+        Task { [weak self] in
+            guard let self, let isPremium = await chatVM.accountHasPremium(), chatVM.locationContextIsCurrent
+            else { return }
+            showChatToast(isPremium
+                ? L10n.telegram("Chat.Todo.CompletionLimited", author)
+                : ChatVM.checklistPremiumRequiredText)
+        }
+    }
+
+    /// Telegram's Add a Task opens its checklist editor for one new task; BetterTG asks for the task's text.
+    private func presentAddChecklistTask(_ message: CustomMessage) {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: L10n.telegram("Chat.Todo.ContextMenu.AddTask"),
+            message: nil,
+            preferredStyle: .alert,
+        )
+        alert.addTextField { field in
+            field.placeholder = L10n.telegram("CreateTodo.TaskPlaceholder")
+            field.autocapitalizationType = .sentences
+        }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("CreateTodo.Save"), style: .default) {
+            [weak self, weak message, weak alert] _ in
+            guard let self, let message, let text = alert?.textFields?.first?.text else { return }
+            chatVM.addChecklistTask(message, text: text)
+        })
+        present(alert, animated: true)
     }
 
     /// Telegram's `openMessageReplies`: a post's comments are a thread in the channel's discussion group, found with
@@ -4949,6 +4998,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ) { [weak self, weak message] in
                 guard let self, let message else { return }
                 chatVM.retractPollVote(message)
+            })
+        }
+        if chatVM.canAddChecklistTask(message) {
+            elements.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.Todo.ContextMenu.AddTask"),
+                image: UIImage(systemName: "plus.circle"),
+            ) { [weak self, weak message] in
+                guard let self, let message else { return }
+                presentAddChecklistTask(message)
             })
         }
         if let stopAction = contentStopAction(for: message) {

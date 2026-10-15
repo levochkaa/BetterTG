@@ -139,6 +139,32 @@ extension TDNativeChatPosition {
     }
 }
 
+extension TDNativeChecklist {
+    init(
+        canAddTasks: Bool,
+        canMarkTasksAsDone: Bool,
+        othersCanAddTasks: Bool,
+        othersCanMarkTasksAsDone: Bool,
+        tasks: [TDNativeChecklistTask],
+        title: TDNativeFormattedText,
+    ) {
+        self.init(
+            title: title,
+            tasks: tasks,
+            othersCanAddTasks: othersCanAddTasks,
+            canAddTasks: canAddTasks,
+            othersCanMarkTasksAsDone: othersCanMarkTasksAsDone,
+            canMarkTasksAsDone: canMarkTasksAsDone,
+        )
+    }
+}
+
+extension TDNativeChecklistTask {
+    init(completedBy: TDNativeMessageSender?, completionDate: Int, id: Int, text: TDNativeFormattedText) {
+        self.init(id: id, text: text, completedBy: completedBy, completionDate: completionDate)
+    }
+}
+
 extension TDNativeContact {
     init(firstName: String, lastName: String, phoneNumber: String, userId: Int64, vcard: String) {
         self.init(phoneNumber: phoneNumber, firstName: firstName, lastName: lastName, vcard: vcard, userId: userId)

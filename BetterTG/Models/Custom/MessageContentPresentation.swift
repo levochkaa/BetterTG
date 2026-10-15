@@ -33,9 +33,19 @@ struct MessageContentPresentation {
         var photo: ChatPhoto?
     }
 
+    /// A checklist and what Telegram's ChatMessageTodoBubbleContentNode reads from its message. Built from content
+    /// alone, it has no author and reads as the account's own published checklist.
+    struct ChecklistContent {
+        let checklist: Checklist
+        let author: MessageSender?
+        let isOutgoing: Bool
+        let isScheduled: Bool
+    }
+
     enum Supplement {
         case animatedEmoji(emoji: String, content: AnimatedEmoji)
         case audio(Audio)
+        case checklist(ChecklistContent)
         case contact(Contact)
         case dice(DiceContent)
         case document(Document)
@@ -62,27 +72,16 @@ struct MessageContentPresentation {
     }
 
     static func make(_ message: Message) -> Self {
-        if case .messageDice = message.content {
-            return make(message.content).dated(message.date)
+        switch message.content {
+        case .messageDice:
+            make(message.content).dated(message.date)
+        case .messageChecklist:
+            make(message.content).attributed(to: message)
+        case .messageLiveLocation(let liveLocation):
+            make(liveLocation, date: message.date)
+        default:
+            make(message.content)
         }
-        guard case .messageLiveLocation(let liveLocation) = message.content else {
-            return make(message.content)
-        }
-        let livePeriod = liveLocation.location.livePeriod
-        let isIndefinite = livePeriod >= Int(Int32.max)
-        let deadline: Foundation.Date? =
-            if isIndefinite {
-                nil
-            } else if message.date > 0, livePeriod > 0 {
-                Foundation.Date(timeIntervalSince1970: TimeInterval(message.date + livePeriod))
-            } else {
-                Foundation.Date().addingTimeInterval(TimeInterval(max(0, liveLocation.expiresIn)))
-            }
-        return make(
-            message.content,
-            liveLocationDeadline: deadline,
-            liveLocationIndefinite: isIndefinite,
-        )
     }
 
     static func make(_ content: MessageContent) -> Self {
@@ -98,6 +97,24 @@ struct MessageContentPresentation {
         case nil:
             []
         }
+    }
+
+    private static func make(_ liveLocation: MessageLiveLocation, date: Int) -> Self {
+        let livePeriod = liveLocation.location.livePeriod
+        let isIndefinite = livePeriod >= Int(Int32.max)
+        let deadline: Foundation.Date? =
+            if isIndefinite {
+                nil
+            } else if date > 0, livePeriod > 0 {
+                Foundation.Date(timeIntervalSince1970: TimeInterval(date + livePeriod))
+            } else {
+                Foundation.Date().addingTimeInterval(TimeInterval(max(0, liveLocation.expiresIn)))
+            }
+        return make(
+            .messageLiveLocation(liveLocation),
+            liveLocationDeadline: deadline,
+            liveLocationIndefinite: isIndefinite,
+        )
     }
 
     private static func make(
@@ -284,10 +301,18 @@ struct MessageContentPresentation {
                 title: L10n.telegram("Message.Story"),
                 detail: L10n.betterTG("Message.Unsupported.Story"),
             )
-        case .messageChecklist:
-            return unsupported(
-                title: L10n.betterTG("Message.Checklist"),
-                detail: L10n.betterTG("Message.Unsupported.Checklist"),
+        case .messageChecklist(let message):
+            // Telegram's chat list reads a checklist as its title (ChatListItemStrings).
+            return Self(
+                formattedText: nil,
+                isVisualMedia: false,
+                summary: firstNonEmpty(message.list.title.text, L10n.telegram("Chat.Todo.Message.Title")),
+                supplement: .checklist(ChecklistContent(
+                    checklist: message.list,
+                    author: nil,
+                    isOutgoing: false,
+                    isScheduled: false,
+                )),
             )
         case .messageInvoice:
             return unsupported(
@@ -597,6 +622,28 @@ struct MessageContentPresentation {
                 value: dice.value,
                 messageDate: date,
             )),
+        )
+    }
+
+    /// A checklist's kind, count and marking depend on who sent the message and how.
+    private func attributed(to message: Message) -> Self {
+        let attributed: Supplement =
+            switch supplement {
+            case .checklist(let content):
+                .checklist(ChecklistContent(
+                    checklist: content.checklist,
+                    author: message.senderId,
+                    isOutgoing: message.isOutgoing,
+                    isScheduled: message.schedulingState != nil,
+                ))
+            default:
+                supplement
+            }
+        return Self(
+            formattedText: formattedText,
+            isVisualMedia: isVisualMedia,
+            summary: summary,
+            supplement: attributed,
         )
     }
 }

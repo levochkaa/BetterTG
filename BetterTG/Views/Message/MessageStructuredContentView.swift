@@ -33,9 +33,22 @@ enum MessageContentAction {
     case pressInlineKeyboardButton(InlineKeyboardButtonPress)
     /// The comments bar under a channel post (ChatMessageCommentFooterContentNode.buttonPressed).
     case openComments(messageID: Int64)
+    /// A task the user may mark was tapped (requestToggleTodoMessageItem). The store already shows the new state;
+    /// a refused or failed request rolls it back.
+    case toggleChecklistTask(MessagePollInteractionStore.ChecklistToggle)
+    /// A task the user may not mark was tapped (displayTodoToggleUnavailable).
+    case checklistToggleUnavailable(messageID: Int64)
 
+    /// Rolls back the poll vote or checklist toggle an action carries when the chat refuses it.
     @MainActor func rejectPollSubmission(in store: MessagePollInteractionStore?) {
-        if case .submitPollAnswer(_, _, let submission) = self { store?.failSubmission(submission) }
+        switch self {
+        case .submitPollAnswer(_, _, let submission):
+            store?.failSubmission(submission)
+        case .toggleChecklistTask(let toggle):
+            store?.failChecklistToggle(toggle)
+        default:
+            break
+        }
     }
 }
 
@@ -53,12 +66,28 @@ enum MessageContentAction {
         let pendingSelection: Set<Int>
     }
 
+    /// A checklist task's new done state, shown before TDLib confirms it as Telegram's
+    /// requestUpdateTodoMessageItems does.
+    struct ChecklistToggle: Equatable {
+        let messageID: Int64
+        let taskID: Int
+        let isDone: Bool
+
+        fileprivate let id: UUID
+    }
+
     private struct Entry {
         var submission: Submission?
         var pendingSelection: Set<Int>
         let sourceSelection: Set<Int>
 
         var isSubmitting: Bool { submission != nil }
+    }
+
+    private struct ChecklistEntry {
+        let toggle: ChecklistToggle
+        /// The task's done state in the checklist the toggle was made on.
+        let sourceIsDone: Bool
     }
 
     let changes = PassthroughSubject<Int64, Never>()
@@ -68,6 +97,8 @@ enum MessageContentAction {
 
     private var entries = [Int64: Entry]()
     private var timeoutWorkItems = [Int64: DispatchWorkItem]()
+    private var checklistEntries = [Int64: [Int: ChecklistEntry]]()
+    private var checklistTimeouts = [UUID: DispatchWorkItem]()
 
     func state(messageID: Int64, sourceSelection: Set<Int>) -> State {
         if let entry = entries[messageID], entry.sourceSelection == sourceSelection {
@@ -141,6 +172,48 @@ enum MessageContentAction {
         return true
     }
 
+    // MARK: Checklist tasks
+
+    /// The done state a task shows: its pending toggle until TDLib's checklist changes that task, or the request
+    /// fails or times out.
+    func checklistTaskIsDone(messageID: Int64, taskID: Int, sourceIsDone: Bool) -> Bool {
+        guard let entry = checklistEntries[messageID]?[taskID] else { return sourceIsDone }
+        guard entry.sourceIsDone == sourceIsDone else {
+            removeChecklistEntry(entry.toggle)
+            return sourceIsDone
+        }
+        return entry.toggle.isDone
+    }
+
+    /// Flips a task's shown state. A task waits for its request before it toggles again.
+    func beginChecklistToggle(messageID: Int64, taskID: Int, sourceIsDone: Bool) -> ChecklistToggle? {
+        if let entry = checklistEntries[messageID]?[taskID] {
+            guard entry.sourceIsDone != sourceIsDone else { return nil }
+            removeChecklistEntry(entry.toggle)
+        }
+        let toggle = ChecklistToggle(messageID: messageID, taskID: taskID, isDone: !sourceIsDone, id: UUID())
+        checklistEntries[messageID, default: [:]][taskID] = ChecklistEntry(toggle: toggle, sourceIsDone: sourceIsDone)
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.failChecklistToggle(toggle)
+        }
+        checklistTimeouts[toggle.id] = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10, execute: workItem)
+        changes.send(messageID)
+        return toggle
+    }
+
+    func isCurrent(_ toggle: ChecklistToggle) -> Bool {
+        checklistEntries[toggle.messageID]?[toggle.taskID]?.toggle == toggle
+    }
+
+    /// Restores the task's TDLib state. A toggle already replaced or confirmed stays silent.
+    @discardableResult func failChecklistToggle(_ toggle: ChecklistToggle) -> Bool {
+        guard isCurrent(toggle) else { return false }
+        removeChecklistEntry(toggle)
+        changes.send(toggle.messageID)
+        return true
+    }
+
     private func submissionTimedOut(_ submission: Submission) {
         failSubmission(submission)
     }
@@ -155,6 +228,14 @@ enum MessageContentAction {
             pendingSelection: sourceSelection,
             sourceSelection: sourceSelection,
         )
+    }
+
+    private func removeChecklistEntry(_ toggle: ChecklistToggle) {
+        checklistTimeouts.removeValue(forKey: toggle.id)?.cancel()
+        checklistEntries[toggle.messageID]?[toggle.taskID] = nil
+        if checklistEntries[toggle.messageID]?.isEmpty == true {
+            checklistEntries[toggle.messageID] = nil
+        }
     }
 }
 
@@ -250,6 +331,7 @@ final class MessageStructuredContentView: UIView {
             case is DiceMessageContentView: "dice"
             case is StickerGlyphContentView: "stickerGlyph"
             case is ServiceMessageContentView: "service"
+            case is ChecklistMessageContentView: "checklist"
             default: "none"
             }
         }
@@ -260,6 +342,10 @@ final class MessageStructuredContentView: UIView {
 
         func debugSubmitPollSelection() {
             (supplementView as? PollMessageContentView)?.debugSubmitSelection()
+        }
+
+        func debugTapChecklistTask(_ index: Int) {
+            (supplementView as? ChecklistMessageContentView)?.debugTapTask(index)
         }
     #endif
 
@@ -290,6 +376,14 @@ final class MessageStructuredContentView: UIView {
                 StickerGlyphContentView(emoji: emoji, sticker: content.sticker, client: client)
             case .audio(let audio):
                 TelegramFileMessageView(audio: audio, client: client, onAction: onAction)
+            case .checklist(let checklist):
+                ChecklistMessageContentView(
+                    messageID: messageID,
+                    content: checklist,
+                    client: client,
+                    interactionStore: pollInteractionStore,
+                    onAction: onAction,
+                )
             case .contact(let contact):
                 ContactMessageContentView(contact: contact, onAction: onAction)
             case .dice(let dice):
@@ -2574,6 +2668,10 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("button")
                     case .openComments:
                         actions.append("comments")
+                    case .toggleChecklistTask(let toggle):
+                        actions.append("checklist:\(toggle.taskID):\(toggle.isDone)")
+                    case .checklistToggleUnavailable:
+                        actions.append("checklist-unavailable")
                     }
                 }
                 precondition(installed, "Fixture \(fixture.name) didn't install")
@@ -2591,6 +2689,14 @@ final class TelegramContactDetailsViewController: UIViewController {
                 views[multiIndex].debugTapPollOption(1)
                 views[multiIndex].debugSubmitPollSelection()
             }
+            if let checklistIndex = fixtures.firstIndex(where: { $0.name == "checklist" }) {
+                views[checklistIndex].debugTapChecklistTask(1)
+                // A second tap waits for the first request.
+                views[checklistIndex].debugTapChecklistTask(1)
+            }
+            if let readOnlyIndex = fixtures.firstIndex(where: { $0.name == "checklist-readonly" }) {
+                views[readOnlyIndex].debugTapChecklistTask(0)
+            }
             let allSized = views.allSatisfy { view in
                 let size = view.systemLayoutSizeFitting(
                     CGSize(width: 320, height: UIView.layoutFittingCompressedSize.height),
@@ -2601,9 +2707,11 @@ final class TelegramContactDetailsViewController: UIViewController {
             }
             let expectedNames = [
                 "file", "file", "attachmentAlbum", "contact", "contact", "location", "location",
-                "poll", "poll", "dice", "stickerGlyph", "service", "service",
+                "poll", "poll", "dice", "stickerGlyph", "service", "service", "checklist", "checklist",
             ]
             let actionProof = actions.contains("poll:0") && actions.contains("poll:0,1")
+                && actions.filter { $0 == "checklist:2:true" }.count == 1
+                && actions.contains("checklist-unavailable")
             let proof = "MessageContent probe: tdlib=\(MessageContentPresentation.auditedTDLibRevision), "
                 + "exhaustive-cases=\(MessageContentPresentation.auditedTDLibCaseCount), "
                 + "views=\(installedNames.joined(separator: ",")), sized=\(allSized), "
@@ -2711,7 +2819,42 @@ final class TelegramContactDetailsViewController: UIViewController {
                     content: .messageChatChangeTitle(MessageChatChangeTitle(title: "Parity Chat")),
                 ),
                 Fixture(name: "unsupported", messageID: 912, content: .messageUnsupported),
+                Fixture(
+                    name: "checklist",
+                    messageID: 913,
+                    content: .messageChecklist(MessageChecklist(list: makeChecklist(markable: true))),
+                ),
+                Fixture(
+                    name: "checklist-readonly",
+                    messageID: 915,
+                    content: .messageChecklist(MessageChecklist(list: makeChecklist(markable: false))),
+                ),
             ]
+        }
+
+        /// A group checklist the account may mark, or a personal one it may only read. The first task is done.
+        private static func makeChecklist(markable: Bool) -> Checklist {
+            Checklist(
+                canAddTasks: markable,
+                canMarkTasksAsDone: markable,
+                othersCanAddTasks: markable,
+                othersCanMarkTasksAsDone: markable,
+                tasks: [
+                    ChecklistTask(
+                        completedBy: .messageSenderUser(MessageSenderUser(userId: 777_000)),
+                        completionDate: 1,
+                        id: 1,
+                        text: FormattedText(entities: [], text: "Port the checklist bubble"),
+                    ),
+                    ChecklistTask(
+                        completedBy: nil,
+                        completionDate: 0,
+                        id: 2,
+                        text: FormattedText(entities: [], text: "Mark this task as done"),
+                    ),
+                ],
+                title: FormattedText(entities: [], text: markable ? "Group checklist" : "Read-only checklist"),
+            )
         }
 
         private static func makePoll(quiz: Bool, multiple: Bool) -> MessagePoll {

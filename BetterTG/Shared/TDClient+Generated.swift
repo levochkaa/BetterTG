@@ -8,6 +8,14 @@ extension TDClient {
         try await send(TDNativeRequests.addChatToList(chatId: chatId, chatList: chatList))
     }
 
+    func addChecklistTasks(
+        chatId: Int64,
+        messageId: Int64,
+        tasks: [TDNativeInputChecklistTask],
+    ) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.addChecklistTasks(chatId: chatId, messageId: messageId, tasks: tasks))
+    }
+
     func addContact(
         contact: TDNativeImportedContact,
         sharePhoneNumber: Bool,
@@ -569,6 +577,20 @@ extension TDClient {
 
     func logOut() async throws -> TDNativeOk {
         try await send(TDNativeRequests.logOut())
+    }
+
+    func markChecklistTasksAsDone(
+        chatId: Int64,
+        markedAsDoneTaskIds: [Int],
+        markedAsNotDoneTaskIds: [Int],
+        messageId: Int64,
+    ) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.markChecklistTasksAsDone(
+            chatId: chatId,
+            messageId: messageId,
+            markedAsDoneTaskIds: markedAsDoneTaskIds,
+            markedAsNotDoneTaskIds: markedAsNotDoneTaskIds,
+        ))
     }
 
     func openChat(chatId: Int64) async throws -> TDNativeOk {

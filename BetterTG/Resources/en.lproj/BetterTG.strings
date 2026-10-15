@@ -77,7 +77,6 @@
 "Message.Spoiler" = "Spoiler";
 "Message.PaidMedia" = "Paid media";
 "Message.StakeDice" = "Stake dice";
-"Message.Checklist" = "Checklist";
 "Message.Invoice" = "Invoice";
 "Message.ChatBoost" = "Chat boost";
 "Message.Payment" = "Payment message";
@@ -92,7 +91,6 @@
 "Message.Unsupported.Paid" = "Paid, Premium, Stars, TON, gift, boost, and collectible flows aren't supported in BetterTG.";
 "Message.Unsupported.Game" = "Game messages aren't supported yet.";
 "Message.Unsupported.Story" = "Forwarded stories aren't supported yet.";
-"Message.Unsupported.Checklist" = "Checklist messages aren't supported yet.";
 "Message.Unsupported.Invoice" = "Payments aren't supported in BetterTG.";
 "Accessibility.HidePinnedMessage" = "Hide pinned message";
 "Accessibility.OpenPinnedMessageHint" = "Opens the pinned message";
