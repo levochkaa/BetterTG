@@ -164,6 +164,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var didPresentVideoNoteError = false
     private var didPresentReactionError = false
     private var didPresentPinError = false
+    private var didPresentMessageActionError = false
     private var didPresentSendError = false
     private var didPresentDraftError = false
     private var lastHighlightedMessageID: Int64?
@@ -547,6 +548,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         switch message.content {
         case .messagePhoto, .messageVideo: true
         default: false
+        }
+    }
+
+    /// The content `ChatVM.editMessage` changes through editMessageText or editMessageCaption.
+    private static func editsText(_ content: MessageContent) -> Bool {
+        switch content {
+        case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageText, .messageVideo,
+             .messageVoiceNote:
+            true
+        default:
+            false
         }
     }
 
@@ -2190,6 +2202,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     presentDraftErrorIfNeeded()
                     presentReactionErrorIfNeeded()
                     presentPinErrorIfNeeded()
+                    presentMessageActionErrorIfNeeded()
                     restoreVideoRecordingIfNeeded()
                 }
             }
@@ -4464,6 +4477,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(alert, animated: true)
     }
 
+    private func presentMessageActionErrorIfNeeded() {
+        guard let message = chatVM.messageActionErrorMessage,
+              !didPresentMessageActionError,
+              presentedViewController == nil
+        else { return }
+        didPresentMessageActionError = true
+        chatVM.messageActionErrorMessage = nil
+        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
+            self?.didPresentMessageActionError = false
+        })
+        present(alert, animated: true)
+    }
+
     @objc private func messageLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
         guard gesture.state == .began, !isSelectingMessages else { return }
         cancelHistoryPanGesture()
@@ -4551,13 +4578,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             } else {
                 false
             }
-        if message.properties.canBeEdited, !isRichMessage {
+        // For polls, live locations and checklists `canBeEdited` means stop or update, not a text edit.
+        if message.properties.canBeEdited, !isRichMessage, Self.editsText(message.message.content) {
             elements.append(TelegramContextMenuAction(
                 title: L10n.telegram("Common.Edit"),
                 image: UIImage(systemName: "square.and.pencil"),
             ) { [weak self] in
                 self?.chatVM.beginMessageEditing(message)
             })
+        }
+        if let stopAction = contentStopAction(for: message) {
+            elements.append(stopAction)
         }
         if message.properties.canBeCopied,
            let text = copyableText(from: message.message.content)
@@ -5195,6 +5226,62 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return text.isEmpty ? nil : FormattedText(entities: [], text: text)
         }
         return formattedText(from: content)
+    }
+
+    /// Telegram's Stop Poll / Stop Quiz (ChatInterfaceStateContextMenus) and Stop Sharing for an outgoing live
+    /// location, where TDLib's `canBeEdited` allows them.
+    private func contentStopAction(for message: CustomMessage) -> TelegramContextMenuAction? {
+        guard message.properties.canBeEdited else { return nil }
+        switch message.message.content {
+        case .messagePoll(let poll) where !poll.poll.isClosed:
+            let isQuiz =
+                if case .pollTypeQuiz = poll.poll.type {
+                    true
+                } else {
+                    false
+                }
+            return TelegramContextMenuAction(
+                title: L10n.telegram(isQuiz ? "Conversation.StopQuiz" : "Conversation.StopPoll"),
+                image: UIImage(systemName: "stop.circle"),
+            ) { [weak self, weak message] in
+                guard let self, let message else { return }
+                confirmStopPoll(message, isQuiz: isQuiz)
+            }
+        case .messageLiveLocation(let live) where message.message.isOutgoing && live.expiresIn > 0:
+            return TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.StopLiveLocation"),
+                image: UIImage(systemName: "location.slash"),
+            ) { [weak self, weak message] in
+                guard let self, let message else { return }
+                chatVM.stopLiveLocation(message)
+            }
+        default:
+            return nil
+        }
+    }
+
+    /// Telegram asks before closing a poll for good (requestStopPollInMessage).
+    private func confirmStopPoll(_ message: CustomMessage, isQuiz: Bool) {
+        let sheet = UIAlertController(
+            title: nil,
+            message: L10n.telegram(isQuiz
+                ? "Conversation.StopQuizConfirmationTitle"
+                : "Conversation.StopPollConfirmationTitle"),
+            preferredStyle: .actionSheet,
+        )
+        sheet.addAction(UIAlertAction(
+            title: L10n.telegram(isQuiz ? "Conversation.StopQuizConfirmation" : "Conversation.StopPollConfirmation"),
+            style: .destructive,
+        ) { [weak self, weak message] _ in
+            guard let self, let message else { return }
+            chatVM.stopPoll(message)
+        })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+        }
+        present(sheet, animated: true)
     }
 }
 

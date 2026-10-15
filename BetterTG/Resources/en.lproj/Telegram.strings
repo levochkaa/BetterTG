@@ -162,6 +162,13 @@
 "Conversation.EmptyPlaceholder" = "No messages here yet...";
 "Conversation.ContextMenuReply" = "Reply";
 "Conversation.ContextMenuCopy" = "Copy";
+"Conversation.StopPoll" = "Stop Poll";
+"Conversation.StopQuiz" = "Stop Quiz";
+"Conversation.StopPollConfirmationTitle" = "If you stop this poll now, nobody will be able to vote in it anymore. This action cannot be undone.";
+"Conversation.StopPollConfirmation" = "Stop Poll";
+"Conversation.StopQuizConfirmationTitle" = "If you stop this quiz now, nobody will be able to submit answers. This action cannot be undone.";
+"Conversation.StopQuizConfirmation" = "Stop Quiz";
+"Conversation.StopLiveLocation" = "Stop Sharing";
 "Conversation.ContextMenuDelete" = "Delete";
 "Chat.SlowmodeTooltip" = "Slowmode is enabled. You can send\nyour next message in %@.";
 "Conversation.MessageDialogRetry" = "Resend";

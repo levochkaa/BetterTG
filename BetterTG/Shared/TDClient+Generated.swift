@@ -156,6 +156,20 @@ extension TDClient {
         ))
     }
 
+    func editMessageLiveLocation(
+        chatId: Int64,
+        messageId: Int64,
+        replyMarkup: TDNativeReplyMarkup?,
+        location: TDNativeLiveLocation?,
+    ) async throws -> TDNativeMessage {
+        try await send(TDNativeRequests.editMessageLiveLocation(
+            chatId: chatId,
+            messageId: messageId,
+            replyMarkup: replyMarkup,
+            location: location,
+        ))
+    }
+
     func editMessageText(
         chatId: Int64,
         inputMessageContent: TDNativeInputMessageContent,
@@ -848,6 +862,10 @@ extension TDClient {
             systemVersion: systemVersion,
             applicationVersion: applicationVersion,
         ))
+    }
+
+    func stopPoll(chatId: Int64, messageId: Int64, replyMarkup: TDNativeReplyMarkup?) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.stopPoll(chatId: chatId, messageId: messageId, replyMarkup: replyMarkup))
     }
 
     func synchronizeLanguagePack(languagePackId: String) async throws -> TDNativeOk {

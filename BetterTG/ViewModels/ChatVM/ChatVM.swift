@@ -129,6 +129,8 @@ import UIKit
     @Published private(set) var pinnedMessage: Message?
     @Published private(set) var locallyHiddenPinnedMessageID: Int64?
     @Published var pinErrorMessage: String?
+    /// A failed Stop Poll or Stop Sharing, shown once by the chat.
+    @Published var messageActionErrorMessage: String?
     @Published private(set) var forumTopic: ForumTopic?
     @Published private(set) var forumTopicInfo: ForumTopicInfo?
     @Published private(set) var forumTopicsByID = [Int: ForumTopic]()
@@ -2196,6 +2198,31 @@ import UIKit
         )
     }
 
+    /// Telegram's Stop Poll / Stop Quiz (requestClosePoll). For a poll, TDLib's `canBeEdited` means `stopPoll` can
+    /// be used; the closed poll arrives through updateMessageContent.
+    func stopPoll(_ message: CustomMessage) {
+        guard message.properties.canBeEdited,
+              case .messagePoll(let poll) = message.message.content, !poll.poll.isClosed else { return }
+        performContentStop(message) { client, chatID, messageID in
+            _ = try await client.stopPoll(chatId: chatID, messageId: messageID, replyMarkup: nil)
+        }
+    }
+
+    /// Stops sharing an outgoing live location: `editMessageLiveLocation` with no location, which `canBeEdited`
+    /// allows for a live location.
+    func stopLiveLocation(_ message: CustomMessage) {
+        guard message.properties.canBeEdited, message.message.isOutgoing,
+              case .messageLiveLocation(let live) = message.message.content, live.expiresIn > 0 else { return }
+        performContentStop(message) { client, chatID, messageID in
+            _ = try await client.editMessageLiveLocation(
+                chatId: chatID,
+                messageId: messageID,
+                replyMarkup: nil,
+                location: nil,
+            )
+        }
+    }
+
     func beginForward(_ forward: PendingMessageForward) {
         cancelReply()
         editCustomMessage = nil
@@ -3923,6 +3950,25 @@ import UIKit
                 guard !Task.isCancelled, let self, recordingVoiceNote,
                       let context = activeVoiceRecordingContext else { return }
                 _ = try? await sendChatAction(.chatActionRecordingVoiceNote, in: context)
+            }
+        }
+    }
+
+    private func performContentStop(
+        _ message: CustomMessage,
+        request: @escaping (TDLibClient, Int64, Int64) async throws -> Void,
+    ) {
+        guard locationContextIsCurrent, location.matches(message: message.message),
+              messages.contains(where: { $0 === message }) else { return }
+        let client = client
+        let chatID = message.message.chatId
+        let messageID = message.id
+        Task { [weak self] in
+            do {
+                try await request(client, chatID, messageID)
+            } catch {
+                guard let self, locationContextIsCurrent, TDLib.shared.activeClient.id == client.id else { return }
+                messageActionErrorMessage = (error as? TDLibError)?.message ?? error.localizedDescription
             }
         }
     }
