@@ -39,7 +39,8 @@ final class ChatFolderInviteLinkPreviewViewController: UIViewController, UITable
     private static let headerIdentifier = "ChatFolderInviteHeader"
     private static let cellIdentifier = "ChatFolderInviteCell"
 
-    var onFinished: (() -> Void)?
+    /// Called after the request succeeds, with the chats added to the folder.
+    var onFinished: (([Int64]) -> Void)?
 
     private let content: Content
     private let authority = ChatListActionAuthority()
@@ -402,7 +403,7 @@ final class ChatFolderInviteLinkPreviewViewController: UIViewController, UITable
                         }
                 }
                 guard let self else { return }
-                finish(joining: joining)
+                finish(joining: joining, added: selected)
             } catch {
                 guard let self, scope.isCurrent else { return }
                 isJoining = false
@@ -419,7 +420,7 @@ final class ChatFolderInviteLinkPreviewViewController: UIViewController, UITable
     }
 
     /// Telegram's toasts: Folder Added, with the chats also joined, or Folder Updated with the chats joined.
-    private func finish(joining: Int) {
+    private func finish(joining: Int, added: [Int64]) {
         let folder = content.folderTitle
         let text: String? =
             if content.existingFolderID == nil {
@@ -442,7 +443,7 @@ final class ChatFolderInviteLinkPreviewViewController: UIViewController, UITable
         let host = presentingViewController?.view
         let onFinished = onFinished
         dismiss(animated: true) {
-            onFinished?()
+            onFinished?(added)
             if let text, let host { TelegramUndoToast.show(text: text, in: host, bottomInset: 8, undo: nil) }
         }
     }

@@ -951,3 +951,5 @@
 "FolderLinkScreen.AlertTextUnavailablePublicGroup" = "You don't have the admin rights to share invite links to this group chat.";
 "FolderLinkScreen.AlertTextUnavailablePrivateChannel" = "You don't have the admin rights to share invite links to this private channel.";
 "FolderLinkScreen.AlertTextUnavailablePublicChannel" = "You don't have the admin rights to share invite links to this channel.";
+"ChatList.PanelNewChatsAvailable_1" = "1 New Chat Available";
+"ChatList.PanelNewChatsAvailable_any" = "%d New Chats Available";

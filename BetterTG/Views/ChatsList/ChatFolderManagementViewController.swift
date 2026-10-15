@@ -364,6 +364,8 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     private var automaticName = ""
     /// The folder's invite links (`getChatFolderInviteLinks`), newest first.
     private var inviteLinks = [TDNativeChatFolderInviteLink]()
+    /// Chats the owner added to this shared folder that the user hasn't joined yet (`getChatFolderNewChats`).
+    private var newChatIDs = [Int64]()
     private lazy var nameField: UITextField = {
         let field = UITextField(frame: CGRect(x: 0, y: 0, width: 190, height: 36))
         field.placeholder = L10n.telegram("ChatListFolder.NamePlaceholder")
@@ -427,6 +429,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         tableView.addGestureRecognizer(linkPress)
         sessionObservation = session.bind(self)
         loadInviteLinks()
+        loadNewChats()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -490,6 +493,13 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
             link.image = UIImage(systemName: "link.circle.fill")
             cell.contentConfiguration = link
             cell.accessoryType = .disclosureIndicator
+        case .newChats:
+            var newChats = cell.defaultContentConfiguration()
+            newChats.text = L10n.telegramPlural("ChatList.PanelNewChatsAvailable", count: newChatIDs.count)
+            newChats.textProperties.color = .systemBlue
+            newChats.image = UIImage(systemName: "plus.circle.fill")
+            cell.contentConfiguration = newChats
+            cell.accessoryType = .disclosureIndicator
         }
         return cell
     }
@@ -516,6 +526,8 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
             createInviteLink()
         case .inviteLink(let index):
             openInviteLink(inviteLinks[index])
+        case .newChats:
+            openNewChats()
         }
     }
 
@@ -572,6 +584,9 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     }
 
     private func rows(in section: Section) -> [Row] {
+        if section == .chats, !newChatIDs.isEmpty {
+            return [.newChats] + section.rows(shareable: draft.isShareable)
+        }
         guard section == .inviteLinks else { return section.rows(shareable: draft.isShareable) }
         return [.createInviteLink] + inviteLinks.indices.map(Row.inviteLink)
     }
@@ -599,6 +614,42 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     private func reloadInviteLinks() {
         guard let section = sections.firstIndex(of: .inviteLinks) else { return }
         tableView.reloadSections(IndexSet(integer: section), with: .none)
+    }
+
+    /// ChatListContainerItemNode's new chats panel for a shared folder the user joined; the editor shows it as a row.
+    private func loadNewChats() {
+        guard let folderInfo, folderInfo.isShareable, let reader = session.reader, session.isCurrent else { return }
+        let client = reader.inviteLinkClient()
+        let folderID = folderInfo.id
+        Task { [weak self] in
+            let chats = try? await client.send(TDNativeRequests.getChatFolderNewChats(chatFolderId: folderID))
+            guard let self, let chats, !chats.chatIds.isEmpty, session.isCurrent else { return }
+            newChatIDs = chats.chatIds
+            tableView.reloadData()
+        }
+    }
+
+    /// The panel opens ChatFolderLinkPreviewScreen with the folder's updates: the new chats to join or skip.
+    private func openNewChats() {
+        guard let folderInfo, !newChatIDs.isEmpty, session.scope(owner: self).isCurrent else { return }
+        let fieldName = nameField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let controller = ChatFolderInviteLinkPreviewViewController(content: .init(
+            folderTitle: fieldName.isEmpty ? folderInfo.name.text.text : fieldName,
+            existingFolderID: folderInfo.id,
+            chatIDs: newChatIDs,
+            joinedChatIDs: [],
+            action: .addNewChats(folderID: folderInfo.id),
+        ))
+        controller.onFinished = { [weak self] added in
+            guard let self else { return }
+            newChatIDs = []
+            // TDLib added the joined chats to the folder; the draft takes them so a later Save keeps them.
+            if !added.isEmpty {
+                draft = draft.replacingIncludedChatIDs(Set(draft.alwaysIncludedChatIDs).union(added))
+            }
+            tableView.reloadData()
+        }
+        chatListTopPresenter.present(TelegramNavigationController(rootViewController: controller), animated: true)
     }
 
     /// ChatListFilterPresetController's createLink: a saved folder with chosen chats and no chat types or exclusions
@@ -1227,13 +1278,15 @@ extension ChatFolder {
             && hasSameRules(as: other)
     }
 
-    /// The folder's chat rules without its name, as Telegram compares ChatListFilterData.
+    /// The folder's chat rules without its name, as Telegram compares ChatListFilterData. Chats compare as sets:
+    /// TDLib may list chats it added, such as a shared folder's new chats, in another order than the editor.
     func hasSameRules(as other: ChatFolder) -> Bool {
         includeContacts == other.includeContacts && includeNonContacts == other.includeNonContacts
             && includeGroups == other.includeGroups && includeChannels == other.includeChannels
             && includeBots == other.includeBots && excludeMuted == other.excludeMuted
             && excludeRead == other.excludeRead && excludeArchived == other.excludeArchived
-            && alwaysIncludedChatIDs == other.alwaysIncludedChatIDs && excludedChatIds == other.excludedChatIds
+            && Set(alwaysIncludedChatIDs) == Set(other.alwaysIncludedChatIDs)
+            && Set(excludedChatIds) == Set(other.excludedChatIds)
     }
 
     /// ChatListFilterPresetController's share check: chosen chats and no chat types or exclusions.
@@ -1450,6 +1503,7 @@ private extension ChatFolderEditorViewController {
         case exclude(ChatFolderExclusion)
         case createInviteLink
         case inviteLink(Int)
+        case newChats
 
         // MARK: Internal
 
@@ -1461,7 +1515,7 @@ private extension ChatFolderEditorViewController {
             case .includedChats: L10n.betterTG("Folders.AlwaysInclude")
             case .excludedChats: L10n.betterTG("Folders.NeverInclude")
             case .exclude(let type): type.title
-            case .createInviteLink, .inviteLink: ""
+            case .createInviteLink, .inviteLink, .newChats: ""
             }
         }
 
