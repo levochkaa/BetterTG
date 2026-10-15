@@ -358,7 +358,7 @@ Audit and fixes from `codex/parity-chat-tools` and `codex/parity-stories` (cherr
 | S-6 | P3 | Matched text isn't highlighted in bubbles | open |
 | S-7 | P2 | Profile lacks Mute, Auto-Delete, Clear Messages, Leave/Delete; the auto-delete timer can't be set | fixed `088af4eb`: a More menu with Telegram's mute presets, auto-delete 1 day/1 week/1 month/off, Clear Messages and the removal sheet |
 | S-8 | P3 | No custom mute duration or Auto-Delete "Other…" | open |
-| S-9 | P3 | Chat-list Delete/Clear runs at once; Telegram waits 5 s behind Undo | open |
+| S-9 | P3 | Chat-list Delete/Clear runs at once; Telegram waits 5 s behind Undo | fixed `9768eda9`: the row hides at once and the request runs after the 5 s Undo toast; Undo restores it; Clear History waits without hiding. Build only: testing Undo means deleting a real chat |
 | S-10 | P2 | The sticker tab is one flat list | fixed `f5ec896c`: Favorites, Recently Used and installed packs with titles |
 | S-11 | P2 | A sticker in a message opens the gallery; no pack preview or Add/Remove | fixed `f5ec896c`, `128758cc`: the pack sheet with Add/Remove and Copy Link |
 | S-12 | P3 | No Add to/Remove from Favorites, Remove from Recents | fixed `f5ec896c`, `128758cc` |
