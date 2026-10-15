@@ -170,7 +170,7 @@ import Foundation
 
         private static func verifyTimestamps() throws {
             var calendar = Calendar(identifier: .gregorian)
-            calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+            calendar.timeZone = Foundation.TimeZone(secondsFromGMT: 0) ?? .current
             let now = Date(timeIntervalSince1970: 1_792_152_000) // 12:00 UTC
             let seconds = Int(now.timeIntervalSince1970)
             try require(

@@ -134,7 +134,8 @@ import TDLibKit
             guard !video.video.local.isDownloadingCompleted, video.preloadPrefixSize > 0 else { return }
             Task {
                 _ = try? await client.downloadFile(
-                    fileId: video.video.id, limit: video.preloadPrefixSize, offset: 0, priority: 1, synchronous: false,
+                    fileId: video.video.id, limit: Int64(video.preloadPrefixSize), offset: 0, priority: 1,
+                    synchronous: false,
                 )
             }
         case .storyContentLive, .storyContentUnsupported:
