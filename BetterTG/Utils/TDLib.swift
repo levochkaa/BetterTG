@@ -116,6 +116,25 @@ final class TDLib: @unchecked Sendable {
         return activeVODRanges
     }
 
+    /// The active account is a sign-in that never finished: its own client reports a login step. Only such an
+    /// account is discarded when the user switches away. An account whose client has not answered yet (a recovered
+    /// or migrated account before its first Ready, or one still activating while the previous account's client is
+    /// published) keeps its database.
+    private var activeAccountAwaitsSignIn: Bool {
+        guard let activeAccountID, let source = activeUpdateSource, source.accountID == activeAccountID,
+              let snapshot = authorizationState.current, snapshot.source == source,
+              let state = snapshot.state else { return false }
+        return switch state {
+        case .authorizationStateWaitCode, .authorizationStateWaitEmailAddress, .authorizationStateWaitEmailCode,
+             .authorizationStateWaitOtherDeviceConfirmation, .authorizationStateWaitPassword,
+             .authorizationStateWaitPhoneNumber, .authorizationStateWaitPremiumPurchase,
+             .authorizationStateWaitRegistration:
+            true
+        default:
+            false
+        }
+    }
+
     private init() {}
 
     @MainActor func authorizationClient(for source: TdUpdateSource) -> TDLibClient? {
@@ -236,7 +255,9 @@ final class TDLib: @unchecked Sendable {
         }
 
         let previous = activeClientSnapshot()
-        let discardedAccountID = !isActiveAccountReady && activeAccount?.userID == nil ? activeAccountID : nil
+        let discardedAccountID = !isActiveAccountReady && activeAccount?.userID == nil && activeAccountAwaitsSignIn
+            ? activeAccountID
+            : nil
         var updatedAccounts = accounts.filter { $0.id != discardedAccountID }
         guard let index = updatedAccounts.firstIndex(where: { $0.id == accountID }) else {
             throw TelegramAccountError.unavailable
@@ -252,7 +273,8 @@ final class TDLib: @unchecked Sendable {
             previous,
             accountID: previous?.accountID,
             endingSession: false,
-            removeDirectory: discardedAccountID != nil,
+            // Only the discarded account's own client may take its directory with it.
+            removeDirectory: discardedAccountID != nil && previous?.accountID == discardedAccountID,
         )
     }
 
