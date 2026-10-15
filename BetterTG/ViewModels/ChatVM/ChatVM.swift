@@ -5164,7 +5164,9 @@ import UIKit
             case .voiceNote:
                 \.canSendVoiceNotes
             }
-        return customChat.allowsSending(permission, defaults: currentChatPermissions)
+        return customChat.allowsSending(
+            permission, defaults: currentChatPermissions, inReplyThread: location.messageThreadID != nil,
+        )
     }
 
     private func removeTemporaryDocuments(_ urls: [URL]) {

@@ -148,16 +148,25 @@ import TDLibKit
     /// not bound by the chat's default restrictions, a channel or broadcast group takes posts only from its owner and
     /// admins who may post, and a restricted member is bound by both their own and the default permissions.
     /// `defaults` is the chat's current `Chat.permissions`, which TDLib leaves all false for a channel.
-    func allowsSending(_ permission: KeyPath<ChatPermissions, Bool>, defaults: ChatPermissions) -> Bool {
+    /// In a reply thread, a discussion group that doesn't make users join first (`joinToSendMessages`) takes
+    /// comments from users who aren't members (ChatInterfaceStateInputPanels, `.left` in `.replyThread`).
+    func allowsSending(
+        _ permission: KeyPath<ChatPermissions, Bool>,
+        defaults: ChatPermissions,
+        inReplyThread: Bool = false,
+    ) -> Bool {
         let status: ChatMemberStatus
         let postsOnly: Bool
+        let joinToSend: Bool
         switch type {
         case .supergroup(let group):
             status = group.status
             postsOnly = group.isChannel || group.isBroadcastGroup
+            joinToSend = group.joinToSendMessages || group.isForum
         case .group(let group):
             status = group.status
             postsOnly = false
+            joinToSend = true
         case .bot, .user:
             return defaults[keyPath: permission]
         }
@@ -171,7 +180,9 @@ import TDLibKit
         case .chatMemberStatusRestricted(let restricted):
             !postsOnly && restricted.isMember && restricted.permissions[keyPath: permission]
                 && defaults[keyPath: permission]
-        case .chatMemberStatusBanned, .chatMemberStatusLeft:
+        case .chatMemberStatusLeft:
+            inReplyThread && !postsOnly && !joinToSend && defaults[keyPath: permission]
+        case .chatMemberStatusBanned:
             false
         }
     }
