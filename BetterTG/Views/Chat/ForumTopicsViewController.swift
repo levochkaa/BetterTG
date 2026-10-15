@@ -751,14 +751,27 @@ import UIKit
         // A page covered by a pushed chat (a topic just created and opened) has no window. An animated diff there
         // left the table showing the old rows on return, so the new topic only appeared after reopening the forum.
         let animated = viewportRestoration.pending == nil && view.window != nil
-        // A list resting with the search field and any hidden General tucked under the top keeps them there as a
-        // hidden General arrives, changes height or returns to the list.
-        let tucksTop = didSetInitialSearchOffset && viewportRestoration.pending == nil
-            && !navigationBarView.isSearchActive && !tableView.isTracking && !tableView.isDecelerating
-            && abs(tableView.contentOffset.y + tableView.adjustedContentInset.top - collapsedTopOffset) <= 0.5
+        // A list resting at its top keeps showing the top, as Telegram's chat list does (FolderView's
+        // restingTopOffset): a topic that moves or arrives above the first row appears there instead of sliding under
+        // the navigation bar while UIKit anchors the previous first row. A list resting with the search field and a
+        // hidden General tucked under the top keeps them there as that row arrives, changes height or leaves.
+        let previousCollapsedOffset = navigationBarView.isSearchActive ? 0 : collapsedTopOffset
+        let restingTopOffset: CGFloat? = {
+            guard didSetInitialSearchOffset, viewportRestoration.pending == nil,
+                  !tableView.isTracking, !tableView.isDragging, !tableView.isDecelerating else { return nil }
+            let offset = tableView.contentOffset.y + tableView.adjustedContentInset.top
+            return offset <= previousCollapsedOffset + 0.5 ? offset : nil
+        }()
+        let tucksTop = !navigationBarView.isSearchActive
+            && restingTopOffset.map { abs($0 - previousCollapsedOffset) <= 0.5 } == true
+        let restingTarget: () -> CGFloat? = { [weak self] in
+            guard let self, let restingTopOffset else { return nil }
+            return tucksTop ? collapsedTopOffset : restingTopOffset
+        }
         dataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
-            if tucksTop, let self, !tableView.isTracking, !tableView.isDecelerating {
-                keepTopCollapsed(animated: true)
+            // UIKit can re-anchor the previous first row during the update animation; bring the top back.
+            if let self, let target = restingTarget(), !tableView.isTracking, !tableView.isDecelerating {
+                restoreRestingTop(target, animated: true)
             }
             let finish: () -> Void = { [weak self] in
                 self?.completeSnapshot(batch.token, viewportToken: token, model: model, binding: binding)
@@ -771,12 +784,12 @@ import UIKit
             finish()
         }
         updateSearchTravel()
-        if tucksTop { keepTopCollapsed(animated: false) }
+        if let target = restingTarget() { restoreRestingTop(target, animated: false) }
         updateBackgroundView()
     }
 
-    private func keepTopCollapsed(animated: Bool) {
-        let target = -tableView.adjustedContentInset.top + collapsedTopOffset
+    private func restoreRestingTop(_ offset: CGFloat, animated: Bool) {
+        let target = -tableView.adjustedContentInset.top + offset
         guard abs(tableView.contentOffset.y - target) > 0.5 else { return }
         tableView.setContentOffset(CGPoint(x: tableView.contentOffset.x, y: target), animated: animated)
     }
