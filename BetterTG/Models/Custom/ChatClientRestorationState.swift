@@ -250,6 +250,8 @@ struct ChatHistoryLatestRefreshCursor {
     }
 
     private let location: ChatLocation
+    /// The route's messages; a reply thread also takes every root member, which TDLib doesn't file under the thread.
+    private let includes: (Message) -> Bool
     private let source: TdUpdateSource
     private let currentSource: () -> TdUpdateSource?
     private let read: (Int64) async throws -> Message
@@ -289,9 +291,11 @@ struct ChatHistoryLatestRefreshCursor {
         read: @escaping (Int64) async throws -> Message,
         hydrate: ((Message) async -> ChatHistoryMessageValue)? = nil,
         retriesPartialRaces: Bool = false,
+        includes: ((Message) -> Bool)? = nil,
         deliver: @escaping (Delivery) -> Void,
     ) {
         self.location = location
+        self.includes = includes ?? { location.matches(message: $0) }
         self.source = source
         self.currentSource = currentSource
         self.read = read
@@ -318,7 +322,7 @@ struct ChatHistoryLatestRefreshCursor {
                 messageID: value.message.id, revision: token.revisions[value.message.id, default: 0],
                 generation: token.generation,
             )
-            guard location.matches(message: value.message), permits(request) else {
+            guard includes(value.message), permits(request) else {
                 markUnresolved(request)
                 return false
             }
@@ -330,7 +334,7 @@ struct ChatHistoryLatestRefreshCursor {
     /// Install a complete accepted TD payload before metadata awaits. Field-only
     /// updates can then apply immediately without dropping the new message body.
     @discardableResult func acceptLiveMessage(_ value: ChatHistoryMessageValue) -> Bool {
-        guard isCurrent, !Task.isCancelled, location.matches(message: value.message),
+        guard isCurrent, !Task.isCancelled, includes(value.message),
               !deletedIDs.contains(value.message.id) else { return false }
         guard mutationOwners[value.message.id] == nil else {
             noteLiveUpdate(messageIDs: [value.message.id])
@@ -350,7 +354,7 @@ struct ChatHistoryLatestRefreshCursor {
     }
 
     func enqueueHydration(message: Message) {
-        guard isCurrent, location.matches(message: message), !deletedIDs.contains(message.id) else { return }
+        guard isCurrent, includes(message), !deletedIDs.contains(message.id) else { return }
         queuedPayloads[message.id] = (message, revisions[message.id, default: 0])
         enqueue(messageIDs: [message.id])
     }
@@ -409,7 +413,7 @@ struct ChatHistoryLatestRefreshCursor {
               token.generation == generation else { return false }
         latestReadID = nil
         defer { settleDeferredRetries() }
-        for value in values where location.matches(message: value.message) {
+        for value in values where includes(value.message) {
             guard token.latestGeneration == latestGeneration else { return false }
             let request = Request(
                 messageID: value.message.id, revision: token.revisions[value.message.id, default: 0],
@@ -427,7 +431,7 @@ struct ChatHistoryLatestRefreshCursor {
               token.generation == generation else { return false }
         latestReadID = nil
         defer { settleDeferredRetries() }
-        for message in messages where location.matches(message: message) {
+        for message in messages where includes(message) {
             let request = Request(
                 messageID: message.id, revision: token.revisions[message.id, default: 0], generation: token.generation,
             )
@@ -550,7 +554,7 @@ struct ChatHistoryLatestRefreshCursor {
             result =
                 if message.id != request.messageID || message.chatId != location.chatID {
                     .retry
-                } else if !location.matches(message: message) {
+                } else if !includes(message) {
                     .missing // Confirmed moved out of this exact topic route.
                 } else {
                     if let hydrate {

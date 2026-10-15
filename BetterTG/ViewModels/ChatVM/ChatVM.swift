@@ -1691,7 +1691,7 @@ import UIKit
         if location.messageThreadID != nil, reachedEnd || noProgressCount >= 2 {
             history.append(contentsOf: messageThreadHead(excluding: knownIDs))
         }
-        let customMessages = await history.filter { location.matches(message: $0) }.asyncMap { chatMessage in
+        let customMessages = await history.filter { routeIncludes($0) }.asyncMap { chatMessage in
             await getCustomMessage(from: chatMessage)
         }
         guard !Task.isCancelled, locationContextIsCurrent else {
@@ -4293,6 +4293,15 @@ import UIKit
         ))
     }
 
+    /// The route's own messages and a reply thread's root members. TDLib files only one member of an automatically
+    /// forwarded album under the thread; the rest still head it.
+    func routeIncludes(_ message: Message) -> Bool {
+        if location.matches(message: message) { return true }
+        guard location.messageThreadID != nil, let messageThread,
+              message.chatId == location.chatID else { return false }
+        return messageThread.messages.contains { $0.id == message.id }
+    }
+
     /// Telegram keeps a pending forward in the destination's interface state; BetterTG saves it per account and chat
     /// location, and sending, Do Not Forward, a reply or another forward clears or replaces it.
     private func storePendingForward() {
@@ -4342,11 +4351,11 @@ import UIKit
         }
     }
 
-    /// The root messages that head the thread. TDLib leaves the rest of an automatically forwarded album outside the
-    /// thread, so only members carrying the thread's topic belong to this route.
+    /// The root messages that head the thread, every member of a root album: getMessageThread returns them all, and
+    /// Telegram heads the thread with the whole group (ChatHistoryEntriesForView, `MessageGroupEntry`).
     private func messageThreadHead(excluding knownIDs: Set<Int64>) -> [Message] {
         guard location.messageThreadID != nil, let messageThread else { return [] }
-        return messageThread.messages.filter { location.matches(message: $0) && !knownIDs.contains($0.id) }
+        return messageThread.messages.filter { $0.chatId == location.chatID && !knownIDs.contains($0.id) }
     }
 
     /// A history that reached its start before the thread was read gets its head now.
@@ -4754,6 +4763,9 @@ import UIKit
                 return await ChatHistoryMessageValue(getCustomMessage(from: message))
             },
             retriesPartialRaces: true,
+            includes: { [weak self] message in
+                self?.routeIncludes(message) ?? location.matches(message: message)
+            },
             deliver: { [weak self] in self?.applyMessageRefresh($0) },
         )
     }
