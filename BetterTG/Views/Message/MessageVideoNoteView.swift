@@ -32,7 +32,24 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         func tapForProbe() { tapped() }
     #endif
 
+    /// An instant video of Telegram's voice playlist (PeerMessagesMediaPlaylist, `.voice` takes voice notes and
+    /// instant videos).
+    struct PlaylistItem: Equatable {
+        let source: TdUpdateSource
+        let chatID: Int64
+        let messageID: Int64
+    }
+
+    /// An instant video that played to its end, so its chat can continue the playlist.
+    static let playbackFinished = PassthroughSubject<PlaylistItem, Never>()
+
     private weak static var activePlaybackView: VideoNotePlaybackView?
+
+    /// The instant video the playlist plays next; it starts once its view shows it with the file loaded.
+    private static var playlistRequest: (item: PlaylistItem, expiresAt: TimeInterval)?
+    private static let playlistRequests = PassthroughSubject<Void, Never>()
+    /// How long a request waits for its view to appear and its file to load.
+    private static let playlistRequestLifetime: TimeInterval = 15
 
     private let player = LocalMediaPlayer()
     private let thumbnailView = TDImageLoadingView()
@@ -151,6 +168,11 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         activePlaybackView?.pauseForCompetingPlayback()
     }
 
+    static func requestPlaylistPlayback(_ item: PlaylistItem) {
+        playlistRequest = (item, ProcessInfo.processInfo.systemUptime + playlistRequestLifetime)
+        playlistRequests.send()
+    }
+
     private static func isSecret(_ message: Message) -> Bool {
         guard case .messageVideoNote(let value) = message.content else { return false }
         return value.isSecret
@@ -253,6 +275,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             cancelDownload()
         } else if !isSecret {
             startDownloadIfNeeded()
+            startRequestedPlaylistPlayback()
         }
     }
 
@@ -369,6 +392,9 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in self?.pauseForCompetingPlayback() }
             .store(in: &cancellables)
+        Self.playlistRequests
+            .sink { [weak self] in self?.startRequestedPlaylistPlayback() }
+            .store(in: &cancellables)
     }
 
     private func observeBinding(_ backend: VideoNotePlaybackBackend) {
@@ -451,9 +477,17 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         guard representedPath != file.local.path else { return }
         representedPath = file.local.path
         player.load(url: URL(filePath: file.local.path), autoplay: false, loops: false)
+        startRequestedPlaylistPlayback()
     }
 
     private func renderPlayerState(_ state: LocalMediaPlayer.State) {
+        if case .ended = state, hasStartedPlayback, !isSecret, let message, let backend, backend.isCurrent() {
+            Self.playbackFinished.send(PlaylistItem(
+                source: backend.source,
+                chatID: message.chatId,
+                messageID: message.id,
+            ))
+        }
         currentPlayerState = state
         progressLayer.isHidden = state != .playing
         switch state {
@@ -680,6 +714,31 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         Self.activePlaybackView = self
         backend?.takePlayback()
         return configurationID == bindingID && backend?.isCurrent() == true && !isRevoked
+    }
+
+    /// Starts the playlist's requested instant video once this view shows it with its file loaded.
+    private func startRequestedPlaylistPlayback() {
+        guard let request = Self.playlistRequest else { return }
+        guard request.expiresAt > ProcessInfo.processInfo.systemUptime else {
+            Self.playlistRequest = nil
+            return
+        }
+        guard let message, let backend, backend.isCurrent(), backend.source == request.item.source,
+              message.chatId == request.item.chatID, message.id == request.item.messageID,
+              !isSecret, !isRevoked, representedPath != nil, playbackVisible || window != nil
+        else { return }
+        Self.playlistRequest = nil
+        guard !player.isPlaybackRequested, beginExclusivePlayback() else { return }
+        markViewed()
+        if case .ended = currentPlayerState {
+            let bindingID = configurationID
+            player.seek(to: 0) { [weak self] in
+                guard let self, configurationID == bindingID, backend.isCurrent(), !isRevoked else { return }
+                player.play()
+            }
+        } else {
+            player.play()
+        }
     }
 
     private func pauseForCompetingPlayback() {

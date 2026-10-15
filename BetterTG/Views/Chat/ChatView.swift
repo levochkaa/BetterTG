@@ -1593,28 +1593,50 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         Media.shared
             .playbackFinished
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] finished in self?.playNextVoiceNote(after: finished) }
+            .sink { [weak self] finished in
+                guard let self, finished.chatID == chatVM.chatID,
+                      finished.accountID == location.accountID else { return }
+                playNextPlaylistItem(after: finished.messageID)
+            }
+            .store(in: &cancellables)
+        VideoNotePlaybackView.playbackFinished
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] finished in
+                guard let self, finished.chatID == chatVM.chatID,
+                      finished.source == navigationClientSource else { return }
+                playNextPlaylistItem(after: finished.messageID)
+            }
             .store(in: &cancellables)
     }
 
-    /// Telegram's voice playlist continues with the chat's next voice note when one ends. Self-destructing notes
-    /// stay out of it: they only play in their play-once overlay.
-    private func playNextVoiceNote(after finished: Media.NowPlaying) {
-        guard presentationMode == .full, chatVM.locationContextIsCurrent,
-              finished.chatID == chatVM.chatID, finished.accountID == location.accountID else { return }
+    /// Telegram's voice playlist (`.voiceOrInstantVideo`, OpenChatMessage) continues with the chat's next voice
+    /// note or instant video when one ends; the history scrolls to a next instant video (ChatHistoryListNode).
+    /// Self-destructing notes stay out of it: they only play in their play-once overlay.
+    private func playNextPlaylistItem(after finishedID: Int64) {
+        guard presentationMode == .full, chatVM.locationContextIsCurrent else { return }
         let candidates = chatVM.messages.flatMap { $0.album.isEmpty ? [$0.message] : $0.album }
         guard let next = candidates
-            .filter({ $0.id > finished.messageID && $0.selfDestructType == nil })
+            .filter({ $0.id > finishedID && $0.selfDestructType == nil })
             .filter({
-                if case .messageVoiceNote = $0.content {
-                    true
-                } else {
-                    false
+                switch $0.content {
+                case .messageVoiceNote: true
+                case .messageVideoNote(let content): !content.isSecret
+                default: false
                 }
             })
-            .min(by: { $0.id < $1.id }),
-            case .messageVoiceNote(let content) = next.content
+            .min(by: { $0.id < $1.id })
         else { return }
+        if case .messageVideoNote = next.content {
+            guard let source = navigationClientSource else { return }
+            scrollToMessage(id: next.id)
+            VideoNotePlaybackView.requestPlaylistPlayback(.init(
+                source: source,
+                chatID: next.chatId,
+                messageID: next.id,
+            ))
+            return
+        }
+        guard case .messageVoiceNote(let content) = next.content else { return }
         let client = chatVM.client
         let item = Media.NowPlaying(accountID: location.accountID, chatID: next.chatId, messageID: next.id)
         Task { [weak self] in
