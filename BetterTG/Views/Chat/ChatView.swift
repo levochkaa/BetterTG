@@ -4941,9 +4941,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             actions: menu(for: message),
             tracking: gesture,
             reactionsProvider: contextReactionsProvider(for: message),
-            quoteSelection: message.properties.canBeReplied && message.properties.canBeCopied && !chatVM.isReadOnlyTopic
-                && formattedText(from: message.message.content)?.text.isEmpty == false
-                ? TelegramContextQuoteSelection(textView: cell.contextQuoteTextView) { [
+            quoteSelection: allowsQuoteSelection(in: message)
+                ? TelegramContextQuoteSelection(
+                    textView: cell.contextQuoteTextView,
+                    allowsCopy: message.properties.canBeCopied,
+                ) { [
                     weak self,
                     weak message,
                 ] range in
@@ -5698,6 +5700,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         chatVM.deleteMessages(ids: messageIDs, deleteForBoth: forBoth)
         endMessageSelection()
+    }
+
+    /// ChatMessageTextBubbleContentNode: Quote follows the ability to reply; copy protection removes only Copy and
+    /// Share. Secret chats and self-destructing messages never offer it.
+    private func allowsQuoteSelection(in message: CustomMessage) -> Bool {
+        if case .chatTypeSecret = chatVM.customChat.chat.type { return false }
+        return message.properties.canBeReplied && !chatVM.isReadOnlyTopic && message.message.selfDestructType == nil
+            && formattedText(from: message.message.content)?.text.isEmpty == false
     }
 
     private func formattedText(from content: MessageContent) -> FormattedText? {

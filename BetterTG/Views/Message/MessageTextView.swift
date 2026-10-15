@@ -4,7 +4,9 @@ import Combine
 import TDLibKit
 import UIKit
 
-final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuInteractionDelegate {
+final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuInteractionDelegate,
+    UITextDragDelegate
+{
     private final class QuoteTapDelegate: NSObject, UIGestureRecognizerDelegate {
         weak var owner: MessageTextContentView?
 
@@ -48,6 +50,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     var onOpenRichURL: ((URL) -> Bool)?
 
     private var contextQuoteAction: ((NSRange) -> Void)?
+    /// Copy-protected text stays selectable for Quote; Copy, Share and dragging the text out stay unavailable.
+    private var contextQuoteAllowsCopy = true
     private lazy var quoteMenuInteraction = UIEditMenuInteraction(delegate: self)
     private var quoteMenuTask: Task<Void, Never>?
     private lazy var entityTapDelegate = QuoteTapDelegate(owner: self)
@@ -105,6 +109,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         entityTapGesture.delegate = entityTapDelegate
         addGestureRecognizer(entityTapGesture)
         addInteraction(quoteMenuInteraction)
+        textDragDelegate = self
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -127,6 +132,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         if abs(oldWidth - bounds.width) > 0.5 {
             invalidateIntrinsicContentSize()
         }
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if !contextQuoteAllowsCopy, action == #selector(copy(_:)) || action == #selector(cut(_:)) { return false }
+        return super.canPerformAction(action, withSender: sender)
     }
 
     func configure(
@@ -272,8 +282,9 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         }
     }
 
-    func setContextQuoteAction(_ action: ((NSRange) -> Void)?) {
+    func setContextQuoteAction(_ action: ((NSRange) -> Void)?, allowsCopy: Bool = true) {
         contextQuoteAction = action
+        contextQuoteAllowsCopy = action == nil || allowsCopy
         entityTapGesture.cancelsTouchesInView = action == nil
         isSelectable = action != nil && formattedText != nil
         if action == nil {
@@ -283,6 +294,12 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             selectedTextRange = nil
             resignFirstResponder()
         }
+    }
+
+    func textDraggableView(
+        _: UIView & UITextDraggable, itemsForDrag dragRequest: UITextDragRequest,
+    ) -> [UIDragItem] {
+        contextQuoteAllowsCopy ? dragRequest.suggestedItems : []
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
@@ -428,7 +445,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         let hidden = !spoilersRevealed && spoilerRanges.contains { NSIntersectionRange($0, range).length > 0 }
         guard !hidden else { return UIMenu(children: []) }
         let quote = UIAction(title: L10n.telegram("Conversation.ContextMenuQuote")) { _ in contextQuoteAction(range) }
-        return UIMenu(children: [quote] + suggestedActions)
+        // TextSelectionNode drops Copy and Share for protected content and keeps Quote.
+        return UIMenu(children: contextQuoteAllowsCopy ? [quote] + suggestedActions : [quote])
     }
 
     private func renderText() {

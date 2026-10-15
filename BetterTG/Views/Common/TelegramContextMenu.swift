@@ -57,6 +57,8 @@ struct TelegramContextMenuAction {
 
 struct TelegramContextQuoteSelection {
     let textView: MessageTextContentView
+    /// The message's `canBeCopied`; protected messages offer only Quote for the selection.
+    let allowsCopy: Bool
     let handler: (NSRange) -> Void
 }
 
@@ -604,9 +606,9 @@ private final class TelegramContextMenuController: UIViewController {
         if let quoteSelection, presentationStyle == .message {
             let textView = quoteSelection.textView
             let handler = quoteSelection.handler
-            textView.setContextQuoteAction { [weak self] range in
+            textView.setContextQuoteAction({ [weak self] range in
                 self?.dismissMenu { handler(range) }
-            }
+            }, allowsCopy: quoteSelection.allowsCopy)
             selectableTextViews = [textView]
         }
 
