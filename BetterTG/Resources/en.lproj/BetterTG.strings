@@ -77,6 +77,7 @@
 "Message.Spoiler" = "Spoiler";
 "Message.PaidMedia" = "Paid media";
 "Message.StakeDice" = "Stake dice";
+"Message.SeenBy" = "Seen By";
 "Message.Invoice" = "Invoice";
 "Message.ChatBoost" = "Chat boost";
 "Message.Payment" = "Payment message";

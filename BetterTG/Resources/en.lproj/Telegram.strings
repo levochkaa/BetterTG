@@ -1366,3 +1366,9 @@
 "Report.Title.Message" = "Report Message";
 "Conversation.ContextMenuReport" = "Report";
 "Report.Succeed" = "Telegram moderators will study your report. Thank you!";
+"Chat.OutgoingContextReactionCount_1" = "1 reacted";
+"Chat.OutgoingContextReactionCount_any" = "%@ reacted";
+"Conversation.ContextMenuNoViews" = "Nobody Viewed";
+"Conversation.ContextMenuSeen_1" = "1 Seen";
+"Conversation.ContextMenuSeen_any" = "%@ Seen";
+"Time.TodayAt" = "today at %@";

@@ -6089,7 +6089,49 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 children: deleteActions,
             ))
         }
+        elements.append(contentsOf: interactionActions(for: message))
         return elements
+    }
+
+    /// ChatMessageContextMenu's read receipts and reactions below the actions: who saw the message in a small group
+    /// (canGetViewers) and who reacted to it (canGetAddedReactions).
+    private func interactionActions(for message: CustomMessage) -> [TelegramContextMenuAction] {
+        var actions = [TelegramContextMenuAction]()
+        if message.properties.canGetViewers {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.betterTG("Message.SeenBy"),
+                image: UIImage(systemName: "eye"),
+            ) { [weak self, weak message] in
+                guard let self, let message else { return }
+                MessageInteractionsViewController.present(
+                    .viewers,
+                    chatID: message.message.chatId,
+                    messageID: message.id,
+                    from: self,
+                )
+            })
+        }
+        let reactionCount = message.reactions?.reactions.reduce(0) { $0 + $1.totalCount } ?? 0
+        if message.reactions?.canGetAddedReactions == true, reactionCount > 0 {
+            let isOutgoing = message.message.isOutgoing
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegramPlural(
+                    isOutgoing ? "Chat.OutgoingContextReactionCount" : "Chat.ContextReactionCount",
+                    count: reactionCount,
+                ),
+                image: UIImage(systemName: "heart"),
+            ) { [weak self, weak message] in
+                guard let self, let message else { return }
+                MessageInteractionsViewController.present(
+                    .reactions(isOutgoing: isOutgoing, count: reactionCount),
+                    chatID: message.message.chatId,
+                    messageID: message.id,
+                    from: self,
+                )
+            })
+        }
+        if !actions.isEmpty { actions[0].startsNewSection = true }
+        return actions
     }
 
     /// Telegram's Copy Link (getMessageLink): an album's link, or a thread's or topic's in one, and the toast that
