@@ -174,6 +174,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let scrollToLatestButton = UIButton(type: .system)
     private let unreadBadgeLabel = TelegramUnreadBadgeLabel(minimumDiameter: 20, horizontalPadding: 11)
     private var scrollToLatestButtonVisible = false
+    /// The chat this full view continues the voice playlist for; the background continuation stays out of it.
+    private var voicePlaylistKey: VoicePlaylistContinuation.ChatKey?
     private let mentionsButton = ChatHistoryNavigationButton(
         symbolName: "at", accessibilityLabel: L10n.betterTG("Accessibility.NextUnreadMention"),
     )
@@ -430,6 +432,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         }
         MainActor.assumeIsolated {
+            if let voicePlaylistKey { VoicePlaylistContinuation.shared.unregister(voicePlaylistKey) }
             for owner in inlineVideoPlaybackOwners.values {
                 owner.onReturnToInline = nil
                 if !GalleryPictureInPictureCoordinator.shared.isRetaining(owner) {
@@ -1620,6 +1623,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             )
         }
         .store(in: &cancellables)
+        if presentationMode == .full, voicePlaylistKey == nil {
+            let key = VoicePlaylistContinuation.ChatKey(accountID: location.accountID, chatID: chatVM.chatID)
+            voicePlaylistKey = key
+            VoicePlaylistContinuation.shared.register(key)
+        }
         Media.shared
             .playbackFinished
             .receive(on: DispatchQueue.main)
