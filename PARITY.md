@@ -208,7 +208,7 @@ Read-only code audits at `ba41fcd7`/`9a646c94` of profiles and shared media (P),
 | P-5 | P2 | Profiles opened away from their chat had no message, search or Message callbacks | fixed `7c9c2c3b` |
 | P-6 | P3 | Gallery paging does not scroll the grid to the current item, so closing on an off-screen item fades | open |
 | P-7 | P3 | Media sent while the profile is open never appears | open |
-| P-8 | P3 | Every grid snapshot reconfigures all cells and restarts uncached thumbnail loads | open |
+| P-8 | P3 | Every grid snapshot reconfigures all cells and restarts uncached thumbnail loads | fixed `92299b14`: only cells whose readiness, revision, content type or reveal key changed are reconfigured |
 | P-9 | P3 | The avatar gallery's downloads are never cancelled in TDLib | open |
 | P-10 | P3 | Opening the avatar waits for two sequential requests; Telegram shows the current photo at once | open |
 | P-11 | P3 | Group and channel avatar galleries show only the current photo | open |
@@ -224,19 +224,19 @@ Read-only code audits at `ba41fcd7`/`9a646c94` of profiles and shared media (P),
 | C-5 | P2 | The album caption was attached to every item | fixed `00903bc7`: first item only |
 | C-6 | P2 | A GIF took the input's text as caption and cleared it | fixed `00903bc7`: the GIF is sent alone, the text stays, only the reply clears. Simulator: GIF sent with "gif caption probe" in the input arrived without a caption and the text stayed (test GIF deleted) |
 | C-7 | P2 | Edit mode left attachments, stickers and GIFs available | fixed `8f24e855`: editing offers only emoji input. Simulator: the attachment menu shows only Emoji, the picker only the emoji tabs |
-| C-8 | P2 | Photos are re-encoded at full resolution (quality 0.92); Telegram scales to 1280 px (2560 HD) | open |
+| C-8 | P2 | Photos are re-encoded at full resolution (quality 0.92); Telegram scales to 1280 px (2560 HD) | fixed `9dbbe683`: ImageIO thumbnailing to 1280 px off main, orientation applied, sRGB, progressive JPEG 0.72 (Telegram: mozjpeg 72). Simulator: a 4:3 library photo sent as 1280x960 without an orientation tag; the bubble keeps its 4:3 shape. HD (2560 px) is not offered |
 | C-9 | P3 | Slow mode and the voice/video note restriction are not modeled | open |
-| C-10 | P3 | The sticker sheet keeps the presenting client; a tap after a renewal is lost | open |
+| C-10 | P3 | The sticker sheet keeps the presenting client; a tap after a renewal is lost | fixed `52ea4c09`: the sheet closes when the client renews |
 | C-11 | P3 | Cancelling an edit clears a pending forward | fixed `3fcc0fdd` |
 | C-12 | P3 | An edit resets link preview options and caption-above-media | fixed `3fcc0fdd` |
-| C-13 | P3 | Temporary files of picked photos, videos and Live Photos are never deleted | open |
+| C-13 | P3 | Temporary files of picked photos, videos and Live Photos are never deleted | fixed `f124bbec`: picked media share the documents' lease store; removal deletes unleased files, a send leases them to its messages and deletes them 120 s after success, a failure keeps them for Resend. Simulator: removing a picked photo deleted its file at once; a sent photo's file was gone 2 min after the send |
 | C-14 | P3 | The typing action is debounced 350 ms and sent while editing | fixed `1c57cc42`: sent on the first keystroke, renewed every 4 s, cancelled 4 s after the last, not while editing |
-| C-15 | P3 | A sticker or GIF tapped during another send is dropped silently | open |
+| C-15 | P3 | A sticker or GIF tapped during another send is dropped silently | fixed `52ea4c09`: it waits for the composer's send and goes out after it |
 | C-16 | P3 | Edit mode survives deletion of the edited message (suspicion) | fixed `3fcc0fdd`: a permanent delete of the target ends the edit |
 | L-3 | P2 | Secret chats never appear in the list | open |
 | L-4 | P2 | Switching accounts could delete a recovered account's database, and a directory was removed with whichever client was published | fixed `45ee11f4`: only an account whose own client reports a sign-in step is discarded, with its own client |
-| L-5 | P2 | Pinned chats can't be reordered (`setPinnedChats`) | open |
-| L-6 | P2 | Rows show no mention or reaction badge; Mark as Read keeps them | open |
+| L-5 | P2 | Pinned chats can't be reordered (`setPinnedChats`) | fixed `c760ed93`: Reorder in a pinned chat's menu (Telegram's pinned-topic pattern; BetterTG has no list Edit mode) puts the page in table reorder mode with a Done button; pinned chats move only among pinned rows and each drop saves the whole pinned order with `setPinnedChats`. Build only |
+| L-6 | P2 | Rows show no mention or reaction badge; Mark as Read keeps them | fixed `526d2d36`, `e1686bdb`: Telegram's @ and heart badges left of the unread count; Mark as Read also marks mentions seen and, as Telegram, leaves reactions. Build only |
 | L-7 | P2 | Login handles only phone, code and 2FA (no email, sign-up, QR, resend, wrong number) | open |
 | L-8 | P2 | A notification for an inactive account does nothing | open |
 | L-9 | P3 | An account switch shows "Waiting for authorization" until Ready | open |
