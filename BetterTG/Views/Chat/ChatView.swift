@@ -6041,6 +6041,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 self?.presentForwardPicker(forDisplayedMessageIDs: [message.displayedID])
             })
         }
+        // ChatInterfaceStateContextMenus: Report for messages TDLib lets the user report (canReportChat).
+        if message.properties.canReportChat, !message.message.isOutgoing {
+            elements.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuReport"),
+                image: UIImage(systemName: "exclamationmark.bubble"),
+            ) { [weak self, weak message] in
+                guard let self, let message else { return }
+                ReportContentViewController.present(
+                    chatID: message.message.chatId,
+                    messageIDs: message.sourceMessages.map(\.id),
+                    from: self,
+                ) { [weak self] in
+                    self?.showChatToast(L10n.telegram("Report.Succeed"))
+                }
+            })
+        }
         if canSelectMessage(message) {
             elements.append(TelegramContextMenuAction(
                 title: L10n.telegram("Conversation.ContextMenuSelect"),

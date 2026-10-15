@@ -1359,3 +1359,10 @@
 "ScheduledMessages.Title" = "Scheduled Messages";
 "Conversation.ContextMenuCopyLink" = "Copy Link";
 "Conversation.PrivateMessageLinkCopiedLong" = "Link copied to clipboard. This link will only work for members of this chat.";
+"Report.Comment.Info" = "Please help us by telling what is wrong with the message you have selected.";
+"Report.Comment.Placeholder" = "Add Comment";
+"Report.Comment.Placeholder.Optional" = "Add Comment (Optional)";
+"Report.Send" = "Send Report";
+"Report.Title.Message" = "Report Message";
+"Conversation.ContextMenuReport" = "Report";
+"Report.Succeed" = "Telegram moderators will study your report. Thank you!";
