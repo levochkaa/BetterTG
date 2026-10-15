@@ -21,11 +21,12 @@
                     defer { try? FileManager.default.removeItem(at: root) }
                     try await verify(VoiceNoteDraftStore.self, root: root.appendingPathComponent("voice"))
                     try await verify(VideoNoteFileStore.self, root: root.appendingPathComponent("video"))
+                    try await verifyAccountPurge(root: root.appendingPathComponent("purge"))
                     result = "Media draft outcome probe passed: voice+video; ordinary/explicit/all-messages "
                         + "early+late success/failure; original-route; wrong-account/chat/topic/tempID; "
                         + "route+delivery-gates; ambiguous-persisted-enqueues/IDs; exact-ID-relaunch; "
                         + "pre-registration-crash-retained; legacy-base-route; unrelated-draft/file-preserved; "
-                        + "isolated-stores=true"
+                        + "isolated-stores=true; logout-purges-only-its-account=true"
                 } catch {
                     result = "Media draft outcome probe failed: \(error)"
                 }
@@ -40,6 +41,23 @@
 
         private static func require(_ condition: Bool, _ label: String) throws {
             guard condition else { throw Failure(description: label) }
+        }
+
+        /// Logging out one account removes its voice drafts and leaves another account's.
+        private static func verifyAccountPurge(root: URL) async throws {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            let store = VoiceNoteDraftStore(
+                directoryURL: root.appendingPathComponent("drafts"),
+                legacyBindingAllowed: { _ in false },
+            )
+            let loggedOut = ChatDraftKey(accountID: UUID(), chatID: 100, topic: nil)
+            let remaining = ChatDraftKey(accountID: UUID(), chatID: 100, topic: nil)
+            _ = try await store.probeAdopt(route: loggedOut, sendTopic: nil, root: root)
+            _ = try await store.probeAdopt(route: remaining, sendTopic: nil, root: root)
+            guard let loggedOutAccount = loggedOut.accountID else { throw Failure(description: "purge setup") }
+            await store.discardAccount(loggedOutAccount)
+            try await require(store.drafts(for: loggedOut, migrateLegacy: false).isEmpty, "purge removed")
+            try await require(store.drafts(for: remaining, migrateLegacy: false).count == 1, "purge kept other")
         }
 
         private static func verify<Store: MediaDraftProbeStore>(_ type: Store.Type, root: URL) async throws {

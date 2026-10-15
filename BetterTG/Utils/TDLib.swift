@@ -679,6 +679,11 @@ final class TDLib: @unchecked Sendable {
             }
 
             retiringClientIDs.remove(client.id)
+            if removeDirectory {
+                await VoiceNoteDraftStore.shared.discardAccount(id)
+                await VoiceRecordingDraftStore.shared.discardAccount(id)
+                await VideoNoteRecordingDraftStore.shared.discardAccount(id)
+            }
             if removeDirectory, closed {
                 registry.removeDatabaseDirectory(for: id)
             } else if removeDirectory {

@@ -520,6 +520,14 @@ actor VoiceNoteDraftStore {
         }
     }
 
+    /// Logging out removes the account's drafts with its TDLib directory; drafts never bound to an account stay.
+    func discardAccount(_ accountID: UUID) {
+        guard let drafts = try? loadAllDrafts() else { return }
+        for draft in drafts where draft.destination?.accountID == accountID {
+            _ = removeResolved(draft)
+        }
+    }
+
     private func removeResolved(
         _ draft: VoiceNoteSendDraft,
         finalization: VoiceNoteFinalizationLease? = nil,
