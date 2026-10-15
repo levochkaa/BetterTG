@@ -414,6 +414,12 @@ final class ChatListCell: UITableViewCell {
         return users[userID]
     }
 
+    /// A renamed sender reads with the new name from the next row configure; only users already named are kept.
+    func receive(_ user: User, clientID: Int32) {
+        guard self.clientID == clientID, users[user.id] != nil else { return }
+        users[user.id] = user
+    }
+
     func resolve(userID: Int64, client: TDLibClient, completion: @escaping () -> Void) {
         retain(client)
         guard users[userID] == nil else { return completion() }

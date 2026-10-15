@@ -16,15 +16,24 @@ import UIKit
                     attributes: [.foregroundColor: UIColor.label],
                 ))
             }
-            if case .draftMessageContentText(let text) = draft.content {
-                let draftText = NSMutableAttributedString(getAttributedString(from: text.text))
-                draftText.addAttribute(
-                    .foregroundColor,
-                    value: UIColor.secondaryLabel,
-                    range: NSRange(location: 0, length: draftText.length),
-                )
-                result.append(draftText)
-            }
+            // Telegram's row names a voice, video or rich draft by its kind (`ChatListItem` draft content).
+            let draftText =
+                switch draft.content {
+                case .draftMessageContentText(let text):
+                    NSMutableAttributedString(getAttributedString(from: text.text))
+                case .draftMessageContentVoiceNote:
+                    NSMutableAttributedString(string: L10n.telegram("Message.Audio"))
+                case .draftMessageContentVideoNote:
+                    NSMutableAttributedString(string: L10n.telegram("Message.VideoMessage"))
+                case .draftMessageContentInputRichMessage, .draftMessageContentRichMessage:
+                    NSMutableAttributedString(string: L10n.betterTG("Message.Rich"))
+                }
+            draftText.addAttribute(
+                .foregroundColor,
+                value: UIColor.secondaryLabel,
+                range: NSRange(location: 0, length: draftText.length),
+            )
+            result.append(draftText)
             return result
         }
         guard let message = chat.lastMessage else { return nil }

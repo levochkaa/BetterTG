@@ -45,6 +45,7 @@ import TDLibKit
             changes.send(.chats([value.chat.id]))
         case .updateUser(let value):
             users[value.user.id] = value.user
+            ChatListSenderNames.shared.receive(value.user, clientID: clientID)
             changedPeers { record in
                 if case .chatTypePrivate(let peer) = record.type { peer.userId == value.user.id } else { false }
             }
