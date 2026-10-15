@@ -4164,6 +4164,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    /// ChatInterfaceStateContextMenus: in a group chat (not inside a thread), a message with replies offers
+    /// "View N Replies", and in a discussion group a message from a comment thread offers "View Thread". Both open the
+    /// thread through `openMessageReplies`.
+    private func viewRepliesTitle(for message: CustomMessage) -> String? {
+        guard location.topic == nil, let supergroup = chatVM.customChat.supergroup, !supergroup.isChannel,
+              !supergroup.isForum, message.message.sendingState == nil, message.properties.canGetMessageThread
+        else { return nil }
+        if supergroup.hasLinkedChat, case .messageTopicThread? = message.message.topicId {
+            return L10n.telegram("Conversation.ContextViewThread")
+        }
+        let count = message.message.interactionInfo?.replyInfo?.replyCount ?? 0
+        return count > 0 ? L10n.telegramPlural("Conversation.ContextViewReplies", count: count) : nil
+    }
+
     private func setCommentsThreadLoad(_ load: (id: UUID, displayedID: DisplayedMessageID)?) {
         let previous = commentsThreadLoad?.displayedID
         commentsThreadLoad = load
@@ -5011,6 +5025,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         if let stopAction = contentStopAction(for: message) {
             elements.append(stopAction)
+        }
+        if let repliesTitle = viewRepliesTitle(for: message) {
+            elements.append(TelegramContextMenuAction(
+                title: repliesTitle,
+                image: UIImage(systemName: "bubble.left.and.bubble.right"),
+            ) { [weak self, weak message] in
+                guard let self, let message else { return }
+                openComments(messageID: message.id, displayedID: message.displayedID)
+            })
         }
         if message.properties.canBeCopied,
            let text = copyableText(from: message.message.content)

@@ -833,3 +833,6 @@
 "VoiceOver.Media.PlaybackRateChange" = "Double tap to change";
 "VoiceOver.Media.PlaybackStop" = "Stop playback";
 "Chat.PlayVoiceMessageOnceTooltip" = "The recipients will be able to listen to it only once.";
+"Conversation.ContextViewReplies_1" = "View %@ Reply";
+"Conversation.ContextViewReplies_any" = "View %@ Replies";
+"Conversation.ContextViewThread" = "View Thread";
