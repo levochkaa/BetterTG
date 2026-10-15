@@ -1271,3 +1271,9 @@
 "MemberRequests.RequestToJoinSentDescriptionGroup" = "You will be added to the group once it admins approve your request.";
 "TwoStepAuth.FloodError" = "Limit exceeded. Please try again later.";
 "Bot.Start" = "Start";
+"Conversation.ErrorInaccessibleMessage" = "Unfortunately, you can't access this message. You are not a member of the chat where it was posted.";
+"InviteLinks.InviteLinkExpired" = "This invite link has expired.";
+"Resolve.ErrorNotFound" = "Sorry, this user doesn't seem to exist.";
+"StickerPack.ErrorNotFound" = "Sorry, this sticker set doesn't seem to exist.";
+"Settings.FAQ_URL" = "https://telegram.org/faq#general";
+"Settings.PrivacyPolicy_URL" = "https://telegram.org/privacy";

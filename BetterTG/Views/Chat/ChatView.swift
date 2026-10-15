@@ -716,6 +716,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         chatVM.beginBotStart(parameter: parameter)
     }
 
+    /// ChatControllerImpl.openPeer for the peer already on screen: a link to one of its messages scrolls there and a
+    /// bot start link shows Start here, instead of a second copy of the chat. False when this isn't that chat.
+    func openLinkInPlace(chatID: Int64, topic: MessageTopic?, messageID: Int64?, botStartParameter: String?) -> Bool {
+        guard presentationMode == .full, !clientOwnerRetired, chatVM.locationContextIsCurrent,
+              location.chatID == chatID, location.topic == topic,
+              navigationController?.topViewController === self else { return false }
+        if let messageID { navigate(to: .message(chatID: chatID, messageID: messageID, quote: nil)) }
+        if let botStartParameter { chatVM.beginBotStart(parameter: botStartParameter) }
+        return true
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === collectionView else { return }
         recordMessageNavigationGeometry("scroll")

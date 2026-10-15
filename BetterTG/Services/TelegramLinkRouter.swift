@@ -6,18 +6,30 @@ import UIKit
 
 // MARK: - TelegramLinkRouter
 
+/// Telegram's openResolvedUrl for BetterTG. A link on Telegram's hosts or in the tg:// scheme is classified by
+/// TDLib's `getInternalLinkType` on the active client and opens in the app; any other link, and a Telegram link
+/// TDLib doesn't know or BetterTG can't show, leaves through Safari. A result is dropped when the account or client
+/// that resolved it is no longer the active one, or when a newer link replaced it.
 @MainActor final class TelegramLinkRouter {
     /// A link that waits until the account is ready.
-    private enum PendingLink {
-        case language(String)
-        case chatFolder(String)
+    private struct PendingLink {
+        let link: String
+        let url: URL
     }
 
     static let shared = TelegramLinkRouter()
 
+    /// LinkManager::get_link_info keeps these t.me subdomains for its own paths; they aren't usernames.
+    private static let reservedSubdomains: Set = [
+        "addemoji", "addlist", "addstickers", "addstyle", "addtheme", "auction", "auth", "boost", "call",
+        "confirmphone", "contact", "giftcode", "invoice", "joinchat", "login", "m", "nft", "proxy", "setlanguage",
+        "share", "socks", "web", "a", "k", "z",
+    ]
+
     private var cancellables = Set<AnyCancellable>()
     private var pendingLink: PendingLink?
     private weak var pendingWindow: UIWindow?
+    private var resolveTask: Task<Void, Never>?
 
     private init() {
         nc.publisher(&cancellables, for: .authorizationStateReady) { [weak self] _ in
@@ -25,56 +37,62 @@ import UIKit
         }
     }
 
-    static func languagePackID(in url: URL) -> String? {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
-        let scheme = components.scheme?.lowercased()
-        let host = components.host?.lowercased()
-        let identifier: String?
-        if scheme == "https" || scheme == "http" {
-            guard ["t.me", "telegram.me", "telegram.dog"].contains(host),
-                  components.user == nil, components.password == nil else { return nil }
-            let path = components.path.split(separator: "/")
-            guard path.count == 2, ["setlanguage", "addlanguage"].contains(path[0].lowercased()) else { return nil }
-            identifier = String(path[1])
-        } else if scheme == "tg" || scheme == "bettertg" {
-            guard host == "setlanguage" || host == "addlanguage" else { return nil }
-            identifier = components.queryItems?.first(where: { $0.name == "lang" })?.value
-        } else {
+    // MARK: Classification
+
+    /// The link TDLib classifies, in LinkManager::get_link_info's forms: the tg: scheme (BetterTG's own bettertg:
+    /// scheme, the one iOS hands the app, stands for it), and http or https on t.me, telegram.me, telegram.dog or a
+    /// username's t.me subdomain, on the default port and without credentials. Nil for every other URL.
+    static func internalLink(for url: URL) -> String? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = components.scheme?.lowercased() else { return nil }
+        switch scheme {
+        case "tg":
+            return url.absoluteString
+        case "bettertg":
+            return "tg:" + url.absoluteString.dropFirst(scheme.count + 1)
+        case "http", "https":
+            guard components.user == nil, components.password == nil,
+                  components.port == nil || components.port == 80 || components.port == 443,
+                  let host = components.host?.lowercased() else { return nil }
+            if host.hasSuffix(".t.me") {
+                let subdomain = String(host.dropLast(5))
+                if subdomain != "www" {
+                    guard isTelegramUsername(subdomain), !reservedSubdomains.contains(subdomain) else { return nil }
+                    return url.absoluteString
+                }
+            }
+            let domain = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+            return ["t.me", "telegram.me", "telegram.dog"].contains(domain) ? url.absoluteString : nil
+        default:
             return nil
         }
-        guard let identifier, isLinkIdentifier(identifier) else { return nil }
-        return identifier
     }
 
-    /// Telegram's UrlHandling for folder invite links: t.me/addlist/<slug> (also /folder/ and /list/) and
-    /// tg://addlist?slug=<slug>, as the t.me link `checkChatFolderInviteLink` takes.
-    static func chatFolderInviteLink(in url: URL) -> String? {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
-        let scheme = components.scheme?.lowercased()
-        let host = components.host?.lowercased()
-        let slug: String?
-        if scheme == "https" || scheme == "http" {
-            guard ["t.me", "telegram.me", "telegram.dog"].contains(host),
-                  components.user == nil, components.password == nil else { return nil }
-            let path = components.path.split(separator: "/")
-            guard path.count == 2, ["addlist", "folder", "list"].contains(path[0].lowercased()) else { return nil }
-            slug = String(path[1])
-        } else if scheme == "tg" || scheme == "bettertg" {
-            guard host == "addlist" else { return nil }
-            slug = components.queryItems?.first(where: { $0.name == "slug" })?.value
-        } else {
-            return nil
+    /// TDLib's is_valid_username: a Latin letter, then letters, digits and single underscores, up to 32 characters,
+    /// not ending with an underscore.
+    static func isTelegramUsername(_ value: String) -> Bool {
+        let characters = Array(value.utf8)
+        guard let first = characters.first, characters.count <= 32, characters.last != UInt8(ascii: "_"),
+              isLatinLetter(first) else { return false }
+        var previous: UInt8 = 0
+        for character in characters {
+            let isUnderscore = character == UInt8(ascii: "_")
+            guard isLatinLetter(character) || (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(character)
+                || isUnderscore else { return false }
+            if isUnderscore, previous == UInt8(ascii: "_") { return false }
+            previous = character
         }
-        guard let slug, isLinkIdentifier(slug) else { return nil }
-        return "https://t.me/addlist/\(slug)"
+        return true
     }
 
-    private static func isLinkIdentifier(_ identifier: String) -> Bool {
-        !identifier.isEmpty && identifier.utf8.count <= 128 && identifier.unicodeScalars.allSatisfy {
-            CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-").contains($0)
-        }
+    private static func isLatinLetter(_ character: UInt8) -> Bool {
+        (UInt8(ascii: "a")...UInt8(ascii: "z")).contains(character)
+            || (UInt8(ascii: "A")...UInt8(ascii: "Z")).contains(character)
     }
 
+    // MARK: Opening
+
+    /// Opens a Telegram link in the app, and any other link in Safari.
     func open(_ url: URL, from presenter: UIViewController?) {
         guard handle(url, from: presenter) else {
             UIApplication.shared.open(url)
@@ -82,44 +100,395 @@ import UIKit
         }
     }
 
+    /// True when the link is Telegram's and the router took it, even if it waits for the account to be ready.
     @discardableResult func handle(_ url: URL, from presenter: UIViewController?) -> Bool {
-        let link: PendingLink
-        if let inviteLink = Self.chatFolderInviteLink(in: url) {
-            link = .chatFolder(inviteLink)
-        } else if let identifier = Self.languagePackID(in: url) {
-            link = .language(identifier)
-        } else {
-            return false
-        }
+        guard let link = Self.internalLink(for: url) else { return false }
         guard TDLib.shared.isActiveAccountReady else {
-            pendingLink = link
+            pendingLink = PendingLink(link: link, url: url)
             pendingWindow = presenter?.viewIfLoaded?.window
             return true
         }
-        guard let presenter else { return true }
-        presenter.view.endEditing(true)
-        present(link, from: topPresenter(presenter))
+        presenter?.viewIfLoaded?.endEditing(true)
+        resolve(link, url: url, from: presenter)
         return true
     }
 
     private func openPendingLink() {
-        guard TDLib.shared.isActiveAccountReady, let link = pendingLink,
-              let root = pendingWindow?.rootViewController else { return }
+        guard TDLib.shared.isActiveAccountReady, let pending = pendingLink else { return }
         pendingLink = nil
-        present(link, from: topPresenter(root))
+        resolve(pending.link, url: pending.url, from: pendingWindow?.rootViewController)
     }
 
-    private func present(_ link: PendingLink, from presenter: UIViewController) {
-        switch link {
-        case .language(let identifier):
-            presenter.present(LanguagePackPreviewViewController(identifier: identifier), animated: true)
-        case .chatFolder(let inviteLink):
-            ChatFolderInviteLinkPreviewViewController.present(inviteLink: inviteLink, from: presenter)
+    private func resolve(_ link: String, url: URL, from presenter: UIViewController?) {
+        resolveTask?.cancel()
+        let authority = ChatListActionAuthority()
+        let client = authority.client
+        resolveTask = Task { [weak self, weak presenter] in
+            let type = try? await client.send(TDNativeRequests.getInternalLinkType(link: link))
+            guard let self, !Task.isCancelled, authority.isCurrent else { return }
+            guard let type else {
+                openExternally(url)
+                return
+            }
+            await route(type, url: url, authority: authority, presenter: presenter)
         }
     }
 
+    /// OpenResolvedUrl's cases BetterTG has screens for. Sign-in links stay out of the browser; the rest of Telegram's
+    /// link types (web apps, proxies, payments, Premium, gifts, calls) open their t.me page in Safari.
+    private func route(
+        _ type: TDNativeInternalLinkType,
+        url: URL,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) async {
+        let client = authority.client
+        switch type {
+        case .internalLinkTypePublicChat(let value):
+            guard let chat = await publicChat(value.chatUsername, authority: authority, presenter: presenter)
+            else { return }
+            await openChat(chat.id, authority: authority, presenter: presenter, profile: value.openProfile)
+        case .internalLinkTypeBotStart(let value):
+            guard let chat = await publicChat(value.botUsername, authority: authority, presenter: presenter)
+            else { return }
+            await openChat(chat.id, authority: authority, presenter: presenter, botStartParameter: value.startParameter)
+        case .internalLinkTypeBotStartInGroup(let value):
+            // Telegram's group picker for adding the bot isn't ported; the link opens the bot's chat.
+            guard let chat = await publicChat(value.botUsername, authority: authority, presenter: presenter)
+            else { return }
+            await openChat(chat.id, authority: authority, presenter: presenter)
+        case .internalLinkTypeMessage(let value):
+            await openMessage(value.url, authority: authority, presenter: presenter)
+        case .internalLinkTypeChatInvite(let value):
+            await openChatInvite(value.inviteLink, authority: authority, presenter: presenter)
+        case .internalLinkTypeUserPhoneNumber(let value):
+            let user = try? await client.send(TDNativeRequests.searchUserByPhoneNumber(
+                phoneNumber: value.phoneNumber,
+                onlyLocal: false,
+            ))
+            await openUser(user?.id, authority: authority, presenter: presenter, profile: value.openProfile)
+        case .internalLinkTypeUserToken(let value):
+            let user = try? await client.send(TDNativeRequests.searchUserByToken(token: value.token))
+            await openUser(user?.id, authority: authority, presenter: presenter, profile: false)
+        case .internalLinkTypeSavedMessages:
+            let me = try? await client.getMe()
+            await openUser(me?.id, authority: authority, presenter: presenter, profile: false)
+        case .internalLinkTypeStickerSet(let value):
+            await openStickerSet(value.stickerSetName, authority: authority, presenter: presenter)
+        case .internalLinkTypeStory(let value):
+            await openStory(
+                value.storyPosterUsername,
+                storyID: value.storyId,
+                authority: authority,
+                presenter: presenter,
+            )
+        case .internalLinkTypeChatFolderInvite(let value):
+            guard let host = presentationHost(presenter) else { return }
+            ChatFolderInviteLinkPreviewViewController.present(inviteLink: value.inviteLink, from: host)
+        case .internalLinkTypeLanguagePack(let value):
+            presentationHost(presenter)?.present(
+                LanguagePackPreviewViewController(identifier: value.languagePackId),
+                animated: true,
+            )
+        case .internalLinkTypeSettings(let value):
+            openSettings(value.section)
+        case .internalLinkTypeMyProfilePage:
+            openSettings(nil)
+        case .internalLinkTypeUnknownDeepLink(let value):
+            // OpenResolvedUrl's `.unknownDeepLink`: TDLib's text for a link this version doesn't know, if any.
+            let info = try? await client.send(TDNativeRequests.getDeepLinkInfo(link: value.link))
+            guard !Task.isCancelled, authority.isCurrent, let text = info?.text.text, !text.isEmpty else { return }
+            presentAlert(text, presenter: presenter)
+        case .internalLinkTypeAuthenticationCode, .internalLinkTypeOauth, .internalLinkTypePassportDataRequest,
+             .internalLinkTypePhoneNumberConfirmation, .internalLinkTypeQrCodeAuthentication:
+            break
+        default:
+            openExternally(url)
+        }
+    }
+
+    // MARK: Destinations
+
+    /// UrlHandling's `.peer(.name)`: `searchPublicChat`, or Telegram's "doesn't seem to exist" alert.
+    private func publicChat(
+        _ username: String,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) async -> Chat? {
+        let chat = try? await authority.client.send(TDNativeRequests.searchPublicChat(username: username))
+        guard !Task.isCancelled, authority.isCurrent else { return nil }
+        if chat == nil { presentAlert(L10n.telegram("Resolve.ErrorNotFound"), presenter: presenter) }
+        return chat
+    }
+
+    /// A user's private chat, as a phone number, a contact token or Saved Messages resolves to.
+    private func openUser(
+        _ userID: Int64?,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+        profile: Bool,
+    ) async {
+        guard !Task.isCancelled, authority.isCurrent else { return }
+        guard let userID,
+              let chat = try? await authority.client.createPrivateChat(force: false, userId: userID)
+        else {
+            if authority.isCurrent { presentAlert(L10n.telegram("Resolve.ErrorNotFound"), presenter: presenter) }
+            return
+        }
+        await openChat(chat.id, authority: authority, presenter: presenter, profile: profile)
+    }
+
+    /// OpenResolvedUrl's `.channelMessage` and `.replyThreadMessage`: `getMessageLinkInfo`, then the message in its
+    /// chat, forum topic or comment thread. A chat the user can't see gets Telegram's inaccessible-message alert.
+    private func openMessage(_ link: String, authority: ChatListActionAuthority, presenter: UIViewController?) async {
+        let client = authority.client
+        let info = try? await client.send(TDNativeRequests.getMessageLinkInfo(url: link))
+        guard !Task.isCancelled, authority.isCurrent else { return }
+        guard let info, info.chatId != 0 else {
+            presentAlert(L10n.telegram("Conversation.ErrorInaccessibleMessage"), presenter: presenter)
+            return
+        }
+        let messageID = info.message?.id
+        switch info.topicId {
+        case .messageTopicForum(let forum):
+            let topic = try? await client.getForumTopic(chatId: info.chatId, forumTopicId: forum.forumTopicId)
+            guard !Task.isCancelled, authority.isCurrent else { return }
+            await openChat(info.chatId, authority: authority, presenter: presenter, topic: topic, messageID: messageID)
+        case .messageTopicThread(let thread):
+            let threadInfo = try? await client.getMessageThread(chatId: info.chatId, messageId: thread.messageThreadId)
+            guard !Task.isCancelled, authority.isCurrent else { return }
+            if let threadInfo {
+                await openChat(
+                    threadInfo.chatId,
+                    authority: authority,
+                    presenter: presenter,
+                    messageThread: threadInfo,
+                    messageID: messageID,
+                )
+            } else {
+                await openChat(info.chatId, authority: authority, presenter: presenter, messageID: messageID)
+            }
+        default:
+            await openChat(info.chatId, authority: authority, presenter: presenter, messageID: messageID)
+        }
+    }
+
+    /// OpenResolvedUrl's `.join`: `checkChatInviteLink`; a chat the user can already read opens, any other shows
+    /// Telegram's join preview. An invalid link gets Telegram's expired-link toast.
+    private func openChatInvite(
+        _ inviteLink: String,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) async {
+        do {
+            let info = try await authority.client.send(TDNativeRequests.checkChatInviteLink(inviteLink: inviteLink))
+            guard !Task.isCancelled, authority.isCurrent else { return }
+            if info.chatId != 0 {
+                await openChat(info.chatId, authority: authority, presenter: presenter)
+                return
+            }
+            guard let host = presentationHost(presenter) else { return }
+            let preview = ChatInviteLinkPreviewViewController(inviteLink: inviteLink, info: info)
+            preview.onJoined = { [weak self] chatID in
+                guard let self, authority.isCurrent else { return }
+                resolveTask?.cancel()
+                resolveTask = Task { await self.openChat(chatID, authority: authority, presenter: nil) }
+            }
+            host.present(preview, animated: true)
+        } catch {
+            guard !Task.isCancelled, authority.isCurrent else { return }
+            let tdError = error as? TDLibError
+            if tdError?.code == 429 || tdError?.message.contains("FLOOD") == true {
+                presentAlert(L10n.telegram("TwoStepAuth.FloodError"), presenter: presenter)
+            } else if let host = presentationHost(presenter) {
+                TelegramUndoToast.show(
+                    text: L10n.telegram("InviteLinks.InviteLinkExpired"),
+                    in: host.view,
+                    bottomInset: 8,
+                    undo: nil,
+                )
+            }
+        }
+    }
+
+    /// OpenResolvedUrl's `.stickerPack`: the pack sheet, or Telegram's not-found alert.
+    private func openStickerSet(
+        _ name: String,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) async {
+        let client = authority.client
+        let stickerSet = try? await client.send(TDNativeRequests.searchStickerSet(name: name, ignoreCache: false))
+        guard !Task.isCancelled, authority.isCurrent else { return }
+        guard let stickerSet else {
+            presentAlert(L10n.telegram("StickerPack.ErrorNotFound"), presenter: presenter)
+            return
+        }
+        guard let host = presentationHost(presenter) else { return }
+        StickerPackPreviewViewController.present(setID: stickerSet.id, client: client, from: host, onSend: nil)
+    }
+
+    /// OpenResolvedUrl's `.story`: the story on its own in the viewer, or Telegram's expired-story toast.
+    private func openStory(
+        _ username: String,
+        storyID: Int,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) async {
+        guard let chat = await publicChat(username, authority: authority, presenter: presenter),
+              let host = presentationHost(presenter) else { return }
+        StoryViewerController.present(
+            .story(chatID: chat.id, storyID: storyID),
+            client: authority.client,
+            from: host,
+            sourceView: nil,
+        ) { [weak host] in
+            guard let host else { return }
+            TelegramUndoToast.show(
+                text: L10n.telegram("Story.TooltipExpired"),
+                in: host.view,
+                bottomInset: 8,
+                undo: nil,
+            )
+        }
+    }
+
+    /// OpenResolvedUrl's openPeer: the chat on screen takes the link in place (Telegram's openPeer for the current
+    /// peer); otherwise the chat, its topic or thread, or the peer's profile is pushed.
+    private func openChat(
+        _ chatID: Int64,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+        topic: ForumTopic? = nil,
+        messageThread: TDNativeMessageThreadInfo? = nil,
+        messageID: Int64? = nil,
+        botStartParameter: String? = nil,
+        profile: Bool = false,
+    ) async {
+        let client = authority.client
+        let customChat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client)
+        guard !Task.isCancelled, authority.isCurrent else { return }
+        guard let customChat, let accountID = authority.source?.accountID else {
+            presentAlert(L10n.telegram("Login.UnknownError"), presenter: presenter)
+            return
+        }
+        let chatLocation = ChatLocation.current(chatID: chatID, client: client)
+        let location =
+            if let messageThread {
+                chatLocation.withMessageThread(chatID: messageThread.chatId, id: messageThread.messageThreadId)
+            } else if let topic {
+                chatLocation.withForumTopic(id: topic.info.forumTopicId)
+            } else {
+                chatLocation
+            }
+        afterDismissingPresentations {
+            guard authority.isCurrent else { return }
+            let navigation = NavigationStorage.shared.navigationController
+            if profile {
+                let controller = PeerProfileViewController(
+                    customChat: customChat,
+                    topic: nil,
+                    client: client,
+                    accountID: accountID,
+                )
+                controller.configureOpensChatItself()
+                navigation.pushViewController(controller, animated: true)
+                return
+            }
+            if let open = navigation.topViewController as? ChatViewController,
+               open.openLinkInPlace(
+                   chatID: location.chatID,
+                   topic: location.topic,
+                   messageID: messageID,
+                   botStartParameter: botStartParameter,
+               )
+            {
+                return
+            }
+            if let botStartParameter {
+                let controller = ChatViewController(customChat: customChat, location: location)
+                controller.beginBotStart(parameter: botStartParameter)
+                navigation.pushViewController(controller, animated: true)
+                return
+            }
+            NavigationStorage.shared.push(.customChat(
+                customChat,
+                location: location,
+                forumTopic: topic,
+                targetMessageID: messageID,
+                messageThread: messageThread,
+            ))
+        }
+    }
+
+    /// OpenResolvedUrl's `.settings`: the matching Settings screen, the Settings root for a section BetterTG doesn't
+    /// have, and Telegram's FAQ and privacy policy pages in Safari.
+    private func openSettings(_ section: TDNativeSettingsSection?) {
+        let make: () -> UIViewController
+        switch section {
+        case .settingsSectionAppearance: make = { AppearanceViewController() }
+        case .settingsSectionChatFolders: make = { ChatFoldersViewController(rootVM: .shared) }
+        case .settingsSectionDataAndStorage: make = { DataAndStorageViewController() }
+        case .settingsSectionDevices: make = { ActiveSessionsViewController() }
+        case .settingsSectionEditProfile: make = { EditProfileViewController() }
+        case .settingsSectionLanguage: make = { LanguageSelectionViewController() }
+        case .settingsSectionNotifications: make = { NotificationSettingsViewController() }
+        case .settingsSectionPrivacyAndSecurity: make = { PrivacySettingsViewController() }
+        case .settingsSectionFaq:
+            if let url = URL(string: L10n.telegram("Settings.FAQ_URL")) { UIApplication.shared.open(url) }
+            return
+        case .settingsSectionPrivacyPolicy:
+            if let url = URL(string: L10n.telegram("Settings.PrivacyPolicy_URL")) { UIApplication.shared.open(url) }
+            return
+        default: make = { SettingsViewController() }
+        }
+        let authority = ChatListActionAuthority()
+        afterDismissingPresentations {
+            guard authority.isCurrent else { return }
+            let controller = make()
+            let navigation = NavigationStorage.shared.navigationController
+            // Telegram replaces a copy of the screen already on top instead of stacking another.
+            if let top = navigation.topViewController, type(of: top) == type(of: controller) { return }
+            navigation.pushViewController(controller, animated: true)
+        }
+    }
+
+    // MARK: Presentation
+
+    /// Pushes go on the app's navigation stack, so whatever is presented over it closes first.
+    private func afterDismissingPresentations(_ action: @escaping () -> Void) {
+        guard let root = NavigationStorage.shared.navigationController.viewIfLoaded?.window?.rootViewController,
+              let presented = root.presentedViewController, !presented.isBeingDismissed
+        else {
+            action()
+            return
+        }
+        root.dismiss(animated: true) { action() }
+    }
+
+    /// The controller sheets and alerts present from: the top of the link's window, or of the app's window when the
+    /// link's screen has gone.
+    private func presentationHost(_ presenter: UIViewController?) -> UIViewController? {
+        let window = presenter?.viewIfLoaded?.window
+            ?? NavigationStorage.shared.navigationController.viewIfLoaded?.window
+        return window?.rootViewController.map(topPresenter)
+    }
+
+    private func presentAlert(_ text: String, presenter: UIViewController?) {
+        guard let host = presentationHost(presenter) else { return }
+        let alert = UIAlertController(title: nil, message: text, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        host.present(alert, animated: true)
+    }
+
+    /// A Telegram page BetterTG can't show opens in Safari; a tg:// link has nowhere else to go.
+    private func openExternally(_ url: URL) {
+        guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return }
+        UIApplication.shared.open(url)
+    }
+
     private func topPresenter(_ root: UIViewController) -> UIViewController {
-        if let presented = root.presentedViewController { return topPresenter(presented) }
+        if let presented = root.presentedViewController, !presented.isBeingDismissed { return topPresenter(presented) }
         if let navigation = root as? UINavigationController, let visible = navigation.visibleViewController {
             return topPresenter(visible)
         }

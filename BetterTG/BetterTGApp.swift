@@ -29,6 +29,7 @@ import UIKit
             ChatClientRestorationProbe.runDebugProbeIfRequested()
             ChatViewportRestorationProbe.runDebugProbeIfRequested()
             MessageTextSpoilerProbe.runDebugProbeIfRequested()
+            TelegramLinkRouterProbe.runDebugProbeIfRequested()
             MessageDeliveryProbe.runIfRequested()
             ChatUpdateDeliveryProbe.runDebugProbeIfRequested()
             ChatListActionAuthorityProbe.runDebugProbeIfRequested()
