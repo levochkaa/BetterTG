@@ -62,6 +62,10 @@ final class ChatComposerView: UIView {
     var onViewOnceEnabled: ((String) -> Void)?
     /// A reply keyboard button and the message whose keyboard it belongs to.
     var onReplyKeyboardButton: ((TDNativeKeyboardButton, Int64) -> Void)?
+    /// Schedule Message (or Set a Reminder) in the send button's menu: the chat shows the date picker.
+    var onScheduleMessage: (() -> Void)?
+    /// The input panel's scheduled messages button.
+    var onOpenScheduledMessages: (() -> Void)?
 
     private let chatVM: ChatVM
     private let glassView: UIVisualEffectView = {
@@ -89,6 +93,8 @@ final class ChatComposerView: UIView {
     private let textView = FormattedTextView(placeholder: L10n.telegram("Conversation.InputTextPlaceholder"))
     /// Telegram's input button that switches between a bot's keyboard and the system keyboard.
     private let replyKeyboardButton = UIButton(type: .system)
+    /// ChatTextInputPanelNode's scheduled messages accessory, shown while the input is empty.
+    private let scheduledMessagesButton = UIButton(type: .system)
     private let replyKeyboardResponder = ReplyKeyboardResponder()
     private let replyKeyboardInputView = ReplyKeyboardInputView()
     private let actionButton = UIButton(type: .system)
@@ -116,6 +122,12 @@ final class ChatComposerView: UIView {
         recognizer.delegate = self
         return recognizer
     }()
+
+    /// Telegram's send button opens its send options on a long press (ChatSendMessageContextScreen).
+    private lazy var sendOptionsGestureRecognizer = UILongPressGestureRecognizer(
+        target: self,
+        action: #selector(showSendOptions(_:)),
+    )
 
     private var displayedImageIDs = [UUID]()
     private var displayedDocumentIDs = [UUID]()
@@ -611,6 +623,11 @@ final class ChatComposerView: UIView {
         botStartButton.isHidden = !showsBotStart
         botStartButton.isEnabled = !chatVM.isStartingBot
         if showsBotStart, textView.isFirstResponder { textView.resignFirstResponder() }
+        let showsScheduledMessages = chatVM.hasScheduledMessages && chatVM.canScheduleMessages
+            && chatVM.editCustomMessage == nil && chatVM.text.characters.isEmpty
+        if scheduledMessagesButton.isHidden == showsScheduledMessages {
+            scheduledMessagesButton.isHidden = !showsScheduledMessages
+        }
         let isRecordingVideoNote = videoNoteState.isActive
         let isRecordingMedia = chatVM.recordingVoiceNote || isRecordingVideoNote
         photosScroll.isHidden = !canWrite || chatVM.displayedImages.isEmpty
@@ -674,6 +691,17 @@ final class ChatComposerView: UIView {
     func updateRecordingTime() {
         guard chatVM.recordingVoiceNote, !videoNoteState.isActive else { return }
         updateRecordingStatus()
+    }
+
+    /// Sends the composer, with the send menu's options when it chose some.
+    func send(options: TDNativeMessageSendOptions?) {
+        guard !chatVM.sendingComposerMessage, chatVM.editCustomMessage == nil || options == nil else { return }
+        draftTask?.cancel()
+        draftTask = nil
+        typingTask?.cancel()
+        typingTask = nil
+        lastTypingActionDate = nil
+        chatVM.sendMessageTask = Task { [weak chatVM] in await chatVM?.sendMessage(options: options) }
     }
 
     private func configureViews() {
@@ -794,16 +822,27 @@ final class ChatComposerView: UIView {
         textView.backgroundColor = .clear
         inputRow.addArrangedSubview(attachmentButton)
         inputRow.addArrangedSubview(textView)
+        inputRow.addArrangedSubview(scheduledMessagesButton)
         inputRow.addArrangedSubview(replyKeyboardButton)
         inputRow.addArrangedSubview(actionButton)
         NSLayoutConstraint.activate([
             attachmentButton.widthAnchor.constraint(equalToConstant: 34),
             attachmentButton.heightAnchor.constraint(equalToConstant: 36),
+            scheduledMessagesButton.widthAnchor.constraint(equalToConstant: 34),
+            scheduledMessagesButton.heightAnchor.constraint(equalToConstant: 36),
             replyKeyboardButton.widthAnchor.constraint(equalToConstant: 34),
             replyKeyboardButton.heightAnchor.constraint(equalToConstant: 36),
             actionButton.widthAnchor.constraint(equalToConstant: 34),
             actionButton.heightAnchor.constraint(equalToConstant: 36),
         ])
+        scheduledMessagesButton.setImage(UIImage(systemName: "calendar.badge.clock"), for: .normal)
+        scheduledMessagesButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 20, weight: .regular),
+            forImageIn: .normal,
+        )
+        scheduledMessagesButton.tintColor = .secondaryLabel
+        scheduledMessagesButton.accessibilityLabel = L10n.telegram("ScheduledMessages.Title")
+        scheduledMessagesButton.isHidden = true
         replyKeyboardButton.setPreferredSymbolConfiguration(
             UIImage.SymbolConfiguration(pointSize: 20, weight: .regular),
             forImageIn: .normal,
@@ -964,12 +1003,19 @@ final class ChatComposerView: UIView {
     private func configureActions() {
         attachmentButton.addTarget(self, action: #selector(showAttachmentActions), for: .touchUpInside)
         replyKeyboardButton.addTarget(self, action: #selector(toggleReplyKeyboard), for: .touchUpInside)
+        scheduledMessagesButton.addAction(
+            UIAction { [weak self] _ in self?.onOpenScheduledMessages?() },
+            for: .touchUpInside,
+        )
         closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)
         cancelRecordingButton.addTarget(self, action: #selector(cancelRecording), for: .touchUpInside)
         recordingPauseResumeButton.addTarget(self, action: #selector(toggleRecordingPause), for: .touchUpInside)
         recordingPreviewPlayButton.addTarget(self, action: #selector(toggleRecordingPreview), for: .touchUpInside)
         actionButton.addTarget(self, action: #selector(actionTouchDown(_:)), for: .touchDown)
         actionButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
+        sendOptionsGestureRecognizer.minimumPressDuration = 0.4
+        sendOptionsGestureRecognizer.isEnabled = false
+        actionButton.addGestureRecognizer(sendOptionsGestureRecognizer)
         recordingSendButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
         recordingViewOnceButton.addTarget(self, action: #selector(toggleViewOnce), for: .touchUpInside)
         addGestureRecognizer(recordingGestureRecognizer)
@@ -1384,6 +1430,11 @@ final class ChatComposerView: UIView {
             && !videoNoteState.isActive
             && !hasContent
         recordingGestureRecognizer.isEnabled = voiceGestureIsTracking || canBeginRecordingGesture
+        // Text or media the composer would send; an edit or a forward alone has no send options.
+        let hasSendableContent = !chatVM.displayedImages.isEmpty || !chatVM.displayedDocuments.isEmpty
+            || chatVM.text.characters.contains { !$0.isWhitespace }
+        sendOptionsGestureRecognizer.isEnabled = hasSendableContent && chatVM.editCustomMessage == nil
+            && !isRecordingMedia && !isSendingComposer
         if chatVM.hasPendingVoiceNote {
             var voiceActions = [UIAction]()
             if chatVM.canRetryPendingVoiceNote {
@@ -1792,12 +1843,46 @@ final class ChatComposerView: UIView {
             return
         }
         guard !chatVM.sendingComposerMessage else { return }
-        draftTask?.cancel()
-        draftTask = nil
-        typingTask?.cancel()
-        typingTask = nil
-        lastTypingActionDate = nil
-        chatVM.sendMessageTask = Task { [weak chatVM] in await chatVM?.sendMessage() }
+        send(options: nil)
+    }
+
+    /// ChatSendMessageContextScreen's items: Send Without Sound and Send When Online (not for reminders), then
+    /// Schedule Message or, in Saved Messages, Set a Reminder.
+    @objc private func showSendOptions(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, chatVM.locationContextIsCurrent else { return }
+        let reminders = chatVM.customChat.isSavedMessages
+        var actions = [TelegramContextMenuAction]()
+        if !reminders {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.SendMessage.SendSilently"),
+                image: UIImage(systemName: "bell.slash"),
+            ) { [weak self] in
+                self?.send(options: ChatVM.sendOptions(silent: true))
+            })
+            if chatVM.canSendWhenOnline {
+                actions.append(TelegramContextMenuAction(
+                    title: L10n.telegram("Conversation.SendMessage.SendWhenOnline"),
+                    image: UIImage(systemName: "person.crop.circle.badge.clock"),
+                ) { [weak self] in
+                    self?.send(options: ChatVM.sendOptions(schedulingState: .messageSchedulingStateSendWhenOnline))
+                })
+            }
+        }
+        if chatVM.canScheduleMessages {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(reminders
+                    ? "Conversation.SendMessage.SetReminder"
+                    : "Conversation.SendMessage.ScheduleMessage"),
+                image: UIImage(systemName: "calendar.badge.clock"),
+            ) { [weak self] in
+                self?.onScheduleMessage?()
+            })
+        }
+        nearestViewController?.presentTelegramContextMenu(
+            sourceView: actionButton,
+            actions: actions,
+            presentationStyle: .sourceMorph,
+        )
     }
 
     @objc private func actionTouchDown(_ sender: UIButton) {

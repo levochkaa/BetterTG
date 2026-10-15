@@ -1238,6 +1238,34 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     #endif
 
+    /// Telegram's Scheduled Messages for this chat or topic, from the input panel's button or after a message was
+    /// scheduled (ChatController.openScheduledMessages).
+    private func openScheduledMessages() {
+        guard presentationMode == .full, chatVM.locationContextIsCurrent,
+              navigationController?.topViewController === self else { return }
+        navigationController?.pushViewController(
+            ScheduledMessagesViewController(
+                location: location,
+                isReminders: chatVM.customChat.isSavedMessages,
+                canSendWhenOnline: chatVM.canSendWhenOnline,
+            ),
+            animated: true,
+        )
+    }
+
+    /// The send menu's Schedule Message: Telegram's date picker, then the composer goes out at that time.
+    private func presentScheduleMessagePicker() {
+        guard presentationMode == .full, chatVM.locationContextIsCurrent, chatVM.canScheduleMessages else { return }
+        ScheduleMessagePickerViewController.present(
+            from: self,
+            isReminder: chatVM.customChat.isSavedMessages,
+            showsSendWhenOnline: chatVM.canSendWhenOnline,
+        ) { [weak self] state in
+            guard let self, chatVM.locationContextIsCurrent else { return }
+            composerView.send(options: ChatVM.sendOptions(schedulingState: state))
+        }
+    }
+
     private func acknowledgeCommittedVisibleMessages(requestHistory: Bool = false) {
         guard !timelineSnapshots.isBusy, timelineSourceIsCurrent else { return }
         #if DEBUG
@@ -1878,6 +1906,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 )
             }
             composerView.onOpenReplyOptions = { [weak self] source in self?.presentReplyOptions(from: source) }
+            composerView.onScheduleMessage = { [weak self] in self?.presentScheduleMessagePicker() }
+            composerView.onOpenScheduledMessages = { [weak self] in self?.openScheduledMessages() }
             composerView.onVoiceGestureActivityChange = { [weak self] active in
                 guard let self, voiceGestureDefersSystemGestures != active else { return }
                 voiceGestureDefersSystemGestures = active
@@ -2787,6 +2817,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .store(in: &cancellables)
         chatVM.sendTransitionCancelled
             .sink { [weak self] id in self?.cancelComposerSendTransition(id: id) }
+            .store(in: &cancellables)
+        chatVM.scheduledComposerSend
+            .sink { [weak self] in self?.openScheduledMessages() }
             .store(in: &cancellables)
         chatVM.sendTransitionMessageIDReplaced
             .sink { [weak self] replacement in

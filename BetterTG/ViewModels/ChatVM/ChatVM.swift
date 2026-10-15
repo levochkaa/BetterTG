@@ -85,6 +85,12 @@ import UIKit
     @Published var chatActions = [ChatActionEntry]()
     @Published var onlineStatus = ""
     private(set) var isUserOnline = false
+    /// The other user is offline with a known last-seen time, the presence Telegram offers Send When Online for.
+    private(set) var userLastSeenIsKnown = false
+    /// TDLib's `hasScheduledMessages`: the composer then offers the chat's Scheduled Messages.
+    @Published var hasScheduledMessages = false
+    /// A composer send that only scheduled its message; the chat opens Scheduled Messages, as Telegram does.
+    let scheduledComposerSend = PassthroughSubject<Void, Never>()
     @Published var memberCount = 0
     @Published var onlineMemberCount = 0
     @Published private(set) var editCustomMessage: CustomMessage? {
@@ -318,6 +324,8 @@ import UIKit
     /// the input; the timeline holds the messages this send creates until the composer clears, so both change at once.
     /// Until the send call returns, any new pending outgoing message may be one of them; then only the returned ones.
     private var composerSendHold: (id: UUID, earlierMessageIDs: Set<Int64>, sentMessageIDs: Set<Int64>?)?
+    /// The send-button menu's options for the composer send in progress (silent, scheduled or when online).
+    private var composerSendOptions: TDNativeMessageSendOptions?
 
     /// Discrete changes (start, stop, restored drafts) publish like the other state; the tick writes the storage.
     var timerCount: Double {
@@ -334,6 +342,21 @@ import UIKit
         } else {
             true
         }
+    }
+
+    /// ChatSendMessageContextScreen's `canSchedule`: secret chats and channel direct messages can't schedule.
+    var canScheduleMessages: Bool {
+        if previewing || customChat.supergroup?.isDirectMessagesGroup == true { return false }
+        if case .chatTypeSecret = customChat.chat.type { return false }
+        return true
+    }
+
+    /// Telegram offers Send When Online in a chat with a person whose last seen time is known and past, other than
+    /// the service notifications account; Saved Messages sets reminders instead.
+    var canSendWhenOnline: Bool {
+        guard canScheduleMessages, !customChat.isSavedMessages, case .user(let user) = customChat.type,
+              user.id != 777_000 else { return false }
+        return userLastSeenIsKnown
     }
 
     var visiblePinnedMessage: Message? {
@@ -1127,6 +1150,26 @@ import UIKit
         }
     }
 
+    /// The send-button menu's choice as TDLib send options.
+    static func sendOptions(
+        silent: Bool = false,
+        schedulingState: TDNativeMessageSchedulingState? = nil,
+    ) -> TDNativeMessageSendOptions {
+        TDNativeMessageSendOptions(
+            suggestedPostInfo: nil,
+            disableNotification: silent,
+            fromBackground: false,
+            protectContent: false,
+            allowPaidBroadcast: false,
+            paidMessageStarCount: 0,
+            updateOrderOfInstalledStickerSets: false,
+            schedulingState: schedulingState,
+            effectId: 0,
+            sendingId: 0,
+            onlyPreview: false,
+        )
+    }
+
     static func restoringComposer(
         from transfer: ChatComposerRestorationTransfer,
         customChat: CustomChat,
@@ -1537,6 +1580,12 @@ import UIKit
     func updateOnlineStatus(from userStatus: UserStatus) {
         isUserOnline =
             if case .userStatusOnline = userStatus {
+                true
+            } else {
+                false
+            }
+        userLastSeenIsKnown =
+            if case .userStatusOffline = userStatus {
                 true
             } else {
                 false
@@ -2789,12 +2838,16 @@ import UIKit
         }
     }
 
-    func sendMessage() async {
+    /// Sends the composer. `options` carries the send-button menu's choice: without sound, at a date or when the
+    /// user comes online. A scheduled send never reaches this history, so it skips the bubble transition.
+    func sendMessage(options: TDNativeMessageSendOptions? = nil) async {
         guard !sendingComposerMessage else { return }
         sendingComposerMessage = true
+        composerSendOptions = options
         defer {
             sendingComposerMessage = false
             sendMessageTask = nil
+            composerSendOptions = nil
         }
         switch composerEditState.prepare(message: editCustomMessage?.message, text: editMessageText) {
         case .ordinary:
@@ -2832,12 +2885,16 @@ import UIKit
         let sentDocumentIDs = Set(displayedDocuments.map(\.id))
         let sentReplyID = replyMessage?.id
         let transitionID = UUID()
+        let isScheduled = options?.schedulingState != nil
         let transitionKind: ComposerSendTransitionKind = displayedImages.isEmpty && displayedDocuments.isEmpty
             ? .text
             : .media
-        if transitionKind == .media { beginComposerSendHold(transitionID) }
+        let holdsMedia = transitionKind == .media && !isScheduled
+        if holdsMedia { beginComposerSendHold(transitionID) }
         defer { endComposerSendHold(transitionID) }
-        sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: transitionKind))
+        if !isScheduled {
+            sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: transitionKind))
+        }
         do {
             let result: (context: ResolvedSendContext, messages: [Message])
             if !displayedDocuments.isEmpty {
@@ -2847,16 +2904,16 @@ import UIKit
             } else if !ComposerTextBreaker.trimmed(text).characters.isEmpty {
                 result = try await sendMessageText()
             } else {
-                sendTransitionCancelled.send(transitionID)
+                if !isScheduled { sendTransitionCancelled.send(transitionID) }
                 return
             }
-            if transitionKind == .media { narrowComposerSendHold(transitionID, to: result.messages.map(\.id)) }
+            if holdsMedia { narrowComposerSendHold(transitionID, to: result.messages.map(\.id)) }
             let draftClearSucceeded = await clearRouteDraft(result.context)
-            if transitionKind == .media {
+            if holdsMedia {
                 await waitUntilTimelineShows(result.messages.map(\.id))
             }
             guard locationContextIsCurrent else {
-                sendTransitionCancelled.send(transitionID)
+                if !isScheduled { sendTransitionCancelled.send(transitionID) }
                 return
             }
             displayedImages.removeAll { sentImageIDs.contains($0.id) }
@@ -2880,7 +2937,7 @@ import UIKit
                 || !draftClearSucceeded
             sendErrorMessage = nil
             let acceptance = ComposerSendTransitionAcceptance(id: transitionID, messageIDs: result.messages.map(\.id))
-            if transitionKind == .media {
+            if holdsMedia {
                 // Accept in the turn that cleared the composer, so the view inserts the media and shrinks the
                 // composer together.
                 endComposerSendHold(transitionID)
@@ -2892,13 +2949,18 @@ import UIKit
             } else if location.forumTopicID != nil {
                 loadForumTopic()
             }
-            if transitionKind != .media {
+            if transitionKind != .media, !isScheduled {
                 await Task.yield()
                 sendTransitionAccepted.send(acceptance)
             }
-            if let forward { await sendPendingForward(forward) }
+            if isScheduled {
+                hasScheduledMessages = true
+                scheduledComposerSend.send()
+            }
+            // A forward waiting under a scheduled message stays for the next send.
+            if let forward, !isScheduled { await sendPendingForward(forward) }
         } catch {
-            sendTransitionCancelled.send(transitionID)
+            if !isScheduled { sendTransitionCancelled.send(transitionID) }
             sendErrorMessage = error.localizedDescription
         }
     }
@@ -2956,7 +3018,7 @@ import UIKit
                 let message = try await client.sendMessage(
                     chatId: context.chatID,
                     inputMessageContent: content,
-                    options: nil,
+                    options: composerSendOptions,
                     replyMarkup: nil,
                     replyTo: context.replyTo,
                     topicId: context.destinationTopic,
@@ -2968,7 +3030,7 @@ import UIKit
                 let result = try await client.sendMessageAlbum(
                     chatId: context.chatID,
                     inputMessageContents: contents,
-                    options: nil,
+                    options: composerSendOptions,
                     replyTo: context.replyTo,
                     topicId: context.destinationTopic,
                 )
@@ -3315,7 +3377,7 @@ import UIKit
                 let message = try await client.sendMessage(
                     chatId: context.chatID,
                     inputMessageContent: content,
-                    options: nil,
+                    options: composerSendOptions,
                     replyMarkup: nil,
                     replyTo: context.replyTo,
                     topicId: context.destinationTopic,
@@ -3331,7 +3393,7 @@ import UIKit
                 let result = try await client.sendMessageAlbum(
                     chatId: context.chatID,
                     inputMessageContents: messageContents,
-                    options: nil,
+                    options: composerSendOptions,
                     replyTo: context.replyTo,
                     topicId: context.destinationTopic,
                 )
@@ -3458,7 +3520,7 @@ import UIKit
                         text: FormattedText(entities: getEntities(from: part), text: part.string),
                     ),
                 ),
-                options: nil,
+                options: composerSendOptions,
                 replyMarkup: nil,
                 replyTo: context.replyTo,
                 topicId: context.destinationTopic,
@@ -4516,7 +4578,7 @@ import UIKit
         let message = try await client.sendMessage(
             chatId: context.chatID,
             inputMessageContent: .inputMessageDice(InputMessageDice(clearDraft: false, emoji: emoji)),
-            options: nil,
+            options: composerSendOptions,
             replyMarkup: nil,
             replyTo: context.replyTo,
             topicId: context.destinationTopic,

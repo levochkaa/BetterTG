@@ -35,6 +35,11 @@ extension ChatVM {
         }
         chatUnreadMentionCount = customChat.chat.unreadMentionCount
         chatUnreadReactionCount = customChat.chat.unreadReactionCount
+        hasScheduledMessages = customChat.chat.hasScheduledMessages
+        observeCurrentUpdate(.updateChatHasScheduledMessages) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
+            hasScheduledMessages = update.hasScheduledMessages
+        }
         observeCurrentUpdate(.updateChatUnreadMentionCount) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
             chatUnreadMentionCount = update.unreadMentionCount
@@ -387,7 +392,8 @@ extension ChatVM {
         )
         sendTransitionMessageIDReplaced.send((update.oldMessageId, update.message.id))
         releaseOutgoingDocumentFile(messageID: update.oldMessageId)
-        guard acceptsUpdate(authority) else { return }
+        // A scheduled message lives in Scheduled Messages, not in this history.
+        guard acceptsUpdate(authority), update.message.schedulingState == nil else { return }
         acceptCompleteMessage(update.message, replacing: update.oldMessageId)
     }
 
@@ -397,7 +403,7 @@ extension ChatVM {
     ) {
         sendTransitionMessageIDReplaced.send((update.oldMessageId, update.message.id))
         replaceOutgoingDocumentMessageID(old: update.oldMessageId, new: update.message.id)
-        guard acceptsUpdate(authority) else { return }
+        guard acceptsUpdate(authority), update.message.schedulingState == nil else { return }
         acceptCompleteMessage(update.message, replacing: update.oldMessageId, sendFailed: true)
     }
 
@@ -452,7 +458,7 @@ extension ChatVM {
     }
 
     private func updateNewMessage(_ update: UpdateNewMessage, authority: ChatUpdateDeliveryAuthority) {
-        guard acceptsUpdate(authority) else { return }
+        guard acceptsUpdate(authority), update.message.schedulingState == nil else { return }
         acceptCompleteMessage(update.message)
     }
 
