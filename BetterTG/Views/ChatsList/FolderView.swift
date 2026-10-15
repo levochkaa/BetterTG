@@ -868,6 +868,14 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 }
             }
             .store(in: &cancellables)
+        PendingChatRemovals.shared
+            .$hiddenKeys
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { self?.updateSnapshot(animated: true) }
+            }
+            .store(in: &cancellables)
         rootVM.$scopeNotificationSettings
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -932,7 +940,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         // Membership can change before a queued UI publisher runs. Populate the
         // provider cache before publishing new identifiers, including on scope updates.
         rebuildChatIndex()
-        let displayedChats = orderedChats
+        // A chat whose removal waits behind the Undo toast is hidden, as Telegram's pendingRemovalItemIds.
+        let clientID = actionAuthority.client.id
+        let displayedChats = orderedChats.filter {
+            !PendingChatRemovals.shared.isHidden(clientID: clientID, chatID: $0.id)
+        }
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
         snapshot.appendSections([.main])
         snapshot.appendItems(displayedChats.map(\.id))
@@ -1437,7 +1449,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private func deleteChat(_ chat: CustomChat, scope: ChatListActionScope, client: TDLibClient) {
-        ChatListChatRemoval(chat: chat, client: client, scope: scope, host: self) { [weak self] status in
+        ChatListChatRemoval(
+            chat: chat,
+            client: client,
+            scope: scope,
+            host: self,
+            showUndo: { [weak self] status, undo in self?.showUndoToast(status, undo: undo) },
+        ) { [weak self] status in
             self?.showUndoToast(status)
         }.start()
     }

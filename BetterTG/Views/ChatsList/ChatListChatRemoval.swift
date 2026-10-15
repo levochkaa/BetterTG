@@ -25,6 +25,8 @@ import UIKit
     private let scope: ChatListActionScope
     private weak var host: UIViewController?
     private let showStatus: (String) -> Void
+    /// The chat list's Undo toast; without it (the profile) a confirmed request runs at once.
+    private let showUndo: ((String, @escaping () -> Void) -> Void)?
     private let peer: Peer
 
     private var title: String {
@@ -67,12 +69,14 @@ import UIKit
         client: TDLibClient,
         scope: ChatListActionScope,
         host: UIViewController,
+        showUndo: ((String, @escaping () -> Void) -> Void)? = nil,
         showStatus: @escaping (String) -> Void,
     ) {
         self.chat = chat
         self.client = client
         self.scope = scope
         self.host = host
+        self.showUndo = showUndo
         self.showStatus = showStatus
         self.peer =
             switch chat.type {
@@ -314,7 +318,10 @@ import UIKit
 
     private func deletePrivateChat(revoke: Bool, blockingBotID: Int64? = nil) {
         let chatID = chat.id
-        execute(status: L10n.telegram(revoke ? "Undo.ChatDeletedForBothSides" : "Undo.ChatDeleted")) { client, scope in
+        execute(
+            status: L10n.telegram(revoke ? "Undo.ChatDeletedForBothSides" : "Undo.ChatDeleted"),
+            hidesRow: true,
+        ) { client, scope in
             _ = try await scope.perform {
                 try await client.deleteChatHistory(chatId: chatID, removeFromChatList: true, revoke: revoke)
             }
@@ -333,7 +340,8 @@ import UIKit
     private func commitLeave() {
         let chatID = chat.id
         let peer = peer
-        execute(status: L10n.telegram(isChannel ? "Undo.LeftChannel" : "Undo.LeftGroup")) { client, scope in
+        execute(status: L10n.telegram(isChannel ? "Undo.LeftChannel" : "Undo.LeftGroup"), hidesRow: true) {
+            client, scope in
             switch peer {
             case .basicGroup(let group):
                 if group.isActive, group.status.isMember {
@@ -352,23 +360,26 @@ import UIKit
 
     private func deleteForEveryone() {
         let chatID = chat.id
-        execute(status: L10n.telegram(isChannel ? "Undo.DeletedChannel" : "Undo.DeletedGroup")) { client, scope in
+        execute(status: L10n.telegram(isChannel ? "Undo.DeletedChannel" : "Undo.DeletedGroup"), hidesRow: true) {
+            client, scope in
             _ = try await scope.perform { try await client.send(TDNativeRequests.deleteChat(chatId: chatID)) }
         }
     }
 
     private func clearHistory(revoke: Bool) {
         let chatID = chat.id
-        execute(status: L10n.telegram("Undo.ChatCleared")) { client, scope in
+        execute(status: L10n.telegram("Undo.ChatCleared"), hidesRow: false) { client, scope in
             _ = try await scope.perform {
                 try await client.deleteChatHistory(chatId: chatID, removeFromChatList: false, revoke: revoke)
             }
         }
     }
 
-    /// Runs the confirmed request, then shows Telegram's status toast or its generic error.
+    /// Runs the confirmed request, then shows Telegram's status toast or its generic error. In the chat list it is
+    /// scheduled behind the Undo toast instead, with the row hidden for a removal, as Telegram does.
     private func execute(
         status: String,
+        hidesRow: Bool,
         _ operation: @escaping @MainActor (TDLibClient, ChatListActionScope) async throws -> Void,
     ) {
         guard scope.isCurrent else { return }
@@ -376,6 +387,22 @@ import UIKit
         let scope = scope
         let showStatus = showStatus
         let host = host
+        if let showUndo {
+            let cancel = PendingChatRemovals.shared.schedule(
+                PendingChatRemovals.Key(clientID: client.id, chatID: chat.id),
+                hides: hidesRow,
+            ) { [weak host] in
+                guard scope.isCurrent else { return }
+                do {
+                    try await operation(client, scope)
+                } catch {
+                    guard scope.isCurrent, let host else { return }
+                    host.presentChatListActionFailure()
+                }
+            }
+            showUndo(status, cancel)
+            return
+        }
         Task { [weak host] in
             do {
                 try await operation(client, scope)
