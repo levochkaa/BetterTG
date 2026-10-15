@@ -199,12 +199,12 @@ Read-only code audits at `ba41fcd7`/`9a646c94` of profiles and shared media (P),
 | ID | Sev | Finding | Status |
 |---|---|---|---|
 | C-1 | P1 | Send rights combined `canPostMessages` with the chat's default permissions: channel owners and admins could not post (TDLib leaves a channel's defaults all false), group admins were bound by default restrictions, a restricted member's own permissions were ignored, a left basic group kept its composer | fixed `3ef0c699`: Telegram's banned-permission model (`CustomChat.allowsSending`): owner and admins bypass the defaults, a channel needs the post right, a restricted member is bound by both; basic-group status follows updates |
-| L-1 | P1 | Chat deletion was wrong for every peer type: no "delete for me and X", groups only cleared history, channels and public groups had no item, an owner's delete for everyone used `deleteChatHistory(revoke:)` (rejected) with the error swallowed; no `leaveChat`, `deleteChat` or Clear History | in progress (worker branch `codex/parity-chat-delete`) |
-| L-2 | P1 | Chat list search only filtered titles of loaded rows; no TDLib chat, public or message search | in progress (worker branch `codex/parity-chat-search`) |
+| L-1 | P1 | Chat deletion was wrong for every peer type: no "delete for me and X", groups only cleared history, channels and public groups had no item, an owner's delete for everyone used `deleteChatHistory(revoke:)` (rejected) with the error swallowed; no `leaveChat`, `deleteChat` or Clear History | fixed `eb525a29`: Telegram's `deletePeerChat` per peer type: delete for me or for both sides (with Telegram's warning), Delete and Stop for bots, leave for groups and channels (a left basic group is also removed), the owner's delete for everyone through `deleteChat` after a second warning, Clear History where Telegram offers it, status toasts and an error alert on failure. Build only: the destructive flows were not run on the user's account; Telegram's 5 s undo, Appoint Another Owner and the avatar in the alert are not ported |
+| L-2 | P1 | Chat list search only filtered titles of loaded rows; no TDLib chat, public or message search | fixed `708a2a1d`: Telegram's search sections over the main list and the archive: chats and contacts (`searchChats`, `searchContacts`, `searchChatsOnServer`), global public chats (`searchPublicChats`, Show More after three), and messages (`searchMessages`, paged); remote requests wait 400 ms, each query cancels the last, results of another account or client are dropped. Simulator: a query lists six matching chats, three public results and message hits; a message hit opens its chat at that message; Close Search returns to the list. Follow-ups: recent searches, the media/links/files filter tabs, query highlighting |
 | P-1 | P2 | Any edit or unconfirmed delete of a loaded grid item closed the open shared-media gallery and its PiP at once | fixed `54604a45`: only the affected items are revoked; the gallery keeps their pages covered until their revision is admitted, PiP closes only for its own item |
 | P-2 | P2 | A profile not opened from its own chat (forum Group Info, avatar Open Profile) stayed on "Reconnecting" with a blank grid after every foreground return | fixed `7c9c2c3b`: such a profile rebuilds itself through the renewed client |
 | P-3 | P2 | A renewal with the avatar gallery open dismissed it and popped the profile | open |
-| P-4 | P2 | Files, Links and Audio rows only jump to the message; Telegram opens the document, the URL or plays the track | open |
+| P-4 | P2 | Files, Links and Audio rows only jump to the message; Telegram opens the document, the URL or plays the track | fixed `b5313800`: a document downloads in place with progress and opens, a track plays, a link opens (a text link asks first); a long press keeps View in Chat |
 | P-5 | P2 | Profiles opened away from their chat had no message, search or Message callbacks | fixed `7c9c2c3b` |
 | P-6 | P3 | Gallery paging does not scroll the grid to the current item, so closing on an off-screen item fades | open |
 | P-7 | P3 | Media sent while the profile is open never appears | open |
@@ -227,12 +227,12 @@ Read-only code audits at `ba41fcd7`/`9a646c94` of profiles and shared media (P),
 | C-8 | P2 | Photos are re-encoded at full resolution (quality 0.92); Telegram scales to 1280 px (2560 HD) | open |
 | C-9 | P3 | Slow mode and the voice/video note restriction are not modeled | open |
 | C-10 | P3 | The sticker sheet keeps the presenting client; a tap after a renewal is lost | open |
-| C-11 | P3 | Cancelling an edit clears a pending forward | open |
-| C-12 | P3 | An edit resets link preview options and caption-above-media | open |
+| C-11 | P3 | Cancelling an edit clears a pending forward | fixed `3fcc0fdd` |
+| C-12 | P3 | An edit resets link preview options and caption-above-media | fixed `3fcc0fdd` |
 | C-13 | P3 | Temporary files of picked photos, videos and Live Photos are never deleted | open |
-| C-14 | P3 | The typing action is debounced 350 ms and sent while editing | open |
+| C-14 | P3 | The typing action is debounced 350 ms and sent while editing | fixed `1c57cc42`: sent on the first keystroke, renewed every 4 s, cancelled 4 s after the last, not while editing |
 | C-15 | P3 | A sticker or GIF tapped during another send is dropped silently | open |
-| C-16 | P3 | Edit mode survives deletion of the edited message (suspicion) | open |
+| C-16 | P3 | Edit mode survives deletion of the edited message (suspicion) | fixed `3fcc0fdd`: a permanent delete of the target ends the edit |
 | L-3 | P2 | Secret chats never appear in the list | open |
 | L-4 | P2 | Switching accounts could delete a recovered account's database, and a directory was removed with whichever client was published | fixed `45ee11f4`: only an account whose own client reports a sign-in step is discarded, with its own client |
 | L-5 | P2 | Pinned chats can't be reordered (`setPinnedChats`) | open |
@@ -241,11 +241,11 @@ Read-only code audits at `ba41fcd7`/`9a646c94` of profiles and shared media (P),
 | L-8 | P2 | A notification for an inactive account does nothing | open |
 | L-9 | P3 | An account switch shows "Waiting for authorization" until Ready | open |
 | L-10 | P3 | Folder updates rebuild every folder page and reload 100 chats per folder | open |
-| L-11 | P3 | Chat menu eligibility differs from `chatContextMenuItems` (Archive/Mute for Saved Messages, Mark as Unread for forums and channels, folder membership from loaded rows, swallowed pin errors) | in progress with L-1 |
-| L-12 | P3 | Voice, video note and rich drafts show "Draft:" with nothing after it | open |
+| L-11 | P3 | Chat menu eligibility differs from `chatContextMenuItems` (Archive/Mute for Saved Messages, Mark as Unread for forums and channels, folder membership from loaded rows, swallowed pin errors) | fixed `eb525a29`: no Archive or Mute for Saved Messages, no Archive for service notifications, no Mark as Unread for forums; Add to Folder reads `chat_lists`; pin and folder limits show Telegram's limit alert; row actions report failures |
+| L-12 | P3 | Voice, video note and rich drafts show "Draft:" with nothing after it | fixed `05b2c36d` |
 | L-13 | P3 | Deleting a shared folder never offers to leave its chats | open |
 | L-14 | P3 | The app icon badge is never set locally (suspicion) | open |
-| L-15 | P3 | Sender names in row prefixes are cached per client and never refreshed | open |
+| L-15 | P3 | Sender names in row prefixes are cached per client and never refreshed | fixed `05b2c36d` |
 | L-16 | P3 | Rows show no typing indicator | open |
 
 Reviewed and OK: profile update provenance and history paging identity, grid edit/delete reconciliation, the gallery order and counter, avatar gallery list updates, editor write authorization, members paging; composer double-tap guards, `resolveSendContext` topic routing, draft isolation and clearing, edit attempt binding, document temporary-to-final IDs, picker import account checks, video conversion off main; chat list update isolation and ordering, row action scoping, preview read state, logout ownership. Not reviewed: `PeerProfileInfoPermission` and members restoration internals, voice/video note recording beyond A11-A17, quote selection UI, `ForwardMessagesViewController`, folder editor validation, the forum topic list, push relay internals.
