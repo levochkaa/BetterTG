@@ -49,7 +49,7 @@ import UIKit
         return L10n.telegramPlural(key, count: count, formattedCount: count.formatted(.number))
     }
 
-    /// Telegram's timeIntervalString for the auto-delete presets: days, weeks or months.
+    /// Telegram's timeIntervalString for the auto-delete periods: days, weeks, months or years.
     private static func timeInterval(_ seconds: Int) -> String {
         let day = 24 * 60 * 60
         let (key, count): (String, Int) =
@@ -57,8 +57,10 @@ import UIKit
                 ("MessageTimer.Days", seconds / day)
             } else if seconds < day * 30 {
                 ("MessageTimer.Weeks", seconds / (day * 7))
-            } else {
+            } else if seconds < day * 365 {
                 ("MessageTimer.Months", seconds / (day * 30))
+            } else {
+                ("MessageTimer.Years", seconds / (day * 365))
             }
         return L10n.telegramPlural(key, count: max(1, count))
     }
@@ -103,7 +105,9 @@ import UIKit
                                 ),
                             )
                         }
-                    },
+                    } + [TelegramContextMenuAction(title: L10n.telegram("PeerInfo.MuteForCustom")) {
+                        openCustomMute()
+                    }],
                 ),
                 TelegramContextMenuAction(
                     title: L10n.telegram(soundEnabled ? "PeerInfo.DisableSound" : "PeerInfo.EnableSound"),
@@ -138,6 +142,23 @@ import UIKit
         }
     }
 
+    /// PeerInfoScreen.openCustomMute: mute until a picked date, with "Notifications are muted until …".
+    private func openCustomMute() {
+        guard scope.isCurrent, let host else { return }
+        let settings = chat.notificationSettings
+        let menu = self
+        PeerProfileTimerPickerViewController(mode: .muteUntil(onApply: { seconds in
+            let until = Foundation.Date(timeIntervalSinceNow: TimeInterval(seconds))
+            menu.updateNotifications(
+                settings.settingMuteFor(seconds),
+                toast: L10n.telegram(
+                    "PeerInfo.TooltipMutedUntil",
+                    PeerProfileTimerPickerViewController.preciseText(for: until),
+                ),
+            )
+        })).present(from: host)
+    }
+
     private func autoDeleteAction() -> TelegramContextMenuAction {
         let current = chat.messageAutoDeleteTime
         let day = 24 * 60 * 60
@@ -146,6 +167,9 @@ import UIKit
                 setAutoDelete(seconds)
             }
         }
+        children.append(TelegramContextMenuAction(title: L10n.telegram("PeerInfo.AutoDeleteSettingOther")) {
+            openAutoDeletePicker(current: current)
+        })
         if current > 0 {
             children.append(TelegramContextMenuAction(
                 title: L10n.telegram("PeerInfo.AutoDeleteDisable"),
@@ -157,6 +181,17 @@ import UIKit
             image: UIImage(systemName: "timer"),
             children: children,
         )
+    }
+
+    /// PeerInfoScreen.openAutoremove: Telegram's full list of periods, and Disable Auto-Delete while one is set.
+    private func openAutoDeletePicker(current: Int) {
+        guard scope.isCurrent, let host else { return }
+        let menu = self
+        PeerProfileTimerPickerViewController(mode: .autoDelete(
+            current: current,
+            format: { Self.timeInterval($0) },
+            onApply: { seconds in menu.setAutoDelete(seconds) },
+        )).present(from: host)
     }
 
     /// PeerInfoScreen.setAutoremove, with its "Messages will be auto-deleted" or "Auto-delete is off" toast.

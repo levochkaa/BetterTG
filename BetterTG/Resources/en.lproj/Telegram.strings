@@ -1238,3 +1238,11 @@
 "Chat.BottomSearchPanel.DisplayModeFormat" = "Show as %@";
 "Chat.BottomSearchPanel.DisplayModeChat" = "Chat";
 "Chat.BottomSearchPanel.DisplayModeList" = "List";
+"PeerInfo.MuteForCustom" = "Mute until...";
+"PeerInfo.AutoDeleteSettingOther" = "Other...";
+"PeerInfo.TooltipMutedUntil" = "Notifications are muted until %@.";
+"Conversation.Mute.SetupTitle" = "Mute Until...";
+"Conversation.Mute.ApplyMuteUntil" = "Mute until %@";
+"Conversation.DeleteTimer.SetupTitle" = "Auto-Delete After...";
+"Conversation.DeleteTimer.Apply" = "Set Auto-Delete";
+"Conversation.DeleteTimer.Disable" = "Disable Auto-Delete";
