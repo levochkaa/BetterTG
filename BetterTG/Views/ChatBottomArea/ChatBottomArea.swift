@@ -107,6 +107,9 @@ final class ChatComposerView: UIView {
     private var contentSizeCategoryObserver: NSObjectProtocol?
     private var draftTask: Task<Void, Never>?
     private var typingTask: Task<Void, Never>?
+    /// When "typing" was last sent. Telegram sends it on the first keystroke, again while typing goes on (the server
+    /// shows it for a few seconds), and cancels it 4 s after the last keystroke.
+    private var lastTypingActionDate: Date?
     private var isApplyingState = false
     private var hiddenForSearch = false
     private var keyboardAttached = false
@@ -1154,10 +1157,24 @@ final class ChatComposerView: UIView {
             await chatVM?.updateDraft()
         }
         typingTask?.cancel()
-        typingTask = Task { [weak chatVM] in
-            try? await Task<Never, Never>.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled, let chatVM else { return }
-            try? await chatVM.tdSendChatAction(text.characters.isEmpty ? .chatActionCancel : .chatActionTyping)
+        typingTask = nil
+        // Editing an existing message is not typing a new one.
+        guard chatVM.editCustomMessage == nil else { return }
+        guard !text.characters.isEmpty else {
+            guard lastTypingActionDate != nil else { return }
+            lastTypingActionDate = nil
+            Task { [weak chatVM] in try? await chatVM?.tdSendChatAction(.chatActionCancel) }
+            return
+        }
+        if lastTypingActionDate.map({ Date().timeIntervalSince($0) >= 4 }) ?? true {
+            lastTypingActionDate = Date()
+            Task { [weak chatVM] in try? await chatVM?.tdSendChatAction(.chatActionTyping) }
+        }
+        typingTask = Task { [weak self, weak chatVM] in
+            try? await Task<Never, Never>.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            self?.lastTypingActionDate = nil
+            try? await chatVM?.tdSendChatAction(.chatActionCancel)
         }
     }
 
@@ -1547,6 +1564,7 @@ final class ChatComposerView: UIView {
         draftTask = nil
         typingTask?.cancel()
         typingTask = nil
+        lastTypingActionDate = nil
         chatVM.sendMessageTask = Task { [weak chatVM] in await chatVM?.sendMessage() }
     }
 
