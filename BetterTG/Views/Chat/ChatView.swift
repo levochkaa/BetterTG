@@ -2327,7 +2327,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if let cover = restoredPinnedBannerCover {
             if message == nil, chatVM.pinnedMessageIsLoading { return }
             restoredPinnedBannerCover = nil
-            cover.removeFromSuperview()
+            if message == nil {
+                cover.removeFromSuperview()
+            } else {
+                // The banner below shows the same message; its thumbnail decodes asynchronously, so the snapshot
+                // fades out over it instead of leaving the thumbnail empty for a frame.
+                UIView.animate(
+                    withDuration: 0.2,
+                    delay: 0,
+                    options: [.beginFromCurrentState, .allowUserInteraction],
+                    animations: { cover.alpha = 0 },
+                    completion: { _ in cover.removeFromSuperview() },
+                )
+            }
         }
         if let message {
             pinnedMessageBanner.configure(

@@ -72,11 +72,15 @@ final class PinnedMessageBannerView: UIView {
 
         textStack.translatesAutoresizingMaskIntoConstraints = false
         textStack.axis = .vertical
-        textStack.spacing = 0
+        textStack.spacing = textSpacing()
         textStack.addArrangedSubview(titleLabel)
         textStack.addArrangedSubview(bodyLabel)
         textStack.isUserInteractionEnabled = false
         addSubview(textStack)
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitDisplayScale.self]) {
+            (self: Self, _) in
+            self.textStack.spacing = self.textSpacing()
+        }
 
         actionButton.translatesAutoresizingMaskIntoConstraints = false
         actionButton.accessibilityIdentifier = "pinned-message-hide"
@@ -106,8 +110,15 @@ final class PinnedMessageBannerView: UIView {
             thumbnailView.centerYAnchor.constraint(equalTo: centerYAnchor),
             thumbnailView.heightAnchor.constraint(equalToConstant: 35),
             thumbnailWidthConstraint,
-            textStack.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-            textStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
+            // Telegram's ChatPinnedMessageTitlePanelNode places the title at y 6 and the text at y 23 in its 50 pt
+            // panel. Both labels keep their own height: a stack stretched to the panel let UIKit pick which label
+            // grew, so a rebuilt banner could draw both lines 4 pt lower.
+            textStack.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            {
+                let constraint = textStack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -2)
+                constraint.priority = .defaultHigh
+                return constraint
+            }(),
             textLeadingConstraint,
             textStack.trailingAnchor.constraint(lessThanOrEqualTo: actionButton.leadingAnchor, constant: -6),
             actionButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -2),
@@ -226,6 +237,17 @@ final class PinnedMessageBannerView: UIView {
             actionPressed()
         }
     #endif
+
+    /// The gap that puts the text's top 17 pt below the title's, as Telegram does, at the current text size.
+    private func textSpacing() -> CGFloat {
+        let titleFont = UIFontMetrics(forTextStyle: .caption1).scaledFont(
+            for: .systemFont(ofSize: 13, weight: .semibold),
+            maximumPointSize: 15,
+            compatibleWith: traitCollection,
+        )
+        let scale = max(1, traitCollection.displayScale)
+        return max(0, 17 - (titleFont.lineHeight * scale).rounded(.up) / scale)
+    }
 
     @objc private func openPressed() {
         onOpen?()
