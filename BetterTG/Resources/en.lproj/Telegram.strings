@@ -501,6 +501,11 @@
 "MessagePoll.LabelPoll" = "Public Poll";
 "MessagePoll.LabelAnonymousQuiz" = "Anonymous Quiz";
 "MessagePoll.Explanation" = "Explanation";
+"MessagePoll.ViewVotes" = "View Votes (%@)";
+"PollResults.Title" = "Poll Results";
+"PollResults.Collapse" = "COLLAPSE";
+"PollResults.ShowMore_1" = "Show More (%@)";
+"PollResults.ShowMore_any" = "Show More (%@)";
 "Conversation.ForwardOptions.Title_0" = "%@ Messages";
 "Conversation.ForwardOptions.Title_1" = "%@ Message";
 "Conversation.ForwardOptions.Title_2" = "%@ Messages";

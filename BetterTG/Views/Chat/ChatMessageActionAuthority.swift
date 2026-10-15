@@ -102,6 +102,12 @@ import UIKit
                   optionIDs.allSatisfy({ content.poll.options.indices.contains($0) }),
                   Set(optionIDs).count == optionIDs.count,
                   content.poll.allowsMultipleAnswers || optionIDs.count <= 1 else { return nil }
+        case .content(.openPollResults(let messageID, let optionID)):
+            // TDLib lists the voters of a public poll only where `canGetVoters` allows.
+            guard let raw = sources.first(where: { $0.id == messageID }),
+                  case .messagePoll(let content) = raw.content,
+                  !content.poll.isAnonymous, content.poll.canGetVoters,
+                  optionID.map({ content.poll.options.indices.contains($0) }) != false else { return nil }
         case .content(.cancelSending(let messageID)):
             guard let raw = sources.first(where: { $0.id == messageID }),
                   case .messageSendingStatePending = raw.sendingState else { return nil }

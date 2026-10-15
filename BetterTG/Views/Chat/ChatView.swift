@@ -3895,6 +3895,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         case .submitPollAnswer(let messageID, let optionIDs, let submission):
             chatVM.submitPollAnswer(messageID: messageID, optionIDs: optionIDs, submission: submission)
+        case .openPollResults(let messageID, let optionID):
+            openPollResults(messageID: messageID, optionID: optionID, in: message)
         case .cancelSending(let messageID):
             // ChatMessageInteractiveMediaNode.progressPressed deletes a sending message for everyone.
             chatVM.deleteMessages(ids: [messageID], deleteForBoth: true)
@@ -3994,6 +3996,26 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let navigation = TelegramNavigationController(rootViewController: details)
         navigation.modalPresentationStyle = .pageSheet
         present(navigation, animated: true)
+    }
+
+    /// Telegram's poll results (requestOpenMessagePollResults), pushed on this chat's client as the profile's member
+    /// list is.
+    private func openPollResults(messageID: Int64, optionID: Int?, in message: CustomMessage) {
+        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
+              let accountID = location.accountID,
+              let source = message.sourceMessages.first(where: { $0.id == messageID }),
+              case .messagePoll(let content) = source.content,
+              let navigation = navigationController, navigation.topViewController === self
+        else { return }
+        let results = PollResultsViewController(
+            chatID: source.chatId,
+            messageID: messageID,
+            poll: content.poll,
+            focusedOptionID: optionID,
+            client: chatVM.client,
+            accountID: accountID,
+        )
+        navigation.pushViewController(results, animated: true)
     }
 
     /// Opens a user's profile on this chat's client (Telegram's `openPeer(.info)` for a shared contact or a user

@@ -273,6 +273,7 @@
 "Poll.RestrictionCountry" = "Voting isn't available in your country";
 "Poll.RestrictionMembership" = "Join the chat for at least a day to vote";
 "Poll.RestrictionOther" = "Voting is unavailable";
+"PollResults.LoadFailed" = "Couldn't load votes\n%@\nTap to retry";
 "Contact.Phone" = "Phone";
 "Contact.Email" = "Email";
 "Contact.Company" = "Company";
@@ -294,6 +295,8 @@
 "Accessibility.OpenLocationHint" = "Opens this location in Maps";
 "Accessibility.Percent" = "%d percent";
 "Accessibility.SelectPollOptionHint" = "Selects this poll option";
+"Accessibility.OpenPollVotersHint" = "Shows who chose this answer";
+"Accessibility.OpenVoterProfileHint" = "Opens the voter's profile";
 "Accessibility.DiceValue" = "%1$@, value %2$d";
 "Accessibility.HoldToOpenHint" = "Touch and hold to open";
 "Accessibility.ProtectedMessageUnavailable" = "Protected message unavailable";

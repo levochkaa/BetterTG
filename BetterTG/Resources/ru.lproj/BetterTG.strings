@@ -273,6 +273,7 @@
 "Poll.RestrictionCountry" = "Голосование недоступно в вашей стране";
 "Poll.RestrictionMembership" = "Голосовать можно через сутки после вступления в чат";
 "Poll.RestrictionOther" = "Голосование недоступно";
+"PollResults.LoadFailed" = "Не удалось загрузить голоса\n%@\nНажмите, чтобы повторить";
 "Contact.Phone" = "Телефон";
 "Contact.Email" = "Эл. почта";
 "Contact.Company" = "Компания";
@@ -294,6 +295,8 @@
 "Accessibility.OpenLocationHint" = "Открывает место в Картах";
 "Accessibility.Percent" = "%d%%";
 "Accessibility.SelectPollOptionHint" = "Выбирает этот вариант ответа";
+"Accessibility.OpenPollVotersHint" = "Показывает, кто выбрал этот ответ";
+"Accessibility.OpenVoterProfileHint" = "Открывает профиль проголосовавшего";
 "Accessibility.DiceValue" = "%1$@, значение %2$d";
 "Accessibility.HoldToOpenHint" = "Нажмите и удерживайте, чтобы открыть";
 "Accessibility.ProtectedMessageUnavailable" = "Защищённое сообщение недоступно";

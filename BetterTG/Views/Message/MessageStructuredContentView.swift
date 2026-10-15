@@ -23,6 +23,9 @@ enum MessageContentAction {
     case openChatPhoto(ChatPhoto)
     case openLocation(location: Location, title: String)
     case submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission)
+    /// Telegram's View Votes button and a public poll's result row (requestOpenMessagePollResults): the poll's
+    /// voters, opened at the tapped answer.
+    case openPollResults(messageID: Int64, optionID: Int?)
     case richContentLayoutChanged
     /// The disc over an uploading photo or video was tapped: delete the sending message, as Telegram does.
     case cancelSending(messageID: Int64)
@@ -1158,6 +1161,12 @@ private final class LocationMessageContentView: UIControl, MessageSupplementView
 // MARK: - PollMessageContentView
 
 private final class PollMessageContentView: UIView, MessageSupplementView {
+    /// What the button under the answers does.
+    private enum FooterAction {
+        case vote
+        case viewVotes
+    }
+
     private let explanationView = PollExplanationView()
     private let questionLabel = UILabel()
     private let typeLabel = UILabel()
@@ -1224,6 +1233,16 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         isQuiz && showsResults && !correctOptionIndices.isEmpty
     }
 
+    /// A public poll whose voters TDLib lists now (`canGetVoters`): voted, closed, or the creator's own.
+    private var canViewVoters: Bool {
+        !content.poll.isAnonymous && content.poll.canGetVoters && content.poll.totalVoterCount > 0
+    }
+
+    /// ChatMessagePollOptionNode.resultPressed: a public poll's result row opens the voters of that answer.
+    private var resultsOpenVoters: Bool {
+        showsResults && canViewVoters && !canVote
+    }
+
     /// ChatMessagePollBubbleContentNode shows the lamp for a quiz's solution once the quiz is answered or closed.
     private var quizExplanation: FormattedText? {
         guard case .pollTypeQuiz(let quiz) = content.poll.type, !quiz.explanation.text.isEmpty,
@@ -1231,10 +1250,16 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         return quiz.explanation
     }
 
-    /// The multiple-answer Vote button (ChatMessagePollBubbleContentNode.updateSelection), until the poll is
-    /// answered.
-    private var showsVoteButton: Bool {
-        content.poll.allowsMultipleAnswers && canOfferVote
+    /// ChatMessagePollBubbleContentNode.updateSelection: a multiple-answer poll offers Vote until it is answered,
+    /// except to someone who already sees its voters (its creator) with nothing checked. A public poll otherwise
+    /// offers View Votes.
+    private var footerAction: FooterAction? {
+        if content.poll.allowsMultipleAnswers, canOfferVote,
+           !canViewVoters || !interactionState.pendingSelection.isEmpty
+        {
+            return .vote
+        }
+        return canViewVoters ? .viewVotes : nil
     }
 
     private var pollTypeText: String {
@@ -1262,8 +1287,8 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
 
     private var footerText: String {
         var values = [String]()
-        // The voters line gives way to the Vote button, as in Telegram.
-        if !showsVoteButton { values.append(votersText) }
+        // The voters line gives way to the Vote or View Votes button, as in Telegram.
+        if footerAction == nil { values.append(votersText) }
         if let restriction = content.poll.voteRestrictionReason {
             values.append(pollRestrictionText(restriction))
         } else if content.poll.allowsMultipleAnswers, canVote {
@@ -1361,8 +1386,9 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
                     && content.poll.options[index].isChosen
                     && !correctOptionIndices.contains(index),
                 enabled: canVote,
+                opensVoters: resultsOpenVoters,
                 relativeProgress: relativeProgress(for: content.poll.options[index]),
-            ) { [weak self] selectedIndex in self?.selectOption(selectedIndex) }
+            ) { [weak self] selectedIndex in self?.optionTapped(selectedIndex) }
             optionViews[index] = optionView
             optionsStack.addArrangedSubview(optionView)
         }
@@ -1443,15 +1469,28 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         }
     }
 
-    private func renderSelection() {
+    private func optionTapped(_ index: Int) {
+        if canVote {
+            selectOption(index)
+        } else if resultsOpenVoters, content.poll.options.indices.contains(index) {
+            onAction(.openPollResults(messageID: messageID, optionID: index))
+        }
+    }
+
+    /// Returns whether the button under the answers or the footer changed, which changes the poll's height.
+    @discardableResult private func renderSelection() -> Bool {
         let state = interactionState
+        let opensVoters = resultsOpenVoters
         for (index, view) in optionViews {
-            view.isEnabled = canVote
+            view.isEnabled = canVote || opensVoters
             view.alpha = canVote || showsResults ? 1 : 0.7
             view.setPendingSelected(state.pendingSelection.contains(index))
         }
         let hasSelectionChange = state.pendingSelection != currentSelection
-        let showsButton = showsVoteButton
+        let action = footerAction
+        let showsButton = action != nil
+        let previousFooter = footerLabel.text
+        let buttonVisibilityChanged = voteButton.isHidden == showsButton
         voteButton.isHidden = !showsButton
         if showsButton {
             voteButtonCollapsed.isActive = false
@@ -1460,9 +1499,22 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
             voteButtonHeight.isActive = false
             voteButtonCollapsed.isActive = true
         }
-        voteButton.isEnabled = hasSelectionChange && canVote
+        switch action {
+        case .vote:
+            voteButton.setTitle(L10n.telegram("MessagePoll.SubmitVote"), for: .normal)
+            voteButton.isEnabled = hasSelectionChange && canVote
+        case .viewVotes:
+            voteButton.setTitle(
+                L10n.telegram("MessagePoll.ViewVotes", compactNumericCountString(content.poll.totalVoterCount)),
+                for: .normal,
+            )
+            voteButton.isEnabled = !state.isSubmitting
+        case nil:
+            voteButton.isEnabled = false
+        }
         voteButton.alpha = voteButton.isEnabled ? 1 : 0.45
         footerLabel.text = footerText
+        return buttonVisibilityChanged || footerLabel.text != previousFooter
     }
 
     /// Shows the quiz's explanation above the poll while it is open, and the lamp otherwise. Returns whether the
@@ -1483,8 +1535,9 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     }
 
     private func interactionStoreChanged() {
-        renderSelection()
-        if renderExplanation() { onAction(.richContentLayoutChanged) }
+        let selectionLayoutChanged = renderSelection()
+        let explanationLayoutChanged = renderExplanation()
+        if selectionLayoutChanged || explanationLayoutChanged { onAction(.richContentLayoutChanged) }
     }
 
     @objc private func solutionTapped() {
@@ -1496,7 +1549,14 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     }
 
     @objc private func voteTapped() {
-        submitSelection()
+        switch footerAction {
+        case .vote:
+            submitSelection()
+        case .viewVotes:
+            onAction(.openPollResults(messageID: messageID, optionID: nil))
+        case nil:
+            break
+        }
     }
 
     private func submitSelection() {
@@ -1610,6 +1670,7 @@ private final class PollOptionContentView: UIControl {
         correct: Bool,
         incorrect: Bool,
         enabled: Bool,
+        opensVoters: Bool,
         relativeProgress: CGFloat,
         onTap: @escaping (Int) -> Void,
     ) {
@@ -1640,12 +1701,19 @@ private final class PollOptionContentView: UIControl {
         progressView.backgroundColor = (option.isChosen ? resultTint : UIColor.systemBlue).withAlphaComponent(0.12)
         selectionView.image = resultImage
         selectionView.tintColor = resultTint
-        isEnabled = enabled
+        isEnabled = enabled || opensVoters
         alpha = enabled || showsResults ? 1 : 0.7
         accessibilityLabel = option.text.text
         accessibilityValue = showsResults ? L10n.betterTG("Accessibility.Percent", Int(option.votePercentage)) : nil
         accessibilityTraits = option.isChosen ? [.button, .selected] : [.button]
-        accessibilityHint = enabled ? L10n.betterTG("Accessibility.SelectPollOptionHint") : nil
+        accessibilityHint =
+            if enabled {
+                L10n.betterTG("Accessibility.SelectPollOptionHint")
+            } else if opensVoters {
+                L10n.betterTG("Accessibility.OpenPollVotersHint")
+            } else {
+                nil
+            }
         setNeedsLayout()
     }
 
@@ -2498,6 +2566,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("location")
                     case .submitPollAnswer(_, let optionIDs, _):
                         actions.append("poll:\(optionIDs.map(String.init).joined(separator: ","))")
+                    case .openPollResults:
+                        actions.append("poll-results")
                     case .cancelSending:
                         actions.append("cancel")
                     case .pressInlineKeyboardButton:

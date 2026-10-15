@@ -476,6 +476,22 @@ extension TDClient {
         try await send(TDNativeRequests.getOption(name: name))
     }
 
+    func getPollVoters(
+        chatId: Int64,
+        limit: Int,
+        messageId: Int64,
+        offset: Int,
+        optionId: Int,
+    ) async throws -> TDNativePollVoters {
+        try await send(TDNativeRequests.getPollVoters(
+            chatId: chatId,
+            messageId: messageId,
+            optionId: optionId,
+            offset: offset,
+            limit: limit,
+        ))
+    }
+
     func getRepliedMessage(chatId: Int64, messageId: Int64) async throws -> TDNativeMessage {
         try await send(TDNativeRequests.getRepliedMessage(chatId: chatId, messageId: messageId))
     }
