@@ -23,7 +23,12 @@ import TDLibKit
     private(set) var query = ""
     private(set) var sender: MessageSender?
     /// Newest first.
-    private(set) var messageIDs = [Int64]()
+    private(set) var messageIDs = [Int64]() {
+        didSet { resultIDs = Set(messageIDs) }
+    }
+
+    /// The found messages, for highlighting the query in their text.
+    private(set) var resultIDs = Set<Int64>()
     private(set) var currentIndex: Int?
     private(set) var isLoading = false
 

@@ -80,6 +80,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     private var quoteHighlightRange: NSRange?
     private var quoteHighlightTask: Task<Void, Never>?
     private var quoteHighlightViews = [UIView]()
+    /// The chat search's query while this text belongs to a found message (updateSearchTextHighlightState).
+    private var searchHighlightQuery: String?
 
     #if DEBUG
         var debugQuoteHighlightCount: Int { quoteHighlightViews.count }
@@ -219,6 +221,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     func prepareForReuse() {
         setContextQuoteAction(nil)
         clearQuoteHighlight()
+        searchHighlightQuery = nil
         clearCustomEmojiViews()
         customEmojiPlaybackVisible = false
         spoilerSubscription = nil
@@ -246,6 +249,15 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         for placement in customEmojiPlacements {
             placement.view.setPlaybackVisible(isVisible)
         }
+    }
+
+    /// Marks the words matching a chat search query behind Telegram's text highlight color, or clears them.
+    func setSearchHighlight(_ query: String?) {
+        let query = query?.isEmpty == false ? query : nil
+        guard query != searchHighlightQuery else { return }
+        searchHighlightQuery = query
+        guard spoilerState != nil else { return }
+        renderText()
     }
 
     func highlightQuote(position: Int, length: Int) {
@@ -494,6 +506,15 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
                 .underlineColor: UIColor.clear,
                 .strikethroughColor: UIColor.clear,
             ], range: range)
+        }
+        if let query = searchHighlightQuery {
+            let hiddenRanges = state.revealed ? [] : state.presentation.ranges
+            for range in ChatSearchTextHighlight.ranges(in: result.string, query: query)
+                where NSMaxRange(range) <= result.length
+                && !hiddenRanges.contains(where: { NSIntersectionRange($0, range).length > 0 })
+            {
+                result.addAttribute(.backgroundColor, value: ChatSearchTextHighlight.color, range: range)
+            }
         }
         if statusLabel.text?.isEmpty == false {
             result.append(statusSpacer(width: ceil(statusLabel.bounds.width) + 9))

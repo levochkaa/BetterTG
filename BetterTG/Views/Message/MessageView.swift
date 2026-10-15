@@ -482,6 +482,14 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         commentFooterView.setLoading(isLoading)
     }
 
+    /// The chat search's query in the message text and a file album's captions, or nil to clear it.
+    func setSearchHighlight(query: String?) {
+        textView.setSearchHighlight(query)
+        for item in structuredContentView.albumCaptionItems {
+            item.caption?.setSearchHighlight(query)
+        }
+    }
+
     func setMessageHighlighted(_ messageID: Int64?, animated: Bool = false) {
         let highlighted = messageID != nil
         if let messageID {

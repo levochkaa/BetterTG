@@ -2604,6 +2604,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                             showsProfileImage: row.inputs.showsProfileImage,
                             commentsLoading: commentsThreadLoad?.displayedID == displayedMessageID,
                         )
+                        cell.setSearchHighlight(query: messageSearchHighlightQuery(for: message))
                         cell.onSelfSizingHeightChange = { [weak self] in
                             self?.messageCellWillChangeHeight()
                         }
@@ -5041,6 +5042,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updateMessageSearchPanel() {
+        updateMessageSearchHighlights()
         let status: ChatSearchPanel.Status = messageSearchChoosesMember ? .idle : messageSearch.status
         let queryIsEmpty = messageSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         messageSearchPanel.update(
@@ -5062,6 +5064,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             self.messageSearchPanel.alpha = visible ? 1 : 0
         } completion: { _ in
             if !self.messageSearchActive { self.messageSearchPanel.isHidden = true }
+        }
+    }
+
+    /// Telegram highlights the query in the text of found messages only (updateItemNodesSearchTextHighlightStates).
+    private func messageSearchHighlightQuery(for message: CustomMessage) -> String? {
+        guard messageSearchActive, !messageSearchChoosesMember, !messageSearch.query.isEmpty else { return nil }
+        let results = messageSearch.resultIDs
+        return message.sourceMessages.contains { results.contains($0.id) } ? messageSearch.query : nil
+    }
+
+    /// Visible rows follow the query and results at once; rows configured later read them in their configuration.
+    private func updateMessageSearchHighlights() {
+        for case let cell as MessageCell in collectionView.visibleCells {
+            guard let displayedID = cell.timelineDisplayedID, let message = message(for: displayedID) else { continue }
+            cell.setSearchHighlight(query: messageSearchHighlightQuery(for: message))
         }
     }
 
