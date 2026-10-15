@@ -478,7 +478,7 @@ final class ChatComposerView: UIView {
             replySnippet.configure(
                 title: L10n.betterTG(
                     "Composer.VideoReplyTo",
-                    videoNoteReplyMessage.senderUser?.firstName ?? L10n.betterTG("Message.Generic"),
+                    replyAuthorName(for: videoNoteReplyMessage) ?? L10n.betterTG("Message.Generic"),
                 ),
                 message: videoNoteReplyMessage.message,
             ) { [weak self] in
@@ -507,7 +507,7 @@ final class ChatComposerView: UIView {
                 replySnippet.configure(
                     title: L10n.betterTG(
                         "Composer.VideoReplyTo",
-                        pendingReply.senderUser?.firstName ?? L10n.betterTG("Message.Generic"),
+                        replyAuthorName(for: pendingReply) ?? L10n.betterTG("Message.Generic"),
                     ),
                     message: pendingReply.message,
                 ) { [weak self] in
@@ -536,7 +536,7 @@ final class ChatComposerView: UIView {
                 replySnippet.configure(
                     title: L10n.betterTG(
                         "Composer.VoiceReplyTo",
-                        pendingReply.senderUser?.firstName ?? L10n.betterTG("Message.Generic"),
+                        replyAuthorName(for: pendingReply) ?? L10n.betterTG("Message.Generic"),
                     ),
                     message: pendingReply.message,
                 ) { [weak self] in
@@ -564,7 +564,7 @@ final class ChatComposerView: UIView {
         } else if let reply = chatVM.replyMessage {
             showsReplyPreview = true
             closeReplyButton.isHidden = false
-            let title = reply.senderUser?.firstName ?? L10n.telegram("Conversation.ContextMenuReply")
+            let title = replyAuthorName(for: reply) ?? L10n.telegram("Conversation.ContextMenuReply")
             if let quote = chatVM.replyQuote {
                 replySnippet.configure(title: title, quote: quote) { [weak self] in
                     guard let self else { return }
@@ -1618,6 +1618,21 @@ final class ChatComposerView: UIView {
     private func formatVideoDuration(_ duration: Double) -> String {
         let seconds = max(0, Int(duration))
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    /// ReplyAccessoryPanelNode names the message's effective author: a channel post or an anonymous admin's message
+    /// reads as its sender chat, as the bubbles' reply headers do. A chat TDLib hasn't returned yet updates the panel.
+    private func replyAuthorName(for message: CustomMessage) -> String? {
+        switch message.message.senderId {
+        case .messageSenderUser:
+            return message.senderUser?.firstName
+        case .messageSenderChat(let sender):
+            if sender.chatId == chatVM.chatID { return chatVM.customChat.chat.title }
+            return MessagePeerNames.chat(sender.chatId, client: chatVM.client) { [weak self] _ in
+                guard let self else { return }
+                update(from: chatVM)
+            }?.title
+        }
     }
 
     private func navigationTarget(
