@@ -2860,7 +2860,6 @@ ClientRestorableNavigationEntry {
                 accountID: accountID,
                 accountUserID: accountUserID,
                 openMembers: { [weak self] in self?.membersPressed() },
-                openAdministrators: { [weak self] in self?.administratorsPressed() },
             ), animated: true)
             return
         }

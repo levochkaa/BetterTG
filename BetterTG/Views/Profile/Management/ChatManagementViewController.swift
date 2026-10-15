@@ -15,7 +15,6 @@ final class ChatManagementViewController: SettingsListViewController {
     private let isChannel: Bool
     private let session: PeerProfileEditSession
     private let openMembers: () -> Void
-    private let openAdministrators: () -> Void
     private lazy var photoHeader = ComposePhotoHeaderView(
         buttonTitle: L10n.telegram(isChannel ? "Channel.UpdatePhotoItem" : "GroupInfo.SetGroupPhoto"),
     )
@@ -40,13 +39,11 @@ final class ChatManagementViewController: SettingsListViewController {
         accountID: UUID,
         accountUserID: Int64?,
         openMembers: @escaping () -> Void,
-        openAdministrators: @escaping () -> Void,
     ) {
         self.chatID = chatID
         self.isChannel = isChannel
         self.session = .live(accountID: accountID, actorID: accountUserID)
         self.openMembers = openMembers
-        self.openAdministrators = openAdministrators
         super.init()
     }
 
@@ -161,7 +158,7 @@ final class ChatManagementViewController: SettingsListViewController {
                 L10n.telegram("GroupInfo.Administrators"),
                 symbol: "star",
                 value: count > 0 ? count.formatted(.number) : nil,
-            ) { [weak self] in self?.openAdministrators() })
+            ) { [weak self] in self?.push(ChatAdministratorsViewController(target: target)) })
         }
         if target.supergroupID != nil, target.rights?.canRestrictMembers == true {
             let count = target.supergroupInfo?.bannedCount ?? 0
