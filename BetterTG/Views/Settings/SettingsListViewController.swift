@@ -286,7 +286,7 @@ class SettingsListViewController: UITableViewController {
 
     /// Runs a request the user asked for on the account's client. A failure shows Telegram's generic error, or
     /// `failureText` when the caller knows the reason.
-    func perform(
+    final func perform(
         failureText: ((Error) -> String?)? = nil,
         _ request: @escaping @MainActor (TDLibClient) async throws -> Void,
         completion: (@MainActor () -> Void)? = nil,

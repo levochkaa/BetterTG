@@ -69,7 +69,8 @@ final class BlockedUsersViewController: SettingsListViewController {
             guard let self, contextIsCurrent else { return }
             isLoading = false
             senders += loaded
-            totalCount = page.map { max($0.totalCount, senders.count) } ?? senders.count
+            let loadedCount = senders.count
+            totalCount = page.map { max($0.totalCount, loadedCount) } ?? loadedCount
             if page?.senders.isEmpty != false { totalCount = senders.count }
             reload()
         }
