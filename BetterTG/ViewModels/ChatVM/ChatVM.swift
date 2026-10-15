@@ -123,7 +123,17 @@ import UIKit
     @Published var highlightedMessageId: Int64?
     @Published var displayedImages = [SelectedImage]()
     @Published var displayedDocuments = [SelectedDocument]()
-    @Published var text: AttributedString = ""
+    @Published var text: AttributedString = "" {
+        didSet {
+            if text != oldValue { scheduleComposerLinkPreview() }
+        }
+    }
+
+    /// Telegram's `urlPreview` for the composer: the preview of the input's first link, from `getLinkPreview`.
+    @Published private(set) var composerLinkPreview: TDNativeLinkPreview?
+    /// The link panel's choices for that link: Do Not Preview, above or below the text, larger or smaller media.
+    @Published private(set) var composerLinkPreviewOptions: TDNativeLinkPreviewOptions?
+
     @Published var editMessageText: AttributedString = "" {
         didSet {
             if editMessageText != oldValue { composerEditState.changeText() }
@@ -326,6 +336,8 @@ import UIKit
     private var composerSendHold: (id: UUID, earlierMessageIDs: Set<Int64>, sentMessageIDs: Set<Int64>?)?
     /// The send-button menu's options for the composer send in progress (silent, scheduled or when online).
     private var composerSendOptions: TDNativeMessageSendOptions?
+    private var composerLinkPreviewTask: Task<Void, Never>?
+    private var composerLinkPreviewRequest: FormattedText?
 
     /// Discrete changes (start, stop, restored drafts) publish like the other state; the tick writes the storage.
     var timerCount: Double {
@@ -780,6 +792,19 @@ import UIKit
         }
     }
 
+    /// The link panel shown in the reply slot: a text message's preview the user hasn't turned off. Telegram's
+    /// accessory panels put it ahead of a forward or a reply; a media caption has no link preview.
+    var visibleComposerLinkPreview: TDNativeLinkPreview? {
+        guard editCustomMessage == nil, displayedImages.isEmpty, displayedDocuments.isEmpty,
+              let preview = composerLinkPreview, currentLinkPreviewOptions?.isDisabled != true else { return nil }
+        return preview
+    }
+
+    /// The options the composer sends and keeps in its draft; nil leaves TDLib's own preview.
+    var composerLinkPreviewSendOptions: TDNativeLinkPreviewOptions? {
+        currentLinkPreviewOptions
+    }
+
     private var usesOrdinaryDeliveryReceipts: Bool {
         guard location.topic == nil, !customChat.chat.viewAsTopics, !customChat.isSavedMessages else { return false }
         if case .chatTypeSupergroup(let type) = customChat.chat.type {
@@ -878,6 +903,13 @@ import UIKit
             && pendingVoiceNote == nil && activeVoiceRecordingDraft == nil && pendingVideoNote == nil
             && !retryingVideoNote && videoRetryTask == nil && submittingVideoDraftIDs.isEmpty
             && restoredVideoRecordingDraft == nil
+    }
+
+    /// Options belong to the link they were chosen for; a draft's options wait for its link's preview.
+    private var currentLinkPreviewOptions: TDNativeLinkPreviewOptions? {
+        guard let options = composerLinkPreviewOptions else { return nil }
+        if let preview = composerLinkPreview, !options.url.isEmpty, options.url != preview.url { return nil }
+        return options
     }
 
     convenience init(
@@ -3510,13 +3542,15 @@ import UIKit
         // TDLib accepts longer text from a user account and the server rejects it after the composer cleared, so the
         // text is split as Telegram does; every part keeps the reply, as in `ChatControllerNode`.
         var messages = [Message]()
-        for part in ComposerTextBreaker.messages(text) {
+        // The link panel's choices go with the first part, the one Telegram shows the panel for.
+        let linkPreviewOptions = composerLinkPreviewSendOptions
+        for (index, part) in ComposerTextBreaker.messages(text).enumerated() {
             let message = try await client.sendMessage(
                 chatId: context.chatID,
                 inputMessageContent: .inputMessageText(
                     InputMessageText(
                         clearDraft: false,
-                        linkPreviewOptions: nil,
+                        linkPreviewOptions: index == 0 ? linkPreviewOptions : nil,
                         text: FormattedText(entities: getEntities(from: part), text: part.string),
                     ),
                 ),
@@ -3900,6 +3934,45 @@ import UIKit
             if !(error is CancellationError) {
                 log("Chat draft update failed: \(error)")
             }
+        }
+    }
+
+    /// Move Up / Move Down in Telegram's link options.
+    func setComposerLinkPreviewAboveText(_ isAbove: Bool) {
+        updateComposerLinkPreviewOptions { current, url in
+            TDNativeLinkPreviewOptions(
+                isDisabled: false,
+                url: url,
+                forceSmallMedia: current?.forceSmallMedia ?? false,
+                forceLargeMedia: current?.forceLargeMedia ?? false,
+                showAboveText: isAbove,
+            )
+        }
+    }
+
+    /// Enlarge or Shrink Photo/Video in Telegram's link options.
+    func setComposerLinkPreviewLargeMedia(_ isLarge: Bool) {
+        updateComposerLinkPreviewOptions { current, url in
+            TDNativeLinkPreviewOptions(
+                isDisabled: false,
+                url: url,
+                forceSmallMedia: !isLarge,
+                forceLargeMedia: isLarge,
+                showAboveText: current?.showAboveText ?? false,
+            )
+        }
+    }
+
+    /// The panel's × and Do Not Preview: the message goes without a preview for this link.
+    func disableComposerLinkPreview() {
+        updateComposerLinkPreviewOptions { _, url in
+            TDNativeLinkPreviewOptions(
+                isDisabled: true,
+                url: url,
+                forceSmallMedia: false,
+                forceLargeMedia: false,
+                showAboveText: false,
+            )
         }
     }
 
@@ -4416,6 +4489,47 @@ import UIKit
         guard location.messageThreadID != nil, let messageThread,
               message.chatId == location.chatID else { return false }
         return messageThread.messages.contains { $0.id == message.id }
+    }
+
+    /// ChatControllerLinkPreview: the input's preview, asked for once the text stops changing.
+    private func scheduleComposerLinkPreview() {
+        composerLinkPreviewTask?.cancel()
+        let formatted = FormattedText(entities: getEntities(from: text), text: text.string)
+        var canPreview = !previewing && formatted.text.contains(".")
+        if case .chatTypeSecret = customChat.chat.type { canPreview = false }
+        guard canPreview else {
+            composerLinkPreviewRequest = nil
+            if composerLinkPreview != nil { composerLinkPreview = nil }
+            if text.characters.isEmpty, composerLinkPreviewOptions != nil { composerLinkPreviewOptions = nil }
+            return
+        }
+        guard formatted != composerLinkPreviewRequest else { return }
+        let client = client
+        composerLinkPreviewTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            let preview = try? await client.send(TDNativeRequests.getLinkPreview(
+                text: formatted,
+                linkPreviewOptions: nil,
+            ))
+            guard let self, !Task.isCancelled, locationContextIsCurrent else { return }
+            composerLinkPreviewRequest = formatted
+            if let preview, let options = composerLinkPreviewOptions, !options.url.isEmpty,
+               options.url != preview.url
+            {
+                composerLinkPreviewOptions = nil
+            }
+            composerLinkPreview = preview
+        }
+    }
+
+    private func updateComposerLinkPreviewOptions(
+        _ make: (TDNativeLinkPreviewOptions?, String) -> TDNativeLinkPreviewOptions,
+    ) {
+        guard let preview = composerLinkPreview, locationContextIsCurrent else { return }
+        markComposerDirty()
+        composerLinkPreviewOptions = make(currentLinkPreviewOptions, preview.url)
+        Task { [weak self] in await self?.updateDraft() }
     }
 
     private func sendPanelAnimation(_ send: (ResolvedSendContext) async throws -> Message) async {
@@ -5089,7 +5203,7 @@ import UIKit
                 DraftMessage(
                     content: .draftMessageContentText(
                         DraftMessageContentText(
-                            linkPreviewOptions: nil,
+                            linkPreviewOptions: composerLinkPreviewSendOptions,
                             text: FormattedText(
                                 entities: getEntities(from: text),
                                 text: text.string,
@@ -5496,6 +5610,13 @@ import UIKit
         expectedRevision: UInt64,
     ) {
         guard !composerIsDirty, composerRevision == expectedRevision else { return }
+        // A draft keeps its link preview choices (DraftMessageContentText.linkPreviewOptions).
+        composerLinkPreviewOptions =
+            if let draft, case .draftMessageContentText(let content) = draft.content {
+                content.linkPreviewOptions
+            } else {
+                nil
+            }
         text =
             if let draft,
             case .draftMessageContentText(let content) = draft.content {

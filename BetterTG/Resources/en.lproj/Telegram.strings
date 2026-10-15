@@ -1372,3 +1372,10 @@
 "Conversation.ContextMenuSeen_1" = "1 Seen";
 "Conversation.ContextMenuSeen_any" = "%@ Seen";
 "Time.TodayAt" = "today at %@";
+"Conversation.MessageOptionsLinkMoveUp" = "Move Up";
+"Conversation.MessageOptionsLinkMoveDown" = "Move Down";
+"Conversation.MessageOptionsShrinkImage" = "Shrink Photo";
+"Conversation.MessageOptionsEnlargeImage" = "Enlarge Photo";
+"Conversation.MessageOptionsShrinkVideo" = "Shrink Video";
+"Conversation.MessageOptionsEnlargeVideo" = "Enlarge Video";
+"Conversation.LinkOptionsCancel" = "Do Not Preview";

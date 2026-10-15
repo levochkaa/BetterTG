@@ -138,6 +138,8 @@ final class ChatComposerView: UIView {
     /// shows it for a few seconds), and cancels it 4 s after the last keystroke.
     private var lastTypingActionDate: Date?
     private var isApplyingState = false
+    /// The reply slot shows the link panel, whose × turns the preview off.
+    private var showsLinkPreviewPanel = false
     private var hiddenForSearch = false
     private var keyboardAttached = false
     private var lastReplyID: Int64?
@@ -479,6 +481,7 @@ final class ChatComposerView: UIView {
         if beginsEditing { textView.moveCaretToEnd() }
 
         let showsReplyPreview: Bool
+        showsLinkPreviewPanel = false
         if let edited = chatVM.editCustomMessage {
             showsReplyPreview = true
             closeReplyButton.isHidden = false
@@ -571,6 +574,20 @@ final class ChatComposerView: UIView {
                             ?? .message(chatID: chatVM.chatID, messageID: pendingReplyID, quote: nil),
                     )
                 }
+            }
+        } else if let preview = chatVM.visibleComposerLinkPreview {
+            // WebpagePreviewAccessoryPanelNode: the site, then the page's title or description.
+            showsReplyPreview = true
+            showsLinkPreviewPanel = true
+            closeReplyButton.isHidden = false
+            let pageDescription = preview.description.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            replySnippet.configure(
+                title: preview.siteName.isEmpty ? preview.displayUrl : preview.siteName,
+                text: preview.title.isEmpty
+                    ? (pageDescription.isEmpty ? preview.displayUrl : pageDescription)
+                    : preview.title,
+            ) { [weak self] in
+                self?.showLinkPreviewOptions()
             }
         } else if let forward = chatVM.pendingForward {
             showsReplyPreview = true
@@ -1786,10 +1803,69 @@ final class ChatComposerView: UIView {
         chatVM.pendingForward = transform(forward)
     }
 
+    /// ChatMessageActionOptions' link options: Move Up / Move Down, Enlarge or Shrink the media where the preview
+    /// can change its size, and Do Not Preview.
+    private func showLinkPreviewOptions() {
+        guard let preview = chatVM.visibleComposerLinkPreview else { return }
+        let options = chatVM.composerLinkPreviewSendOptions
+        let isAbove = options?.showAboveText ?? preview.showAboveText
+        var actions = [TelegramContextMenuAction(
+            title: L10n.telegram(isAbove
+                ? "Conversation.MessageOptionsLinkMoveDown"
+                : "Conversation.MessageOptionsLinkMoveUp"),
+            image: UIImage(systemName: isAbove ? "arrow.down.to.line" : "arrow.up.to.line"),
+        ) { [weak self] in
+            self?.chatVM.setComposerLinkPreviewAboveText(!isAbove)
+        }]
+        if preview.hasLargeMedia {
+            let isLarge = options.map { $0.forceLargeMedia || (!$0.forceSmallMedia && preview.showLargeMedia) }
+                ?? preview.showLargeMedia
+            let isVideo =
+                switch preview.type {
+                case .linkPreviewTypeAnimation, .linkPreviewTypeEmbeddedAnimationPlayer,
+                     .linkPreviewTypeEmbeddedVideoPlayer,
+                     .linkPreviewTypeExternalVideo, .linkPreviewTypeVideo:
+                    true
+                default:
+                    false
+                }
+            let key =
+                switch (isLarge, isVideo) {
+                case (true, true): "Conversation.MessageOptionsShrinkVideo"
+                case (true, false): "Conversation.MessageOptionsShrinkImage"
+                case (false, true): "Conversation.MessageOptionsEnlargeVideo"
+                case (false, false): "Conversation.MessageOptionsEnlargeImage"
+                }
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(key),
+                image: UIImage(systemName: isLarge
+                    ? "arrow.down.right.and.arrow.up.left"
+                    : "arrow.up.left.and.arrow.down.right"),
+            ) { [weak self] in
+                self?.chatVM.setComposerLinkPreviewLargeMedia(!isLarge)
+            })
+        }
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("Conversation.LinkOptionsCancel"),
+            image: UIImage(systemName: "trash"),
+            isDestructive: true,
+            startsNewSection: true,
+        ) { [weak self] in
+            self?.chatVM.disableComposerLinkPreview()
+        })
+        nearestViewController?.presentTelegramContextMenu(
+            sourceView: replySnippet,
+            actions: actions,
+            presentationStyle: .menuOnly,
+        )
+    }
+
     @objc private func cancelReplyOrEdit() {
         // Editing hides a pending forward without owning it: closing the edit brings the forward panel back.
         if chatVM.editCustomMessage != nil {
             chatVM.cancelMessageEditing()
+        } else if showsLinkPreviewPanel {
+            chatVM.disableComposerLinkPreview()
         } else {
             chatVM.pendingForward = nil
             chatVM.cancelReply()
