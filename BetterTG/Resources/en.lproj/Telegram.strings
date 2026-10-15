@@ -1403,3 +1403,4 @@
 "PrivacyInfo.ShowReadTime.Title" = "Show Your Read Time";
 "PrivacyInfo.ShowReadTime.Text" = "To see when **%@** read the message, either start showing your own read time:";
 "PrivacyInfo.ShowReadTime.ButtonTitle" = "Show My Read Time";
+"Conversation.SaveToFiles" = "Save to Files";

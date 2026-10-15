@@ -550,7 +550,7 @@ private enum MediaGalleryOpenInChatError: LocalizedError {
 
 // MARK: - MediaGallerySaveKind
 
-private enum MediaGallerySaveKind: Equatable {
+enum MediaGallerySaveKind: Equatable {
     case photo
     case video
 }
@@ -571,7 +571,7 @@ private enum MediaGalleryActionButton: Equatable {
 
 // MARK: - MediaGalleryExportAsset
 
-private struct MediaGalleryExportAsset {
+struct MediaGalleryExportAsset {
     let completedLocalPath: String?
     let creationDate: Foundation.Date
     let fileID: Int
@@ -709,7 +709,7 @@ private struct MediaGalleryExportAsset {
 
 // MARK: - MediaGallerySaveError
 
-private enum MediaGallerySaveError: LocalizedError {
+enum MediaGallerySaveError: LocalizedError {
     case contextChanged
     case downloadFailed
     case messageUnavailable
@@ -740,6 +740,186 @@ private enum MediaGallerySaveError: LocalizedError {
         } else {
             false
         }
+    }
+}
+
+// MARK: - MediaGalleryExport
+
+/// The gallery's save pipeline, shared with the chat message menu's Save Image and Save Video
+/// (Telegram's saveToCameraRoll).
+@MainActor enum MediaGalleryExport {
+    static func validatePermission(
+        message: Message,
+        properties: MessageProperties,
+    ) throws {
+        if case .messagePaidMedia = message.content {
+            throw MediaGallerySaveError.protectedContent
+        }
+        guard properties.canBeSaved,
+              !properties.hasProtectedContentByCurrentUser,
+              !properties.hasProtectedContentByOtherUser,
+              message.selfDestructType == nil,
+              message.selfDestructIn == 0,
+              let asset = MediaGalleryExportAsset(message),
+              !asset.isSecretMedia
+        else { throw MediaGallerySaveError.protectedContent }
+    }
+
+    static func resolvedURL(
+        for asset: MediaGalleryExportAsset,
+        client: TDLibClient,
+    ) async throws -> URL {
+        if let path = asset.completedLocalPath,
+           FileManager.default.fileExists(atPath: path)
+        {
+            return URL(filePath: path)
+        }
+        let downloaded = try await client.downloadFile(
+            fileId: asset.fileID,
+            limit: 0,
+            offset: 0,
+            priority: 16,
+            synchronous: true,
+        )
+        try Task.checkCancellation()
+        guard downloaded.id == asset.fileID,
+              downloaded.local.isDownloadingCompleted,
+              !downloaded.local.path.isEmpty,
+              FileManager.default.fileExists(atPath: downloaded.local.path)
+        else { throw MediaGallerySaveError.downloadFailed }
+        return URL(filePath: downloaded.local.path)
+    }
+
+    static func livePhotoResources(
+        asset: MediaGalleryExportAsset,
+        photoURL: URL,
+        client: TDLibClient,
+    ) async throws -> LivePhotoResources? {
+        guard let video = asset.livePhotoVideo else { return nil }
+        let file = video.local.isDownloadingCompleted ? video : try await client.downloadFile(
+            fileId: video.id,
+            limit: 0,
+            offset: 0,
+            priority: 16,
+            synchronous: true,
+        )
+        guard file.local.isDownloadingCompleted,
+              !file.local.path.isEmpty else { throw MediaGallerySaveError.downloadFailed }
+        try Task.checkCancellation()
+        return try await LivePhotoResources.prepare(photo: photoURL, video: URL(fileURLWithPath: file.local.path))
+    }
+
+    static func photosFilename(
+        for asset: MediaGalleryExportAsset,
+        localURL: URL,
+    ) async throws -> String {
+        switch asset.photosKind {
+        case .photo:
+            let fileExtension = try await Task.detached(priority: .userInitiated) {
+                guard let source = CGImageSourceCreateWithURL(localURL as CFURL, nil),
+                      CGImageSourceGetCount(source) > 0,
+                      let typeIdentifier = CGImageSourceGetType(source),
+                      let type = UTType(typeIdentifier as String),
+                      type.conforms(to: .image),
+                      let preferredExtension = type.preferredFilenameExtension
+                else { throw MediaGallerySaveError.messageUnavailable }
+                return preferredExtension == "jpeg" ? "jpg" : preferredExtension
+            }.value
+            return sanitizedFilename(
+                asset.originalFilename,
+                fallbackStem: "bettertg-photo",
+                fileExtension: fileExtension,
+            )
+        case .video:
+            let supportedMimeTypes: Set = ["video/mp4", "video/quicktime", "video/x-m4v"]
+            let supportedExtensions: Set = ["m4v", "mov", "mp4"]
+            let originalExtension = URL(filePath: asset.originalFilename).pathExtension.lowercased()
+            guard supportedMimeTypes.contains(asset.mimeType)
+                || asset.mimeType.isEmpty && supportedExtensions.contains(originalExtension)
+            else { throw MediaGallerySaveError.unsupportedVideo }
+            let videoAsset = AVURLAsset(url: localURL)
+            let isPlayable = try await videoAsset.load(.isPlayable)
+            let videoTracks = try await videoAsset.loadTracks(withMediaType: .video)
+            guard isPlayable, !videoTracks.isEmpty else { throw MediaGallerySaveError.unsupportedVideo }
+            let fileExtension =
+                switch asset.mimeType {
+                case "video/quicktime": "mov"
+                case "video/x-m4v": "m4v"
+                default: supportedExtensions.contains(originalExtension) ? originalExtension : "mp4"
+                }
+            return sanitizedFilename(
+                asset.originalFilename,
+                fallbackStem: "bettertg-video",
+                fileExtension: fileExtension,
+            )
+        case nil:
+            throw MediaGallerySaveError.messageUnavailable
+        }
+    }
+
+    static func sanitizedFilename(
+        _ filename: String,
+        fallbackStem: String,
+        fileExtension: String,
+    ) -> String {
+        let normalized = filename.replacingOccurrences(of: "\\", with: "/")
+        let lastComponent = URL(filePath: normalized).lastPathComponent
+        let rawStem = URL(filePath: lastComponent).deletingPathExtension().lastPathComponent
+        let sanitized = rawStem.filter { character in
+            character.unicodeScalars.allSatisfy { scalar in
+                !CharacterSet.controlCharacters.contains(scalar)
+                    && scalar != "/"
+                    && scalar != "\\"
+                    && scalar != ":"
+            }
+        }
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        let stem = sanitized.isEmpty ? fallbackStem : String(sanitized.prefix(96))
+        return "\(stem).\(fileExtension.lowercased())"
+    }
+
+    static func saveToPhotos(
+        asset: MediaGalleryExportAsset,
+        localURL: URL,
+        filename: String,
+    ) async throws {
+        try await PHPhotoLibrary.shared().performChanges {
+            let request = PHAssetCreationRequest.forAsset()
+            let options = PHAssetResourceCreationOptions()
+            options.originalFilename = filename
+            options.shouldMoveFile = false
+            request.addResource(
+                with: asset.photosKind == .photo ? .photo : .video,
+                fileURL: localURL,
+                options: options,
+            )
+            request.creationDate = asset.creationDate
+        }
+    }
+
+    /// Asks for add-only Photos access the way the gallery does, failing with the Settings-offering error.
+    static func requestPhotosAccess() async throws {
+        var authorization = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        if authorization == .notDetermined {
+            authorization = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        }
+        guard authorization == .authorized || authorization == .limited else {
+            throw MediaGallerySaveError.photosAccessDenied
+        }
+    }
+
+    /// The gallery's failure alert, with a Settings button when Photos access was denied.
+    static func failureAlert(for error: Swift.Error, title alertTitle: String) -> UIAlertController {
+        let alert = UIAlertController(title: alertTitle, message: error.localizedDescription, preferredStyle: .alert)
+        if (error as? MediaGallerySaveError)?.shouldOfferSettings == true,
+           let settingsURL = URL(string: UIApplication.openSettingsURLString)
+        {
+            alert.addAction(UIAlertAction(title: L10n.telegram("AccessDenied.Settings"), style: .default) { _ in
+                UIApplication.shared.open(settingsURL)
+            })
+        }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .cancel))
+        return alert
     }
 }
 
@@ -3670,14 +3850,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     selectedIdentity: selectedIdentity,
                     resolvedIdentity: resolvedIdentity,
                 )
-                try validateExportPermission(message: resolved, properties: properties)
+                try MediaGalleryExport.validatePermission(message: resolved, properties: properties)
                 guard let asset = MediaGalleryExportAsset(resolved) else {
                     throw MediaGallerySaveError.messageUnavailable
                 }
                 guard action == .share || asset.photosKind != nil else {
                     throw MediaGallerySaveError.messageUnavailable
                 }
-                let localURL = try await resolvedExportURL(for: asset, client: client)
+                let localURL = try await MediaGalleryExport.resolvedURL(for: asset, client: client)
                 try Task.checkCancellation()
                 try validateExportContext(
                     accountID: accountID,
@@ -3687,13 +3867,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     resolvedIdentity: resolvedIdentity,
                 )
                 if action == .saveToPhotos {
-                    var authorization = PHPhotoLibrary.authorizationStatus(for: .addOnly)
-                    if authorization == .notDetermined {
-                        authorization = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-                    }
-                    guard authorization == .authorized || authorization == .limited else {
-                        throw MediaGallerySaveError.photosAccessDenied
-                    }
+                    try await MediaGalleryExport.requestPhotosAccess()
                 }
                 try Task.checkCancellation()
                 let (latestMessage, latestProperties) = try await (
@@ -3715,11 +3889,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     selectedIdentity: selectedIdentity,
                     resolvedIdentity: latestIdentity,
                 )
-                try validateExportPermission(message: latestMessage, properties: latestProperties)
+                try MediaGalleryExport.validatePermission(message: latestMessage, properties: latestProperties)
                 guard let latestAsset = MediaGalleryExportAsset(latestMessage),
                       latestAsset.fileID == asset.fileID, latestAsset.livePhotoVideo?.id == asset.livePhotoVideo?.id
                 else { throw MediaGallerySaveError.messageUnavailable }
-                let liveResources = try await preparedLivePhotoResources(
+                let liveResources = try await MediaGalleryExport.livePhotoResources(
                     asset: latestAsset,
                     photoURL: localURL,
                     client: client,
@@ -3732,7 +3906,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                         ? try await preparedWebPStillLease(sourceURL: localURL)
                         : nil
                     let photosURL = convertedLease?.fileURL ?? localURL
-                    let filename = try await validatedPhotosFilename(for: latestAsset, localURL: photosURL)
+                    let filename = try await MediaGalleryExport.photosFilename(for: latestAsset, localURL: photosURL)
                     try Task.checkCancellation()
                     let (commitMessage, commitProperties) = try await (
                         client.getMessage(
@@ -3753,13 +3927,17 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                         selectedIdentity: selectedIdentity,
                         resolvedIdentity: commitIdentity,
                     )
-                    try validateExportPermission(message: commitMessage, properties: commitProperties)
+                    try MediaGalleryExport.validatePermission(message: commitMessage, properties: commitProperties)
                     guard let commitAsset = MediaGalleryExportAsset(commitMessage),
                           commitAsset.fileID == latestAsset.fileID,
                           commitAsset.livePhotoVideo?.id == latestAsset.livePhotoVideo?.id
                     else { throw MediaGallerySaveError.messageUnavailable }
                     if let liveResources { try await liveResources.save(creationDate: commitAsset.creationDate) }
-                    else { try await saveToPhotos(asset: commitAsset, localURL: photosURL, filename: filename) }
+                    else { try await MediaGalleryExport.saveToPhotos(
+                        asset: commitAsset,
+                        localURL: photosURL,
+                        filename: filename,
+                    ) }
                     convertedLease?.cleanup()
                 } else {
                     let shareLease: MediaGalleryTemporaryFileLease
@@ -3791,7 +3969,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                         selectedIdentity: selectedIdentity,
                         resolvedIdentity: commitIdentity,
                     )
-                    try validateExportPermission(message: commitMessage, properties: commitProperties)
+                    try MediaGalleryExport.validatePermission(message: commitMessage, properties: commitProperties)
                     guard let commitAsset = MediaGalleryExportAsset(commitMessage),
                           commitAsset.fileID == latestAsset.fileID,
                           commitAsset.livePhotoVideo?.id == latestAsset.livePhotoVideo?.id
@@ -3844,73 +4022,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         else { throw MediaGallerySaveError.messageUnavailable }
     }
 
-    private func validateExportPermission(
-        message: Message,
-        properties: MessageProperties,
-    ) throws {
-        if case .messagePaidMedia = message.content {
-            throw MediaGallerySaveError.protectedContent
-        }
-        guard properties.canBeSaved,
-              !properties.hasProtectedContentByCurrentUser,
-              !properties.hasProtectedContentByOtherUser,
-              message.selfDestructType == nil,
-              message.selfDestructIn == 0,
-              let asset = MediaGalleryExportAsset(message),
-              !asset.isSecretMedia
-        else { throw MediaGallerySaveError.protectedContent }
-    }
-
-    private func resolvedExportURL(
-        for asset: MediaGalleryExportAsset,
-        client: TDLibClient,
-    ) async throws -> URL {
-        if let path = asset.completedLocalPath,
-           FileManager.default.fileExists(atPath: path)
-        {
-            return URL(filePath: path)
-        }
-        let downloaded = try await client.downloadFile(
-            fileId: asset.fileID,
-            limit: 0,
-            offset: 0,
-            priority: 16,
-            synchronous: true,
-        )
-        try Task.checkCancellation()
-        guard downloaded.id == asset.fileID,
-              downloaded.local.isDownloadingCompleted,
-              !downloaded.local.path.isEmpty,
-              FileManager.default.fileExists(atPath: downloaded.local.path)
-        else { throw MediaGallerySaveError.downloadFailed }
-        return URL(filePath: downloaded.local.path)
-    }
-
-    private func preparedLivePhotoResources(
-        asset: MediaGalleryExportAsset,
-        photoURL: URL,
-        client: TDLibClient,
-    ) async throws -> LivePhotoResources? {
-        guard let video = asset.livePhotoVideo else { return nil }
-        let file = video.local.isDownloadingCompleted ? video : try await client.downloadFile(
-            fileId: video.id,
-            limit: 0,
-            offset: 0,
-            priority: 16,
-            synchronous: true,
-        )
-        guard file.local.isDownloadingCompleted,
-              !file.local.path.isEmpty else { throw MediaGallerySaveError.downloadFailed }
-        try Task.checkCancellation()
-        return try await LivePhotoResources.prepare(photo: photoURL, video: URL(fileURLWithPath: file.local.path))
-    }
-
     private func preparedShareLease(
         asset: MediaGalleryExportAsset,
         sourceURL: URL,
     ) async throws -> MediaGalleryTemporaryFileLease {
         let fileExtension = await validatedShareFileExtension(for: asset, sourceURL: sourceURL)
-        let filename = sanitizedExportFilename(
+        let filename = MediaGalleryExport.sanitizedFilename(
             asset.originalFilename,
             fallbackStem: "bettertg-media",
             fileExtension: fileExtension,
@@ -3994,94 +4111,6 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }.value
     }
 
-    private func validatedPhotosFilename(
-        for asset: MediaGalleryExportAsset,
-        localURL: URL,
-    ) async throws -> String {
-        switch asset.photosKind {
-        case .photo:
-            let fileExtension = try await Task.detached(priority: .userInitiated) {
-                guard let source = CGImageSourceCreateWithURL(localURL as CFURL, nil),
-                      CGImageSourceGetCount(source) > 0,
-                      let typeIdentifier = CGImageSourceGetType(source),
-                      let type = UTType(typeIdentifier as String),
-                      type.conforms(to: .image),
-                      let preferredExtension = type.preferredFilenameExtension
-                else { throw MediaGallerySaveError.messageUnavailable }
-                return preferredExtension == "jpeg" ? "jpg" : preferredExtension
-            }.value
-            return sanitizedExportFilename(
-                asset.originalFilename,
-                fallbackStem: "bettertg-photo",
-                fileExtension: fileExtension,
-            )
-        case .video:
-            let supportedMimeTypes: Set = ["video/mp4", "video/quicktime", "video/x-m4v"]
-            let supportedExtensions: Set = ["m4v", "mov", "mp4"]
-            let originalExtension = URL(filePath: asset.originalFilename).pathExtension.lowercased()
-            guard supportedMimeTypes.contains(asset.mimeType)
-                || asset.mimeType.isEmpty && supportedExtensions.contains(originalExtension)
-            else { throw MediaGallerySaveError.unsupportedVideo }
-            let videoAsset = AVURLAsset(url: localURL)
-            let isPlayable = try await videoAsset.load(.isPlayable)
-            let videoTracks = try await videoAsset.loadTracks(withMediaType: .video)
-            guard isPlayable, !videoTracks.isEmpty else { throw MediaGallerySaveError.unsupportedVideo }
-            let fileExtension =
-                switch asset.mimeType {
-                case "video/quicktime": "mov"
-                case "video/x-m4v": "m4v"
-                default: supportedExtensions.contains(originalExtension) ? originalExtension : "mp4"
-                }
-            return sanitizedExportFilename(
-                asset.originalFilename,
-                fallbackStem: "bettertg-video",
-                fileExtension: fileExtension,
-            )
-        case nil:
-            throw MediaGallerySaveError.messageUnavailable
-        }
-    }
-
-    private func sanitizedExportFilename(
-        _ filename: String,
-        fallbackStem: String,
-        fileExtension: String,
-    ) -> String {
-        let normalized = filename.replacingOccurrences(of: "\\", with: "/")
-        let lastComponent = URL(filePath: normalized).lastPathComponent
-        let rawStem = URL(filePath: lastComponent).deletingPathExtension().lastPathComponent
-        let sanitized = rawStem.filter { character in
-            character.unicodeScalars.allSatisfy { scalar in
-                !CharacterSet.controlCharacters.contains(scalar)
-                    && scalar != "/"
-                    && scalar != "\\"
-                    && scalar != ":"
-            }
-        }
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        let stem = sanitized.isEmpty ? fallbackStem : String(sanitized.prefix(96))
-        return "\(stem).\(fileExtension.lowercased())"
-    }
-
-    private func saveToPhotos(
-        asset: MediaGalleryExportAsset,
-        localURL: URL,
-        filename: String,
-    ) async throws {
-        try await PHPhotoLibrary.shared().performChanges {
-            let request = PHAssetCreationRequest.forAsset()
-            let options = PHAssetResourceCreationOptions()
-            options.originalFilename = filename
-            options.shouldMoveFile = false
-            request.addResource(
-                with: asset.photosKind == .photo ? .photo : .video,
-                fileURL: localURL,
-                options: options,
-            )
-            request.creationDate = asset.creationDate
-        }
-    }
-
     private func presentShareSheet(_ lease: MediaGalleryTemporaryFileLease) {
         guard hasCurrentContext, presentedViewController == nil else { return }
         activeShareLease?.cleanup()
@@ -4155,22 +4184,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         let message = error.localizedDescription
         UIAccessibility.post(notification: .announcement, argument: message)
         guard presentedViewController == nil else { return }
-        let alert = UIAlertController(
+        present(MediaGalleryExport.failureAlert(
+            for: error,
             title: action == .share
                 ? L10n.betterTG("Gallery.ShareFailedTitle")
                 : L10n.betterTG("Gallery.SaveFailedTitle"),
-            message: message,
-            preferredStyle: .alert,
-        )
-        if (error as? MediaGallerySaveError)?.shouldOfferSettings == true,
-           let settingsURL = URL(string: UIApplication.openSettingsURLString)
-        {
-            alert.addAction(UIAlertAction(title: L10n.telegram("AccessDenied.Settings"), style: .default) { _ in
-                UIApplication.shared.open(settingsURL)
-            })
-        }
-        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .cancel))
-        present(alert, animated: true)
+        ), animated: true)
     }
 
     private func cancelOpenInChat() {

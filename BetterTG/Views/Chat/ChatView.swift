@@ -229,6 +229,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// The account's favorite stickers by file ID, for the sticker message menu's Add/Remove from Favorites.
     private var favoriteStickerFileIDs = Set<Int>()
     private var stickerActionTask: Task<Void, Never>?
+    /// The message menu's Save Image, Save Video or Save to Files in progress.
+    private var mediaSaveTask: Task<Void, Never>?
+    /// Keeps the Save to Files picker's delegate, which removes the temporary copy when the picker closes.
+    private var fileExportDelegate: MessageFileExportDelegate?
     private var isTerminatingNavigation = false
     private var composerLeadingConstraint: NSLayoutConstraint?
     private var composerTrailingConstraint: NSLayoutConstraint?
@@ -738,6 +742,82 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         default:
             return L10n.telegram("Chat.ContextMenuReadDate.ReadAvailablePrefix")
         }
+    }
+
+    /// The message as TDLib has it now, if it still lets its media be saved (the gallery's export rules).
+    private static func savableMessage(chatID: Int64, messageID: Int64, client: TDLibClient) async throws -> Message {
+        async let messageRequest = client.getMessage(chatId: chatID, messageId: messageID)
+        async let propertiesRequest = client.getMessageProperties(chatId: chatID, messageId: messageID)
+        let (resolved, properties) = try await (messageRequest, propertiesRequest)
+        try Task.checkCancellation()
+        if case .messagePaidMedia = resolved.content { throw MediaGallerySaveError.protectedContent }
+        guard resolved.chatId == chatID, resolved.id == messageID,
+              properties.canBeSaved,
+              !properties.hasProtectedContentByCurrentUser,
+              !properties.hasProtectedContentByOtherUser,
+              resolved.selfDestructType == nil,
+              resolved.selfDestructIn == 0
+        else { throw MediaGallerySaveError.protectedContent }
+        return resolved
+    }
+
+    /// The document or audio file of a message and the name Save to Files gives it (Telegram uses the file name,
+    /// else "performer - title" for music).
+    private static func exportableFile(of message: Message) -> (file: File, filename: String)? {
+        let file: File
+        let name: String
+        let mimeType: String
+        switch message.content {
+        case .messageDocument(let content):
+            file = content.document.document
+            name = content.document.fileName
+            mimeType = content.document.mimeType
+        case .messageAudio(let content):
+            file = content.audio.audio
+            let tags = [content.audio.performer, content.audio.title]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            name = content.audio.fileName.isEmpty ? tags.joined(separator: " - ") : content.audio.fileName
+            mimeType = content.audio.mimeType
+        default:
+            return nil
+        }
+        let lastComponent = URL(filePath: name.replacingOccurrences(of: "\\", with: "/")).lastPathComponent
+        var fileExtension = URL(filePath: lastComponent).pathExtension
+        if fileExtension.isEmpty {
+            fileExtension = UTType(mimeType: mimeType)?.preferredFilenameExtension
+                ?? URL(filePath: file.local.path).pathExtension
+        }
+        return (file, MediaGalleryExport.sanitizedFilename(
+            lastComponent,
+            fallbackStem: "bettertg-file-\(message.id)",
+            fileExtension: fileExtension.isEmpty ? "bin" : fileExtension,
+        ))
+    }
+
+    /// Links or copies a downloaded file into a fresh temporary folder under its export name.
+    private static func temporaryExportCopy(of sourceURL: URL, filename: String) async throws
+        -> (directory: URL, file: URL)
+    {
+        let directoryURL = FileManager.default
+            .temporaryDirectory
+            .appendingPathComponent("bettertg-file-export-\(UUID().uuidString)", isDirectory: true)
+        let destinationURL = directoryURL.appendingPathComponent(filename, isDirectory: false)
+        try await Task.detached(priority: .userInitiated) {
+            let fileManager = FileManager.default
+            do {
+                try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+                do {
+                    try fileManager.linkItem(at: sourceURL, to: destinationURL)
+                } catch {
+                    try fileManager.copyItem(at: sourceURL, to: destinationURL)
+                }
+            } catch {
+                try? fileManager.removeItem(at: directoryURL)
+                throw MediaGallerySaveError.downloadFailed
+            }
+        }.value
+        return (directoryURL, destinationURL)
     }
 
     /// A bot start link for a chat the router has just created shows Start before the chat appears.
@@ -5464,6 +5544,154 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    /// Telegram's Save Image / Save Video (saveToCameraRoll) and Save to Files (saveMediaToFiles) message items for a
+    /// single media message the chat lets save, following the gallery's export rules.
+    private func mediaSaveActions(for message: CustomMessage) -> [TelegramContextMenuAction] {
+        if case .chatTypeSecret = chatVM.customChat.chat.type { return [] }
+        guard message.sourceMessages.count == 1,
+              message.properties.canBeSaved,
+              !message.properties.hasProtectedContentByCurrentUser,
+              !message.properties.hasProtectedContentByOtherUser,
+              message.message.selfDestructType == nil
+        else { return [] }
+        let messageID = message.message.id
+        switch message.message.content {
+        case .messagePhoto, .messageVideo:
+            guard let asset = MediaGalleryExportAsset(message.message), !asset.isSecretMedia,
+                  let saveTitle = asset.saveActionTitle else { return [] }
+            return [TelegramContextMenuAction(
+                title: saveTitle,
+                image: UIImage(systemName: "square.and.arrow.down"),
+            ) { [weak self] in self?.saveMessageMediaToPhotos(messageID: messageID) }]
+        case .messageAudio, .messageDocument:
+            return [TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.SaveToFiles"),
+                image: UIImage(systemName: "folder"),
+            ) { [weak self] in self?.saveMessageMediaToFiles(messageID: messageID) }]
+        default:
+            return []
+        }
+    }
+
+    /// Saves a photo, live photo or video message to Photos with the gallery's pipeline and Telegram's
+    /// "Image Saved" / "Video Saved" toast.
+    private func saveMessageMediaToPhotos(messageID: Int64) {
+        guard mediaSaveTask == nil, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+        let client = chatVM.client
+        let chatID = location.chatID
+        mediaSaveTask = Task { [weak self] in
+            var savedText: String?
+            var failure: Swift.Error?
+            do {
+                let resolved = try await Self.savableMessage(chatID: chatID, messageID: messageID, client: client)
+                guard let asset = MediaGalleryExportAsset(resolved), !asset.isSecretMedia, asset.photosKind != nil
+                else { throw MediaGallerySaveError.messageUnavailable }
+                let localURL = try await MediaGalleryExport.resolvedURL(for: asset, client: client)
+                try await MediaGalleryExport.requestPhotosAccess()
+                let liveResources = try await MediaGalleryExport.livePhotoResources(
+                    asset: asset,
+                    photoURL: localURL,
+                    client: client,
+                )
+                defer { liveResources?.cleanup() }
+                var filename = ""
+                if liveResources == nil {
+                    filename = try await MediaGalleryExport.photosFilename(for: asset, localURL: localURL)
+                }
+                let latest = try await Self.savableMessage(chatID: chatID, messageID: messageID, client: client)
+                guard MediaGalleryExportAsset(latest)?.fileID == asset.fileID else {
+                    throw MediaGallerySaveError.messageUnavailable
+                }
+                if let liveResources {
+                    try await liveResources.save(creationDate: asset.creationDate)
+                } else {
+                    try await MediaGalleryExport.saveToPhotos(asset: asset, localURL: localURL, filename: filename)
+                }
+                savedText = asset.saveSuccessText
+            } catch is CancellationError {
+            } catch {
+                failure = error
+            }
+            guard let self else { return }
+            mediaSaveTask = nil
+            guard !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+            if let failure {
+                presentMediaSaveFailure(failure)
+            } else if let savedText {
+                showChatToast(savedText)
+            }
+        }
+    }
+
+    /// Telegram's Save to Files (saveMediaToFiles): downloads the file and hands a copy named after the message's
+    /// file to the system export picker.
+    private func saveMessageMediaToFiles(messageID: Int64) {
+        guard mediaSaveTask == nil, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+        let client = chatVM.client
+        let chatID = location.chatID
+        mediaSaveTask = Task { [weak self] in
+            var export: (directory: URL, file: URL)?
+            var failure: Swift.Error?
+            do {
+                let resolved = try await Self.savableMessage(chatID: chatID, messageID: messageID, client: client)
+                guard let source = Self.exportableFile(of: resolved) else {
+                    throw MediaGallerySaveError.messageUnavailable
+                }
+                let downloaded = try await client.downloadFile(
+                    fileId: source.file.id,
+                    limit: 0,
+                    offset: 0,
+                    priority: 16,
+                    synchronous: true,
+                )
+                try Task.checkCancellation()
+                guard downloaded.id == source.file.id,
+                      downloaded.local.isDownloadingCompleted,
+                      !downloaded.local.path.isEmpty,
+                      FileManager.default.fileExists(atPath: downloaded.local.path)
+                else { throw MediaGallerySaveError.downloadFailed }
+                let latest = try await Self.savableMessage(chatID: chatID, messageID: messageID, client: client)
+                guard Self.exportableFile(of: latest)?.file.id == source.file.id else {
+                    throw MediaGallerySaveError.messageUnavailable
+                }
+                export = try await Self.temporaryExportCopy(
+                    of: URL(filePath: downloaded.local.path),
+                    filename: source.filename,
+                )
+            } catch is CancellationError {
+            } catch {
+                failure = error
+            }
+            guard let self else {
+                if let export { try? FileManager.default.removeItem(at: export.directory) }
+                return
+            }
+            mediaSaveTask = nil
+            guard !clientOwnerRetired, chatVM.locationContextIsCurrent, presentedViewController == nil else {
+                if let export { try? FileManager.default.removeItem(at: export.directory) }
+                return
+            }
+            if let export {
+                let picker = UIDocumentPickerViewController(forExporting: [export.file], asCopy: true)
+                let delegate = MessageFileExportDelegate(directoryURL: export.directory)
+                fileExportDelegate = delegate
+                picker.delegate = delegate
+                present(picker, animated: true)
+            } else if let failure {
+                presentMediaSaveFailure(failure)
+            }
+        }
+    }
+
+    private func presentMediaSaveFailure(_ error: Swift.Error) {
+        guard presentedViewController == nil else { return }
+        let shownError = error is MediaGallerySaveError ? error : MediaGallerySaveError.downloadFailed
+        present(
+            MediaGalleryExport.failureAlert(for: shownError, title: L10n.betterTG("Gallery.SaveFailedTitle")),
+            animated: true,
+        )
+    }
+
     private func showPhotoPicker() {
         // Telegram's gallery offers photos and videos, each when the chat allows it.
         var filters = [PHPickerFilter]()
@@ -5970,6 +6198,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
                 ) { UIPasteboard.setFormattedText(text) })
             }
+            readOnlyActions.append(contentsOf: mediaSaveActions(for: message))
             return readOnlyActions
         }
         var elements = [TelegramContextMenuAction]()
@@ -6064,6 +6293,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             })
         }
         elements.append(contentsOf: stickerAndAnimationActions(for: message))
+        elements.append(contentsOf: mediaSaveActions(for: message))
         if canOfferPinAction(for: message) {
             if message.isPinned {
                 // Telegram unpins from the message menu without a confirmation (askForConfirmation: false).
@@ -6975,5 +7205,28 @@ private extension User {
         if !first.isEmpty { return first }
         let last = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
         return last.isEmpty ? L10n.telegram("User.DeletedAccount") : last
+    }
+}
+
+// MARK: - MessageFileExportDelegate
+
+/// Removes the temporary copy handed to Save to Files once the export picker closes.
+private final class MessageFileExportDelegate: NSObject, UIDocumentPickerDelegate {
+    private let directoryURL: URL
+
+    init(directoryURL: URL) {
+        self.directoryURL = directoryURL
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: directoryURL)
+    }
+
+    func documentPicker(_: UIDocumentPickerViewController, didPickDocumentsAt _: [URL]) {
+        try? FileManager.default.removeItem(at: directoryURL)
+    }
+
+    func documentPickerWasCancelled(_: UIDocumentPickerViewController) {
+        try? FileManager.default.removeItem(at: directoryURL)
     }
 }
