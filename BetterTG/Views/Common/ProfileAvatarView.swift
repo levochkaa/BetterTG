@@ -10,9 +10,17 @@ import UIKit
 final class ProfileAvatarView: TelegramContextMenuExtractableView {
     var onOpenProfile: (() -> Void)?
     var onSearch: (() -> Void)?
+    /// The avatar's Open Profile / Search menu. A profile's own header avatar turns it off: its items would push a
+    /// second copy of the profile or the chat.
+    var showsContextMenu = true {
+        didSet { contextMenuGesture.isEnabled = showsContextMenu }
+    }
 
     // MARK: Private
 
+    private lazy var contextMenuGesture = ContextMenuPressGestureRecognizer(
+        target: self, action: #selector(longPressed(_:)),
+    )
     private let placeholderView = TelegramAvatarPlaceholderView()
     private let imageView = TDImageLoadingView()
 
@@ -45,7 +53,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         extractedContentView.addSubview(imageView)
         isUserInteractionEnabled = true
 
-        addGestureRecognizer(ContextMenuPressGestureRecognizer(target: self, action: #selector(longPressed(_:))))
+        addGestureRecognizer(contextMenuGesture)
 
         NSLayoutConstraint.activate([
             placeholderView.topAnchor.constraint(equalTo: extractedContentView.topAnchor),
@@ -326,13 +334,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
                     client: client,
                     accountID: accountID,
                 )
-                profile.onSearch = { [weak profile] in
-                    guard let navigation = profile?.navigationController else { return }
-                    let controller = ChatViewController(customChat: chat)
-                    navigation.pushViewController(controller, animated: true)
-                    navigation.transitionCoordinator?
-                        .animate(alongsideTransition: nil) { _ in controller.beginMessageSearch() }
-                }
+                profile.configureOpensChatItself()
                 navigation.pushViewController(profile, animated: true)
             }
         }

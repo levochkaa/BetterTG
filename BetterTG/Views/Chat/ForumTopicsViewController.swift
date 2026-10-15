@@ -47,6 +47,7 @@ import UIKit
     #endif
 
     private var viewModel: ForumTopicsVM
+
     private var bindingID = UUID()
     private var boundSource: TdUpdateSource?
     private let environment: ForumTopicsClientEnvironment
@@ -87,6 +88,8 @@ import UIKit
     private var preparedClient: ForumTopicsClientEnvironment.Metadata?
     private var preparationFailure: (id: UUID, source: TdUpdateSource, binding: UUID)?
     private var retryScheduled = false
+
+    var displayedChatID: Int64 { viewModel.customChat.id }
 
     var navigationClientSource: TdUpdateSource? {
         boundSource
@@ -815,6 +818,7 @@ import UIKit
             client: viewModel.client,
             accountID: accountID,
         )
+        profile.configureOpensChatItself()
         navigationController.pushViewController(profile, animated: true)
     }
 

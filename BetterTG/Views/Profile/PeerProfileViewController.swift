@@ -76,6 +76,9 @@ ClientRestorableNavigationEntry {
     var onGalleryReturnCompleted: ((Int64) -> Void)?
     var galleryReturnTarget: ((Int64) -> MediaGalleryTransitionTarget?)?
     var onSearch: (() -> Void)?
+    /// Opened away from its own chat (forum Group Info, an avatar's Open Profile): the profile opens the chat itself
+    /// and rebuilds itself after a same-account client renewal, since no chat below can host it.
+    private(set) var opensChatItself = false
 
     private let accountID: UUID
     private let accountUserID: Int64?
@@ -265,6 +268,15 @@ ClientRestorableNavigationEntry {
     private var keepsMediaGalleryThroughClientRenewal: Bool {
         activeMediaGallery != nil && !clientOwnerRetired && !restorationIdentity.revoked && accountUserID != nil
             && TDLib.shared.activeAccountID == accountID && TDLib.shared.activeAccount?.userID == accountUserID
+    }
+
+    /// The screen under this profile already shows its chat (a forum's topic list for Group Info).
+    private var chatIsBelow: Bool {
+        guard let stack = navigationController?.viewControllers,
+              let index = stack.firstIndex(where: { $0 === self }), index > 0 else { return false }
+        let below = stack[index - 1]
+        return (below as? ChatViewController)?.displayedChatID == customChat.id
+            || (below as? ForumTopicsViewController)?.displayedChatID == customChat.id
     }
 
     init(
@@ -523,21 +535,35 @@ ClientRestorableNavigationEntry {
     func scrollViewDidEndDecelerating(_: UIScrollView) { retryClientRestoration() }
 
     func prepareReplacementForReadyClient(_ source: TdUpdateSource) -> PreparedClientNavigationReplacement? {
-        guard canRestoreClient(source), let state = restorationState(),
-              let host = restorationHost(state: state, source: source) else { return nil }
+        guard canRestoreClient(source), let state = restorationState() else { return nil }
+        let host = restorationHost(state: state, source: source)
+        guard host != nil || opensChatItself else { return nil }
         guard let preparedMetadata, preparedMetadata.0 == source else {
             prepareClientMetadata(source)
             return nil
         }
+        let makeReplacement = { [weak host] () -> PeerProfileViewController? in
+            if let host { return host.makeProfile(customChat: preparedMetadata.1, restoration: state) }
+            let client = TDLib.shared.activeClient
+            guard client.id == source.clientID else { return nil }
+            let replacement = PeerProfileViewController(
+                customChat: preparedMetadata.1, topic: self.topic, client: client, accountID: source.accountID,
+                restoration: state,
+            )
+            replacement.configureOpensChatItself()
+            return replacement
+        }
+        let hostIdentity = host.map(ObjectIdentifier.init)
         return PreparedClientNavigationReplacement(
-            preflight: { [weak self, weak host] in
+            preflight: { [weak self] in
                 guard let self else { return false }
-                return canRestoreClient(source) && restorationHost(state: state, source: source) === host
+                return canRestoreClient(source)
+                    && restorationHost(state: state, source: source).map(ObjectIdentifier.init) == hostIdentity
             },
-            commit: { [self, weak host] in
-                guard canRestoreClient(source), let host,
-                      restorationHost(state: state, source: source) === host,
-                      let replacement = host.makeProfile(customChat: preparedMetadata.1, restoration: state)
+            commit: { [self] in
+                guard canRestoreClient(source),
+                      restorationHost(state: state, source: source).map(ObjectIdentifier.init) == hostIdentity,
+                      let replacement = makeReplacement()
                 else { return nil }
                 if let membersChild, navigationController?.topViewController === membersChild {
                     guard membersChild.canRetain(
@@ -636,6 +662,13 @@ ClientRestorableNavigationEntry {
         return replacement
     }
 
+    /// Sets the callbacks a hosting chat would set, for a profile opened away from its own chat.
+    func configureOpensChatItself() {
+        opensChatItself = true
+        onOpenMessage = { [weak self] messageID in self?.openChat(targetMessageID: messageID) }
+        onSearch = { [weak self] in self?.openChatSearch() }
+    }
+
     private func restoreViewportIfNeeded() {
         guard restoredSnapshotApplied, profileHeaderView.bounds.height > 0, let viewport = restoredViewport,
               viewport.restore(collectionView, indexPath: { dataSource.indexPath(for: $0) }) else { return }
@@ -727,6 +760,7 @@ ClientRestorableNavigationEntry {
         profileHeaderView.addSubview(headerStack)
 
         avatarView.translatesAutoresizingMaskIntoConstraints = false
+        avatarView.showsContextMenu = false
         avatarView.configure(
             file: displayedAvatarFile,
             minithumbnail: displayedAvatarMinithumbnail,
@@ -2197,7 +2231,31 @@ ClientRestorableNavigationEntry {
     }
 
     @objc private func messagePressed() {
-        navigationController?.popViewController(animated: true)
+        guard opensChatItself, !chatIsBelow else {
+            navigationController?.popViewController(animated: true)
+            return
+        }
+        openChat(targetMessageID: nil)
+    }
+
+    private func openChat(targetMessageID: Int64?) {
+        guard contextIsCurrent, navigationController?.topViewController === self else { return }
+        let location = ChatLocation(accountID: accountID, chatID: customChat.id, clientID: client.id, topic: topic)
+        NavigationStorage.shared.push(.customChat(customChat, location: location, targetMessageID: targetMessageID))
+    }
+
+    private func openChatSearch() {
+        guard contextIsCurrent, let navigationController, navigationController.topViewController === self else {
+            return
+        }
+        let location = ChatLocation(accountID: accountID, chatID: customChat.id, clientID: client.id, topic: topic)
+        let controller = ChatViewController(customChat: customChat, location: location)
+        navigationController.pushViewController(controller, animated: true)
+        if let coordinator = navigationController.transitionCoordinator {
+            coordinator.animate(alongsideTransition: nil) { _ in controller.beginMessageSearch() }
+        } else {
+            controller.beginMessageSearch()
+        }
     }
 
     @objc private func membersPressed() {

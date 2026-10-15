@@ -258,6 +258,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return gesture
     }()
 
+    var displayedChatID: Int64 { location.chatID }
+
     var navigationClientSource: TdUpdateSource? {
         location.accountID.map { TdUpdateSource(accountID: $0, clientID: location.clientID) }
     }
