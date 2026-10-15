@@ -135,6 +135,28 @@ struct PendingMessageForward: Equatable {
             ? L10n.telegram("Conversation.ForwardOptions.ForwardTitleSingle")
             : L10n.telegramPlural("Conversation.ForwardOptions.ForwardTitle", count: prepared.request.messageIDs.count)
     }
+
+    /// The same forward through the account's renewed client. Message IDs belong to the account, so only the source
+    /// location's client changes; another account's forward is dropped.
+    func renewed(for destination: ChatLocation) -> PendingMessageForward? {
+        guard let source = prepared.request.sourceLocation else { return self }
+        guard let accountID = destination.accountID, source.accountID == accountID,
+              let request = try? MessageForwardRequest(
+                  sourceLocation: ChatLocation(
+                      accountID: accountID, chatID: source.chatID, clientID: destination.clientID, topic: source.topic,
+                  ),
+                  messageIDs: prepared.request.messageIDs,
+              ) else { return nil }
+        return PendingMessageForward(
+            prepared: PreparedMessageForward(
+                request: request, canForward: prepared.canForward, canCopy: prepared.canCopy,
+                canCopyToSecretChat: prepared.canCopyToSecretChat,
+                contentRequirements: prepared.contentRequirements, hasCaptions: prepared.hasCaptions,
+            ),
+            mode: mode,
+            summary: summary,
+        )
+    }
 }
 
 // MARK: - MessageForwardContentRequirement

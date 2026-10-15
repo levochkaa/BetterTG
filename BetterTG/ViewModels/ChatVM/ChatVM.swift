@@ -4010,6 +4010,7 @@ import UIKit
             documents: displayedDocuments,
             sendError: sendErrorMessage,
             draftError: draftErrorMessage,
+            forward: pendingForward,
         )
     }
 
@@ -4028,6 +4029,7 @@ import UIKit
         displayedDocuments = seed.documents
         sendErrorMessage = seed.sendError
         draftErrorMessage = seed.draftError
+        pendingForward = seed.forward?.renewed(for: location)
     }
 
     private func editMessage(_ attempt: ChatComposerEditState.Attempt) async throws {

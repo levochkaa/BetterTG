@@ -41,6 +41,8 @@ struct ChatComposerRestorationState: Equatable {
     let documents: [SelectedDocument]
     let sendError: String?
     let draftError: String?
+    /// A forward waiting in the composer, which a client renewal keeps (Telegram's interface state keeps it).
+    var forward: PendingMessageForward?
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.location == rhs.location && lhs.revision == rhs.revision
@@ -49,6 +51,7 @@ struct ChatComposerRestorationState: Equatable {
             && lhs.images.map(\.id) == rhs.images.map(\.id) && lhs.images == rhs.images
             && lhs.documents == rhs.documents
             && lhs.sendError == rhs.sendError && lhs.draftError == rhs.draftError
+            && lhs.forward == rhs.forward
     }
 
     func permitsRestoration(to destination: ChatLocation, currentSource: TdUpdateSource?) -> Bool {
