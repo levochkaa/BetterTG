@@ -179,6 +179,6 @@ struct InlineKeyboardButtonPress {
     }
 
     private func showUnsupported() {
-        showAlert(L10n.betterTG("Chat.UnsupportedBetterTG"))
+        showAlert(L10n.betterTG("Chat.UnsupportedButtonBetterTG"))
     }
 }

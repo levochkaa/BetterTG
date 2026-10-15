@@ -71,6 +71,13 @@ import UIKit
     let client: TDLibClient
     let metadataResolver: MessageMetadataResolver
     let pollInteractionStore = MessagePollInteractionStore()
+    /// The chat's bot reply keyboard, shown by the composer in place of the system keyboard.
+    lazy var replyKeyboard = ChatReplyKeyboardModel(
+        chatID: chatID,
+        accountID: accountID,
+        client: client,
+        isCurrent: { [weak self] in self?.locationContextIsCurrent == true },
+    )
     @Published var actionStatus = ""
     @Published var onlineStatus = ""
     private(set) var isUserOnline = false
@@ -83,7 +90,12 @@ import UIKit
     @Published var pendingForward: PendingMessageForward?
 
     @Published var replyMessage: CustomMessage? {
-        didSet { queueForumTopicDemandRefresh() }
+        didSet {
+            queueForumTopicDemandRefresh()
+            if let oldID = oldValue?.id, oldID != replyMessage?.id, supportsReplyKeyboard {
+                replyKeyboard.noteReplyEnded(messageID: oldID)
+            }
+        }
     }
 
     @Published private(set) var replyQuote: InputTextQuote?
@@ -394,6 +406,12 @@ import UIKit
     }
 
     var composerPlaceholder: String {
+        // Telegram's keyboard placeholder replaces the chat's own (`visibleReplyMarkupPlaceholder`).
+        if supportsReplyKeyboard, editCustomMessage == nil,
+           let placeholder = replyKeyboard.placeholder(replyMessageID: replyMessage?.id)
+        {
+            return placeholder
+        }
         if isAllMessagesForum {
             let info = replyMessage
                 .flatMap { forumTopicInfo(for: $0.message.topicId) }
@@ -409,6 +427,11 @@ import UIKit
         return replyMessage == nil
             ? L10n.telegram("Chat.InputPlaceholderMessageInTopic", topicName)
             : L10n.telegram("Chat.InputPlaceholderReplyInTopic", topicName)
+    }
+
+    /// Bot keyboards belong to the whole chat; a topic or a preview has none.
+    var supportsReplyKeyboard: Bool {
+        !previewing && location.topic == nil && !isAllMessagesForum
     }
 
     var composerRestrictionText: String {
@@ -836,6 +859,9 @@ import UIKit
         configureMessageRefresh(seedIDs: history?.sourceMessageIDs ?? [], visibleIDs: visibleMessageIDs)
 
         setPublishers()
+        if supportsReplyKeyboard {
+            bindReplyKeyboard()
+        }
         loadDeliveryReceiptIfNeeded()
         refreshAllMessagesForumTopicsIfNeeded()
         refreshDeliveryStates()
@@ -2775,6 +2801,65 @@ import UIKit
             sendTransitionAccepted.send(.init(id: transitionID, messageIDs: [message.id]))
         } catch {
             sendTransitionCancelled.send(transitionID)
+            sendErrorMessage = error.localizedDescription
+        }
+    }
+
+    /// A reply keyboard's text button sends its title with the current reply, then clears that reply, as Telegram's
+    /// `controllerInteraction.sendMessage` does; a one-time keyboard goes away at once.
+    func pressReplyKeyboardButton(_ button: TDNativeKeyboardButton, keyboardMessageID: Int64) async {
+        guard supportsReplyKeyboard, locationContextIsCurrent,
+              replyKeyboard.offeredKeyboard?.messageID == keyboardMessageID else { return }
+        guard case .keyboardButtonTypeText = button.type else {
+            // Sharing the phone number or location, creating a poll, choosing users or chats, creating a managed bot
+            // and Web Apps need screens BetterTG doesn't have yet.
+            messageActionErrorMessage = L10n.betterTG("Chat.UnsupportedButtonBetterTG")
+            return
+        }
+        await waitForComposerSend()
+        guard !sendingComposerMessage, locationContextIsCurrent else { return }
+        if let wait = slowModeWaitMessage() {
+            sendErrorMessage = wait
+            return
+        }
+        sendingComposerMessage = true
+        defer { sendingComposerMessage = false }
+        let sentReplyID = replyMessage?.id
+        replyKeyboard.noteButtonUsed(messageID: keyboardMessageID)
+        do {
+            let context = try resolveSendContext(
+                for: .text,
+                replyingTo: replyMessage,
+                useCurrentReplyOverride: true,
+            )
+            let message = try await client.sendMessage(
+                chatId: context.chatID,
+                inputMessageContent: .inputMessageText(InputMessageText(
+                    clearDraft: false,
+                    linkPreviewOptions: nil,
+                    text: FormattedText(entities: [], text: button.text),
+                )),
+                options: nil,
+                replyMarkup: nil,
+                replyTo: context.replyTo,
+                topicId: context.destinationTopic,
+            )
+            guard locationContextIsCurrent,
+                  context.matches(message: message)
+            else { throw ChatSendContextError.unexpectedDestination }
+            // As for a sticker: the draft keeps its text and loses only the reply the button used.
+            if replyMessage?.id == sentReplyID {
+                cancelReply(markDirty: false)
+                do {
+                    try await updateDraft(in: context, replyTo: nil)
+                    draftErrorMessage = nil
+                } catch {
+                    composerIsDirty = true
+                    scheduleDraftUpdateRetry(context, replyTo: nil)
+                }
+            }
+            sendErrorMessage = nil
+        } catch {
             sendErrorMessage = error.localizedDescription
         }
     }

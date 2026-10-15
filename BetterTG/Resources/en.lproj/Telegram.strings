@@ -166,6 +166,8 @@
 "Common.Yes" = "Yes";
 "Common.No" = "No";
 "Conversation.TextCopied" = "Text copied to clipboard";
+"VoiceOver.Keyboard" = "Keyboard";
+"VoiceOver.BotKeyboard" = "Bot Keyboard";
 "Conversation.StopPoll" = "Stop Poll";
 "Conversation.StopQuiz" = "Stop Quiz";
 "Conversation.StopPollConfirmationTitle" = "If you stop this poll now, nobody will be able to vote in it anymore. This action cannot be undone.";

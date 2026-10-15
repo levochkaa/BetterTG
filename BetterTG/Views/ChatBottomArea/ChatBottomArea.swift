@@ -54,6 +54,8 @@ final class ChatComposerView: UIView {
     var onStartVideoNoteRecording: (() async -> Bool)?
     var onToggleVideoNotePreview: (() -> Void)?
     var onUpdateVideoNoteTrim: ((Double, Double, Bool, Bool) -> Void)?
+    /// A reply keyboard button and the message whose keyboard it belongs to.
+    var onReplyKeyboardButton: ((TDNativeKeyboardButton, Int64) -> Void)?
 
     private let chatVM: ChatVM
     private let glassView: UIVisualEffectView = {
@@ -79,6 +81,10 @@ final class ChatComposerView: UIView {
     private let inputRow = UIStackView()
     private let attachmentButton = UIButton(type: .system)
     private let textView = FormattedTextView(placeholder: L10n.telegram("Conversation.InputTextPlaceholder"))
+    /// Telegram's input button that switches between a bot's keyboard and the system keyboard.
+    private let replyKeyboardButton = UIButton(type: .system)
+    private let replyKeyboardResponder = ReplyKeyboardResponder()
+    private let replyKeyboardInputView = ReplyKeyboardInputView()
     private let actionButton = UIButton(type: .system)
     private let restrictionLabel = UILabel()
     private let recordingRow = UIStackView()
@@ -142,9 +148,15 @@ final class ChatComposerView: UIView {
     private var videoNoteReplyFallback: MessageReplyPresentation?
     private var videoNoteTrimEditing = false
     private var videoNoteTrimSaving = false
+    private var replyKeyboardButtonShowsSystemKeyboard: Bool?
 
     var isInputFocused: Bool {
         textView.isFirstResponder
+    }
+
+    /// A bot's keyboard stands in for the system keyboard (Telegram's `.inputButtons` input mode).
+    var isReplyKeyboardActive: Bool {
+        replyKeyboardResponder.isFirstResponder
     }
 
     private var isHoldingVideoNote: Bool {
@@ -164,6 +176,7 @@ final class ChatComposerView: UIView {
     init(chatVM: ChatVM) {
         self.chatVM = chatVM
         super.init(frame: .zero)
+        ReplyKeyboardInputView.observeSystemKeyboard()
         configureViews()
         configureActions()
         update(from: chatVM)
@@ -231,11 +244,20 @@ final class ChatComposerView: UIView {
         onInteractionSettled = nil
         onUserInteraction = nil
         onPasteImages = nil
+        onReplyKeyboardButton = nil
         if textView.isFirstResponder { textView.resignFirstResponder() }
+        if replyKeyboardResponder.isFirstResponder { replyKeyboardResponder.resignFirstResponder() }
     }
 
     func focusInput() {
         textView.becomeFirstResponder()
+    }
+
+    /// Shows the chat's offered keyboard in place of the system keyboard; false when there's none to show.
+    @discardableResult func showReplyKeyboard() -> Bool {
+        guard window != nil, !hiddenForSearch, chatVM.canWriteBasicMessages, chatVM.editCustomMessage == nil,
+              configureReplyKeyboardInputView() else { return false }
+        return replyKeyboardResponder.isFirstResponder || replyKeyboardResponder.becomeFirstResponder()
     }
 
     func makeSendTransitionSnapshots(
@@ -368,6 +390,7 @@ final class ChatComposerView: UIView {
         hiddenForSearch = hidden
         if hidden {
             textView.resignFirstResponder()
+            replyKeyboardResponder.resignFirstResponder()
         } else {
             isHidden = false
             alpha = 0
@@ -394,7 +417,11 @@ final class ChatComposerView: UIView {
 
     func update(from chatVM: ChatVM) {
         isApplyingState = true
-        let shouldFocus = lastReplyID != chatVM.replyMessage?.id || lastEditID != chatVM.editCustomMessage?.id
+        // A reply the bot's keyboard set up keeps the bot keyboard up instead of raising the system one.
+        let replyID = chatVM.replyMessage?.id
+        let replyFocuses = lastReplyID != replyID
+            && !(replyID.map { chatVM.replyKeyboard.takeUnfocusedReply($0) } ?? false)
+        let shouldFocus = replyFocuses || lastEditID != chatVM.editCustomMessage?.id
         let beginsEditing = chatVM.editCustomMessage != nil && lastEditID != chatVM.editCustomMessage?.id
         lastReplyID = chatVM.replyMessage?.id
         lastEditID = chatVM.editCustomMessage?.id
@@ -618,6 +645,7 @@ final class ChatComposerView: UIView {
         }
         updateActionButton()
         updateRecordingGesturePresentation()
+        updateReplyKeyboard()
         isApplyingState = false
         if shouldFocus, lastReplyID != nil || lastEditID != nil {
             textView.becomeFirstResponder()
@@ -742,13 +770,27 @@ final class ChatComposerView: UIView {
         textView.backgroundColor = .clear
         inputRow.addArrangedSubview(attachmentButton)
         inputRow.addArrangedSubview(textView)
+        inputRow.addArrangedSubview(replyKeyboardButton)
         inputRow.addArrangedSubview(actionButton)
         NSLayoutConstraint.activate([
             attachmentButton.widthAnchor.constraint(equalToConstant: 34),
             attachmentButton.heightAnchor.constraint(equalToConstant: 36),
+            replyKeyboardButton.widthAnchor.constraint(equalToConstant: 34),
+            replyKeyboardButton.heightAnchor.constraint(equalToConstant: 36),
             actionButton.widthAnchor.constraint(equalToConstant: 34),
             actionButton.heightAnchor.constraint(equalToConstant: 36),
         ])
+        replyKeyboardButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 20, weight: .regular),
+            forImageIn: .normal,
+        )
+        replyKeyboardButton.tintColor = .secondaryLabel
+        replyKeyboardButton.isHidden = true
+        replyKeyboardResponder.frame = .zero
+        replyKeyboardResponder.isUserInteractionEnabled = false
+        replyKeyboardResponder.keyboardInputView = replyKeyboardInputView
+        replyKeyboardResponder.onActiveChange = { [weak self] in self?.updateReplyKeyboardButton() }
+        addSubview(replyKeyboardResponder)
 
         restrictionLabel.textColor = .secondaryLabel
         restrictionLabel.font = .preferredFont(forTextStyle: .subheadline)
@@ -878,6 +920,7 @@ final class ChatComposerView: UIView {
 
     private func configureActions() {
         attachmentButton.addTarget(self, action: #selector(showAttachmentActions), for: .touchUpInside)
+        replyKeyboardButton.addTarget(self, action: #selector(toggleReplyKeyboard), for: .touchUpInside)
         closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)
         cancelRecordingButton.addTarget(self, action: #selector(cancelRecording), for: .touchUpInside)
         recordingPauseResumeButton.addTarget(self, action: #selector(toggleRecordingPause), for: .touchUpInside)
@@ -935,6 +978,68 @@ final class ChatComposerView: UIView {
             ],
             presentationStyle: .sourceMorph,
         )
+    }
+
+    /// Fills the panel with the chat's offered keyboard; false when it offers none.
+    private func configureReplyKeyboardInputView() -> Bool {
+        guard let keyboard = chatVM.replyKeyboard.offeredKeyboard else { return false }
+        let messageID = keyboard.messageID
+        let heightChanged = replyKeyboardInputView.configure(
+            keyboard: keyboard,
+            containerSize: window?.bounds.size ?? bounds.size,
+            bottomInset: window?.safeAreaInsets.bottom ?? 0,
+        ) { [weak self] button in
+            self?.onReplyKeyboardButton?(button, messageID)
+        }
+        if heightChanged, replyKeyboardResponder.isFirstResponder {
+            replyKeyboardResponder.reloadInputViews()
+        }
+        return true
+    }
+
+    /// Keeps a shown keyboard current. When the bot removes it, or a one-time keyboard was used, Telegram switches
+    /// the input to text (`.inputButtons` becomes `.text`).
+    private func updateReplyKeyboard() {
+        if replyKeyboardResponder.isFirstResponder,
+           chatVM.editCustomMessage != nil || !configureReplyKeyboardInputView()
+        {
+            if chatVM.canWriteBasicMessages, !hiddenForSearch {
+                textView.becomeFirstResponder()
+            } else {
+                replyKeyboardResponder.resignFirstResponder()
+            }
+        }
+        updateReplyKeyboardButton()
+    }
+
+    /// Telegram's input buttons: the bot keyboard button while the input is empty, and the system keyboard button
+    /// while the bot keyboard is up (`ChatTextInputAccessoryItem.botInput`).
+    private func updateReplyKeyboardButton() {
+        let isActive = replyKeyboardResponder.isFirstResponder
+        let isOffered = chatVM.replyKeyboard.offeredKeyboard != nil
+            && chatVM.canWriteBasicMessages
+            && chatVM.editCustomMessage == nil
+        let isVisible = isOffered && (isActive || chatVM.text.characters.isEmpty)
+        if replyKeyboardButton.isHidden == isVisible {
+            replyKeyboardButton.isHidden = !isVisible
+        }
+        guard replyKeyboardButtonShowsSystemKeyboard != isActive else { return }
+        replyKeyboardButtonShowsSystemKeyboard = isActive
+        replyKeyboardButton.setImage(UIImage(systemName: isActive ? "keyboard" : "square.grid.2x2"), for: .normal)
+        replyKeyboardButton.accessibilityLabel = L10n
+            .telegram(isActive ? "VoiceOver.Keyboard" : "VoiceOver.BotKeyboard")
+    }
+
+    @objc private func toggleReplyKeyboard() {
+        guard chatVM.locationContextIsCurrent else { return }
+        if replyKeyboardResponder.isFirstResponder {
+            // Closed with this button, a keyboard stays closed until the user opens it again.
+            chatVM.replyKeyboard.setClosed(true)
+            textView.becomeFirstResponder()
+        } else {
+            chatVM.replyKeyboard.setClosed(false)
+            showReplyKeyboard()
+        }
     }
 
     private func setReplyPreviewVisible(_ visible: Bool, animated: Bool) {
@@ -1150,6 +1255,7 @@ final class ChatComposerView: UIView {
             chatVM.editMessageText = text
         }
         updateActionButton()
+        updateReplyKeyboardButton()
         draftTask?.cancel()
         draftTask = Task { [weak chatVM] in
             try? await Task<Never, Never>.sleep(for: .milliseconds(500))

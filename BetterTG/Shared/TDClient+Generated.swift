@@ -96,6 +96,10 @@ extension TDClient {
         ))
     }
 
+    func deleteChatReplyMarkup(chatId: Int64, messageId: Int64) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.deleteChatReplyMarkup(chatId: chatId, messageId: messageId))
+    }
+
     func deleteMessages(chatId: Int64, messageIds: [Int64], revoke: Bool) async throws -> TDNativeOk {
         try await send(TDNativeRequests.deleteMessages(chatId: chatId, messageIds: messageIds, revoke: revoke))
     }

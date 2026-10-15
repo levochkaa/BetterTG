@@ -44,6 +44,7 @@
 
 "Chat.UnsupportedTDLib" = "This message isn't supported by TDLib.";
 "Chat.UnsupportedBetterTG" = "This message isn't supported by BetterTG.";
+"Chat.UnsupportedButtonBetterTG" = "This button isn't supported by BetterTG yet.";
 "Chat.CameraUnavailable" = "Camera unavailable";
 "Chat.ChoosingLocation" = "choosing location";
 "Chat.ChoosingContact" = "choosing contact";

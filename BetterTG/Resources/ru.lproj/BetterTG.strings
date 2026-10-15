@@ -44,6 +44,7 @@
 
 "Chat.UnsupportedTDLib" = "TDLib не поддерживает это сообщение.";
 "Chat.UnsupportedBetterTG" = "BetterTG не поддерживает это сообщение.";
+"Chat.UnsupportedButtonBetterTG" = "BetterTG пока не поддерживает эту кнопку.";
 "Chat.CameraUnavailable" = "Камера недоступна";
 "Chat.ChoosingLocation" = "выбирает геопозицию";
 "Chat.ChoosingContact" = "выбирает контакт";

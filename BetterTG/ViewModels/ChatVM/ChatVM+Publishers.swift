@@ -115,6 +115,12 @@ extension ChatVM {
             else { return }
             updateChatPermissions(update.permissions)
         }
+        observeCurrentUpdate(.updateChatReplyMarkup) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, supportsReplyKeyboard, update.chatId == customChat.id else {
+                return
+            }
+            replyKeyboard.apply(update)
+        }
         observeCurrentUpdate(.updateChatAvailableReactions) { [weak self] update, _ in
             guard let self, update.chatId == customChat.id,
                   TDLib.shared.activeAccountID == accountID,

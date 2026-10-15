@@ -212,6 +212,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var restoredVideoRecordingDraftIDHandled: UUID?
     private var selectedDisplayedMessageIDs = Set<DisplayedMessageID>()
     private var isSelectingMessages = false
+    /// The reply keyboard revision whose automatic opening was decided.
+    private var evaluatedReplyKeyboardRevision: Int?
     private var selectionInteractionActive = false
     /// A two-finger pan that ran into the selection limit; its alert waits until the pan ends.
     private var selectionInteractionHitLimit: Int?
@@ -327,6 +329,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var timelineSourceIsCurrent: Bool {
         !clientOwnerRetired && chatVM.locationContextIsCurrent
             && navigationClientSource != nil && navigationClientSource == tdlib.activeUpdateSource
+    }
+
+    private var keepsPersistentReplyKeyboard: Bool {
+        chatVM.supportsReplyKeyboard && chatVM.customChat.bot != nil
+            && chatVM.replyKeyboard.offeredKeyboard?.markup.isPersistent == true
     }
 
     convenience init(
@@ -477,6 +484,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         settleRestoredViewport()
         if preparedClient == nil { clientPreparationSource = nil }
         retryClientRestoration()
+        evaluateReplyKeyboardChange()
         // Gallery paging can reveal another album member while the timeline is covered.
         for indexPath in collectionView.indexPathsForVisibleItems {
             guard case .message(let displayedID) = dataSource.itemIdentifier(for: indexPath),
@@ -1557,6 +1565,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     finished: finished,
                 )
             }
+            composerView.onReplyKeyboardButton = { [weak self] button, messageID in
+                guard let self, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+                let chatVM = chatVM
+                Task { await chatVM.pressReplyKeyboardButton(button, keyboardMessageID: messageID) }
+            }
             view.addSubview(composerKeyboardEdgeView)
             view.addSubview(composerView)
             let leadingConstraint = composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
@@ -2220,6 +2233,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     presentMessageActionErrorIfNeeded()
                     restoreVideoRecordingIfNeeded()
                 }
+            }
+            .store(in: &cancellables)
+        chatVM.replyKeyboard
+            .$revision
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                // After the composer update queued for the same change.
+                DispatchQueue.main.async { self?.evaluateReplyKeyboardChange() }
             }
             .store(in: &cancellables)
         chatVM.messagesDidChange
@@ -4578,7 +4599,32 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     @objc private func historyTapped(_: UITapGestureRecognizer) {
         abandonRestoredViewport()
+        // Telegram's `dismissInput`: a bot's persistent keyboard stays, and another dismissed keyboard stays closed.
+        if showsComposer, composerView.isReplyKeyboardActive {
+            if keepsPersistentReplyKeyboard { return }
+            chatVM.replyKeyboard.setClosed(true)
+        }
         view.endEditing(true)
+        // A bot's persistent keyboard returns once text input ends (`chatInputTextNodeDidFinishEditing`).
+        if showsComposer, keepsPersistentReplyKeyboard {
+            composerView.showReplyKeyboard()
+        }
+    }
+
+    /// Telegram opens a new bot keyboard in place of the system keyboard once per keyboard change
+    /// (`updateChatPresentationInterfaceStateImpl`); a change from before the chat appeared is decided when it does.
+    private func evaluateReplyKeyboardChange() {
+        guard showsComposer, presentationMode == .full, chatVM.supportsReplyKeyboard, view.window != nil else { return }
+        let revision = chatVM.replyKeyboard.revision
+        guard evaluatedReplyKeyboardRevision != revision else { return }
+        evaluatedReplyKeyboardRevision = revision
+        guard !clientOwnerRetired, chatVM.locationContextIsCurrent, !messageSearchActive, !isSelectingMessages,
+              chatVM.replyKeyboard.opensAutomatically(
+                  isEditing: chatVM.editCustomMessage != nil,
+                  hasText: !chatVM.text.characters.isEmpty,
+              )
+        else { return }
+        composerView.showReplyKeyboard()
     }
 
     private func cancelHistoryPanGesture() {
