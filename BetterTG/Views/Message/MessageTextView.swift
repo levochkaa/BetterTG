@@ -48,6 +48,9 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     var onRevealSpoilers: (() -> Void)?
     var onUnhandledTap: (() -> Void)?
     var onOpenRichURL: ((URL) -> Bool)?
+    /// The last text selected for Quote while the menu was open. Menu actions run after dismissal clears the
+    /// selection, so the reply options' Quote Selected Part reads it from here.
+    private(set) var lastQuoteSelection: NSRange?
 
     private var contextQuoteAction: ((NSRange) -> Void)?
     /// Copy-protected text stays selectable for Quote; Copy, Share and dragging the text out stay unavailable.
@@ -285,6 +288,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     func setContextQuoteAction(_ action: ((NSRange) -> Void)?, allowsCopy: Bool = true) {
         contextQuoteAction = action
         contextQuoteAllowsCopy = action == nil || allowsCopy
+        if action != nil { lastQuoteSelection = nil }
         entityTapGesture.cancelsTouchesInView = action == nil
         isSelectable = action != nil && formattedText != nil
         if action == nil {
@@ -294,6 +298,19 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             selectedTextRange = nil
             resignFirstResponder()
         }
+    }
+
+    /// Telegram's beginTextSelection for the reply options: the current quote, or else the whole text, starts selected.
+    func beginQuoteSelection(range: NSRange?) {
+        guard contextQuoteAction != nil, window != nil, let formattedText else { return }
+        let full = NSRange(location: 0, length: formattedText.text.utf16.count)
+        guard full.length > 0 else { return }
+        let requested = range.map { NSIntersectionRange($0, full) }
+        let selection = requested.flatMap { $0.length > 0 ? $0 : nil } ?? full
+        becomeFirstResponder()
+        selectedRange = selection
+        lastQuoteSelection = selection
+        scheduleQuoteMenu()
     }
 
     func textDraggableView(
@@ -314,6 +331,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
                 NSRange(location: 0, length: formattedText.text.utf16.count),
             )
             if bounded != selectedRange { selectedRange = bounded }
+            lastQuoteSelection = bounded.length > 0 ? bounded : nil
             if bounded.length > 0, !isFirstResponder { becomeFirstResponder() }
             #if DEBUG
             if bounded.length > 0 {

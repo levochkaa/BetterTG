@@ -580,3 +580,4 @@
 "Accessibility.VideoNoteCameraPreview" = "Превью камеры для видеосообщения";
 
 "Login.WaitingForAuthorization" = "Ожидание авторизации";
+"Composer.ReplyOptions.ShowMessage" = "Показать сообщение";

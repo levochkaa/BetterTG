@@ -184,6 +184,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var didPerformInitialScroll = false
     private var pendingScrollMessageID: Int64?
     private var pendingQuoteHighlight: MessageQuoteHighlight?
+    /// The message whose quote selection opens once navigation settles (reply options' Select Specific Quote).
+    private var pendingReplyQuoteSelectionID: Int64?
     private let messageNavigationScroll = ChatMessageNavigationScroll()
     private var pendingQuoteDestination: PendingQuoteDestination?
     private var messageNavigationTask: Task<Void, Never>?
@@ -1734,6 +1736,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     replacingForwardID: forward.id,
                 )
             }
+            composerView.onOpenReplyOptions = { [weak self] source in self?.presentReplyOptions(from: source) }
             composerView.onVoiceGestureActivityChange = { [weak self] active in
                 guard let self, voiceGestureDefersSystemGestures != active else { return }
                 voiceGestureDefersSystemGestures = active
@@ -3460,10 +3463,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         chatVM.messages.first(where: { $0.displayedID == id })
     }
 
-    private func scrollToMessage(id: Int64, quote: MessageQuoteHighlight? = nil) {
+    private func scrollToMessage(id: Int64, quote: MessageQuoteHighlight? = nil, opensQuoteSelection: Bool = false) {
         guard !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
         viewportRestorationAuthority.invalidate()
         cancelMessageNavigation()
+        pendingReplyQuoteSelectionID = opensQuoteSelection ? id : nil
         #if DEBUG
             if ChatMessageNavigationGeometry.enabled, let source = navigationClientSource {
                 messageNavigationGeometry = .init(messageID: id, source: source)
@@ -3518,6 +3522,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         pendingQuoteDestination = nil
         pendingScrollMessageID = nil
         pendingQuoteHighlight = nil
+        pendingReplyQuoteSelectionID = nil
         messageNavigationScroll.cancel()
     }
 
@@ -3564,15 +3569,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             completion: { [weak self] outcome in
                 guard let self, pendingScrollMessageID == id else { return }
                 let quote = pendingQuoteHighlight
+                let opensQuoteSelection = pendingReplyQuoteSelectionID == id
                 pendingScrollMessageID = nil
                 pendingQuoteHighlight = nil
+                pendingReplyQuoteSelectionID = nil
                 viewportRestorationAuthority.invalidate()
                 switch outcome {
                 case .settled:
                     recordMessageNavigationPhase("scroll-settled")
                     recordMessageNavigationGeometry("target-settled", settled: true)
                     if navigationClientSource == source, chatVM.locationContextIsCurrent {
-                        highlightNavigatedMessage(id: id, quote: quote)
+                        if opensQuoteSelection {
+                            presentReplyQuoteSelection(messageID: id, requiresFullyVisible: false)
+                        } else {
+                            highlightNavigatedMessage(id: id, quote: quote)
+                        }
                     }
                 case .missing: recordMessageNavigationPhase("target-missing")
                 case .failed: recordMessageNavigationPhase("scroll-failed")
@@ -4962,6 +4973,99 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 : nil,
             onDismiss: { [weak self] in self?.retryClientRestoration() },
         )
+    }
+
+    /// ChatMessageActionOptions' reply options, opened from the composer's reply panel. Reply in Another Chat is
+    /// tracked separately.
+    private func presentReplyOptions(from sourceView: UIView) {
+        guard let reply = chatVM.replyMessage else { return }
+        let quote = chatVM.replyQuote
+        var actions = [TelegramContextMenuAction(
+            title: L10n.betterTG("Composer.ReplyOptions.ShowMessage"),
+            image: UIImage(systemName: "text.bubble"),
+        ) { [weak self] in
+            self?.navigate(to: .message(
+                chatID: reply.message.chatId,
+                messageID: reply.id,
+                quote: quote.flatMap { MessageQuoteHighlight(text: $0.text.text, position: $0.position) },
+            ))
+        }]
+        if reply.message.chatId == chatVM.chatID, allowsQuoteSelection(in: reply) {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.MessageOptionsQuoteSelect"),
+                image: UIImage(systemName: "text.quote"),
+            ) { [weak self] in
+                guard let self else { return }
+                if !presentReplyQuoteSelection(messageID: reply.id, requiresFullyVisible: true) {
+                    scrollToMessage(id: reply.id, opensQuoteSelection: true)
+                }
+            })
+        }
+        if quote != nil {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.MessageOptionsQuoteRemove"),
+                image: UIImage(systemName: "text.badge.xmark"),
+                isDestructive: true,
+                startsNewSection: true,
+            ) { [weak self] in self?.chatVM.removeReplyQuote() })
+        }
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("Conversation.MessageOptionsReplyCancel"),
+            image: UIImage(systemName: "trash"),
+            isDestructive: true,
+            startsNewSection: quote == nil,
+        ) { [weak self] in self?.chatVM.cancelReply() })
+        // The panel spans the composer, so the menu opens above it.
+        presentTelegramContextMenu(sourceView: sourceView, actions: actions, presentationStyle: .menuOnly)
+    }
+
+    /// Select Specific Quote: the replied message opens with its text selected, from the current quote or in full
+    /// (Telegram's beginTextSelection). Quote Selected Part, or Quote over the selection, sets the reply's quote.
+    /// False while the message is not on screen.
+    @discardableResult private func presentReplyQuoteSelection(messageID: Int64, requiresFullyVisible: Bool) -> Bool {
+        guard let displayedID = chatVM.displayedMessageID(containing: messageID),
+              let indexPath = dataSource.indexPath(for: .message(displayedID)),
+              let message = message(for: displayedID), message.id == messageID,
+              allowsQuoteSelection(in: message),
+              let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+        else { return false }
+        if requiresFullyVisible,
+           !collectionView.bounds.inset(by: collectionView.adjustedContentInset).contains(cell.frame) { return false }
+        let textView = cell.contextQuoteTextView
+        var quoteRange: NSRange?
+        if chatVM.replyMessage?.id == messageID, let quote = chatVM.replyQuote,
+           let resolved = MessageQuoteHighlight(text: quote.text.text, position: quote.position)?
+               .resolved(in: message.message.content)
+        {
+            quoteRange = NSRange(location: resolved.position, length: resolved.length)
+        }
+        let applyQuote: (NSRange) -> Void = { [weak self, weak message] range in
+            guard let self, let message else { return }
+            chatVM.beginQuoteReply(to: message, range: range)
+        }
+        let presented = presentTelegramContextMenu(
+            sourceView: cell.contextPreviewView,
+            actions: [TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.MessageOptionsQuoteSelectedPart"),
+                image: UIImage(systemName: "text.quote"),
+            ) { [weak textView] in
+                guard let range = textView?.lastQuoteSelection else { return }
+                applyQuote(range)
+            }],
+            quoteSelection: TelegramContextQuoteSelection(
+                textView: textView,
+                allowsCopy: message.properties.canBeCopied,
+                handler: applyQuote,
+            ),
+            onDismiss: { [weak self] in self?.retryClientRestoration() },
+        )
+        guard presented else { return false }
+        Task { @MainActor [weak textView] in
+            // After the preview's 0.34 s spring settles, where the selection's edit menu is placed.
+            try? await Task.sleep(for: .milliseconds(350))
+            textView?.beginQuoteSelection(range: quoteRange)
+        }
+        return true
     }
 
     @objc private func historyTapped(_: UITapGestureRecognizer) {

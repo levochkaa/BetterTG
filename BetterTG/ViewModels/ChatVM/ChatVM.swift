@@ -2530,6 +2530,35 @@ import UIKit
         reconcileActiveChatActionAfterReplyChange()
     }
 
+    /// Remove Quote in the reply options keeps the reply to the whole message (ChatMessageActionOptions).
+    func removeReplyQuote() {
+        guard replyQuote != nil else { return }
+        markComposerDirty()
+        replySelectionGeneration &+= 1
+        replyQuote = nil
+        replyInputOverride = replyInputOverride.map { input -> InputMessageReplyTo in
+            switch input {
+            case .inputMessageReplyToMessage(let reply):
+                .inputMessageReplyToMessage(InputMessageReplyToMessage(
+                    checklistTaskId: reply.checklistTaskId,
+                    messageId: reply.messageId,
+                    pollOptionId: reply.pollOptionId,
+                    quote: nil,
+                ))
+            case .inputMessageReplyToExternalMessage(let reply):
+                .inputMessageReplyToExternalMessage(InputMessageReplyToExternalMessage(
+                    chatId: reply.chatId,
+                    checklistTaskId: reply.checklistTaskId,
+                    messageId: reply.messageId,
+                    pollOptionId: reply.pollOptionId,
+                    quote: nil,
+                ))
+            case .inputMessageReplyToEphemeralMessage, .inputMessageReplyToStory:
+                input
+            }
+        }
+    }
+
     func updateComposerTextFromUser(_ value: AttributedString) {
         markComposerDirty()
         text = value

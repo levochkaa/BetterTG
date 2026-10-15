@@ -847,3 +847,7 @@
 "Conversation.ForwardOptions.ChangeRecipient" = "Change Recipient";
 "Conversation.ForwardOptionsCancel" = "Do Not Forward";
 "Chat.ToastQuoteNotFound" = "Quote not found";
+"Conversation.MessageOptionsQuoteSelectedPart" = "Quote Selected Part";
+"Conversation.MessageOptionsQuoteSelect" = "Select Specific Quote";
+"Conversation.MessageOptionsQuoteRemove" = "Remove Quote";
+"Conversation.MessageOptionsReplyCancel" = "Do Not Reply";

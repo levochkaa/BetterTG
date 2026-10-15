@@ -46,6 +46,8 @@ final class ChatComposerView: UIView {
     var onNavigateToMessage: ((MessageMetadataNavigationTarget) -> Void)?
     /// Change Recipient in the forward options: reopens the Forward picker for this forward.
     var onChangeForwardRecipient: ((PendingMessageForward) -> Void)?
+    /// Telegram's reply panel opens the reply options (ChatMessageActionOptions) from the panel, its source view.
+    var onOpenReplyOptions: ((UIView) -> Void)?
     var onVoiceGestureActivityChange: ((Bool) -> Void)?
     var onConfirmVoiceTrimResume: (() -> Void)?
     var onCancelVideoNoteRecording: (() -> Void)?
@@ -565,16 +567,18 @@ final class ChatComposerView: UIView {
             showsReplyPreview = true
             closeReplyButton.isHidden = false
             let title = replyAuthorName(for: reply) ?? L10n.telegram("Conversation.ContextMenuReply")
+            let openReplyOptions = { [weak self] in
+                guard let self else { return }
+                if let onOpenReplyOptions {
+                    onOpenReplyOptions(replySnippet)
+                } else {
+                    onNavigateToMessage?(navigationTarget(for: reply, quote: chatVM.replyQuote))
+                }
+            }
             if let quote = chatVM.replyQuote {
-                replySnippet.configure(title: title, quote: quote) { [weak self] in
-                    guard let self else { return }
-                    onNavigateToMessage?(navigationTarget(for: reply, quote: quote))
-                }
+                replySnippet.configure(title: title, quote: quote, onTap: openReplyOptions)
             } else {
-                replySnippet.configure(title: title, message: reply.message) { [weak self] in
-                    guard let self else { return }
-                    onNavigateToMessage?(navigationTarget(for: reply))
-                }
+                replySnippet.configure(title: title, message: reply.message, onTap: openReplyOptions)
             }
         } else if let fallback = chatVM.replyFallbackPresentation {
             showsReplyPreview = true
