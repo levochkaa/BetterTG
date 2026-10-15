@@ -372,6 +372,27 @@ Audit and fixes from `codex/parity-chat-tools` and `codex/parity-stories` (cherr
 | LK-1 | P2 | Telegram links other than language packs and folder invites opened Safari; @mentions weren't tappable | fixed `564e1032`, `ee0ac512`, `ede5d5d6`, `530e864c` (cherry-picked from `codex/parity-links`): `getInternalLinkType` routing for public chats, message links (chat, topic, comments), invite links with Telegram's join preview (join only on tap), bot start with the Start button, phone and token links, sticker sets, stories, Settings sections and Saved Messages; @mentions and text mentions open their chat. `-ui-probe-telegram-links` passes. Simulator: `bettertg://settings/devices` opened Devices, `bettertg://resolve?domain=telegram&post=1` opened Telegram News at its first post. Not ported: bot start in groups, link drafts, the loading overlay |
 
 
+### Compose flow and message actions — 2026-10-16
+
+From `codex/parity-media-audit` (compose) and `codex/parity-msg-actions` (message actions, M-x audit), cherry-picked.
+
+| ID | Sev | Finding | Status |
+|---|---|---|---|
+| CO-1 | P2 | No compose entry, contacts list, New Group/Channel/Secret Chat or Add Contact | fixed `8e1a4612`, `14142dab`, `d6263ffe`, `74dc37aa`, `942bda55`, `941f0b44`: a pencil next to Settings opens New Message (contacts by name or last seen, letter index, contacts and global search), New Group (chips, counter, name, photo, auto-delete; `createNewBasicGroupChat` on Create), New Channel (intro, info, public/private link, subscribers), New Secret Chat, New Contact (`searchUserByPhoneNumber`, `addContact`/`importContacts` on Done). The classic bar now shows `navigationItem.subtitle`. Simulator (read-only): New Message rows, contacts with last seen and the index; New Group chip and "1/200000"; nothing was created |
+| M-1 | P2 | No Copy Link | fixed `e5fddc03`. Simulator: Hacker News post copied `https://t.me/hacker_news_feed/132813` with Telegram's toast |
+| M-2 | P2 | No Report | fixed `ea348b3d`: TDLib's reason pages and comment step, a report only on a chosen reason. Simulator: Report appears in a channel post menu (not opened) |
+| M-3 | P2 | No Seen By | fixed `e925392b`: `getMessageViewers` sheet. Build only |
+| M-4 | P3 | No who-reacted list | fixed `e925392b` as a menu item (`getMessageAddedReactions`); a long press on a reaction chip is still missing |
+| M-5 | P2 | No silent, scheduled or when-online sends | fixed `280e2f8f`: Send long-press menu and Telegram's schedule picker. Simulator: Saved Messages offers Set a Reminder, the picker reads "remind today at 07:30"; cancelled, nothing sent |
+| M-6 | P2 | No Scheduled Messages screen | fixed `280e2f8f`: grouped list with Send Now, Reschedule, Copy, Delete, and the input calendar button. Build only: no chat has scheduled messages |
+| M-7 | P2 | Scheduled messages could enter the normal history | fixed `280e2f8f` |
+| M-8 | P3 | No Translate | open: Telegram hides it behind a setting BetterTG lacks |
+| M-9 | P3 | No Save Image/Video in the message menu | open: the gallery saves |
+| M-10 | P3 | No link preview panel or remove-preview | open |
+| M-11 | P3 | No admin delete options (delete all from user, report spam, ban) | open |
+| M-12 | P3 | No read date in private chats | open |
+
+
 ### Probe sweep — 2026-10-12
 
 Repeat on the merged build `e05d541` (localization merge): 86 of 91 probes report a pass; `draft-coding` passes in the app's tmp folder, and the four observation probes need live UI as above.
