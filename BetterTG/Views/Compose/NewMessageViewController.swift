@@ -133,6 +133,9 @@ final class NewMessageViewController: SettingsListViewController, UISearchResult
             optionRow("Compose.NewEncryptedChat", symbol: "lock") { [weak self] in
                 self?.push(ComposeContactPickerViewController(mode: .secretChat))
             },
+            optionRow("NewContact.Title", symbol: "person.crop.circle.badge.plus") { [weak self] in
+                self?.push(NewContactViewController())
+            },
             optionRow("Compose.NewChannel", symbol: "megaphone") { [weak self] in
                 self?.push(ChannelIntroViewController())
             },

@@ -1328,3 +1328,10 @@
 "Channel.Edit.PrivatePublicLinkAlert" = "Please note that if you choose a public link for your channel, anyone will be able to find it in search and join.\n\nDo not create this link if you want your channel to stay private.";
 "InviteLink.InviteLink" = "Invite Link";
 "GroupInfo.AddParticipantTitle" = "Contacts";
+"NewContact.Title" = "New Contact";
+"Contacts.PhoneNumber" = "Phone Number";
+"AddContact.PhoneNumber.IsContact" = "This phone number is already in your contacts. [View >]()";
+"AddContact.PhoneNumber.Registered" = "This phone number is on Telegram.";
+"AddContact.PhoneNumber.NotRegistered" = "This phone number is not on Telegram. [Invite >]()";
+"AddContact.SharedContactException" = "Share My Phone Number";
+"AddContact.SharedContactExceptionInfo" = "You can make your phone visible to %@.";
