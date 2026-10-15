@@ -156,6 +156,9 @@ import UIKit
 
     private(set) var historyGaps = [HistoryGap]()
 
+    /// The private chat's user doesn't accept voice and video notes (`hasRestrictedVoiceAndVideoNoteMessages`).
+    private(set) var recipientRestrictsVoiceAndVideoNotes = false
+
     private var voiceFinalizationGeneration = UInt64.zero
     private var voiceDraftRefreshGeneration = UInt64.zero
     @Published private var pendingVoiceDraftIsFinalizing = false
@@ -164,6 +167,9 @@ import UIKit
     private var deliveryReceipts: ChatDeliveryReceiptState
     private var deliveryReadTask: Task<Void, Never>?
     private var currentChatPermissions: ChatPermissions
+    /// When the supergroup's slow mode lets this account send again (`slowModeDelayExpiresIn`); TDLib reports 0 for
+    /// admins and chats without slow mode.
+    private var slowModeExpiresAt: Date?
 
     private var voiceRecordingTimerBaseline = 0.0
     private var voiceRecordingLastRecorderTime = 0.0
@@ -1364,11 +1370,11 @@ import UIKit
             chatInfoTask = Task { [weak self] in
                 guard let info = try? await client.getSupergroupFullInfo(supergroupId: group.id),
                       !Task.isCancelled,
-                      info.memberCount > 0,
                       let self,
                       locationContextIsCurrent
                 else { return }
-                memberCount = info.memberCount
+                updateSlowMode(expiresIn: info.slowModeDelayExpiresIn)
+                if info.memberCount > 0 { memberCount = info.memberCount }
             }
         case .group(let group) where group.memberCount == 0:
             chatInfoTask = Task { [weak self] in
@@ -1379,9 +1385,38 @@ import UIKit
                 else { return }
                 memberCount = info.members.count
             }
-        case .bot, .group, .user:
+        case .user(let user):
+            chatInfoTask = Task { [weak self] in
+                guard let info = try? await client.getUserFullInfo(userId: user.id),
+                      !Task.isCancelled, let self, locationContextIsCurrent else { return }
+                updateRecipientNoteRestriction(info.hasRestrictedVoiceAndVideoNoteMessages)
+            }
+        case .bot, .group:
             break
         }
+    }
+
+    func updateSlowMode(expiresIn seconds: Double) {
+        slowModeExpiresAt = seconds > 0 ? Date().addingTimeInterval(seconds) : nil
+    }
+
+    func updateRecipientNoteRestriction(_ restricted: Bool) {
+        guard recipientRestrictsVoiceAndVideoNotes != restricted else { return }
+        recipientRestrictsVoiceAndVideoNotes = restricted
+        objectWillChange.send()
+    }
+
+    /// Telegram keeps the input during slow mode and explains the wait when the user sends
+    /// (`Chat.SlowmodeTooltip`). Nil when a message may go out now.
+    func slowModeWaitMessage() -> String? {
+        guard let slowModeExpiresAt else { return nil }
+        let remaining = Int(ceil(slowModeExpiresAt.timeIntervalSinceNow))
+        guard remaining > 0 else {
+            self.slowModeExpiresAt = nil
+            return nil
+        }
+        let time = String(format: "%d:%02d", remaining / 60, remaining % 60)
+        return L10n.telegram("Chat.SlowmodeTooltip", time).replacingOccurrences(of: "\n", with: " ")
     }
 
     func loadMessages() {
@@ -2334,6 +2369,10 @@ import UIKit
             }
             return
         }
+        if let wait = slowModeWaitMessage() {
+            sendErrorMessage = wait
+            return
+        }
         let forward = pendingForward
         if let forward, text.characters.isEmpty, displayedImages.isEmpty, displayedDocuments.isEmpty {
             await sendPendingForward(forward)
@@ -2540,6 +2579,10 @@ import UIKit
         // queues sends, instead of being dropped.
         await waitForComposerSend()
         guard !sendingComposerMessage else { return }
+        if let wait = slowModeWaitMessage() {
+            sendErrorMessage = wait
+            return
+        }
         sendingComposerMessage = true
         let transitionID = UUID()
         let sentReplyID = replyMessage?.id
@@ -2595,6 +2638,10 @@ import UIKit
     func sendAnimation(_ animation: Animation) async {
         await waitForComposerSend()
         guard !sendingComposerMessage else { return }
+        if let wait = slowModeWaitMessage() {
+            sendErrorMessage = wait
+            return
+        }
         sendingComposerMessage = true
         let transitionID = UUID()
         let sentReplyID = replyMessage?.id
@@ -4592,6 +4639,11 @@ import UIKit
     }
 
     private func permissionAllows(_ kind: ChatSendContentKind) -> Bool {
+        // Telegram's recipient restriction on voice and video notes (`Conversation.VoiceMessagesRestricted`).
+        switch kind {
+        case .videoNote, .voiceNote: if recipientRestrictsVoiceAndVideoNotes { return false }
+        default: break
+        }
         let permission: KeyPath<ChatPermissions, Bool> =
             switch kind {
             case .animation, .sticker:

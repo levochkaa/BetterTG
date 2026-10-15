@@ -216,10 +216,14 @@ extension ChatVM {
         observeCurrentUpdate(.updateSupergroupFullInfo) { [weak self] update, _ in
             guard let self,
                   locationContextIsCurrent,
-                  update.supergroupId == customChat.supergroup?.id,
-                  update.supergroupFullInfo.memberCount > 0
+                  update.supergroupId == customChat.supergroup?.id
             else { return }
-            memberCount = update.supergroupFullInfo.memberCount
+            updateSlowMode(expiresIn: update.supergroupFullInfo.slowModeDelayExpiresIn)
+            if update.supergroupFullInfo.memberCount > 0 { memberCount = update.supergroupFullInfo.memberCount }
+        }
+        observeCurrentUpdate(.updateUserFullInfo) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.userId == customChat.user?.id else { return }
+            updateRecipientNoteRestriction(update.userFullInfo.hasRestrictedVoiceAndVideoNoteMessages)
         }
         observeCurrentUpdate(.updateUser) { [weak self] update, authority in
             guard let self, locationContextIsCurrent else { return }
