@@ -4487,6 +4487,30 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         case .checklistToggleUnavailable(let messageID):
             presentChecklistToggleUnavailable(messageID: messageID, in: message)
+        case .openStory(let posterChatID, let storyID, let sourceView, let sourceIsRound):
+            openStory(
+                posterChatID: posterChatID,
+                storyID: storyID,
+                sourceView: sourceView,
+                sourceIsRound: sourceIsRound,
+            )
+        }
+    }
+
+    /// Telegram's openChatMessage opens a shared story or a mention on its own in the story viewer
+    /// (SingleStoryContentContextImpl), which marks it viewed, or says it's gone (Story.TooltipExpired).
+    private func openStory(posterChatID: Int64, storyID: Int, sourceView: UIView, sourceIsRound: Bool) {
+        guard presentationMode == .full, !clientOwnerRetired, chatVM.locationContextIsCurrent,
+              presentedViewController == nil else { return }
+        view.endEditing(true)
+        StoryViewerController.present(
+            .story(chatID: posterChatID, storyID: storyID),
+            client: chatVM.client,
+            from: self,
+            sourceView: sourceView,
+            sourceIsAvatar: sourceIsRound,
+        ) { [weak self] in
+            self?.showChatToast(L10n.telegram("Story.TooltipExpired"))
         }
     }
 

@@ -1008,3 +1008,5 @@
 "Time.HoursAgo_any" = "%@ hours ago";
 "Time.YesterdayAt" = "yesterday at %@";
 "Story.HeaderEdited" = "edited";
+"Chat.StoryMentionAction" = "View Story";
+"Story.TooltipExpired" = "This story is no longer available";

@@ -70,8 +70,8 @@ import UIKit
 /// Telegram's shared story and story mention (TelegramMediaStory). A shared story reads as a forwarded message with
 /// the story's photo or video cover (ChatMessageForwardInfoNode's story header over ChatMessageMediaBubbleContentNode)
 /// and becomes "Expired story from" once TDLib can't return it. A mention is a centered card with the story in a ring
-/// (ChatMessageStoryMentionContentNode), or Telegram's expired-mention text. Opening a story needs a story viewer,
-/// which BetterTG doesn't have yet, so the content doesn't react to taps.
+/// and Telegram's View Story button (ChatMessageStoryMentionContentNode), or Telegram's expired-mention text. Tapping
+/// the cover, the card or the button opens the story in the story viewer.
 final class StoryMessageContentView: UIView, MessageSupplementView {
     private static let defaultStoryPixelSize = CGSize(width: 720, height: 1280)
 
@@ -86,6 +86,7 @@ final class StoryMessageContentView: UIView, MessageSupplementView {
     private let captionLabel = UILabel()
     private let mentionTextLabel = UILabel()
     private let ringView = UIView()
+    private let viewStoryButton = UIButton(type: .system)
     private var mediaWidth: NSLayoutConstraint?
     private var mediaHeight: NSLayoutConstraint?
     /// A mention's card and, once the story expired, its service row (ChatMessageActionBubbleContentNode).
@@ -113,12 +114,19 @@ final class StoryMessageContentView: UIView, MessageSupplementView {
         } else {
             configureSharedStory()
         }
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(openStory(_:))))
         resolve()
         render()
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func accessibilityActivate() -> Bool {
+        guard case .available = state else { return false }
+        openStory(nil)
+        return true
     }
 
     private static func pixelSize(of story: Story) -> CGSize {
@@ -150,6 +158,23 @@ final class StoryMessageContentView: UIView, MessageSupplementView {
         isActive = false
         mediaView.cancel()
         headerView.prepareForReuse()
+    }
+
+    /// The cover of a shared story, or anywhere on a mention's card, opens the story while TDLib can return it.
+    @objc private func openStory(_ gesture: UITapGestureRecognizer?) {
+        guard isActive, case .available = state else { return }
+        if let gesture, !content.viaMention,
+           !mediaView.bounds.contains(gesture.location(in: mediaView)) { return }
+        onAction(.openStory(
+            posterChatID: content.posterChatID,
+            storyID: content.storyID,
+            sourceView: mediaView,
+            sourceIsRound: content.viaMention,
+        ))
+    }
+
+    @objc private func viewStoryPressed() {
+        openStory(nil)
     }
 
     // MARK: Layout
@@ -189,8 +214,8 @@ final class StoryMessageContentView: UIView, MessageSupplementView {
         ])
     }
 
-    /// ChatMessageStoryMentionContentNode: a 180-point card, the story cut into a circle inside its ring, and the
-    /// mention text. Telegram's View Story button is left out until BetterTG can open stories.
+    /// ChatMessageStoryMentionContentNode: a 180-point card, the story cut into a circle inside its ring, the
+    /// mention text and the View Story pill under it.
     private func configureMention() {
         layer.cornerCurve = .continuous
 
@@ -208,11 +233,27 @@ final class StoryMessageContentView: UIView, MessageSupplementView {
         mentionTextLabel.textAlignment = .center
         addSubview(mentionTextLabel)
 
+        var buttonConfiguration = UIButton.Configuration.plain()
+        buttonConfiguration.attributedTitle = AttributedString(
+            L10n.telegram("Chat.StoryMentionAction"),
+            attributes: AttributeContainer([.font: UIFont.systemFont(ofSize: 15, weight: .semibold)]),
+        )
+        buttonConfiguration.baseForegroundColor = .label
+        buttonConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 19, bottom: 8, trailing: 19)
+        buttonConfiguration.background.backgroundColor = UIColor.label.withAlphaComponent(0.12)
+        buttonConfiguration.cornerStyle = .capsule
+        viewStoryButton.configuration = buttonConfiguration
+        viewStoryButton.translatesAutoresizingMaskIntoConstraints = false
+        viewStoryButton.addTarget(self, action: #selector(viewStoryPressed), for: .touchUpInside)
+        addSubview(viewStoryButton)
+
         mentionCardConstraints = [
             mentionTextLabel.topAnchor.constraint(equalTo: ringView.bottomAnchor, constant: 13),
             mentionTextLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
             mentionTextLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-            mentionTextLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
+            viewStoryButton.topAnchor.constraint(equalTo: mentionTextLabel.bottomAnchor, constant: 11),
+            viewStoryButton.centerXAnchor.constraint(equalTo: centerXAnchor),
+            viewStoryButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -13),
             widthAnchor.constraint(equalToConstant: 180),
         ]
         expiredMentionConstraints = [
@@ -365,7 +406,7 @@ final class StoryMessageContentView: UIView, MessageSupplementView {
         ]
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        accessibilityTraits = story == nil ? .staticText : .image
+        accessibilityTraits = story == nil ? .staticText : [.image, .button]
     }
 
     private func renderMention() {
@@ -410,6 +451,7 @@ final class StoryMessageContentView: UIView, MessageSupplementView {
         layer.cornerRadius = isExpired ? 11 : 15
         ringView.isHidden = isExpired
         mediaView.isHidden = isExpired
+        viewStoryButton.isHidden = isExpired
         if isExpired {
             NSLayoutConstraint.deactivate(mentionCardConstraints)
             NSLayoutConstraint.activate(expiredMentionConstraints)
@@ -421,7 +463,12 @@ final class StoryMessageContentView: UIView, MessageSupplementView {
         if case .available(let story) = state { loadMediaOnce(of: story) }
         isAccessibilityElement = true
         accessibilityLabel = text.replacingOccurrences(of: "\n", with: " ")
-        accessibilityTraits = .staticText
+        accessibilityTraits =
+            if case .available = state {
+                .button
+            } else {
+                .staticText
+            }
     }
 
     /// Names arriving later render the view again; the cover loads once.

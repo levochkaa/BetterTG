@@ -38,6 +38,9 @@ enum MessageContentAction {
     case toggleChecklistTask(MessagePollInteractionStore.ChecklistToggle)
     /// A task the user may not mark was tapped (displayTodoToggleUnavailable).
     case checklistToggleUnavailable(messageID: Int64)
+    /// A shared story or a story mention was tapped (openChatMessage): the story opens in the viewer, zooming from
+    /// `sourceView`, which is round for a mention.
+    case openStory(posterChatID: Int64, storyID: Int, sourceView: UIView, sourceIsRound: Bool)
 
     /// Rolls back the poll vote or checklist toggle an action carries when the chat refuses it.
     @MainActor func rejectPollSubmission(in store: MessagePollInteractionStore?) {
@@ -2695,6 +2698,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("checklist:\(toggle.taskID):\(toggle.isDone)")
                     case .checklistToggleUnavailable:
                         actions.append("checklist-unavailable")
+                    case .openStory:
+                        actions.append("story")
                     }
                 }
                 precondition(installed, "Fixture \(fixture.name) didn't install")
