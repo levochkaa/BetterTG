@@ -38,7 +38,7 @@ struct VoiceNoteSendDraft: Codable, ChatDraftSendScoped {
     let replyTo: InputMessageReplyTo?
     var sendTopic: MessageTopic? = nil
     var temporaryMessageID: Int64?
-    let waveform: Data
+    var waveform: Data
     var destination: ChatDraftKey? = nil
     /// Sent with TDLib's immediate self-destruct type, Telegram's play-once voice. Drafts saved before it was added
     /// decode as nil.
@@ -221,6 +221,7 @@ actor VoiceNoteDraftStore {
         in draft: VoiceNoteSendDraft,
         with encodedURL: URL,
         finalization: VoiceNoteFinalizationLease,
+        waveform: Data? = nil,
     ) throws -> VoiceNoteSendDraft {
         try Task.checkCancellation()
         try ensureDirectory()
@@ -238,6 +239,7 @@ actor VoiceNoteDraftStore {
         }
         updatedDraft.fileURL = destinationURL
         updatedDraft.isEncoded = true
+        if let waveform { updatedDraft.waveform = waveform }
         do {
             try save(updatedDraft)
         } catch {

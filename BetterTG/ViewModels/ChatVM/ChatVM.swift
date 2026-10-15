@@ -6044,12 +6044,15 @@ import UIKit
                 pendingVoiceNote = draft
                 if !draft.isEncoded {
                     let sourceURL = draft.fileURL
+                    // Telegram draws the waveform from the recorded samples; the meter readings taken while
+                    // holding are only an estimate, so the PCM peaks replace them as the trim editor's do.
+                    let pcmWaveform = try? await VoiceNotePCMEditor.inspect(sourceURL).waveform
                     let encodedURL = try await VoiceNoteCodec.encodeOggOpus(from: sourceURL)
                     defer { try? FileManager.default.removeItem(at: encodedURL) }
                     try Task.checkCancellation()
                     guard voiceFinalizationGeneration == generation else { throw CancellationError() }
                     draft = try await VoiceNoteDraftStore.shared.replaceFile(
-                        in: draft, with: encodedURL, finalization: claim.lease,
+                        in: draft, with: encodedURL, finalization: claim.lease, waveform: pcmWaveform,
                     )
                     try Task.checkCancellation()
                     guard voiceFinalizationGeneration == generation else { throw CancellationError() }
