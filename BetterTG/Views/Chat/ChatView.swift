@@ -161,7 +161,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return routeIsRetained && chatVM.locationContextIsCurrent
         },
         showToast: { [weak self] text in self?.showChatToast(text) },
-        openUserProfile: { [weak self] userID in self?.openUserProfile(userID: userID) },
+        openUserProfile: { [weak self] userID in self?.openContactProfile(userID: userID) },
         insertInlineQuery: { [weak self] query in self?.insertInlineQuery(query) },
     ))
 
@@ -3902,10 +3902,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(navigation, animated: true)
     }
 
-    /// Opens a shared Telegram contact's profile on this chat's client, or this chat's own profile when the contact
-    /// is its peer.
+    /// Opens a user's profile on this chat's client (Telegram's `openPeer(.info)` for a shared contact or a user
+    /// button), or this chat's own profile when the user is its peer.
     private func openContactProfile(userID: Int64) {
-        guard let accountID = location.accountID else { return }
+        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
+              let accountID = location.accountID else { return }
         metadataNavigationTask?.cancel()
         let client = chatVM.client
         metadataNavigationTask = Task { [weak self] in
@@ -3950,15 +3951,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let text = L10n.telegram(key)
         guard text != key else { return }
         let canSend = (try? chatVM.resolveSendContext(for: .sticker, replyingTo: nil)) != nil
-        let bottomInset = showsComposer && composerView.frame.minY > 0
-            ? max(0, view.safeAreaLayoutGuide.layoutFrame.maxY - composerView.frame.minY) + 8
-            : 8
-        TelegramUndoToast.show(
-            text: text,
-            in: view,
-            bottomInset: bottomInset,
+        showChatToast(
+            text,
             actionTitle: L10n.telegram("Conversation.SendDice"),
-            undo: canSend
+            action: canSend
                 ? { [weak self] in
                     guard let self else { return }
                     Task { await self.chatVM.sendDice(emoji) }
@@ -3968,33 +3964,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// A short notice above the composer, as Telegram's bot callback toast and copied-text overlay.
-    private func showChatToast(_ text: String) {
+    private func showChatToast(_ text: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
         let bottomInset = showsComposer && composerView.frame.minY > 0
             ? max(0, view.bounds.maxY - view.safeAreaInsets.bottom - composerView.frame.minY) + 8
             : 8
-        TelegramUndoToast.show(text: text, in: view, bottomInset: bottomInset, undo: nil)
-    }
-
-    /// Telegram opens a user button's profile (`openPeer(.info)`): the private chat with the user, then its profile.
-    private func openUserProfile(userID: Int64) {
-        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
-              let accountID = location.accountID else { return }
-        let client = chatVM.client
-        Task { [weak self] in
-            guard let chat = try? await client.createPrivateChat(force: false, userId: userID),
-                  let customChat = await RootVM.shared.getCustomChatForNavigation(from: chat.id, client: client),
-                  let self, routeIsRetained, chatVM.locationContextIsCurrent,
-                  TDLib.shared.activeClient.id == client.id,
-                  navigationController?.topViewController === self else { return }
-            let profile = PeerProfileViewController(
-                customChat: customChat,
-                topic: nil,
-                client: client,
-                accountID: accountID,
-            )
-            profile.configureOpensChatItself()
-            navigationController?.pushViewController(profile, animated: true)
-        }
+        TelegramUndoToast.show(text: text, in: view, bottomInset: bottomInset, actionTitle: actionTitle, undo: action)
     }
 
     /// Telegram's switch inline button for this chat puts "@bot query" into the composer (`activateSwitchInline`).
