@@ -33,6 +33,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private var selectionTask: Task<Void, Never>?
     private var accountCancellable: AnyCancellable?
     private var clientCancellable: AnyCancellable?
+    private var folderBarCancellable: AnyCancellable?
     private var scrollObservation: NSKeyValueObservation?
     private var transition: (from: Int, to: Int, fromOffset: CGFloat, toOffset: CGFloat)?
     private var isChangingPage = false
@@ -169,10 +170,18 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
                     }
                     return page
                 }
-                folderPicker.configure(
-                    items: folders.map { .init(id: $0.id, title: $0.name) },
-                    selectedID: folders.first?.id,
-                )
+                configureFolderBar(folders, selectedID: folders.first?.id)
+                // The main screen's folder bar: unread counters and renamed folders follow the account's state.
+                folderBarCancellable = FolderUnreadStore.shared
+                    .objectWillChange
+                    .map { _ in () }
+                    .merge(with: RootVM.shared.$folders.dropFirst().map { _ in () })
+                    .receive(on: DispatchQueue.main)
+                    .sink { [weak self] in
+                        DispatchQueue.main.async { [weak self] in
+                            self?.refreshFolderBar()
+                        }
+                    }
                 if let first = pages.first { pageController.setViewControllers(
                     [first],
                     direction: .forward,
@@ -281,6 +290,21 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
             picker.onSelect = { [weak self] topic in self?.openDestination(chat, topic: topic) }
             navigationController?.pushViewController(picker, animated: true)
         } else { openDestination(chat, topic: nil) }
+    }
+
+    private func refreshFolderBar() {
+        guard contextIsCurrent else { return }
+        configureFolderBar(pages.map(\.folder), selectedID: currentPage?.folder.id)
+    }
+
+    /// The pages keep the folders they were built with; a renamed folder takes its current name and custom emoji.
+    private func configureFolderBar(_ folders: [CustomFolder], selectedID: Int?) {
+        let current = Dictionary(RootVM.shared.folders.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        folderPicker.configure(
+            folders: folders.map { current[$0.id] ?? $0 },
+            selectedID: selectedID,
+            unreadStates: FolderUnreadStore.shared.states(for: client.id),
+        )
     }
 
     private func cancelPicker() {
