@@ -529,3 +529,8 @@
 "Premium.MaxChatsInFolderFinalText" = "Sorry, you can't add more than **%@** chats to a folder.";
 "Premium.MaxChatsInFolderNoPremiumText" = "Sorry, you can't add more than **%1$@** chats to a folder. We are working to let you increase this limit in the future.";
 "Chat.InlineTopicMenu.Reorder" = "Reorder";
+"ProfilePhoto.SetMainPhoto" = "Set as Main Photo";
+"ProfilePhoto.SetMainVideo" = "Set as Main Video";
+"GroupInfo.SetGroupPhotoDelete" = "Delete Photo";
+"Settings.RemoveVideo" = "Remove Video";
+"Settings.RemoveConfirmation" = "Remove";

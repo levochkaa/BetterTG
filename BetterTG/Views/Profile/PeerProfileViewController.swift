@@ -2118,6 +2118,12 @@ ClientRestorableNavigationEntry {
             guard let self else { return false }
             return TDLib.shared.activeAccountID == accountID && !clientOwnerRetired && !restorationIdentity.revoked
         }
+        // Telegram hides Share and Save for protected content and lets the account manage its own photos.
+        gallery.allowsSaving = !customChat.chat.hasProtectedContent
+        gallery.managesOwnPhotos = isSelfProfile
+        gallery.onPhotosChanged = { [weak self] in
+            self?.resetAvatarGalleryForMetadataChange()
+        }
         gallery.onClientRenewed = { [weak self] in
             guard let self else { return }
             // A page or the list requested through the previous client is dropped; ask the renewed one.
