@@ -139,7 +139,8 @@ import UIKit
                     + "individual-native-max-two/FIFO-coalescing/queued-info-veto/canceled-generation-slots=true; "
                     + "individual-limit=per-VM; page-concurrency/global-limit/queue-memory-cap=unverified; "
                     + "raw-head-pin-rank/append-individual-preservation/query-seed/failed-head/pin-edge-fence=true; "
-                    + "unknown-repin/pure-remote-reorder=explicit-head-refresh; forward-picker-order=unchanged; "
+                    + "pin-change/unknown-pinned-individual=auto-head-refresh; pure-remote-reorder=no-update; "
+                    + "forward-picker-order=unchanged; "
                     + "head-merge-keeps-later-pages/silent-head-failure/delete-single-read/deleted-topic-404=true; "
                     + "full-controller/real-RPC=unverified; server-writes=0"
             } catch { result = "Forum updates probe failed: \(error)" }
@@ -946,6 +947,8 @@ import UIKit
         f.post(topic(id: 3, order: 2))
         await events()
         try require(f.model.topics.map(\.info.forumTopicId) == [9, 5, 1, 3], "unpin kept stale rank")
+        try await until("automatic unpin head") { f.pages.count == 3 }
+        try require(f.pages[2].cursor == .zero, "pin change read past the first page")
         f.post(newer)
         await events()
         try require(
@@ -953,18 +956,22 @@ import UIKit
                 && f.model.restorationState(rawQuery: "").pinnedTopicIDs == [9],
             "repin invented rank or fetched from pin echo",
         )
-        f.model.loadInitial()
-        try await until("same-query pin refresh") { f.pages.count == 3 }
         let failed = f.model.probePageTask!
         f.failPage(2)
         try await terminal([failed])
-        try require(f.model.restorationState(rawQuery: "").pinnedTopicIDs == [9], "failed head lost display ranks")
-        f.model.loadInitial()
-        try await until("explicit repin head") { f.pages.count == 4 }
+        try require(
+            f.model.restorationState(rawQuery: "").pinnedTopicIDs == [9] && f.model.errorMessage == nil,
+            "failed head lost display ranks or reported a page error",
+        )
+        // The repin arrived during the failed read; its head follows automatically.
+        try await until("automatic repin head") { f.pages.count == 4 }
         let refresh = f.model.probePageTask!
         f.finishPage(3, [newer, changed, ordinary])
         try await terminal([refresh])
-        try require(f.model.topics.map(\.info.forumTopicId) == [3, 9, 1], "explicit head failed to replace pin order")
+        try require(
+            f.model.topics.map(\.info.forumTopicId) == [3, 9, 5, 1] && f.pages.count == 4,
+            "pin head kept stale order, dropped later pages or repeated: \(f.model.topics.map(\.info.forumTopicId))",
+        )
 
         let seed = f.model.restorationState(rawQuery: "")
         let restored = Fixture(restoration: seed)
@@ -973,7 +980,7 @@ import UIKit
         }
         restored.model.start()
         try require(
-            restored.pages.isEmpty && restored.model.topics.map(\.info.forumTopicId) == [3, 9, 1]
+            restored.pages.isEmpty && restored.model.topics.map(\.info.forumTopicId) == [3, 9, 5, 1]
                 && restored.model.restorationState(rawQuery: "").pinnedTopicIDs == [3, 9],
             "restoration lost accepted display ranks or treated seed as fresh read",
         )
@@ -1005,7 +1012,10 @@ import UIKit
         let first = f.model.probePageTask!
         f.finishPage(0, [pinned, ordinary])
         try await terminal([first])
-        try require(f.model.restorationState(rawQuery: "").pinnedTopicIDs == [9], "initial pin echo lost head rank")
+        try require(
+            f.model.restorationState(rawQuery: "").pinnedTopicIDs == [9] && f.pages.count == 1,
+            "initial pin echo lost head rank or re-read the head",
+        )
         f.model.loadInitial()
         try await until("pin ABA head") { f.pages.count == 2 }
         f.post(topic(id: 9, order: 1))
@@ -1020,24 +1030,25 @@ import UIKit
             "old head revived pre-ABA pin position",
         )
 
+        // The fenced pin asks for another head; a change during that read fences it again.
+        try await until("automatic ABA head") { f.pages.count == 3 }
         f.post(topic(id: 9, order: 1))
-        await events()
-        f.model.loadInitial()
-        try await until("changed-pin response echo") { f.pages.count == 3 }
         f.post(pinned)
         await events()
         let echoed = f.model.probePageTask!
         f.finishPage(2, [pinned, ordinary])
         try await terminal([echoed])
         try require(f.model.restorationState(rawQuery: "").pinnedTopicIDs.isEmpty, "changed echo bypassed edge fence")
-        f.model.loadInitial()
-        try await until("second explicit pin head") { f.pages.count == 4 }
+        try await until("second automatic pin head") { f.pages.count == 4 }
         f.post(pinned)
         await events()
         let stable = f.model.probePageTask!
         f.finishPage(3, [pinned, ordinary])
         try await terminal([stable])
-        try require(f.model.topics.map(\.info.forumTopicId) == [9, 1], "stable second head did not resolve pin rank")
+        try require(
+            f.model.topics.map(\.info.forumTopicId) == [9, 1] && f.pages.count == 4,
+            "stable second head did not resolve pin rank or repeated",
+        )
 
         // Restored cursor-zero append does not reset/cancel the existing
         // individual read. Its accepted membership edge must fence head ranks.

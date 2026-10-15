@@ -148,7 +148,7 @@ extension ForumTopic {
 // MARK: - ForumTopicPinnedOrder
 
 /// Only a server head supplies pin positions. Unknown/new pins keep ordinary
-/// chronology until the next explicit head read; membership is not a rank.
+/// chronology until the head read a pin change requests; membership is not a rank.
 struct ForumTopicPinnedOrder {
     private(set) var ids = [Int]()
     private(set) var revision = UInt64.zero
@@ -165,11 +165,13 @@ struct ForumTopicPinnedOrder {
         changedAt.removeAll()
     }
 
-    mutating func observeMembership(id: Int, previous: Bool?, pinned: Bool) {
-        guard id > 0, let previous, previous != pinned else { return }
+    /// Returns whether the pin changed; the caller re-reads the head for the new rank.
+    @discardableResult mutating func observeMembership(id: Int, previous: Bool?, pinned: Bool) -> Bool {
+        guard id > 0, let previous, previous != pinned else { return false }
         revision &+= 1
         changedAt[id] = revision
         ids.removeAll { $0 == id }
+        return true
     }
 
     mutating func acceptHead(_ raw: [ForumTopic], eligible: Set<Int>, chatID: Int64, after version: UInt64) {

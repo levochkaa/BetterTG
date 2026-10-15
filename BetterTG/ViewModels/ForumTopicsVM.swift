@@ -527,7 +527,11 @@ import TDLibKit
         liveRevision &+= 1
         scalarUpdates[id] = (liveRevision, update)
         guard previous != update else { return }
-        pinnedOrder.observeMembership(id: id, previous: previous?.isPinned, pinned: update.isPinned)
+        // A pin from this or another device carries no rank; the first page brings it (Telegram's thread index
+        // view orders pinned topics by their pinned index).
+        if pinnedOrder.observeMembership(id: id, previous: previous?.isPinned, pinned: update.isPinned) {
+            pendingHeadRefresh = true
+        }
         if let index = topics.firstIndex(where: { $0.info.forumTopicId == id }) {
             topics[index] = topics[index].applying(update: update)
             if previous?.isPinned != update.isPinned { sortTopics() }
@@ -536,6 +540,7 @@ import TDLibKit
             $0.lastReadInboxMessageId != update.lastReadInboxMessageId || $0.draftMessage != update.draftMessage
         } ?? false
         if current == nil || needsFull { refreshTopic(id: id, afterCurrent: needsFull) }
+        drainHeadRefresh()
     }
 
     private func rebaseScalars(_ topic: ForumTopic, after revision: UInt64) -> ForumTopic {
@@ -557,11 +562,12 @@ import TDLibKit
         var topic = rebaseScalars(response, after: read.revision)
         if let info = infoUpdates[id], info.revision > read.revision { topic = topic.replacing(info: info.value) }
         if !head {
-            pinnedOrder.observeMembership(
+            let changed = pinnedOrder.observeMembership(
                 id: id, previous: scalarUpdates[id]?.value.isPinned
                     ?? topics.first { $0.info.forumTopicId == id }?.isPinned,
                 pinned: topic.isPinned,
             )
+            if changed { pendingHeadRefresh = true }
         }
         acceptedReadOrdinals[id] = read.ordinal
         if scalarUpdates[id].map({ $0.revision <= read.revision }) ?? true {
@@ -657,6 +663,8 @@ import TDLibKit
                 topics[index] = topic
             } else {
                 topics.append(topic)
+                // Every pinned topic is on the first page; one found outside the list needs its rank from there.
+                if topic.isPinned { pendingHeadRefresh = true }
             }
             sortTopics()
         }
