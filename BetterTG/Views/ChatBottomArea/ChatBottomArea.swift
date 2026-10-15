@@ -1487,10 +1487,11 @@ final class ChatComposerView: UIView {
     }
 
     @objc private func cancelReplyOrEdit() {
-        chatVM.pendingForward = nil
+        // Editing hides a pending forward without owning it: closing the edit brings the forward panel back.
         if chatVM.editCustomMessage != nil {
             chatVM.cancelMessageEditing()
         } else {
+            chatVM.pendingForward = nil
             chatVM.cancelReply()
         }
     }

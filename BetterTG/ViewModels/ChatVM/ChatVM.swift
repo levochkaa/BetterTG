@@ -977,6 +977,16 @@ import UIKit
         L10n.telegramPlural(key, count: count, formattedCount: count.formatted(.number))
     }
 
+    /// A caption edit keeps the caption on the side of the media it was sent on.
+    private static func showsCaptionAboveMedia(_ content: MessageContent) -> Bool {
+        switch content {
+        case .messageAnimation(let value): value.showCaptionAboveMedia
+        case .messagePhoto(let value): value.showCaptionAboveMedia
+        case .messageVideo(let value): value.showCaptionAboveMedia
+        default: false
+        }
+    }
+
     /// An album this chat is still announcing: show it once every member arrived, or a moment after the send call.
     func holdsIncompleteOutgoingAlbum(_ message: CustomMessage) -> Bool {
         guard let outgoingAlbumHold, message.message.mediaAlbumId != 0, message.message.isOutgoing else {
@@ -4025,14 +4035,15 @@ import UIKit
         let context = try resolveEditContext(for: message)
         try Task.checkCancellation()
         switch message.content {
-        case .messageText:
+        case .messageText(let current):
+            // An edit keeps the message's link preview choices, as Telegram's edit keeps its preview state.
             _ = try await client.editMessageText(
                 chatId: context.chatID,
                 inputMessageContent:
                 .inputMessageText(
                     .init(
                         clearDraft: false,
-                        linkPreviewOptions: nil,
+                        linkPreviewOptions: current.linkPreviewOptions,
                         text: attempt.text,
                     ),
                 ),
@@ -4045,7 +4056,7 @@ import UIKit
                 chatId: context.chatID,
                 messageId: message.id,
                 replyMarkup: nil,
-                showCaptionAboveMedia: false,
+                showCaptionAboveMedia: Self.showsCaptionAboveMedia(message.content),
             )
         default:
             throw ChatSendContextError.chatPermissionDenied

@@ -326,6 +326,12 @@ extension ChatVM {
         bufferPotentialVoiceMessageDeletions(update.messageIds)
         handlePotentialVideoMessageDeletions(update.messageIds)
         update.messageIds.forEach { releaseOutgoingDocumentFile(messageID: $0) }
+        // Telegram leaves edit mode when the edited message disappears; a send would only fail.
+        if let edited = editCustomMessage, locationContextIsCurrent,
+           Set(update.messageIds).contains(edited.message.id)
+        {
+            cancelMessageEditing()
+        }
         removeMessagesFromTimeline(update.messageIds)
     }
 
