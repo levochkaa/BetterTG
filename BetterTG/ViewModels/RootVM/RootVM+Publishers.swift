@@ -3,6 +3,7 @@
 import Combine
 import Foundation
 import TDLibKit
+import UserNotifications
 
 extension RootVM {
     func setPublishers() {
@@ -44,6 +45,16 @@ extension RootVM {
             .authorizationStateWaitPassword,
         ]) { [weak self] _ in
             self?.synchronizeAuthorization()
+        }
+        // Telegram's app badge counts the active account's unread messages outside muted chats (the default
+        // Badge Counter settings).
+        nc.scopedPublisher(&cancellables, for: .updateUnreadMessageCount) { event in
+            guard case .chatListMain = event.value.chatList,
+                  event.source == TDLib.shared.activeUpdateSource else { return }
+            let count = event.value.unreadUnmutedCount
+            UNUserNotificationCenter.current().setBadgeCount(max(0, count)) { error in
+                if let error { log("App badge update failed: \(error.localizedDescription)") }
+            }
         }
         nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { event in
             let update = event.value
