@@ -2352,7 +2352,7 @@ import UIKit
                       TDLib.shared.activeClient.id == client.id
                 else { return }
                 pinnedMessageAuthoritativeRevision &+= 1
-                pinnedMessage = message.flatMap { acceptsChatLevelPin($0) ? $0 : nil }
+                pinnedMessage = message.flatMap { self.acceptsChatLevelPin($0) ? $0 : nil }
                 pinnedMessageTask = nil
             } catch is CancellationError {
                 guard pinnedMessageGeneration == generation else { return }
