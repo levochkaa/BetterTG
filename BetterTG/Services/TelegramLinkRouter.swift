@@ -136,8 +136,8 @@ import UIKit
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let titleLabel = UILabel()
     private let bodyLabel = UILabel()
-    private let applyButton = LanguagePreviewActionButton()
-    private let cancelButton = LanguagePreviewActionButton()
+    private let applyButton = TelegramSheetActionButton()
+    private let cancelButton = TelegramSheetActionButton()
     private let dimmer = UIControl()
     private let sheetStack = UIStackView()
     private let textStack = UIStackView()
@@ -326,9 +326,10 @@ import UIKit
     }
 }
 
-// MARK: - LanguagePreviewActionButton
+// MARK: - TelegramSheetActionButton
 
-private final class LanguagePreviewActionButton: UIControl {
+/// An action button of Telegram's action-sheet previews (language pack, chat invite link).
+final class TelegramSheetActionButton: UIControl {
     override var isEnabled: Bool { didSet { updateAppearance() } }
     override var isHighlighted: Bool { didSet { updateAppearance() } }
 
