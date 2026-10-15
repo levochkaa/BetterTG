@@ -26,6 +26,11 @@ struct SelectedImage: Identifiable, Equatable, @unchecked Sendable {
     var isLivePhotoEnabled = true
     var video: SelectedVideo?
 
+    /// Every file the app keeps for this item in `SelectedDocumentFileStore`.
+    var fileURLs: [URL] {
+        [url] + [livePhotoVideoURL, video?.url].compactMap(\.self)
+    }
+
     static func == (lhs: SelectedImage, rhs: SelectedImage) -> Bool {
         lhs.url == rhs.url && lhs.livePhotoVideoURL == rhs.livePhotoVideoURL && lhs.isLivePhotoEnabled == rhs
             .isLivePhotoEnabled && lhs.video == rhs.video

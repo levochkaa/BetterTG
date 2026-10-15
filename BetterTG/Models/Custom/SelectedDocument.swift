@@ -13,6 +13,9 @@ struct SelectedDocument: Identifiable, Equatable {
 
 // MARK: - SelectedDocumentFileStore
 
+/// The app's copies of composer attachments: documents, photos, Live Photo motion and videos. A file the composer
+/// holds is unleased; a sent file is leased to its message until TDLib sends it or the message is deleted. A
+/// failed message keeps its files for Resend.
 enum SelectedDocumentFileStore {
     private struct Lease: Codable {
         let accountID: UUID?
@@ -20,10 +23,31 @@ enum SelectedDocumentFileStore {
         let createdAt: Date
         let fileName: String
         var messageID: Int64
+        /// Media outlives its send for a while: a sent photo's bubble keeps drawing the uploaded original
+        /// (`telegramLocalPhotoFile`).
+        var defersRemoval: Bool?
+    }
+
+    private struct MessageKey: Hashable {
+        let accountID: UUID?
+        let chatID: Int64
+        let messageID: Int64
+    }
+
+    /// What TDLib reported for a message before its files were leased to it: the send or resend call that leases them
+    /// had not returned yet.
+    private enum EarlyOutcome {
+        case finished
+        case replaced(by: Int64)
     }
 
     private static let fileManager = FileManager.default
     private static let lock = NSLock()
+    /// As long as the sent bubble keeps the composer's preview (`MediaUploadProgressRegistry.rememberSentPreview`).
+    private static let deferredRemovalDelay: TimeInterval = 120
+    private static let earlyOutcomeLifetime: TimeInterval = 300
+    private static let earlyOutcomeCapacity = 512
+    private static var earlyOutcomes = [MessageKey: (outcome: EarlyOutcome, recordedAt: Date)]()
 
     static var directory: URL {
         fileManager.temporaryDirectory.appendingPathComponent(
@@ -60,6 +84,17 @@ enum SelectedDocumentFileStore {
         }
     }
 
+    /// A new file name in the store for a photo, Live Photo motion or video the composer will hold.
+    static func makeFileURL(named name: String) throws -> URL {
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appendingPathComponent("\(UUID().uuidString)-\(name)")
+    }
+
+    /// Removes unleased files left for a day, as a document pick does before copying.
+    static func removeExpiredFiles() {
+        cleanupExpiredFiles()
+    }
+
     static func remove(_ urls: [URL]) {
         lock.lock()
         defer { lock.unlock() }
@@ -87,7 +122,19 @@ enum SelectedDocumentFileStore {
         chatID: Int64,
         messageID: Int64,
     ) throws {
-        guard let fileName = validatedFileNames([url]).first else {
+        try lease([url], accountID: accountID, chatID: chatID, messageID: messageID, defersRemoval: false)
+    }
+
+    /// Leases every file one message sends, replacing the message's previous leases.
+    static func lease(
+        _ urls: [URL],
+        accountID: UUID?,
+        chatID: Int64,
+        messageID: Int64,
+        defersRemoval: Bool,
+    ) throws {
+        let fileNames = validatedFileNames(urls)
+        guard !fileNames.isEmpty, fileNames.count == urls.count else {
             throw CocoaError(.fileNoSuchFile)
         }
         lock.lock()
@@ -96,16 +143,31 @@ enum SelectedDocumentFileStore {
         leases.removeAll {
             $0.accountID == accountID && $0.chatID == chatID && $0.messageID == messageID
         }
-        leases.append(Lease(
-            accountID: accountID,
-            chatID: chatID,
-            createdAt: Date(),
-            fileName: fileName,
-            messageID: messageID,
-        ))
+        let created = fileNames.map {
+            Lease(
+                accountID: accountID,
+                chatID: chatID,
+                createdAt: Date(),
+                fileName: $0,
+                messageID: messageID,
+                defersRemoval: defersRemoval ? true : nil,
+            )
+        }
+        guard let owner = currentMessage(for: MessageKey(accountID: accountID, chatID: chatID, messageID: messageID))
+        else {
+            try saveLeases(leases)
+            removeFiles(of: created)
+            return
+        }
+        leases += created.map {
+            var lease = $0
+            lease.messageID = owner.messageID
+            return lease
+        }
         try saveLeases(leases)
     }
 
+    /// Moves leases to another message. When TDLib already finished that message, its files are released now.
     static func replaceMessageID(
         accountID: UUID?,
         chatID: Int64,
@@ -115,17 +177,27 @@ enum SelectedDocumentFileStore {
         lock.lock()
         defer { lock.unlock() }
         var leases = loadLeases()
-        var changed = false
-        for index in leases.indices
-            where leases[index].accountID == accountID
-            && leases[index].chatID == chatID
-            && leases[index].messageID == old
-        {
-            leases[index].messageID = new
-            changed = true
+        let matches: (Lease) -> Bool = {
+            $0.accountID == accountID && $0.chatID == chatID && $0.messageID == old
         }
-        guard changed else { throw CocoaError(.fileNoSuchFile) }
-        try saveLeases(leases)
+        guard leases.contains(where: matches) else {
+            recordEarlyOutcome(
+                .replaced(by: new),
+                for: MessageKey(accountID: accountID, chatID: chatID, messageID: old),
+            )
+            throw CocoaError(.fileNoSuchFile)
+        }
+        if let owner = currentMessage(for: MessageKey(accountID: accountID, chatID: chatID, messageID: new)) {
+            for index in leases.indices where matches(leases[index]) {
+                leases[index].messageID = owner.messageID
+            }
+            try saveLeases(leases)
+        } else {
+            let finished = leases.filter(matches)
+            leases.removeAll(where: matches)
+            try saveLeases(leases)
+            removeFiles(of: finished)
+        }
     }
 
     static func unlease(
@@ -156,14 +228,64 @@ enum SelectedDocumentFileStore {
         let completed = leases.filter {
             $0.accountID == accountID && $0.chatID == chatID && $0.messageID == messageID
         }
-        guard !completed.isEmpty else { return }
+        guard !completed.isEmpty else {
+            recordEarlyOutcome(.finished, for: MessageKey(accountID: accountID, chatID: chatID, messageID: messageID))
+            return
+        }
         leases.removeAll {
             $0.accountID == accountID && $0.chatID == chatID && $0.messageID == messageID
         }
-        for lease in completed {
-            try? fileManager.removeItem(at: directory.appendingPathComponent(lease.fileName))
-        }
         try? saveLeases(leases)
+        removeFiles(of: completed)
+    }
+
+    /// The message a lease for `key` belongs to after the replacements TDLib already reported, or nil when it
+    /// already finished. Called with the lock held.
+    private static func currentMessage(for key: MessageKey) -> MessageKey? {
+        let now = Date()
+        var current = key
+        var visited = Set<MessageKey>()
+        while visited.insert(current).inserted,
+              let early = earlyOutcomes[current],
+              now.timeIntervalSince(early.recordedAt) < earlyOutcomeLifetime
+        {
+            switch early.outcome {
+            case .finished:
+                return nil
+            case .replaced(let messageID):
+                current = MessageKey(accountID: current.accountID, chatID: current.chatID, messageID: messageID)
+            }
+        }
+        return current
+    }
+
+    /// Called with the lock held.
+    private static func recordEarlyOutcome(_ outcome: EarlyOutcome, for key: MessageKey) {
+        let now = Date()
+        earlyOutcomes = earlyOutcomes.filter { now.timeIntervalSince($0.value.recordedAt) < earlyOutcomeLifetime }
+        if earlyOutcomes.count >= earlyOutcomeCapacity,
+           let oldest = earlyOutcomes.min(by: { $0.value.recordedAt < $1.value.recordedAt })?.key
+        {
+            earlyOutcomes[oldest] = nil
+        }
+        earlyOutcomes[key] = (outcome, now)
+    }
+
+    /// Removes released files; media files wait until a sent bubble no longer draws them.
+    private static func removeFiles(of leases: [Lease]) {
+        var deferred = [URL]()
+        for lease in leases {
+            let url = directory.appendingPathComponent(lease.fileName)
+            if lease.defersRemoval == true {
+                deferred.append(url)
+            } else {
+                try? fileManager.removeItem(at: url)
+            }
+        }
+        guard !deferred.isEmpty else { return }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + deferredRemovalDelay) {
+            removeUnleased(deferred)
+        }
     }
 
     private static func cleanupExpiredFiles() {

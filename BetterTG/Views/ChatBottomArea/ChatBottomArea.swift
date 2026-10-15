@@ -988,7 +988,7 @@ final class ChatComposerView: UIView {
             removeButton.backgroundColor = UIColor.black.withAlphaComponent(0.4)
             removeButton.layer.cornerRadius = 12
             removeButton.addAction(UIAction { [weak self] _ in
-                self?.chatVM.displayedImages.removeAll(where: { $0.id == selectedImage.id })
+                self?.chatVM.removeDisplayedImage(id: selectedImage.id)
             }, for: .touchUpInside)
             container.addSubview(imageView)
             container.addSubview(removeButton)

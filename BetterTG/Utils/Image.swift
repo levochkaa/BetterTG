@@ -8,8 +8,8 @@ func writeImage(_ image: UIImage?, withSaving saving: Bool = false) -> SelectedI
         UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
     }
 
-    let url = URL(filePath: NSTemporaryDirectory()).appending(path: "\(UUID().uuidString).jpeg")
     do {
+        let url = try SelectedDocumentFileStore.makeFileURL(named: "photo.jpeg")
         try data.write(to: url, options: .atomic)
         return SelectedImage(image: displayPreview(of: image), url: url)
     } catch {

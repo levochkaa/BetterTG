@@ -51,6 +51,7 @@ enum VideoSendPreset {
 /// Reads a picked movie into a composer item: the app's copy of the file, its first frame, the 320 pt JPEG
 /// thumbnail Telegram uploads with a video (`LegacyMediaPickers`), duration and displayed size.
 enum SelectedVideoLoader {
+    /// Conversion output before TDLib takes it. Picked videos and thumbnails live in `SelectedDocumentFileStore`.
     static let directory = FileManager.default
         .temporaryDirectory
         .appendingPathComponent("bettertg-video-send", isDirectory: true)
@@ -58,10 +59,11 @@ enum SelectedVideoLoader {
     /// Copies a file the picker owns only during its completion handler.
     static func copy(_ url: URL) -> URL? {
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let pathExtension = url.pathExtension.isEmpty ? "mov" : url.pathExtension
-            let destination = directory.appendingPathComponent("\(UUID().uuidString).\(pathExtension)")
+            let destination = try SelectedDocumentFileStore.makeFileURL(named: "video.\(pathExtension)")
             try FileManager.default.copyItem(at: url, to: destination)
+            // The store expires unleased files by modification date, which a copy keeps from the library file.
+            try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: destination.path)
             return destination
         } catch {
             log("Could not copy picked video: \(error)")

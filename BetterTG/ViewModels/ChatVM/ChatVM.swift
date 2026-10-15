@@ -758,6 +758,8 @@ import UIKit
                 SelectedDocumentFileStore.removeUnleased(displayedDocuments.map(\.url).filter {
                     !outgoingDocumentURLs.contains($0.standardizedFileURL)
                 })
+                // A sent item's files are leased to its message, so only the composer's own copies go.
+                SelectedDocumentFileStore.removeUnleased(displayedImages.flatMap(\.fileURLs))
                 if !previewing { Media.shared.onChatDismiss() }
             }
         }
@@ -1645,13 +1647,37 @@ import UIKit
         guard !isReadOnlyTopic, locationContextIsCurrent, !ids.isEmpty else { return }
         let client = client
         let chatID = chatID
+        let accountID = accountID
+        let messageIDs = ids.sorted()
+        // TDLib deletes each failed message as it resends it. The message's files wait under a hold until the new
+        // messages exist, so that deletion does not release a file the resend uploads.
+        let holdIDs = messageIDs.map { _ in -Int64.random(in: 1...Int64.max) }
+        for (messageID, holdID) in zip(messageIDs, holdIDs) {
+            try? SelectedDocumentFileStore.replaceMessageID(
+                accountID: accountID, chatID: chatID, old: messageID, new: holdID,
+            )
+        }
         // TDLib replaces each failed message with a new pending one through its usual updates.
         Task { [weak self] in
             do {
-                _ = try await client.resendMessages(
-                    chatId: chatID, messageIds: ids.sorted(), paidMessageStarCount: 0, quote: nil,
+                let resent = try await client.resendMessages(
+                    chatId: chatID, messageIds: messageIDs, paidMessageStarCount: 0, quote: nil,
                 )
+                // TDLib answers null for a message it could not resend, which the native list drops. Only a full
+                // answer pairs holds with messages; otherwise the files stay held until the stale-lease cleanup.
+                if resent.messages.count == messageIDs.count {
+                    for (holdID, message) in zip(holdIDs, resent.messages) {
+                        try? SelectedDocumentFileStore.replaceMessageID(
+                            accountID: accountID, chatID: chatID, old: holdID, new: message.id,
+                        )
+                    }
+                }
             } catch {
+                for (messageID, holdID) in zip(messageIDs, holdIDs) {
+                    try? SelectedDocumentFileStore.replaceMessageID(
+                        accountID: accountID, chatID: chatID, old: holdID, new: messageID,
+                    )
+                }
                 guard let self, locationContextIsCurrent else { return }
                 sendErrorMessage = error.localizedDescription
             }
@@ -2204,6 +2230,25 @@ import UIKit
         removeTemporaryDocuments(removedURLs)
     }
 
+    func replaceDisplayedImages(_ images: [SelectedImage]) {
+        let keptIDs = Set(images.map(\.id))
+        let removed = displayedImages.filter { !keptIDs.contains($0.id) }
+        displayedImages = images
+        removeTemporaryImages(removed)
+    }
+
+    func removeDisplayedImage(id: UUID) {
+        let removed = displayedImages.filter { $0.id == id }
+        displayedImages.removeAll { $0.id == id }
+        removeTemporaryImages(removed)
+    }
+
+    func discardDisplayedImages() {
+        let removed = displayedImages
+        displayedImages = []
+        removeTemporaryImages(removed)
+    }
+
     func getCustomMessage(fromId id: Int64) async -> CustomMessage? {
         guard let message = try? await client.getMessage(chatId: customChat.chat.id, messageId: id),
               location.matches(message: message)
@@ -2674,6 +2719,14 @@ import UIKit
                 : .chatActionUploadingPhoto(ChatActionUploadingPhoto(progress: 0)),
             in: context,
         )
+        let provisionalMessageIDs = images.map { _ in -Int64.random(in: 1...Int64.max) }
+        do {
+            try leaseOutgoingMedia(images, as: provisionalMessageIDs, in: context)
+        } catch {
+            try? await cancelChatAction(in: context)
+            throw error
+        }
+        var boundCount = 0
         do {
             let sentMessages: [Message]
             var messageContents = [InputMessageContent]()
@@ -2702,6 +2755,7 @@ import UIKit
                     replyTo: context.replyTo,
                     topicId: context.destinationTopic,
                 )
+                boundCount = bindOutgoingMedia([message], leasedAs: provisionalMessageIDs, in: context)
                 guard context.matches(message: message) else {
                     throw ChatSendContextError.unexpectedDestination
                 }
@@ -2717,6 +2771,7 @@ import UIKit
                     topicId: context.destinationTopic,
                 )
                 let messages = result.messages
+                boundCount = bindOutgoingMedia(messages, leasedAs: provisionalMessageIDs, in: context)
                 guard messages.count == messageContents.count else {
                     throw ChatSendContextError.partialAlbum(
                         sent: messages.count,
@@ -2743,6 +2798,7 @@ import UIKit
             try? await cancelChatAction(in: context)
             return (context, sentMessages)
         } catch {
+            releaseOutgoingMedia(images, leasedAs: provisionalMessageIDs, from: boundCount, in: context)
             try? await cancelChatAction(in: context)
             throw error
         }
@@ -3729,6 +3785,73 @@ import UIKit
         }
     }
 
+    /// Each sent item's files are leased before sending, as documents are: removing the item from the composer during
+    /// the send, or the send failing, never deletes a file TDLib reads. A Live Photo sent without its motion leases
+    /// the motion too, so it goes with the message.
+    private func leaseOutgoingMedia(
+        _ images: [SelectedImage],
+        as provisionalMessageIDs: [Int64],
+        in context: ResolvedSendContext,
+    ) throws {
+        var leasedMessageIDs = [Int64]()
+        do {
+            for (image, provisionalMessageID) in zip(images, provisionalMessageIDs) {
+                try SelectedDocumentFileStore.lease(
+                    image.fileURLs,
+                    accountID: context.accountID,
+                    chatID: context.chatID,
+                    messageID: provisionalMessageID,
+                    defersRemoval: true,
+                )
+                leasedMessageIDs.append(provisionalMessageID)
+            }
+        } catch {
+            for provisionalMessageID in leasedMessageIDs {
+                SelectedDocumentFileStore.unlease(
+                    accountID: context.accountID,
+                    chatID: context.chatID,
+                    messageID: provisionalMessageID,
+                )
+            }
+            throw error
+        }
+    }
+
+    /// Moves the leases to the sent messages, in order; TDLib's send updates release them from there.
+    private func bindOutgoingMedia(
+        _ messages: [Message],
+        leasedAs provisionalMessageIDs: [Int64],
+        in context: ResolvedSendContext,
+    ) -> Int {
+        for (message, provisionalMessageID) in zip(messages, provisionalMessageIDs) {
+            try? SelectedDocumentFileStore.replaceMessageID(
+                accountID: context.accountID,
+                chatID: context.chatID,
+                old: provisionalMessageID,
+                new: message.id,
+            )
+        }
+        return min(messages.count, provisionalMessageIDs.count)
+    }
+
+    /// Unleases the items no message took. The composer keeps their files unless it dropped the item during the send.
+    private func releaseOutgoingMedia(
+        _ images: [SelectedImage],
+        leasedAs provisionalMessageIDs: [Int64],
+        from boundCount: Int,
+        in context: ResolvedSendContext,
+    ) {
+        for provisionalMessageID in provisionalMessageIDs.dropFirst(boundCount) {
+            SelectedDocumentFileStore.unlease(
+                accountID: context.accountID,
+                chatID: context.chatID,
+                messageID: provisionalMessageID,
+            )
+        }
+        let displayedIDs = Set(displayedImages.map(\.id))
+        removeTemporaryImages(images.dropFirst(boundCount).filter { !displayedIDs.contains($0.id) })
+    }
+
     /// The input as a media caption, trimmed as sent text is, or nil when nothing is left. A caption over TDLib's
     /// limit stops the send while the composer still holds it.
     private func composerCaption() async throws -> FormattedText? {
@@ -4494,6 +4617,11 @@ import UIKit
         Task.detached(priority: .utility) {
             SelectedDocumentFileStore.removeUnleased(urls)
         }
+    }
+
+    /// Removes the composer's copies of photos and videos; a file leased to a sent message stays.
+    private func removeTemporaryImages(_ images: [SelectedImage]) {
+        removeTemporaryDocuments(images.flatMap(\.fileURLs))
     }
 
     private func markComposerDirty() {

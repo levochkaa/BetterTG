@@ -7,6 +7,14 @@ import UniformTypeIdentifiers
 enum PhotoPickerSelectionLoader {
     static func load(_ results: [PHPickerResult], completion: @escaping ([SelectedImage]) -> Void) {
         guard !results.isEmpty else { return completion([]) }
+        // Expired attachments go before this selection writes its own files.
+        DispatchQueue.global(qos: .userInitiated).async {
+            SelectedDocumentFileStore.removeExpiredFiles()
+            loadAll(results, completion: completion)
+        }
+    }
+
+    private static func loadAll(_ results: [PHPickerResult], completion: @escaping ([SelectedImage]) -> Void) {
         let lock = NSLock()
         let group = DispatchGroup()
         var selected = [Int: SelectedImage]()
@@ -67,33 +75,28 @@ enum PhotoPickerSelectionLoader {
             }
             let resources = PHAssetResource.assetResources(for: livePhoto)
             guard let photo = resources.first(where: { $0.type == .photo || $0.type == .fullSizePhoto }),
-                  let video = resources.first(where: { $0.type == .pairedVideo || $0.type == .fullSizePairedVideo })
+                  let video = resources.first(where: { $0.type == .pairedVideo || $0.type == .fullSizePairedVideo }),
+                  let videoURL = try? SelectedDocumentFileStore.makeFileURL(named: "motion.mov")
             else {
                 completion(nil)
                 return
             }
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-                "bettertg-live-photo-\(UUID().uuidString)",
-                isDirectory: true,
+            // The library still is only read once, to write the JPEG that is sent.
+            let photoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "bettertg-live-photo-\(UUID().uuidString).\(URL(fileURLWithPath: photo.originalFilename).pathExtension)",
             )
-            do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
-            catch { completion(nil)
-                return
-            }
-            let photoURL = directory
-                .appendingPathComponent("photo.\(URL(fileURLWithPath: photo.originalFilename).pathExtension)")
-            let videoURL = directory.appendingPathComponent("motion.mov")
             let options = PHAssetResourceRequestOptions()
             options.isNetworkAccessAllowed = true
             PHAssetResourceManager.default().writeData(for: photo, toFile: photoURL, options: options) { error in
                 guard error == nil else {
-                    try? FileManager.default.removeItem(at: directory)
+                    try? FileManager.default.removeItem(at: photoURL)
                     completion(nil)
                     return
                 }
                 PHAssetResourceManager.default().writeData(for: video, toFile: videoURL, options: options) { error in
+                    defer { try? FileManager.default.removeItem(at: photoURL) }
                     guard error == nil, var selected = writeImage(UIImage(contentsOfFile: photoURL.path)) else {
-                        try? FileManager.default.removeItem(at: directory)
+                        try? FileManager.default.removeItem(at: videoURL)
                         completion(nil)
                         return
                     }

@@ -646,7 +646,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 routeIsRetained: self?.routeIsRetained == true,
             ) {
                 guard let self, !documents.isEmpty else { return }
-                self.chatVM.displayedImages = []
+                self.chatVM.discardDisplayedImages()
                 self.chatVM.replaceDisplayedDocuments(documents)
             }
             if !accepted {
@@ -1240,8 +1240,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard let token = importBarrier.begin() else { return }
         let barrier = importBarrier
         Task { [self] in
-            let selected = await Task
-                .detached(priority: .userInitiated) { images.prefix(10).compactMap { writeImage($0) } }.value
+            let selected = await Task.detached(priority: .userInitiated) {
+                SelectedDocumentFileStore.removeExpiredFiles()
+                return images.prefix(10).compactMap { writeImage($0) }
+            }.value
             finishImageImport(selected, token: token, barrier: barrier)
         }
     }
@@ -1255,11 +1257,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .finish(token, currentAccountID: tdlib.activeAccountID, routeIsRetained: routeIsRetained) {
                 guard !images.isEmpty else { return }
                 chatVM.discardDisplayedDocuments()
-                chatVM.displayedImages = images
+                chatVM.replaceDisplayedImages(images)
             }
         if !accepted {
-            let urls = images.map(\.url)
-            Task.detached { urls.forEach { try? FileManager.default.removeItem(at: $0) } }
+            let urls = images.flatMap(\.fileURLs)
+            Task.detached { SelectedDocumentFileStore.removeUnleased(urls) }
         }
     }
 
