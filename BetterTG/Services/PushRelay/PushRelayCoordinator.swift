@@ -706,11 +706,19 @@ import UserNotifications
                   TDLib.shared.activeClient.id == client.id
             else { return }
             if let messageId = route.tdlibMessageId {
+                // A forum reply reads only its topic; reading the whole forum would mark other topics' older
+                // unread messages as read.
+                let isForumTopic =
+                    if case .messageTopicForum = destinationTopic {
+                        true
+                    } else {
+                        false
+                    }
                 _ = try? await client.viewMessages(
                     chatId: chat.id,
                     forceRead: true,
                     messageIds: [messageId],
-                    source: nil,
+                    source: isForumTopic ? .messageSourceForumTopicHistory : nil,
                 )
             }
             log("Quick reply sent")

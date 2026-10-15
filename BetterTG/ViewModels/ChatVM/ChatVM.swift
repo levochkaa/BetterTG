@@ -1927,9 +1927,17 @@ import UIKit
         guard !ids.isEmpty else { return }
         let client = client
         let accountID = accountID
-        // A thread's messages are read in the thread (`messages.readDiscussion`); without the source TDLib would
-        // read the whole discussion group up to them.
-        let source: MessageSource? = location.messageThreadID == nil ? nil : .messageSourceMessageThreadHistory
+        // A thread's messages are read in the thread (`messages.readDiscussion`) and a forum topic's in the topic
+        // (`ReadForumTopicQuery`); without the source TDLib reads the whole chat inbox up to them, which marks
+        // older unread messages of other topics as read.
+        let source: MessageSource? =
+            if location.forumTopicID != nil {
+                .messageSourceForumTopicHistory
+            } else if location.messageThreadID != nil {
+                .messageSourceMessageThreadHistory
+            } else {
+                nil
+            }
         Task {
             guard TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
