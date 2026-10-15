@@ -739,13 +739,19 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     private func addChats(to folder: CustomFolder) {
         let scope = actionAuthority.scope(owner: self)
-        guard scope.isCurrent, case .folder(let info, let definition) = folder.type else { return }
+        guard scope.isCurrent, case .folder(_, let definition) = folder.type else { return }
+        let folderID = folder.id
         let controller = ChatFolderChatSelectionViewController(
             session: .live(rootVM: rootVM, authority: actionAuthority),
             title: L10n.telegram("ChatList.AddChatsToFolder"),
             selectedChatIDs: Set(definition.alwaysIncludedChatIDs),
-        ) { selector, selectedChatIDs in
-            selector.submitFolderEdit(id: info.id, folder: definition.replacingIncludedChatIDs(selectedChatIDs))
+        ) { [weak self] selector, selectedChatIDs in
+            // The folder may have changed while the picker was open; the edit starts from its current definition.
+            // A folder deleted meanwhile closes the picker without a write.
+            guard let self,
+                  case .folder(let info, let current) = rootVM.folders.first(where: { $0.id == folderID })?.type
+            else { return true }
+            selector.submitFolderEdit(id: info.id, folder: current.replacingIncludedChatIDs(selectedChatIDs))
             return false
         }
         pushFolderController(controller)
