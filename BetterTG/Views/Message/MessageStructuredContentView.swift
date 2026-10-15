@@ -28,6 +28,8 @@ enum MessageContentAction {
     case cancelSending(messageID: Int64)
     /// An inline keyboard button under the message or inside one of its rich message blocks.
     case pressInlineKeyboardButton(InlineKeyboardButtonPress)
+    /// The comments bar under a channel post (ChatMessageCommentFooterContentNode.buttonPressed).
+    case openComments(messageID: Int64)
 
     @MainActor func rejectPollSubmission(in store: MessagePollInteractionStore?) {
         if case .submitPollAnswer(_, _, let submission) = self { store?.failSubmission(submission) }
@@ -2313,6 +2315,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("cancel")
                     case .pressInlineKeyboardButton:
                         actions.append("button")
+                    case .openComments:
+                        actions.append("comments")
                     }
                 }
                 precondition(installed, "Fixture \(fixture.name) didn't install")

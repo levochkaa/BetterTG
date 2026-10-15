@@ -448,6 +448,10 @@ extension TDClient {
         try await send(TDNativeRequests.getMessageProperties(chatId: chatId, messageId: messageId))
     }
 
+    func getMessageThread(chatId: Int64, messageId: Int64) async throws -> TDNativeMessageThreadInfo {
+        try await send(TDNativeRequests.getMessageThread(chatId: chatId, messageId: messageId))
+    }
+
     func getMessageThreadHistory(
         chatId: Int64,
         fromMessageId: Int64,

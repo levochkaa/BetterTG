@@ -191,6 +191,11 @@
 "Conversation.UnpinMessageAlert" = "Would you like to unpin this message?";
 "Conversation.PinnedMessage" = "Pinned Message";
 "Conversation.MessageEditedLabel" = "edited";
+"Conversation.MessageViewComments_1" = "[%@]Comment";
+"Conversation.MessageViewComments_any" = "[%@]Comments";
+"Conversation.MessageViewCommentsFormat" = "%1$@ %2$@";
+"Conversation.MessageLeaveComment" = "Leave a Comment";
+"Conversation.MessageLeaveCommentShort" = "Comment";
 
 "Message.Photo" = "Photo";
 "Message.Video" = "Video";

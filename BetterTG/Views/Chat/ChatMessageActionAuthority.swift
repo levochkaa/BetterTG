@@ -110,6 +110,10 @@ import UIKit
             guard let raw = sources.first(where: { $0.id == press.messageID }), raw.sendingState == nil else {
                 return nil
             }
+        case .content(.openComments(let messageID)):
+            // The bar opens the thread of a sent post of this row only.
+            guard let raw = sources.first(where: { $0.id == messageID }), raw.sendingState == nil,
+                  raw.interactionInfo?.replyInfo != nil else { return nil }
         case .content, .media, .selection:
             break
         }

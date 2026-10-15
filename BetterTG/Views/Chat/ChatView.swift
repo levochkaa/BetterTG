@@ -191,6 +191,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var latestEdgeScrollInFlight = false
     private var latestEdgeScrollGeneration = 0
     private var metadataNavigationTask: Task<Void, Never>?
+    /// The post whose comment thread is opening; its comments bar shows a spinner (Telegram's
+    /// `currentMessageWithLoadingReplyThread`).
+    private var commentsThreadLoad: (id: UUID, displayedID: DisplayedMessageID)?
     private var messageHighlightTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
     private var messageSearchActive = false
@@ -2105,6 +2108,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                             actionBindingID: authority.bindingID,
                             timelineRowID: row.id,
                             showsProfileImage: row.inputs.showsProfileImage,
+                            commentsLoading: commentsThreadLoad?.displayedID == displayedMessageID,
                         )
                         cell.onSelfSizingHeightChange = { [weak self] in
                             self?.messageCellWillChangeHeight()
@@ -3897,6 +3901,64 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .pressInlineKeyboardButton(let press):
             guard let source = message.sourceMessages.first(where: { $0.id == press.messageID }) else { return }
             inlineKeyboardActions.perform(press, in: source, client: chatVM.client)
+        case .openComments(let messageID):
+            openComments(messageID: messageID, displayedID: message.displayedID)
+        }
+    }
+
+    /// Telegram's `openMessageReplies`: a post's comments are a thread in the channel's discussion group, found with
+    /// `getMessageThread` on this chat's client. BetterTG has no thread chat yet, so the group opens at the thread's
+    /// first message, which the comments reply to.
+    private func openComments(messageID: Int64, displayedID: DisplayedMessageID) {
+        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
+              navigationController?.topViewController === self, commentsThreadLoad == nil
+        else { return }
+        metadataNavigationTask?.cancel()
+        let client = chatVM.client
+        let currentLocation = location
+        let loadID = UUID()
+        setCommentsThreadLoad((id: loadID, displayedID: displayedID))
+        metadataNavigationTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                if commentsThreadLoad?.id == loadID { setCommentsThreadLoad(nil) }
+                if !Task.isCancelled {
+                    metadataNavigationTask = nil
+                    retryClientRestoration()
+                }
+            }
+            let thread = try? await client.getMessageThread(chatId: currentLocation.chatID, messageId: messageID)
+            guard !Task.isCancelled,
+                  TDLib.shared.activeAccountID == currentLocation.accountID,
+                  TDLib.shared.activeClient.id == currentLocation.clientID
+            else { return }
+            guard let thread else {
+                presentMetadataUnavailable()
+                return
+            }
+            let discussion = await RootVM.shared.getCustomChatForNavigation(from: thread.chatId, client: client)
+            guard !Task.isCancelled,
+                  TDLib.shared.activeAccountID == currentLocation.accountID,
+                  TDLib.shared.activeClient.id == currentLocation.clientID,
+                  chatVM.locationContextIsCurrent, routeIsRetained,
+                  navigationController?.topViewController === self
+            else { return }
+            guard let discussion else {
+                presentMetadataUnavailable()
+                return
+            }
+            NavigationStorage.shared.push(.customChat(discussion, targetMessageID: thread.messageThreadId))
+            metadataNavigationTask = nil
+        }
+    }
+
+    private func setCommentsThreadLoad(_ load: (id: UUID, displayedID: DisplayedMessageID)?) {
+        let previous = commentsThreadLoad?.displayedID
+        commentsThreadLoad = load
+        for case let cell as MessageCell in collectionView.visibleCells {
+            guard let displayedID = cell.timelineDisplayedID,
+                  displayedID == previous || displayedID == load?.displayedID else { continue }
+            cell.setCommentsLoading(displayedID == load?.displayedID)
         }
     }
 

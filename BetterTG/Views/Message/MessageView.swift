@@ -201,6 +201,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 && avatarView.isHidden && forwardView.isHidden && replyView.isHidden && textView.isHidden
                 && mediaView.isHidden && structuredContentView.isHidden && reactionView.isHidden
                 && inlineKeyboardView.isHidden
+                && commentFooterView.isHidden
                 && timestampLabel.text == nil && mediaTimestampLabel.text == nil
                 && textView.attributedText.length == 0 && bubbleView.isHidden
                 && selectionControl.isHidden && selectionIndicatorView.isHidden
@@ -242,6 +243,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private let reactionView = MessageReactionStripView()
     private let timestampLabel = UILabel()
     private let mediaTimestampLabel = MessageMediaStatusLabel()
+    private let commentFooterView = MessageCommentFooterView()
     private let leadingSpacer = UIView()
     private let trailingSpacer = UIView()
     private let swipeToReplyIndicator = SwipeToReplyIndicatorView()
@@ -286,7 +288,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     var contextQuoteTextView: MessageTextContentView { textView }
 
     private var bubbleContentViews: [UIView] {
-        [forwardView, replyView, mediaView, structuredContentView, textView, reactionView, timestampLabel]
+        [
+            forwardView, replyView, mediaView, structuredContentView, textView, reactionView, timestampLabel,
+            commentFooterView,
+        ]
     }
 
     private var bubbleView: UIView { bubbleContainerView.extractedContentView }
@@ -400,6 +405,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         reactionView.prepareForReuse()
         inlineKeyboardView.prepareForReuse()
         inlineKeyboardView.isHidden = true
+        commentFooterView.prepareForReuse()
+        commentFooterView.isHidden = true
         forwardView.prepareForReuse()
         replyView.prepareForReuse()
         forwardView.isHidden = true
@@ -448,6 +455,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         structuredContentView.setPlaybackVisible(isVisible)
         textView.setCustomEmojiPlaybackVisible(isVisible)
         reactionView.setPlaybackVisible(isVisible)
+    }
+
+    /// The comments bar shows a spinner while the post's thread opens.
+    func setCommentsLoading(_ isLoading: Bool) {
+        commentFooterView.setLoading(isLoading)
     }
 
     func setMessageHighlighted(_ messageID: Int64?, animated: Bool = false) {
@@ -555,6 +567,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         actionBindingID: UUID = UUID(),
         timelineRowID: UUID? = nil,
         showsProfileImage: Bool? = nil,
+        commentsLoading: Bool = false,
     ) {
         // A reconfigure of the same message animates only its highlight change.
         let reconfiguresSameMessage = timelineDisplayedID == message.displayedID && window != nil
@@ -626,10 +639,27 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 false
             }
         usesFullBleedMedia = presentation.isVisualMedia || isStandaloneUnframedMedia
+        // Telegram's hasCommentButton: posts of a channel with a discussion group end with the comments bar. Stickers
+        // and round videos get a separate button there instead, and service messages none.
+        let hasSeparateCommentButton =
+            switch message.message.content {
+            case .messageSticker, .messageVideoNote: true
+            default: false
+            }
+        let commentSource: Message? =
+            if chat.isBroadcastChannel, chat.supergroup?.hasLinkedChat == true, !presentation.isService,
+            !hasSeparateCommentButton {
+                message.sourceMessages
+                    .sorted { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }
+                    .first { $0.schedulingState == nil && $0.interactionInfo?.replyInfo != nil }
+            } else {
+                nil
+            }
         let hasBubbleText = message.formattedText != nil || message.forwardPresentation != nil || message
             .replyPresentation != nil
-        bubbleView.backgroundColor = presentation
-            .isService || isStandaloneUnframedMedia || (usesFullBleedMedia && !hasBubbleText)
+        // The comments bar sits on the bubble, as under Telegram's media posts.
+        bubbleView.backgroundColor = presentation.isService
+            || (commentSource == nil && (isStandaloneUnframedMedia || (usesFullBleedMedia && !hasBubbleText)))
             ? .clear
             : .secondarySystemBackground
         let usesEdgeToEdgeContent = usesFullBleedMedia || presentation.isService
@@ -788,6 +818,24 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         )
         inlineKeyboardView.isHidden = !hasKeyboard
 
+        let commentTap: () -> Void = { [weak self] in
+            guard self?.actionBindingID == actionBindingID, let messageID = commentSource?.id else { return }
+            onContentAction(.openComments(messageID: messageID))
+        }
+        if let commentSource, let replyInfo = commentSource.interactionInfo?.replyInfo {
+            commentFooterView.configure(
+                replyInfo: replyInfo,
+                isEnabled: commentSource.sendingState == nil && !selectionActive,
+                isLoading: commentsLoading,
+                client: client,
+                onTap: commentTap,
+            )
+            commentFooterView.isHidden = false
+        } else {
+            commentFooterView.prepareForReuse()
+            commentFooterView.isHidden = true
+        }
+
         timestampLabel.attributedText = statusLine.attributedText(font: Self.statusFont, color: timestampColor)
         mediaTimestampLabel.attributedText = statusLine.attributedText(
             font: Self.statusFont,
@@ -891,7 +939,13 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 return true
             })
         }
-        // The cell reads as one element, so VoiceOver reaches the keyboard's buttons as actions.
+        // The cell reads as one element, so VoiceOver reaches the comments bar and the keyboard's buttons as actions.
+        if !commentFooterView.isHidden, commentFooterView.isEnabled {
+            metadataAccessibilityActions.append(UIAccessibilityCustomAction(name: commentFooterView.title) { _ in
+                commentTap()
+                return true
+            })
+        }
         if hasKeyboard, !selectionActive {
             for (index, entry) in inlineKeyboardView.buttons.enumerated() {
                 let action = UIAccessibilityCustomAction(name: entry.button.text) { [weak self] _ in
@@ -1054,6 +1108,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         timestampLabel.font = Self.statusFont
         timestampLabel.textAlignment = .right
         timestampLabel.isHidden = true
+        commentFooterView.isHidden = true
 
         mediaTimestampLabel.translatesAutoresizingMaskIntoConstraints = false
         mediaTimestampLabel.font = Self.statusFont
@@ -1114,6 +1169,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             mediaCorners.formUnion([.layerMinXMaxYCorner, .layerMaxXMaxYCorner])
         }
         mediaView.setBubbleCorners(mediaCorners)
+        // Telegram drops the bar's separator right under media.
+        if let footerIndex = visibleItems.firstIndex(of: arrangedBubbleView(for: commentFooterView)) {
+            commentFooterView.showsSeparator = footerIndex > 0 && visibleItems[footerIndex - 1] !== mediaView
+        }
         for insetView in bubbleInsetViews.values {
             insetView.setInsets(usesFullBleedMedia
                 ? UIEdgeInsets(
