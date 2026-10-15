@@ -8,11 +8,11 @@
     @MainActor enum LoginAuthorizationProbe {
         private struct Failure: Swift.Error, CustomStringConvertible { let description: String }
         private final class Requests {
-            var calls = [(TdUpdateSource, LoginState, String)]()
+            var calls = [(TdUpdateSource, LoginRequest)]()
             var replies = [CheckedContinuation<Void, Swift.Error>?]()
 
-            func send(_ source: TdUpdateSource, _ stage: LoginState, _ value: String) async throws {
-                calls.append((source, stage, value))
+            func send(_ source: TdUpdateSource, _ request: LoginRequest) async throws {
+                calls.append((source, request))
                 try await withCheckedThrowingContinuation { replies.append($0) }
             }
 
@@ -38,7 +38,8 @@
                         + "real-Login-credentials/hint/controls=true; frozen-client/stage/duplicate-submit=true; "
                         + "suspended-completion/queued-dispatch/reentrant-revoke/deinit=true; "
                         + "same-account-rebind/foreign-account-terminal=true; generated-scoped-transport=true; "
-                        + "unsupported-states-denied=true; real-auth/account-stores/clipboard=0; server/device-auth=pending"
+                        + "input-free-states-denied=true; email/sign-up/qr-stages=true; "
+                        + "real-auth/account-stores/clipboard=0; server/device-auth=pending"
                 } catch { result = "Login authorization probe failed: \(error)" }
                 log(result)
                 if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -73,7 +74,7 @@
                     currentSource: { relay.current?.source },
                     client: { source in
                     guard relay.current?.source == source else { return nil }
-                    return .init { stage, value in try await requests.send(source, stage, value) }
+                    return .init { request in try await requests.send(source, request) }
                 },
                 )
             }
@@ -112,8 +113,8 @@
             button.sendActions(for: .touchUpInside)
             await drain()
             try require(
-                requests.calls.count == 1 && requests.calls[0].0 == a1 && requests.calls[0].1 == .twoFactor
-                && requests.calls[0].2 == "isolated-secret",
+                requests.calls.count == 1 && requests.calls[0].0 == a1
+                    && requests.calls[0].1 == .password("isolated-secret"),
                 "frozen password dispatch or duplicate",
             )
             relay.invalidate()
@@ -139,7 +140,7 @@
             button.sendActions(for: .touchUpInside)
             await drain()
             try require(
-                requests.calls.count == 2 && requests.calls[1].0 == a2 && requests.calls[1].1 == .code,
+                requests.calls.count == 2 && requests.calls[1].0 == a2 && requests.calls[1].1 == .code("12345"),
                 "same-account rebind",
             )
             requests.complete(0, failure: true)
@@ -153,7 +154,7 @@
             button.sendActions(for: .touchUpInside)
             await drain()
             try require(
-                requests.calls.count == 3 && requests.calls[2].1 == .phoneNumber && requests.calls[2].2 == "7555",
+                requests.calls.count == 3 && requests.calls[2].1 == .phoneNumber("7555"),
                 "captured phone prefix or stage",
             )
             requests.complete(1, failure: true)
@@ -194,19 +195,6 @@
             let unsupported: [AuthorizationState] = [
                 .authorizationStateWaitTdlibParameters, .authorizationStateReady, .authorizationStateClosing,
                 .authorizationStateClosed, .authorizationStateLoggingOut,
-                .authorizationStateWaitEmailAddress(.init(allowAppleId: false, allowGoogleId: false)),
-                .authorizationStateWaitEmailCode(.init(
-                    allowAppleId: false,
-                    allowGoogleId: false,
-                    codeInfo: .init(emailAddressPattern: "", length: 5),
-                    emailAddressResetState: nil,
-                )),
-                .authorizationStateWaitOtherDeviceConfirmation(.init(link: "tg://isolated")),
-                .authorizationStateWaitRegistration(.init(termsOfService: .init(
-                    text: .init(entities: [], text: ""),
-                    minUserAge: 0,
-                    showPopup: false,
-                ))),
                 .authorizationStateWaitPremiumPurchase(.init(
                     storeProductId: "",
                     premiumDayCount: 0,
@@ -217,10 +205,29 @@
             for state in unsupported {
                 relay.update(state, source: a1)
                 replacement.submit("denied", prefix: "7")
-                try require(replacement.stage == nil && !replacement.isBusy, "unsupported state became phone")
+                try require(replacement.stage == nil && !replacement.isBusy, "input-free state became a step")
+            }
+            let steps: [(AuthorizationState, LoginState)] = [
+                (.authorizationStateWaitEmailAddress(.init(allowAppleId: false, allowGoogleId: false)), .emailAddress),
+                (.authorizationStateWaitEmailCode(.init(
+                    allowAppleId: false,
+                    allowGoogleId: false,
+                    codeInfo: .init(emailAddressPattern: "", length: 5),
+                    emailAddressResetState: nil,
+                )), .emailCode),
+                (.authorizationStateWaitOtherDeviceConfirmation(.init(link: "tg://isolated")), .qrCode),
+                (.authorizationStateWaitRegistration(.init(termsOfService: .init(
+                    text: .init(entities: [], text: ""),
+                    minUserAge: 0,
+                    showPopup: false,
+                ))), .registration),
+            ]
+            for (state, step) in steps {
+                relay.update(state, source: a1)
+                try require(replacement.stage == step && !replacement.isBusy, "authorization step \(step) missing")
             }
             await drain()
-            try require(requests.calls.count == 3, "unsupported RPC dispatched")
+            try require(requests.calls.count == 3, "input-free RPC dispatched")
             relay.update(password, source: a1)
             replacementView.willMove(toParent: nil)
             try require(replacement.isRevoked, "removed Login retained authority")

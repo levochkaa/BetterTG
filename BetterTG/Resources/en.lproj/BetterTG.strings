@@ -23,6 +23,11 @@
 "Login.ErrorTitle" = "Error";
 "Login.AuthorizationStateError" = "There was an error with the authorization state. Please restart the app.";
 "Login.PremiumRequired" = "Login requires Telegram Premium. Please upgrade in the Telegram app.";
+"Login.QRCode.Title" = "Scan From Mobile Telegram";
+"Login.QRCode.Step1" = "Open Telegram on your phone";
+"Login.QRCode.Step2" = "Go to Settings > Devices > Link Desktop Device";
+"Login.QRCode.Step3" = "Scan this image to Log In";
+"Login.QRCode.UsePhone" = "Log in using phone number";
 
 "Folders.ReorderInfo" = "Drag the folders into the order you want to see in the tab bar.";
 "Folders.IncludedTypes" = "Included Chat Types";

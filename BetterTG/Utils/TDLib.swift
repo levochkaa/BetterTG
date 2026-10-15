@@ -326,6 +326,32 @@ final class TDLib: @unchecked Sendable {
         retire(previous, accountID: removedAccount.id, endingSession: true, removeDirectory: true)
     }
 
+    /// Discards the unfinished sign-in of `accountID` and starts a new one in a fresh account slot. TDLib offers no way
+    /// back from QR code confirmation to phone entry (`setAuthenticationPhoneNumber` is rejected there), so the
+    /// attempt's unauthorized client is closed and its directory removed, as switching away from it does.
+    @MainActor func restartActiveSignIn(accountID: UUID) throws {
+        guard let discarded = activeAccount, discarded.id == accountID, discarded.userID == nil,
+              !isActiveAccountReady else { throw TelegramAccountError.unavailable }
+        let previous = activeClientSnapshot()
+        let now = Date()
+        let replacement = TelegramAccount(
+            id: UUID(),
+            displayName: nil,
+            phoneNumber: nil,
+            userID: nil,
+            createdAt: now,
+            lastActiveAt: now,
+        )
+        _ = try registry.databaseDirectory(for: replacement.id)
+        var updatedAccounts = accounts.filter { $0.id != discarded.id }
+        updatedAccounts.append(replacement)
+        try persist(accounts: updatedAccounts, activeAccountID: replacement.id)
+        accounts = updatedAccounts
+        activeAccountID = replacement.id
+        activate(account: replacement, notify: true)
+        retire(previous, accountID: discarded.id, endingSession: false, removeDirectory: true)
+    }
+
     private func publishAuthorizationState(_ authorizationState: AuthorizationState, source: TdUpdateSource) {
         log("TDLib authorization state received: \(authorizationState.diagnosticName)")
         isActiveAccountReady = authorizationState == .authorizationStateReady

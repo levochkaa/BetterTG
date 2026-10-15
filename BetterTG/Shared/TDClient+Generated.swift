@@ -40,6 +40,10 @@ extension TDClient {
         try await send(TDNativeRequests.checkAuthenticationCode(code: code))
     }
 
+    func checkAuthenticationEmailCode(code: TDNativeEmailAddressAuthentication) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.checkAuthenticationEmailCode(code: code))
+    }
+
     func checkAuthenticationPassword(password: String) async throws -> TDNativeOk {
         try await send(TDNativeRequests.checkAuthenticationPassword(password: password))
     }
@@ -550,6 +554,14 @@ extension TDClient {
         try await send(TDNativeRequests.registerDevice(deviceToken: deviceToken, otherUserIds: otherUserIds))
     }
 
+    func registerUser(firstName: String, lastName: String, disableNotification: Bool) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.registerUser(
+            firstName: firstName,
+            lastName: lastName,
+            disableNotification: disableNotification,
+        ))
+    }
+
     func removeMessageReaction(
         chatId: Int64,
         messageId: Int64,
@@ -569,6 +581,10 @@ extension TDClient {
         ))
     }
 
+    func requestQrCodeAuthentication(otherUserIds: [Int64]) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.requestQrCodeAuthentication(otherUserIds: otherUserIds))
+    }
+
     func resendMessages(
         chatId: Int64,
         messageIds: [Int64],
@@ -581,6 +597,10 @@ extension TDClient {
             quote: quote,
             paidMessageStarCount: paidMessageStarCount,
         ))
+    }
+
+    func resetAuthenticationEmailAddress() async throws -> TDNativeOk {
+        try await send(TDNativeRequests.resetAuthenticationEmailAddress())
     }
 
     func searchChatMessages(
@@ -697,6 +717,10 @@ extension TDClient {
             options: options,
             inputMessageContents: inputMessageContents,
         ))
+    }
+
+    func setAuthenticationEmailAddress(emailAddress: String) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.setAuthenticationEmailAddress(emailAddress: emailAddress))
     }
 
     func setAuthenticationPhoneNumber(
