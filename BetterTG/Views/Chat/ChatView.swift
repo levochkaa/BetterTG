@@ -6081,7 +6081,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 isDestructive: true,
             ) { [weak self] in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: true) })
         }
-        if !deleteActions.isEmpty {
+        if let request = adminDeleteRequest(for: message) {
+            // ChatControllerAdminBanUsers: an admin deleting another member's message gets AdminUserActionsSheet.
+            elements.append(TelegramContextMenuAction(
+                title: L10n.telegram("Common.Delete"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+            ) { [weak self] in
+                guard let self else { return }
+                AdminDeleteMessagesViewController.present(request, from: self) { [weak self] text in
+                    self?.showChatToast(text)
+                }
+            })
+        } else if !deleteActions.isEmpty {
             elements.append(TelegramContextMenuAction(
                 title: L10n.telegram("Common.Delete"),
                 image: UIImage(systemName: "trash"),
@@ -6091,6 +6103,36 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         elements.append(contentsOf: interactionActions(for: message))
         return elements
+    }
+
+    /// ChatInterfaceStateContextMenus' `banAuthor`: in a group, an admin who can delete messages or ban members
+    /// deleting an incoming message from a person or another chat.
+    private func adminDeleteRequest(for message: CustomMessage) -> AdminDeleteMessagesViewController.Request? {
+        let customChat = chatVM.customChat
+        guard let supergroup = customChat.supergroup, !supergroup.isChannel, !message.message.isOutgoing,
+              message.properties.canBeDeletedForAllUsers, message.message.sendingState == nil else { return nil }
+        let canBan: Bool =
+            switch supergroup.status {
+            case .chatMemberStatusCreator: true
+            case .chatMemberStatusAdministrator(let administrator): administrator.rights.canRestrictMembers
+            default: false
+            }
+        let canDeleteAll = customChat.canDeleteAllMessages
+        guard canBan || canDeleteAll else { return nil }
+        switch message.message.senderId {
+        case .messageSenderUser:
+            break
+        case .messageSenderChat(let sender):
+            guard sender.chatId != message.message.chatId else { return nil }
+        }
+        return AdminDeleteMessagesViewController.Request(
+            chatID: message.message.chatId,
+            supergroupID: supergroup.id,
+            messageIDs: message.sourceMessages.map(\.id),
+            sender: message.message.senderId,
+            canDeleteAll: canDeleteAll,
+            canBan: canBan,
+        )
     }
 
     /// ChatMessageContextMenu's read receipts and reactions below the actions: who saw the message in a small group
