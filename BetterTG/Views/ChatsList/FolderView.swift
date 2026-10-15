@@ -356,6 +356,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let nextIndex: Int
     }
 
+    /// Telegram's service notifications account, which Telegram never archives.
+    private static let serviceNotificationsUserID: Int64 = 777_000
+
     // MARK: Internal
 
     let folder: CustomFolder
@@ -402,6 +405,15 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var orderedChats: [CustomChat] {
         folder.chats
             .sorted { $0.position.order == $1.position.order ? $0.id > $1.id : $0.position.order > $1.position.order }
+    }
+
+    /// TDLib's limit for pinned chats in this page's list.
+    private var pinLimitType: TDNativePremiumLimitType {
+        switch folder.type {
+        case .main: .premiumLimitTypePinnedChatCount
+        case .archive: .premiumLimitTypePinnedArchivedChatCount
+        case .folder: .premiumLimitTypeChatFolderChosenChatCount
+        }
     }
 
     init(
@@ -910,6 +922,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let unread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
         let archived = chat.chat.positions.contains { $0.list == .chatListArchive && $0.order != 0 }
         let muted = rootVM.isMuted(chat)
+        let chatList = folder.chatList
+        let pinLimit = pinLimitType
+        // Telegram (ChatContextMenus, chatContextMenuItems) keeps Saved Messages out of Archive and Mute, service
+        // notifications out of Archive, and offers Mark as Unread only outside forums.
+        let isSavedMessages = chat.isSavedMessages
+        let isServiceNotifications = chat.user?.id == Self.serviceNotificationsUserID
+        let isForum = chat.supergroup.map { $0.isForum || $0.isDirectMessagesGroup } ?? false
         let isCustomFolder =
             if case .folder = folder.type {
                 true
@@ -927,10 +946,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             })
         } else {
             // Telegram (ChatContextMenus, Add to Folder) lists only folders that do not already hold the chat, as a
-            // submenu of the same menu, and hides the item when there is none.
+            // submenu of the same menu, and hides the item when there is none. TDLib reports folder membership in
+            // chat_lists, including folders whose chats were never loaded.
             let targets = rootVM.folders.compactMap { folder -> (id: Int, name: String, folder: ChatFolder)? in
-                guard case .folder(let info, let definition) = folder.type,
-                      !folder.chats.contains(where: { $0.id == chat.id })
+                guard case .folder(let info, let definition) = folder.type, !chat.isListed(in: folder.chatList)
                 else { return nil }
                 return (info.id, folder.name, definition)
             }
@@ -939,122 +958,128 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                     title: L10n.telegram("ChatList.Context.AddToFolder"),
                     image: UIImage(systemName: "folder.badge.plus"),
                     children: targets.map { target in
-                        TelegramContextMenuAction(title: target.name, image: UIImage(systemName: "folder")) {
-                            Task {
-                                _ = try? await scope.perform {
-                                    try await client.editChatFolder(
-                                        chatFolderId: target.id,
-                                        folder: target.folder.adding(chatID: chat.id),
-                                    )
-                                }
+                        TelegramContextMenuAction(
+                            title: target.name,
+                            image: UIImage(systemName: "folder"),
+                        ) { [weak self] in
+                            self?.runAction(scope, onFailure: { [weak self] error in
+                                // Telegram shows the chats-per-folder limit when the folder is full.
+                                self?.presentFailure(
+                                    limit: error.isTDLibLimit("maximum number of")
+                                        ? .premiumLimitTypeChatFolderChosenChatCount
+                                        : nil,
+                                    scope: scope,
+                                    client: client,
+                                )
+                            }) {
+                                _ = try await client.editChatFolder(
+                                    chatFolderId: target.id,
+                                    folder: target.folder.adding(chatID: chat.id),
+                                )
                             }
                         }
                     },
                 ))
             }
         }
-        actions += [
-            TelegramContextMenuAction(
-                title: unread
-                    ? L10n.telegram("ChatList.Context.MarkAsRead")
-                    : L10n.telegram("ChatList.Context.MarkAsUnread"),
-                image: UIImage(systemName: unread ? "envelope.open" : "envelope.badge"),
-            ) {
-                Task {
-                    if unread {
-                        if let messageID = chat.lastMessage?.id {
-                            _ = try? await scope.perform {
-                                try await client.viewMessages(
-                                    chatId: chat.id,
-                                    forceRead: true,
-                                    messageIds: [messageID],
-                                    source: nil,
-                                )
-                            }
-                        }
-                        _ = try? await scope.perform {
-                            try await client.toggleChatIsMarkedAsUnread(chatId: chat.id, isMarkedAsUnread: false)
-                        }
-                    } else {
-                        _ = try? await scope.perform {
-                            try await client.toggleChatIsMarkedAsUnread(chatId: chat.id, isMarkedAsUnread: true)
-                        }
+        if unread {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.Context.MarkAsRead"),
+                image: UIImage(systemName: "envelope.open"),
+            ) { [weak self] in
+                self?.runAction(scope) {
+                    if let messageID = chat.lastMessage?.id {
+                        // Best effort: the unread mark cleared below is what the row shows.
+                        _ = try? await client.viewMessages(
+                            chatId: chat.id,
+                            forceRead: true,
+                            messageIds: [messageID],
+                            source: nil,
+                        )
+                        try scope.check()
                     }
+                    _ = try await client.toggleChatIsMarkedAsUnread(chatId: chat.id, isMarkedAsUnread: false)
                 }
-            },
-            TelegramContextMenuAction(
+            })
+        } else if !isForum {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.Context.MarkAsUnread"),
+                image: UIImage(systemName: "envelope.badge"),
+            ) { [weak self] in
+                self?.runAction(scope) {
+                    _ = try await client.toggleChatIsMarkedAsUnread(chatId: chat.id, isMarkedAsUnread: true)
+                }
+            })
+        }
+        if !isSavedMessages, !isServiceNotifications {
+            actions.append(TelegramContextMenuAction(
                 title: archived
                     ? L10n.telegram("ChatList.Context.Unarchive")
                     : L10n.telegram("ChatList.Context.Archive"),
                 image: UIImage(systemName: archived ? "tray.and.arrow.up" : "archivebox"),
             ) { [weak self] in
-                Task { [weak self] in
-                    let moved = await (try? scope.perform {
-                        try await client.addChatToList(
-                            chatId: chat.id,
-                            chatList: archived ? .chatListMain : .chatListArchive,
-                        )
-                    }) != nil
+                self?.runAction(scope) { [weak self] in
+                    _ = try await client.addChatToList(
+                        chatId: chat.id,
+                        chatList: archived ? .chatListMain : .chatListArchive,
+                    )
                     // Telegram (ChatListController, archiveChats) offers Undo after archiving.
-                    guard moved, !archived, let self, scope.isCurrent else { return }
-                    showUndoToast(L10n.telegram("ChatList.UndoArchiveTitle")) {
-                        Task {
-                            _ = try? await scope.perform {
-                                try await client.addChatToList(chatId: chat.id, chatList: .chatListMain)
-                            }
+                    guard !archived, let self, scope.isCurrent else { return }
+                    showUndoToast(L10n.telegram("ChatList.UndoArchiveTitle")) { [weak self] in
+                        self?.runAction(scope) {
+                            _ = try await client.addChatToList(chatId: chat.id, chatList: .chatListMain)
                         }
                     }
                 }
-            },
-            TelegramContextMenuAction(
-                title: pinned
-                    ? L10n.telegram("ChatList.Context.Unpin")
-                    : L10n.telegram("ChatList.Context.Pin"),
-                image: UIImage(systemName: pinned ? "pin.slash.fill" : "pin.fill"),
-            ) { [weak self] in
-                guard let self else { return }
-                Task {
-                    _ = try? await scope.perform {
-                        try await client.toggleChatIsPinned(
-                            chatId: chat.id,
-                            chatList: self.folder.chatList,
-                            isPinned: !pinned,
-                        )
-                    }
-                }
-            },
-            TelegramContextMenuAction(
+            })
+        }
+        actions.append(TelegramContextMenuAction(
+            title: pinned
+                ? L10n.telegram("ChatList.Context.Unpin")
+                : L10n.telegram("ChatList.Context.Pin"),
+            image: UIImage(systemName: pinned ? "pin.slash.fill" : "pin.fill"),
+        ) { [weak self] in
+            self?.runAction(scope, onFailure: { [weak self] error in
+                // Telegram (toggleItemPinned, limitExceeded) shows the pin limit.
+                self?.presentFailure(
+                    limit: !pinned && error.isTDLibLimit("maximum number of pinned chats") ? pinLimit : nil,
+                    scope: scope,
+                    client: client,
+                )
+            }) {
+                _ = try await client.toggleChatIsPinned(chatId: chat.id, chatList: chatList, isPinned: !pinned)
+            }
+        })
+        if !isSavedMessages {
+            actions.append(TelegramContextMenuAction(
                 title: muted
                     ? L10n.telegram("ChatList.Context.Unmute")
                     : L10n.telegram("ChatList.Context.Mute"),
                 image: UIImage(systemName: muted ? "speaker.wave.2.fill" : "speaker.slash.fill"),
-            ) {
-                Task {
-                    _ = try? await scope.perform {
-                        try await client.setChatNotificationSettings(
-                            chatId: chat.id,
-                            notificationSettings: chat.chat.notificationSettings.withMuteFor(
-                                muted ? 0 : Int(Int32.max),
-                            ),
-                        )
-                    }
-                }
-            },
-        ]
-
-        if chat.chat.canBeDeletedOnlyForSelf || chat.chat.canBeDeletedForAllUsers {
-            actions.append(TelegramContextMenuAction(
-                title: L10n.telegram("ChatList.Context.Delete"),
-                image: UIImage(systemName: "trash"),
-                isDestructive: true,
-                startsNewSection: true,
             ) { [weak self] in
-                self?.confirmDelete(
-                    chat: chat,
-                    forAll: !chat.chat.canBeDeletedOnlyForSelf && chat.chat.canBeDeletedForAllUsers,
-                )
+                self?.runAction(scope) {
+                    _ = try await client.setChatNotificationSettings(
+                        chatId: chat.id,
+                        notificationSettings: chat.chat.notificationSettings.withMuteFor(
+                            muted ? 0 : Int(Int32.max),
+                        ),
+                    )
+                }
             })
         }
+        // Telegram offers Delete for every chat in the list; the sheet decides between deleting, leaving and
+        // clearing history.
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("ChatList.Context.Delete"),
+            image: UIImage(systemName: "trash"),
+            isDestructive: true,
+            startsNewSection: true,
+        ) { [weak self] in
+            guard let self else { return }
+            ChatListChatRemoval(chat: chat, client: client, scope: scope, host: self) { [weak self] status in
+                self?.showUndoToast(status)
+            }.start()
+        })
         return actions
     }
 
@@ -1088,7 +1113,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     /// Shown on the screen that owns this page, above the folder picker on the main list.
-    private func showUndoToast(_ text: String, undo: @escaping () -> Void) {
+    private func showUndoToast(_ text: String, undo: (() -> Void)? = nil) {
         var host: UIViewController = self
         while let parent = host.parent, !(parent is UINavigationController) {
             host = parent
@@ -1106,35 +1131,108 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let client = actionAuthority.client
         guard scope.isCurrent, case .folder(let info, let definition) = folder.type else { return }
         let updated = definition.removing(chatID: chat.id)
-        Task {
-            _ = try? await scope.perform {
-                try await client.editChatFolder(chatFolderId: info.id, folder: updated)
+        runAction(scope) {
+            _ = try await client.editChatFolder(chatFolderId: info.id, folder: updated)
+        }
+    }
+
+    /// Runs a row action on this page's client. A failure is reported unless its account, client or page changed.
+    private func runAction(
+        _ scope: ChatListActionScope,
+        onFailure: ((any Swift.Error) -> Void)? = nil,
+        _ request: @escaping @MainActor () async throws -> Void,
+    ) {
+        Task { [weak self] in
+            do {
+                try await scope.perform(request)
+            } catch {
+                guard scope.isCurrent, let self else { return }
+                if let onFailure {
+                    onFailure(error)
+                } else {
+                    presentChatListActionFailure()
+                }
             }
         }
     }
 
-    private func confirmDelete(chat: CustomChat, forAll: Bool) {
-        let scope = actionAuthority.scope(owner: self)
-        let client = actionAuthority.client
-        guard scope.isCurrent else { return }
-        let alert = UIAlertController(
-            title: L10n.telegram("ChatList.DeleteChat"),
-            message: L10n.telegram("ChatList.DeleteChatConfirmation", chat.displayTitle),
-            preferredStyle: .alert,
-        )
-        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Delete"), style: .destructive) { _ in
-            Task {
-                _ = try? await scope.perform {
-                    try await client.deleteChatHistory(
-                        chatId: chat.id,
-                        removeFromChatList: true,
-                        revoke: forAll,
+    /// A TDLib limit gets Telegram's limit alert; anything else gets the generic error.
+    private func presentFailure(limit: TDNativePremiumLimitType?, scope: ChatListActionScope, client: TDLibClient) {
+        if let limit {
+            presentLimit(limit, scope: scope, client: client)
+        } else {
+            presentChatListActionFailure()
+        }
+    }
+
+    /// Telegram's limit screen (PremiumLimitScreen, subjects .pins and .chatsPerFolder) as an alert.
+    private func presentLimit(_ limitType: TDNativePremiumLimitType, scope: ChatListActionScope, client: TDLibClient) {
+        let isFolderLimit =
+            if case .premiumLimitTypeChatFolderChosenChatCount = limitType {
+                true
+            } else {
+                false
+            }
+        Task { [weak self] in
+            let limit: TDNativePremiumLimit
+            do {
+                limit = try await scope.perform {
+                    try await client.send(TDNativeRequests.getPremiumLimit(limitType: limitType))
+                }
+            } catch {
+                guard scope.isCurrent else { return }
+                self?.presentChatListActionFailure()
+                return
+            }
+            let me = try? await scope.perform { try await client.getMe() }
+            var premiumAvailable = true
+            if case .optionValueBoolean(let value) = try? await scope.perform({
+                try await client.getOption(name: "is_premium_available")
+            }) {
+                premiumAvailable = value.value
+            }
+            guard let self, scope.isCurrent else { return }
+            let defaultValue = "\(limit.defaultValue)"
+            let premiumValue = "\(limit.premiumValue)"
+            let message =
+                if !premiumAvailable {
+                    L10n.telegram(
+                        isFolderLimit ? "Premium.MaxChatsInFolderNoPremiumText" : "Premium.MaxPinsNoPremiumText",
+                        defaultValue,
+                    )
+                } else if me?.isPremium == true {
+                    L10n.telegram(
+                        isFolderLimit ? "Premium.MaxChatsInFolderFinalText" : "Premium.MaxPinsFinalText",
+                        premiumValue,
+                    )
+                } else {
+                    L10n.telegram(
+                        isFolderLimit ? "Premium.MaxChatsInFolderText" : "Premium.MaxPinsText",
+                        defaultValue,
+                        premiumValue,
                     )
                 }
-            }
-        })
-        present(alert, animated: true)
+            let alert = UIAlertController(
+                title: L10n.telegram("Premium.LimitReached"),
+                message: message.withoutTelegramMarkup,
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+            chatListTopPresenter.present(alert, animated: true)
+        }
+    }
+}
+
+private extension CustomChat {
+    /// TDLib lists the folders that hold a chat in chat_lists; a loaded folder also gives it a position there.
+    func isListed(in list: ChatList) -> Bool {
+        chat.chatLists.contains(list) || chat.positions.contains { $0.list == list && $0.order != 0 }
+    }
+}
+
+private extension Swift.Error {
+    func isTDLibLimit(_ fragment: String) -> Bool {
+        (self as? TDLibError)?.message.contains(fragment) == true
     }
 }
 
