@@ -34,6 +34,9 @@ UISearchBarDelegate {
     var onEmoji: ((String) -> Void)?
     var onCustomEmoji: ((Sticker) -> Void)?
     var onSticker: ((Sticker) -> Void)?
+    /// Off while a message is edited (Telegram offers only emoji input then, `ChatInterfaceInputContexts`) or when the
+    /// chat doesn't take stickers and GIFs: the picker keeps only its emoji tabs.
+    var allowsStickersAndGIFs = true
 
     private let accountID: UUID
     private let chatID: Int64
@@ -90,6 +93,10 @@ UISearchBarDelegate {
         )
         configureViews()
         configureDataSource()
+        if !allowsStickersAndGIFs {
+            segmentedControl.removeSegment(at: Mode.gifs.rawValue, animated: false)
+            segmentedControl.removeSegment(at: Mode.stickers.rawValue, animated: false)
+        }
         segmentedControl.selectedSegmentIndex = Mode.emoji.rawValue
         searchBar.isHidden = true
         searchBarHeightConstraint.constant = 0

@@ -893,6 +893,21 @@ final class ChatComposerView: UIView {
 
     /// The same custom menu as the rest of the app, morphing out of the button.
     @objc private func showAttachmentActions() {
+        // Editing a message takes only text and emoji, as in Telegram: new media, stickers or GIFs would be sent as
+        // new messages instead of changing the edited one.
+        guard chatVM.editCustomMessage == nil else {
+            nearestViewController?.presentTelegramContextMenu(
+                sourceView: attachmentButton,
+                actions: [
+                    TelegramContextMenuAction(
+                        title: L10n.telegram("EmojiInput.TabEmoji"),
+                        image: UIImage(systemName: "face.smiling"),
+                    ) { [weak self] in self?.onPickEmojiMedia?() },
+                ],
+                presentationStyle: .sourceMorph,
+            )
+            return
+        }
         nearestViewController?.presentTelegramContextMenu(
             sourceView: attachmentButton,
             actions: [

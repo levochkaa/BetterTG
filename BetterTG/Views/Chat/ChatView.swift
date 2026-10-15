@@ -4148,6 +4148,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             chatID: chatVM.chatID,
             client: chatVM.client,
         )
+        picker.allowsStickersAndGIFs = chatVM.editCustomMessage == nil && chatVM.canSendStickersAndAnimations
         picker.onEmoji = { [weak self] emoji in
             self?.composerView.insertEmoji(emoji)
         }
