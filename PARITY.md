@@ -292,36 +292,36 @@ Read-only audits at `e1e0ad48`: forum topics and the chat timeline (T), the Forw
 | ID | Sev | Finding | Status |
 |---|---|---|---|
 | T-1 | P1 | Reading inside a forum topic marks the whole forum read (`viewMessages` without a source); the notification quick reply did the same | fixed `9039faea`: topic routes pass `messageSourceForumTopicHistory` (TDLib's `ReadForumTopicQuery`), threads keep the thread source, a quick reply into a forum topic reads only that topic. Build only: no unread forum on the account |
-| F-x1 | P1 | Forward eligibility uses the chat's default member permissions and ignores the user's own status (admins lose restricted groups, probably their channels; restricted members fail at send) | open |
+| F-x1 | P1 | Forward eligibility uses the chat's default member permissions and ignores the user's own status (admins lose restricted groups, probably their channels; restricted members fail at send) | fixed `c0941081`: the picker, topics step and send check resolve the user's standing (supergroup, basic group, secret chat) and apply Telegram's `canSendMessagesToPeer` through `CustomChat.allowsSending`. Simulator: the channels tab now lists the two channels the account posts to |
 | T-2 | P2 | The hidden General topic can't be reached; no Hide/Unhide | open |
 | T-3 | P2 | No pinned-message banner in forum topics or a forum read as messages | open |
 | T-4 | P2 | Every open clears unseen reactions (`readAllChatReactions` in `viewDidAppear`); no mention/reaction jump buttons | open |
-| T-6 | P2 | The topic list reloads from page 1 after a deletion or a pin, dropping later pages | open |
+| T-6 | P2 | The topic list reloads from page 1 after a deletion or a pin, dropping later pages | fixed `2cc6c0eb`: pins re-read page 1 and merge it, keeping later pages; a deleted last message re-reads only its topic and a 404 drops the row. `-ui-probe-forum-updates` passes |
 | T-7 | P2 | A topic moving to the top can slide under the bar (no `restingTopOffset`; suspicion) | open |
-| F-x2 | P2 | Forward options can't be changed from the composer block; no Change recipient, no "Sender names removed" | open |
+| F-x2 | P2 | Forward options can't be changed from the composer block; no Change recipient, no "Sender names removed" | fixed `77f2706d`: tapping the block opens Telegram's forward options (names, captions, Change Recipient, Do Not Forward) in the custom menu; the picker's sheet is gone. Simulator: hide/show names and Change Recipient back into Saved Messages, nothing sent |
 | F-x3 | P2 | The Forward topics step uses its own bar and an always-visible `UISearchBar` | open |
-| F-x4 | P2 | A same-account client renewal leaves the Forward picker on screen but dead | open |
-| F-x5 | P2 | Saved Messages is first in Forward only when it is in the loaded page | open |
+| F-x4 | P2 | A same-account client renewal leaves the Forward picker on screen but dead | fixed `17787ea1`: the picker closes on a client change that makes it stale (the presenting chat is rebuilt on the new client). Build only |
+| F-x5 | P2 | Saved Messages is first in Forward only when it is in the loaded page | fixed `b187fa47`: All Chats resolves the own chat with `createPrivateChat` and lists it first even when not loaded or archived. Simulator: still first |
 | F-x13 | P2 | The folder Add Chats picker offers only loaded chats; no server or contact search | open |
 | F-x14 | P2 | Shared folders: no invite-link management, no new-chats prompt, `t.me/addlist` unhandled | open |
-| F-x24 | P2 | Quote is impossible in copy-protected chats (selection requires `canBeCopied`) | open |
-| T-5 | P3 | Typing isn't shown in a topic header; `actionStatus` keeps one sender | open |
-| T-8 | P3 | Remote pins keep their chronological place until a page-1 reload | open |
+| F-x24 | P2 | Quote is impossible in copy-protected chats (selection requires `canBeCopied`) | fixed `7fd0d5cb` (cherry-picked from `codex/parity-quote`): selection follows `canBeReplied` (not secret chats or self-destructing messages); protected messages offer only Quote and block copy and drag |
+| T-5 | P3 | Typing isn't shown in a topic header; `actionStatus` keeps one sender | fixed `62eb5e38` (cherry-picked from `codex/parity-forum-topics`): actions tracked per sender and topic; a topic header shows who is acting there with the chat list's wording (no animated dots) |
+| T-8 | P3 | Remote pins keep their chronological place until a page-1 reload | fixed `9b175f04`: any pin change re-reads page 1 for pin ranks. A pure remote reorder has no TDLib update |
 | T-9 | P3 | One merged row badge in the topic list | open |
 | T-10 | P3 | No pinned-topic reorder | open |
 | T-11 | P3 | No topic row swipes | open |
 | T-12 | P3 | No Close/Reopen bar or avatar menu inside a topic | open |
 | T-13 | P3 | Forum search covers topic names only | open |
-| T-14 | P3 | Rows that inherit the forum's mute don't refresh on a scope change (suspicion) | open |
+| T-14 | P3 | Rows that inherit the forum's mute don't refresh on a scope change (suspicion) | confirmed and fixed `56da4980`: forum and scope notification settings are observed and rows reconfigure when inherited mute flips |
 | T-15 | P3 | Voice and video-note downloads prefetched for rows never shown kept going after the chat closed | fixed `4cb6bfb8`: deinit cancels them (`onlyIfPending`), as the prefetch cancel path already did. Build only |
-| T-16 | P3 | Topic taps are ignored while a new search page loads | open |
-| F-x6 | P3 | Forward ignores Telegram's content checks (public polls, quizzes and checklists to channels; closed secret chats) | open |
-| F-x7 | P3 | The forward block shows the forwarder's full name from the first message; no "You", no multi-author line | open |
-| F-x8 | P3 | Forwarding own originals from Saved Messages doesn't default to hidden names | open |
+| T-16 | P3 | Topic taps are ignored while a new search page loads | fixed `e2518a7d`: any displayed row of the current client opens |
+| F-x6 | P3 | Forward ignores Telegram's content checks (public polls, quizzes and checklists to channels; closed secret chats) | fixed `c0941081`: public polls, quizzes and checklists never go to channels (Telegram's strings), secret chats must be ready, groups charging Stars per message are unavailable. Build only |
+| F-x7 | P3 | The forward block shows the forwarder's full name from the first message; no "You", no multi-author line | fixed `77f2706d`: original authors once each, "You", "author: text" or "From: A, B". Simulator: "Hacker News: Neural networks…" |
+| F-x8 | P3 | Forwarding own originals from Saved Messages doesn't default to hidden names | fixed `77f2706d`: own originals from Saved Messages start as a copy, and the names item is hidden as in Telegram. Build only |
 | F-x9 | P3 | A pending forward lives only in ChatVM memory | open |
-| F-x10 | P3 | Forwarding from the gallery always pushes a new chat, even the same chat | open |
+| F-x10 | P3 | Forwarding from the gallery always pushes a new chat, even the same chat | fixed `77f2706d`: `ChatViewController.openForward` hands the draft to an open chat for the destination (pop to it) instead of pushing a second one; the gallery uses it. Simulator: Change Recipient to the same chat reused it |
 | F-x11 | P3 | The Forward folder bar has no unread counters and never refreshes | open |
-| F-x12 | P3 | `sendComment` is dead code | open |
+| F-x12 | P3 | `sendComment` is dead code | fixed `bf009209` |
 | F-x15 | P3 | Shared folders still show chat-type and exclusion rows | open |
 | F-x16 | P3 | The folder editor ignores pinned chats; an all-pinned folder can't be saved | open |
 | F-x17 | P3 | Back discards unsaved folder edits without asking | open |
@@ -332,11 +332,11 @@ Read-only audits at `e1e0ad48`: forum topics and the chat timeline (T), the Forw
 | F-x22 | P3 | Add Chats from the folder menu saves the folder as it was when the menu opened | open |
 | F-x23 | P3 | The folder list counts only loaded chats | open |
 | F-x25 | P3 | No partial-text selection for copying in read-only chats; no Reply in Another Chat | open |
-| F-x26 | P3 | Quotes aren't trimmed; a whitespace-only quote isn't dropped | open |
-| F-x27 | P3 | An edited quoted message still highlights the old position instead of Telegram's not-found toast | open |
-| F-x28 | P3 | The quote attaches after an async `getOption`; sending in that window drops it | open |
-| F-x29 | P3 | Tapping the composer reply panel only scrolls; no reply options menu | open |
-| F-x30 | P3 | Reply panel titles fall back to "Reply" for channel posts and anonymous admins | open |
+| F-x26 | P3 | Quotes aren't trimmed; a whitespace-only quote isn't dropped | fixed `45f2f590`: Telegram's U+0020/U+000A trim before the limit, the position moves to the first kept character, a blank selection is a plain reply. `-custom-emoji-text-probe` passes 15/15 |
+| F-x27 | P3 | An edited quoted message still highlights the old position instead of Telegram's not-found toast | fixed `f917de0e`: the nearest occurrence in the current text is highlighted, otherwise only the message with Telegram's "Quote not found" toast |
+| F-x28 | P3 | The quote attaches after an async `getOption`; sending in that window drops it | fixed `18de2eda`: `MessageQuoteLengthStore` caches the option per client from updates; the quote is built synchronously (1024 until known) |
+| F-x29 | P3 | Tapping the composer reply panel only scrolls; no reply options menu | fixed `0a220200`, `d61cbf75`: the reply panel opens View Message, Select Specific Quote, Remove Quote and Do Not Reply. Simulator: menu above the panel, Do Not Reply clears it |
+| F-x30 | P3 | Reply panel titles fall back to "Reply" for channel posts and anonymous admins | fixed `754df51c`: the sender chat's title, also for voice and video note replies |
 | F-x31 | P3 | Document and audio album captions probably can't be quoted (suspicion) | open |
 
 Reviewed and OK: forum topic VM ownership and update scoping, topic menu permissions, view as messages/topics, closed-topic writing rules, timeline identities and anchoring; Forward request checks, secret-chat copy mode, closed-topic destinations, send order and account dismissal; folder write sessions, removal and reorder; quote ranges, entities, spoilers, drafts and bubble expansion.
