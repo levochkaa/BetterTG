@@ -915,6 +915,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var thumbnailMessageIndices = [Int]()
     private var messageUpdateInProgress = false
     private var pendingMessageUpdate: [Message]?
+    /// Items the route re-reads after an edit or an unconfirmed delete. Their permits are revoked, so their pages and
+    /// thumbnails stay covered until a revision without them arrives.
+    private var pendingRevisionIDs = Set<Int64>()
+    private var coveredRevisionIDs = Set<Int64>()
     private var pendingDeletedPlaybackOwners = [Int64: GalleryVideoPlaybackOwner]()
     private var pendingDeletedMessageIDsByChat = [Int64: Set<Int64>]()
     private var contextWasInvalidated = false
@@ -1407,31 +1411,44 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
     }
 
-    func updateMessages(_ updatedMessages: [Message]) {
+    /// `pendingRevisionIDs` replaces the set of items the route is re-reading; nil keeps the current set. A pending
+    /// item keeps its page instead of leaving the gallery, as Telegram's gallery stays open when another item or the
+    /// shown one is edited.
+    func updateMessages(_ updatedMessages: [Message], pendingRevisionIDs: Set<Int64>? = nil) {
         guard hasCurrentContext, !didReleasePlaybackOwners else { return }
+        if let pendingRevisionIDs { self.pendingRevisionIDs = pendingRevisionIDs }
         if messageUpdateInProgress || mediaTransitionController?.isInteractiveDismissalInProgress == true {
             pendingMessageUpdate = updatedMessages
             return
         }
         guard !isBeingDismissed else { return }
+        let previousIDs = messages.map(\.id)
+        let shownIDs = Set(previousIDs)
+        let pendingIDs = self.pendingRevisionIDs
         let updatedMessages = updatedMessages.filter { message in
-            switch message.content {
+            // A pending item the gallery never showed waits for its revision.
+            guard !pendingIDs.contains(message.id) || shownIDs.contains(message.id) else { return false }
+            return switch message.content {
             case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo:
                 true
             default:
                 false
             }
         }
-        let previousIDs = messages.map(\.id)
         let updatedIDs = updatedMessages.map(\.id)
-        let changedMediaIDs = Set(updatedMessages.compactMap { updated -> Int64? in
+        let covered = pendingIDs.intersection(updatedIDs)
+        // Pages that became pending drop their pixels; pages whose revision arrived show it.
+        let coverChanges = covered.symmetricDifference(coveredRevisionIDs).intersection(updatedIDs)
+        coveredRevisionIDs = covered
+        let changedMediaIDs = coverChanges.union(updatedMessages.compactMap { updated -> Int64? in
             guard let previous = messages.first(where: { $0.id == updated.id }),
                   MediaRevealSession.Key(message: previous) != MediaRevealSession.Key(message: updated)
             else { return nil }
             return updated.id
         })
         reconcilingMediaRevisions = true
-        mediaRevealSession?.reconcile(updatedMessages)
+        // A pending item still carries its old revision; admitting it again would undo the route's revoke.
+        mediaRevealSession?.reconcile(updatedMessages.filter { !covered.contains($0.id) })
         reconcilingMediaRevisions = false
         for id in changedMediaIDs {
             videoPlaybackOwners.removeValue(forKey: id)?.invalidate()
@@ -6691,8 +6708,12 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         if activeOwner === owner, let request = restoreRequest { complete(request, result: false) }
     }
 
-    func contextWasRevoked(_ context: MediaGalleryPlaybackContext, revokeContext: Bool = true) {
-        guard let owner = activeOwner, owner.playbackContext.hasSameIdentity(as: context) else { return }
+    /// `messageIDs` limits the revoke to Picture in Picture showing one of these items; nil revokes any item.
+    func contextWasRevoked(
+        _ context: MediaGalleryPlaybackContext, messageIDs: Set<Int64>? = nil, revokeContext: Bool = true,
+    ) {
+        guard let owner = activeOwner, owner.playbackContext.hasSameIdentity(as: context),
+              messageIDs?.contains(owner.messageID) ?? true else { return }
         revoke(owner: owner, revokeContext: revokeContext)
     }
 

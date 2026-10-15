@@ -1028,8 +1028,13 @@ ClientRestorableNavigationEntry {
         gallery.onGalleryRestored = { [weak self] restoredGallery in
             guard let self, contextIsCurrent, currentSharedTab == originatingTab else { return }
             activeMediaGallery = restoredGallery
-            restoredGallery
-                .updateMessages(sortedSharedMessages.filter { self.sharedMessageRefresh?.allows($0.id) == true })
+            let messages = sortedSharedMessages
+            restoredGallery.updateMessages(
+                messages,
+                pendingRevisionIDs: Set(messages.lazy
+                    .filter { self.sharedMessageRefresh?.allows($0.id) != true }
+                    .map(\.id)),
+            )
             restoredGallery.updateTotalMessageCount(sharedTotalMessageCount)
         }
         gallery.onDismissed = { [weak self, weak gallery] in
@@ -1106,7 +1111,7 @@ ClientRestorableNavigationEntry {
                 historyTask?.cancel()
                 historyTask = nil
                 if source.map({ $0.accountID != accountID }) ?? false || !keepsMediaGalleryThroughClientRenewal {
-                    revokeSharedMessages(Set(messagesByID.keys))
+                    revokeSharedMessages(Set(messagesByID.keys), closesGallery: true)
                 }
             }
         }
@@ -1638,14 +1643,19 @@ ClientRestorableNavigationEntry {
         )
     }
 
-    private func revokeSharedMessages(_ ids: Set<Int64>) {
+    /// `closesGallery` ends the open gallery and Picture in Picture of this context. Otherwise (an edit or an
+    /// unconfirmed delete the refresh re-reads) only the affected items are covered until their revision is admitted:
+    /// the gallery keeps their pages, and Picture in Picture closes only when it shows one of them.
+    private func revokeSharedMessages(_ ids: Set<Int64>, closesGallery: Bool = false) {
         guard !ids.isEmpty else { return }
         mediaRevealSession?.revoke(messageIDs: ids)
         // Revoked permits cannot escape through retained PiP or a transition snapshot.
         if let mediaPlaybackContext {
-            GalleryPictureInPictureCoordinator.shared.contextWasRevoked(mediaPlaybackContext, revokeContext: false)
+            GalleryPictureInPictureCoordinator.shared.contextWasRevoked(
+                mediaPlaybackContext, messageIDs: closesGallery ? nil : ids, revokeContext: false,
+            )
         }
-        if let gallery = activeMediaGallery {
+        if closesGallery, let gallery = activeMediaGallery {
             activeMediaGallery = nil
             gallery.invalidateForContextChange(revokePlaybackContext: false, completion: {})
         }
@@ -1830,7 +1840,11 @@ ClientRestorableNavigationEntry {
             completion?()
         }
         if currentSharedTab == .media {
-            activeMediaGallery?.updateMessages(admitted)
+            // Items the refresh re-reads keep their gallery pages, covered, until their revision is admitted.
+            activeMediaGallery?.updateMessages(
+                messages,
+                pendingRevisionIDs: Set(messages.lazy.filter { readiness[$0.id] != true }.map(\.id)),
+            )
             activeMediaGallery?.updateTotalMessageCount(sharedTotalMessageCount)
         }
         guard messages.isEmpty else {
