@@ -1277,3 +1277,10 @@
 "StickerPack.ErrorNotFound" = "Sorry, this sticker set doesn't seem to exist.";
 "Settings.FAQ_URL" = "https://telegram.org/faq#general";
 "Settings.PrivacyPolicy_URL" = "https://telegram.org/privacy";
+"Compose.NewMessage" = "New Message";
+"Contacts.Search.NoResults" = "No Results";
+"Contacts.Sort" = "Sort";
+"Contacts.Sort.ByName" = "by Name";
+"Contacts.Sort.ByLastSeen" = "by Last Seen";
+"Contacts.SortedByPresence" = "Sorted by Last Seen Time";
+"Contacts.TopSection" = "CONTACTS";

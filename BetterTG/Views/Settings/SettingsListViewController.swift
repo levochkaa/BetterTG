@@ -32,6 +32,8 @@ struct SettingsRow {
 
     var title: String
     var detail: String?
+    /// The detail's colour instead of the secondary one, such as Telegram's blue "online" under a contact.
+    var detailColor: UIColor?
     var style = Style.value
     var symbol: String?
     var symbolTint = UIColor.systemBlue
@@ -119,6 +121,7 @@ struct SettingsTextInput {
     var isMultiline = false
     var autocapitalization = UITextAutocapitalizationType.sentences
     var autocorrection = true
+    var keyboardType = UIKeyboardType.default
     var onChange: (String) -> Void
 }
 
@@ -199,7 +202,13 @@ class SettingsListViewController: UITableViewController {
         }
         if case .peer(let peer) = row.style {
             let cell = tableView.dequeueReusableCell(withIdentifier: SettingsPeerCell.reuseIdentifier, for: indexPath)
-            (cell as? SettingsPeerCell)?.configure(peer: peer, detail: row.detail, client: client, accountID: accountID)
+            (cell as? SettingsPeerCell)?.configure(
+                peer: peer,
+                detail: row.detail,
+                detailColor: row.detailColor,
+                client: client,
+                accountID: accountID,
+            )
             apply(row, to: cell)
             return cell
         }
@@ -431,9 +440,16 @@ final class SettingsPeerCell: UITableViewCell {
         avatarView.prepareForReuse()
     }
 
-    func configure(peer: SettingsPeer, detail: String?, client: TDLibClient, accountID: UUID?) {
+    func configure(
+        peer: SettingsPeer,
+        detail: String?,
+        detailColor: UIColor? = nil,
+        client: TDLibClient,
+        accountID: UUID?,
+    ) {
         nameLabel.text = peer.title
         detailLabel.text = detail
+        detailLabel.textColor = detailColor ?? .secondaryLabel
         detailLabel.isHidden = detail?.isEmpty != false
         accessibilityLabel = [peer.title, detail].compactMap(\.self).joined(separator: ", ")
         avatarView.configure(
@@ -522,6 +538,7 @@ final class SettingsInputCell: UITableViewCell, UITextFieldDelegate, UITextViewD
         stack.alignment = input.isMultiline ? .top : .center
         textField.autocapitalizationType = input.autocapitalization
         textField.autocorrectionType = input.autocorrection ? .default : .no
+        textField.keyboardType = input.keyboardType
         textView.autocapitalizationType = input.autocapitalization
         textView.autocorrectionType = input.autocorrection ? .default : .no
         if input.isMultiline {

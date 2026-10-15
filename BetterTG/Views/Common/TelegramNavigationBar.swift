@@ -32,9 +32,12 @@ final class TelegramListNavigationBar: UIView {
     private let subtitleLabel = UILabel()
     private let leftButton = UIButton(type: .system)
     private let rightButton = UIButton(type: .system)
+    /// An optional second button left of the right one, such as the chat list's compose button.
+    private let secondaryRightButton = UIButton(type: .system)
     private let searchView: ChatListNavigationSearchView
     private let leftAction: (() -> Void)?
     private let rightAction: (() -> Void)?
+    private let secondaryRightAction: (() -> Void)?
     private let showsBackButton: Bool
     private var currentScrollOffset = CGFloat.zero
 
@@ -53,6 +56,9 @@ final class TelegramListNavigationBar: UIView {
         rightImage: UIImage?,
         leftAction: (() -> Void)?,
         rightAction: (() -> Void)?,
+        secondaryRightImage: UIImage? = nil,
+        secondaryRightAction: (() -> Void)? = nil,
+        secondaryRightAccessibilityLabel: String? = nil,
         showsBackButton: Bool = false,
         leftAccessibilityLabel: String? = nil,
         rightAccessibilityLabel: String? = nil,
@@ -60,15 +66,21 @@ final class TelegramListNavigationBar: UIView {
         self.searchView = ChatListNavigationSearchView(placeholder: placeholder)
         self.leftAction = leftAction
         self.rightAction = rightAction
+        self.secondaryRightAction = secondaryRightAction
         self.showsBackButton = showsBackButton
         super.init(frame: .zero)
         titleLabel.text = title
         leftButton.setImage(leftImage, for: .normal)
         rightButton.setImage(rightImage, for: .normal)
+        secondaryRightButton.setImage(secondaryRightImage, for: .normal)
+        secondaryRightButton.isHidden = secondaryRightImage == nil
         configureViews()
         // Symbol images otherwise read their symbol names ("Gear shape") to VoiceOver.
         if let leftAccessibilityLabel { leftButton.accessibilityLabel = leftAccessibilityLabel }
         if let rightAccessibilityLabel { rightButton.accessibilityLabel = rightAccessibilityLabel }
+        if let secondaryRightAccessibilityLabel {
+            secondaryRightButton.accessibilityLabel = secondaryRightAccessibilityLabel
+        }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -121,7 +133,7 @@ final class TelegramListNavigationBar: UIView {
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
 
-        for button in [leftButton, rightButton] {
+        for button in [leftButton, rightButton, secondaryRightButton] {
             button.translatesAutoresizingMaskIntoConstraints = false
             button.tintColor = .systemBlue
             if button !== leftButton || !showsBackButton {
@@ -135,6 +147,7 @@ final class TelegramListNavigationBar: UIView {
         if showsBackButton { leftButton.accessibilityLabel = L10n.telegram("Common.Back") }
         leftButton.addTarget(self, action: #selector(leftPressed), for: .touchUpInside)
         rightButton.addTarget(self, action: #selector(rightPressed), for: .touchUpInside)
+        secondaryRightButton.addTarget(self, action: #selector(secondaryRightPressed), for: .touchUpInside)
 
         titleLabel.textColor = .label
         titleLabel.font = .preferredFont(forTextStyle: .headline)
@@ -170,6 +183,8 @@ final class TelegramListNavigationBar: UIView {
         separator.backgroundColor = .separator
         addSubview(separator)
 
+        // The title keeps clear of the leftmost right button.
+        let rightmostTitleNeighbor = secondaryRightButton.isHidden ? rightButton : secondaryRightButton
         NSLayoutConstraint.activate([
             blurView.topAnchor.constraint(equalTo: topAnchor),
             blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -189,9 +204,16 @@ final class TelegramListNavigationBar: UIView {
             rightButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             rightButton.widthAnchor.constraint(equalToConstant: 44),
             rightButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
+            secondaryRightButton.trailingAnchor.constraint(equalTo: rightButton.leadingAnchor),
+            secondaryRightButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            secondaryRightButton.widthAnchor.constraint(equalToConstant: 44),
+            secondaryRightButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
 
             titleControl.leadingAnchor.constraint(greaterThanOrEqualTo: leftButton.trailingAnchor, constant: 8),
-            titleControl.trailingAnchor.constraint(lessThanOrEqualTo: rightButton.leadingAnchor, constant: -8),
+            titleControl.trailingAnchor.constraint(
+                lessThanOrEqualTo: rightmostTitleNeighbor.leadingAnchor,
+                constant: -8,
+            ),
             titleControl.centerXAnchor.constraint(equalTo: centerXAnchor),
             titleControl.topAnchor.constraint(equalTo: leftButton.topAnchor),
             titleControl.bottomAnchor.constraint(equalTo: leftButton.bottomAnchor),
@@ -213,6 +235,7 @@ final class TelegramListNavigationBar: UIView {
 
     @objc private func leftPressed() { leftAction?() }
     @objc private func rightPressed() { rightAction?() }
+    @objc private func secondaryRightPressed() { secondaryRightAction?() }
     @objc private func titlePressed() { onTitleTap?() }
 
     private func setSearchActive(_ active: Bool) {
@@ -231,6 +254,7 @@ final class TelegramListNavigationBar: UIView {
             self.titleControl.alpha = active ? 0 : 1
             self.leftButton.alpha = active ? 0 : 1
             self.rightButton.alpha = active ? 0 : 1
+            self.secondaryRightButton.alpha = active ? 0 : 1
             self.searchView.transform = active
                 ? CGAffineTransform(translationX: 0, y: -Self.titleHeight)
                 : .identity

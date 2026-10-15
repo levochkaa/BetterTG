@@ -43,6 +43,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         rightImage: UIImage(systemName: "gearshape"),
         leftAction: { [weak self] in self?.openArchive() },
         rightAction: { [weak self] in self?.openSettings() },
+        // Telegram's compose button (ChatListController's pencil); Settings keeps the right edge.
+        secondaryRightImage: UIImage(systemName: "square.and.pencil"),
+        secondaryRightAction: { [weak self] in self?.openCompose() },
+        secondaryRightAccessibilityLabel: L10n.telegram("Compose.NewMessage"),
         leftAccessibilityLabel: L10n.telegram("ChatList.ArchivedChatsTitle"),
         rightAccessibilityLabel: L10n.telegram("Settings.Title"),
     )
@@ -828,6 +832,14 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     @objc private func openSettings() {
         navigationController?.pushViewController(SettingsViewController(), animated: true)
+    }
+
+    /// ChatListController.composePressed: Telegram's New Message.
+    private func openCompose() {
+        guard actionAuthority.scope(owner: self).isCurrent,
+              navigationController?.topViewController === self
+        else { return }
+        navigationController?.pushViewController(NewMessageViewController(), animated: true)
     }
 
     private func performFolderAction(_ action: FolderMenuAction, for folder: CustomFolder) {
