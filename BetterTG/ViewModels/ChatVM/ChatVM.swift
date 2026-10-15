@@ -2301,7 +2301,7 @@ import UIKit
                 result = try await sendMessageDocuments()
             } else if !displayedImages.isEmpty {
                 result = try await sendMessageMedia()
-            } else if !text.characters.isEmpty {
+            } else if !ComposerTextBreaker.trimmed(text).characters.isEmpty {
                 result = try await sendMessageText()
             } else {
                 sendTransitionCancelled.send(transitionID)
@@ -2367,9 +2367,7 @@ import UIKit
         )
         let documents = Array(displayedDocuments.prefix(10))
         guard !documents.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
-        let caption: FormattedText? = text.characters.isEmpty
-            ? nil
-            : FormattedText(entities: getEntities(from: text), text: text.string)
+        let caption = try await composerCaption()
         let provisionalMessageIDs = documents.map { _ in -Int64.random(in: 1...Int64.max) }
         var persistedProvisionalMessageIDs = [Int64]()
         do {
@@ -2654,8 +2652,8 @@ import UIKit
             MediaUploadProgressRegistry.rememberSentPreview(image.image, path: image.url.path(percentEncoded: false))
         }
         // Telegram attaches the input's caption to the first item of a group (`TGMediaAssetsController`).
-        let caption = FormattedText(entities: getEntities(from: text), text: text.string)
         let noCaption = FormattedText(entities: [], text: "")
+        let caption = try await composerCaption() ?? noCaption
         try await sendChatAction(
             sendsVideos
                 ? .chatActionUploadingVideo(ChatActionUploadingVideo(progress: 0))
@@ -2811,28 +2809,32 @@ import UIKit
             replyingTo: replyMessage,
             useCurrentReplyOverride: true,
         )
-        let message = try await client.sendMessage(
-            chatId: context.chatID,
-            inputMessageContent: .inputMessageText(
-                InputMessageText(
-                    clearDraft: false,
-                    linkPreviewOptions: nil,
-                    text: FormattedText(
-                        entities: getEntities(from: text),
-                        text: text.string,
+        // TDLib accepts longer text from a user account and the server rejects it after the composer cleared, so the
+        // text is split as Telegram does; every part keeps the reply, as in `ChatControllerNode`.
+        var messages = [Message]()
+        for part in ComposerTextBreaker.messages(text) {
+            let message = try await client.sendMessage(
+                chatId: context.chatID,
+                inputMessageContent: .inputMessageText(
+                    InputMessageText(
+                        clearDraft: false,
+                        linkPreviewOptions: nil,
+                        text: FormattedText(entities: getEntities(from: part), text: part.string),
                     ),
                 ),
-            ),
-            options: nil,
-            replyMarkup: nil,
-            replyTo: context.replyTo,
-            topicId: context.destinationTopic,
-        )
-        guard context.matches(message: message) else {
-            throw ChatSendContextError.unexpectedDestination
+                options: nil,
+                replyMarkup: nil,
+                replyTo: context.replyTo,
+                topicId: context.destinationTopic,
+            )
+            guard context.matches(message: message) else {
+                throw ChatSendContextError.unexpectedDestination
+            }
+            messages.append(message)
         }
+        guard !messages.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
         try? await cancelChatAction(in: context)
-        return (context, [message])
+        return (context, messages)
     }
 
     func submitVideoNote(
@@ -3698,6 +3700,21 @@ import UIKit
         reader.synchronize(ChatForumTopicReads.demandedIDs(
             chatID: chatID, messages: messages.flatMap(\.sourceMessages), composerTopics: composerTopics,
         ))
+    }
+
+    /// The input as a media caption, trimmed as sent text is, or nil when nothing is left. A caption over TDLib's
+    /// limit stops the send while the composer still holds it.
+    private func composerCaption() async throws -> FormattedText? {
+        let caption = ComposerTextBreaker.trimmed(text)
+        guard !caption.characters.isEmpty else { return nil }
+        let limit: Int =
+            if case .optionValueInteger(let value) = try? await client.getOption(name: "message_caption_length_max") {
+                max(1, Int(clamping: value.value))
+            } else {
+                1024
+            }
+        guard ComposerTextBreaker.length(of: caption) <= limit else { throw ComposerCaptionTooLongError(limit: limit) }
+        return FormattedText(entities: getEntities(from: caption), text: caption.string)
     }
 
     /// A window is contiguous history from `oldest` to `newest`. It splits any gap it lands in, and a window older

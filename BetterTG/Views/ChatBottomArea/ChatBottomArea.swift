@@ -1149,7 +1149,7 @@ final class ChatComposerView: UIView {
     private func updateActionButton() {
         let hasContent = !chatVM.displayedImages.isEmpty
             || !chatVM.displayedDocuments.isEmpty
-            || !chatVM.text.characters.isEmpty
+            || chatVM.text.characters.contains { !$0.isWhitespace }
             || !chatVM.editMessageText.characters.isEmpty
             || chatVM.editCustomMessage != nil
             || chatVM.pendingForward != nil

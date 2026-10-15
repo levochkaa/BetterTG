@@ -148,6 +148,7 @@
 "Composer.LoadingGeneralTopic" = "Loading the General topic…";
 "Composer.ClosedTopicRestriction" = "Only the topic creator or an administrator can post here.";
 "Composer.TopicRestriction" = "You can't send messages in this topic.";
+"Composer.CaptionTooLong" = "The caption is longer than %d characters.";
 "Accessibility.ConversationsSelected" = "%1$d conversations selected, %2$d messages";
 "Voice.TrimAlertTitle" = "Trim voice recording?";
 "Voice.TrimAlertText" = "Audio outside the selected range will be removed before recording continues.";

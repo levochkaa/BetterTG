@@ -148,6 +148,7 @@
 "Composer.LoadingGeneralTopic" = "Загрузка темы «Основное»…";
 "Composer.ClosedTopicRestriction" = "Писать здесь может только автор темы или администратор.";
 "Composer.TopicRestriction" = "Вы не можете отправлять сообщения в эту тему.";
+"Composer.CaptionTooLong" = "Подпись длиннее %d символов.";
 "Accessibility.ConversationsSelected" = "Выбрано бесед: %1$d, сообщений: %2$d";
 "Voice.TrimAlertTitle" = "Обрезать запись?";
 "Voice.TrimAlertText" = "Звук вне выбранного фрагмента будет удалён перед продолжением записи.";
