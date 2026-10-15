@@ -279,6 +279,12 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         return field
     }()
 
+    /// ChatListFilterPresetController: a folder shared by link has no chat types or exclusions, so it shows only
+    /// its name and chosen chats.
+    private var sections: [Section] {
+        draft.isShareable ? [.name, .chats] : Section.allCases
+    }
+
     convenience init(rootVM: RootVM, folder: CustomFolder? = nil, actionAuthority: ChatListActionAuthority? = nil) {
         self.init(session: .live(rootVM: rootVM, authority: actionAuthority), folder: folder)
     }
@@ -325,24 +331,24 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         tableView.reloadData()
     }
 
-    override func numberOfSections(in _: UITableView) -> Int { Section.allCases.count }
+    override func numberOfSections(in _: UITableView) -> Int { sections.count }
 
     override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
-        Section(rawValue: section)?.rows.count ?? 0
+        sections[section].rows(shareable: draft.isShareable).count
     }
 
     override func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
-        Section(rawValue: section)?.title
+        sections[section].title
     }
 
     override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
-        guard Section(rawValue: section) == .includedTypes else { return nil }
+        guard sections[section] == (draft.isShareable ? .chats : .includedTypes) else { return nil }
         return L10n.telegram("ChatListFolder.IncludeSectionInfo")
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "FolderEditorCell", for: indexPath)
-        guard let row = Section(rawValue: indexPath.section)?.rows[indexPath.row] else { return cell }
+        let row = editorRow(at: indexPath)
         var configuration = cell.defaultContentConfiguration()
         configuration.text = row.title
         configuration.secondaryText = row.subtitle(for: draft)
@@ -369,8 +375,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard session.scope(owner: self).isCurrent else { return }
-        guard let row = Section(rawValue: indexPath.section)?.rows[indexPath.row] else { return }
-        switch row {
+        switch editorRow(at: indexPath) {
         case .name:
             nameField.becomeFirstResponder()
         case .include(let type):
@@ -436,6 +441,10 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         return false
     }
 
+    private func editorRow(at indexPath: IndexPath) -> Row {
+        sections[indexPath.section].rows(shareable: draft.isShareable)[indexPath.row]
+    }
+
     /// ChatListFilterPresetController: until the user edits it, a new folder is named after its one chosen chat
     /// type, or Unread or Not Muted for all chats without read or muted ones (chatListFilterType).
     private func updateAutomaticName() {
@@ -459,7 +468,9 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
             draft = excluded
                 ? draft.replacingExcludedChatIDs(selectedChatIDs)
                 : draft.replacingIncludedChatIDs(selectedChatIDs)
-            tableView.reloadSections(IndexSet(integer: Section.chats.rawValue), with: .none)
+            if let section = sections.firstIndex(of: .chats) {
+                tableView.reloadSections(IndexSet(integer: section), with: .none)
+            }
             return true
         }
         activeSelection = controller
@@ -1045,11 +1056,11 @@ private extension ChatFolderEditorViewController {
             }
         }
 
-        var rows: [Row] {
+        func rows(shareable: Bool) -> [Row] {
             switch self {
             case .name: [.name]
             case .includedTypes: ChatFolderInclusion.allCases.map(Row.include)
-            case .chats: [.includedChats, .excludedChats]
+            case .chats: shareable ? [.includedChats] : [.includedChats, .excludedChats]
             case .excludedTypes: ChatFolderExclusion.allCases.map(Row.exclude)
             }
         }
