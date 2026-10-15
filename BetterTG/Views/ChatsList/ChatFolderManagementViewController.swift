@@ -936,17 +936,38 @@ extension ChatFolder {
         )
     }
 
+    /// The renamed folder keeps the custom emoji its edited name still contains: emoji in the unchanged start or end
+    /// of the text keep their place, those in the edited part go. The name's animation flag stays.
     func replacingName(_ name: String, preserving originalName: ChatFolderName?) -> ChatFolder {
-        let folderName: ChatFolderName =
-            if originalName?.text.text == name, let originalName {
-                originalName
-            } else {
-                ChatFolderName(
-                    animateCustomEmoji: false,
-                    text: FormattedText(entities: [], text: name),
-                )
-            }
-        return replacing(name: folderName)
+        guard let originalName else {
+            return replacing(name: ChatFolderName(
+                animateCustomEmoji: self.name.animateCustomEmoji,
+                text: FormattedText(entities: [], text: name),
+            ))
+        }
+        let old = originalName.text.text as NSString
+        let new = name as NSString
+        let shorter = min(old.length, new.length)
+        var prefix = 0
+        while prefix < shorter, old.character(at: prefix) == new.character(at: prefix) {
+            prefix += 1
+        }
+        var suffix = 0
+        while suffix < shorter - prefix,
+              old.character(at: old.length - 1 - suffix) == new.character(at: new.length - 1 - suffix)
+        {
+            suffix += 1
+        }
+        let shift = new.length - old.length
+        let entities = originalName.text.entities.compactMap { entity -> TextEntity? in
+            if entity.offset + entity.length <= prefix { return entity }
+            guard entity.offset >= old.length - suffix else { return nil }
+            return TextEntity(length: entity.length, offset: entity.offset + shift, type: entity.type)
+        }
+        return replacing(name: ChatFolderName(
+            animateCustomEmoji: originalName.animateCustomEmoji,
+            text: FormattedText(entities: entities, text: name),
+        ))
     }
 
     private func replacing(
