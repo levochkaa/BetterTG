@@ -33,11 +33,18 @@ UISearchBarDelegate {
 
     private enum ItemID: Hashable {
         case animation(Int)
+        /// A GIF the search bot found; each results page has its own inline query.
+        case inlineAnimation(InlineAnimationKey)
         /// An emoji can be in Recently Used and its category at once.
         case emoji(Section, String)
         case sticker(Int)
         /// A sticker can be in Favorites, Recently Used and its pack at once.
         case groupedSticker(Section, Int)
+    }
+
+    private struct InlineAnimationKey: Hashable {
+        let queryID: Int64
+        let resultID: String
     }
 
     /// Telegram shows up to 20 recently used stickers.
@@ -46,6 +53,8 @@ UISearchBarDelegate {
     private static let emojiCategoryBarHeight: CGFloat = 36
 
     var onAnimation: ((Animation) -> Void)?
+    /// A GIF search result, sent only when tapped: the inline query and the result.
+    var onInlineAnimation: ((Int64, String) -> Void)?
     var onDismiss: (() -> Void)?
     var onEmoji: ((String) -> Void)?
     var onCustomEmoji: ((Sticker) -> Void)?
@@ -72,6 +81,13 @@ UISearchBarDelegate {
     private var dataSource: UICollectionViewDiffableDataSource<Section, ItemID>!
     private var animations = [Int: Animation]()
     private var savedAnimations = [Animation]()
+    /// GifContext.paneGifSearchForQuery: the search bot's GIFs for `gifSearchQuery`, and the next page's offset.
+    private var inlineAnimations = [InlineAnimationKey: TDNativeInlineQueryResultAnimation]()
+    private var inlineAnimationKeys = [InlineAnimationKey]()
+    private var gifSearchQuery = ""
+    private var gifNextOffset = ""
+    private var gifSearchBotUserID: Int64?
+    private var gifMoreTask: Task<Void, Never>?
     private var stickers = [Int: Sticker]()
     private var sectionTitles = [Section: String]()
     /// A found pack's sticker count, at the end of its header.
@@ -105,6 +121,7 @@ UISearchBarDelegate {
     deinit {
         loadTask?.cancel()
         searchTask?.cancel()
+        gifMoreTask?.cancel()
         stickerActionTask?.cancel()
     }
 
@@ -197,12 +214,20 @@ UISearchBarDelegate {
         case .animation(let id):
             guard let animation = animations[id] else { return }
             onAnimation?(animation)
+        case .inlineAnimation(let key):
+            guard inlineAnimations[key] != nil else { return }
+            onInlineAnimation?(key.queryID, key.resultID)
         }
     }
 
-    func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt _: IndexPath) {
+    func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         (cell as? ComposerStickerCell)?.setPlaybackVisible(true)
         (cell as? ComposerAnimationCell)?.setPlaybackVisible(true)
+        if case .inlineAnimation(let key) = dataSource.itemIdentifier(for: indexPath),
+           let index = inlineAnimationKeys.firstIndex(of: key), index >= inlineAnimationKeys.count - 8
+        {
+            loadMoreGIFs()
+        }
     }
 
     func collectionView(_: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt _: IndexPath) {
@@ -218,6 +243,8 @@ UISearchBarDelegate {
     func searchBar(_: UISearchBar, textDidChange searchText: String) {
         loadTask?.cancel()
         searchTask?.cancel()
+        gifMoreTask?.cancel()
+        gifMoreTask = nil
         searchTask = Task { [weak self] in
             try? await Task<Never, Never>.sleep(for: .milliseconds(250))
             guard let self, !Task.isCancelled else { return }
@@ -390,6 +417,15 @@ UISearchBarDelegate {
                     cell?.configure(animation: animation, client: client)
                 }
                 return cell ?? UICollectionViewCell()
+            case .inlineAnimation(let key):
+                let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: ComposerAnimationCell.reuseIdentifier,
+                    for: indexPath,
+                ) as? ComposerAnimationCell
+                if let result = inlineAnimations[key] {
+                    cell?.configure(animation: result.animation, client: client)
+                }
+                return cell ?? UICollectionViewCell()
             }
         }
         dataSource.supplementaryViewProvider = { [weak self] collectionView, kind, indexPath in
@@ -415,9 +451,11 @@ UISearchBarDelegate {
     @objc private func modeChanged() {
         loadTask?.cancel()
         searchTask?.cancel()
+        gifMoreTask?.cancel()
+        gifMoreTask = nil
         searchBar.text = ""
         searchBar.placeholder = mode == .gifs
-            ? L10n.betterTG("Composer.FilterSavedGIFs")
+            ? L10n.telegram("Gif.Search")
             : L10n.telegram("StickersSearch.SearchStickersPlaceholder")
         if mode == .customEmoji { searchBar.placeholder = L10n.betterTG("CustomEmoji.Search") }
         searchBar.isHidden = mode == .emoji
@@ -486,15 +524,83 @@ UISearchBarDelegate {
             stickers = Dictionary(values.map { ($0.sticker.id, $0) }, uniquingKeysWith: { _, latest in latest })
             applyStickerSets(packs, stickers: values, heading: nil)
         case .gifs:
+            guard query.isEmpty else {
+                await searchGIFs(query: query, offset: "")
+                return
+            }
             if savedAnimations.isEmpty {
                 savedAnimations = await (try? client.getSavedAnimations().animations) ?? []
             }
-            guard !Task.isCancelled, contextIsCurrent else { return }
-            let values = query.isEmpty
-                ? savedAnimations
-                : savedAnimations.filter { $0.fileName.localizedCaseInsensitiveContains(query) }
-            animations = Dictionary(uniqueKeysWithValues: values.map { ($0.animation.id, $0) })
-            applySnapshot(values.map { .animation($0.animation.id) })
+            guard !Task.isCancelled, contextIsCurrent, mode == .gifs else { return }
+            gifSearchQuery = ""
+            animations = Dictionary(
+                savedAnimations.map { ($0.animation.id, $0) },
+                uniquingKeysWith: { _, latest in latest },
+            )
+            applySnapshot(savedAnimations.map { .animation($0.animation.id) }.uniqued())
+        }
+    }
+
+    // MARK: GIF search
+
+    /// GifContext.paneGifSearchForQuery: the bot named by animation_search_bot_username, else @gif, resolved once.
+    private func gifSearchBot() async -> Int64? {
+        if let gifSearchBotUserID { return gifSearchBotUserID }
+        var username = "gif"
+        if case .optionValueString(let option) = try? await client.getOption(name: "animation_search_bot_username"),
+           !option.value.isEmpty
+        {
+            username = option.value
+        }
+        guard let chat = try? await client.send(TDNativeRequests.searchPublicChat(username: username)),
+              case .chatTypePrivate(let bot) = chat.type
+        else { return nil }
+        gifSearchBotUserID = bot.userId
+        return bot.userId
+    }
+
+    /// The query goes to the GIF search bot as an inline query; its GIFs fill the grid and the next page loads near
+    /// the end. Nothing is sent until a GIF is tapped.
+    private func searchGIFs(query: String, offset: String) async {
+        let botUserID = await gifSearchBot()
+        var found: TDNativeInlineQueryResults?
+        if let botUserID {
+            found = try? await client.send(TDNativeRequests.getInlineQueryResults(
+                botUserId: botUserID, chatId: chatID, userLocation: nil, query: query, offset: offset,
+            ))
+        }
+        guard !Task.isCancelled, contextIsCurrent, mode == .gifs,
+              (searchBar.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == query
+        else { return }
+        if offset.isEmpty {
+            inlineAnimations = [:]
+            inlineAnimationKeys = []
+        } else {
+            guard gifSearchQuery == query, gifNextOffset == offset else { return }
+        }
+        gifSearchQuery = query
+        gifNextOffset = found?.nextOffset ?? ""
+        var seenResults = Set(inlineAnimationKeys.map(\.resultID))
+        for result in found?.results ?? [] {
+            guard case .inlineQueryResultAnimation(let animation) = result,
+                  seenResults.insert(animation.id).inserted,
+                  let queryID = found?.inlineQueryId
+            else { continue }
+            let key = InlineAnimationKey(queryID: queryID, resultID: animation.id)
+            inlineAnimations[key] = animation
+            inlineAnimationKeys.append(key)
+        }
+        applySnapshot(inlineAnimationKeys.map { .inlineAnimation($0) })
+    }
+
+    private func loadMoreGIFs() {
+        guard mode == .gifs, !gifSearchQuery.isEmpty, !gifNextOffset.isEmpty, gifMoreTask == nil else { return }
+        let query = gifSearchQuery
+        let offset = gifNextOffset
+        gifMoreTask = Task { [weak self] in
+            await self?.searchGIFs(query: query, offset: offset)
+            guard !Task.isCancelled else { return }
+            self?.gifMoreTask = nil
         }
     }
 
@@ -677,7 +783,7 @@ UISearchBarDelegate {
         case .animation, .groupedSticker: true
         // Custom emoji have no sticker menu.
         case .sticker: mode == .stickers
-        case .emoji: false
+        case .emoji, .inlineAnimation: false
         }
     }
 
@@ -705,7 +811,7 @@ UISearchBarDelegate {
                     isDestructive: true,
                 ) { [weak self] in self?.removeSavedAnimation(animation) },
             ]
-        case .emoji:
+        case .emoji, .inlineAnimation:
             return
         }
         presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture, presentationStyle: .menuOnly)
@@ -812,6 +918,7 @@ UISearchBarDelegate {
     private func emptyLabel() -> UIView {
         let label = UILabel()
         label.text = mode == .gifs ? L10n.betterTG("Composer.NoSavedGIFs") : L10n.telegram("Stickers.NoStickersFound")
+        if mode == .gifs, !gifSearchQuery.isEmpty { label.text = L10n.telegram("Gif.NoGifsFound") }
         if mode == .customEmoji { label.text = L10n.betterTG("CustomEmoji.Empty") }
         label.textColor = .secondaryLabel
         label.textAlignment = .center

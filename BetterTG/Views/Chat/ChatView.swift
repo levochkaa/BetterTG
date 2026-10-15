@@ -5424,6 +5424,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 Task { await chatVM?.sendAnimation(animation) }
             }
         }
+        picker.onInlineAnimation = { [weak self, weak picker, weak chatVM] queryID, resultID in
+            picker?.navigationController?.dismiss(animated: true) {
+                self?.retryClientRestoration()
+                Task { await chatVM?.sendInlineAnimation(queryID: queryID, resultID: resultID) }
+            }
+        }
         let navigation = TelegramNavigationController(rootViewController: picker)
         navigation.modalPresentationStyle = .pageSheet
         navigation.sheetPresentationController?.detents = [.medium(), .large()]

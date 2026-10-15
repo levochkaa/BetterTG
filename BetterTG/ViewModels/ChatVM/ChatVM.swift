@@ -3083,26 +3083,9 @@ import UIKit
     }
 
     func sendAnimation(_ animation: Animation) async {
-        await waitForComposerSend()
-        guard !sendingComposerMessage else { return }
-        if let wait = slowModeWaitMessage() {
-            sendErrorMessage = wait
-            return
-        }
-        sendingComposerMessage = true
-        let transitionID = UUID()
-        let sentReplyID = replyMessage?.id
-        sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: .media))
-        defer { sendingComposerMessage = false }
-        do {
-            let context = try resolveSendContext(
-                for: .animation,
-                replyingTo: replyMessage,
-                useCurrentReplyOverride: true,
-            )
-            // Telegram sends a GIF from the panel without the input's text, keeps that text and clears only the reply
-            // (`ChatController` `sendMessages` for a gif result).
-            let message = try await client.sendMessage(
+        let client = client
+        await sendPanelAnimation { context in
+            try await client.sendMessage(
                 chatId: context.chatID,
                 inputMessageContent: .inputMessageAnimation(InputMessageAnimation(
                     animation: InputAnimation(
@@ -3122,26 +3105,23 @@ import UIKit
                 replyTo: context.replyTo,
                 topicId: context.destinationTopic,
             )
-            guard locationContextIsCurrent,
-                  context.matches(message: message)
-            else { throw ChatSendContextError.unexpectedDestination }
-            // As for a sticker: the draft keeps its text and loses only the reply the GIF used.
-            if replyMessage?.id == sentReplyID {
-                cancelReply(markDirty: false)
-                do {
-                    try await updateDraft(in: context, replyTo: nil)
-                    draftErrorMessage = nil
-                } catch {
-                    composerIsDirty = true
-                    scheduleDraftUpdateRetry(context, replyTo: nil)
-                }
-            }
-            sendErrorMessage = nil
-            await Task.yield()
-            sendTransitionAccepted.send(.init(id: transitionID, messageIDs: [message.id]))
-        } catch {
-            sendTransitionCancelled.send(transitionID)
-            sendErrorMessage = error.localizedDescription
+        }
+    }
+
+    /// A GIF found through the GIF search bot, sent as its inline result with the bot hidden, as Telegram sends GIF
+    /// search results (sendBotContextResultAsGif with hideVia).
+    func sendInlineAnimation(queryID: Int64, resultID: String) async {
+        let client = client
+        await sendPanelAnimation { context in
+            try await client.send(TDNativeRequests.sendInlineQueryResultMessage(
+                chatId: context.chatID,
+                topicId: context.destinationTopic,
+                replyTo: context.replyTo,
+                options: nil,
+                queryId: queryID,
+                resultId: resultID,
+                hideViaBot: true,
+            ))
         }
     }
 
@@ -4342,6 +4322,50 @@ import UIKit
         guard location.messageThreadID != nil, let messageThread,
               message.chatId == location.chatID else { return false }
         return messageThread.messages.contains { $0.id == message.id }
+    }
+
+    private func sendPanelAnimation(_ send: (ResolvedSendContext) async throws -> Message) async {
+        await waitForComposerSend()
+        guard !sendingComposerMessage else { return }
+        if let wait = slowModeWaitMessage() {
+            sendErrorMessage = wait
+            return
+        }
+        sendingComposerMessage = true
+        let transitionID = UUID()
+        let sentReplyID = replyMessage?.id
+        sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: .media))
+        defer { sendingComposerMessage = false }
+        do {
+            let context = try resolveSendContext(
+                for: .animation,
+                replyingTo: replyMessage,
+                useCurrentReplyOverride: true,
+            )
+            // Telegram sends a GIF from the panel without the input's text, keeps that text and clears only the reply
+            // (`ChatController` `sendMessages` for a gif result).
+            let message = try await send(context)
+            guard locationContextIsCurrent,
+                  context.matches(message: message)
+            else { throw ChatSendContextError.unexpectedDestination }
+            // As for a sticker: the draft keeps its text and loses only the reply the GIF used.
+            if replyMessage?.id == sentReplyID {
+                cancelReply(markDirty: false)
+                do {
+                    try await updateDraft(in: context, replyTo: nil)
+                    draftErrorMessage = nil
+                } catch {
+                    composerIsDirty = true
+                    scheduleDraftUpdateRetry(context, replyTo: nil)
+                }
+            }
+            sendErrorMessage = nil
+            await Task.yield()
+            sendTransitionAccepted.send(.init(id: transitionID, messageIDs: [message.id]))
+        } catch {
+            sendTransitionCancelled.send(transitionID)
+            sendErrorMessage = error.localizedDescription
+        }
     }
 
     /// Telegram keeps a pending forward in the destination's interface state; BetterTG saves it per account and chat
