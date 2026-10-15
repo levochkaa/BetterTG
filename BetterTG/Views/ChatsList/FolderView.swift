@@ -407,6 +407,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             .sorted { $0.position.order == $1.position.order ? $0.id > $1.id : $0.position.order > $1.position.order }
     }
 
+    private var isArchivePage: Bool {
+        if case .archive = folder.type { return true }
+        return false
+    }
+
     /// TDLib's limit for pinned chats in this page's list.
     private var pinLimitType: TDNativePremiumLimitType {
         switch folder.type {
@@ -679,7 +684,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                       for: indexPath,
                   ) as? ChatListCell
             else { return UITableViewCell() }
-            cell.configure(chat: chat, isMuted: rootVM.isMuted(chat), client: actionAuthority.client)
+            cell.configure(
+                chat: chat,
+                isMuted: rootVM.isMuted(chat),
+                isArchived: isArchivePage,
+                client: actionAuthority.client,
+            )
             return cell
         }
     }
@@ -999,6 +1009,16 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                         try scope.check()
                     }
                     _ = try await client.toggleChatIsMarkedAsUnread(chatId: chat.id, isMarkedAsUnread: false)
+                    // Telegram's Mark as Read also marks mentions seen (updateMarkAllMentionsSeen); unseen reactions
+                    // are read here too so neither badge outlives the unread count.
+                    if chat.chat.unreadMentionCount > 0 {
+                        try scope.check()
+                        _ = try await client.send(TDNativeRequests.readAllChatMentions(chatId: chat.id))
+                    }
+                    if chat.chat.unreadReactionCount > 0 {
+                        try scope.check()
+                        _ = try await client.readAllChatReactions(chatId: chat.id)
+                    }
                 }
             })
         } else if !isForum {

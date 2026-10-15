@@ -19,6 +19,9 @@ final class ChatListCell: UITableViewCell {
     private let avatarView = ProfileAvatarView()
     private let titleLabel = UILabel()
     private let messageLabel = UILabel()
+    /// Telegram's mention or reaction badge, left of the unread count (ChatListItem, mentionBadgeNode).
+    private let mentionBadgeView = UIImageView()
+    private let trailingBadges = UIStackView()
     private let trailingStatusView = UIView()
     private var accessoryWidthConstraint: NSLayoutConstraint!
     private let dateLabel = UILabel()
@@ -33,6 +36,7 @@ final class ChatListCell: UITableViewCell {
     /// The configuration a late sender name re-applies, if the cell still shows that chat.
     private weak var configuredChat: CustomChat?
     private var configuredMuted = false
+    private var configuredArchived = false
     private var configuredClient: TDLibClient?
 
     var contextPreviewView: UIView { rowView }
@@ -83,6 +87,25 @@ final class ChatListCell: UITableViewCell {
         return date.formatted(.dateTime.day().month(.twoDigits).year(.twoDigits))
     }
 
+    /// Telegram (ChatListItem) shows an unseen mention first, then unseen reactions. The mention badge greys only in
+    /// the archive, the reaction badge for a muted chat.
+    private static func mentionBadgeImage(for chat: CustomChat, isMuted: Bool, isArchived: Bool) -> UIImage? {
+        let symbol: String
+        let color: UIColor
+        if chat.chat.unreadMentionCount > 0 {
+            symbol = "at.circle.fill"
+            color = isArchived ? .systemGray : .systemBlue
+        } else if chat.chat.unreadReactionCount > 0 {
+            symbol = "heart.circle.fill"
+            color = isMuted ? .systemGray : .systemPink
+        } else {
+            return nil
+        }
+        let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+            .applying(UIImage.SymbolConfiguration(paletteColors: [.white, color]))
+        return UIImage(systemName: symbol, withConfiguration: configuration)
+    }
+
     private static func deliveryState(for chat: CustomChat) -> (
         image: UIImage?,
         color: UIColor,
@@ -112,16 +135,21 @@ final class ChatListCell: UITableViewCell {
         }
     }
 
-    func configure(chat: CustomChat, isMuted: Bool, client: TDLibClient) {
+    func configure(chat: CustomChat, isMuted: Bool, isArchived: Bool = false, client: TDLibClient) {
         configuredChat = chat
         configuredMuted = isMuted
+        configuredArchived = isArchived
         configuredClient = client
         pinned = chat.position.isPinned
         titleLabel.text = chat.displayTitle
         messageLabel.attributedText = summaryText(for: chat, client: client)
         let hasUnread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
-        pinView.isHidden = !pinned || hasUnread
-        muteView.isHidden = !isMuted || hasUnread || pinned
+        let mentionBadge = Self.mentionBadgeImage(for: chat, isMuted: isMuted, isArchived: isArchived)
+        mentionBadgeView.image = mentionBadge
+        mentionBadgeView.isHidden = mentionBadge == nil
+        // Telegram shows the pin only when no badge is shown.
+        pinView.isHidden = !pinned || hasUnread || mentionBadge != nil
+        muteView.isHidden = !isMuted || hasUnread || pinned || mentionBadge != nil
         unreadLabel.text = chat.unreadCount > 0 ? compactNumericCountString(chat.unreadCount) : nil
         unreadLabel.backgroundColor = isMuted ? .systemGray : .systemBlue
         unreadLabel.isHidden = !hasUnread
@@ -130,9 +158,11 @@ final class ChatListCell: UITableViewCell {
         deliveryView.image = delivery?.image
         deliveryView.tintColor = delivery?.color
         deliveryView.isHidden = delivery == nil
-        accessoryWidthConstraint.constant = hasUnread
+        let accessoryWidth = hasUnread
             ? unreadLabel.intrinsicContentSize.width
-            : (pinned || isMuted ? 14 : 0)
+            : (pinView.isHidden && muteView.isHidden ? 0 : 14)
+        accessoryWidthConstraint.constant = accessoryWidth
+        trailingStatusView.isHidden = accessoryWidth == 0
         setNeedsLayout()
         updateBackground(highlighted: isHighlighted || isSelected, animated: false)
         if chat.isHeldThroughClientRenewal {
@@ -162,6 +192,12 @@ final class ChatListCell: UITableViewCell {
                 ? (chat.unreadCount > 0
                     ? L10n.telegramPlural("VoiceOver.Chat.UnreadMessages", count: chat.unreadCount)
                     : L10n.telegram("DialogList.Unread"))
+                : nil,
+            chat.chat.unreadMentionCount > 0
+                ? L10n.betterTG("Accessibility.UnreadMentions", chat.chat.unreadMentionCount)
+                : nil,
+            chat.chat.unreadReactionCount > 0
+                ? L10n.betterTG("Accessibility.UnreadReactions", chat.chat.unreadReactionCount)
                 : nil,
         ]
             .compactMap(\.self)
@@ -200,7 +236,7 @@ final class ChatListCell: UITableViewCell {
                 guard let self, let chat = configuredChat, chat.id == chatID,
                       let client = configuredClient
                 else { return }
-                configure(chat: chat, isMuted: configuredMuted, client: client)
+                configure(chat: chat, isMuted: configuredMuted, isArchived: configuredArchived, client: client)
             }
         }
     }
@@ -226,7 +262,7 @@ final class ChatListCell: UITableViewCell {
         rowView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(rowView)
 
-        for item in [avatarView, titleLabel, headerAccessoryRow, messageLabel, trailingStatusView, separatorView] {
+        for item in [avatarView, titleLabel, headerAccessoryRow, messageLabel, trailingBadges, separatorView] {
             item.translatesAutoresizingMaskIntoConstraints = false
             rowView.addSubview(item)
         }
@@ -237,6 +273,15 @@ final class ChatListCell: UITableViewCell {
         headerAccessoryRow.spacing = 4
         headerAccessoryRow.addArrangedSubview(deliveryView)
         headerAccessoryRow.addArrangedSubview(dateLabel)
+
+        // Telegram keeps 6 pt between the mention badge and the unread count.
+        trailingBadges.axis = .horizontal
+        trailingBadges.alignment = .center
+        trailingBadges.spacing = 6
+        trailingBadges.addArrangedSubview(mentionBadgeView)
+        trailingBadges.addArrangedSubview(trailingStatusView)
+        mentionBadgeView.contentMode = .scaleAspectFit
+        mentionBadgeView.isHidden = true
 
         for accessory in [muteView, pinView, unreadLabel] {
             accessory.translatesAutoresizingMaskIntoConstraints = false
@@ -278,6 +323,10 @@ final class ChatListCell: UITableViewCell {
 
     private func configureConstraints() {
         accessoryWidthConstraint = trailingStatusView.widthAnchor.constraint(equalToConstant: 0)
+        // The stack collapses a hidden slot or badge to zero width.
+        accessoryWidthConstraint.priority = .required - 1
+        let mentionBadgeWidth = mentionBadgeView.widthAnchor.constraint(equalToConstant: 20)
+        mentionBadgeWidth.priority = .required - 1
         NSLayoutConstraint.activate([
             rowView.topAnchor.constraint(equalTo: contentView.topAnchor),
             rowView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -293,13 +342,15 @@ final class ChatListCell: UITableViewCell {
             headerAccessoryRow.trailingAnchor.constraint(equalTo: rowView.trailingAnchor, constant: -14),
             headerAccessoryRow.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             messageLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            messageLabel.trailingAnchor.constraint(equalTo: trailingStatusView.leadingAnchor, constant: -6),
+            messageLabel.trailingAnchor.constraint(equalTo: trailingBadges.leadingAnchor, constant: -6),
             messageLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
             messageLabel.bottomAnchor.constraint(lessThanOrEqualTo: rowView.bottomAnchor, constant: -9),
-            trailingStatusView.trailingAnchor.constraint(equalTo: rowView.trailingAnchor, constant: -14),
-            trailingStatusView.centerYAnchor.constraint(equalTo: messageLabel.centerYAnchor),
+            trailingBadges.trailingAnchor.constraint(equalTo: rowView.trailingAnchor, constant: -14),
+            trailingBadges.centerYAnchor.constraint(equalTo: messageLabel.centerYAnchor),
             trailingStatusView.heightAnchor.constraint(equalToConstant: 20),
             accessoryWidthConstraint,
+            mentionBadgeWidth,
+            mentionBadgeView.heightAnchor.constraint(equalToConstant: 20),
             pinView.centerXAnchor.constraint(equalTo: trailingStatusView.centerXAnchor),
             pinView.centerYAnchor.constraint(equalTo: trailingStatusView.centerYAnchor),
             pinView.widthAnchor.constraint(equalToConstant: 14),
