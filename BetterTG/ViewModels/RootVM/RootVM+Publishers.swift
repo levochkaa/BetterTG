@@ -199,29 +199,46 @@ extension RootVM {
         folderConfigurationTask = Task { [weak self] in
             guard let self else { return }
             var loadedFolders = [CustomFolder]()
+            var newFolders = [CustomFolder]()
             for info in configuration.chatFolders {
                 guard let definition = try? await client.getChatFolder(chatFolderId: info.id) else { continue }
                 guard !Task.isCancelled, folderConfigurationGeneration == generation,
                       activeAccountID == accountID, td.id == client.id else { return }
-                let folder = CustomFolder(chats: [], type: .folder(info, definition))
-                if let previous = folders.first(where: { $0.id == folder.id }) {
-                    folder.chats = previous.chats
+                // An existing folder keeps its object, so its page, rows and loads stay; Telegram updates a folder
+                // tab in place when its definition changes.
+                if let previous = folders.first(where: { $0.id == Int(info.id) }) {
+                    previous.update(info: info, definition: definition)
+                    loadedFolders.append(previous)
+                } else {
+                    let folder = CustomFolder(chats: [], type: .folder(info, definition))
+                    loadedFolders.append(folder)
+                    newFolders.append(folder)
                 }
-                loadedFolders.append(folder)
             }
             guard !Task.isCancelled, folderConfigurationGeneration == generation,
                   activeAccountID == accountID, td.id == client.id,
                   let main = folders.first(where: { $0.id == 0 }) else { return }
             loadedFolders.insert(main, at: min(max(0, configuration.mainChatListPosition), loadedFolders.count))
-            folderLoadTasks.values.forEach { $0.cancel() }
-            folderLoadTasks = [:]
-            allFolders.forEach { $0.isLoading = false }
+            // Only removed folders stop loading.
+            let keptIDs = Set(loadedFolders.map(\.id) + [archive?.id].compactMap(\.self))
+            for (id, task) in folderLoadTasks where !keptIDs.contains(id) {
+                task.cancel()
+                folderLoadTasks[id] = nil
+            }
+            for folder in allFolders where !keptIDs.contains(folder.id) {
+                folder.isLoading = false
+            }
             folders = loadedFolders
             synchronizeChatLists()
             if currentFolder == nil || !folders.contains(where: { $0.id == self.currentFolder }) {
                 currentFolder = folders.first?.id
             }
-            if loggedIn { allFolders.forEach { self.loadMoreChats(in: $0) } }
+            // A page loads its next chats when it needs them; only new folders and empty lists load now.
+            if loggedIn {
+                for folder in allFolders where newFolders.contains(where: { $0 === folder }) || folder.chats.isEmpty {
+                    loadMoreChats(in: folder)
+                }
+            }
         }
     }
 

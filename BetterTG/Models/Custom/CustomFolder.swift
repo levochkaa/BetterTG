@@ -17,7 +17,8 @@ import TDLibKit
     @Published var loadError: String?
     var hasMoreChats = true
     let chatDidChange = PassthroughSubject<Int64, Never>()
-    let type: CustomFolderType
+    /// A folder's definition can change (name, included chats); the object, its page and its rows stay.
+    private(set) var type: CustomFolderType
 
     var id: Int {
         switch type {
@@ -46,5 +47,12 @@ import TDLibKit
     init(chats: [CustomChat], type: CustomFolderType) {
         self.chats = chats
         self.type = type
+    }
+
+    /// Takes the folder's new definition from TDLib. Only a folder keeps its identity; main and archive don't change.
+    func update(info: ChatFolderInfo, definition: ChatFolder) {
+        guard case .folder(let current, _) = type, current.id == info.id else { return }
+        type = .folder(info, definition)
+        objectWillChange.send()
     }
 }
