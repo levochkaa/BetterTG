@@ -146,6 +146,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let navigationBackground = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let pinnedMessageBanner = PinnedMessageBannerView()
     private var pinnedMessageBannerHeightConstraint: NSLayoutConstraint!
+    private let topicReopenBar = TopicReopenBarView()
+    private var topicReopenBarHeightConstraint: NSLayoutConstraint!
     private let voicePlaybackHeader = VoicePlaybackHeaderView()
     private var voicePlaybackHeaderHeightConstraint: NSLayoutConstraint!
     private var pinnedMessageBannerTransitionGeneration = UInt64.zero
@@ -1529,10 +1531,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             pinnedMessageBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             pinnedMessageBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             pinnedMessageBannerHeightConstraint,
+        ])
+        topicReopenBar.translatesAutoresizingMaskIntoConstraints = false
+        topicReopenBar.isHidden = true
+        topicReopenBar.onReopen = { [weak self] in self?.reopenTopic() }
+        view.addSubview(topicReopenBar)
+        topicReopenBarHeightConstraint = topicReopenBar.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            topicReopenBar.topAnchor.constraint(equalTo: pinnedMessageBanner.bottomAnchor),
+            topicReopenBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topicReopenBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topicReopenBarHeightConstraint,
             navigationBackground.topAnchor.constraint(equalTo: view.topAnchor),
             navigationBackground.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             navigationBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            navigationBackground.bottomAnchor.constraint(equalTo: pinnedMessageBanner.bottomAnchor),
+            navigationBackground.bottomAnchor.constraint(equalTo: topicReopenBar.bottomAnchor),
         ])
         if let cover = restoredPinnedBannerCover {
             cover.isUserInteractionEnabled = false
@@ -2709,12 +2722,63 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             : L10n.telegramPlural("VoiceOver.Chat.UnreadMessages", count: unreadCount)
     }
 
+    private func updateTopicReopenBar(visible: Bool, animated: Bool) {
+        guard topicReopenBarHeightConstraint != nil else { return }
+        let desiredHeight = visible ? TopicReopenBarView.contentHeight : 0
+        guard abs(topicReopenBarHeightConstraint.constant - desiredHeight) > 0.5 else { return }
+        if visible {
+            topicReopenBar.isBusy = false
+            topicReopenBar.isHidden = false
+        }
+        view.layoutIfNeeded()
+        topicReopenBarHeightConstraint.constant = desiredHeight
+        let completion: (Bool) -> Void = { [weak self] _ in
+            guard let self else { return }
+            topicReopenBar.isHidden = topicReopenBarHeightConstraint.constant == 0
+            updateHistoryInsets()
+        }
+        guard animated, !UIAccessibility.isReduceMotionEnabled else {
+            view.layoutIfNeeded()
+            completion(true)
+            return
+        }
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+            animations: { self.view.layoutIfNeeded() },
+            completion: completion,
+        )
+    }
+
+    /// Telegram's Restart Topic action (ChatControllerLoadDisplayNode, restartTopic). TDLib's updateForumTopicInfo
+    /// then reports the topic open and the bar leaves.
+    private func reopenTopic() {
+        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent, chatVM.canReopenTopic,
+              !topicReopenBar.isBusy, let topicID = location.forumTopicID else { return }
+        let client = chatVM.client
+        let chatID = location.chatID
+        topicReopenBar.isBusy = true
+        Task { [weak self] in
+            let reopened = await (try? client.send(TDNativeRequests.toggleForumTopicIsClosed(
+                chatId: chatID, forumTopicId: topicID, isClosed: false,
+            ))) != nil
+            // A failed request leaves the bar tappable again; Telegram's panel sends and forgets.
+            if !reopened { self?.topicReopenBar.isBusy = false }
+        }
+    }
+
     private func updatePinnedMessageBanner(animated: Bool) {
         guard pinnedMessageBannerHeightConstraint != nil, !awaitsClientRenewal else { return }
+        // Telegram shows one title panel: a closed topic's Restart Topic panel replaces the pinned message.
+        let showsReopenBar = presentationMode == .full && !messageSearchActive && !isSelectingMessages
+            && chatVM.canReopenTopic
+        updateTopicReopenBar(visible: showsReopenBar, animated: animated)
         let message: Message? =
             if presentationMode == .full,
             !messageSearchActive,
-            !isSelectingMessages {
+            !isSelectingMessages,
+            !showsReopenBar {
                 chatVM.visiblePinnedMessage
             } else {
                 nil
@@ -3466,7 +3530,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         let visualTopInset = (pinnedMessageBannerHeightConstraint?.constant ?? 0) > 0
             || (voicePlaybackHeaderHeightConstraint?.constant ?? 0) > 0
-            ? pinnedMessageBanner.frame.maxY + 8
+            || (topicReopenBarHeightConstraint?.constant ?? 0) > 0
+            ? topicReopenBar.frame.maxY + 8
             : customNavigationBar.frame.maxY + 8
         let updatedInsets = UIEdgeInsets(top: visualBottomInset, left: 0, bottom: visualTopInset, right: 0)
         guard abs(collectionView.contentInset.top - updatedInsets.top) > 0.5

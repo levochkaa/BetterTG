@@ -861,3 +861,4 @@
 "ChatListFolder.NameNonMuted" = "Not Muted";
 "ChatListFolderSettings.RecommendedFoldersSection" = "RECOMMENDED FOLDERS";
 "ChatListFolderSettings.AddRecommended" = "ADD";
+"Chat.PanelRestartTopic" = "Restart Topic";

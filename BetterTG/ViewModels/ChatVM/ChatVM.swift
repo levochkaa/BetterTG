@@ -354,6 +354,14 @@ import UIKit
         location.forumTopicID != nil && !canWriteAnyMessage
     }
 
+    /// Telegram's Restart Topic panel in a closed topic, for the forum's creator, topic managers and the topic's
+    /// creator (ChatInterfaceTitlePanelNodes, ChatReportPeerTitlePanelNode `.restartTopic`). General can't close.
+    var canReopenTopic: Bool {
+        guard !previewing, location.forumTopicID != nil, let info = forumTopicInfo, info.isClosed, !info.isGeneral
+        else { return false }
+        return customChat.canManageForumTopics || info.isOutgoing
+    }
+
     /// Telegram's `ChatReplyThreadMessage.isChannelPost`: the thread starts at a channel post that the channel
     /// forwarded to its discussion group (`SourceReferenceMessageAttribute`, TDLib's `forwardInfo.source`). Nil
     /// until the thread is read.
