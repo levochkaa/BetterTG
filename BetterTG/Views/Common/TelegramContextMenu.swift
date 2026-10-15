@@ -1,5 +1,6 @@
 // TelegramContextMenu.swift
 
+import Combine
 import UIKit
 
 // MARK: - TelegramContextMenuLayout
@@ -35,6 +36,8 @@ struct TelegramContextMenuAction {
     var startsNewSection: Bool
     let children: [TelegramContextMenuAction]
     let handler: () -> Void
+    /// A title that arrives after the menu opens, such as Telegram's read time; it shrinks to the menu's width.
+    var titleUpdates: AnyPublisher<String, Never>?
 
     init(
         title: String,
@@ -1555,6 +1558,7 @@ private final class TelegramContextMenuActionButton: UIControl {
 
     private let titleLabel = UILabel()
     private let iconView = UIImageView()
+    private var titleCancellable: AnyCancellable?
 
     init(action: TelegramContextMenuAction) {
         self.menuAction = action
@@ -1607,6 +1611,16 @@ private final class TelegramContextMenuActionButton: UIControl {
         isAccessibilityElement = true
         accessibilityLabel = action.title
         accessibilityTraits = .button
+        if let updates = action.titleUpdates {
+            titleLabel.adjustsFontSizeToFitWidth = true
+            titleLabel.minimumScaleFactor = 0.7
+            self.titleCancellable = updates
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] title in
+                    self?.titleLabel.text = title
+                    self?.accessibilityLabel = title
+                }
+        }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {

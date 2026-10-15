@@ -711,6 +711,29 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    private static func readDateTitle(_ readDate: TDNativeMessageReadDate) -> String {
+        switch readDate {
+        case .messageReadDateRead(let read):
+            let date = Date(timeIntervalSince1970: TimeInterval(read.readDate))
+            let time = date.formatted(date: .omitted, time: .shortened)
+            if Calendar.current.isDateInToday(date) {
+                return L10n.telegram("Chat.PrivateMessageSeenTimestamp.TodayAt", time)
+            }
+            if Calendar.current.isDateInYesterday(date) {
+                return L10n.telegram("Chat.PrivateMessageSeenTimestamp.YesterdayAt", time)
+            }
+            return L10n.telegram(
+                "Chat.PrivateMessageSeenTimestamp.Date",
+                date.formatted(date: .abbreviated, time: .shortened),
+            )
+        case .messageReadDateMyPrivacyRestricted:
+            return L10n.telegram("Chat.ContextMenuReadDate.ReadAvailablePrefix") + " · "
+                + L10n.telegram("Chat.ContextMenuReadDate.ReadAvailableBadge")
+        default:
+            return L10n.telegram("Chat.ContextMenuReadDate.ReadAvailablePrefix")
+        }
+    }
+
     /// A bot start link for a chat the router has just created shows Start before the chat appears.
     func beginBotStart(parameter: String) {
         chatVM.beginBotStart(parameter: parameter)
@@ -6102,7 +6125,64 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ))
         }
         elements.append(contentsOf: interactionActions(for: message))
+        if let readDateAction = readDateAction(for: message) {
+            if !elements.isEmpty { elements[0].startsNewSection = true }
+            elements.insert(readDateAction, at: 0)
+        }
         return elements
+    }
+
+    /// ChatReadReportContextItem in a private chat: when the other person read an outgoing message
+    /// (`getMessageReadDate`), at the top of the menu, or Telegram's "show when" when the user hides their own read
+    /// time; tapping that one offers to show it.
+    private func readDateAction(for message: CustomMessage) -> TelegramContextMenuAction? {
+        guard case .user(let user) = chatVM.customChat.type, !chatVM.customChat.isSavedMessages,
+              message.message.isOutgoing, message.properties.canGetReadDate, message.deliveryState == .read
+        else { return nil }
+        let readDate = CurrentValueSubject<TDNativeMessageReadDate?, Never>(nil)
+        var action = TelegramContextMenuAction(
+            title: L10n.telegram("Chat.ContextMenuReadDate.ReadAvailablePrefix"),
+            image: UIImage(systemName: "checkmark.message"),
+        ) { [weak self] in
+            guard case .messageReadDateMyPrivacyRestricted? = readDate.value else { return }
+            self?.presentShowReadTimeHint(name: user.firstName.isEmpty ? user.lastName : user.firstName)
+        }
+        action.titleUpdates = readDate.compactMap { $0.map(Self.readDateTitle) }.eraseToAnyPublisher()
+        let client = chatVM.client
+        let chatID = message.message.chatId
+        let messageID = message.id
+        Task { [weak self] in
+            let value = try? await client.send(TDNativeRequests.getMessageReadDate(
+                chatId: chatID,
+                messageId: messageID,
+            ))
+            guard let self, chatVM.locationContextIsCurrent else { return }
+            readDate.send(value)
+        }
+        return action
+    }
+
+    /// PremiumPrivacyScreen's `.readTime` without the Premium offer: Show My Read Time
+    /// (setReadDatePrivacySettings) only after the user taps it.
+    private func presentShowReadTimeHint(name: String) {
+        guard chatVM.locationContextIsCurrent, presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: L10n.telegram("PrivacyInfo.ShowReadTime.Title"),
+            message: L10n.telegram("PrivacyInfo.ShowReadTime.Text", name).withoutTelegramMarkup,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        let client = chatVM.client
+        alert.addAction(UIAlertAction(title: L10n.telegram("PrivacyInfo.ShowReadTime.ButtonTitle"), style: .default) {
+            [weak self] _ in
+            guard let self, chatVM.locationContextIsCurrent else { return }
+            Task {
+                _ = try? await client.send(TDNativeRequests.setReadDatePrivacySettings(
+                    settings: TDNativeReadDatePrivacySettings(showReadDate: true),
+                ))
+            }
+        })
+        present(alert, animated: true)
     }
 
     /// ChatInterfaceStateContextMenus' `banAuthor`: in a group, an admin who can delete messages or ban members
