@@ -41,6 +41,29 @@ import UIKit
         let role: String
     }
 
+    /// The group fields the list depends on: who is in it and what the account may see. Other changes (title, photo,
+    /// username, boosts) leave the rows alone.
+    private struct GroupListSignature: Equatable {
+        let memberCount: Int
+        let status: ChatMemberStatus
+        let isActive: Bool
+        let upgradedToSupergroupID: Int64
+
+        init(_ group: BasicGroup) {
+            self.memberCount = group.memberCount
+            self.status = group.status
+            self.isActive = group.isActive
+            self.upgradedToSupergroupID = group.upgradedToSupergroupId
+        }
+
+        init(_ group: Supergroup) {
+            self.memberCount = group.memberCount
+            self.status = group.status
+            self.isActive = true
+            self.upgradedToSupergroupID = 0
+        }
+    }
+
     private typealias MemberID = PeerProfileMemberID
     private typealias TableAnchor = PeerProfileMemberAnchor
 
@@ -65,8 +88,7 @@ import UIKit
     private var quarantinedForClientChange = false
     private var basicMembersRevision = PeerProfileMembersRevision<[ChatMember]>()
     private var memberAvailabilityRevision = PeerProfileMembersRevision<Bool>()
-    private var basicGroupRevision = PeerProfileMembersRevision<BasicGroup>()
-    private var supergroupRevision = PeerProfileMembersRevision<Supergroup>()
+    private var groupRevision = PeerProfileMembersRevision<GroupListSignature>()
     private var permissionsRevision = PeerProfileMembersRevision<ChatPermissions>()
     private var rows = [MemberID: Row]()
     private var seeds = [MemberID: Seed]()
@@ -80,6 +102,8 @@ import UIKit
     private var reloadTask: Task<Void, Never>?
     private var tagPreparationTask: Task<Void, Never>?
     private var loadGeneration = UInt64.zero
+    /// Name and role resolution survives a reread that keeps the rows; only a reset drops it.
+    private var rowGeneration = UInt64.zero
     private var pendingAnchor: TableAnchor?
     private var snapshotApplyInProgress = false
     private var snapshotApplyPending = false
@@ -221,13 +245,13 @@ import UIKit
         nc.scopedPublisher(&cancellables, for: .updateBasicGroup) { [weak self] event in
             guard let self, contextIsCurrent, event.source == identity.origin,
                   source.group == .basic(event.value.basicGroup.id),
-                  basicGroupRevision.observe(event.value.basicGroup) else { return }
+                  groupRevision.observe(GroupListSignature(event.value.basicGroup)) else { return }
             scheduleReload()
         }
         nc.scopedPublisher(&cancellables, for: .updateSupergroup) { [weak self] event in
             guard let self, contextIsCurrent, event.source == identity.origin,
                   source.group == .supergroup(event.value.supergroup.id),
-                  supergroupRevision.observe(event.value.supergroup) else { return }
+                  groupRevision.observe(GroupListSignature(event.value.supergroup)) else { return }
             scheduleReload()
         }
         nc.scopedPublisher(&cancellables, for: .updateChatPermissions) { [weak self] event in
@@ -580,24 +604,21 @@ import UIKit
     }
 
     private func append(_ page: [Seed]) {
-        var newSeeds = [Seed]()
+        var resolving = [Seed]()
         for seed in page {
             let id = seed.id
             if rows[id] == nil {
                 if !orderedIDs.contains(id) { orderedIDs.append(id) }
-                newSeeds.append(seed)
+                resolving.append(seed)
                 rows[id] = fallbackRow(seed)
-            } else if let row = rows[id] {
-                rows[id] = Row(
-                    accessibilityLabel: "\(row.title), \(seed.role)",
-                    role: seed.role,
-                    title: row.title,
-                )
+            } else if seeds[id]?.role != seed.role {
+                // A reread keeps the row on screen until its new role resolves with the member's name and status.
+                resolving.append(seed)
             }
             seeds[id] = seed
         }
         applySnapshot()
-        enqueueResolution(newSeeds)
+        enqueueResolution(resolving)
     }
 
     private func enqueueResolution(_ newSeeds: [Seed]) {
@@ -606,7 +627,7 @@ import UIKit
         #endif
         pendingResolutionIDs.append(contentsOf: newSeeds.map(\.id))
         guard resolutionTask == nil, !pendingResolutionIDs.isEmpty else { return }
-        let generation = loadGeneration
+        let generation = rowGeneration
         resolutionTask = Task { [weak self] in
             guard let self else { return }
             var resolvedIDs = [MemberID]()
@@ -614,7 +635,9 @@ import UIKit
                 let id = pendingResolutionIDs.removeFirst()
                 guard let seed = seeds[id] else { continue }
                 let row = await resolve(seed)
-                guard !Task.isCancelled, readOwnerIsCurrent, loadGeneration == generation else { return }
+                guard !Task.isCancelled, readOwnerIsCurrent, rowGeneration == generation else { return }
+                // A reread may have dropped the member meanwhile.
+                guard seeds[id] != nil else { continue }
                 rows[id] = row
                 resolvedIDs.append(id)
                 if resolvedIDs.count == 16 {
@@ -756,7 +779,7 @@ import UIKit
     }
 
     private func scheduleReload() {
-        beginRevalidation()
+        beginRevalidation(clearingRows: false)
         reloadTask?.cancel()
         reloadTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(180))
@@ -799,7 +822,9 @@ import UIKit
         present(alert, animated: true)
     }
 
-    private func beginRevalidation() {
+    /// Rereads the list from its first page. A client change clears the rows, since their names, roles and actions
+    /// belong to the old client; a group update keeps them until the reread pages replace them.
+    private func beginRevalidation(clearingRows: Bool = true) {
         preserveAnchor()
         for path in tableView.indexPathsForVisibleRows ?? [] {
             if let id = dataSource.itemIdentifier(for: path), rows[id] != nil {
@@ -808,13 +833,16 @@ import UIKit
         }
         loadGeneration &+= 1
         loadTask?.cancel()
-        resolutionTask?.cancel()
         loadTask = nil
-        resolutionTask = nil
-        pendingResolutionIDs.removeAll()
-        rows.removeAll()
-        seeds.removeAll()
-        tableView.visibleCells.forEach { PeerProfileMemberPlaceholder.configure($0, retrying: false) }
+        if clearingRows {
+            rowGeneration &+= 1
+            resolutionTask?.cancel()
+            resolutionTask = nil
+            pendingResolutionIDs.removeAll()
+            rows.removeAll()
+            seeds.removeAll()
+            tableView.visibleCells.forEach { PeerProfileMemberPlaceholder.configure($0, retrying: false) }
+        }
         revalidation.begin(ids: orderedIDs, rawOffset: rawOffset)
         checkedAvailability = false
         loadError = nil
@@ -856,6 +884,7 @@ import UIKit
         guard !retired else { return }
         retired = true
         loadGeneration &+= 1
+        rowGeneration &+= 1
         loadTask?.cancel()
         resolutionTask?.cancel()
         reloadTask?.cancel()
