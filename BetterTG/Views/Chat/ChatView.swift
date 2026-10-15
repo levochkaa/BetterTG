@@ -292,14 +292,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// A reply thread is titled "N Comments" or "N Replies", with only typing activity below (ChatTitleView,
-    /// `.replyThread`). A forum topic shows its chat below the topic name.
+    /// `.replyThread`). A forum topic shows who acts in it, else its chat below the topic name.
     private var headerTitleAndStatus: (title: String, status: String) {
         if let title = chatVM.messageThreadTitle {
             return (title, chatVM.actionStatus)
         }
         let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
         let status =
-            if location.isTopicScoped {
+            if let activity = chatVM.topicActivityStatus {
+                activity
+            } else if location.isTopicScoped {
                 chatVM.isReadOnlyTopic
                     ? (chatVM.forumTopicInfo?.isClosed == true || chatVM.forumTopicInfo?.isHidden == true
                         ? L10n.betterTG("Forum.ClosedTopicReadOnly")

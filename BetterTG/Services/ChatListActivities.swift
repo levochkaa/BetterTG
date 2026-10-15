@@ -17,6 +17,32 @@ import UIKit
     private var clientID: Int32?
     private var activities = [Int64: [(sender: MessageSender, action: ChatAction)]]()
 
+    /// The `ChatListTypingNode` wording for one chat's actions, oldest first. A sender TDLib has not named yet is
+    /// looked up, and `named` runs once it is known so the caller can ask again.
+    static func text(
+        for list: [(sender: MessageSender, action: ChatAction)],
+        privateUserID: Int64?,
+        client: TDLibClient,
+        named: @escaping () -> Void,
+    ) -> String? {
+        guard !list.isEmpty else { return nil }
+        if list.count > 1 {
+            let names = list.prefix(2).map { name(for: $0.sender, client: client, named: named) }
+            return list.count == 2
+                ? L10n.telegram("DialogList.MultipleTypingPair", names[0], names[1])
+                : L10n.telegram(
+                    "DialogList.MultipleTyping", names[0],
+                    L10n.telegram("DialogList.MultipleTypingSuffix", list.count - 1),
+                )
+        }
+        let (sender, action) = list[0]
+        if case .messageSenderUser(let user) = sender, privateUserID == user.userId {
+            return text(for: action)
+        }
+        guard let key = suffixKey(for: action) else { return text(for: action) }
+        return L10n.telegram(key, name(for: sender, client: client, named: named))
+    }
+
     private static func text(for action: ChatAction) -> String? {
         switch action {
         case .chatActionTyping: L10n.telegram("DialogList.Typing")
@@ -51,6 +77,15 @@ import UIKit
         }
     }
 
+    private static func name(for sender: MessageSender, client: TDLibClient, named: @escaping () -> Void) -> String {
+        guard case .messageSenderUser(let value) = sender else { return "" }
+        if let user = ChatListSenderNames.shared.user(userID: value.userId, client: client) {
+            return ChatListSenderNames.compactName(user)
+        }
+        ChatListSenderNames.shared.resolve(userID: value.userId, client: client, completion: named)
+        return ""
+    }
+
     func receive(_ update: UpdateChatAction, clientID: Int32) {
         if self.clientID != clientID {
             self.clientID = clientID
@@ -68,33 +103,10 @@ import UIKit
     /// Telegram's `ChatListTypingNode` text: the bare action in a private chat, the sender's name and action in a
     /// group, or the typing count when several people act.
     func text(for chat: CustomChat, client: TDLibClient) -> String? {
-        guard clientID == client.id, let list = activities[chat.id], !list.isEmpty else { return nil }
-        if list.count > 1 {
-            let names = list.prefix(2).map { name(for: $0.sender, chatID: chat.id, client: client) }
-            return list.count == 2
-                ? L10n.telegram("DialogList.MultipleTypingPair", names[0], names[1])
-                : L10n.telegram(
-                    "DialogList.MultipleTyping", names[0],
-                    L10n.telegram("DialogList.MultipleTypingSuffix", list.count - 1),
-                )
-        }
-        let (sender, action) = list[0]
-        if case .messageSenderUser(let user) = sender, chat.user?.id == user.userId {
-            return Self.text(for: action)
-        }
-        guard let key = Self.suffixKey(for: action) else { return Self.text(for: action) }
-        return L10n.telegram(key, name(for: sender, chatID: chat.id, client: client))
-    }
-
-    /// A sender TDLib has not named to the list yet is looked up, and the row asks again once it is known.
-    private func name(for sender: MessageSender, chatID: Int64, client: TDLibClient) -> String {
-        guard case .messageSenderUser(let value) = sender else { return "" }
-        if let user = ChatListSenderNames.shared.user(userID: value.userId, client: client) {
-            return ChatListSenderNames.compactName(user)
-        }
-        ChatListSenderNames.shared.resolve(userID: value.userId, client: client) { [weak self] in
+        guard clientID == client.id, let list = activities[chat.id] else { return nil }
+        let chatID = chat.id
+        return Self.text(for: list, privateUserID: chat.user?.id, client: client) { [weak self] in
             self?.changes.send(chatID)
         }
-        return ""
     }
 }

@@ -5,6 +5,13 @@ import Foundation
 import TDLibKit
 
 extension ChatVM {
+    /// One sender's action in a topic, from `updateChatAction`.
+    struct ChatActionEntry {
+        let topic: MessageTopic?
+        let sender: MessageSender
+        let action: ChatAction
+    }
+
     func setPublishers() {
         // Install the receipt listener before issuing the current-client baseline read.
         observeCurrentUpdate(.updateChatReadOutbox) { [weak self] update, authority in
@@ -269,9 +276,9 @@ extension ChatVM {
             guard let self,
                   locationContextIsCurrent,
                   update.chatId == customChat.id,
-                  isAllMessagesForum
-                  ? update.topicId == acceptedChatActionTopic
-                  : (location.topic == nil || update.topicId == location.topic)
+                  // An all-messages forum keeps every topic's actions, so a cancel lands even after the composer
+                  // switches topics; it shows those of the topic it writes to.
+                  isAllMessagesForum || location.topic == nil || update.topicId == location.topic
             else { return }
             updateChatAction(update)
         }
@@ -297,25 +304,58 @@ extension ChatVM {
         )
     }
 
+    /// Tracks each sender's action per topic, as Telegram's input activities do: one sender's cancel leaves the
+    /// others acting.
     func updateChatAction(_ update: UpdateChatAction) {
-        actionStatus =
-            switch update.action {
-            case .chatActionTyping: L10n.telegram("DialogList.Typing")
-            case .chatActionRecordingVideo: L10n.telegram("Activity.RecordingVideoMessage")
-            case .chatActionUploadingVideo: L10n.telegram("Activity.UploadingVideo")
-            case .chatActionRecordingVoiceNote: L10n.telegram("Activity.RecordingAudio")
-            case .chatActionUploadingVoiceNote: L10n.telegram("Activity.UploadingDocument")
-            case .chatActionUploadingPhoto: L10n.telegram("Activity.UploadingPhoto")
-            case .chatActionUploadingDocument: L10n.telegram("Activity.UploadingDocument")
-            case .chatActionChoosingSticker: L10n.telegram("Activity.ChoosingSticker")
-            case .chatActionChoosingLocation: L10n.betterTG("Chat.ChoosingLocation")
-            case .chatActionChoosingContact: L10n.betterTG("Chat.ChoosingContact")
-            case .chatActionStartPlayingGame: L10n.telegram("Activity.PlayingGame")
-            case .chatActionRecordingVideoNote: L10n.telegram("Activity.RecordingVideoMessage")
-            case .chatActionUploadingVideoNote: L10n.telegram("Activity.UploadingVideoMessage")
-            case .chatActionWatchingAnimations(let action): L10n.telegram("Activity.EnjoyingAnimations", action.emoji)
-            case .chatActionCancel: ""
-            }
+        var actions = chatActions
+        actions.removeAll { $0.sender == update.senderId && $0.topic == update.topicId }
+        if case .chatActionCancel = update.action {} else {
+            actions.append(ChatActionEntry(topic: update.topicId, sender: update.senderId, action: update.action))
+        }
+        chatActions = actions
+    }
+
+    /// The actions the header shows: an all-messages forum shows those of the topic it writes to.
+    private var displayedChatActions: [ChatActionEntry] {
+        guard isAllMessagesForum else { return chatActions }
+        let topic = acceptedChatActionTopic
+        return chatActions.filter { $0.topic == topic }
+    }
+
+    /// The latest action, worded as the header showed it before actions were tracked per sender.
+    var actionStatus: String {
+        displayedChatActions.last.map { Self.chatActionText($0.action) } ?? ""
+    }
+
+    /// Telegram shows who acts in a forum topic over its subtitle (ChatTitleView.updateStatus); this uses the chat
+    /// list's wording, as BetterTG has no animated activity indicator.
+    var topicActivityStatus: String? {
+        guard location.forumTopicID != nil else { return nil }
+        return ChatListActivities.text(
+            for: chatActions.map { (sender: $0.sender, action: $0.action) },
+            privateUserID: nil,
+            client: client,
+        ) { [weak self] in self?.objectWillChange.send() }
+    }
+
+    private static func chatActionText(_ action: ChatAction) -> String {
+        switch action {
+        case .chatActionTyping: L10n.telegram("DialogList.Typing")
+        case .chatActionRecordingVideo: L10n.telegram("Activity.RecordingVideoMessage")
+        case .chatActionUploadingVideo: L10n.telegram("Activity.UploadingVideo")
+        case .chatActionRecordingVoiceNote: L10n.telegram("Activity.RecordingAudio")
+        case .chatActionUploadingVoiceNote: L10n.telegram("Activity.UploadingDocument")
+        case .chatActionUploadingPhoto: L10n.telegram("Activity.UploadingPhoto")
+        case .chatActionUploadingDocument: L10n.telegram("Activity.UploadingDocument")
+        case .chatActionChoosingSticker: L10n.telegram("Activity.ChoosingSticker")
+        case .chatActionChoosingLocation: L10n.betterTG("Chat.ChoosingLocation")
+        case .chatActionChoosingContact: L10n.betterTG("Chat.ChoosingContact")
+        case .chatActionStartPlayingGame: L10n.telegram("Activity.PlayingGame")
+        case .chatActionRecordingVideoNote: L10n.telegram("Activity.RecordingVideoMessage")
+        case .chatActionUploadingVideoNote: L10n.telegram("Activity.UploadingVideoMessage")
+        case .chatActionWatchingAnimations(let action): L10n.telegram("Activity.EnjoyingAnimations", action.emoji)
+        case .chatActionCancel: ""
+        }
     }
 
     private func updateMessageSendSucceeded(

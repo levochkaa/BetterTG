@@ -81,7 +81,8 @@ import UIKit
         client: client,
         isCurrent: { [weak self] in self?.locationContextIsCurrent == true },
     )
-    @Published var actionStatus = ""
+    /// Who acts in this chat, one entry per sender and topic, oldest first (Telegram's input activities).
+    @Published var chatActions = [ChatActionEntry]()
     @Published var onlineStatus = ""
     private(set) var isUserOnline = false
     @Published var memberCount = 0
@@ -594,6 +595,7 @@ import UIKit
     }
 
     var headerStatusIsActive: Bool {
+        if location.forumTopicID != nil { return topicActivityStatus != nil }
         if !actionStatus.isEmpty { return true }
         guard !customChat.isSavedMessages else { return false }
         switch customChat.type {
