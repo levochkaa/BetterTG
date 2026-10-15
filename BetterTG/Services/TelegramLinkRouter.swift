@@ -113,6 +113,18 @@ import UIKit
         return true
     }
 
+    /// A text mention of a user (`textEntityTypeMentionName`) opens the user's chat on the active client, as
+    /// ChatMessageBubbleItemNode's peerMention tap does.
+    func openUser(_ userID: Int64, from presenter: UIViewController?) {
+        guard TDLib.shared.isActiveAccountReady else { return }
+        presenter?.viewIfLoaded?.endEditing(true)
+        resolveTask?.cancel()
+        let authority = ChatListActionAuthority()
+        resolveTask = Task { [weak self, weak presenter] in
+            await self?.openUser(userID, authority: authority, presenter: presenter, profile: false)
+        }
+    }
+
     private func openPendingLink() {
         guard TDLib.shared.isActiveAccountReady, let pending = pendingLink else { return }
         pendingLink = nil

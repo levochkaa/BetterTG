@@ -10,7 +10,15 @@ let defaultDocumentAttributes = [
 
 extension UIPasteboard {
     static func setFormattedText(_ formattedText: FormattedText) {
-        setTelegramAttributedText(getAttributedString(from: formattedText).telegramNSAttributedString)
+        // An @username stays plain text, as before mentions were styled: TDLib finds it again when the text is sent.
+        let copied = FormattedText(
+            entities: formattedText.entities.filter {
+                if case .textEntityTypeMention = $0.type { return false }
+                return true
+            },
+            text: formattedText.text,
+        )
+        setTelegramAttributedText(getAttributedString(from: copied).telegramNSAttributedString)
     }
 
     static func setTelegramAttributedText(_ attributedString: NSAttributedString) {

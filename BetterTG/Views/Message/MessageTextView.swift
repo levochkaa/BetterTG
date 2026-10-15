@@ -732,6 +732,9 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             case .open(let url):
                 self?.open(url)
                 handled = true
+            case .openUser(let userID):
+                TelegramLinkRouter.shared.openUser(userID, from: self?.nearestViewController)
+                handled = true
             case .reveal:
                 handled = true
             case .none:

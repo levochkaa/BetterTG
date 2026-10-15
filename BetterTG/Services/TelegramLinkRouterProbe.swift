@@ -2,9 +2,11 @@
 
 #if DEBUG
     import Foundation
+    import TDLibKit
 
-    /// Offline check of which URLs the router hands to TDLib's getInternalLinkType: Telegram's hosts and schemes in
-    /// LinkManager::get_link_info's forms, and nothing else. No TDLib request, navigation or URL open runs.
+    /// Offline check of which URLs the router hands to TDLib's getInternalLinkType (Telegram's hosts and schemes in
+    /// LinkManager::get_link_info's forms, and nothing else) and of the mention taps that reach the router. No TDLib
+    /// request, navigation or URL open runs.
     @MainActor enum TelegramLinkRouterProbe {
         private struct Failure: Swift.Error, CustomStringConvertible { let description: String }
 
@@ -14,7 +16,7 @@
             do {
                 try verify()
                 result = "Telegram link probe passed: hosts/subdomains/schemes/ports/credentials=true; "
-                    + "usernames=true; TDLib/navigation/URL-open=0"
+                    + "usernames=true; mention/text-mention/concealed=true; TDLib/navigation/URL-open=0"
             } catch { result = "Telegram link probe failed: \(error)" }
             log(result)
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -74,6 +76,38 @@
             for invalid in ["", "_a", "1a", "a_", "a__b", "a-b", "dúrov", String(repeating: "a", count: 33)] {
                 try require(!TelegramLinkRouter.isTelegramUsername(invalid), "username \(invalid) accepted")
             }
+            try verifyMentions()
+        }
+
+        /// An @username opens as its t.me link and a text mention as its user, unless a spoiler still hides it.
+        private static func verifyMentions() throws {
+            let text = "Hi @durov and Pavel, ask @hidden"
+            let mention = (text as NSString).range(of: "@durov")
+            let name = (text as NSString).range(of: "Pavel")
+            let hidden = (text as NSString).range(of: "@hidden")
+            let presentation = MessageTextSpoilerPresentation(FormattedText(entities: [
+                .init(length: mention.length, offset: mention.location, type: .textEntityTypeMention),
+                .init(
+                    length: name.length,
+                    offset: name.location,
+                    type: .textEntityTypeMentionName(TextEntityTypeMentionName(userId: 42)),
+                ),
+                .init(length: hidden.length, offset: hidden.location, type: .textEntityTypeMention),
+                .init(length: hidden.length, offset: hidden.location, type: .textEntityTypeSpoiler),
+            ], text: text))
+            let mentionAction = presentation.action(at: mention.location + 1, revealed: false)
+            try require(
+                mentionAction == URL(string: "https://t.me/durov").map(MessageTextSpoilerPresentation.Action.open)
+                    && link("https://t.me/durov") != nil,
+                "mention not routed as its t.me link",
+            )
+            try require(presentation.action(at: name.location, revealed: false) == .openUser(42), "text mention")
+            try require(
+                presentation.action(at: hidden.location, revealed: false) == .reveal
+                    && presentation.action(at: hidden.location, revealed: true)
+                    == URL(string: "https://t.me/hidden").map(MessageTextSpoilerPresentation.Action.open),
+                "concealed mention opened before reveal",
+            )
         }
     }
 #endif

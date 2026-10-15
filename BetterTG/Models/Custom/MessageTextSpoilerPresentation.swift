@@ -13,6 +13,8 @@ struct MessageTextSpoilerPresentation {
         case reveal
         case copy(String)
         case open(URL)
+        /// A text mention (`textEntityTypeMentionName`): the user's chat, as Telegram's peerMention tap opens it.
+        case openUser(Int64)
     }
 
     let text: FormattedText
@@ -108,6 +110,10 @@ struct MessageTextSpoilerPresentation {
                 return conceals(range, revealed: revealed) ? .reveal : .copy(raw)
             case .textEntityTypeUrl: url = getUrl(from: raw)
             case .textEntityTypeTextUrl(let value): url = getUrl(from: value.url)
+            // Telegram's openPeerMention resolves @username through the same path as a t.me/username link.
+            case .textEntityTypeMention: url = URL(string: "https://t.me/" + raw.drop(while: { $0 == "@" }))
+            case .textEntityTypeMentionName(let value):
+                return conceals(range, revealed: revealed) ? .reveal : .openUser(value.userId)
             case .textEntityTypeEmailAddress: url = URL(string: "mailto:\(raw)")
             case .textEntityTypePhoneNumber: url = URL(string: "tel:\(raw)")
             default: continue

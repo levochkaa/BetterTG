@@ -55,6 +55,15 @@ func setEntity(_ entity: TextEntity, base text: String, for attributedString: NS
         attributedString.addAttribute(.link, value: getUrl(from: raw) as Any, range: range)
     case .textEntityTypeTextUrl(let textUrl):
         attributedString.addAttribute(.link, value: getUrl(from: textUrl.url) as Any, range: range)
+    case .textEntityTypeMention:
+        attributedString.addAttribute(
+            .link,
+            value: URL(string: "https://t.me/" + raw.drop(while: { $0 == "@" })) as Any,
+            range: range,
+        )
+    case .textEntityTypeMentionName(let mention):
+        // TDLib reads a tg://user link back as the same mention.
+        attributedString.addAttribute(.link, value: URL(string: "tg://user?id=\(mention.userId)") as Any, range: range)
     case .textEntityTypeSpoiler:
         attributedString.addAttribute(.backgroundColor, value: UIColor.gray, range: range)
     case .textEntityTypeCustomEmoji(let emoji):
