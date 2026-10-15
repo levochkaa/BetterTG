@@ -75,6 +75,7 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
             item.observe(\.rightBarButtonItems) { _, _ in changed() },
             item.observe(\.hidesBackButton) { _, _ in changed() },
             item.observe(\.prompt) { _, _ in changed() },
+            item.observe(\.subtitle) { _, _ in changed() },
             controller.observe(\.title) { _, _ in changed() },
         ]
         if let scrollView = controller.view as? UIScrollView {
@@ -156,6 +157,8 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     /// `UINavigationItem.prompt` (Reconnecting…, Saving…): a line above the title row, 30 pt like the system bar's.
     private let promptLabel = UILabel()
     private let titleLabel = UILabel()
+    /// `UINavigationItem.subtitle` under the title, as Telegram's CounterControllerTitle shows a picker's count.
+    private let subtitleLabel = UILabel()
     private let backButton = UIButton(type: .system)
     private var leftViews = [UIView]()
     private var rightViews = [UIView]()
@@ -184,6 +187,12 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         titleLabel.textAlignment = .center
         titleLabel.adjustsFontForContentSizeCategory = true
         addSubview(titleLabel)
+        subtitleLabel.font = .preferredFont(forTextStyle: .caption1)
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textAlignment = .center
+        subtitleLabel.adjustsFontForContentSizeCategory = true
+        subtitleLabel.isHidden = true
+        addSubview(subtitleLabel)
         backButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
         backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
         addSubview(backButton)
@@ -217,9 +226,14 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         }
         let inset = max(left, bounds.width - right) + 8
         let titleFrame = CGRect(x: inset, y: rowY, width: max(0, bounds.width - 2 * inset), height: 44)
-        titleLabel.frame = titleFrame
+        if subtitleLabel.isHidden {
+            titleLabel.frame = titleFrame
+        } else {
+            titleLabel.frame = CGRect(x: titleFrame.minX, y: rowY + 3, width: titleFrame.width, height: 22)
+            subtitleLabel.frame = CGRect(x: titleFrame.minX, y: rowY + 24, width: titleFrame.width, height: 16)
+        }
         customTitle?.frame = titleFrame
-        for item in [titleLabel, backButton] + leftViews + rightViews + [customTitle]
+        for item in [titleLabel, subtitleLabel, backButton] + leftViews + rightViews + [customTitle]
             .compactMap(\.self)
         {
             item.alpha = searchActive
@@ -234,6 +248,9 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         searchController newSearch: UISearchController?,
     ) {
         titleLabel.text = item.title ?? fallbackTitle
+        subtitleLabel.text = item.subtitle
+        subtitleLabel.isHidden = item.subtitle?.isEmpty != false || item.titleView != nil
+        setNeedsLayout()
         if promptLabel.text != item.prompt {
             promptLabel.text = item.prompt
             if let prompt = item.prompt, !prompt.isEmpty {
