@@ -285,6 +285,63 @@ Read-only audits at `6c697153` (voice and video notes, V) and `1ac7d7e2` (messag
 
 Reviewed and OK: recording gesture thresholds, interruptions and backgrounding to preview, off-main encoding, frozen send context for voice and video notes, note limits, video note playback ownership; media, file, location, poll voting, rich message, link preview, reaction, reply/quote/forward header, delivery and spoiler rendering. Not reviewed: video note writer and segment composer internals, the recorder state machine, note stores' reconciliation, FFmpeg transcode, invoices, animated emoji interactions, reactors list, text entity actions, translate and report.
 
+### Forum topics, timeline, Forward, folders and quote audits — 2026-10-16
+
+Read-only audits at `e1e0ad48`: forum topics and the chat timeline (T), the Forward picker, folder editor and quotes (F-x; the F-x ids are separate from the flow ledger's F numbers).
+
+| ID | Sev | Finding | Status |
+|---|---|---|---|
+| T-1 | P1 | Reading inside a forum topic marks the whole forum read (`viewMessages` without a source); the notification quick reply did the same | fixed `9039faea`: topic routes pass `messageSourceForumTopicHistory` (TDLib's `ReadForumTopicQuery`), threads keep the thread source, a quick reply into a forum topic reads only that topic. Build only: no unread forum on the account |
+| F-x1 | P1 | Forward eligibility uses the chat's default member permissions and ignores the user's own status (admins lose restricted groups, probably their channels; restricted members fail at send) | open |
+| T-2 | P2 | The hidden General topic can't be reached; no Hide/Unhide | open |
+| T-3 | P2 | No pinned-message banner in forum topics or a forum read as messages | open |
+| T-4 | P2 | Every open clears unseen reactions (`readAllChatReactions` in `viewDidAppear`); no mention/reaction jump buttons | open |
+| T-6 | P2 | The topic list reloads from page 1 after a deletion or a pin, dropping later pages | open |
+| T-7 | P2 | A topic moving to the top can slide under the bar (no `restingTopOffset`; suspicion) | open |
+| F-x2 | P2 | Forward options can't be changed from the composer block; no Change recipient, no "Sender names removed" | open |
+| F-x3 | P2 | The Forward topics step uses its own bar and an always-visible `UISearchBar` | open |
+| F-x4 | P2 | A same-account client renewal leaves the Forward picker on screen but dead | open |
+| F-x5 | P2 | Saved Messages is first in Forward only when it is in the loaded page | open |
+| F-x13 | P2 | The folder Add Chats picker offers only loaded chats; no server or contact search | open |
+| F-x14 | P2 | Shared folders: no invite-link management, no new-chats prompt, `t.me/addlist` unhandled | open |
+| F-x24 | P2 | Quote is impossible in copy-protected chats (selection requires `canBeCopied`) | open |
+| T-5 | P3 | Typing isn't shown in a topic header; `actionStatus` keeps one sender | open |
+| T-8 | P3 | Remote pins keep their chronological place until a page-1 reload | open |
+| T-9 | P3 | One merged row badge in the topic list | open |
+| T-10 | P3 | No pinned-topic reorder | open |
+| T-11 | P3 | No topic row swipes | open |
+| T-12 | P3 | No Close/Reopen bar or avatar menu inside a topic | open |
+| T-13 | P3 | Forum search covers topic names only | open |
+| T-14 | P3 | Rows that inherit the forum's mute don't refresh on a scope change (suspicion) | open |
+| T-15 | P3 | Voice and video-note downloads prefetched for rows never shown kept going after the chat closed | fixed `4cb6bfb8`: deinit cancels them (`onlyIfPending`), as the prefetch cancel path already did. Build only |
+| T-16 | P3 | Topic taps are ignored while a new search page loads | open |
+| F-x6 | P3 | Forward ignores Telegram's content checks (public polls, quizzes and checklists to channels; closed secret chats) | open |
+| F-x7 | P3 | The forward block shows the forwarder's full name from the first message; no "You", no multi-author line | open |
+| F-x8 | P3 | Forwarding own originals from Saved Messages doesn't default to hidden names | open |
+| F-x9 | P3 | A pending forward lives only in ChatVM memory | open |
+| F-x10 | P3 | Forwarding from the gallery always pushes a new chat, even the same chat | open |
+| F-x11 | P3 | The Forward folder bar has no unread counters and never refreshes | open |
+| F-x12 | P3 | `sendComment` is dead code | open |
+| F-x15 | P3 | Shared folders still show chat-type and exclusion rows | open |
+| F-x16 | P3 | The folder editor ignores pinned chats; an all-pinned folder can't be saved | open |
+| F-x17 | P3 | Back discards unsaved folder edits without asking | open |
+| F-x18 | P3 | No per-folder chat limit before Save | open |
+| F-x19 | P3 | No Recommended Folders | open |
+| F-x20 | P3 | A new folder isn't named from a single chosen category | open |
+| F-x21 | P3 | Renaming a folder drops custom emoji | open |
+| F-x22 | P3 | Add Chats from the folder menu saves the folder as it was when the menu opened | open |
+| F-x23 | P3 | The folder list counts only loaded chats | open |
+| F-x25 | P3 | No partial-text selection for copying in read-only chats; no Reply in Another Chat | open |
+| F-x26 | P3 | Quotes aren't trimmed; a whitespace-only quote isn't dropped | open |
+| F-x27 | P3 | An edited quoted message still highlights the old position instead of Telegram's not-found toast | open |
+| F-x28 | P3 | The quote attaches after an async `getOption`; sending in that window drops it | open |
+| F-x29 | P3 | Tapping the composer reply panel only scrolls; no reply options menu | open |
+| F-x30 | P3 | Reply panel titles fall back to "Reply" for channel posts and anonymous admins | open |
+| F-x31 | P3 | Document and audio album captions probably can't be quoted (suspicion) | open |
+
+Reviewed and OK: forum topic VM ownership and update scoping, topic menu permissions, view as messages/topics, closed-topic writing rules, timeline identities and anchoring; Forward request checks, secret-chat copy mode, closed-topic destinations, send order and account dismissal; folder write sessions, removal and reorder; quote ranges, entities, spoilers, drafts and bubble expansion.
+
+
 ### Probe sweep — 2026-10-12
 
 Repeat on the merged build `e05d541` (localization merge): 86 of 91 probes report a pass; `draft-coding` passes in the app's tmp folder, and the four observation probes need live UI as above.
