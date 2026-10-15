@@ -2503,7 +2503,6 @@ import UIKit
         guard !sendingComposerMessage else { return }
         sendingComposerMessage = true
         let transitionID = UUID()
-        let sentText = text
         let sentReplyID = replyMessage?.id
         sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: .media))
         defer { sendingComposerMessage = false }
@@ -2513,9 +2512,8 @@ import UIKit
                 replyingTo: replyMessage,
                 useCurrentReplyOverride: true,
             )
-            let caption: FormattedText? = sentText.characters.isEmpty
-                ? nil
-                : FormattedText(entities: getEntities(from: sentText), text: sentText.string)
+            // Telegram sends a GIF from the panel without the input's text, keeps that text and clears only the reply
+            // (`ChatController` `sendMessages` for a gif result).
             let message = try await client.sendMessage(
                 chatId: context.chatID,
                 inputMessageContent: .inputMessageAnimation(InputMessageAnimation(
@@ -2527,7 +2525,7 @@ import UIKit
                         thumbnail: nil,
                         width: animation.width,
                     ),
-                    caption: caption,
+                    caption: nil,
                     hasSpoiler: false,
                     showCaptionAboveMedia: false,
                 )),
@@ -2539,24 +2537,16 @@ import UIKit
             guard locationContextIsCurrent,
                   context.matches(message: message)
             else { throw ChatSendContextError.unexpectedDestination }
-            let draftClearSucceeded = await clearRouteDraft(context)
-            if text == sentText {
-                text = ""
-            }
+            // As for a sticker: the draft keeps its text and loses only the reply the GIF used.
             if replyMessage?.id == sentReplyID {
                 cancelReply(markDirty: false)
-            }
-            composerRevision &+= 1
-            let hasNewComposerState = !text.characters.isEmpty
-                || replyMessage != nil
-                || !displayedImages.isEmpty
-                || !displayedDocuments.isEmpty
-            awaitingAuthoritativeDraftClear = location.isTopicScoped && !hasNewComposerState
-            composerIsDirty = awaitingAuthoritativeDraftClear || hasNewComposerState || !draftClearSucceeded
-            if hasNewComposerState {
-                await updateDraft()
-            } else if location.isTopicScoped {
-                loadForumTopic()
+                do {
+                    try await updateDraft(in: context, replyTo: nil)
+                    draftErrorMessage = nil
+                } catch {
+                    composerIsDirty = true
+                    scheduleDraftUpdateRetry(context, replyTo: nil)
+                }
             }
             sendErrorMessage = nil
             await Task.yield()
@@ -2626,7 +2616,9 @@ import UIKit
         for image in images {
             MediaUploadProgressRegistry.rememberSentPreview(image.image, path: image.url.path(percentEncoded: false))
         }
+        // Telegram attaches the input's caption to the first item of a group (`TGMediaAssetsController`).
         let caption = FormattedText(entities: getEntities(from: text), text: text.string)
+        let noCaption = FormattedText(entities: [], text: "")
         try await sendChatAction(
             sendsVideos
                 ? .chatActionUploadingVideo(ChatActionUploadingVideo(progress: 0))
@@ -2636,7 +2628,8 @@ import UIKit
         do {
             let sentMessages: [Message]
             var messageContents = [InputMessageContent]()
-            for image in images {
+            for (index, image) in images.enumerated() {
+                let caption = index == 0 ? caption : noCaption
                 if let video = image.video {
                     messageContents.append(makeInputMessageVideo(video, thumbnail: image.url, caption: caption))
                     continue
