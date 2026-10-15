@@ -573,7 +573,7 @@ final class ChatFolderInviteLinkViewController: UITableViewController, TelegramN
         super.viewDidLoad()
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"), style: .done, target: self, action: #selector(saveLink),
+            title: L10n.telegram("Common.Done"), style: .prominent, target: self, action: #selector(saveLink),
         )
         tableView.register(ChatFolderLeaveHeaderView.self, forHeaderFooterViewReuseIdentifier: Self.headerIdentifier)
         tableView.tableHeaderView = descriptionView()
