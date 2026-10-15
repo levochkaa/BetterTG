@@ -228,6 +228,12 @@
 "Chat.RichText.ShowMore" = "Show more";
 
 "ChatList.Search.ShowLess" = "Show less";
+"ChatList.Search.ShowMore" = "Show More";
+"ChatList.Search.NoResults" = "No Results";
+"ChatList.Search.NoResultsQueryDescription" = "There were no results for \"%@\".\nTry a new search.";
+"DialogList.SearchSectionDialogs" = "Chats and Contacts";
+"DialogList.SearchSectionGlobal" = "Global Search";
+"DialogList.SearchSectionMessages" = "Messages";
 
 "Map.Map" = "Map";
 

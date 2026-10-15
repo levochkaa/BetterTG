@@ -603,6 +603,36 @@ extension TDClient {
         try await send(TDNativeRequests.searchChatsOnServer(query: query, typeFilter: typeFilter, limit: limit))
     }
 
+    func searchContacts(query: String, limit: Int) async throws -> TDNativeUsers {
+        try await send(TDNativeRequests.searchContacts(query: query, limit: limit))
+    }
+
+    func searchMessages(
+        chatList: TDNativeChatList?,
+        query: String,
+        offset: String,
+        limit: Int,
+        filter: TDNativeSearchMessagesFilter?,
+        chatTypeFilter: TDNativeSearchMessagesChatTypeFilter?,
+        minDate: Int,
+        maxDate: Int,
+    ) async throws -> TDNativeFoundMessages {
+        try await send(TDNativeRequests.searchMessages(
+            chatList: chatList,
+            query: query,
+            offset: offset,
+            limit: limit,
+            filter: filter,
+            chatTypeFilter: chatTypeFilter,
+            minDate: minDate,
+            maxDate: maxDate,
+        ))
+    }
+
+    func searchPublicChats(query: String, typeFilter: TDNativeSearchChatTypeFilter?) async throws -> TDNativeChats {
+        try await send(TDNativeRequests.searchPublicChats(query: query, typeFilter: typeFilter))
+    }
+
     func sendChatAction(
         action: TDNativeChatAction?,
         businessConnectionId: String,

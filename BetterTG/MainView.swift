@@ -45,6 +45,13 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var folderControllers = [FolderViewController]()
     private var cancellables = Set<AnyCancellable>()
     private var searchQuery = ""
+    private lazy var searchResultsController = ChatListSearchResultsViewController(
+        rootVM: rootVM,
+        chatList: .chatListMain,
+        actionAuthority: actionAuthority,
+    )
+    /// A non-empty query shows TDLib results over every folder page, as Telegram's search container does.
+    private var isShowingSearchResults = false
     private var pageScrollObservation: NSKeyValueObservation?
     private var interactiveFolderTransition: (
         fromID: Int,
@@ -87,6 +94,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         configurePageController()
         configureNavigationBar()
         configureFolderPicker()
+        configureSearchResults()
 
         rootVM.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -468,7 +476,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         customNavigationBar.onQueryChange = { [weak self] query in
             guard let self else { return }
             searchQuery = query
-            folderControllers.forEach { $0.updateQuery(query) }
+            updateSearchResults(animated: true)
         }
         customNavigationBar.onSearchActiveChange = { [weak self] active in
             guard let self else { return }
@@ -480,6 +488,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 )
             }
             if active {
+                customNavigationBar.applyScroll(offset: 0, animated: true)
+            } else if isShowingSearchResults {
+                // The query stays on screen above its results; folder pages restored their own offsets.
                 customNavigationBar.applyScroll(offset: 0, animated: true)
             }
         }
@@ -518,12 +529,67 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         view.bringSubviewToFront(folderPicker)
     }
 
+    private func configureSearchResults() {
+        addChild(searchResultsController)
+        let resultsView = searchResultsController.view!
+        resultsView.translatesAutoresizingMaskIntoConstraints = false
+        view.insertSubview(resultsView, aboveSubview: pageController.view)
+        searchResultsController.didMove(toParent: self)
+        // Results end above the keyboard; without it they reach the bottom edge and inset for the home indicator.
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
+        NSLayoutConstraint.activate([
+            resultsView.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+            resultsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            resultsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            resultsView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+        ])
+        resultsView.alpha = 0
+        resultsView.isHidden = true
+        updateSearchResults(animated: false)
+    }
+
+    private func updateSearchResults(animated: Bool) {
+        searchResultsController.updateQuery(searchQuery)
+        let showsResults = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard showsResults != isShowingSearchResults else { return }
+        isShowingSearchResults = showsResults
+        let resultsView = searchResultsController.view!
+        if showsResults {
+            resultsView.isHidden = false
+            customNavigationBar.applyScroll(offset: 0, animated: animated)
+        } else if let currentFolderController {
+            applySearchScrollOffset(offset: currentFolderController.searchScrollOffset, animated: animated)
+        }
+        // Telegram hides the folder tabs while search results are shown.
+        folderPicker.isUserInteractionEnabled = !showsResults
+        let changes = {
+            resultsView.alpha = showsResults ? 1 : 0
+            self.folderPicker.alpha = showsResults ? 0 : 1
+        }
+        guard animated else {
+            changes()
+            resultsView.isHidden = !showsResults
+            return
+        }
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+            animations: changes,
+        ) { _ in
+            // A later query may have shown the results again.
+            resultsView.isHidden = !self.isShowingSearchResults
+        }
+    }
+
     private func updateNavigationBarHeight(contentHeight: CGFloat) {
         currentNavigationContentHeight = contentHeight
         navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + contentHeight
     }
 
     private func applySearchScrollOffset(offset: CGFloat, animated: Bool) {
+        // Search results keep the query field revealed; the folder page under them does not move it.
+        guard !isShowingSearchResults else { return }
         guard animated else {
             customNavigationBar.applyScroll(offset: offset)
             return
@@ -549,7 +615,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
         let sameFolderObjects = folderControllers.map(\.folder).elementsEqual(rootVM.folders, by: { $0 === $1 })
         guard currentIDs != newIDs || !sameFolderObjects else {
-            folderControllers.forEach { $0.updateQuery(searchQuery) }
             folderPicker.configure(
                 folders: rootVM.folders,
                 selectedID: rootVM.currentFolder,
@@ -573,11 +638,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 folder: folder, rootVM: rootVM, showsStandaloneSearch: false, actionAuthority: actionAuthority,
                 restorationViewport: restorationViewports.removeValue(forKey: folder.id),
             )
-            controller.updateQuery(searchQuery)
             controller.setSearchActive(customNavigationBar.isSearchActive, animated: false, preservingViewport: true)
             controller.isSearchActive = { [weak self] in self?.customNavigationBar.isSearchActive == true }
             controller.onSearchScrollOffsetChange = { [weak self, weak controller] offset in
-                guard let self, currentFolderController === controller else { return }
+                guard let self, currentFolderController === controller, !isShowingSearchResults else { return }
                 customNavigationBar.applyScroll(offset: offset)
             }
             return controller

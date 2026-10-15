@@ -19,6 +19,13 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     private let actionAuthority = ChatListActionAuthority()
     private var folderController: FolderViewController
     private let navigationBarView: TelegramListNavigationBar
+    private lazy var searchResultsController = ChatListSearchResultsViewController(
+        rootVM: rootVM,
+        chatList: .chatListArchive,
+        actionAuthority: actionAuthority,
+    )
+    /// A non-empty query shows TDLib results over the archive, as Telegram's search container does.
+    private var isShowingSearchResults = false
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private var cancellables = Set<AnyCancellable>()
     private var query: String
@@ -36,7 +43,6 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             folder: folder, rootVM: rootVM, showsStandaloneSearch: true,
             actionAuthority: actionAuthority, restorationViewport: restoration?.viewport,
         )
-        folderController.updateQuery(restoration?.query ?? "")
         folderController.setSearchActive(
             restoration?.searchWasFocused ?? false,
             animated: false,
@@ -71,7 +77,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         navigationBarView.onQueryChange = { [weak self] query in
             guard let self else { return }
             self.query = query
-            folderController.updateQuery(query)
+            updateSearchResults(animated: true)
             scheduleRestorationRetry()
         }
         navigationBarView.onSearchActiveChange = { [weak self] active in
@@ -79,6 +85,10 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             folderController.setSearchActive(
                 active, animated: !isRestoringSearchFocus, preservingViewport: isRestoringSearchFocus,
             )
+            if !active, isShowingSearchResults {
+                // The query stays on screen above its results; the archive list restored its own offset.
+                navigationBarView.applyScroll(offset: 0, animated: true)
+            }
             scheduleRestorationRetry()
         }
         navigationBarView.onVisibleHeightChange = { [weak self] contentHeight in
@@ -97,6 +107,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             navigationBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             navigationBarHeightConstraint,
         ])
+        configureSearchResults()
         rootVM.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.scheduleRestorationRetry() }
@@ -176,7 +187,6 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             folder: folder, rootVM: rootVM, showsStandaloneSearch: true,
             actionAuthority: actionAuthority, restorationViewport: viewport,
         )
-        folderController.updateQuery(query)
         folderController.setSearchActive(navigationBarView.isSearchActive, animated: false, preservingViewport: true)
         installFolderController()
         view.bringSubviewToFront(navigationBarView)
@@ -185,12 +195,14 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     private func installFolderController() {
         folderController.isSearchActive = { [weak self] in self?.navigationBarView.isSearchActive == true }
         folderController.onSearchScrollOffsetChange = { [weak self] offset in
-            self?.navigationBarView.applyScroll(offset: offset)
+            guard let self, !isShowingSearchResults else { return }
+            navigationBarView.applyScroll(offset: offset)
         }
         folderController.onListInteractionEnded = { [weak self] in self?.scheduleRestorationRetry() }
         addChild(folderController)
         folderController.view.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(folderController.view)
+        // The list stays beneath search results and the navigation bar when it is replaced.
+        view.insertSubview(folderController.view, at: 0)
         NSLayoutConstraint.activate([
             folderController.view.topAnchor.constraint(equalTo: view.topAnchor),
             folderController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -198,6 +210,53 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             folderController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         folderController.didMove(toParent: self)
+    }
+
+    private func configureSearchResults() {
+        addChild(searchResultsController)
+        let resultsView = searchResultsController.view!
+        resultsView.translatesAutoresizingMaskIntoConstraints = false
+        view.insertSubview(resultsView, belowSubview: navigationBarView)
+        searchResultsController.didMove(toParent: self)
+        // Results end above the keyboard; without it they reach the bottom edge and inset for the home indicator.
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
+        NSLayoutConstraint.activate([
+            resultsView.topAnchor.constraint(equalTo: navigationBarView.bottomAnchor),
+            resultsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            resultsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            resultsView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+        ])
+        resultsView.alpha = 0
+        resultsView.isHidden = true
+        updateSearchResults(animated: false)
+    }
+
+    private func updateSearchResults(animated: Bool) {
+        searchResultsController.updateQuery(query)
+        let showsResults = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard showsResults != isShowingSearchResults else { return }
+        isShowingSearchResults = showsResults
+        let resultsView = searchResultsController.view!
+        if showsResults {
+            resultsView.isHidden = false
+            navigationBarView.applyScroll(offset: 0, animated: animated)
+        } else {
+            navigationBarView.applyScroll(offset: folderController.searchScrollOffset, animated: animated)
+        }
+        guard animated else {
+            resultsView.alpha = showsResults ? 1 : 0
+            resultsView.isHidden = !showsResults
+            return
+        }
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+            animations: { resultsView.alpha = showsResults ? 1 : 0 },
+        ) { _ in
+            // A later query may have shown the results again.
+            resultsView.isHidden = !self.isShowingSearchResults
+        }
     }
 }
 
@@ -307,7 +366,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private let showsStandaloneSearch: Bool
     private let rootVM: RootVM
     private let actionAuthority: ChatListActionAuthority
-    private var query = ""
     private var searchActive = false
     private var didSetInitialSearchOffset = false
     private var initialSearchScrollOffset = ChatListNavigationSearchView.scrollHeight
@@ -341,15 +399,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         )
     }
 
-    private var filteredChats: [CustomChat] {
+    private var orderedChats: [CustomChat] {
         folder.chats
             .sorted { $0.position.order == $1.position.order ? $0.id > $1.id : $0.position.order > $1.position.order }
-            .filter {
-                query.isEmpty
-                    || $0.displayTitle.localizedCaseInsensitiveContains(query)
-                    || $0.user?.firstName.localizedCaseInsensitiveContains(query) == true
-                    || $0.user?.lastName.localizedCaseInsensitiveContains(query) == true
-            }
     }
 
     init(
@@ -552,18 +604,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }
     }
 
-    func updateQuery(_ query: String) {
-        guard self.query != query else { return }
-        if isViewLoaded {
-            clientViewportRestoration.cancel()
-            didSetInitialSearchOffset = true
-        }
-        self.query = query
-        updateSnapshot(animated: false)
-    }
-
     func scrollToTop() {
-        guard !filteredChats.isEmpty else { return }
+        guard !orderedChats.isEmpty else { return }
         tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: true)
     }
 
@@ -713,7 +755,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         // Membership can change before a queued UI publisher runs. Populate the
         // provider cache before publishing new identifiers, including on scope updates.
         rebuildChatIndex()
-        let displayedChats = filteredChats
+        let displayedChats = orderedChats
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
         snapshot.appendSections([.main])
         snapshot.appendItems(displayedChats.map(\.id))
