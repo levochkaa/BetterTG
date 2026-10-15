@@ -163,6 +163,14 @@ final class ChatManagementViewController: SettingsListViewController {
                 value: count > 0 ? count.formatted(.number) : nil,
             ) { [weak self] in self?.openAdministrators() })
         }
+        if target.supergroupID != nil, target.rights?.canRestrictMembers == true {
+            let count = target.supergroupInfo?.bannedCount ?? 0
+            rows.append(disclosure(
+                L10n.telegram("GroupInfo.Permissions.Removed"),
+                symbol: "nosign",
+                value: count > 0 ? count.formatted(.number) : nil,
+            ) { [weak self] in self?.push(ChatRemovedUsersViewController(target: target)) })
+        }
         return rows
     }
 

@@ -1466,3 +1466,12 @@
 "GroupPermission.SectionTitle" = "WHAT CAN THIS MEMBER DO?";
 "GroupPermission.Title" = "Exception";
 "MessageTimer.Forever" = "Forever";
+"Channel.Management.RemovedBy" = "Removed by %@";
+"ChannelRemoved.RemoveInfo" = "Users removed from the channel by admins cannot rejoin it via invite links.";
+"GroupInfo.Permissions.Removed" = "Removed Users";
+"GroupRemoved.AddToGroup" = "Add To Group";
+"GroupRemoved.DeleteUser" = "Delete";
+"GroupRemoved.Remove" = "Remove User";
+"GroupRemoved.RemoveInfo" = "Users removed from the group by admins cannot rejoin it via invite links.";
+"GroupRemoved.Title" = "Removed Users";
+"GroupRemoved.UsersSectionTitle" = "REMOVED USERS";
