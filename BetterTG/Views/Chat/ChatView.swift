@@ -196,6 +196,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private var videoNoteChatActionActive = false
+    private var videoNoteChatActionTask: Task<Void, Never>?
     private var restoredVideoRecordingDraftIDHandled: UUID?
     private var selectedDisplayedMessageIDs = Set<DisplayedMessageID>()
     private var isSelectingMessages = false
@@ -1646,21 +1647,28 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             composerView.updateVideoNoteState(state)
             switch state {
             case .holding, .locked:
+                if let recorder { RecordingIdleTimer.hold(recorder) }
                 if !videoNoteChatActionActive {
                     videoNoteChatActionActive = true
-                    Task { [weak self] in
-                        guard let self else { return }
-                        _ = try? await chatVM.tdSendFrozenMediaChatAction(
-                            .chatActionRecordingVideoNote,
-                            sendTopic: videoNoteSendTopic,
-                            replyTo: videoNoteReplyInput,
-                        )
+                    // TDLib expires a chat action after a few seconds; Telegram repeats it while recording.
+                    videoNoteChatActionTask = Task { [weak self] in
+                        while !Task.isCancelled {
+                            guard let self, videoNoteChatActionActive else { return }
+                            _ = try? await chatVM.tdSendFrozenMediaChatAction(
+                                .chatActionRecordingVideoNote,
+                                sendTopic: videoNoteSendTopic,
+                                replyTo: videoNoteReplyInput,
+                            )
+                            try? await Task.sleep(for: .seconds(4))
+                        }
                     }
                 }
             case .failed(let message):
+                if let recorder { RecordingIdleTimer.release(recorder) }
                 stopVideoNoteChatAction()
                 presentVideoNoteErrorIfNeeded(message)
             case .idle, .preview, .sending:
+                if let recorder { RecordingIdleTimer.release(recorder) }
                 stopVideoNoteChatAction()
             case .preparing, .stopping:
                 break
@@ -1729,6 +1737,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             recorder.willMove(toParent: nil)
             recorder.view.removeFromSuperview()
             recorder.removeFromParent()
+            RecordingIdleTimer.release(recorder)
             videoNoteRecorder = nil
             stopVideoNoteChatAction()
             videoNoteReplyMessage = nil
@@ -1842,6 +1851,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func stopVideoNoteChatAction() {
         guard videoNoteChatActionActive else { return }
         videoNoteChatActionActive = false
+        videoNoteChatActionTask?.cancel()
+        videoNoteChatActionTask = nil
         let sendTopic = videoNoteSendTopic
         let replyTo = videoNoteReplyInput
         Task { [weak chatVM] in

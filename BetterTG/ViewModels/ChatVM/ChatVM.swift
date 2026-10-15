@@ -173,6 +173,7 @@ import UIKit
     /// admins and chats without slow mode.
     private var slowModeExpiresAt: Date?
 
+    private var recordingActionRefreshTask: Task<Void, Never>?
     private var voiceRecordingTimerBaseline = 0.0
     private var voiceRecordingLastRecorderTime = 0.0
     private var voiceRecordingDraftTask: Task<Void, Never>?
@@ -747,8 +748,10 @@ import UIKit
         voiceRecordingPreviewPlayer.stop()
         chatInfoTask?.cancel()
         timer?.invalidate()
+        recordingActionRefreshTask?.cancel()
         audioRecorder?.stop()
         MainActor.assumeIsolated {
+            RecordingIdleTimer.release(self)
             allMessagesTopicReads?.retire()
             voiceBackgroundCheckpoint.finish()
             messageRefresh?.cancel()
@@ -3356,6 +3359,8 @@ import UIKit
 
     func startTimer() {
         guard timer == nil else { return }
+        RecordingIdleTimer.hold(self)
+        startRecordingActionRefresh()
         let timer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, let audioRecorder else { return }
@@ -3371,6 +3376,9 @@ import UIKit
     func stopTimer() {
         timer?.invalidate()
         timer = nil
+        RecordingIdleTimer.release(self)
+        recordingActionRefreshTask?.cancel()
+        recordingActionRefreshTask = nil
         timerCount = 0
         voiceRecordingTimerBaseline = 0
         voiceRecordingLastRecorderTime = 0
@@ -3842,6 +3850,19 @@ import UIKit
         reader.synchronize(ChatForumTopicReads.demandedIDs(
             chatID: chatID, messages: messages.flatMap(\.sourceMessages), composerTopics: composerTopics,
         ))
+    }
+
+    /// TDLib expires a chat action after a few seconds; Telegram repeats "recording audio" while the recording lasts.
+    private func startRecordingActionRefresh() {
+        recordingActionRefreshTask?.cancel()
+        recordingActionRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(4))
+                guard !Task.isCancelled, let self, recordingVoiceNote,
+                      let context = activeVoiceRecordingContext else { return }
+                _ = try? await sendChatAction(.chatActionRecordingVoiceNote, in: context)
+            }
+        }
     }
 
     /// Waits up to 30 s for the composer's own send (text, media or documents) to finish.
