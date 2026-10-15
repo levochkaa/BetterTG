@@ -89,7 +89,6 @@
 "Message.Unsupported" = "Unsupported message";
 "Message.Unsupported.TDLib" = "This message isn't supported by the current TDLib version.";
 "Message.Unsupported.Paid" = "Paid, Premium, Stars, TON, gift, boost, and collectible flows aren't supported in BetterTG.";
-"Message.Unsupported.Game" = "Game messages aren't supported yet.";
 "Message.Unsupported.Story" = "Forwarded stories aren't supported yet.";
 "Message.Unsupported.Invoice" = "Payments aren't supported in BetterTG.";
 "Accessibility.HidePinnedMessage" = "Hide pinned message";

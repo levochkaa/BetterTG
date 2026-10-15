@@ -332,6 +332,7 @@ final class MessageStructuredContentView: UIView {
             case is StickerGlyphContentView: "stickerGlyph"
             case is ServiceMessageContentView: "service"
             case is ChecklistMessageContentView: "checklist"
+            case is GameMessageContentView: "game"
             default: "none"
             }
         }
@@ -396,6 +397,8 @@ final class MessageStructuredContentView: UIView {
                 )
             case .document(let document):
                 TelegramFileMessageView(document: document, client: client, onAction: onAction)
+            case .game(let game):
+                GameMessageContentView(game: game, messageID: messageID, client: client, onAction: onAction)
             case .location(let location):
                 LocationMessageContentView(content: location, onAction: onAction)
             case .linkPreview(let preview):
@@ -2707,7 +2710,7 @@ final class TelegramContactDetailsViewController: UIViewController {
             }
             let expectedNames = [
                 "file", "file", "attachmentAlbum", "contact", "contact", "location", "location",
-                "poll", "poll", "dice", "stickerGlyph", "service", "service", "checklist", "checklist",
+                "poll", "poll", "dice", "stickerGlyph", "service", "service", "checklist", "checklist", "game",
             ]
             let actionProof = actions.contains("poll:0") && actions.contains("poll:0,1")
                 && actions.filter { $0 == "checklist:2:true" }.count == 1
@@ -2829,6 +2832,15 @@ final class TelegramContactDetailsViewController: UIViewController {
                     messageID: 915,
                     content: .messageChecklist(MessageChecklist(list: makeChecklist(markable: false))),
                 ),
+                Fixture(name: "game", messageID: 916, content: .messageGame(MessageGame(game: Game(
+                    animation: nil,
+                    description: "A game without media.",
+                    id: 1,
+                    photo: Photo(hasStickers: false, minithumbnail: nil, sizes: []),
+                    shortName: "probe",
+                    text: FormattedText(entities: [], text: ""),
+                    title: "Parity Game",
+                )))),
             ]
         }
 

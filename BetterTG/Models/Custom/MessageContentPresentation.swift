@@ -49,6 +49,7 @@ struct MessageContentPresentation {
         case contact(Contact)
         case dice(DiceContent)
         case document(Document)
+        case game(Game)
         case location(LocationContent)
         case linkPreview(LinkPreview)
         case none
@@ -285,8 +286,14 @@ struct MessageContentPresentation {
                     messageDate: 0,
                 )),
             )
-        case .messageGame:
-            return unsupported(title: L10n.telegram("Message.Game"), detail: L10n.betterTG("Message.Unsupported.Game"))
+        case .messageGame(let message):
+            // Telegram's chat list reads a game as its title (ChatListItemStrings).
+            return Self(
+                formattedText: nil,
+                isVisualMedia: false,
+                summary: firstNonEmpty(message.game.title, L10n.telegram("Message.Game")),
+                supplement: .game(message.game),
+            )
         case .messagePoll(let message):
             return Self(
                 formattedText: nonEmpty(message.description),

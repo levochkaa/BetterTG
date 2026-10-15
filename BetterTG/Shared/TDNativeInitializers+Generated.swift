@@ -331,6 +331,28 @@ extension TDNativeForwardSource {
     }
 }
 
+extension TDNativeGame {
+    init(
+        animation: TDNativeAnimation?,
+        description: String,
+        id: Int64,
+        photo: TDNativePhoto,
+        shortName: String,
+        text: TDNativeFormattedText,
+        title: String,
+    ) {
+        self.init(
+            id: id,
+            shortName: shortName,
+            title: title,
+            text: text,
+            description: description,
+            photo: photo,
+            animation: animation,
+        )
+    }
+}
+
 extension TDNativeImportedContact {
     init(firstName: String, lastName: String, note: TDNativeFormattedText, phoneNumber: String) {
         self.init(phoneNumber: phoneNumber, firstName: firstName, lastName: lastName, note: note)
