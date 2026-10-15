@@ -1565,13 +1565,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         updatePinnedMessageBanner(animated: false)
     }
 
-    /// Telegram's playback header sits under the navigation bar while a voice note of this chat is loaded.
+    /// Telegram's playback header sits under the navigation bar while a voice note of this account is loaded; one of
+    /// another chat keeps the text its own chat gave it, and opens there (ChatControllerNode's media panel).
     private func configureVoicePlaybackHeader() {
         voicePlaybackHeader.onTogglePlayback = { Media.shared.togglePlayback() }
         voicePlaybackHeader.onCycleRate = { Media.shared.cyclePlaybackRate() }
         voicePlaybackHeader.onClose = { Media.shared.close() }
         voicePlaybackHeader.onOpen = { [weak self] in
-            guard let self, let item = Media.shared.nowPlaying, item.chatID == chatVM.chatID else { return }
+            guard let self, let item = Media.shared.nowPlaying, item.accountID == location.accountID else { return }
             navigate(to: .message(chatID: item.chatID, messageID: item.messageID, quote: nil))
         }
         Publishers.CombineLatest4(
@@ -1580,13 +1581,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             Media.shared.$playbackPosition,
             Media.shared.$playbackRate,
         )
+        .combineLatest(Media.shared.$nowPlayingDisplay)
         .receive(on: DispatchQueue.main)
-        .sink { [weak self] nowPlaying, isPlaying, position, rate in
+        .sink { [weak self] playback, display in
             self?.updateVoicePlaybackHeader(
-                nowPlaying: nowPlaying,
-                isPlaying: isPlaying,
-                position: position,
-                rate: rate,
+                nowPlaying: playback.0,
+                display: display,
+                isPlaying: playback.1,
+                position: playback.2,
+                rate: playback.3,
             )
         }
         .store(in: &cancellables)
@@ -1658,29 +1661,44 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateVoicePlaybackHeader(
         nowPlaying: Media.NowPlaying?,
+        display: Media.NowPlayingDisplay?,
         isPlaying: Bool,
         position: TimeInterval,
         rate: Float,
     ) {
         guard voicePlaybackHeaderHeightConstraint != nil else { return }
         let item = nowPlaying.flatMap { item in
-            presentationMode == .full && item.chatID == chatVM.chatID && item.accountID == location.accountID
-                ? item
-                : nil
+            presentationMode == .full && item.accountID == location.accountID ? item : nil
         }
-        if let item {
+        let text: Media.NowPlayingDisplay? = item.flatMap { item in
+            let recorded = display?.item == item ? display : nil
+            guard item.chatID == chatVM.chatID else { return recorded }
+            let message = chatVM.messages.first { message in
+                message.id == item.messageID || message.album.contains { $0.id == item.messageID }
+            }
+            // Another route of this chat (a thread, a topic) that hasn't loaded the note keeps the recorded text.
+            if message == nil, let recorded { return recorded }
+            let local = Media.NowPlayingDisplay(
+                item: item,
+                title: voicePlaybackTitle(message),
+                subtitle: voicePlaybackSubtitle(),
+            )
+            if message != nil { Media.shared.setDisplay(local) }
+            return local
+        }
+        if let text {
             let duration = Media.shared.playbackDuration
             voicePlaybackHeader.configure(.init(
-                title: voicePlaybackTitle(messageID: item.messageID),
-                subtitle: voicePlaybackSubtitle(),
+                title: text.title,
+                subtitle: text.subtitle,
                 isPlaying: isPlaying,
                 progress: duration > 0 ? CGFloat(position / duration) : 0,
                 rate: rate,
             ))
         }
-        let desiredHeight = item == nil ? 0 : VoicePlaybackHeaderView.contentHeight
+        let desiredHeight = text == nil ? 0 : VoicePlaybackHeaderView.contentHeight
         guard abs(voicePlaybackHeaderHeightConstraint.constant - desiredHeight) > 0.5 else { return }
-        if item != nil { voicePlaybackHeader.isHidden = false }
+        if text != nil { voicePlaybackHeader.isHidden = false }
         voicePlaybackHeaderHeightConstraint.constant = desiredHeight
         UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.2) {
             self.view.layoutIfNeeded()
@@ -1692,10 +1710,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// MediaHeaderItemNode's voice title: the author's name, or the chat's for a channel post.
-    private func voicePlaybackTitle(messageID: Int64) -> String {
-        let message = chatVM.messages.first { message in
-            message.id == messageID || message.album.contains { $0.id == messageID }
-        }
+    private func voicePlaybackTitle(_ message: CustomMessage?) -> String {
         if let user = message?.senderUser { return ServiceMessageText.displayTitle(user) }
         return chatVM.customChat.displayTitle
     }

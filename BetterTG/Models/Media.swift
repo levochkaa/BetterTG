@@ -14,6 +14,13 @@ final class Media: ObservableObject {
         let messageID: Int64
     }
 
+    /// The header text the note's chat gave it, so the header can name it over the chat list and in other chats.
+    struct NowPlayingDisplay: Equatable {
+        let item: NowPlaying
+        let title: String
+        let subtitle: String
+    }
+
     static let shared = Media()
     /// Telegram's playback speeds, cycled by the header's rate button (rateButtonPressed).
     static let playbackRates: [Float] = [1, 1.5, 2]
@@ -26,6 +33,7 @@ final class Media: ObservableObject {
     /// The position with its fraction, which a voice bubble's waveform follows; currentTime keeps whole seconds.
     @Published private(set) var playbackPosition: TimeInterval = 0
     @Published private(set) var nowPlaying: NowPlaying?
+    @Published private(set) var nowPlayingDisplay: NowPlayingDisplay?
     /// A note that played to its end, so its chat can continue with the next one (Telegram's voice playlist).
     let playbackFinished = PassthroughSubject<NowPlaying, Never>()
     @Published private(set) var playbackRate: Float = {
@@ -37,6 +45,10 @@ final class Media: ObservableObject {
 
     private var duration = 0
     private var title = ""
+    /// The title of the chat the loaded audio came from, for the lock screen once that chat is closed.
+    private var loadedTitle = ""
+    /// The loaded audio played at least once; a note only positioned by scrubbing has not.
+    private var hasPlayedLoadedItem = false
 
     private let player = LocalMediaPlayer()
     private let audioSession = AVAudioSession.sharedInstance()
@@ -53,6 +65,15 @@ final class Media: ObservableObject {
     private init() {
         setPublishers()
         setCommandCenterControls()
+        // A note of another account stops: its chat, file and header belong to the account that was left.
+        TDLib.shared
+            .activeClientChanges
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] source in
+                guard let self, let item = nowPlaying, item.accountID != source.accountID else { return }
+                close()
+            }
+            .store(in: &cancellables)
     }
 
     func stop() {
@@ -61,6 +82,8 @@ final class Media: ObservableObject {
         playbackPosition = 0
         savedMediaPath = ""
         nowPlaying = nil
+        nowPlayingDisplay = nil
+        hasPlayedLoadedItem = false
         player.stop()
         nowPlayingCenter.nowPlayingInfo = nil
     }
@@ -94,8 +117,18 @@ final class Media: ObservableObject {
         self.title = title
     }
 
+    /// Leaving a chat stops its audio, except a chat's voice note that has played: Telegram keeps it going, with its
+    /// playback header over the chat list (ChatListControllerNode's media header panel).
     func onChatDismiss() {
+        guard nowPlaying?.accountID == nil || !hasPlayedLoadedItem else { return }
         stop()
+    }
+
+    /// Records the header text the first chat view that loaded the note gave it; later views keep it, so two views
+    /// of one chat never trade updates.
+    func setDisplay(_ display: NowPlayingDisplay) {
+        guard display.item == nowPlaying, nowPlayingDisplay?.item != display.item else { return }
+        nowPlayingDisplay = display
     }
 
     func seekForward() {
@@ -116,6 +149,7 @@ final class Media: ObservableObject {
             stop()
             savedMediaPath = path
             nowPlaying = item
+            loadedTitle = title
             player.load(
                 url: URL(fileURLWithPath: path),
                 autoplay: false,
@@ -133,6 +167,7 @@ final class Media: ObservableObject {
         self.duration = duration
         savedMediaPath = path
         nowPlaying = item
+        loadedTitle = title
         playbackPosition = max(0, time)
         player.load(
             url: URL(fileURLWithPath: path),
@@ -300,6 +335,7 @@ final class Media: ObservableObject {
         player.setRate(playbackRate)
         player.play()
         isPlaying = true
+        hasPlayedLoadedItem = true
         setNowPlaying()
     }
 
@@ -313,7 +349,7 @@ final class Media: ObservableObject {
 
     private func setNowPlaying() {
         var info = [String: Any]()
-        info[MPMediaItemPropertyTitle] = title
+        info[MPMediaItemPropertyTitle] = loadedTitle
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = Double(currentTime)
         info[MPMediaItemPropertyPlaybackDuration] = Double(duration)
         nowPlayingCenter.nowPlayingInfo = info

@@ -30,6 +30,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         navigationOrientation: .horizontal,
     )
     private let folderPicker = FolderPickerView()
+    /// Telegram's media header panel (ChatListControllerNode, MediaPlaybackHeaderPanelComponent) under the navigation
+    /// bar while a voice note keeps playing after its chat closed.
+    private let voicePlaybackPanel = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let voicePlaybackHeader = VoicePlaybackHeaderView()
+    private var voicePlaybackPanelHeightConstraint: NSLayoutConstraint?
+    private var voicePlaybackOpenTask: Task<Void, Never>?
     private lazy var customNavigationBar = TelegramListNavigationBar(
         title: "BetterTG",
         placeholder: L10n.telegram("DialogList.SearchLabel"),
@@ -74,6 +80,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         pageController.viewControllers?.first as? FolderViewController
     }
 
+    private var voicePlaybackInset: CGFloat {
+        voicePlaybackPanelHeightConstraint?.constant ?? 0
+    }
+
     init(rootVM: RootVM, restoration: ClientRestorationState? = nil) {
         self.rootVM = rootVM
         self.isClientRestoration = restoration != nil
@@ -96,6 +106,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         configureNavigationBar()
         configureFolderPicker()
         configureSearchResults()
+        configureVoicePlaybackHeader()
 
         rootVM.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -116,6 +127,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             .store(in: &cancellables)
         folderUnreadStates = FolderUnreadStore.shared.states(for: actionAuthority.client.id)
         reloadFromState()
+        updateVoicePlaybackHeader(animated: false)
         if !isClientRestoration { configureAutomatedSmokeRoute() }
     }
 
@@ -487,6 +499,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
         customNavigationBar.onSearchActiveChange = { [weak self] active in
             guard let self else { return }
+            updateVoicePlaybackHeader(animated: !isRestoringSearchFocus, searchActive: active)
             for folderController in folderControllers {
                 folderController.setSearchActive(
                     active,
@@ -560,6 +573,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         let showsResults = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard showsResults != isShowingSearchResults else { return }
         isShowingSearchResults = showsResults
+        updateVoicePlaybackHeader(animated: animated)
         let resultsView = searchResultsController.view!
         if showsResults {
             resultsView.isHidden = false
@@ -592,6 +606,104 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private func updateNavigationBarHeight(contentHeight: CGFloat) {
         currentNavigationContentHeight = contentHeight
         navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + contentHeight
+    }
+
+    private func configureVoicePlaybackHeader() {
+        voicePlaybackPanel.translatesAutoresizingMaskIntoConstraints = false
+        voicePlaybackPanel.clipsToBounds = true
+        voicePlaybackPanel.isHidden = true
+        view.insertSubview(voicePlaybackPanel, belowSubview: customNavigationBar)
+        voicePlaybackHeader.translatesAutoresizingMaskIntoConstraints = false
+        voicePlaybackPanel.contentView.addSubview(voicePlaybackHeader)
+        let heightConstraint = voicePlaybackPanel.heightAnchor.constraint(equalToConstant: 0)
+        voicePlaybackPanelHeightConstraint = heightConstraint
+        NSLayoutConstraint.activate([
+            voicePlaybackPanel.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+            voicePlaybackPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            voicePlaybackPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            heightConstraint,
+            voicePlaybackHeader.topAnchor.constraint(equalTo: voicePlaybackPanel.contentView.topAnchor),
+            voicePlaybackHeader.leadingAnchor.constraint(equalTo: voicePlaybackPanel.contentView.leadingAnchor),
+            voicePlaybackHeader.trailingAnchor.constraint(equalTo: voicePlaybackPanel.contentView.trailingAnchor),
+            voicePlaybackHeader.bottomAnchor.constraint(equalTo: voicePlaybackPanel.contentView.bottomAnchor),
+        ])
+        voicePlaybackHeader.onTogglePlayback = { Media.shared.togglePlayback() }
+        voicePlaybackHeader.onCycleRate = { Media.shared.cyclePlaybackRate() }
+        voicePlaybackHeader.onClose = { Media.shared.close() }
+        voicePlaybackHeader.onOpen = { [weak self] in self?.openVoicePlaybackMessage() }
+        Publishers.CombineLatest4(
+            Media.shared.$nowPlaying,
+            Media.shared.$isPlaying,
+            Media.shared.$playbackPosition,
+            Media.shared.$playbackRate,
+        )
+        .combineLatest(Media.shared.$nowPlayingDisplay)
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in self?.updateVoicePlaybackHeader(animated: true) }
+        .store(in: &cancellables)
+    }
+
+    /// The note's chat named it while it was open; Telegram hides the header panels while search is shown.
+    private func updateVoicePlaybackHeader(animated: Bool, searchActive: Bool? = nil) {
+        guard let heightConstraint = voicePlaybackPanelHeightConstraint else { return }
+        let media = Media.shared
+        let display = media.nowPlayingDisplay.flatMap { display in
+            display.item == media.nowPlaying && display.item.accountID == navigationClientSource?.accountID
+                ? display
+                : nil
+        }
+        if let display {
+            let duration = media.playbackDuration
+            voicePlaybackHeader.configure(.init(
+                title: display.title,
+                subtitle: display.subtitle,
+                isPlaying: media.isPlaying,
+                progress: duration > 0 ? CGFloat(media.playbackPosition / duration) : 0,
+                rate: media.playbackRate,
+            ))
+        }
+        let searching = searchActive ?? customNavigationBar.isSearchActive
+        let shows = display != nil && !searching && !isShowingSearchResults
+        let height = shows ? VoicePlaybackHeaderView.contentHeight : 0
+        guard abs(heightConstraint.constant - height) > 0.5 else { return }
+        if shows { voicePlaybackPanel.isHidden = false }
+        heightConstraint.constant = height
+        let changes = {
+            for folderController in self.folderControllers {
+                folderController.setAccessoryTopInset(height)
+            }
+            self.view.layoutIfNeeded()
+        }
+        guard animated, view.window != nil, !UIAccessibility.isReduceMotionEnabled else {
+            changes()
+            voicePlaybackPanel.isHidden = !shows
+            return
+        }
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+            animations: changes,
+        ) { [weak self] _ in
+            guard let self else { return }
+            voicePlaybackPanel.isHidden = voicePlaybackInset == 0
+        }
+    }
+
+    /// Tapping the header opens the note's chat at the note, as MediaPlaybackHeaderPanelComponent does.
+    private func openVoicePlaybackMessage() {
+        let scope = actionAuthority.scope(owner: self)
+        guard scope.isCurrent, navigationController?.topViewController === self,
+              let item = Media.shared.nowPlaying, item.accountID == scope.source?.accountID else { return }
+        let client = actionAuthority.client
+        let rootVM = rootVM
+        voicePlaybackOpenTask?.cancel()
+        voicePlaybackOpenTask = Task { [weak self] in
+            let chat = await rootVM.getCustomChatForNavigation(from: item.chatID, client: client)
+            guard let self, let chat, scope.isCurrent, navigationController?.topViewController === self else { return }
+            voicePlaybackOpenTask = nil
+            NavigationStorage.shared.push(.customChat(chat, targetMessageID: item.messageID))
+        }
     }
 
     private func applySearchScrollOffset(offset: CGFloat, animated: Bool) {
@@ -646,6 +758,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 restorationViewport: restorationViewports.removeValue(forKey: folder.id),
             )
             controller.setSearchActive(customNavigationBar.isSearchActive, animated: false, preservingViewport: true)
+            controller.setAccessoryTopInset(voicePlaybackInset)
             controller.isSearchActive = { [weak self] in self?.customNavigationBar.isSearchActive == true }
             controller.allowsRowSwipe = { [weak self] in
                 guard let self else { return false }

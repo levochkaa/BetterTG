@@ -407,6 +407,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private let rootVM: RootVM
     private let actionAuthority: ChatListActionAuthority
     private var searchActive = false
+    /// The height of the header panels under the navigation bar (the playback header), which the rows sit below.
+    private var accessoryTopInset = CGFloat.zero
     private var didSetInitialSearchOffset = false
     private var initialSearchScrollOffset = ChatListNavigationSearchView.scrollHeight
     /// Where the page was before the shared search began. Search covers every page, as Telegram's search overlay
@@ -518,9 +520,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let initialTopInset = searchActive
             ? ChatListNavigationSearchView.scrollHeight
             : TelegramListNavigationBar.expandedContentHeight
-        tableView.contentInset.top = initialTopInset
+        tableView.contentInset.top = initialTopInset + accessoryTopInset
         tableView.contentInset.bottom = showsStandaloneSearch ? 0 : 58
-        tableView.verticalScrollIndicatorInsets.top = initialTopInset
+        tableView.verticalScrollIndicatorInsets.top = initialTopInset + accessoryTopInset
         tableView.verticalScrollIndicatorInsets.bottom = showsStandaloneSearch ? 0 : 58
         tableView.prefetchDataSource = self
         tableView.register(ChatListCell.self, forCellReuseIdentifier: ChatListCell.reuseIdentifier)
@@ -736,6 +738,19 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: animated)
     }
 
+    /// A header panel appearing under the navigation bar pushes the rows down by its height and keeps the search
+    /// field's reveal, as Telegram's navigation header panels do.
+    func setAccessoryTopInset(_ inset: CGFloat) {
+        let delta = inset - accessoryTopInset
+        guard abs(delta) > 0.5 else { return }
+        accessoryTopInset = inset
+        guard isViewLoaded else { return }
+        let offset = tableView.contentOffset.y
+        tableView.contentInset.top += delta
+        tableView.verticalScrollIndicatorInsets.top += delta
+        tableView.contentOffset.y = offset - delta
+    }
+
     func setSearchActive(_ active: Bool, animated: Bool, preservingViewport: Bool = false) {
         if active { endPinnedReorder() }
         let wasActive = searchActive
@@ -759,8 +774,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             ? ChatListNavigationSearchView.scrollHeight
             : TelegramListNavigationBar.expandedContentHeight
         let changes = {
-            self.tableView.contentInset.top = targetTopInset
-            self.tableView.verticalScrollIndicatorInsets.top = targetTopInset
+            self.tableView.contentInset.top = targetTopInset + self.accessoryTopInset
+            self.tableView.verticalScrollIndicatorInsets.top = targetTopInset + self.accessoryTopInset
             self.tableView.layoutIfNeeded()
             if let viewport {
                 viewport.restore(tableView: self.tableView) { self.dataSource.indexPath(for: $0) }
