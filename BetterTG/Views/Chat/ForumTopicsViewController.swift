@@ -46,11 +46,13 @@ import UIKit
     /// Moves rows only while the list reorders its pinned topics; the diffable source keeps its snapshot in step.
     private final class TopicRowsDataSource: UITableViewDiffableDataSource<Section, Item> {
         var canMoveRow: ((IndexPath) -> Bool)?
+        /// Topic rows that offer swipe actions; UIKit asks for them only on editable rows.
+        var canSwipeRow: ((IndexPath) -> Bool)?
         /// The moved topic, the topic it was dropped onto, and whether it moved down.
         var didMoveRow: ((Int, Int, Bool) -> Void)?
 
         override func tableView(_: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
-            canMoveRow?(indexPath) ?? false
+            canMoveRow?(indexPath) == true || canSwipeRow?(indexPath) == true
         }
 
         override func tableView(_: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
@@ -347,8 +349,31 @@ import UIKit
         return header
     }
 
-    func tableView(_: UITableView, editingStyleForRowAt _: IndexPath) -> UITableViewCell.EditingStyle {
-        .none
+    func tableView(_ tableView: UITableView, editingStyleForRowAt _: IndexPath) -> UITableViewCell.EditingStyle {
+        // Reordering shows only the grip; outside it the style lets UIKit offer the row's swipe actions.
+        tableView.isEditing ? .none : .delete
+    }
+
+    /// Telegram's topic reveal options (ChatListItem `forumThreadRevealOptions`, `forumGeneralRevealOptions`):
+    /// Mute or Unmute, Delete, then Close or Start, with the last one on a full swipe. General offers Start when
+    /// closed and Hide or Unhide instead of Delete and Close.
+    func tableView(
+        _: UITableView,
+        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath,
+    ) -> UISwipeActionsConfiguration? {
+        guard let topic = swipeTopic(at: indexPath) else { return nil }
+        let actions = Array(topicSwipeActions(for: topic).reversed())
+        guard !actions.isEmpty else { return nil }
+        let configuration = UISwipeActionsConfiguration(actions: actions)
+        configuration.performsFirstActionWithFullSwipe = true
+        return configuration
+    }
+
+    func tableView(
+        _: UITableView,
+        leadingSwipeActionsConfigurationForRowAt _: IndexPath,
+    ) -> UISwipeActionsConfiguration? {
+        UISwipeActionsConfiguration(actions: [])
     }
 
     func tableView(_: UITableView, shouldIndentWhileEditingRowAt _: IndexPath) -> Bool {
@@ -848,6 +873,9 @@ import UIKit
         dataSource.didMoveRow = { [weak self] movedID, referenceID, movedDown in
             self?.commitPinnedMove(movedID, relativeTo: referenceID, movedDown: movedDown)
         }
+        dataSource.canSwipeRow = { [weak self] indexPath in
+            self?.swipeTopic(at: indexPath) != nil
+        }
     }
 
     private func observeState() {
@@ -1257,6 +1285,82 @@ import UIKit
     }
 
     // MARK: Topic context menu
+
+    private func swipeTopic(at indexPath: IndexPath) -> ForumTopic? {
+        guard presentationMode == .standard, contextIsCurrent, !isReorderingPinnedTopics, snapshotState.canSelect,
+              let id = dataSource.itemIdentifier(for: indexPath)?.topicID,
+              snapshotState.client(id: id)?.id == viewModel.client.id
+        else { return nil }
+        return snapshotState.topic(id: id)
+    }
+
+    /// In Telegram's order, left to right; the trailing configuration reverses it.
+    private func topicSwipeActions(for topic: ForumTopic) -> [UIContextualAction] {
+        let chat = viewModel.customChat
+        let id = topic.info.forumTopicId
+        let canManage = chat.canManageForumTopics
+        let muted = isMuted(topic)
+        func action(
+            _ key: String,
+            _ symbol: String,
+            _ color: UIColor,
+            style: UIContextualAction.Style = .normal,
+            perform: @escaping () -> Void,
+        ) -> UIContextualAction {
+            let action = UIContextualAction(style: style, title: L10n.telegram(key)) { _, _, completion in
+                perform()
+                completion(true)
+            }
+            action.image = UIImage(systemName: symbol)
+            action.backgroundColor = color
+            return action
+        }
+        func setClosed(_ closed: Bool) {
+            performTopicRequest { client, chatID in
+                _ = try await client.send(TDNativeRequests.toggleForumTopicIsClosed(
+                    chatId: chatID, forumTopicId: id, isClosed: closed,
+                ))
+            }
+        }
+        var actions = [action(
+            muted ? "ChatList.Unmute" : "ChatList.Mute",
+            muted ? "speaker.wave.2.fill" : "speaker.slash.fill",
+            .systemOrange,
+        ) { [weak self] in
+            self?.updateNotifications(
+                of: topic,
+                to: topic.notificationSettings.replacingMuteFor(muted ? 0 : Int(Int32.max)),
+            )
+        }]
+        if topic.info.isGeneral {
+            if canManage, !topic.info.isHidden, topic.info.isClosed {
+                actions.append(action("ChatList.StartAction", "play.fill", .systemGreen) { setClosed(false) })
+            }
+            if canManage {
+                let hidden = topic.info.isHidden
+                actions.append(action(
+                    hidden ? "ChatList.ThreadUnhideAction" : "ChatList.ThreadHideAction",
+                    hidden ? "eye.fill" : "eye.slash.fill",
+                    hidden ? .systemGreen : .systemGray,
+                ) { [weak self] in self?.setGeneralHidden(!hidden) })
+            }
+            return actions
+        }
+        if chat.canDeleteAllMessages {
+            actions.append(action("Common.Delete", "trash.fill", .systemRed) { [weak self] in
+                self?.confirmDelete(topicID: id)
+            })
+        }
+        if canManage || topic.info.isOutgoing {
+            let closed = topic.info.isClosed
+            actions.append(action(
+                closed ? "ChatList.StartAction" : "ChatList.CloseAction",
+                closed ? "play.fill" : "pause.fill",
+                closed ? .systemGreen : .systemGray,
+            ) { setClosed(!closed) })
+        }
+        return actions
+    }
 
     /// A topic's mute state as Telegram resolves it: the topic's own setting, else the forum's.
     private func isMuted(_ topic: ForumTopic) -> Bool {

@@ -867,3 +867,7 @@
 "ChatList.GeneralHidden" = "General hidden";
 "ChatList.GeneralHiddenInfo" = "Pull down to see the general topic.";
 "ChatList.GeneralUnhidden" = "General unhidden";
+"ChatList.Mute" = "Mute";
+"ChatList.Unmute" = "Unmute";
+"ChatList.CloseAction" = "Close";
+"ChatList.StartAction" = "Start";
