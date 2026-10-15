@@ -204,7 +204,7 @@ Read-only code audits at `ba41fcd7`/`9a646c94` of profiles and shared media (P),
 | P-1 | P2 | Any edit or unconfirmed delete of a loaded grid item closed the open shared-media gallery and its PiP at once | fixed `54604a45`: only the affected items are revoked; the gallery keeps their pages covered until their revision is admitted, PiP closes only for its own item |
 | P-2 | P2 | A profile not opened from its own chat (forum Group Info, avatar Open Profile) stayed on "Reconnecting" with a blank grid after every foreground return | fixed `7c9c2c3b`: such a profile rebuilds itself through the renewed client |
 | P-3 | P2 | A renewal with the avatar gallery open dismissed it and popped the profile | open: the gallery pins its downloads to the profile's client, so keeping it needs its files re-resolved by remote ID on the renewed client |
-| P-4 | P2 | Files, Links and Audio rows only jump to the message; Telegram opens the document, the URL or plays the track | fixed `b5313800`: a document downloads in place with progress and opens, a track plays, a link opens (a text link asks first); a long press keeps View in Chat |
+| P-4 | P2 | Files, Links and Audio rows only jump to the message; Telegram opens the document, the URL or plays the track | fixed `b5313800`: a document downloads in place with progress and opens, a track plays, a link opens (a text link asks first); a long press keeps View in Chat. Simulator: a 7 KB .hex file opened the share sheet; Show in Chat on a link row opened the chat at that post |
 | P-5 | P2 | Profiles opened away from their chat had no message, search or Message callbacks | fixed `7c9c2c3b` |
 | P-6 | P3 | Gallery paging does not scroll the grid to the current item, so closing on an off-screen item fades | open |
 | P-7 | P3 | Media sent while the profile is open never appears | open |
@@ -214,7 +214,7 @@ Read-only code audits at `ba41fcd7`/`9a646c94` of profiles and shared media (P),
 | P-11 | P3 | Group and channel avatar galleries show only the current photo | open |
 | P-12 | P3 | The avatar gallery has no swipe-down dismissal and no Save/Share/Set as Main/Delete | open |
 | P-13 | P3 | The profile's own header avatar offered Open Profile and Search, which pushed copies | fixed `7c9c2c3b` |
-| P-14 | P3 | "Administrators" is shown to every member and subscriber (suspicion: a retry footer for subscribers) | open |
+| P-14 | P3 | "Administrators" is shown to every member and subscriber (suspicion: a retry footer for subscribers) | fixed `1c88c771`: shown only to the owner and admins, as in Telegram. Simulator: hidden in the profile of a group for a member |
 | P-15 | P3 | Tapping a member opens the tag editor instead of the member's profile; no promote/restrict/remove | open |
 | P-16 | P3 | Any group update resets the visible member rows and rereads all pages | open |
 | P-17 | P3 | Voice, GIFs, Groups in Common and Members panes are missing | open |
@@ -225,7 +225,7 @@ Read-only code audits at `ba41fcd7`/`9a646c94` of profiles and shared media (P),
 | C-6 | P2 | A GIF took the input's text as caption and cleared it | fixed `00903bc7`: the GIF is sent alone, the text stays, only the reply clears. Simulator: GIF sent with "gif caption probe" in the input arrived without a caption and the text stayed (test GIF deleted) |
 | C-7 | P2 | Edit mode left attachments, stickers and GIFs available | fixed `8f24e855`: editing offers only emoji input. Simulator: the attachment menu shows only Emoji, the picker only the emoji tabs |
 | C-8 | P2 | Photos are re-encoded at full resolution (quality 0.92); Telegram scales to 1280 px (2560 HD) | fixed `9dbbe683`: ImageIO thumbnailing to 1280 px off main, orientation applied, sRGB, progressive JPEG 0.72 (Telegram: mozjpeg 72). Simulator: a 4:3 library photo sent as 1280x960 without an orientation tag; the bubble keeps its 4:3 shape. HD (2560 px) is not offered |
-| C-9 | P3 | Slow mode and the voice/video note restriction are not modeled | open |
+| C-9 | P3 | Slow mode and the voice/video note restriction are not modeled | fixed `20b97392`: a send during slow mode keeps the input and shows Telegram's slow mode notice with the time left; recording is hidden for a user who restricts voice and video notes. Residual: Telegram keeps the microphone and explains the restriction in a tooltip; no slow mode chat or restricting user was available to check |
 | C-10 | P3 | The sticker sheet keeps the presenting client; a tap after a renewal is lost | fixed `52ea4c09`: the sheet closes when the client renews |
 | C-11 | P3 | Cancelling an edit clears a pending forward | fixed `3fcc0fdd` |
 | C-12 | P3 | An edit resets link preview options and caption-above-media | fixed `3fcc0fdd` |
@@ -244,7 +244,7 @@ Read-only code audits at `ba41fcd7`/`9a646c94` of profiles and shared media (P),
 | L-11 | P3 | Chat menu eligibility differs from `chatContextMenuItems` (Archive/Mute for Saved Messages, Mark as Unread for forums and channels, folder membership from loaded rows, swallowed pin errors) | fixed `eb525a29`: no Archive or Mute for Saved Messages, no Archive for service notifications, no Mark as Unread for forums; Add to Folder reads `chat_lists`; pin and folder limits show Telegram's limit alert; row actions report failures |
 | L-12 | P3 | Voice, video note and rich drafts show "Draft:" with nothing after it | fixed `05b2c36d` |
 | L-13 | P3 | Deleting a shared folder never offers to leave its chats | open |
-| L-14 | P3 | The app icon badge is never set locally (suspicion) | open |
+| L-14 | P3 | The app icon badge is never set locally (suspicion) | fixed `12d98a49`: the badge follows the main list's unread count outside muted chats. Simulator: the icon reads "3 new items" with one unmuted chat at 3 unread |
 | L-15 | P3 | Sender names in row prefixes are cached per client and never refreshed | fixed `05b2c36d` |
 | L-16 | P3 | Rows show no typing indicator | open |
 
