@@ -31,12 +31,14 @@ import UIKit
     private let accepts: () -> Bool
     private let canStart: () -> Bool
     private let read: (Int64) async throws -> Message
+    private let searchMembership: ((Int64) async throws -> Bool)?
     private let seeds: [Int64]
     private let visibleIDs: [Int64]
     private var knownIDs: Set<Int64>
     private var readyIDs = Set<Int64>()
     private var retryIDs = Set<Int64>()
     private var removedIDs = Set<Int64>()
+    private var membershipChecks = [Int64: UUID]()
     private var pageIsPending = false
     private var stopped = false
     private var task: Task<Void, Never>?
@@ -59,6 +61,7 @@ import UIKit
         seedIDs: [Int64], visibleIDs: [Int64], accepts: @escaping () -> Bool,
         canStart: @escaping () -> Bool = { true },
         read: @escaping (Int64) async throws -> Message,
+        searchMembership: ((Int64) async throws -> Bool)? = nil,
     ) {
         self.source = source
         self.location = location
@@ -69,6 +72,7 @@ import UIKit
         self.accepts = accepts
         self.canStart = canStart
         self.read = read
+        self.searchMembership = searchMembership
     }
 
     deinit { task?.cancel() }
@@ -106,6 +110,7 @@ import UIKit
         guard isCurrent else { return }
         let ids = retryIDs
         retryIDs.removeAll()
+        ids.forEach { membershipChecks[$0] = nil }
         ledger.retryFailures()
         ledger.enqueue(messageIDs: Array(ids))
         if !ids.isEmpty { onChange?(.quarantine(ids)) }
@@ -114,6 +119,7 @@ import UIKit
 
     func stop() {
         stopped = true
+        membershipChecks.removeAll()
         ledger.cancel()
         task?.cancel()
         task = nil
@@ -127,6 +133,7 @@ import UIKit
         guard knownIDs.contains(id) else { return }
         readyIDs.remove(id)
         retryIDs.remove(id)
+        membershipChecks[id] = nil
         onChange?(.quarantine([id]))
         ledger.enqueue(messageIDs: [id])
         start()
@@ -143,6 +150,7 @@ import UIKit
         removedIDs.formUnion(ids)
         readyIDs.subtract(ids)
         retryIDs.subtract(ids)
+        ids.forEach { membershipChecks[$0] = nil }
         onChange?(.quarantine(Set(ids)))
         for id in ids where knownIDs.remove(id) != nil {
             onChange?(.remove(id))
@@ -186,18 +194,10 @@ import UIKit
         switch delivery.result {
         case .message(let value):
             guard let included = tab.includes(value.message) else {
-                retryIDs.insert(id)
-                onChange?(.retry(id))
+                confirmMembership(of: value.message)
                 return
             }
-            guard included else { remove(id)
-                return
-            }
-            readyIDs.insert(id)
-            removedIDs.remove(id)
-            retryIDs.remove(id)
-            knownIDs.insert(id)
-            onChange?(.message(value.message))
+            admit(value.message, included: included)
         case .missing: remove(id)
         case .retry:
             retryIDs.insert(id)
@@ -205,7 +205,46 @@ import UIKit
         }
     }
 
+    private func admit(_ message: Message, included: Bool) {
+        let id = message.id
+        membershipChecks[id] = nil
+        guard included else { remove(id)
+            return
+        }
+        readyIDs.insert(id)
+        removedIDs.remove(id)
+        retryIDs.remove(id)
+        knownIDs.insert(id)
+        onChange?(.message(message))
+    }
+
+    /// Content this app cannot classify (rich blocks carry photo, audio and document index bits) stays in the tab
+    /// only if TDLib's own filtered search still returns it. Without that answer the item waits for a retry, which
+    /// would otherwise fail the same way every time.
+    private func confirmMembership(of message: Message) {
+        let id = message.id
+        guard let searchMembership else {
+            retryIDs.insert(id)
+            onChange?(.retry(id))
+            return
+        }
+        let token = UUID()
+        membershipChecks[id] = token
+        Task { [weak self] in
+            let included = try? await searchMembership(id)
+            guard let self, isCurrent, membershipChecks[id] == token else { return }
+            if let included {
+                admit(message, included: included)
+            } else {
+                membershipChecks[id] = nil
+                retryIDs.insert(id)
+                onChange?(.retry(id))
+            }
+        }
+    }
+
     private func remove(_ id: Int64) {
+        membershipChecks[id] = nil
         removedIDs.insert(id)
         knownIDs.remove(id)
         readyIDs.remove(id)

@@ -1588,6 +1588,7 @@ ClientRestorableNavigationEntry {
         let tab = currentSharedTab
         let client = client
         let chatID = customChat.id
+        let topic = topic
         let refresh = PeerProfileSharedMessageRefresh(
             source: source,
             location: ChatLocation(accountID: accountID, chatID: chatID, clientID: client.id, topic: topic),
@@ -1601,6 +1602,15 @@ ClientRestorableNavigationEntry {
             },
             canStart: { [weak self] in self?.restoredViewport == nil },
             read: { try await client.getMessage(chatId: chatID, messageId: $0) },
+            searchMembership: { messageID in
+                // Offset -1 starts the page at the message itself, so it is returned if the tab's filter matches.
+                try await client.searchChatMessages(
+                    chatId: chatID, filter: tab.filter, fromMessageId: messageID, limit: 2, offset: -1, query: "",
+                    senderId: nil, topicId: topic,
+                )
+                .messages
+                .contains { $0.id == messageID }
+            },
         )
         refresh.onChange = { [weak self, weak refresh] change in
             guard let self, let refresh, sharedMessageRefresh === refresh else { return }
