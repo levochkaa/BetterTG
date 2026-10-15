@@ -80,6 +80,18 @@ import UIKit
             else { topics[index].continuation.resume(throwing: Failure(description: "controlled read failure")) }
         }
 
+        func failTopic(_ index: Int, _ error: Swift.Error) {
+            completedTopics.insert(index)
+            topics[index].continuation.resume(throwing: error)
+        }
+
+        func postDeleted(_ ids: [Int64]) {
+            update(
+                .updateDeleteMessages(.init(chatId: 7, fromCache: false, isPermanent: true, messageIds: ids)),
+                source: source, notificationCenter: center,
+            )
+        }
+
         func pendingTopicIndex(id: Int) -> Int? {
             topics.indices.first { topics[$0].id == id && !completedTopics.contains($0) }
         }
@@ -115,6 +127,7 @@ import UIKit
                 try await verifyBoundedQueryResets()
                 try await verifyPinnedOrder()
                 try await verifyPinReadRaces()
+                try await verifyHeadMergeAndDeletion()
                 result = "Forum updates probe passed: real-VM/injected-page-topic-reads/local-scoped-updates=true; "
                     + "echo-before-after-page-topic/unknown-coalescing/failed-echo-no-retry=true; "
                     + "direct-scalar/no-RPC/native-cell/late-page-scalar/draft-inbox-one-refresh=true; "
@@ -127,6 +140,7 @@ import UIKit
                     + "individual-limit=per-VM; page-concurrency/global-limit/queue-memory-cap=unverified; "
                     + "raw-head-pin-rank/append-individual-preservation/query-seed/failed-head/pin-edge-fence=true; "
                     + "unknown-repin/pure-remote-reorder=explicit-head-refresh; forward-picker-order=unchanged; "
+                    + "head-merge-keeps-later-pages/silent-head-failure/delete-single-read/deleted-topic-404=true; "
                     + "full-controller/real-RPC=unverified; server-writes=0"
             } catch { result = "Forum updates probe failed: \(error)" }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -1079,6 +1093,64 @@ import UIKit
         f.finishPage(4, [pinned, ordinary])
         try await terminal([late])
         try require(f.model.restorationState(rawQuery: "").pinnedTopicIDs.isEmpty, "source ABA revived pin rank")
+    }
+
+    private static func verifyHeadMergeAndDeletion() async throws {
+        let f = Fixture()
+        defer { f.model.retire()
+        f.cancelOutstanding()
+        }
+        let ids = { f.model.topics.map(\.info.forumTopicId) }
+        let pageCursor = ForumTopicPageCursor(date: 80, forumTopicID: 80, messageID: 80)
+        f.model.loadInitial()
+        try await until("merge initial page") { f.pages.count == 1 }
+        let initial = f.model.probePageTask!
+        f.finishPage(0, [topic(id: 9, order: 600, pinned: true), topic(id: 1, order: 500, lastID: 50)])
+        try await terminal([initial])
+        f.model.loadMore()
+        try await until("merge append page") { f.pages.count == 2 }
+        let append = f.model.probePageTask!
+        f.finishPage(1, [topic(id: 5, order: 100, lastID: 40)], cursor: 80)
+        try await terminal([append])
+        try require(ids() == [9, 1, 5], "merge fixture pages did not load: \(ids())")
+
+        f.model.refreshHead()
+        try await until("merged head read") { f.pages.count == 3 }
+        try require(f.pages[2].cursor == .zero && f.pages[2].query.isEmpty, "head refresh read past the first page")
+        let head = f.model.probePageTask!
+        f.finishPage(2, [topic(id: 1, order: 500, lastID: 50, pinned: true), topic(id: 9, order: 600, pinned: true)])
+        try await terminal([head])
+        try require(
+            ids() == [1, 9, 5] && f.model.hasMore && f.model.errorMessage == nil
+                && f.model.restorationState(rawQuery: "").cursor == pageCursor,
+            "head refresh dropped later pages or moved the page cursor: \(ids())",
+        )
+        f.model.refreshHead()
+        try await until("failing head read") { f.pages.count == 4 }
+        let failing = f.model.probePageTask!
+        f.failPage(3)
+        try await terminal([failing])
+        try require(
+            ids() == [1, 9, 5] && f.model.errorMessage == nil
+                && f.model.restorationState(rawQuery: "").pinnedTopicIDs == [1, 9],
+            "failed head refresh dropped rows, ranks or reported a page error",
+        )
+
+        f.postDeleted([40])
+        try await until("deleted last message read") { f.pendingTopicIndex(id: 5) != nil }
+        let reread = f.model.probeTopicTask(id: 5)!
+        f.finishTopic(f.pendingTopicIndex(id: 5)!, topic(id: 5, order: 90, lastID: 39))
+        try await terminal([reread])
+        try require(
+            f.pages.count == 4 && ids() == [1, 9, 5] && f.model.topics.last?.lastMessage?.id == 39,
+            "deleted last message reloaded the list or kept the stale row",
+        )
+        f.postDeleted([39])
+        try await until("deleted topic read") { f.pendingTopicIndex(id: 5) != nil }
+        let gone = f.model.probeTopicTask(id: 5)!
+        f.failTopic(f.pendingTopicIndex(id: 5)!, TDLibError(code: 404, message: "Not Found"))
+        try await terminal([gone])
+        try require(f.pages.count == 4 && ids() == [1, 9], "deleted topic stayed listed or reloaded the list")
     }
 
     private static func terminal(_ tasks: [Task<Void, Never>]) async throws {

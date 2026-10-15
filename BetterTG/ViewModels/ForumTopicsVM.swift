@@ -12,6 +12,13 @@ import TDLibKit
         let revision: UInt64
     }
 
+    private enum PageLoad {
+        case reset
+        case append
+        /// Re-reads the first page into the loaded rows, keeping later pages and the page cursor.
+        case head
+    }
+
     let customChat: CustomChat
     let location: ChatLocation
     let client: TDLibClient
@@ -54,6 +61,7 @@ import TDLibKit
     private var query = ""
     private var acceptedQuery = ""
     private var pendingPageRequest: ForumTopicPageRequest?
+    private var pendingHeadRefresh = false
     private var restoringPages = false
     private var restorationReset: Bool?
     private var retired = false
@@ -179,7 +187,7 @@ import TDLibKit
     #endif
 
     func loadInitial() {
-        load(reset: true, query: query)
+        load(.reset, query: query)
     }
 
     func start() {
@@ -192,7 +200,8 @@ import TDLibKit
         }
         restoringPages = false
         // The saved rows/cursor are a display seed, not a fresh server head.
-        if let restorationReset { load(reset: restorationReset, query: query) }
+        if let restorationReset { load(restorationReset ? .reset : .append, query: query) }
+        drainHeadRefresh()
     }
 
     func restorationState(rawQuery: String) -> ForumTopicsRestorationState {
@@ -220,6 +229,7 @@ import TDLibKit
         topicRequestIDs.removeAll()
         pendingTopicRefreshes.removeAll()
         pendingTopicOrder.removeAll()
+        pendingHeadRefresh = false
         scalarUpdates.removeAll()
         infoUpdates.removeAll()
         acceptedReadOrdinals.removeAll()
@@ -234,11 +244,19 @@ import TDLibKit
         #endif
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalized != self.query else { return }
-        load(reset: true, query: normalized)
+        load(.reset, query: normalized)
     }
 
     func loadMore() {
-        load(reset: false, query: query)
+        load(.append, query: query)
+    }
+
+    /// Re-reads the first page for TDLib's pinned order and merges it into the loaded rows. Telegram's topic list
+    /// (a Postbox thread index view) keeps every loaded topic; a pin moves only the pinned ones.
+    func refreshHead() {
+        guard contextIsCurrent else { return }
+        pendingHeadRefresh = true
+        drainHeadRefresh()
     }
 
     func topicForOpening(id: Int, rawQuery: String) -> ForumTopic? {
@@ -264,15 +282,18 @@ import TDLibKit
         }
     }
 
-    private func load(reset: Bool, query: String) {
-        guard contextIsCurrent, !loading || reset else { return }
-        if reset {
+    private func load(_ mode: PageLoad, query: String) {
+        guard contextIsCurrent, !loading || mode == .reset else { return }
+        switch mode {
+        case .reset:
             generation &+= 1
             loadTask?.cancel()
             topicRequestIDs.removeAll()
             topicRequests.values.forEach { $0.cancel() }
             pendingTopicRefreshes.removeAll()
             pendingTopicOrder.removeAll()
+            // This read is a head read; a pin change during it fences that rank and asks for another.
+            pendingHeadRefresh = false
             scalarUpdates.removeAll()
             infoUpdates.removeAll()
             acceptedReadOrdinals.removeAll()
@@ -283,25 +304,33 @@ import TDLibKit
             nextOffsetMessageID = 0
             requestedCursors.removeAll()
             hasMore = true
-        } else {
+        case .append:
             guard hasMore else { return }
+        case .head:
+            pendingHeadRefresh = false
+            // A list that hasn't accepted its first page gets the head with that page.
+            guard requestedCursors.contains(.zero), !restoringPages else { return }
         }
+        let reset = mode == .reset
+        let head = mode == .head
         let currentGeneration = generation
-        let offsetDate = nextOffsetDate
-        let offsetForumTopicID = nextOffsetForumTopicID
-        let offsetMessageID = nextOffsetMessageID
-        let cursor = ForumTopicPageCursor(
-            date: offsetDate,
-            forumTopicID: offsetForumTopicID,
-            messageID: offsetMessageID,
-        )
-        guard requestedCursors.insert(cursor).inserted else {
+        let cursor = head
+            ? ForumTopicPageCursor.zero
+            : ForumTopicPageCursor(
+                date: nextOffsetDate,
+                forumTopicID: nextOffsetForumTopicID,
+                messageID: nextOffsetMessageID,
+            )
+        // A head read repeats an accepted cursor and leaves pagination alone.
+        guard head || requestedCursors.insert(cursor).inserted else {
             hasMore = false
             return
         }
         loading = true
-        errorMessage = nil
-        pendingPageRequest = ForumTopicPageRequest(cursor: cursor, resets: reset)
+        if !head {
+            errorMessage = nil
+            pendingPageRequest = ForumTopicPageRequest(cursor: cursor, resets: reset)
+        }
         let readPage = reads.page
         let location = location
         let read = beginRead()
@@ -329,6 +358,7 @@ import TDLibKit
                     }
                     return topic
                 }
+                // A reset drops rows its page didn't return; an append or head read keeps every loaded row.
                 let retained = reset
                     ? topics.filter { (self.acceptedReadOrdinals[$0.info.forumTopicId] ?? 0) > read.ordinal }
                     : topics
@@ -344,33 +374,41 @@ import TDLibKit
                 }
                 topics = pinnedOrder.applying(to: merged)
                 acceptedQuery = query
-                nextOffsetDate = result.nextOffsetDate
-                nextOffsetForumTopicID = result.nextOffsetForumTopicId
-                nextOffsetMessageID = result.nextOffsetMessageId
-                hasMore = ForumTopicPageState.hasMore(
-                    response: result,
-                    requestedCursor: cursor,
-                )
+                if !head {
+                    nextOffsetDate = result.nextOffsetDate
+                    nextOffsetForumTopicID = result.nextOffsetForumTopicId
+                    nextOffsetMessageID = result.nextOffsetMessageId
+                    hasMore = ForumTopicPageState.hasMore(
+                        response: result,
+                        requestedCursor: cursor,
+                    )
+                    pendingPageRequest = nil
+                }
                 loading = false
                 loadTask = nil
-                pendingPageRequest = nil
                 for topic in incoming where pendingTopicRefreshes[topic.info.forumTopicId] == false {
                     pendingTopicRefreshes[topic.info.forumTopicId] = nil
                 }
                 drainPendingTopicRefreshes()
+                drainHeadRefresh()
             } catch is CancellationError {
                 guard let self, currentGeneration == generation, contextIsCurrent else { return }
-                requestedCursors.remove(cursor)
+                if !head { requestedCursors.remove(cursor) }
                 loading = false
                 loadTask = nil
                 drainPendingTopicRefreshes()
+                drainHeadRefresh()
             } catch {
                 guard let self, currentGeneration == generation, contextIsCurrent else { return }
-                requestedCursors.remove(cursor)
                 loading = false
                 loadTask = nil
-                errorMessage = L10n.betterTG("Forum.LoadFailed")
+                // A failed head read keeps the loaded rows and their ranks; it isn't a page the user waits for.
+                if !head {
+                    requestedCursors.remove(cursor)
+                    errorMessage = L10n.betterTG("Forum.LoadFailed")
+                }
                 drainPendingTopicRefreshes()
+                drainHeadRefresh()
             }
         }
     }
@@ -440,12 +478,13 @@ import TDLibKit
                   contextIsCurrent,
                   update.chatId == location.chatID,
                   !update.fromCache,
-                  update.isPermanent,
-                  topics.contains(where: { topic in
-                      topic.lastMessage.map { update.messageIds.contains($0.id) } == true
-                  })
+                  update.isPermanent
             else { return }
-            load(reset: true, query: query)
+            let deleted = Set(update.messageIds)
+            // Only the topic that lost its last message re-reads; a deleted topic's read fails and drops its row.
+            for topic in topics where topic.lastMessage.map({ deleted.contains($0.id) }) == true {
+                refreshTopic(id: topic.info.forumTopicId)
+            }
         }
         observeCurrentUpdate(.updateMessageContent) { [weak self] update in
             self?.refreshTopicContainingLastMessage(
@@ -549,6 +588,11 @@ import TDLibKit
         }
     }
 
+    private func drainHeadRefresh() {
+        guard pendingHeadRefresh, contextIsCurrent, !loading, !restoringPages else { return }
+        load(.head, query: query)
+    }
+
     private func refreshTopic(id: Int, afterCurrent: Bool = true) {
         guard contextIsCurrent, id > 0 else { return }
         let retainedName = retainedTopicName(id: id)
@@ -574,15 +618,32 @@ import TDLibKit
                     topicRequests[requestID] = nil
                     if topicRequestIDs[id] == requestID { topicRequestIDs[id] = nil }
                     drainPendingTopicRefreshes()
+                    drainHeadRefresh()
                 }
             }
             guard !Task.isCancelled, self?.contextIsCurrent == true,
                   self?.topicRequestIDs[id] == requestID else { return }
-            let response = try? await readTopic(location, id)
+            let response: ForumTopic?
+            let deleted: Bool
+            do {
+                response = try await readTopic(location, id)
+                deleted = false
+            } catch {
+                response = nil
+                // TDLib answers 404 when the server returns no such topic (GetForumTopicQuery).
+                deleted = (error as? TDLibError)?.code == 404
+            }
             guard let self, !Task.isCancelled, topicRequestIDs[id] == requestID,
                   currentGeneration == generation, query == self.query,
                   contextIsCurrent
             else { return }
+            if deleted {
+                // A newer accepted read outranks this one; otherwise the removal fences older page reads too.
+                guard acceptedReadOrdinals[id].map({ $0 <= read.ordinal }) ?? true else { return }
+                acceptedReadOrdinals[id] = read.ordinal
+                topics.removeAll { $0.info.forumTopicId == id }
+                return
+            }
             guard let response, response.info.forumTopicId == id,
                   let topic = acceptFullTopic(response, read: read) else { return }
             let currentName = retainedTopicName(id: id)

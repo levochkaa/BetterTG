@@ -1121,9 +1121,9 @@ import UIKit
                 chatId: chatID, forumTopicIds: [id] + others,
             ))
         }
-        // A live pin update carries no rank; the first page brings TDLib's pinned order.
+        // A live pin update carries no rank; the first page brings TDLib's pinned order without dropping later pages.
         onSuccess: {
-            model.loadInitial()
+            model.refreshHead()
         } onFailure: { [weak self] in
             guard !topic.isPinned else { return }
             self?.presentPinLimit()
