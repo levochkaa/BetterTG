@@ -246,10 +246,7 @@
                 && replyPresentation.title.contains("Inline Author")
                 && replyPresentation.body == quoteText
                 && replyPresentation.targetMessageID == nil
-                && replyPresentation.quoteHighlight == MessageQuoteHighlight(
-                    length: quoteText.text.utf16.count,
-                    position: 7,
-                )
+                && replyPresentation.quoteHighlight == MessageQuoteHighlight(text: quoteText.text, position: 7)
             let unknownChatScope = unknownChatPresentation?.targetChatID == nil
                 && unknownChatPresentation?.navigationTarget == nil
             let sourcePriority = forwardPresentation.sourceTitle == "Last Forward Source • Original Author"

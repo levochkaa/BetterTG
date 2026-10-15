@@ -1624,9 +1624,7 @@ final class ChatComposerView: UIView {
         for message: CustomMessage,
         quote: InputTextQuote? = nil,
     ) -> MessageMetadataNavigationTarget {
-        let quoteHighlight = quote.map {
-            MessageQuoteHighlight(length: $0.text.text.utf16.count, position: max(0, $0.position))
-        }
+        let quoteHighlight = quote.flatMap { MessageQuoteHighlight(text: $0.text.text, position: $0.position) }
         return .message(
             chatID: message.message.chatId,
             messageID: message.id,

@@ -846,3 +846,4 @@
 "Conversation.ForwardOptions.HideCaption" = "Hide Captions";
 "Conversation.ForwardOptions.ChangeRecipient" = "Change Recipient";
 "Conversation.ForwardOptionsCancel" = "Do Not Forward";
+"Chat.ToastQuoteNotFound" = "Quote not found";

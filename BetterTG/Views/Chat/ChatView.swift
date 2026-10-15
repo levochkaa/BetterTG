@@ -3628,9 +3628,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             self?.messageHighlightTask = nil
         }
         if let quote {
+            // ChatControllerLoadDisplayNode: when an edit removed the quoted text, only the message is highlighted.
+            guard let target = message(for: displayedID)?.sourceMessages.first(where: { $0.id == id }),
+                  let resolved = quote.resolved(in: target.content)
+            else {
+                showChatToast(L10n.telegram("Chat.ToastQuoteNotFound"))
+                return
+            }
             pendingQuoteDestination = PendingQuoteDestination(
                 displayedMessageID: displayedID,
-                quote: quote,
+                quote: resolved,
                 targetMessageID: id,
             )
             if let cell = collectionView.cellForItem(at: indexPath) as? MessageCell {

@@ -8,6 +8,57 @@ import TDLibKit
 struct MessageQuoteHighlight: Hashable {
     let length: Int
     let position: Int
+    /// Navigation looks the text up again in the current message, which an edit may have changed.
+    let text: String
+
+    init?(text: String, position: Int) {
+        guard !text.isEmpty else { return nil }
+        self.init(range: NSRange(location: max(0, position), length: text.utf16.count), text: text)
+    }
+
+    private init(range: NSRange, text: String) {
+        self.length = range.length
+        self.position = range.location
+        self.text = text
+    }
+
+    private static func sourceText(for content: MessageContent) -> String? {
+        switch content {
+        case .messageText(let message):
+            message.text.text
+        case .messageAnimation(let message):
+            message.caption.text
+        case .messageAudio(let message):
+            message.caption.text
+        case .messageDocument(let message):
+            message.caption.text
+        case .messagePhoto(let message):
+            message.caption.text
+        case .messageVideo(let message):
+            message.caption.text
+        case .messageVoiceNote(let message):
+            message.caption.text
+        default:
+            nil
+        }
+    }
+
+    /// ChatMessageTextBubbleContentNode.findQuoteRange: the occurrence nearest the recorded position, or nil when the
+    /// message no longer contains the quoted text.
+    func resolved(in content: MessageContent) -> MessageQuoteHighlight? {
+        guard let source = Self.sourceText(for: content) else { return nil }
+        let string = source as NSString
+        var nearest: NSRange?
+        var start = 0
+        while start < string.length {
+            let range = string.range(of: text, range: NSRange(location: start, length: string.length - start))
+            guard range.location != NSNotFound, range.length > 0 else { break }
+            if let nearest, abs(range.location - position) > abs(nearest.location - position) { break }
+            nearest = range
+            start = NSMaxRange(range)
+        }
+        return nearest.map { MessageQuoteHighlight(range: $0, text: text) }
+    }
 }
 
 // MARK: - MessageMetadataNavigationTarget
@@ -127,17 +178,13 @@ enum MessageReplyInputBuilder {
             .message(
                 chatID: currentChatID,
                 messageID: message.messageId,
-                quote: message.quote.map {
-                    MessageQuoteHighlight(length: $0.text.text.utf16.count, position: max(0, $0.position))
-                },
+                quote: message.quote.flatMap { MessageQuoteHighlight(text: $0.text.text, position: $0.position) },
             )
         case .inputMessageReplyToExternalMessage(let message):
             .message(
                 chatID: message.chatId,
                 messageID: message.messageId,
-                quote: message.quote.map {
-                    MessageQuoteHighlight(length: $0.text.text.utf16.count, position: max(0, $0.position))
-                },
+                quote: message.quote.flatMap { MessageQuoteHighlight(text: $0.text.text, position: $0.position) },
             )
         case .inputMessageReplyToEphemeralMessage, .inputMessageReplyToStory:
             .unavailable
@@ -241,11 +288,7 @@ struct MessageReplyPresentation: Equatable {
     var isManualQuote: Bool { quote?.isManual == true }
 
     var quoteHighlight: MessageQuoteHighlight? {
-        guard let quote, !quote.text.text.isEmpty else { return nil }
-        return MessageQuoteHighlight(
-            length: quote.text.text.utf16.count,
-            position: max(0, quote.position),
-        )
+        quote.flatMap { MessageQuoteHighlight(text: $0.text.text, position: $0.position) }
     }
 
     var accessibilityDescription: String {
@@ -480,7 +523,8 @@ struct MessageForwardPresentation: Equatable {
             } else {
                 plainText(L10n.betterTG("Chat.OriginalMessageUnavailable"))
             }
-        let quoteHighlight = reply.quote.flatMap { resolvedQuoteHighlight($0, content: content) }
+        // The chat resolves the quote against the message it opens (MessageQuoteHighlight.resolved).
+        let quoteHighlight = reply.quote.flatMap { MessageQuoteHighlight(text: $0.text.text, position: $0.position) }
         let navigationTarget: MessageMetadataNavigationTarget? =
             if let target {
                 .message(chatID: target.chatId, messageID: target.id, quote: quoteHighlight)
@@ -706,50 +750,6 @@ struct MessageForwardPresentation: Equatable {
             message.poll.question
         default:
             plainText(MessageContentPresentation.make(content).summary)
-        }
-    }
-
-    private func resolvedQuoteHighlight(
-        _ quote: TextQuote,
-        content: MessageContent?,
-    ) -> MessageQuoteHighlight? {
-        let quoteLength = quote.text.text.utf16.count
-        guard quoteLength > 0 else { return nil }
-        guard let content, let sourceText = quoteSourceText(for: content) else {
-            return MessageQuoteHighlight(length: quoteLength, position: max(0, quote.position))
-        }
-        let source = sourceText as NSString
-        let expectedPosition = max(0, min(quote.position, source.length))
-        if expectedPosition + quoteLength <= source.length,
-           source.substring(with: NSRange(location: expectedPosition, length: quoteLength)) == quote.text.text
-        {
-            return MessageQuoteHighlight(length: quoteLength, position: expectedPosition)
-        }
-        let found = source.range(of: quote.text.text)
-        if found.location != NSNotFound {
-            return MessageQuoteHighlight(length: found.length, position: found.location)
-        }
-        return MessageQuoteHighlight(length: quoteLength, position: expectedPosition)
-    }
-
-    private func quoteSourceText(for content: MessageContent) -> String? {
-        switch content {
-        case .messageText(let message):
-            message.text.text
-        case .messageAnimation(let message):
-            message.caption.text
-        case .messageAudio(let message):
-            message.caption.text
-        case .messageDocument(let message):
-            message.caption.text
-        case .messagePhoto(let message):
-            message.caption.text
-        case .messageVideo(let message):
-            message.caption.text
-        case .messageVoiceNote(let message):
-            message.caption.text
-        default:
-            nil
         }
     }
 
