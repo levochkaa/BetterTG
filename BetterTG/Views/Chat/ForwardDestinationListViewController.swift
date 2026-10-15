@@ -25,6 +25,9 @@ import UIKit
     /// failed lookup leaves no entry, so the chat stays hidden and the next hydration retries it.
     private var standingByChatID = [Int64: MessageForwardDestinationStanding]()
     private var unavailablePrivateChatIDs = Set<Int64>()
+    /// The account's own chat, listed first in All Chats even when it isn't in the loaded page, is archived or
+    /// hasn't been created yet (Telegram's `savedMessagesPeer` for writable peer selection).
+    private var savedMessagesChatID: Int64?
     private var eligibilityByChatID = [Int64: MessageForwardDestinationEligibility]()
     private var visibleChatIDs = [Int64]()
     private var folderChatLimit = 100
@@ -239,6 +242,14 @@ import UIKit
                 ids = deduplicated(page.chatIds + ids)
                 hasMoreFolderChats = page.chatIds.count >= folderChatLimit
             } else { hasMoreFolderChats = false }
+            if query.isEmpty, chatList == .chatListMain,
+               let accountUserID = TDLib.shared.activeAccount?.userID,
+               let saved = try? await client.createPrivateChat(force: false, userId: accountUserID)
+            {
+                guard !Task.isCancelled, generation == queryGeneration, contextIsCurrent else { return }
+                savedMessagesChatID = saved.id
+                ids.insert(saved.id, at: 0)
+            }
             if !query.isEmpty {
                 if let offline = try? await client.searchChats(limit: 100, query: query, typeFilter: nil) {
                     ids = offline.chatIds
@@ -280,6 +291,7 @@ import UIKit
             guard let chat = chatsByID[chatID] else { return false }
             // All Chats search can discover a recipient; a custom folder/archive search stays in that list.
             return !query.isEmpty && chatList == .chatListMain
+                || chatList == .chatListMain && chatID == savedMessagesChatID
                 || chat.positions.contains { $0.list == chatList && $0.order != 0 }
         }
         for chatID in hydratedIDs {
