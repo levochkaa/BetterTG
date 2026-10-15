@@ -26,6 +26,8 @@ final class Media: ObservableObject {
     /// The position with its fraction, which a voice bubble's waveform follows; currentTime keeps whole seconds.
     @Published private(set) var playbackPosition: TimeInterval = 0
     @Published private(set) var nowPlaying: NowPlaying?
+    /// A note that played to its end, so its chat can continue with the next one (Telegram's voice playlist).
+    let playbackFinished = PassthroughSubject<NowPlaying, Never>()
     @Published private(set) var playbackRate: Float = {
         let stored = UserDefaults.standard.float(forKey: playbackRateKey)
         return playbackRates.contains(stored) ? stored : 1
@@ -184,7 +186,12 @@ final class Media: ObservableObject {
                 switch state {
                 case .playing:
                     isPlaying = true
-                case .ended, .failed:
+                case .ended:
+                    let finished = nowPlaying
+                    stop()
+                    releasePlaybackSession()
+                    if let finished { playbackFinished.send(finished) }
+                case .failed:
                     stop()
                     releasePlaybackSession()
                 case .buffering, .idle, .paused, .preparing:

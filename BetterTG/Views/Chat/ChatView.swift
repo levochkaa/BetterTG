@@ -1506,6 +1506,48 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             )
         }
         .store(in: &cancellables)
+        Media.shared
+            .playbackFinished
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] finished in self?.playNextVoiceNote(after: finished) }
+            .store(in: &cancellables)
+    }
+
+    /// Telegram's voice playlist continues with the chat's next voice note when one ends. Self-destructing notes
+    /// stay out of it: they only play in their play-once overlay.
+    private func playNextVoiceNote(after finished: Media.NowPlaying) {
+        guard presentationMode == .full, chatVM.locationContextIsCurrent,
+              finished.chatID == chatVM.chatID, finished.accountID == location.accountID else { return }
+        let candidates = chatVM.messages.flatMap { $0.album.isEmpty ? [$0.message] : $0.album }
+        guard let next = candidates
+            .filter({ $0.id > finished.messageID && $0.selfDestructType == nil })
+            .filter({
+                if case .messageVoiceNote = $0.content {
+                    true
+                } else {
+                    false
+                }
+            })
+            .min(by: { $0.id < $1.id }),
+            case .messageVoiceNote(let content) = next.content
+        else { return }
+        let client = chatVM.client
+        let item = Media.NowPlaying(accountID: location.accountID, chatID: next.chatId, messageID: next.id)
+        Task { [weak self] in
+            guard let file = try? await client.downloadFile(
+                fileId: content.voiceNote.voice.id,
+                limit: 0,
+                offset: 0,
+                priority: 32,
+                synchronous: true,
+            ), file.local.isDownloadingCompleted, !file.local.path.isEmpty else { return }
+            guard let self, chatVM.locationContextIsCurrent, TDLib.shared.activeClient.id == client.id,
+                  Media.shared.savedMediaPath.isEmpty else { return }
+            Media.shared.toggle(with: file.local.path, duration: content.voiceNote.duration, item: item)
+            if !next.isOutgoing, !content.isListened {
+                _ = try? await client.openMessageContent(chatId: next.chatId, messageId: next.id)
+            }
+        }
     }
 
     private func updateVoicePlaybackHeader(
