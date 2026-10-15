@@ -293,25 +293,25 @@ Read-only audits at `e1e0ad48`: forum topics and the chat timeline (T), the Forw
 |---|---|---|---|
 | T-1 | P1 | Reading inside a forum topic marks the whole forum read (`viewMessages` without a source); the notification quick reply did the same | fixed `9039faea`: topic routes pass `messageSourceForumTopicHistory` (TDLib's `ReadForumTopicQuery`), threads keep the thread source, a quick reply into a forum topic reads only that topic. Build only: no unread forum on the account |
 | F-x1 | P1 | Forward eligibility uses the chat's default member permissions and ignores the user's own status (admins lose restricted groups, probably their channels; restricted members fail at send) | fixed `c0941081`: the picker, topics step and send check resolve the user's standing (supergroup, basic group, secret chat) and apply Telegram's `canSendMessagesToPeer` through `CustomChat.allowsSending`. Simulator: the channels tab now lists the two channels the account posts to |
-| T-2 | P2 | The hidden General topic can't be reached; no Hide/Unhide | open |
-| T-3 | P2 | No pinned-message banner in forum topics or a forum read as messages | open |
-| T-4 | P2 | Every open clears unseen reactions (`readAllChatReactions` in `viewDidAppear`); no mention/reaction jump buttons | open |
+| T-2 | P2 | The hidden General topic can't be reached; no Hide/Unhide | fixed `169948ec` (cherry-picked from `codex/parity-forum-chrome`): a hidden General stays as the first row tucked under the top past search, revealed by pulling; creators and topic managers get Hide/Unhide with Telegram's toasts. Probes only: the account has no forum it manages |
+| T-3 | P2 | No pinned-message banner in forum topics or a forum read as messages | fixed `3a451814`, `261abd5c`: a topic shows its newest pin (`searchChatMessages` pinned filter with the topic), a forum read as messages shows the chat's pin; Pin in the menu follows. Probes only |
+| T-4 | P2 | Every open clears unseen reactions (`readAllChatReactions` in `viewDidAppear`); no mention/reaction jump buttons | fixed `c3d95ae6`: no read-all on appear (TDLib reads reactions and mentions per viewed message); Telegram's @ and heart buttons stack above scroll-to-latest, jump to the earliest unread and clear on long press. Build only: the only unread reaction is in a private chat, opening it would send a read receipt |
 | T-6 | P2 | The topic list reloads from page 1 after a deletion or a pin, dropping later pages | fixed `2cc6c0eb`: pins re-read page 1 and merge it, keeping later pages; a deleted last message re-reads only its topic and a 404 drops the row. `-ui-probe-forum-updates` passes |
-| T-7 | P2 | A topic moving to the top can slide under the bar (no `restingTopOffset`; suspicion) | open |
+| T-7 | P2 | A topic moving to the top can slide under the bar (no `restingTopOffset`; suspicion) | fixed `118f8b0b`: the chat list's resting-top correction, immediate and on completion |
 | F-x2 | P2 | Forward options can't be changed from the composer block; no Change recipient, no "Sender names removed" | fixed `77f2706d`: tapping the block opens Telegram's forward options (names, captions, Change Recipient, Do Not Forward) in the custom menu; the picker's sheet is gone. Simulator: hide/show names and Change Recipient back into Saved Messages, nothing sent |
-| F-x3 | P2 | The Forward topics step uses its own bar and an always-visible `UISearchBar` | open |
+| F-x3 | P2 | The Forward topics step uses its own bar and an always-visible `UISearchBar` | fixed `352c7d1e`: the topics step uses `TelegramListNavigationBar` with search hidden under it, as the topic list. `-ui-probe-forward-forum-snapshot` passes |
 | F-x4 | P2 | A same-account client renewal leaves the Forward picker on screen but dead | fixed `17787ea1`: the picker closes on a client change that makes it stale (the presenting chat is rebuilt on the new client). Build only |
 | F-x5 | P2 | Saved Messages is first in Forward only when it is in the loaded page | fixed `b187fa47`: All Chats resolves the own chat with `createPrivateChat` and lists it first even when not loaded or archived. Simulator: still first |
-| F-x13 | P2 | The folder Add Chats picker offers only loaded chats; no server or contact search | open |
+| F-x13 | P2 | The folder Add Chats picker offers only loaded chats; no server or contact search | fixed `cf985c25` (cherry-picked from `codex/parity-folders`): the picker pages the main list and searches chats, server chats and contacts |
 | F-x14 | P2 | Shared folders: no invite-link management, no new-chats prompt, `t.me/addlist` unhandled | open |
 | F-x24 | P2 | Quote is impossible in copy-protected chats (selection requires `canBeCopied`) | fixed `7fd0d5cb` (cherry-picked from `codex/parity-quote`): selection follows `canBeReplied` (not secret chats or self-destructing messages); protected messages offer only Quote and block copy and drag |
 | T-5 | P3 | Typing isn't shown in a topic header; `actionStatus` keeps one sender | fixed `62eb5e38` (cherry-picked from `codex/parity-forum-topics`): actions tracked per sender and topic; a topic header shows who is acting there with the chat list's wording (no animated dots) |
 | T-8 | P3 | Remote pins keep their chronological place until a page-1 reload | fixed `9b175f04`: any pin change re-reads page 1 for pin ranks. A pure remote reorder has no TDLib update |
-| T-9 | P3 | One merged row badge in the topic list | open |
-| T-10 | P3 | No pinned-topic reorder | open |
+| T-9 | P3 | One merged row badge in the topic list | fixed `0e8ecd18`: unread count and a separate @/reaction/poll badge; muting greys all but the mention badge |
+| T-10 | P3 | No pinned-topic reorder | fixed `e6940cd2`: Reorder on a pinned topic for managers, saved per drop with `setPinnedForumTopics` |
 | T-11 | P3 | No topic row swipes | open |
-| T-12 | P3 | No Close/Reopen bar or avatar menu inside a topic | open |
-| T-13 | P3 | Forum search covers topic names only | open |
+| T-12 | P3 | No Close/Reopen bar or avatar menu inside a topic | partly fixed `c9c49d68`: Telegram's Restart Topic bar in closed topics for creators, managers and the topic's creator; BetterTG has no topic header menu, Close/Reopen stays in the list row menu |
+| T-13 | P3 | Forum search covers topic names only | fixed `40d8bcaf`: a Messages section from `searchChatMessages` below the topics, paged, opening the topic at the message. `-ui-probe-forum-*` (6) and the forward forum probe pass |
 | T-14 | P3 | Rows that inherit the forum's mute don't refresh on a scope change (suspicion) | confirmed and fixed `56da4980`: forum and scope notification settings are observed and rows reconfigure when inherited mute flips |
 | T-15 | P3 | Voice and video-note downloads prefetched for rows never shown kept going after the chat closed | fixed `4cb6bfb8`: deinit cancels them (`onlyIfPending`), as the prefetch cancel path already did. Build only |
 | T-16 | P3 | Topic taps are ignored while a new search page loads | fixed `e2518a7d`: any displayed row of the current client opens |
@@ -320,17 +320,17 @@ Read-only audits at `e1e0ad48`: forum topics and the chat timeline (T), the Forw
 | F-x8 | P3 | Forwarding own originals from Saved Messages doesn't default to hidden names | fixed `77f2706d`: own originals from Saved Messages start as a copy, and the names item is hidden as in Telegram. Build only |
 | F-x9 | P3 | A pending forward lives only in ChatVM memory | open |
 | F-x10 | P3 | Forwarding from the gallery always pushes a new chat, even the same chat | fixed `77f2706d`: `ChatViewController.openForward` hands the draft to an open chat for the destination (pop to it) instead of pushing a second one; the gallery uses it. Simulator: Change Recipient to the same chat reused it |
-| F-x11 | P3 | The Forward folder bar has no unread counters and never refreshes | open |
+| F-x11 | P3 | The Forward folder bar has no unread counters and never refreshes | fixed `919ca58f`: the main folder bar's configuration with `FolderUnreadStore` counters, refreshed on counter and folder changes. Simulator: "channels 25", "people 2" in the picker |
 | F-x12 | P3 | `sendComment` is dead code | fixed `bf009209` |
-| F-x15 | P3 | Shared folders still show chat-type and exclusion rows | open |
-| F-x16 | P3 | The folder editor ignores pinned chats; an all-pinned folder can't be saved | open |
-| F-x17 | P3 | Back discards unsaved folder edits without asking | open |
-| F-x18 | P3 | No per-folder chat limit before Save | open |
-| F-x19 | P3 | No Recommended Folders | open |
-| F-x20 | P3 | A new folder isn't named from a single chosen category | open |
-| F-x21 | P3 | Renaming a folder drops custom emoji | open |
-| F-x22 | P3 | Add Chats from the folder menu saves the folder as it was when the menu opened | open |
-| F-x23 | P3 | The folder list counts only loaded chats | open |
+| F-x15 | P3 | Shared folders still show chat-type and exclusion rows | fixed `f41f76ce` |
+| F-x16 | P3 | The folder editor ignores pinned chats; an all-pinned folder can't be saved | fixed `215c9cfa`: pinned and included chats are one list; an existing folder saves with only a name |
+| F-x17 | P3 | Back discards unsaved folder edits without asking | fixed `0c8cd312`: Back and the pop gesture ask Discard/Save when an existing folder's draft changed. Simulator: the alert appeared after a toggle; Discard left the folder unchanged |
+| F-x18 | P3 | No per-folder chat limit before Save | fixed `bce1e2a6`: `chat_folder_chosen_chat_count_max` (secret chats counted apart as TDLib does) stops selection with Telegram's limit text, no Premium offer |
+| F-x19 | P3 | No Recommended Folders | fixed `b3227783`: Recommended Folders with ADD, minus folders whose rules already exist |
+| F-x20 | P3 | A new folder isn't named from a single chosen category | fixed `46ca41aa` |
+| F-x21 | P3 | Renaming a folder drops custom emoji | fixed `00fcc607`: emoji entities outside the edited span are kept and shifted; the animate flag is kept |
+| F-x22 | P3 | Add Chats from the folder menu saves the folder as it was when the menu opened | fixed `19501a1b` |
+| F-x23 | P3 | The folder list counts only loaded chats | fixed `8c1cd8a1`: `getChatFolderChatCount` per folder. `-ui-probe-folder-flow` passes |
 | F-x25 | P3 | No partial-text selection for copying in read-only chats; no Reply in Another Chat | open |
 | F-x26 | P3 | Quotes aren't trimmed; a whitespace-only quote isn't dropped | fixed `45f2f590`: Telegram's U+0020/U+000A trim before the limit, the position moves to the first kept character, a blank selection is a plain reply. `-custom-emoji-text-probe` passes 15/15 |
 | F-x27 | P3 | An edited quoted message still highlights the old position instead of Telegram's not-found toast | fixed `f917de0e`: the nearest occurrence in the current text is highlighted, otherwise only the message with Telegram's "Quote not found" toast |
