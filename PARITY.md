@@ -206,8 +206,8 @@ Read-only code audits at `ba41fcd7`/`9a646c94` of profiles and shared media (P),
 | P-3 | P2 | A renewal with the avatar gallery open dismissed it and popped the profile | fixed `71681a32`: the gallery re-resolves its photos by remote ID on the renewed client (`getRemoteFile`) and keeps the shown pixels; the profile is replaced once it closes. Build only for the renewal |
 | P-4 | P2 | Files, Links and Audio rows only jump to the message; Telegram opens the document, the URL or plays the track | fixed `b5313800`: a document downloads in place with progress and opens, a track plays, a link opens (a text link asks first); a long press keeps View in Chat. Simulator: a 7 KB .hex file opened the share sheet; Show in Chat on a link row opened the chat at that post |
 | P-5 | P2 | Profiles opened away from their chat had no message, search or Message callbacks | fixed `7c9c2c3b` |
-| P-6 | P3 | Gallery paging does not scroll the grid to the current item, so closing on an off-screen item fades | open |
-| P-7 | P3 | Media sent while the profile is open never appears | open |
+| P-6 | P3 | Gallery paging does not scroll the grid to the current item, so closing on an off-screen item fades | fixed `2139ccfe`. Simulator: after 14 pages in a 37-item grid the grid scrolled 317 pt and the shown item was in view on close |
+| P-7 | P3 | Media sent while the profile is open never appears | fixed `2139ccfe`: `updateNewMessage` and `updateMessageSendSucceeded` add a matching message to the open tab. Build only |
 | P-8 | P3 | Every grid snapshot reconfigures all cells and restarts uncached thumbnail loads | fixed `92299b14`: only cells whose readiness, revision, content type or reveal key changed are reconfigured |
 | P-9 | P3 | The avatar gallery's downloads are never cancelled in TDLib | fixed `e0904b00`: shared download leases, cancelled in TDLib when no view needs the file |
 | P-10 | P3 | Opening the avatar waits for two sequential requests; Telegram shows the current photo at once | fixed `0edcbc33`. Simulator: a user's gallery opens at once and becomes "1 of 3" when the list arrives |
