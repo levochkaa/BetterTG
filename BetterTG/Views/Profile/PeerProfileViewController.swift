@@ -1307,6 +1307,15 @@ ClientRestorableNavigationEntry {
             )
             restoredGallery.updateTotalMessageCount(sharedTotalMessageCount)
         }
+        gallery.onSelectedMessageChanged = { [weak self] messageID in
+            // Telegram scrolls the pane to the gallery's item, so closing flies back into a visible cell.
+            guard let self, isViewLoaded, currentSharedTab == originatingTab,
+                  let path = dataSource.indexPath(for: messageID),
+                  let frame = collectionView.layoutAttributesForItem(at: path)?.frame else { return }
+            let visible = collectionView.bounds.inset(by: collectionView.adjustedContentInset)
+            guard !visible.contains(frame) else { return }
+            collectionView.scrollToItem(at: path, at: .centeredVertically, animated: false)
+        }
         gallery.onDismissed = { [weak self, weak gallery] in
             guard let self, let gallery, activeMediaGallery === gallery else { return }
             activeMediaGallery = nil
@@ -1445,6 +1454,21 @@ ClientRestorableNavigationEntry {
         }
         nc.scopedPublisher(&cancellables, for: .updateDeleteMessages) { [weak self] event in
             self?.sharedMessageRefresh?.delete(event.value, source: event.source)
+        }
+        nc.scopedPublisher(&cancellables, for: .updateNewMessage) { [weak self] event in
+            self?.receiveNewSharedMessage(event.value.message, source: event.source)
+        }
+        nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] event in
+            self?.receiveNewSharedMessage(event.value.message, source: event.source)
+        }
+    }
+
+    private func receiveNewSharedMessage(_ message: Message, source: TdUpdateSource) {
+        guard contextIsCurrent, message.chatId == customChat.id, messagesByID[message.id] == nil,
+              let sharedMessageRefresh else { return }
+        sharedMessageRefresh.receiveNew(message, source: source)
+        if messagesByID[message.id] != nil, let total = sharedTotalMessageCount {
+            sharedTotalMessageCount = total + 1
         }
     }
 

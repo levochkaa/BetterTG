@@ -860,6 +860,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     var onGalleryRestored: ((MediaGalleryViewController) -> Void)?
     /// Called once the gallery's dismissal finishes, so its owner can act on state it held back while covered.
     var onDismissed: (() -> Void)?
+    /// The page the user settled on, so the source can bring that item into view for the closing flight (Telegram's
+    /// `centralItemUpdated` → `ensureMessageIsVisible`).
+    var onSelectedMessageChanged: ((Int64) -> Void)?
     var contextIsCurrent: (() -> Bool)?
     var onPrepareOpenMessageID: ((Int64) async -> Bool)? {
         didSet {
@@ -2372,6 +2375,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         bindSelectedCellChrome()
         updateCounter()
         prunePlaybackOwners(around: selectedIndex)
+        onSelectedMessageChanged?(messages[selectedIndex].id)
     }
 
     private func requestMoreMessagesIfNeeded(near index: Int) {

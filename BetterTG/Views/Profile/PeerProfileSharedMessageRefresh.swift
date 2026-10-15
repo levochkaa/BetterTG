@@ -139,6 +139,18 @@ import UIKit
         start()
     }
 
+    /// A message sent or received while the profile is open joins the tab when its filter matches, as Telegram's
+    /// panes follow the chat history. Pending messages wait for their send to succeed.
+    func receiveNew(_ message: Message, source: TdUpdateSource) {
+        guard isCurrent, self.source == source, location.matches(message: message), message.sendingState == nil,
+              !knownIDs.contains(message.id), !removedIDs.contains(message.id) else { return }
+        guard let included = tab.includes(message) else {
+            confirmMembership(of: message)
+            return
+        }
+        if included { admit(message, included: true) }
+    }
+
     func delete(_ update: UpdateDeleteMessages, source: TdUpdateSource) {
         guard isCurrent, self.source == source, location.chatID == update.chatId else { return }
         let ids = update.messageIds.filter { knownIDs.contains($0) || pageIsPending }
