@@ -28,6 +28,33 @@ import UIKit
         case topics
     }
 
+    /// Moves rows only while the list reorders its pinned topics; the diffable source keeps its snapshot in step.
+    private final class TopicRowsDataSource: UITableViewDiffableDataSource<Section, Int> {
+        var canMoveRow: ((IndexPath) -> Bool)?
+        /// The moved topic, the topic it was dropped onto, and whether it moved down.
+        var didMoveRow: ((Int, Int, Bool) -> Void)?
+
+        override func tableView(_: UITableView, canEditRowAt indexPath: IndexPath) -> Bool {
+            canMoveRow?(indexPath) ?? false
+        }
+
+        override func tableView(_: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
+            canMoveRow?(indexPath) ?? false
+        }
+
+        override func tableView(
+            _ tableView: UITableView,
+            moveRowAt sourceIndexPath: IndexPath,
+            to destinationIndexPath: IndexPath,
+        ) {
+            let movedID = itemIdentifier(for: sourceIndexPath)
+            let referenceID = itemIdentifier(for: destinationIndexPath)
+            super.tableView(tableView, moveRowAt: sourceIndexPath, to: destinationIndexPath)
+            guard sourceIndexPath != destinationIndexPath, let movedID, let referenceID else { return }
+            didMoveRow?(movedID, referenceID, sourceIndexPath.row < destinationIndexPath.row)
+        }
+    }
+
     #if DEBUG
     var probeSnapshotCompletion: ((@escaping () -> Void) -> Void)?
     var probeModel: ForumTopicsVM { viewModel }
@@ -71,7 +98,12 @@ import UIKit
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private var searchQuery = ""
     private var didSetInitialSearchOffset = false
-    private var dataSource: UITableViewDiffableDataSource<Section, Int>!
+    private var dataSource: TopicRowsDataSource!
+    private var pressGesture: ContextMenuPressGestureRecognizer?
+    /// Telegram's reorder mode for pinned topics; list updates wait until it ends so a drag is never interrupted.
+    private var isReorderingPinnedTopics = false
+    private var reorderDoneButton: UIButton?
+    private var pinnedOrderSave: Task<Void, Never>?
     private var snapshotState = ForumTopicsSnapshotState()
     private var cancellables = Set<AnyCancellable>()
     private var ownershipCancellables = Set<AnyCancellable>()
@@ -177,6 +209,11 @@ import UIKit
         resolveTargetIfNeeded()
     }
 
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        endPinnedReorder()
+    }
+
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         updateNavigationBar()
@@ -226,6 +263,27 @@ import UIKit
         return settings.muteFor > 0
     }
 
+    private static func savePinnedOrder(
+        client: TDLibClient, chatID: Int64, movedID: Int, referenceID: Int, movedDown: Bool,
+    ) async -> Bool {
+        do {
+            // The unfiltered first page holds every pinned topic in TDLib's order.
+            let page = try await client.getForumTopics(
+                chatId: chatID, limit: 100, offsetDate: 0, offsetForumTopicId: 0, offsetMessageId: 0, query: "",
+            )
+            var ids = page.topics.filter(\.isPinned).map(\.info.forumTopicId).filter { $0 != movedID }
+            if let index = ids.firstIndex(of: referenceID) {
+                ids.insert(movedID, at: movedDown ? index + 1 : index)
+            } else {
+                ids.append(movedID)
+            }
+            _ = try await client.send(TDNativeRequests.setPinnedForumTopics(chatId: chatID, forumTopicIds: ids))
+            return true
+        } catch {
+            return false
+        }
+    }
+
     func scrollViewWillEndDragging(
         _ scrollView: UIScrollView, withVelocity _: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>,
     ) {
@@ -250,6 +308,31 @@ import UIKit
     func tableView(_: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
         // An exact estimate keeps the hidden row's offset right before UIKit ever displays it.
         hiddenTopic(at: indexPath).map(hiddenRowHeight) ?? tableView.estimatedRowHeight
+    }
+
+    func tableView(_: UITableView, editingStyleForRowAt _: IndexPath) -> UITableViewCell.EditingStyle {
+        .none
+    }
+
+    func tableView(_: UITableView, shouldIndentWhileEditingRowAt _: IndexPath) -> Bool {
+        false
+    }
+
+    /// Telegram (ChatListNode.reorderItem) moves a pinned topic only among the pinned topics.
+    func tableView(
+        _: UITableView,
+        targetIndexPathForMoveFromRowAt sourceIndexPath: IndexPath,
+        toProposedIndexPath proposedDestinationIndexPath: IndexPath,
+    ) -> IndexPath {
+        let ids = dataSource.snapshot().itemIdentifiers
+        let pinnedRows = ids.indices.filter { row in
+            snapshotState.topic(id: ids[row]).map { $0.isPinned && !$0.info.isHidden } == true
+        }
+        guard let first = pinnedRows.first, let last = pinnedRows.last else { return sourceIndexPath }
+        return IndexPath(
+            row: min(max(proposedDestinationIndexPath.row, first), last),
+            section: sourceIndexPath.section,
+        )
     }
 
     func scrollViewDidScroll(_: UIScrollView) {
@@ -326,6 +409,7 @@ import UIKit
     }
 
     private func searchActivityChanged(_ active: Bool) {
+        if active { endPinnedReorder() }
         if !active {
             #if DEBUG
             probeSearchDismissals += 1
@@ -399,7 +483,7 @@ import UIKit
             && presentedViewController == nil && transitionCoordinator == nil && !navigationBarView.isSearchActive
             && !tableView.isTracking && !tableView.isDragging && !tableView.isDecelerating
             && !snapshotState.isApplying && !snapshotState.hasPending
-            && !navigationBarView.hasMarkedText
+            && !navigationBarView.hasMarkedText && !isReorderingPinnedTopics
     }
 
     private func canRenewIdentity(_ source: TdUpdateSource) -> Bool {
@@ -613,6 +697,7 @@ import UIKit
                 return cell.contextPreviewView
             }
             tableView.addGestureRecognizer(press)
+            pressGesture = press
         }
         tableView.register(ForumTopicCell.self, forCellReuseIdentifier: ForumTopicCell.reuseID)
         view.addSubview(tableView)
@@ -669,15 +754,21 @@ import UIKit
     }
 
     private func configureDataSource() {
-        dataSource = UITableViewDiffableDataSource<Section, Int>(
-            tableView: tableView,
-        ) { [weak self] tableView, indexPath, topicID in
+        dataSource = TopicRowsDataSource(tableView: tableView) { [weak self] tableView, indexPath, topicID in
             let topic = self?.snapshotState.topic(id: topicID)
             return ForumTopicCell.dequeue(
                 from: tableView, at: indexPath,
                 topic: topic, client: self?.snapshotState.client(id: topicID),
                 muted: topic.map { self?.isMuted($0) == true } ?? false,
             )
+        }
+        dataSource.canMoveRow = { [weak self] indexPath in
+            guard let self, isReorderingPinnedTopics, let id = dataSource.itemIdentifier(for: indexPath),
+                  let topic = snapshotState.topic(id: id) else { return false }
+            return topic.isPinned && !topic.info.isHidden
+        }
+        dataSource.didMoveRow = { [weak self] movedID, referenceID, movedDown in
+            self?.commitPinnedMove(movedID, relativeTo: referenceID, movedDown: movedDown)
         }
     }
 
@@ -736,7 +827,7 @@ import UIKit
     }
 
     private func drainSnapshot() {
-        guard !retired, let batch = snapshotState.begin() else { return }
+        guard !retired, !isReorderingPinnedTopics, let batch = snapshotState.begin() else { return }
         let previousIDs = Set(dataSource.snapshot().itemIdentifiers)
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int>()
         snapshot.appendSections([.topics])
@@ -1090,6 +1181,17 @@ import UIKit
                 image: UIImage(systemName: topic.isPinned ? "pin.slash.fill" : "pin.fill"),
             ) { [weak self] in self?.togglePinned(topic) })
         }
+        // Telegram offers Reorder on a pinned topic (chatForumTopicMenuItems, Chat.InlineTopicMenu.Reorder); BetterTG
+        // has no Edit mode, so this is the way into reordering pinned topics. The full list is needed for that.
+        if canManage, topic.isPinned, !topic.info.isHidden, !navigationBarView.isSearchActive,
+           searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           viewModel.topics.count(where: { $0.isPinned && !$0.info.isHidden }) > 1
+        {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.InlineTopicMenu.Reorder"),
+                image: UIImage(systemName: "arrow.up.arrow.down"),
+            ) { [weak self] in self?.beginPinnedReorder() })
+        }
         // Telegram offers this as General's swipe action (forumGeneralRevealOptions) to the creator and topic managers.
         if isGeneral, canManage {
             let hidden = topic.info.isHidden
@@ -1253,6 +1355,69 @@ import UIKit
         } onFailure: { [weak self] in
             guard !topic.isPinned else { return }
             self?.presentPinLimit()
+        }
+    }
+
+    private func beginPinnedReorder() {
+        guard presentationMode == .standard, contextIsCurrent, !isReorderingPinnedTopics,
+              !navigationBarView.isSearchActive, !snapshotState.isApplying else { return }
+        isReorderingPinnedTopics = true
+        pressGesture?.isEnabled = false
+        tableView.setEditing(true, animated: true)
+
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = L10n.telegram("Common.Done")
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 28, bottom: 10, trailing: 28)
+        let button = UIButton(
+            configuration: configuration,
+            primaryAction: UIAction { [weak self] _ in self?.endPinnedReorder() },
+        )
+        button.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            button.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+        ])
+        reorderDoneButton = button
+        UIAccessibility.post(notification: .layoutChanged, argument: button)
+    }
+
+    /// Leaves reorder mode and shows the list as the model now orders it.
+    private func endPinnedReorder() {
+        guard isReorderingPinnedTopics else { return }
+        isReorderingPinnedTopics = false
+        pressGesture?.isEnabled = true
+        reorderDoneButton?.removeFromSuperview()
+        reorderDoneButton = nil
+        guard isViewLoaded, !retired else { return }
+        tableView.setEditing(false, animated: true)
+        applySnapshot(viewModel.topics, client: viewModel.client)
+    }
+
+    /// Telegram (ChatListNode.reorderItem) reads the forum's pinned topics, puts the dropped one beside its drop target
+    /// and saves the whole order (setForumChannelPinnedTopics). Drops save one after another.
+    private func commitPinnedMove(_ movedID: Int, relativeTo referenceID: Int, movedDown: Bool) {
+        guard contextIsCurrent else {
+            endPinnedReorder()
+            return
+        }
+        let model = viewModel
+        let binding = bindingID
+        let client = model.client
+        let chatID = model.location.chatID
+        let previous = pinnedOrderSave
+        pinnedOrderSave = Task { [weak self] in
+            await previous?.value
+            let saved = await Self.savePinnedOrder(
+                client: client, chatID: chatID, movedID: movedID, referenceID: referenceID, movedDown: movedDown,
+            )
+            guard let self, owns(model, binding: binding) else { return }
+            // The head read brings TDLib's pinned order for the rows shown once reorder mode ends.
+            model.refreshHead()
+            guard !saved else { return }
+            endPinnedReorder()
+            presentChatListActionFailure()
         }
     }
 
@@ -1441,6 +1606,8 @@ final class ForumTopicCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         isAccessibilityElement = true
+        // Pinned rows show a reorder handle while the list reorders them.
+        showsReorderControl = true
         configureViews()
     }
 
