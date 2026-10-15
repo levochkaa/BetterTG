@@ -151,27 +151,7 @@ final class ChatFolderLeaveChatsViewController: UIViewController, UITableViewDat
     private let actionButton = UIButton(configuration: .filled())
     private var isRemoving = false
 
-    /// Telegram's Select All header action: its two parts in the order of the format, a space apart.
-    private var selectAllTitle: String {
-        let allSelected = selectedIDs.count == items.count
-        let dynamicPart = L10n.telegram(allSelected
-            ? "FolderLinkPreview.ListSelectionSelectAllDynamicPartDeselect"
-            : "FolderLinkPreview.ListSelectionSelectAllDynamicPartSelect")
-        let staticPart = L10n.telegram(allSelected
-            ? "FolderLinkPreview.ListSelectionSelectAllStaticPartDeselect"
-            : "FolderLinkPreview.ListSelectionSelectAllStaticPartSelect")
-        let format = L10n.telegram("FolderLinkPreview.ListSelectionSelectAllFormat")
-        switch (format.range(of: "{dynamic}")?.lowerBound, format.range(of: "{static}")?.lowerBound) {
-        case (let dynamicIndex?, let staticIndex?):
-            return dynamicIndex < staticIndex ? dynamicPart + " " + staticPart : staticPart + " " + dynamicPart
-        case (.some, nil):
-            return dynamicPart
-        case (nil, .some):
-            return staticPart
-        case (nil, nil):
-            return ""
-        }
-    }
+    private var selectAllTitle: String { Self.selectAllTitle(allSelected: selectedIDs.count == items.count) }
 
     init(items: [Item], selectedIDs: Set<Int64>, scope: ChatListActionScope, onRemove: @escaping ([Int64]) -> Void) {
         self.items = items
@@ -244,7 +224,29 @@ final class ChatFolderLeaveChatsViewController: UIViewController, UITableViewDat
         tableView.tableHeaderView = header
     }
 
-    private static func badgeImage(_ count: Int) -> UIImage {
+    /// Telegram's Select All header action: its two parts in the order of the format, a space apart.
+    static func selectAllTitle(allSelected: Bool) -> String {
+        let dynamicPart = L10n.telegram(allSelected
+            ? "FolderLinkPreview.ListSelectionSelectAllDynamicPartDeselect"
+            : "FolderLinkPreview.ListSelectionSelectAllDynamicPartSelect")
+        let staticPart = L10n.telegram(allSelected
+            ? "FolderLinkPreview.ListSelectionSelectAllStaticPartDeselect"
+            : "FolderLinkPreview.ListSelectionSelectAllStaticPartSelect")
+        let format = L10n.telegram("FolderLinkPreview.ListSelectionSelectAllFormat")
+        switch (format.range(of: "{dynamic}")?.lowerBound, format.range(of: "{static}")?.lowerBound) {
+        case (let dynamicIndex?, let staticIndex?):
+            return dynamicIndex < staticIndex ? dynamicPart + " " + staticPart : staticPart + " " + dynamicPart
+        case (.some, nil):
+            return dynamicPart
+        case (nil, .some):
+            return staticPart
+        case (nil, nil):
+            return ""
+        }
+    }
+
+    /// The action button's count badge, as in Telegram's preview screen.
+    static func badgeImage(_ count: Int) -> UIImage {
         let text = NSAttributedString(string: count.formatted(.number), attributes: [
             .font: UIFont.systemFont(ofSize: 15, weight: .semibold),
             .foregroundColor: UIColor.systemBlue,
@@ -374,8 +376,8 @@ final class ChatFolderLeaveChatsViewController: UIViewController, UITableViewDat
 
 // MARK: - ChatFolderLeaveHeaderView
 
-/// The list header of Telegram's remove screen: the count of chats to quit and its Select All action.
-private final class ChatFolderLeaveHeaderView: UITableViewHeaderFooterView {
+/// The list header of Telegram's folder link screens: the count of chats and its Select All action.
+final class ChatFolderLeaveHeaderView: UITableViewHeaderFooterView {
     // MARK: Private
 
     private let titleLabel = UILabel()

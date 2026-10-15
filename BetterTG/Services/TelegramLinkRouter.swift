@@ -7,15 +7,21 @@ import UIKit
 // MARK: - TelegramLinkRouter
 
 @MainActor final class TelegramLinkRouter {
+    /// A link that waits until the account is ready.
+    private enum PendingLink {
+        case language(String)
+        case chatFolder(String)
+    }
+
     static let shared = TelegramLinkRouter()
 
     private var cancellables = Set<AnyCancellable>()
-    private var pendingLanguageID: String?
+    private var pendingLink: PendingLink?
     private weak var pendingWindow: UIWindow?
 
     private init() {
         nc.publisher(&cancellables, for: .authorizationStateReady) { [weak self] _ in
-            DispatchQueue.main.async { self?.openPendingLanguage() }
+            DispatchQueue.main.async { self?.openPendingLink() }
         }
     }
 
@@ -36,12 +42,37 @@ import UIKit
         } else {
             return nil
         }
-        guard let identifier, !identifier.isEmpty, identifier.utf8.count <= 128,
-              identifier.unicodeScalars.allSatisfy({
-                  CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
-                      .contains($0)
-              }) else { return nil }
+        guard let identifier, isLinkIdentifier(identifier) else { return nil }
         return identifier
+    }
+
+    /// Telegram's UrlHandling for folder invite links: t.me/addlist/<slug> (also /folder/ and /list/) and
+    /// tg://addlist?slug=<slug>, as the t.me link `checkChatFolderInviteLink` takes.
+    static func chatFolderInviteLink(in url: URL) -> String? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let scheme = components.scheme?.lowercased()
+        let host = components.host?.lowercased()
+        let slug: String?
+        if scheme == "https" || scheme == "http" {
+            guard ["t.me", "telegram.me", "telegram.dog"].contains(host),
+                  components.user == nil, components.password == nil else { return nil }
+            let path = components.path.split(separator: "/")
+            guard path.count == 2, ["addlist", "folder", "list"].contains(path[0].lowercased()) else { return nil }
+            slug = String(path[1])
+        } else if scheme == "tg" || scheme == "bettertg" {
+            guard host == "addlist" else { return nil }
+            slug = components.queryItems?.first(where: { $0.name == "slug" })?.value
+        } else {
+            return nil
+        }
+        guard let slug, isLinkIdentifier(slug) else { return nil }
+        return "https://t.me/addlist/\(slug)"
+    }
+
+    private static func isLinkIdentifier(_ identifier: String) -> Bool {
+        !identifier.isEmpty && identifier.utf8.count <= 128 && identifier.unicodeScalars.allSatisfy {
+            CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-").contains($0)
+        }
     }
 
     func open(_ url: URL, from presenter: UIViewController?) {
@@ -52,23 +83,39 @@ import UIKit
     }
 
     @discardableResult func handle(_ url: URL, from presenter: UIViewController?) -> Bool {
-        guard let identifier = Self.languagePackID(in: url) else { return false }
+        let link: PendingLink
+        if let inviteLink = Self.chatFolderInviteLink(in: url) {
+            link = .chatFolder(inviteLink)
+        } else if let identifier = Self.languagePackID(in: url) {
+            link = .language(identifier)
+        } else {
+            return false
+        }
         guard TDLib.shared.isActiveAccountReady else {
-            pendingLanguageID = identifier
+            pendingLink = link
             pendingWindow = presenter?.viewIfLoaded?.window
             return true
         }
         guard let presenter else { return true }
         presenter.view.endEditing(true)
-        topPresenter(presenter).present(LanguagePackPreviewViewController(identifier: identifier), animated: true)
+        present(link, from: topPresenter(presenter))
         return true
     }
 
-    private func openPendingLanguage() {
-        guard TDLib.shared.isActiveAccountReady, let identifier = pendingLanguageID,
+    private func openPendingLink() {
+        guard TDLib.shared.isActiveAccountReady, let link = pendingLink,
               let root = pendingWindow?.rootViewController else { return }
-        pendingLanguageID = nil
-        topPresenter(root).present(LanguagePackPreviewViewController(identifier: identifier), animated: true)
+        pendingLink = nil
+        present(link, from: topPresenter(root))
+    }
+
+    private func present(_ link: PendingLink, from presenter: UIViewController) {
+        switch link {
+        case .language(let identifier):
+            presenter.present(LanguagePackPreviewViewController(identifier: identifier), animated: true)
+        case .chatFolder(let inviteLink):
+            ChatFolderInviteLinkPreviewViewController.present(inviteLink: inviteLink, from: presenter)
+        }
     }
 
     private func topPresenter(_ root: UIViewController) -> UIViewController {
