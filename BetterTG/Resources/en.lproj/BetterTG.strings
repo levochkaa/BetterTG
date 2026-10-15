@@ -589,3 +589,4 @@
 "Story.PlaybackFailed" = "This story couldn't be played.";
 "Accessibility.NextStory" = "Next story";
 "Accessibility.PreviousStory" = "Previous story";
+"Accessibility.OpenStoriesHint" = "Opens the stories";

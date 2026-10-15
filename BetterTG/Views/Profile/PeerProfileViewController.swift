@@ -135,6 +135,8 @@ ClientRestorableNavigationEntry {
     private var currentBioText = ""
     private var currentDetailTexts = [String]()
     private let avatarView = ProfileAvatarView()
+    /// Telegram's story ring around the profile photo (PeerInfoAvatarTransformContainerNode: 3 pt, 1.5 pt once seen).
+    private let storyRingView = StoryAvatarRingView(activeLineWidth: 3, inactiveLineWidth: 1.5)
     private lazy var avatarTapGesture = UITapGestureRecognizer(target: self, action: #selector(avatarPressed))
     private let titleLabel = UILabel()
     private let statusLabel = UILabel()
@@ -346,6 +348,12 @@ ClientRestorableNavigationEntry {
         let below = stack[index - 1]
         return (below as? ChatViewController)?.displayedChatID == customChat.id
             || (below as? ForumTopicsViewController)?.displayedChatID == customChat.id
+    }
+
+    /// The peer's active stories ring the avatar, which then opens them, as Telegram's profile does
+    /// (requestAvatarExpansion opens expiring stories before the photo gallery).
+    private var storyRingStyle: StoryAvatarRingView.Style? {
+        isSelfProfile ? nil : customChat.activeStoryState?.ringStyle
     }
 
     init(
@@ -1004,13 +1012,11 @@ ClientRestorableNavigationEntry {
         avatarView.clipsToBounds = true
         avatarView.isAccessibilityElement = true
         avatarView.accessibilityLabel = L10n.betterTG("Accessibility.ProfilePhotoOf", profileTitle())
-        avatarView.accessibilityHint = avatarGalleryIsAvailable
-            ? L10n.betterTG("Accessibility.OpenProfilePhotosHint")
-            : nil
-        avatarView.accessibilityTraits = avatarGalleryIsAvailable ? [.button, .image] : .image
-        avatarTapGesture.isEnabled = avatarGalleryIsAvailable
         avatarView.addGestureRecognizer(avatarTapGesture)
         headerStack.addArrangedSubview(avatarView)
+        storyRingView.translatesAutoresizingMaskIntoConstraints = false
+        profileHeaderView.addSubview(storyRingView)
+        updateStoryRing()
 
         titleLabel.font = .preferredFont(forTextStyle: .title2)
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -1078,6 +1084,10 @@ ClientRestorableNavigationEntry {
             headerStack.trailingAnchor.constraint(equalTo: profileHeaderView.trailingAnchor, constant: -20),
             avatarView.widthAnchor.constraint(equalToConstant: 96),
             avatarView.heightAnchor.constraint(equalToConstant: 96),
+            storyRingView.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
+            storyRingView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
+            storyRingView.widthAnchor.constraint(equalTo: avatarView.widthAnchor),
+            storyRingView.heightAnchor.constraint(equalTo: avatarView.heightAnchor),
             actionStack.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
             actionStack.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
             sharedTabs.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 12),
@@ -1863,14 +1873,39 @@ ClientRestorableNavigationEntry {
         )
         renderedAvatarItemID = displayedAvatarItemID
         renderedAvatarFileID = displayedAvatarFile?.id
-        avatarTapGesture.isEnabled = avatarGalleryIsAvailable
         avatarView.accessibilityLabel = L10n.betterTG("Accessibility.ProfilePhotoOf", profileTitle())
-        avatarView.accessibilityHint = avatarGalleryIsAvailable
-            ? L10n.betterTG("Accessibility.OpenProfilePhotosHint")
-            : nil
-        avatarView.accessibilityTraits = avatarGalleryIsAvailable ? [.button, .image] : .image
+        updateStoryRing()
         updateActionAvailability()
         view.setNeedsLayout()
+    }
+
+    private func updateStoryRing() {
+        let style = storyRingStyle
+        storyRingView.style = style
+        let scale = StoryAvatarRingView.avatarScale(diameter: 96, lineWidth: 3)
+        avatarView.transform = style == nil ? .identity : CGAffineTransform(scaleX: scale, y: scale)
+        avatarTapGesture.isEnabled = avatarGalleryIsAvailable || style != nil
+        avatarView.accessibilityHint =
+            if style != nil {
+                L10n.betterTG("Accessibility.OpenStoriesHint")
+            } else if avatarGalleryIsAvailable {
+                L10n.betterTG("Accessibility.OpenProfilePhotosHint")
+            } else {
+                nil
+            }
+        avatarView.accessibilityTraits = avatarTapGesture.isEnabled ? [.button, .image] : .image
+    }
+
+    private func openStories() -> Bool {
+        guard storyRingStyle != nil, contextIsCurrent, presentedViewController == nil else { return false }
+        StoryViewerController.present(
+            .activeStories(chatIDs: [customChat.id], initialChatID: customChat.id),
+            client: client,
+            from: self,
+            sourceView: avatarView,
+            sourceIsAvatar: true,
+        )
+        return true
     }
 
     private func updateActionAvailability() {
@@ -2238,6 +2273,7 @@ ClientRestorableNavigationEntry {
 
     /// Telegram (avatarGalleryFallbackItem) opens the current photo at once and reconciles the list when it arrives.
     @objc private func avatarPressed() {
+        if openStories() { return }
         guard avatarGalleryIsAvailable,
               activeAvatarGallery == nil,
               contextIsCurrent,

@@ -588,3 +588,4 @@
 "Story.PlaybackFailed" = "Не удалось воспроизвести эту историю.";
 "Accessibility.NextStory" = "Следующая история";
 "Accessibility.PreviousStory" = "Предыдущая история";
+"Accessibility.OpenStoriesHint" = "Открывает истории";
