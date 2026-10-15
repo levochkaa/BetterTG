@@ -246,7 +246,7 @@ Read-only code audits at `ba41fcd7`/`9a646c94` of profiles and shared media (P),
 | L-13 | P3 | Deleting a shared folder never offers to leave its chats | open |
 | L-14 | P3 | The app icon badge is never set locally (suspicion) | fixed `12d98a49`: the badge follows the main list's unread count outside muted chats. Simulator: the icon reads "3 new items" with one unmuted chat at 3 unread |
 | L-15 | P3 | Sender names in row prefixes are cached per client and never refreshed | fixed `05b2c36d` |
-| L-16 | P3 | Rows show no typing indicator | open |
+| L-16 | P3 | Rows show no typing indicator | fixed `eaed32e9`: rows take `updateChatAction` and show Telegram's activity text (bare action in a private chat, name and action in a group, pair or count for several). Build only: nobody typed in the visible chats during a 30 s watch; Telegram's animated dots are a static ellipsis |
 
 Reviewed and OK: profile update provenance and history paging identity, grid edit/delete reconciliation, the gallery order and counter, avatar gallery list updates, editor write authorization, members paging; composer double-tap guards, `resolveSendContext` topic routing, draft isolation and clearing, edit attempt binding, document temporary-to-final IDs, picker import account checks, video conversion off main; chat list update isolation and ordering, row action scoping, preview read state, logout ownership. Not reviewed: `PeerProfileInfoPermission` and members restoration internals, voice/video note recording beyond A11-A17, quote selection UI, `ForwardMessagesViewController`, folder editor validation, the forum topic list, push relay internals.
 
