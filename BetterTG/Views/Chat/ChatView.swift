@@ -223,6 +223,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var messageSearchChoosesMember = false
     private var messageSearchMember: ChatSearchMemberListView.Member?
     private var messageDateJumpTask: Task<Void, Never>?
+    /// The account's favorite stickers by file ID, for the sticker message menu's Add/Remove from Favorites.
+    private var favoriteStickerFileIDs = Set<Int>()
+    private var stickerActionTask: Task<Void, Never>?
     private var isTerminatingNavigation = false
     private var composerLeadingConstraint: NSLayoutConstraint?
     private var composerTrailingConstraint: NSLayoutConstraint?
@@ -2638,6 +2641,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func observeState() {
+        observeFavoriteStickers()
         NotificationCenter.default
             .publisher(for: UIScene.didActivateNotification)
             .receive(on: DispatchQueue.main)
@@ -4084,6 +4088,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .open:
             break
         }
+        // Telegram opens a sticker's pack (OpenChatMessage, StickerPackScreen) instead of a gallery.
+        if case .messageSticker(let content) = current.content, content.sticker.setId != 0 {
+            presentStickerPack(setID: content.sticker.setId)
+            return
+        }
         let messages = messages.compactMap { captured -> Message? in
             guard let displayedID = chatVM.displayedMessageID(containing: captured.id) else { return nil }
             return message(for: displayedID)?.sourceMessages.first(where: { $0.id == captured.id })
@@ -5146,6 +5155,117 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    // MARK: Stickers and GIFs
+
+    private func observeFavoriteStickers() {
+        guard presentationMode == .full else { return }
+        nc.scopedPublisher(&cancellables, for: .updateFavoriteStickers) { [weak self] update in
+            guard let self, update.source.matches(chatVM.location) else { return }
+            favoriteStickerFileIDs = Set(update.value.stickerIds)
+        }
+        let client = chatVM.client
+        Task { [weak self] in
+            guard let favorites = try? await client.send(TDNativeRequests.getFavoriteStickers()) else { return }
+            guard let self, chatVM.locationContextIsCurrent else { return }
+            favoriteStickerFileIDs = Set(favorites.stickers.map(\.sticker.id))
+        }
+    }
+
+    /// Telegram's StickerPackScreen from a sticker in the chat; its stickers send here when the chat takes them.
+    private func presentStickerPack(setID: Int64) {
+        guard presentationMode == .full, presentedViewController == nil, !clientOwnerRetired,
+              chatVM.locationContextIsCurrent else { return }
+        let canSend = showsComposer && chatVM.canSendStickersAndAnimations && chatVM.editCustomMessage == nil
+        let send: ((Sticker) -> Void)? = canSend
+            ? { [weak self] sticker in
+                guard let self, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+                let chatVM = chatVM
+                Task { await chatVM.sendSticker(sticker) }
+            }
+            : nil
+        StickerPackPreviewViewController.present(setID: setID, client: chatVM.client, from: self, onSend: send)
+    }
+
+    /// Telegram's sticker and GIF message items (ChatInterfaceStateContextMenus): Add to or Remove from Favorites and
+    /// View Sticker Set for a sticker, Save GIF for a GIF the chat lets save.
+    private func stickerAndAnimationActions(for message: CustomMessage) -> [TelegramContextMenuAction] {
+        switch message.message.content {
+        case .messageSticker(let content):
+            var actions = [TelegramContextMenuAction]()
+            let sticker = content.sticker
+            let isPremium =
+                if case .stickerFullTypeRegular(let regular) = sticker.fullType {
+                    regular.premiumAnimation != nil
+                } else {
+                    false
+                }
+            if !isPremium {
+                let fileID = sticker.sticker.id
+                let isFavorite = favoriteStickerFileIDs.contains(fileID)
+                actions.append(TelegramContextMenuAction(
+                    title: L10n.telegram(isFavorite ? "Stickers.RemoveFromFavorites" : "Stickers.AddToFavorites"),
+                    image: UIImage(systemName: isFavorite ? "star.slash" : "star"),
+                ) { [weak self] in self?.setStickerFavorite(fileID: fileID, favorite: !isFavorite) })
+            }
+            if sticker.setId != 0 {
+                let setID = sticker.setId
+                actions.append(TelegramContextMenuAction(
+                    title: L10n.telegram("StickerPack.ViewPack"),
+                    image: UIImage(systemName: "square.grid.2x2"),
+                ) { [weak self] in self?.presentStickerPack(setID: setID) })
+            }
+            return actions
+        case .messageAnimation(let content):
+            if case .chatTypeSecret = chatVM.customChat.chat.type { return [] }
+            guard message.properties.canBeSaved, message.message.selfDestructType == nil else { return [] }
+            let fileID = content.animation.animation.id
+            return [TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.SaveGif"),
+                image: UIImage(systemName: "square.and.arrow.down"),
+            ) { [weak self] in self?.saveAnimation(fileID: fileID) }]
+        default:
+            return []
+        }
+    }
+
+    private func setStickerFavorite(fileID: Int, favorite: Bool) {
+        guard stickerActionTask == nil, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+        let client = chatVM.client
+        stickerActionTask = Task { [weak self] in
+            let input = InputFile.inputFileId(InputFileId(id: fileID))
+            let request = favorite
+                ? TDNativeRequests.addFavoriteSticker(sticker: input)
+                : TDNativeRequests.removeFavoriteSticker(sticker: input)
+            let succeeded = await (try? client.send(request)) != nil
+            guard let self else { return }
+            stickerActionTask = nil
+            guard succeeded, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+            if favorite {
+                favoriteStickerFileIDs.insert(fileID)
+            } else {
+                favoriteStickerFileIDs.remove(fileID)
+            }
+            showChatToast(L10n.telegram(
+                favorite ? "Conversation.StickerAddedToFavorites" : "Conversation.StickerRemovedFromFavorites",
+            ))
+        }
+    }
+
+    /// Telegram's Save GIF (toggleGifSaved) with its "GIF Saved" toast.
+    private func saveAnimation(fileID: Int) {
+        guard stickerActionTask == nil, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+        let client = chatVM.client
+        stickerActionTask = Task { [weak self] in
+            let succeeded = await (try? client.send(TDNativeRequests.addSavedAnimation(
+                animation: .inputFileId(InputFileId(id: fileID)),
+            ))) != nil
+            guard let self else { return }
+            stickerActionTask = nil
+            guard succeeded, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+            showChatToast(L10n.telegram("Gallery.GifSaved"))
+        }
+    }
+
     private func showPhotoPicker() {
         // Telegram's gallery offers photos and videos, each when the chat allows it.
         var filters = [PHPickerFilter]()
@@ -5730,6 +5850,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
             ) { UIPasteboard.setFormattedText(text) })
         }
+        elements.append(contentsOf: stickerAndAnimationActions(for: message))
         if canOfferPinAction(for: message) {
             if message.isPinned {
                 // Telegram unpins from the message menu without a confirmation (askForConfirmation: false).
