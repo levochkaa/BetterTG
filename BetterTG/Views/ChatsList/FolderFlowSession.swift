@@ -33,6 +33,8 @@ import UIKit
         let loadMoreMainChats: () -> Void
         /// Chats for a picker query beyond the loaded lists: TDLib's chat search, its server search and contacts.
         let searchChats: (String) async -> [CustomChat]
+        /// TDLib's recommended folders (`getRecommendedChatFolders`).
+        let recommendedFolders: () async -> [TDNativeRecommendedChatFolder]
     }
 
     private(set) var state = State.waiting
@@ -167,6 +169,10 @@ import UIKit
                         }
                     }
                     return chats
+                },
+                recommendedFolders: {
+                    let client = ChatListActionAuthority().client
+                    return await (try? client.send(TDNativeRequests.getRecommendedChatFolders()))?.chatFolders ?? []
                 },
             ),
         )

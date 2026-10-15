@@ -15,6 +15,8 @@ final class ChatFoldersViewController: UITableViewController {
     /// TDLib's chat count for each folder, with the definition it was counted for.
     private var chatCounts = [Int: (definition: ChatFolder, chats: Int)]()
     private var chatCountTasks = [Int: Task<Void, Never>]()
+    private var recommendedFolders = [TDNativeRecommendedChatFolder]()
+    private var didRequestRecommendedFolders = false
 
     private var customFolders: [CustomFolder] {
         folders.filter {
@@ -22,6 +24,17 @@ final class ChatFoldersViewController: UITableViewController {
                 return true
             }
             return false
+        }
+    }
+
+    /// ChatListFilterPresetListController lists only the recommended folders that no folder already matches.
+    private var visibleRecommendedFolders: [TDNativeRecommendedChatFolder] {
+        let definitions = customFolders.compactMap { folder -> ChatFolder? in
+            if case .folder(_, let definition) = folder.type { return definition }
+            return nil
+        }
+        return recommendedFolders.filter { recommended in
+            !definitions.contains { $0.hasSameRules(as: recommended.folder) }
         }
     }
 
@@ -57,6 +70,7 @@ final class ChatFoldersViewController: UITableViewController {
             folders = session.folders
             tableView.reloadData()
             refreshChatCounts()
+            loadRecommendedFolders()
         }.store(in: &cancellables)
     }
 
@@ -65,17 +79,22 @@ final class ChatFoldersViewController: UITableViewController {
         navigationController?.setNavigationBarHidden(false, animated: animated)
     }
 
-    override func numberOfSections(in _: UITableView) -> Int { 1 }
+    override func numberOfSections(in _: UITableView) -> Int { visibleRecommendedFolders.isEmpty ? 1 : 2 }
 
-    override func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
-        customFolders.count
+    override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
+        section == 0 ? customFolders.count : visibleRecommendedFolders.count
     }
 
-    override func tableView(_: UITableView, titleForFooterInSection _: Int) -> String? {
-        customFolders.isEmpty ? L10n.telegram("ChatListFolderSettings.Info") : nil
+    override func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
+        section == 1 ? L10n.telegram("ChatListFolderSettings.RecommendedFoldersSection") : nil
+    }
+
+    override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
+        section == 0 && customFolders.isEmpty ? L10n.telegram("ChatListFolderSettings.Info") : nil
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        guard indexPath.section == 0 else { return recommendedFolderCell(tableView, at: indexPath) }
         let cell = tableView.dequeueReusableCell(withIdentifier: "FolderCell", for: indexPath)
         let folder = customFolders[indexPath.row]
         var configuration = cell.defaultContentConfiguration()
@@ -95,7 +114,7 @@ final class ChatFoldersViewController: UITableViewController {
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard session.scope(owner: self).isCurrent else { return }
+        guard indexPath.section == 0, session.scope(owner: self).isCurrent else { return }
         navigationController?.pushViewController(
             ChatFolderEditorViewController(
                 session: session, folder: customFolders[indexPath.row],
@@ -109,7 +128,7 @@ final class ChatFoldersViewController: UITableViewController {
         trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath,
     ) -> UISwipeActionsConfiguration? {
         let scope = session.scope(owner: self)
-        guard scope.isCurrent else { return nil }
+        guard indexPath.section == 0, scope.isCurrent else { return nil }
         let folder = customFolders[indexPath.row]
         let delete = UIContextualAction(
             style: .destructive,
@@ -147,6 +166,50 @@ final class ChatFoldersViewController: UITableViewController {
                 // A definition that changed while it was counted is counted again.
                 refreshChatCounts()
             }
+        }
+    }
+
+    private func loadRecommendedFolders() {
+        guard !didRequestRecommendedFolders, let reader = session.reader, session.isCurrent else { return }
+        didRequestRecommendedFolders = true
+        Task { [weak self] in
+            let folders = await reader.recommendedFolders()
+            guard let self, session.isCurrent else { return }
+            recommendedFolders = folders
+            tableView.reloadData()
+        }
+    }
+
+    /// ChatListFilterPresetListSuggestedItem: the folder's name, TDLib's description and an Add button.
+    private func recommendedFolderCell(_ tableView: UITableView, at indexPath: IndexPath) -> UITableViewCell {
+        let identifier = "RecommendedFolderCell"
+        let cell = tableView.dequeueReusableCell(withIdentifier: identifier)
+            ?? UITableViewCell(style: .subtitle, reuseIdentifier: identifier)
+        let recommended = visibleRecommendedFolders[indexPath.row]
+        var configuration = cell.defaultContentConfiguration()
+        configuration.text = recommended.folder.name.text.text
+        configuration.secondaryText = recommended.description
+        configuration.secondaryTextProperties.color = .secondaryLabel
+        cell.contentConfiguration = configuration
+        cell.selectionStyle = .none
+        var buttonConfiguration = UIButton.Configuration.filled()
+        buttonConfiguration.title = L10n.telegram("ChatListFolderSettings.AddRecommended")
+        buttonConfiguration.cornerStyle = .capsule
+        buttonConfiguration.buttonSize = .small
+        let folder = recommended.folder
+        let button = UIButton(configuration: buttonConfiguration, primaryAction: UIAction { [weak self] _ in
+            self?.addRecommendedFolder(folder)
+        })
+        button.sizeToFit()
+        cell.accessoryView = button
+        return cell
+    }
+
+    /// ChatListFilterPresetListController's Add creates the recommended folder as suggested.
+    private func addRecommendedFolder(_ folder: ChatFolder) {
+        guard session.scope(owner: self).isCurrent else { return }
+        session.mutate(.create(folder), owner: self) { [weak self] result in
+            if case .failure(let error) = result { self?.presentFolderError(error) }
         }
     }
 
@@ -930,7 +993,12 @@ extension ChatFolder {
     /// attemptNavigation compares includePeers.peers.
     func hasSameEditableContent(as other: ChatFolder) -> Bool {
         name.text == other.name.text && name.animateCustomEmoji == other.name.animateCustomEmoji
-            && includeContacts == other.includeContacts && includeNonContacts == other.includeNonContacts
+            && hasSameRules(as: other)
+    }
+
+    /// The folder's chat rules without its name, as Telegram compares ChatListFilterData.
+    func hasSameRules(as other: ChatFolder) -> Bool {
+        includeContacts == other.includeContacts && includeNonContacts == other.includeNonContacts
             && includeGroups == other.includeGroups && includeChannels == other.includeChannels
             && includeBots == other.includeBots && excludeMuted == other.excludeMuted
             && excludeRead == other.excludeRead && excludeArchived == other.excludeArchived

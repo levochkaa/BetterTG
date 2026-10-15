@@ -859,3 +859,5 @@
 "ChatListFilter.SaveAlertActionSave" = "Save";
 "ChatListFolder.NameUnread" = "Unread";
 "ChatListFolder.NameNonMuted" = "Not Muted";
+"ChatListFolderSettings.RecommendedFoldersSection" = "RECOMMENDED FOLDERS";
+"ChatListFolderSettings.AddRecommended" = "ADD";
