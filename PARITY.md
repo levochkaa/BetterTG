@@ -350,8 +350,8 @@ Audit and fixes from `codex/parity-chat-tools` and `codex/parity-stories` (cherr
 
 | ID | Sev | Finding | Status |
 |---|---|---|---|
-| S-1 | P1 | Chat search jumps to the newest of the first 50 matches only; no arrows, "N of M", "No Results" or paging | fixed `27867360`: a bottom panel replaces the composer with calendar, members, "N of M" and up/down, paging by 50. Build only |
-| S-2 | P2 | No jump to a date (`getChatMessageByDate` unused) | fixed `27867360`: Telegram's day picker; jumps to the first message of the day (Telegram keeps the time of day) |
+| S-1 | P1 | Chat search jumps to the newest of the first 50 matches only; no arrows, "N of M", "No Results" or paging | fixed `27867360`: a bottom panel replaces the composer with calendar, members, "N of M" and up/down, paging by 50. Simulator: Saved Messages "parity" showed 1 of 3, up stepped to 2 and 3 of 3 with the newer arrow enabled |
+| S-2 | P2 | No jump to a date (`getChatMessageByDate` unused) | fixed `27867360`: Telegram's day picker; jumps to the first message of the day (Telegram keeps the time of day). Simulator: the calendar sheet opened from the panel, Done closed search at the chosen day |
 | S-3 | P2 | No "from:" member search | fixed `27867360`: "from:" lists members (`searchChatMembers`), a token scopes the search |
 | S-4 | P3 | Placeholder differs from "Search this chat" | fixed `27867360` |
 | S-5 | P3 | No results-as-list mode | open |
