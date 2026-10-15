@@ -338,11 +338,13 @@ import UIKit
     /// The pinned message request is still in flight, so a missing banner message is not an answer yet.
     var pinnedMessageIsLoading: Bool { pinnedMessageTask != nil }
 
+    /// Telegram shows a forum topic's own pins, and a forum read as messages shows the forum's
+    /// (ChatController.topPinnedMessageSignal: `.peer` and forum-post `.replyThread` locations).
     var supportsPinnedMessages: Bool {
-        !previewing
-            && !location.isTopicScoped
-            && customChat.supergroup?.isForum != true
-            && customChat.supergroup?.isDirectMessagesGroup != true
+        guard !previewing, customChat.supergroup?.isDirectMessagesGroup != true else { return false }
+        if location.forumTopicID != nil { return true }
+        return !location.isTopicScoped
+            && (customChat.supergroup?.isForum != true || isAllMessagesForum)
             && !customChat.chat.viewAsTopics
     }
 
@@ -1157,11 +1159,19 @@ import UIKit
     }
 
     /// Chat-level pins cover messages outside topics. Saved Messages also tags every message with its
-    /// saved-messages sublist, and Telegram pins there for the user, so that topic does not block a pin.
+    /// saved-messages sublist, and Telegram pins there for the user, so that topic does not block a pin. A forum
+    /// topic pins its own messages, and a forum read as messages pins any topic's.
     func acceptsChatLevelPin(_ message: Message) -> Bool {
         guard let topic = message.topicId else { return true }
-        if case .messageTopicSavedMessages = topic { return customChat.isSavedMessages }
-        return false
+        switch topic {
+        case .messageTopicSavedMessages:
+            return customChat.isSavedMessages
+        case .messageTopicForum(let forumTopic):
+            if let id = location.forumTopicID { return forumTopic.forumTopicId == id }
+            return isAllMessagesForum
+        case .messageTopicDirectMessages, .messageTopicThread:
+            return false
+        }
     }
 
     func refreshDeliveryStates() {
@@ -2306,17 +2316,35 @@ import UIKit
         pinnedMessageTask?.cancel()
         let client = client
         let accountID = accountID
+        // A topic's newest pin comes from its pinned history; TDLib keeps only the chat's newest pin.
+        let topic = location.forumTopicID == nil ? nil : location.topic
         pinnedMessageTask = Task { [weak self] in
             guard let self else { return }
             do {
-                let message = try await client.getChatPinnedMessage(chatId: chatID)
+                let message: Message? =
+                    if let topic {
+                        try await client.searchChatMessages(
+                            chatId: chatID,
+                            filter: .searchMessagesFilterPinned,
+                            fromMessageId: 0,
+                            limit: 1,
+                            offset: 0,
+                            query: "",
+                            senderId: nil,
+                            topicId: topic,
+                        )
+                        .messages
+                        .first
+                    } else {
+                        try await client.getChatPinnedMessage(chatId: chatID)
+                    }
                 guard !Task.isCancelled,
                       pinnedMessageGeneration == generation,
                       TDLib.shared.activeAccountID == accountID,
                       TDLib.shared.activeClient.id == client.id
                 else { return }
                 pinnedMessageAuthoritativeRevision &+= 1
-                pinnedMessage = acceptsChatLevelPin(message) ? message : nil
+                pinnedMessage = message.flatMap { acceptsChatLevelPin($0) ? $0 : nil }
                 pinnedMessageTask = nil
             } catch is CancellationError {
                 guard pinnedMessageGeneration == generation else { return }
