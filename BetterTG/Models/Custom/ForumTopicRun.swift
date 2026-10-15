@@ -29,6 +29,8 @@ enum ChatTimelineItemID: Hashable {
     case dateHeader(ChatDateHeaderID)
     case message(DisplayedMessageID)
     case topicHeader(ForumTopicRunHeaderID)
+    /// Telegram's ChatReplyCountItem, between a reply thread's root and its first reply.
+    case threadStart
 
     var displayedMessageID: DisplayedMessageID? {
         guard case .message(let id) = self else { return nil }
@@ -42,11 +44,15 @@ enum ChatTimelineItemID: Hashable {
     static func items(
         messages: [CustomMessage],
         includesTopicHeaders: Bool,
+        threadHeadID: DisplayedMessageID? = nil,
     ) -> [ChatTimelineItemID] {
         var result = [ChatTimelineItemID]()
         result.reserveCapacity(messages.count * (includesTopicHeaders ? 3 : 2))
         for index in messages.indices {
             let message = messages[index]
+            // Rows run newest first: the notice goes just before the root, so it shows under it, as Telegram puts the
+            // ReplyCountEntry right after the thread head (ChatHistoryEntriesForView).
+            if message.displayedID == threadHeadID { result.append(.threadStart) }
             result.append(.message(message.displayedID))
             if includesTopicHeaders, let topicID = message.forumTopicID {
                 let olderTopicID = messages.indices.contains(index + 1)

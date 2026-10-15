@@ -375,6 +375,17 @@ import UIKit
         return root.map { $0.forwardInfo?.source != nil }
     }
 
+    /// The displayed thread root once the history reaches it (ChatHistoryEntriesForView, `addedThreadHead`), and
+    /// whether a reply follows it, for the notice under it.
+    var messageThreadHeadDisplay: (id: DisplayedMessageID, hasReplies: Bool)? {
+        guard location.messageThreadID != nil, let messageThread else { return nil }
+        let rootIDs = Set(messageThread.messages.map(\.id))
+        guard let head = messages.last(where: { message in
+            message.sourceMessages.contains { rootIDs.contains($0.id) }
+        }) else { return nil }
+        return (head.displayedID, messages.contains { $0.displayedID != head.displayedID })
+    }
+
     /// Telegram's `ChatTitleContent.replyThread` (ChatTitleView): "N Comments" in a channel post's discussion and
     /// "N Replies" in a group message's thread, or the bare noun before the first one. Until the thread is read, a
     /// channel's discussion group is assumed to show comments.

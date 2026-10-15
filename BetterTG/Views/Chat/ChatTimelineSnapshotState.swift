@@ -54,6 +54,7 @@ import UIKit
     case message(ChatTimelineMessageRow)
     case topic(ForumTopicRunHeaderID, ForumTopicInfo?, TDLibClient, TdUpdateSource?)
     case date(ChatDateHeaderID)
+    case notice(String)
 
     var message: ChatTimelineMessageRow? {
         if case .message(let row) = self {

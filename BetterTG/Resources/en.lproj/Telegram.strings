@@ -876,3 +876,5 @@
 "DialogList.Read" = "Read";
 "ChatList.ArchiveAction" = "Archive";
 "ChatList.UnarchiveAction" = "Unarchive";
+"Conversation.DiscussionStarted" = "Discussion started";
+"Conversation.DiscussionNotStarted" = "No comments here yet...";

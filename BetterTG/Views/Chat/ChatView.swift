@@ -1716,6 +1716,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ChatDateHeaderCell.self,
             forCellWithReuseIdentifier: ChatDateHeaderCell.reuseIdentifier,
         )
+        collectionView.register(
+            ChatReplyCountCell.self,
+            forCellWithReuseIdentifier: ChatReplyCountCell.reuseIdentifier,
+        )
         if presentationMode == .full {
             let tapGesture = UITapGestureRecognizer(target: self, action: #selector(historyTapped(_:)))
             tapGesture.cancelsTouchesInView = false
@@ -2336,6 +2340,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     },
                     unavailable: { $0.resetUnavailableContent() },
                 )
+            case .threadStart:
+                ChatTimelineCellProvider.dequeue(
+                    ChatReplyCountCell.self, from: collectionView, at: indexPath,
+                    reuseIdentifier: ChatReplyCountCell.reuseIdentifier,
+                    configure: { [weak self] cell in
+                        guard let self, timelineSourceIsCurrent,
+                              case .notice(let text) = timelineSnapshots.row(for: itemID) else { return false }
+                        cell.configure(text: text)
+                        return true
+                    },
+                    unavailable: { $0.resetUnavailableContent() },
+                )
             case .topicHeader(let headerID):
                 ChatTimelineCellProvider.dequeue(
                     ForumTopicRunHeaderCell.self, from: collectionView, at: indexPath,
@@ -2899,6 +2915,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 updateMessageSelectionChrome(reconfigureIDs: [])
             }
         }
+        let threadHead = chatVM.messageThreadHeadDisplay
         let itemIDs = demand.structural
             ? ChatTimelineProjection.items(
                 messages: chatVM.messages.filter {
@@ -2906,6 +2923,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         && !chatVM.holdsComposerSendMessage($0)
                 },
                 includesTopicHeaders: chatVM.isAllMessagesForum,
+                threadHeadID: threadHead?.id,
             )
             : timelineSnapshots.committed.ids
         let models = Dictionary(chatVM.messages.map { ($0.displayedID, $0) }, uniquingKeysWith: { _, latest in latest })
@@ -2924,6 +2942,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             case .topicHeader(let id):
                 rows[item] = .topic(id, chatVM.forumTopic(id: id.topicID)?.info, chatVM.client, navigationClientSource)
                 changed.insert(item)
+            case .threadStart:
+                let text = ChatReplyCountCell.text(hasReplies: threadHead?.hasReplies ?? true)
+                rows[item] = .notice(text)
+                if case .notice(let shown) = timelineSnapshots.committed.rows[item], shown == text {} else {
+                    changed.insert(item)
+                }
             case .message(let id):
                 let previous = timelineSnapshots.committed.rows[item]?.message
                 guard !timelineSnapshots.deleting.contains(id), let canonical = models[id] else {
