@@ -154,6 +154,9 @@ ClientRestorableNavigationEntry {
     private var sharedSnapshotScheduled = false
     private var sharedViewportGeneration = UInt64.zero
     private var sharedCellReadiness = [Int64: Bool]()
+    /// What a shared cell shows. A snapshot reconfigures only cells whose signature changed, so a page load or a
+    /// refresh of other items does not restart every thumbnail.
+    private var sharedCellSignatures = [Int64: SharedCellSignature]()
     private var oldestMessageID: Int64?
     private var hasMore = true
     private var historyError: String?
@@ -1996,9 +1999,15 @@ ClientRestorableNavigationEntry {
         let changedKinds = currentSharedTab == .media
             ? existing.filter { sharedCellReadiness[$0] != readiness[$0] }
             : []
+        let signatures = Dictionary(uniqueKeysWithValues: messages.map { message in
+            (message.id, SharedCellSignature(message: message, ready: readiness[message.id] == true))
+        })
         snapshot.reloadItems(changedKinds)
-        snapshot.reconfigureItems(existing.filter { !changedKinds.contains($0) })
+        snapshot.reconfigureItems(existing.filter { id in
+            !changedKinds.contains(id) && sharedCellSignatures[id] != signatures[id]
+        })
         sharedCellReadiness = readiness
+        sharedCellSignatures = signatures
         let viewport = restoredViewport == nil
             ? PeerProfileViewport.capture(collectionView, messageID: { dataSource.itemIdentifier(for: $0) })
             : nil
@@ -2360,6 +2369,7 @@ ClientRestorableNavigationEntry {
         historyTask = nil
         sharedMessageRefresh?.stop()
         messagesByID = [:]
+        sharedCellSignatures = [:]
         oldestMessageID = nil
         hasMore = true
         historyError = nil
@@ -2747,6 +2757,23 @@ struct SharedLink {
     private init(url: URL, isConcealed: Bool) {
         self.url = url
         self.isConcealed = isConcealed
+    }
+}
+
+// MARK: - SharedCellSignature
+
+/// The parts of a shared item its cell draws: readiness, the revision and the media it reveals.
+private struct SharedCellSignature: Equatable {
+    let ready: Bool
+    let editDate: Int
+    let contentType: Int
+    let revealKey: MediaRevealSession.Key?
+
+    @MainActor init(message: Message, ready: Bool) {
+        self.ready = ready
+        self.editDate = message.editDate
+        self.contentType = Int(message.content.typeID)
+        self.revealKey = MediaRevealSession.Key(message: message)
     }
 }
 
