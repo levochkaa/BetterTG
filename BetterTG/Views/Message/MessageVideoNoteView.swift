@@ -146,6 +146,11 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         concealIfCaptureUnavailable()
     }
 
+    /// Pauses the video note playing in the timeline, for another player that takes the audio.
+    static func pauseActivePlayback() {
+        activePlaybackView?.pauseForCompetingPlayback()
+    }
+
     private static func isSecret(_ message: Message) -> Bool {
         guard case .messageVideoNote(let value) = message.content else { return false }
         return value.isSecret

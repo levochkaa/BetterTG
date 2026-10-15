@@ -79,6 +79,17 @@ final class MessageMediaView: UIView {
                 onTap: onTap,
             )
             view = albumView
+        } else if case .messageVoiceNote = item.content {
+            // A voice note has no pixels to cover. Its view plays a self-destructing note only through the play-once
+            // overlay, which needs the route's current permit.
+            let voiceView = VoiceNotePlaybackView()
+            voiceView.configure(
+                message: item,
+                client: client,
+                context: mediaRevealSession?.context,
+                permit: revealPermits[item.id],
+            )
+            view = voiceView
         } else if !MediaRevealPermit.allows(item, permit: revealPermits[item.id], requiresPermit: true) {
             view = MediaConcealmentView(
                 message: item,
@@ -101,10 +112,6 @@ final class MessageMediaView: UIView {
                     photoView.showUploadProgress(for: item, client: client) { onCancelSending(messageID) }
                 }
                 view = photoView
-            case .messageVoiceNote:
-                let voiceView = VoiceNotePlaybackView()
-                voiceView.configure(message: item, client: client, context: mediaRevealSession?.context)
-                view = voiceView
             case .messageVideoNote:
                 let videoNoteView = VideoNotePlaybackView()
                 videoNoteView.configure(
@@ -1407,6 +1414,8 @@ enum TDMediaPrefetcher {
 
     /// The voice or video-note files a prefetch starts outside the shared demand and doesn't wait for.
     static func playbackFileIDs(in message: Message) -> [Int] {
+        // A self-destructing voice note is loaded only by the play-once overlay that consumes it.
+        guard message.selfDestructType == nil else { return [] }
         let file: File? =
             switch message.content {
             case .messageVoiceNote(let voice): voice.voiceNote.voice

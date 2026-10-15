@@ -379,6 +379,18 @@ import UIKit
                 hasSpoiler: spoiler,
                 isSecret: secret,
             ))
+        case .voiceNote:
+            .messageVoiceNote(.init(
+                voiceNote: .init(
+                    duration: 1,
+                    waveform: Data(),
+                    mimeType: "audio/ogg",
+                    speechRecognitionResult: nil,
+                    voice: file,
+                ),
+                caption: caption,
+                isListened: false,
+            ))
         }
         return Message(
             id: id,

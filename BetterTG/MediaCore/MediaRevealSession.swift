@@ -9,7 +9,7 @@ import UIKit
 /// A route-owned grant, never a global set of numeric message IDs.
 @MainActor final class MediaRevealSession {
     struct Key: Equatable {
-        enum Kind: Equatable { case photo, video, animation }
+        enum Kind: Equatable { case photo, video, animation, voiceNote }
 
         let chatID: Int64
         let messageID: Int64
@@ -42,6 +42,13 @@ import UIKit
                 self.files = [value.animation.animation.id]
                 self.hasSpoiler = value.hasSpoiler
                 self.isSecret = value.isSecret
+            case .messageVoiceNote(let value):
+                // A voice note shows no pixels, but a self-destructing one is consumed when it plays: the key keeps it
+                // out of prefetch, and only a current permit lets the play-once overlay open it.
+                self.kind = .voiceNote
+                self.files = [value.voiceNote.voice.id]
+                self.hasSpoiler = false
+                self.isSecret = message.selfDestructType != nil
             default:
                 return nil
             }

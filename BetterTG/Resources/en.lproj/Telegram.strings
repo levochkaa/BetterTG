@@ -656,3 +656,7 @@
 "FolderLinkPreview.LabelPeerSubscribers_any" = "%d subscribers";
 "FolderLinkPreview.LabelPeerMembers_1" = "%d member";
 "FolderLinkPreview.LabelPeerMembers_any" = "%d members";
+"Chat.PlayOnceVoiceMessageTooltip" = "This voice message can only be played once.";
+"Chat.PlayOnceMesasgeClose" = "Close";
+"Chat.PlayOnceMesasgeCloseAndDelete" = "Close and Delete";
+"Chat.PlayOnceMesasge.DisableScreenCapture" = "Sorry, you can't play this message while screen recording is active.";

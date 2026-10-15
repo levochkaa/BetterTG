@@ -8,20 +8,26 @@ import UIKit
 
 /// Telegram's voice message bubble (ChatMessageInteractiveFileNode). The note's file loads through the client that
 /// listed its message and follows only that client's file updates; the bubble never follows a replacement client.
+/// A self-destructing note is never loaded here: like Telegram's view-once voice, it plays once in an overlay that
+/// consumes it.
 final class VoiceNotePlaybackView: UIView, ReusableMediaView {
     // MARK: Private
 
     private let playButton = UIButton(type: .system)
     private let waveformView = TelegramWaveformView()
     private let durationLabel = UILabel()
+    /// Telegram's view-once badge on the play button; a timed note shows a timer.
+    private let selfDestructBadge = UIImageView()
     /// Telegram's consumable-content dot: the note has not been listened to yet (by the user, or by the recipient of
     /// an outgoing note).
     private let unlistenedDot = UIView()
     private var message: Message?
     private var voiceNote: VoiceNote?
     private var backend: VideoNotePlaybackBackend?
+    private var permit: MediaRevealPermit?
     private var localPath: String?
     private var isListened = true
+    private var isSelfDestructing = false
     private var configurationID = UUID()
     private var downloadTask: Task<Void, Never>?
     private var bindings = Set<AnyCancellable>()
@@ -43,6 +49,15 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
         guard message.isOutgoing else { return true }
         return message.sendingState == nil && message.chatId > 0
             && message.chatId != TDLib.shared.activeAccount?.userID
+    }
+
+    private var hostViewController: UIViewController? {
+        var responder: UIResponder? = next
+        while let current = responder {
+            if let controller = current as? UIViewController { return controller }
+            responder = current.next
+        }
+        return nil
     }
 
     override init(frame: CGRect) {
@@ -79,20 +94,30 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
 
     // MARK: Internal
 
-    func configure(message: Message, client: TDLibClient, context: MediaGalleryPlaybackContext?) {
+    func configure(
+        message: Message,
+        client: TDLibClient,
+        context: MediaGalleryPlaybackContext?,
+        permit: MediaRevealPermit?,
+    ) {
         prepareForReuse()
         guard case .messageVoiceNote(let value) = message.content else { return }
         let voiceNote = value.voiceNote
         self.message = message
         self.voiceNote = voiceNote
+        self.permit = permit
         isListened = value.isListened
+        isSelfDestructing = message.selfDestructType != nil
+        configureSelfDestructBadge(message.selfDestructType)
         waveformView.samples = Self.decodeWaveform(voiceNote.waveform)
         // File IDs belong to the client that listed the message, so the note loads only through that client.
         if let backend = VideoNotePlaybackBackend.captured(client: client, context: context) {
             self.backend = backend
             observe(backend)
-            update(file: voiceNote.voice)
-            startDownload(using: backend)
+            if !isSelfDestructing {
+                update(file: voiceNote.voice)
+                startDownload(using: backend)
+            }
         }
         render()
     }
@@ -106,10 +131,13 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
             Task { await backend.cancelDownload(fileID) }
         }
         backend = nil
+        permit = nil
         message = nil
         voiceNote = nil
         localPath = nil
         isListened = true
+        isSelfDestructing = false
+        selfDestructBadge.isHidden = true
         waveformView.samples = []
         waveformView.progress = 0
     }
@@ -145,6 +173,15 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
         unlistenedDot.isHidden = true
         addSubview(unlistenedDot)
 
+        selfDestructBadge.translatesAutoresizingMaskIntoConstraints = false
+        selfDestructBadge.contentMode = .scaleAspectFit
+        selfDestructBadge.tintColor = .systemBlue
+        selfDestructBadge.backgroundColor = .systemBackground
+        selfDestructBadge.layer.cornerRadius = 9
+        selfDestructBadge.clipsToBounds = true
+        selfDestructBadge.isHidden = true
+        addSubview(selfDestructBadge)
+
         NSLayoutConstraint.activate([
             playButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             playButton.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -163,6 +200,10 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
             unlistenedDot.centerYAnchor.constraint(equalTo: durationLabel.centerYAnchor),
             unlistenedDot.widthAnchor.constraint(equalToConstant: 6),
             unlistenedDot.heightAnchor.constraint(equalToConstant: 6),
+            selfDestructBadge.centerXAnchor.constraint(equalTo: playButton.trailingAnchor, constant: -4),
+            selfDestructBadge.centerYAnchor.constraint(equalTo: playButton.bottomAnchor, constant: -4),
+            selfDestructBadge.widthAnchor.constraint(equalToConstant: 18),
+            selfDestructBadge.heightAnchor.constraint(equalToConstant: 18),
             widthAnchor.constraint(greaterThanOrEqualToConstant: 225),
             heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
         ])
@@ -204,7 +245,22 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
     }
 
     private func render() {
-        guard let voiceNote else { return }
+        guard let message, let voiceNote else { return }
+        unlistenedDot.isHidden = !showsUnlistenedDot
+        playButton.accessibilityValue = showsUnlistenedDot ? L10n.betterTG("Accessibility.VoiceNotListened") : nil
+        guard !isSelfDestructing else {
+            // Telegram neither scrubs nor shows progress in a play-once bubble; the overlay plays it.
+            playButton.setImage(UIImage(systemName: "play.fill"), for: .normal)
+            durationLabel.text = format(voiceNote.duration)
+            waveformView.progress = 0
+            waveformView.isEnabled = false
+            let enabled = backend?.isCurrent() == true && permit?.matches(message) == true
+            playButton.isEnabled = enabled
+            playButton.alpha = enabled ? 1 : 0.45
+            playButton.accessibilityHint = L10n.telegram("Chat.PlayOnceVoiceMessageTooltip")
+            return
+        }
+        playButton.accessibilityHint = nil
         playButton.setImage(
             UIImage(systemName: isCurrentVoicePlaying ? "pause.fill" : "play.fill"),
             for: .normal,
@@ -219,8 +275,19 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
         playButton.isEnabled = enabled
         playButton.alpha = enabled ? 1 : 0.45
         waveformView.isEnabled = enabled
-        unlistenedDot.isHidden = !showsUnlistenedDot
-        playButton.accessibilityValue = showsUnlistenedDot ? L10n.betterTG("Accessibility.VoiceNotListened") : nil
+    }
+
+    private func configureSelfDestructBadge(_ type: MessageSelfDestructType?) {
+        let symbol: String? =
+            switch type {
+            case .messageSelfDestructTypeImmediately: "1.circle.fill"
+            case .messageSelfDestructTypeTimer: "timer.circle.fill"
+            case nil: nil
+            }
+        selfDestructBadge.image = symbol.flatMap {
+            UIImage(systemName: $0, withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
+        }
+        selfDestructBadge.isHidden = symbol == nil
     }
 
     private func format(_ duration: Int) -> String {
@@ -228,7 +295,7 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
     }
 
     private func seek(to progress: CGFloat) {
-        guard let localPath, let voiceNote else { return }
+        guard !isSelfDestructing, let localPath, let voiceNote else { return }
         let time = TimeInterval(progress) * TimeInterval(voiceNote.duration)
         if isCurrentVoice {
             Media.shared.seek(to: time)
@@ -242,10 +309,35 @@ final class VoiceNotePlaybackView: UIView, ReusableMediaView {
     }
 
     @objc private func toggle() {
+        guard !isSelfDestructing else {
+            presentPlayOnce()
+            return
+        }
         guard let localPath, let voiceNote else { return }
         let starts = !isCurrentVoicePlaying
         Media.shared.toggle(with: localPath, duration: voiceNote.duration)
         if starts { markListened() }
+    }
+
+    /// Telegram opens a view-once voice message in its play-once overlay, and refuses while the screen is recorded
+    /// (ChatControllerImpl.openViewOnceMediaMessage).
+    private func presentPlayOnce() {
+        guard let message, let voiceNote, let backend, backend.isCurrent(), let permit, permit.matches(message),
+              let presenter = hostViewController?.chatListTopPresenter else { return }
+        guard traitCollection.sceneCaptureState != .active else {
+            let alert = UIAlertController(
+                title: nil,
+                message: L10n.telegram("Chat.PlayOnceMesasge.DisableScreenCapture"),
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+            presenter.present(alert, animated: true)
+            return
+        }
+        presenter.present(
+            VoicePlayOnceViewController(message: message, voiceNote: voiceNote, backend: backend, permit: permit),
+            animated: true,
+        )
     }
 
     /// Telegram marks a voice message consumed when its playback starts (PeerMessagesMediaPlaylist
