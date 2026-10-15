@@ -1744,12 +1744,19 @@ ClientRestorableNavigationEntry {
             case .bot, .user:
                 true
             }
-        administratorsActionButton.isHidden =
+        // Telegram lists a group's or channel's administrators only to its owner and admins (`PeerInfoProfileItems`:
+        // `channel.adminRights != nil || isCreator`).
+        let memberStatus: ChatMemberStatus? =
             switch customChat.type {
-            case .group, .supergroup:
-                false
-            case .bot, .user:
-                true
+            case .group(let group): group.status
+            case .supergroup(let group): group.status
+            case .bot, .user: nil
+            }
+        administratorsActionButton.isHidden =
+            switch memberStatus {
+            case .chatMemberStatusAdministrator?: false
+            case .chatMemberStatusCreator(let creator)?: !creator.isMember
+            default: true
             }
         let canEdit =
             if let user = customChat.user {
