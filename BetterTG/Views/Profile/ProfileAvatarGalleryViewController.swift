@@ -19,6 +19,10 @@ struct ProfileAvatarGalleryItem: Hashable {
         photo.sizes.max(by: { $0.width * $0.height < $1.width * $1.height })?.photo.id
     }
 
+    var largestSize: PhotoSize? {
+        photo.sizes.max(by: { $0.width * $0.height < $1.width * $1.height })
+    }
+
     init(photo: ChatPhoto) {
         self.addedDate = photo.addedDate
         self.animation = photo.animation
@@ -103,6 +107,32 @@ struct ProfileAvatarGalleryItem: Hashable {
         items.indices.contains(selectedIndex) ? items[selectedIndex].id : nil
     }
 
+    /// The shared demand the profile header also uses: TDLib cancels a page's download only once no view needs the
+    /// file, as Telegram's gallery cancels a page's fetch when the page leaves.
+    private var downloadOrigin: TDImageOrigin {
+        let client = client
+        let source = TdUpdateSource(accountID: accountID, clientID: client.id)
+        return TDImageOrigin(
+            source: source,
+            backend: .init(
+                download: { id in
+                    guard TDLib.shared.activeUpdateSource == source else { return nil }
+                    return try? await client.downloadFile(
+                        fileId: id,
+                        limit: 0,
+                        offset: 0,
+                        priority: 1,
+                        synchronous: false,
+                    )
+                },
+                cancel: { _ = try? await client.cancelDownloadFile(fileId: $0, onlyIfPending: false) },
+            ),
+            demand: .shared,
+            currentSource: { TDLib.shared.activeUpdateSource },
+            changes: TDLib.shared.activeClientChanges,
+        )
+    }
+
     init(
         accountID: UUID,
         client: TDLibClient,
@@ -159,9 +189,9 @@ struct ProfileAvatarGalleryItem: Hashable {
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        collectionView.visibleCells
-            .compactMap { $0 as? ProfileAvatarGalleryCell }
-            .forEach { $0.setPlaybackVisible(false) }
+        let cells = collectionView.visibleCells.compactMap { $0 as? ProfileAvatarGalleryCell }
+        cells.forEach { $0.setPlaybackVisible(false) }
+        if isBeingDismissed { cells.forEach { $0.setDownloadsActive(false) } }
     }
 
     override func viewWillTransition(
@@ -210,7 +240,7 @@ struct ProfileAvatarGalleryItem: Hashable {
             for: indexPath,
         ) as? ProfileAvatarGalleryCell else { return UICollectionViewCell() }
         guard contextIsCurrent?() != false else { return cell }
-        cell.configure(item: items[indexPath.item], client: client, accountID: accountID)
+        cell.configure(item: items[indexPath.item], origin: downloadOrigin)
         return cell
     }
 
@@ -219,6 +249,8 @@ struct ProfileAvatarGalleryItem: Hashable {
         willDisplay cell: UICollectionViewCell,
         forItemAt indexPath: IndexPath,
     ) {
+        // Telegram's pager fetches the pages on screen; only the shown page plays.
+        (cell as? ProfileAvatarGalleryCell)?.setDownloadsActive(true)
         (cell as? ProfileAvatarGalleryCell)?.setPlaybackVisible(indexPath.item == selectedIndex)
         requestMoreItemsIfNeeded(near: indexPath.item)
     }
@@ -229,6 +261,7 @@ struct ProfileAvatarGalleryItem: Hashable {
         forItemAt _: IndexPath,
     ) {
         (cell as? ProfileAvatarGalleryCell)?.setPlaybackVisible(false)
+        (cell as? ProfileAvatarGalleryCell)?.setDownloadsActive(false)
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
@@ -500,15 +533,21 @@ private final class ProfileAvatarGalleryCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        mediaView.setPlaybackVisible(false)
+        mediaView.setDownloadsActive(false)
         mediaView.prepareForReuse()
     }
 
-    func configure(item: ProfileAvatarGalleryItem, client: TDLibClient, accountID: UUID) {
-        mediaView.configure(item: item, client: client, accountID: accountID)
+    func configure(item: ProfileAvatarGalleryItem, origin: TDImageOrigin) {
+        mediaView.configure(item: item, origin: origin)
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
         mediaView.setPlaybackVisible(isVisible)
+    }
+
+    func setDownloadsActive(_ isActive: Bool) {
+        mediaView.setDownloadsActive(isActive)
     }
 
     func transitionContentFrame(in coordinateSpace: UIView) -> CGRect {
@@ -542,16 +581,19 @@ private final class ProfileAvatarMediaView: UIScrollView, UIScrollViewDelegate {
     private let imageView = UIImageView()
     private let playerLayer = AVPlayerLayer()
     private var represented: Representation?
-    private var representedClient: TDLibClient?
+    private var origin: TDImageOrigin?
     private var representedItem: ProfileAvatarGalleryItem?
-    private var downloadTasks = [Int: Task<Void, Never>]()
-    private var downloadGenerations = [Int: UUID]()
+    /// Leases on the shared download demand, one per file this page is fetching.
+    private var downloads = [Int: AnimatedFileDownload]()
     private var decodeTask: Task<Void, Never>?
     private var decodeGeneration: UUID?
     private var playbackEndObserver: NSObjectProtocol?
     private var player: AVPlayer?
     private var playerReadyCancellable: AnyCancellable?
     private var playbackIsVisible = false
+    private var downloadsAreActive = false
+    /// The file whose full pixels the page shows, so a page back on screen redecodes only what it lost.
+    private var displayedImageFileID: Int?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -601,17 +643,15 @@ private final class ProfileAvatarMediaView: UIScrollView, UIScrollViewDelegate {
         panGestureRecognizer.isEnabled = zoomScale > minimumZoomScale + 0.001
     }
 
-    func configure(item: ProfileAvatarGalleryItem, client: TDLibClient, accountID: UUID) {
+    func configure(item: ProfileAvatarGalleryItem, origin: TDImageOrigin) {
         prepareForReuse()
-        guard let imageSize = item.photo.sizes.max(by: {
-            $0.width * $0.height < $1.width * $1.height
-        }) else { return }
+        guard let imageSize = item.largestSize else { return }
         representedItem = item
-        representedClient = client
+        self.origin = origin
         represented = Representation(
-            accountID: accountID,
+            accountID: origin.source.accountID,
             animationFileID: item.animation?.file.id,
-            clientID: client.id,
+            clientID: origin.source.clientID,
             imageFileID: imageSize.photo.id,
             itemID: item.id,
         )
@@ -620,10 +660,8 @@ private final class ProfileAvatarMediaView: UIScrollView, UIScrollViewDelegate {
         if let animation = item.animation {
             updateAnimation(file: animation.file)
         }
-        requestDownload(file: imageSize.photo, client: client)
-        if let animation = item.animation {
-            requestDownload(file: animation.file, client: client)
-        }
+        // A page downloads while it is on screen.
+        if downloadsAreActive { resumeDownloads() }
         isAccessibilityElement = true
         accessibilityTraits = .image
         accessibilityLabel = item.addedDate > 0
@@ -636,9 +674,10 @@ private final class ProfileAvatarMediaView: UIScrollView, UIScrollViewDelegate {
         panGestureRecognizer.isEnabled = false
         cancelDownloads()
         represented = nil
-        representedClient = nil
+        origin = nil
         representedItem = nil
         imageView.image = nil
+        displayedImageFileID = nil
         player?.pause()
         player = nil
         playerReadyCancellable?.cancel()
@@ -654,7 +693,6 @@ private final class ProfileAvatarMediaView: UIScrollView, UIScrollViewDelegate {
     func setPlaybackVisible(_ isVisible: Bool) {
         playbackIsVisible = isVisible
         if isVisible {
-            resumeDownloads()
             player?.play()
         } else {
             player?.pause()
@@ -664,6 +702,14 @@ private final class ProfileAvatarMediaView: UIScrollView, UIScrollViewDelegate {
             {
                 player?.seek(to: CMTime(seconds: timestamp, preferredTimescale: 600))
             }
+        }
+    }
+
+    func setDownloadsActive(_ isActive: Bool) {
+        downloadsAreActive = isActive
+        if isActive {
+            resumeDownloads()
+        } else {
             cancelDownloads()
         }
     }
@@ -676,56 +722,48 @@ private final class ProfileAvatarMediaView: UIScrollView, UIScrollViewDelegate {
         return snapshot
     }
 
-    private func requestDownload(file: File, client: TDLibClient) {
-        guard !file.local.isDownloadingCompleted,
-              downloadTasks[file.id] == nil
-        else { return }
-        let generation = UUID()
-        downloadGenerations[file.id] = generation
-        downloadTasks[file.id] = Task { [weak self] in
-            let downloaded = try? await client.downloadFile(
-                fileId: file.id,
-                limit: 0,
-                offset: 0,
-                priority: 1,
-                synchronous: true,
-            )
-            guard let self,
-                  downloadGenerations[file.id] == generation
-            else { return }
-            finishDownload(fileID: file.id, generation: generation)
-            guard let downloaded else { return }
-            if downloaded.id == represented?.imageFileID {
-                updateImage(file: downloaded)
-            }
-            if downloaded.id == represented?.animationFileID {
-                updateAnimation(file: downloaded)
-            }
+    private func requestDownload(file: File) {
+        guard let origin, origin.isCurrent, !file.local.isDownloadingCompleted,
+              downloads[file.id] == nil else { return }
+        let fileID = file.id
+        let download = origin.request(fileID: fileID)
+        downloads[fileID] = download
+        download.start(file: file) { [weak self] file in
+            self?.receiveDownloadedFile(file)
+        } onInvalidated: { [weak self] in
+            self?.downloads[fileID] = nil
         }
     }
 
-    private func finishDownload(fileID: Int, generation: UUID) {
-        guard downloadGenerations[fileID] == generation else { return }
-        downloadGenerations[fileID] = nil
-        downloadTasks[fileID] = nil
+    private func receiveDownloadedFile(_ file: File) {
+        guard file.local.isDownloadingCompleted else { return }
+        downloads.removeValue(forKey: file.id)?.cancel()
+        if file.id == represented?.imageFileID {
+            updateImage(file: file)
+        }
+        if file.id == represented?.animationFileID {
+            updateAnimation(file: file)
+        }
     }
 
     private func resumeDownloads() {
-        guard let representedClient, let representedItem else { return }
-        if let imageSize = representedItem.photo.sizes.max(by: {
-            $0.width * $0.height < $1.width * $1.height
-        }) {
-            requestDownload(file: imageSize.photo, client: representedClient)
+        guard let representedItem else { return }
+        if let imageSize = representedItem.largestSize {
+            if displayedImageFileID != imageSize.photo.id, decodeTask == nil {
+                updateImage(file: imageSize.photo)
+            }
+            requestDownload(file: imageSize.photo)
         }
         if let animation = representedItem.animation {
-            requestDownload(file: animation.file, client: representedClient)
+            requestDownload(file: animation.file)
         }
     }
 
+    /// Releases this page's leases; TDLib stops a download no other view still needs.
     private func cancelDownloads() {
-        downloadTasks.values.forEach { $0.cancel() }
-        downloadTasks = [:]
-        downloadGenerations = [:]
+        let leases = downloads.values
+        downloads = [:]
+        leases.forEach { $0.cancel() }
         decodeTask?.cancel()
         decodeTask = nil
         decodeGeneration = nil
@@ -742,6 +780,7 @@ private final class ProfileAvatarMediaView: UIScrollView, UIScrollViewDelegate {
         let key = "\(represented.accountID.uuidString):\(represented.clientID):\(file.id)" as NSString
         if let cached = Self.imageCache.object(forKey: key) {
             imageView.image = cached
+            displayedImageFileID = file.id
             return
         }
         let itemID = represented.itemID
@@ -761,6 +800,7 @@ private final class ProfileAvatarMediaView: UIScrollView, UIScrollViewDelegate {
             let cost = max(1, image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0)
             Self.imageCache.setObject(image, forKey: key, cost: cost)
             imageView.image = image
+            displayedImageFileID = file.id
             decodeTask = nil
             decodeGeneration = nil
         }
