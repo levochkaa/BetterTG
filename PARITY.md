@@ -256,21 +256,21 @@ Read-only audits at `6c697153` (voice and video notes, V) and `1ac7d7e2` (messag
 
 | ID | Sev | Finding | Status |
 |---|---|---|---|
-| V-1 | P1 | View-once and self-destructing voice notes play like ordinary ones (no conceal, no `openMessageContent`, unlimited replay, prefetched) | in progress (worker branch `codex/parity-voice-view`) |
+| V-1 | P1 | View-once and self-destructing voice notes play like ordinary ones (no conceal, no `openMessageContent`, unlimited replay, prefetched) | fixed `e97e1adf`: a voice reveal key keeps them out of prefetch; the bubble shows the view-once or timer badge, can't be scrubbed, and opens `VoicePlayOnceViewController`, which re-reads the message on its client, decodes a private copy, calls `openMessageContent` and plays it once (screen recording shows Telegram's alert). Build and `-media-probe-media-reveal` pass; the real consume path needs a received view-once note, which the test account doesn't have |
 | R-1 | P1 | Bot inline keyboards and reply keyboards never render (`Message.replyMarkup` is unread) | in progress (worker branch `codex/parity-reply-markup`) |
-| V-2 / R-6 | P2 | Playing a voice note or a non-secret video note never calls `openMessageContent`; no unlistened dot | in progress with V-1 |
+| V-2 / R-6 | P2 | Playing a voice note or a non-secret video note never calls `openMessageContent`; no unlistened dot | fixed `91928761`: the first play of an incoming note calls `openMessageContent` on its client, the bubble shows the unlistened dot (sent notes in private chats until the peer listens), and `updateMessageContentOpened` re-reads the message. Build only (the only voice note in Saved Messages is off limits) |
 | V-3 | P2 | A voice recording switched the session before stopping playback; a failed deactivation skipped the record category; a playing video note kept playing | fixed `ebb7341c`. Build only (the Simulator has no microphone, and the user's mic button is off limits) |
 | V-4 | P2 | Nothing kept the screen awake while recording | fixed `365173c5`: recording holds the idle timer, as Telegram's `pushIdleTimerExtension`. Build only |
 | V-5 | P2 | "Release to cancel" showed at 70 pt; release cancels only past 100 pt | fixed `4d403a33`. Build only |
 | R-2 | P2 | Polls, live locations and checklists show a plain Edit that throws; Stop Poll/Quiz and Stop Live Location are missing | in progress with R-1 |
 | R-3 | P2 | Game, story, checklist and giveaway messages fall to the unsupported fallback | open |
-| R-4 | P2 | A rolled dice shows only its emoji; the result is never visible | open |
-| R-5 | P2 | Contact messages lack Send Message and Add Contact | open |
+| R-4 | P2 | A rolled dice shows only its emoji; the result is never visible | fixed `98880b5f`: the final state is drawn (five layers for 🎰); a fresh result plays once and holds the value, an older one shows the last frame; tapping shows Telegram's dice hint with Send; a text that is only a server dice emoji is sent as a roll. Simulator, Saved Messages: 🎲 rolled once to 3 and stayed still, the hint's Send rolled a 4, both test messages deleted |
+| R-5 | P2 | Contact messages lack Send Message and Add Contact | fixed `98880b5f`: MESSAGE and ADD (VIEW CONTACT without an account) under the card, the card opens a Telegram user's profile, and the sheet offers Send Message and Add Contact (`addContact`, name only, number not shared). `-ui-probe-message-content` passes and the screenshot shows both button sets; Add Contact wasn't run so the account's contacts are unchanged |
 | V-6 | P3 | The recording chat action was sent once and expired | fixed `365173c5`: repeated every 4 s for voice and video notes. Build only |
 | V-7 | P3 | No playback speed, next-voice autoplay, raise-to-listen, playback header or muted video note autoplay | open |
 | V-8 | P3 | Voice playback never gave back the audio session | fixed `60181132`: the spoken-audio session Media activated is deactivated with `notifyOthersOnDeactivation` when playback ends |
-| V-9 / R-7 | P3 | The voice view downloads through the global client and an unscoped `updateFile` | in progress with V-1 |
-| V-10 | P3 | Voice progress moves in whole seconds; scrubbing a stopped note starts it | in progress with V-1 |
+| V-9 / R-7 | P3 | The voice view downloads through the global client and an unscoped `updateFile` | fixed `b8cb17c9`: downloads and cancels go through the message's playback backend, and only that source's `updateFile` is accepted. Build only |
+| V-10 | P3 | Voice progress moves in whole seconds; scrubbing a stopped note starts it | fixed `b8cb17c9`: `Media` publishes a fractional position, and scrubbing a stopped note loads it paused at that point. Build only |
 | V-11 | P3 | The 50 ms recording timer publishes the whole ChatView refresh 20 times a second | open |
 | V-12 | P3 | Voice is recorded as 48 kHz WAV and encoded only after release | open |
 | V-13 | P3 | No view-once option when sending voice or video notes | open |
