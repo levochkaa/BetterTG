@@ -271,10 +271,10 @@ Read-only audits at `6c697153` (voice and video notes, V) and `1ac7d7e2` (messag
 | V-8 | P3 | Voice playback never gave back the audio session | fixed `60181132`: the spoken-audio session Media activated is deactivated with `notifyOthersOnDeactivation` when playback ends |
 | V-9 / R-7 | P3 | The voice view downloads through the global client and an unscoped `updateFile` | fixed `b8cb17c9`: downloads and cancels go through the message's playback backend, and only that source's `updateFile` is accepted. Build only |
 | V-10 | P3 | Voice progress moves in whole seconds; scrubbing a stopped note starts it | fixed `b8cb17c9`: `Media` publishes a fractional position, and scrubbing a stopped note loads it paused at that point. Build only |
-| V-11 | P3 | The 50 ms recording timer publishes the whole ChatView refresh 20 times a second | open |
+| V-11 | P3 | The 50 ms recording timer publishes the whole ChatView refresh 20 times a second | fixed `67e0ae29`: the tick publishes `recordingTimeChanged`, which updates only the composer's recording row (Telegram's ChatTextInputAudioRecordingTimeNode); crossing the 0.5 s pause threshold refreshes once. Build only (no microphone, and the mic button is off limits) |
 | V-12 | P3 | Voice is recorded as 48 kHz WAV and encoded only after release | open |
 | V-13 | P3 | No view-once option when sending voice or video notes | open |
-| V-14 | P3 | Logging out never purges the account's voice and video draft stores | open |
+| V-14 | P3 | Logging out never purges the account's voice and video draft stores | fixed `72ad5192`: removing an account's TDLib directory also discards its voice send, voice recording and video note recording drafts. `-media-probe-draft-outcomes` passes with a new logout check; a real logout wasn't run |
 | V-15 | P3 | Hold-to-send waveforms use unnormalized meter readings (suspicion) | open |
 | V-16 | P3 | A successful send may delete the .ogg the sent message still points to (suspicion) | open |
 | R-8 | P3 | Public polls have no View Results or voter list, no Unvote item; vote errors only logged | open |
