@@ -121,7 +121,8 @@
                         try require(resolved?.destination == route, "\(label): original UI route changed")
                         try require(resolved?.id == draft.id, "\(label): wrong draft")
                         try require(
-                            FileManager.default.fileExists(atPath: draft.fileURL.path) == !succeeds,
+                            FileManager.default
+                                .fileExists(atPath: draft.fileURL.path) == (!succeeds || Store.keepsSentFile),
                             "\(label): file ownership",
                         )
                         if !succeeds {
@@ -243,7 +244,8 @@
                         if persistedRegistration, matchesID {
                             try require(restored.count == (succeeds ? 0 : 1), "\(label): exact crash recovery")
                             try require(
-                                FileManager.default.fileExists(atPath: draft.fileURL.path) == !succeeds,
+                                FileManager.default
+                                    .fileExists(atPath: draft.fileURL.path) == (!succeeds || Store.keepsSentFile),
                                 "\(label): exact recovery file ownership",
                             )
                             if !succeeds {
@@ -322,6 +324,8 @@
             migrateLegacy: Bool,
         ) async throws -> Draft?
         func drafts(for route: ChatDraftKey, migrateLegacy: Bool) async -> [Draft]
+        /// A sent voice note keeps its uploaded file for the abandoned-file sweep, since the message points at it.
+        static var keepsSentFile: Bool { get }
     }
 
     private extension MediaDraftProbeStore {
@@ -338,6 +342,8 @@
     }
 
     extension VoiceNoteDraftStore: MediaDraftProbeStore {
+        static var keepsSentFile: Bool { true }
+
         fileprivate func probeAdopt(
             route: ChatDraftKey?,
             sendTopic: MessageTopic?,
@@ -391,6 +397,8 @@
     }
 
     extension VideoNoteFileStore: MediaDraftProbeStore {
+        static var keepsSentFile: Bool { false }
+
         fileprivate func probeAdopt(
             route: ChatDraftKey?,
             sendTopic: MessageTopic?,

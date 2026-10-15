@@ -274,7 +274,8 @@
                 restoredVideo.registerEnqueued(currentVideo, temporaryMessageID: -23).outcome == .succeeded,
                 "video outcome after move",
             )
-            try require(!exists(currentVoice.fileURL) && !exists(currentVideo.fileURL), "resolved local files retained")
+            // A sent voice note keeps its uploaded file for the abandoned-file sweep; a video note's file goes.
+            try require(exists(currentVoice.fileURL) && !exists(currentVideo.fileURL), "resolved local file ownership")
             if copy {
                 try require(
                     exists(waitingVoice.fileURL) && exists(waitingVideo.fileURL) && exists(tombstone.fileURL),

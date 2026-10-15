@@ -159,8 +159,11 @@
                 temporaryMessageID: -11,
                 finalization: claim.lease,
             )
+            let resolvedDrafts = await store.drafts(for: route)
             try require(
-                registration.outcome == .succeeded && !exists(encoded.fileURL),
+                // The sent note keeps its uploaded file for the abandoned-file sweep; only the draft is resolved.
+                registration.outcome == .succeeded && exists(encoded.fileURL)
+                    && !resolvedDrafts.contains(where: { $0.id == enqueued.id }),
                 "exact early success did not resolve",
             )
             try require(exists(unrelated.draft.fileURL) && exists(secondOutput), "resolution removed unrelated file")

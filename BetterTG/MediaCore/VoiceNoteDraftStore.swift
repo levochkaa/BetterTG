@@ -287,7 +287,7 @@ actor VoiceNoteDraftStore {
                     finalization: finalization,
                 )
             case .succeeded:
-                guard removeResolved(updatedDraft, finalization: finalization) else {
+                guard removeResolved(updatedDraft, finalization: finalization, keepingFile: true) else {
                     throw VoiceNoteDraftStoreError.draftUnavailable
                 }
             }
@@ -402,7 +402,11 @@ actor VoiceNoteDraftStore {
             temporaryMessageID: temporaryMessageID,
         ) else { return nil }
         if draft.temporaryMessageID == temporaryMessageID {
-            guard removeResolved(draft) else { throw VoiceNoteDraftStoreError.finalizationAlreadyActive }
+            // The sent message's file still points at the uploaded .ogg, so it stays for the abandoned-file sweep
+            // (a day) and the note replays without a download, as Telegram keeps an upload in its media cache.
+            guard removeResolved(draft, keepingFile: true) else {
+                throw VoiceNoteDraftStoreError.finalizationAlreadyActive
+            }
             removeOutcomes(draftID: draft.id)
             return VoiceNoteDraftResolution(
                 chatID: draft.chatID,
@@ -536,15 +540,18 @@ actor VoiceNoteDraftStore {
     private func removeResolved(
         _ draft: VoiceNoteSendDraft,
         finalization: VoiceNoteFinalizationLease? = nil,
+        keepingFile: Bool = false,
     ) -> Bool {
         guard let canonical = try? canonicalDraft(matching: draft, finalization: finalization, forMutation: true)
         else { return false }
         registrationOwnedDraftIDs.remove(draft.id)
-        try? fileManager.removeItem(at: canonical.fileURL)
+        if !keepingFile {
+            try? fileManager.removeItem(at: canonical.fileURL)
+        }
         try? fileManager.removeItem(at: manifestURL(for: draft.id))
         removeOutcomes(draftID: draft.id)
         publishChange(canonical)
-        return !fileManager.fileExists(atPath: canonical.fileURL.path)
+        return (keepingFile || !fileManager.fileExists(atPath: canonical.fileURL.path))
             && !fileManager.fileExists(atPath: manifestURL(for: draft.id).path)
     }
 
@@ -699,7 +706,7 @@ actor VoiceNoteDraftStore {
                     reconciledDrafts.append(draft)
                 }
             case .succeeded:
-                if !removeResolved(draft) { reconciledDrafts.append(draft) }
+                if !removeResolved(draft, keepingFile: true) { reconciledDrafts.append(draft) }
             }
         }
         return reconciledDrafts
