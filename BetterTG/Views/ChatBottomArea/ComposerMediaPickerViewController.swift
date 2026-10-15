@@ -15,15 +15,25 @@ UISearchBarDelegate {
         case gifs
     }
 
-    private enum Section {
+    /// Telegram's sticker tab groups (EmojiPagerContentSignals): Favorite Stickers, Recently Used, then every installed
+    /// pack in the user's order. Searches and the other tabs use one plain section.
+    private enum Section: Hashable {
         case content
+        case favorites
+        case recent
+        case pack(Int64)
     }
 
     private enum ItemID: Hashable {
         case animation(Int)
         case emoji(String)
         case sticker(Int)
+        /// A sticker can be in Favorites, Recently Used and its pack at once.
+        case groupedSticker(Section, Int)
     }
+
+    /// Telegram shows up to 20 recently used stickers.
+    private static let recentStickerLimit = 20
 
     private static let emojis =
         "😀 😃 😄 😁 😆 😅 😂 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😋 😜 🤪 🤨 🧐 🤓 😎 🥳 😏 😒 😞 😔 😟 😕 🙁 ☹️ 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 🤯 😳 🥵 🥶 😱 😨 😰 🤗 🤔 🫡 🤭 🤫 🤥 😶 😐 😑 😬 🙄 😯 😮 😲 🥱 😴 🤤 😪 😵 🤐 🤢 🤮 🤧 😷 🤒 🤕 👍 👎 👏 🙌 🫶 ❤️ 🧡 💛 💚 💙 💜 🖤 🤍 💯 🔥 🎉 ✨ 🚀"
@@ -55,8 +65,11 @@ UISearchBarDelegate {
     private var animations = [Int: Animation]()
     private var savedAnimations = [Animation]()
     private var stickers = [Int: Sticker]()
+    private var sectionTitles = [Section: String]()
+    private var favoriteStickerIDs = Set<Int>()
     private var loadTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
+    private var stickerActionTask: Task<Void, Never>?
     private var canUseCustomEmoji = false
     private var clientChangeCancellable: AnyCancellable?
 
@@ -82,6 +95,7 @@ UISearchBarDelegate {
     deinit {
         loadTask?.cancel()
         searchTask?.cancel()
+        stickerActionTask?.cancel()
     }
 
     override func viewDidLoad() {
@@ -114,6 +128,17 @@ UISearchBarDelegate {
             }
     }
 
+    /// BetterTG sends no Premium stickers.
+    private static func sendableStickers(_ values: [Sticker]) -> [Sticker] {
+        values.filter {
+            if case .stickerFullTypeRegular(let regular) = $0.fullType {
+                regular.premiumAnimation == nil
+            } else {
+                false
+            }
+        }
+    }
+
     func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard contextIsCurrent,
               let item = dataSource.itemIdentifier(for: indexPath)
@@ -124,7 +149,7 @@ UISearchBarDelegate {
         switch item {
         case .emoji(let emoji):
             onEmoji?(emoji)
-        case .sticker(let id):
+        case .groupedSticker(_, let id), .sticker(let id):
             guard let sticker = stickers[id] else { return }
             if case .stickerFullTypeCustomEmoji = sticker.fullType {
                 guard canUseCustomEmoji else {
@@ -190,6 +215,19 @@ UISearchBarDelegate {
             ComposerAnimationCell.self,
             forCellWithReuseIdentifier: ComposerAnimationCell.reuseIdentifier,
         )
+        collectionView.register(
+            ComposerSectionHeaderView.self,
+            forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
+            withReuseIdentifier: ComposerSectionHeaderView.reuseIdentifier,
+        )
+        let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(itemLongPressed(_:)))
+        press.pressedViewProvider = { [weak self] gesture in
+            guard let self, let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
+                  let item = dataSource.itemIdentifier(for: path), hasMenu(item)
+            else { return nil }
+            return collectionView.cellForItem(at: path)
+        }
+        collectionView.addGestureRecognizer(press)
         view.addSubview(collectionView)
         NSLayoutConstraint.activate([
             segmentedControl.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
@@ -207,7 +245,7 @@ UISearchBarDelegate {
     }
 
     private func makeLayout() -> UICollectionViewLayout {
-        UICollectionViewCompositionalLayout { [weak self] _, _ in
+        UICollectionViewCompositionalLayout { [weak self] sectionIndex, _ in
             let columns = self?.mode == .emoji || self?.mode == .customEmoji ? 8 : 4
             let itemSize = NSCollectionLayoutSize(
                 widthDimension: .fractionalWidth(1 / CGFloat(columns)),
@@ -226,6 +264,19 @@ UISearchBarDelegate {
             )
             let section = NSCollectionLayoutSection(group: group)
             section.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 8, bottom: 20, trailing: 8)
+            if let identifier = self?.dataSource?.sectionIdentifier(for: sectionIndex),
+               self?.sectionTitles[identifier] != nil
+            {
+                section.contentInsets.bottom = 8
+                section.boundarySupplementaryItems = [NSCollectionLayoutBoundarySupplementaryItem(
+                    layoutSize: NSCollectionLayoutSize(
+                        widthDimension: .fractionalWidth(1),
+                        heightDimension: .absolute(30),
+                    ),
+                    elementKind: UICollectionView.elementKindSectionHeader,
+                    alignment: .top,
+                )]
+            }
             return section
         }
     }
@@ -243,7 +294,7 @@ UISearchBarDelegate {
                 ) as? ComposerEmojiCell
                 cell?.configure(emoji: emoji)
                 return cell ?? UICollectionViewCell()
-            case .sticker(let id):
+            case .groupedSticker(_, let id), .sticker(let id):
                 let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: ComposerStickerCell.reuseIdentifier,
                     for: indexPath,
@@ -262,6 +313,16 @@ UISearchBarDelegate {
                 }
                 return cell ?? UICollectionViewCell()
             }
+        }
+        dataSource.supplementaryViewProvider = { [weak self] collectionView, kind, indexPath in
+            let header = collectionView.dequeueReusableSupplementaryView(
+                ofKind: kind,
+                withReuseIdentifier: ComposerSectionHeaderView.reuseIdentifier,
+                for: indexPath,
+            ) as? ComposerSectionHeaderView
+            let section = self?.dataSource.sectionIdentifier(for: indexPath.section)
+            header?.configure(title: section.flatMap { self?.sectionTitles[$0] } ?? "")
+            return header
         }
     }
 
@@ -316,6 +377,10 @@ UISearchBarDelegate {
             )) { _, latest in latest }
             applySnapshot(values.map { .sticker($0.sticker.id) }.uniqued())
         case .stickers:
+            guard !query.isEmpty else {
+                await loadStickerGroups()
+                return
+            }
             let result = try? await client.getStickers(
                 chatId: chatID,
                 limit: 100,
@@ -323,13 +388,7 @@ UISearchBarDelegate {
                 stickerType: .stickerTypeRegular,
             )
             guard !Task.isCancelled, contextIsCurrent else { return }
-            let values = (result?.stickers ?? []).filter {
-                if case .stickerFullTypeRegular(let regular) = $0.fullType {
-                    regular.premiumAnimation == nil
-                } else {
-                    false
-                }
-            }
+            let values = Self.sendableStickers(result?.stickers ?? [])
             stickers = Dictionary(uniqueKeysWithValues: values.map { ($0.sticker.id, $0) })
             applySnapshot(values.map { .sticker($0.sticker.id) })
         case .gifs:
@@ -350,11 +409,202 @@ UISearchBarDelegate {
     }
 
     private func applySnapshot(_ items: [ItemID]) {
+        sectionTitles = [:]
         var snapshot = NSDiffableDataSourceSnapshot<Section, ItemID>()
         snapshot.appendSections([.content])
         snapshot.appendItems(items)
         dataSource.apply(snapshot, animatingDifferences: true)
         collectionView.backgroundView = items.isEmpty ? emptyLabel() : nil
+    }
+
+    /// Favorite Stickers, Recently Used and the installed packs in order. Each pack fills in as TDLib returns it.
+    private func loadStickerGroups() async {
+        let client = client
+        async let favoritesRequest = client.send(TDNativeRequests.getFavoriteStickers())
+        async let recentRequest = client.send(TDNativeRequests.getRecentStickers(isAttached: false))
+        async let setsRequest = client.send(TDNativeRequests.getInstalledStickerSets(stickerType: .stickerTypeRegular))
+        let favorites = await Self.sendableStickers((try? favoritesRequest)?.stickers ?? [])
+        let recent = await Self.sendableStickers((try? recentRequest)?.stickers ?? [])
+        let sets = await (try? setsRequest)?.sets ?? []
+        guard !Task.isCancelled, contextIsCurrent, mode == .stickers else { return }
+        favoriteStickerIDs = Set(favorites.map(\.sticker.id))
+        var groups = [(Section, [Sticker])]()
+        var titles = [Section: String]()
+        if !favorites.isEmpty {
+            groups.append((.favorites, favorites))
+            titles[.favorites] = L10n.telegram("EmojiInput.SectionTitleFavoriteStickers")
+        }
+        if !recent.isEmpty {
+            groups.append((.recent, Array(recent.prefix(Self.recentStickerLimit))))
+            titles[.recent] = L10n.telegram("Stickers.FrequentlyUsed")
+        }
+        applyStickerGroups(groups, titles: titles)
+        for (index, info) in sets.enumerated() {
+            let set = try? await client.send(TDNativeRequests.getStickerSet(setId: info.id))
+            guard !Task.isCancelled, contextIsCurrent, mode == .stickers else { return }
+            let values = Self.sendableStickers(set?.stickers ?? [])
+            guard !values.isEmpty else { continue }
+            groups.append((.pack(info.id), values))
+            titles[.pack(info.id)] = info.title
+            // The first packs show at once; the rest arrive in batches.
+            if index < 3 || index % 6 == 5 { applyStickerGroups(groups, titles: titles) }
+        }
+        applyStickerGroups(groups, titles: titles)
+    }
+
+    private func applyStickerGroups(_ groups: [(Section, [Sticker])], titles: [Section: String]) {
+        sectionTitles = titles
+        var snapshot = NSDiffableDataSourceSnapshot<Section, ItemID>()
+        for (section, values) in groups {
+            for sticker in values {
+                stickers[sticker.sticker.id] = sticker
+            }
+            let items = values.map { ItemID.groupedSticker(section, $0.sticker.id) }.uniqued()
+            guard !items.isEmpty else { continue }
+            snapshot.appendSections([section])
+            snapshot.appendItems(items, toSection: section)
+        }
+        dataSource.apply(snapshot, animatingDifferences: false)
+        collectionView.backgroundView = snapshot.numberOfItems == 0 ? emptyLabel() : nil
+    }
+
+    // MARK: Item menus
+
+    private func hasMenu(_ item: ItemID) -> Bool {
+        switch item {
+        case .animation, .groupedSticker: true
+        // Custom emoji have no sticker menu.
+        case .sticker: mode == .stickers
+        case .emoji: false
+        }
+    }
+
+    /// Telegram's sticker and GIF preview menus (StickerPreviewPeekContent, ChatContextResultPeekContent).
+    @objc private func itemLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard gesture.state == .began, contextIsCurrent,
+              let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
+              let item = dataSource.itemIdentifier(for: path),
+              let cell = collectionView.cellForItem(at: path)
+        else { return }
+        let actions: [TelegramContextMenuAction]
+        switch item {
+        case .groupedSticker(let section, let id):
+            guard let sticker = stickers[id] else { return }
+            actions = stickerActions(sticker, section: section)
+        case .sticker(let id):
+            guard mode == .stickers, let sticker = stickers[id] else { return }
+            actions = stickerActions(sticker, section: .content)
+        case .animation(let id):
+            guard let animation = animations[id] else { return }
+            actions = [
+                TelegramContextMenuAction(
+                    title: L10n.telegram("Preview.DeleteGif"),
+                    image: UIImage(systemName: "trash"),
+                    isDestructive: true,
+                ) { [weak self] in self?.removeSavedAnimation(animation) },
+            ]
+        case .emoji:
+            return
+        }
+        presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture, presentationStyle: .menuOnly)
+    }
+
+    private func stickerActions(_ sticker: Sticker, section: Section) -> [TelegramContextMenuAction] {
+        let isFavorite = favoriteStickerIDs.contains(sticker.sticker.id)
+        var actions = [
+            TelegramContextMenuAction(
+                title: L10n.telegram("StickerPack.Send"),
+                image: UIImage(systemName: "paperplane"),
+            ) { [weak self] in
+                guard let self, contextIsCurrent else { return }
+                onSticker?(sticker)
+            },
+            TelegramContextMenuAction(
+                title: L10n.telegram(isFavorite ? "Stickers.RemoveFromFavorites" : "Stickers.AddToFavorites"),
+                image: UIImage(systemName: isFavorite ? "star.slash" : "star"),
+            ) { [weak self] in
+                self?.changeSticker(
+                    sticker,
+                    request: isFavorite
+                        ? TDNativeRequests
+                            .removeFavoriteSticker(sticker: .inputFileId(InputFileId(id: sticker.sticker.id)))
+                        : TDNativeRequests
+                            .addFavoriteSticker(sticker: .inputFileId(InputFileId(id: sticker.sticker.id))),
+                    toast: L10n.telegram(
+                        isFavorite
+                            ? "Conversation.StickerRemovedFromFavorites"
+                            : "Conversation.StickerAddedToFavorites",
+                    ),
+                )
+            },
+        ]
+        if sticker.setId != 0 {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("StickerPack.ViewPack"),
+                image: UIImage(systemName: "square.grid.2x2"),
+            ) { [weak self] in self?.openStickerSet(sticker.setId) })
+        }
+        if section == .recent {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Stickers.RemoveFromRecent"),
+                image: UIImage(systemName: "clock.arrow.circlepath"),
+                isDestructive: true,
+            ) { [weak self] in
+                self?.changeSticker(sticker, request: TDNativeRequests.removeRecentSticker(
+                    isAttached: false, sticker: .inputFileId(InputFileId(id: sticker.sticker.id)),
+                ))
+            })
+        }
+        return actions
+    }
+
+    private func changeSticker(_: Sticker, request: TDRequest<TDNativeOk>, toast: String? = nil) {
+        guard stickerActionTask == nil, contextIsCurrent else { return }
+        let client = client
+        stickerActionTask = Task { [weak self] in
+            let succeeded = await (try? client.send(request)) != nil
+            guard let self, !Task.isCancelled else { return }
+            stickerActionTask = nil
+            guard contextIsCurrent else { return }
+            guard succeeded else {
+                presentChatListActionFailure()
+                return
+            }
+            if let toast {
+                TelegramUndoToast.show(text: toast, in: view, bottomInset: 12, undo: nil)
+            }
+            guard mode == .stickers, (searchBar.text ?? "").isEmpty else { return }
+            loadTask?.cancel()
+            loadTask = Task { [weak self] in await self?.loadStickerGroups() }
+        }
+    }
+
+    /// Telegram's GIF preview Delete (removeSavedGif).
+    private func removeSavedAnimation(_ animation: Animation) {
+        guard stickerActionTask == nil, contextIsCurrent else { return }
+        let client = client
+        let fileID = animation.animation.id
+        stickerActionTask = Task { [weak self] in
+            let succeeded = await (try? client.send(TDNativeRequests.removeSavedAnimation(
+                animation: .inputFileId(InputFileId(id: fileID)),
+            ))) != nil
+            guard let self, !Task.isCancelled else { return }
+            stickerActionTask = nil
+            guard contextIsCurrent else { return }
+            guard succeeded else {
+                presentChatListActionFailure()
+                return
+            }
+            savedAnimations.removeAll { $0.animation.id == fileID }
+            guard mode == .gifs else { return }
+            await reload(query: (searchBar.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
+    private func openStickerSet(_ setID: Int64) {
+        guard contextIsCurrent, presentedViewController == nil else { return }
+        let sendSticker = allowsStickersAndGIFs ? onSticker : nil
+        StickerPackPreviewViewController.present(setID: setID, client: client, from: self, onSend: sendSticker)
     }
 
     private func emptyLabel() -> UIView {
@@ -408,7 +658,8 @@ private final class ComposerEmojiCell: UICollectionViewCell {
 
 // MARK: - ComposerStickerCell
 
-private final class ComposerStickerCell: UICollectionViewCell {
+/// Also the sticker pack preview's cell.
+final class ComposerStickerCell: UICollectionViewCell {
     static let reuseIdentifier = "ComposerStickerCell"
 
     private let stickerView = CustomEmojiInlineView()
@@ -492,5 +743,40 @@ private final class ComposerAnimationCell: UICollectionViewCell {
 
     func setPlaybackVisible(_ visible: Bool) {
         animationView.setPlaybackVisible(visible)
+    }
+}
+
+// MARK: - ComposerSectionHeaderView
+
+/// A sticker group's title, as Telegram's keyboard heads Favorite Stickers, Recently Used and each pack.
+private final class ComposerSectionHeaderView: UICollectionReusableView {
+    static let reuseIdentifier = "ComposerSectionHeaderView"
+
+    private let label = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .preferredFont(forTextStyle: .footnote)
+        label.adjustsFontForContentSizeCategory = true
+        label.textColor = .secondaryLabel
+        label.lineBreakMode = .byTruncatingTail
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(title: String) {
+        label.text = title
+        accessibilityTraits = .header
+        isAccessibilityElement = true
+        accessibilityLabel = title
     }
 }
