@@ -641,6 +641,33 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    /// moveReplyToChat: the destination, already open or pushed, takes the reply to the other chat's message.
+    static func openExternalReply(
+        to message: CustomMessage,
+        targetMessageID: Int64,
+        quote: InputTextQuote?,
+        in chat: CustomChat,
+        topic: ForumTopic?,
+        destination: ChatLocation,
+        navigationController: UINavigationController?,
+    ) {
+        guard let navigationController else { return }
+        let open = navigationController.viewControllers.last {
+            ($0 as? ChatViewController).map { $0.presentationMode == .full && $0.location == destination } == true
+        } as? ChatViewController
+        let controller: ChatViewController
+        if let open {
+            if navigationController.topViewController !== open {
+                navigationController.popToViewController(open, animated: true)
+            }
+            controller = open
+        } else {
+            controller = ChatViewController(customChat: chat, location: destination, forumTopic: topic)
+            navigationController.pushViewController(controller, animated: true)
+        }
+        controller.chatVM.beginExternalReply(to: message, targetMessageID: targetMessageID, quote: quote)
+    }
+
     private static func isChatGalleryMedia(_ message: Message) -> Bool {
         switch message.content {
         case .messagePhoto, .messageVideo: true
@@ -5232,8 +5259,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
     }
 
-    /// ChatMessageActionOptions' reply options, opened from the composer's reply panel. Reply in Another Chat is
-    /// tracked separately.
+    /// ChatMessageActionOptions' reply options, opened from the composer's reply panel.
     private func presentReplyOptions(from sourceView: UIView) {
         guard let reply = chatVM.replyMessage else { return }
         let quote = chatVM.replyQuote
@@ -5260,6 +5286,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 }
             })
         }
+        if reply.message.chatId == chatVM.chatID, reply.properties.canBeRepliedInAnotherChat {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.MessageOptionsReplyInAnotherChat"),
+                image: UIImage(systemName: "arrowshape.turn.up.right"),
+            ) { [weak self] in self?.presentReplyInAnotherChat(targetMessageID: targetID) })
+        }
         if quote != nil {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("Conversation.MessageOptionsQuoteRemove"),
@@ -5276,6 +5308,56 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         ) { [weak self] in self?.chatVM.cancelReply() })
         // The panel spans the composer, so the menu opens above it.
         presentTelegramContextMenu(sourceView: sourceView, actions: actions, presentationStyle: .menuOnly)
+    }
+
+    /// ChatMessageActionOptions' Reply in Another Chat (moveReplyMessageToAnotherChat): the Forward picker in its
+    /// reply purpose offers the chats the user can write to. Choosing this chat keeps the reply; another chat takes
+    /// it, with its quote, as a reply to this chat's message, and this chat's reply is cleared.
+    private func presentReplyInAnotherChat(targetMessageID: Int64) {
+        guard presentationMode == .full,
+              presentedViewController == nil,
+              let reply = chatVM.replyMessage,
+              let accountID = TDLib.shared.activeAccountID,
+              TDLib.shared.activeClient.id == chatVM.client.id,
+              let request = try? MessageForwardRequest(sourceLocation: chatVM.location, messageIDs: [targetMessageID])
+        else { return }
+        let quote = chatVM.replyQuote
+        var seen = Set<Int64>()
+        let seedChats = RootVM.shared
+            .allFolders
+            .flatMap(\.chats)
+            .map(\.chat)
+            .filter { seen.insert($0.id).inserted }
+        let picker = ForwardMessagesViewController(
+            request: request,
+            client: chatVM.client,
+            accountID: accountID,
+            seedChats: seedChats,
+            purpose: .replyInAnotherChat,
+        )
+        picker.onReplyDestination = { [weak self, weak reply] chat, topic in
+            guard let self, let reply, TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == chatVM.client.id else { return }
+            let destination = ChatLocation.current(
+                chatID: chat.id,
+                topic: topic.map { .messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId)) },
+                client: chatVM.client,
+            )
+            guard destination != location else { return }
+            chatVM.cancelReply()
+            Self.openExternalReply(
+                to: reply,
+                targetMessageID: targetMessageID,
+                quote: quote,
+                in: chat,
+                topic: topic,
+                destination: destination,
+                navigationController: navigationController,
+            )
+        }
+        let pickerNavigation = TelegramNavigationController(rootViewController: picker)
+        pickerNavigation.modalPresentationStyle = .fullScreen
+        present(pickerNavigation, animated: true)
     }
 
     /// Select Specific Quote: the replied message opens with its text selected, from the current quote or in full

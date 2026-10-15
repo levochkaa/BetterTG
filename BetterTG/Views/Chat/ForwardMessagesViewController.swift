@@ -6,9 +6,20 @@ import UIKit
 
 @MainActor final class ForwardMessagesViewController: UIViewController, UIPageViewControllerDataSource,
 UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
+    /// What the chosen chat receives.
+    enum Purpose {
+        case forward
+        /// ChatMessageActionOptions' Reply in Another Chat: a chat the user can write to, for a reply to the
+        /// request's message.
+        case replyInAnotherChat
+    }
+
     var onSelect: ((CustomChat, ForumTopic?, PendingMessageForward) -> Void)?
+    /// The chat chosen in the reply purpose.
+    var onReplyDestination: ((CustomChat, ForumTopic?) -> Void)?
 
     private let request: MessageForwardRequest
+    private let purpose: Purpose
     private let client: TDLibClient
     private let accountID: UUID
     private let seedChats: [Chat]
@@ -17,7 +28,10 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private let pageController = UIPageViewController(transitionStyle: .scroll, navigationOrientation: .horizontal)
     private let folderPicker = FolderPickerView()
     private lazy var customNavigationBar = TelegramListNavigationBar(
-        title: L10n.betterTG("Forward.Title"), placeholder: L10n.telegram("Common.Search"),
+        title: purpose == .replyInAnotherChat
+            ? L10n.telegram("Conversation.MoveReplyToAnotherChatTitle")
+            : L10n.betterTG("Forward.Title"),
+        placeholder: L10n.telegram("Common.Search"),
         leftImage: UIImage(systemName: "xmark"),
         rightImage: nil,
         leftAction: { [weak self] in self?.cancelPicker() },
@@ -53,8 +67,10 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
         accountID: UUID,
         seedChats: [Chat],
         initialMode: MessageForwardMode? = nil,
+        purpose: Purpose = .forward,
     ) {
         self.request = request
+        self.purpose = purpose
         self.client = client
         self.accountID = accountID
         self.seedChats = seedChats
@@ -146,7 +162,21 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
             guard let self else { return }
             defer { spinner.removeFromSuperview() }
             do {
-                let prepared = try await MessageForwardingService.prepare(request: request, client: client)
+                let prepared: PreparedMessageForward =
+                    if purpose == .replyInAnotherChat {
+                        // moveReplyMessageToAnotherChat's onlyWriteable chats: text must be allowed there, and secret
+                        // chats take no replies to other chats.
+                        PreparedMessageForward(
+                            request: request,
+                            canForward: true,
+                            canCopy: true,
+                            canCopyToSecretChat: false,
+                            contentRequirements: [.basic],
+                            hasCaptions: false,
+                        )
+                    } else {
+                        try await MessageForwardingService.prepare(request: request, client: client)
+                    }
                 guard !Task.isCancelled, contextIsCurrent else { return }
                 preparedForward = prepared
                 mode = initialMode.flatMap { prepared.supports($0) ? $0 : nil } ?? prepared.defaultMode
@@ -315,6 +345,16 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
 
     private func openDestination(_ chat: Chat, topic: ForumTopic?) {
         guard selectionTask == nil, let preparedForward, contextIsCurrent else { return }
+        if purpose == .replyInAnotherChat {
+            selectionTask = Task { [weak self] in
+                guard let self else { return }
+                defer { selectionTask = nil }
+                guard let customChat = await RootVM.shared.getCustomChatForNavigation(from: chat.id, client: client),
+                      !Task.isCancelled, contextIsCurrent else { return }
+                dismiss(animated: true) { [onReplyDestination] in onReplyDestination?(customChat, topic) }
+            }
+            return
+        }
         selectionTask = Task { [weak self] in
             guard let self else { return }
             defer { selectionTask = nil }

@@ -953,3 +953,5 @@
 "FolderLinkScreen.AlertTextUnavailablePublicChannel" = "You don't have the admin rights to share invite links to this channel.";
 "ChatList.PanelNewChatsAvailable_1" = "1 New Chat Available";
 "ChatList.PanelNewChatsAvailable_any" = "%d New Chats Available";
+"Conversation.MessageOptionsReplyInAnotherChat" = "Reply in Another Chat";
+"Conversation.MoveReplyToAnotherChatTitle" = "Reply in...";

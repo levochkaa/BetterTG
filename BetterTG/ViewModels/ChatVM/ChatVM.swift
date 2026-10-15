@@ -745,8 +745,11 @@ import UIKit
 
     /// The message the reply goes to: an album item a quote came from, or the replied message.
     var replyTargetMessageID: Int64? {
-        if case .inputMessageReplyToMessage(let reply) = replyInputOverride { return reply.messageId }
-        return replyMessage?.id
+        switch replyInputOverride {
+        case .inputMessageReplyToMessage(let reply): reply.messageId
+        case .inputMessageReplyToExternalMessage(let reply): reply.messageId
+        case .inputMessageReplyToEphemeralMessage, .inputMessageReplyToStory, nil: replyMessage?.id
+        }
     }
 
     private var usesOrdinaryDeliveryReceipts: Bool {
@@ -2591,6 +2594,26 @@ import UIKit
                 quote: replyQuote,
             ))
         }
+        replyFallbackPresentation = nil
+        reconcileActiveChatActionAfterReplyChange()
+    }
+
+    /// Reply in Another Chat (Telegram's moveReplyToChat): the reply, with its quote, comes to this chat as a reply
+    /// to `targetMessageID` of the message's chat. The chat's draft text stays.
+    func beginExternalReply(to message: CustomMessage, targetMessageID: Int64, quote: InputTextQuote?) {
+        guard message.message.chatId != chatID else { return }
+        pendingForward = nil
+        markComposerDirty()
+        replySelectionGeneration &+= 1
+        replyMessage = message
+        replyQuote = quote
+        replyInputOverride = .inputMessageReplyToExternalMessage(InputMessageReplyToExternalMessage(
+            chatId: message.message.chatId,
+            checklistTaskId: 0,
+            messageId: targetMessageID,
+            pollOptionId: "",
+            quote: quote,
+        ))
         replyFallbackPresentation = nil
         reconcileActiveChatActionAfterReplyChange()
     }
