@@ -1,5 +1,6 @@
 // ChatFolderInviteLinks.swift
 
+import Combine
 import TDLibKit
 import UIKit
 
@@ -444,5 +445,551 @@ final class ChatFolderInviteLinkPreviewViewController: UIViewController, UITable
             onFinished?()
             if let text, let host { TelegramUndoToast.show(text: text, in: host, bottomInset: 8, undo: nil) }
         }
+    }
+}
+
+// MARK: - ChatFolderInviteLinkActions
+
+/// Copy and Share for a folder invite link, as in Telegram's link menus and buttons.
+@MainActor enum ChatFolderInviteLinkActions {
+    static func copy(_ link: String, in controller: UIViewController) {
+        UIPasteboard.setPlainText(link)
+        TelegramUndoToast.show(
+            text: L10n.telegram("InviteLink.InviteLinkCopiedText"),
+            in: controller.navigationController?.view ?? controller.view,
+            bottomInset: 8,
+            undo: nil,
+        )
+    }
+
+    static func share(_ link: String, from controller: UIViewController, sourceView: UIView?) {
+        guard let url = URL(string: link) else { return }
+        let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        activity.popoverPresentationController?.sourceView = sourceView ?? controller.view
+        controller.present(activity, animated: true)
+    }
+
+    /// A link as Telegram lists it: its name, or else the link without its scheme.
+    static func title(of link: TDNativeChatFolderInviteLink) -> String {
+        link.name.isEmpty ? link.inviteLink.replacingOccurrences(of: "https://", with: "") : link.name
+    }
+}
+
+// MARK: - ChatFolderInviteLinkViewController
+
+/// Telegram's FolderInviteLinkListController for one link: the folder's chats with the shareable ones checked, the
+/// link with Copy and Share, and Name Link, Copy and Revoke in the link's menu. Done saves the name and chats with
+/// `editChatFolderInviteLink`; Back with unsaved changes asks to apply or discard them.
+final class ChatFolderInviteLinkViewController: UITableViewController, TelegramNavigationAttemptHandling {
+    private enum Section {
+        case link
+        case chats
+    }
+
+    private enum LinkRow: CaseIterable {
+        case link
+        case copy
+        case share
+    }
+
+    private struct Item {
+        let id: Int64
+        let title: String
+        let subtitle: String
+        /// Telegram's explanation for a chat the link can't share; nil for a shareable one.
+        let unavailableText: String?
+    }
+
+    // MARK: Private
+
+    private static let headerIdentifier = "ChatFolderInviteLinkHeader"
+    private static let cellIdentifier = "ChatFolderInviteLinkCell"
+
+    /// The saved link, or nil once it is revoked.
+    var onChange: ((TDNativeChatFolderInviteLink?) -> Void)?
+
+    private let session: FolderFlowSession
+    private let client: TDLibClient
+    private let folderID: Int
+    private let folderTitle: String
+    private let folderChatIDs: [Int64]
+    private let shareableChatIDs: Set<Int64>
+    private let descriptionLabel = UILabel()
+    private var link: TDNativeChatFolderInviteLink
+    private var name: String
+    private var selectedIDs: Set<Int64>
+    private var items = [Item]()
+    private var isSaving = false
+    private var didShowNewChatNotice = false
+    private var sessionObservation: AnyCancellable?
+
+    private var hasChanges: Bool { name != link.name || selectedIDs != Set(link.chatIds) }
+    /// The link section shows only when the folder has a chat the user may share.
+    private var sections: [Section] { shareableChatIDs.isEmpty ? [.chats] : [.link, .chats] }
+
+    private var descriptionText: String {
+        if shareableChatIDs.isEmpty { return L10n.telegram("FolderLinkScreen.TitleDescriptionUnavailable") }
+        if selectedIDs.isEmpty {
+            return L10n.telegram("FolderLinkScreen.TitleDescriptionDeselectedV2")
+                .replacingOccurrences(of: "{folder}", with: folderTitle)
+        }
+        return L10n.telegram("FolderLinkScreen.TitleDescriptionSelectedV2")
+            .replacingOccurrences(of: "{folder}", with: folderTitle)
+            .replacingOccurrences(
+                of: "{chats}",
+                with: L10n.telegramPlural("FolderLinkScreen.TitleDescriptionSelectedCount", count: selectedIDs.count),
+            )
+    }
+
+    init(
+        session: FolderFlowSession,
+        client: TDLibClient,
+        folderID: Int,
+        folderTitle: String,
+        folderChatIDs: [Int64],
+        shareableChatIDs: Set<Int64>,
+        link: TDNativeChatFolderInviteLink,
+    ) {
+        self.session = session
+        self.client = client
+        self.folderID = folderID
+        self.folderTitle = folderTitle
+        self.folderChatIDs = folderChatIDs
+        self.shareableChatIDs = shareableChatIDs
+        self.link = link
+        self.name = link.name
+        self.selectedIDs = Set(link.chatIds)
+        super.init(style: .insetGrouped)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: Internal
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        navigationItem.largeTitleDisplayMode = .never
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: L10n.telegram("Common.Done"), style: .done, target: self, action: #selector(saveLink),
+        )
+        tableView.register(ChatFolderLeaveHeaderView.self, forHeaderFooterViewReuseIdentifier: Self.headerIdentifier)
+        tableView.tableHeaderView = descriptionView()
+        sessionObservation = session.bind(self) { [weak self] in self?.updateChrome() }
+        updateChrome()
+        loadItems()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard let header = tableView.tableHeaderView, tableView.bounds.width > 0 else { return }
+        let height = header.systemLayoutSizeFitting(
+            CGSize(width: tableView.bounds.width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required,
+            verticalFittingPriority: .fittingSizeLevel,
+        )
+        .height
+        guard header.frame.width != tableView.bounds.width || header.frame.height != height else { return }
+        header.frame = CGRect(x: 0, y: 0, width: tableView.bounds.width, height: height)
+        tableView.tableHeaderView = header
+    }
+
+    override func numberOfSections(in _: UITableView) -> Int { sections.count }
+
+    override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
+        switch sections[section] {
+        case .link: LinkRow.allCases.count
+        case .chats: items.count
+        }
+    }
+
+    override func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
+        sections[section] == .link ? L10n.telegram("FolderLinkScreen.LinkSectionHeader") : nil
+    }
+
+    override func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        guard sections[section] == .chats else { return nil }
+        let header = tableView.dequeueReusableHeaderFooterView(withIdentifier: Self.headerIdentifier)
+            as? ChatFolderLeaveHeaderView
+        configure(header)
+        return header
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: Self.cellIdentifier)
+            ?? UITableViewCell(style: .subtitle, reuseIdentifier: Self.cellIdentifier)
+        cell.imageView?.image = nil
+        cell.accessoryView = nil
+        cell.accessoryType = .none
+        cell.detailTextLabel?.text = nil
+        cell.detailTextLabel?.textColor = .secondaryLabel
+        cell.textLabel?.textColor = .label
+        switch sections[indexPath.section] {
+        case .link:
+            switch LinkRow.allCases[indexPath.row] {
+            case .link:
+                cell.textLabel?.text = link.inviteLink.replacingOccurrences(of: "https://", with: "")
+                cell.accessoryView = UIImageView(image: UIImage(systemName: "ellipsis.circle"))
+            case .copy:
+                cell.textLabel?.text = L10n.telegram("FolderLinkScreen.LinkActionCopy")
+                cell.textLabel?.textColor = .systemBlue
+                cell.imageView?.image = UIImage(systemName: "doc.on.doc")
+            case .share:
+                cell.textLabel?.text = L10n.telegram("FolderLinkScreen.LinkActionShare")
+                cell.textLabel?.textColor = .systemBlue
+                cell.imageView?.image = UIImage(systemName: "square.and.arrow.up")
+            }
+        case .chats:
+            let item = items[indexPath.row]
+            cell.textLabel?.text = item.title
+            cell.detailTextLabel?.text = item.subtitle
+            if item.unavailableText != nil {
+                cell.textLabel?.textColor = .secondaryLabel
+            } else {
+                cell.accessoryType = selectedIDs.contains(item.id) ? .checkmark : .none
+            }
+        }
+        return cell
+    }
+
+    override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        guard !isSaving, session.scope(owner: self).isCurrent else { return }
+        switch sections[indexPath.section] {
+        case .link:
+            switch LinkRow.allCases[indexPath.row] {
+            case .link:
+                guard let cell = tableView.cellForRow(at: indexPath) else { return }
+                presentLinkMenu(from: cell)
+            case .copy:
+                ChatFolderInviteLinkActions.copy(link.inviteLink, in: self)
+            case .share:
+                ChatFolderInviteLinkActions.share(
+                    link.inviteLink,
+                    from: self,
+                    sourceView: tableView.cellForRow(at: indexPath),
+                )
+            }
+        case .chats:
+            toggle(items[indexPath.row], at: indexPath)
+        }
+    }
+
+    /// FolderInviteLinkListController's labels and alerts for a chat a folder link can't share.
+    private static func unavailableTexts(for chat: Chat, client: TDLibClient) async -> (label: String, alert: String) {
+        let userID: Int64? =
+            switch chat.type {
+            case .chatTypePrivate(let type): type.userId
+            case .chatTypeSecret(let type): type.userId
+            case .chatTypeBasicGroup, .chatTypeSupergroup: nil
+            }
+        if let userID {
+            let user = try? await client.getUser(userId: userID)
+            let isBot =
+                if let user, case .userTypeBot = user.type {
+                    true
+                } else { false }
+            return isBot
+                ? (
+                    L10n.telegram("FolderLinkScreen.LabelUnavailableBot"),
+                    L10n.telegram("FolderLinkScreen.AlertTextUnavailableBot"),
+                )
+                : (
+                    L10n.telegram("FolderLinkScreen.LabelUnavailableUser"),
+                    L10n.telegram("FolderLinkScreen.AlertTextUnavailableUser"),
+                )
+        }
+        var alertKey = "FolderLinkScreen.AlertTextUnavailablePrivateGroup"
+        if case .chatTypeSupergroup(let type) = chat.type {
+            let group = try? await client.getSupergroup(supergroupId: type.supergroupId)
+            let isPublic = group?.usernames?.activeUsernames.isEmpty == false
+            alertKey =
+                switch (type.isChannel, isPublic) {
+                case (true, true): "FolderLinkScreen.AlertTextUnavailablePublicChannel"
+                case (true, false): "FolderLinkScreen.AlertTextUnavailablePrivateChannel"
+                case (false, true): "FolderLinkScreen.AlertTextUnavailablePublicGroup"
+                case (false, false): "FolderLinkScreen.AlertTextUnavailablePrivateGroup"
+                }
+        }
+        return (L10n.telegram("FolderLinkScreen.LabelUnavailableGeneric"), L10n.telegram(alertKey))
+    }
+
+    /// ChatListFilterPresetController's attemptNavigation for a link: unsaved changes are applied or discarded.
+    func attemptNavigation() -> Bool {
+        guard hasChanges, !isSaving else { return true }
+        guard presentedViewController == nil else { return false }
+        let alert = UIAlertController(
+            title: L10n.telegram("FolderLinkScreen.SaveAlertTitle"),
+            message: L10n.telegram("FolderLinkScreen.SaveAlertText"),
+            preferredStyle: .alert,
+        )
+        alert
+            .addAction(UIAlertAction(title: L10n.telegram("FolderLinkScreen.SaveAlertActionDiscard"), style: .default) {
+                [weak self] _ in
+                self?.navigationController?.popViewController(animated: true)
+            })
+        // A link must keep a chat, so with none chosen the user stays to choose one.
+        if selectedIDs.isEmpty {
+            alert.addAction(UIAlertAction(
+                title: L10n.telegram("FolderLinkScreen.SaveAlertActionContinue"),
+                style: .cancel,
+            ))
+        } else {
+            let apply = UIAlertAction(title: L10n.telegram("FolderLinkScreen.SaveAlertActionApply"), style: .default) {
+                [weak self] _ in
+                self?.saveLink()
+            }
+            alert.addAction(apply)
+            alert.preferredAction = apply
+        }
+        present(alert, animated: true)
+        return false
+    }
+
+    private func toggle(_ item: Item, at indexPath: IndexPath) {
+        if let unavailableText = item.unavailableText {
+            let alert = UIAlertController(title: nil, message: unavailableText, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+            present(alert, animated: true)
+            return
+        }
+        if selectedIDs.contains(item.id) {
+            selectedIDs.remove(item.id)
+        } else {
+            selectedIDs.insert(item.id)
+            // Telegram tells once that people who used the link can join a chat added to it.
+            if !link.chatIds.contains(item.id), !didShowNewChatNotice {
+                didShowNewChatNotice = true
+                TelegramUndoToast.show(
+                    text: L10n.telegram("FolderLinkScreen.ToastNewChatAdded"),
+                    in: navigationController?.view ?? view,
+                    bottomInset: 8,
+                    undo: nil,
+                )
+            }
+        }
+        tableView.cellForRow(at: indexPath)?.accessoryType = selectedIDs.contains(item.id) ? .checkmark : .none
+        selectionDidChange()
+    }
+
+    private func toggleAllSelection() {
+        guard !isSaving else { return }
+        let shareable = items.filter { $0.unavailableText == nil }.map(\.id)
+        if shareable.allSatisfy(selectedIDs.contains) {
+            selectedIDs.subtract(shareable)
+        } else {
+            selectedIDs.formUnion(shareable)
+        }
+        tableView.reloadData()
+        updateChrome()
+    }
+
+    private func selectionDidChange() {
+        if let index = sections.firstIndex(of: .chats) {
+            configure(tableView.headerView(forSection: index) as? ChatFolderLeaveHeaderView)
+        }
+        updateChrome()
+    }
+
+    private func configure(_ header: ChatFolderLeaveHeaderView?) {
+        let title =
+            if shareableChatIDs.isEmpty {
+                L10n.telegram("FolderLinkScreen.ChatsSectionHeaderUnavailable")
+            } else if selectedIDs.isEmpty {
+                L10n.telegram("FolderLinkScreen.ChatsSectionHeader")
+            } else {
+                L10n.telegramPlural("FolderLinkScreen.ChatsSectionHeaderSelected", count: selectedIDs.count)
+            }
+        let shareable = items.filter { $0.unavailableText == nil }.map(\.id)
+        let actionTitle: String? =
+            if items.count > 1, !shareable.isEmpty {
+                L10n.telegram(shareable.allSatisfy(selectedIDs.contains)
+                    ? "FolderLinkScreen.ChatsSectionHeaderActionDeselectAll"
+                    : "FolderLinkScreen.ChatsSectionHeaderActionSelectAll")
+            } else {
+                nil
+            }
+        header?.configure(title: title, actionTitle: actionTitle) { [weak self] in
+            self?.toggleAllSelection()
+        }
+    }
+
+    private func updateChrome() {
+        title = name.isEmpty ? L10n.telegram("FolderLinkScreen.Title") : name
+        navigationItem.rightBarButtonItem?.isEnabled = !isSaving && hasChanges && !selectedIDs.isEmpty
+            && session.isCurrent
+        descriptionLabel.text = descriptionText
+        view.setNeedsLayout()
+    }
+
+    private func descriptionView() -> UIView {
+        let container = UIView()
+        descriptionLabel.translatesAutoresizingMaskIntoConstraints = false
+        descriptionLabel.font = .preferredFont(forTextStyle: .subheadline)
+        descriptionLabel.adjustsFontForContentSizeCategory = true
+        descriptionLabel.textColor = .secondaryLabel
+        descriptionLabel.textAlignment = .center
+        descriptionLabel.numberOfLines = 0
+        container.addSubview(descriptionLabel)
+        NSLayoutConstraint.activate([
+            descriptionLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            descriptionLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
+            descriptionLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
+            descriptionLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -4),
+        ])
+        return container
+    }
+
+    /// The folder's chats, the shareable ones first, each one TDLib won't share with Telegram's reason.
+    private func loadItems() {
+        let client = client
+        let ids = folderChatIDs
+        let shareable = shareableChatIDs
+        Task { [weak self] in
+            var shareableItems = [Item]()
+            var otherItems = [Item]()
+            for id in ids {
+                guard !Task.isCancelled, let chat = try? await client.getChat(chatId: id) else { continue }
+                let trimmed = chat.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                let title = trimmed.isEmpty ? L10n.betterTG("Chat.FallbackChatTitle") : trimmed
+                if shareable.contains(id) {
+                    shareableItems.append(Item(
+                        id: id,
+                        title: title,
+                        subtitle: L10n.telegram("FolderLinkScreen.LabelCanInvite"),
+                        unavailableText: nil,
+                    ))
+                } else {
+                    let texts = await Self.unavailableTexts(for: chat, client: client)
+                    otherItems.append(Item(id: id, title: title, subtitle: texts.label, unavailableText: texts.alert))
+                }
+            }
+            guard let self, session.isCurrent else { return }
+            items = shareableItems + otherItems
+            tableView.reloadData()
+        }
+    }
+
+    private func presentLinkMenu(from cell: UITableViewCell) {
+        presentTelegramContextMenu(sourceView: cell, actions: [
+            TelegramContextMenuAction(
+                title: L10n.telegram("FolderLinkScreen.ContextActionNameLink"),
+                image: UIImage(systemName: "pencil"),
+            ) { [weak self] in self?.presentNameEditor() },
+            TelegramContextMenuAction(
+                title: L10n.telegram("InviteLink.ContextCopy"),
+                image: UIImage(systemName: "doc.on.doc"),
+            ) { [weak self] in
+                guard let self else { return }
+                ChatFolderInviteLinkActions.copy(link.inviteLink, in: self)
+            },
+            TelegramContextMenuAction(
+                title: L10n.telegram("InviteLink.ContextRevoke"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+            ) { [weak self] in self?.revokeLink() },
+        ])
+    }
+
+    /// Telegram's Name This Link prompt, up to 32 characters.
+    private func presentNameEditor() {
+        let alert = UIAlertController(
+            title: L10n.telegram("FolderLinkScreen.NameLink.Title"),
+            message: nil,
+            preferredStyle: .alert,
+        )
+        let current = name
+        alert.addTextField { field in
+            field.text = current
+            field.autocapitalizationType = .sentences
+            field.clearButtonMode = .whileEditing
+        }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Done"), style: .default) { [
+            weak self,
+            weak alert,
+        ] _ in
+            guard let self, let text = alert?.textFields?.first?.text else { return }
+            name = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(32))
+            updateChrome()
+        })
+        present(alert, animated: true)
+    }
+
+    @objc private func saveLink() {
+        guard !isSaving, hasChanges, !selectedIDs.isEmpty else { return }
+        let scope = session.scope(owner: self)
+        guard scope.isCurrent else { return }
+        let ordered = items.map(\.id).filter(selectedIDs.contains)
+        let chatIDs = ordered + selectedIDs.subtracting(ordered).sorted()
+        let client = client
+        let folderID = folderID
+        let inviteLink = link.inviteLink
+        let name = name
+        isSaving = true
+        updateChrome()
+        Task { [weak self] in
+            do {
+                let updated = try await scope.perform {
+                    try await client.send(TDNativeRequests.editChatFolderInviteLink(
+                        chatFolderId: folderID,
+                        inviteLink: inviteLink,
+                        name: name,
+                        chatIds: chatIDs,
+                    ))
+                }
+                guard let self else { return }
+                link = updated
+                isSaving = false
+                onChange?(updated)
+                let host = navigationController?.view
+                navigationController?.popViewController(animated: true)
+                if let host {
+                    TelegramUndoToast.show(
+                        text: L10n.telegram("FolderLinkScreen.ToastLinkUpdated"),
+                        in: host,
+                        bottomInset: 8,
+                        undo: nil,
+                    )
+                }
+            } catch {
+                guard let self, scope.isCurrent else { return }
+                isSaving = false
+                updateChrome()
+                presentLinkError(L10n.telegram("FolderLinkScreen.SaveUnknownError"))
+            }
+        }
+    }
+
+    /// Telegram revokes and deletes the link; TDLib's deleteChatFolderInviteLink does both.
+    private func revokeLink() {
+        let scope = session.scope(owner: self)
+        guard scope.isCurrent else { return }
+        let client = client
+        let folderID = folderID
+        let inviteLink = link.inviteLink
+        Task { [weak self] in
+            do {
+                _ = try await scope.perform {
+                    try await client.send(TDNativeRequests.deleteChatFolderInviteLink(
+                        chatFolderId: folderID,
+                        inviteLink: inviteLink,
+                    ))
+                }
+                guard let self else { return }
+                onChange?(nil)
+                navigationController?.popViewController(animated: true)
+            } catch {
+                guard let self, scope.isCurrent else { return }
+                presentLinkError((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            }
+        }
+    }
+
+    private func presentLinkError(_ message: String) {
+        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        present(alert, animated: true)
     }
 }

@@ -362,6 +362,8 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     private var draft: ChatFolder
     /// The name this new folder was last given automatically; the user's own text in the field stops the naming.
     private var automaticName = ""
+    /// The folder's invite links (`getChatFolderInviteLinks`), newest first.
+    private var inviteLinks = [TDNativeChatFolderInviteLink]()
     private lazy var nameField: UITextField = {
         let field = UITextField(frame: CGRect(x: 0, y: 0, width: 190, height: 36))
         field.placeholder = L10n.telegram("ChatListFolder.NamePlaceholder")
@@ -373,9 +375,15 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     }()
 
     /// ChatListFilterPresetController: a folder shared by link has no chat types or exclusions, so it shows only
-    /// its name and chosen chats.
+    /// its name and chosen chats. Every folder ends with its invite links, which probe sessions without TDLib omit.
     private var sections: [Section] {
-        draft.isShareable ? [.name, .chats] : Section.allCases
+        let rules: [Section] = draft.isShareable ? [.name, .chats] : [.name, .includedTypes, .chats, .excludedTypes]
+        return session.reader == nil ? rules : rules + [.inviteLinks]
+    }
+
+    /// Telegram's hasLinks: the folder has links, or TDLib says the user shares it.
+    private var hasInviteLinks: Bool {
+        !inviteLinks.isEmpty || folderInfo?.hasMyInviteLinks == true
     }
 
     convenience init(rootVM: RootVM, folder: CustomFolder? = nil, actionAuthority: ChatListActionAuthority? = nil) {
@@ -415,7 +423,10 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         )
         nameField.text = draft.name.text.text
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "FolderEditorCell")
+        let linkPress = UILongPressGestureRecognizer(target: self, action: #selector(inviteLinkLongPressed(_:)))
+        tableView.addGestureRecognizer(linkPress)
         sessionObservation = session.bind(self)
+        loadInviteLinks()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -427,7 +438,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     override func numberOfSections(in _: UITableView) -> Int { sections.count }
 
     override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
-        sections[section].rows(shareable: draft.isShareable).count
+        rows(in: sections[section]).count
     }
 
     override func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
@@ -435,6 +446,9 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     }
 
     override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
+        if sections[section] == .inviteLinks {
+            return L10n.telegram(hasInviteLinks ? "ChatListFilter.LinkListInfo" : "ChatListFilter.LinkListInfoNew")
+        }
         guard sections[section] == (draft.isShareable ? .chats : .includedTypes) else { return nil }
         return L10n.telegram("ChatListFolder.IncludeSectionInfo")
     }
@@ -461,6 +475,21 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
             cell.accessoryType = draft.includes(type) ? .checkmark : .none
         case .exclude(let type):
             cell.accessoryType = draft.excludes(type) ? .checkmark : .none
+        case .createInviteLink:
+            var link = cell.defaultContentConfiguration()
+            link.text = L10n.telegram(hasInviteLinks ? "ChatListFilter.CreateLink" : "ChatListFilter.CreateLinkNew")
+            link.textProperties.color = .systemBlue
+            link.image = UIImage(systemName: "link")
+            cell.contentConfiguration = link
+        case .inviteLink(let index):
+            let invite = inviteLinks[index]
+            var link = cell.defaultContentConfiguration()
+            link.text = ChatFolderInviteLinkActions.title(of: invite)
+            link.secondaryText = L10n.telegramPlural("ChatListFilter.LinkLabelChatCount", count: invite.chatIds.count)
+            link.secondaryTextProperties.color = .secondaryLabel
+            link.image = UIImage(systemName: "link.circle.fill")
+            cell.contentConfiguration = link
+            cell.accessoryType = .disclosureIndicator
         }
         return cell
     }
@@ -483,6 +512,10 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
             selectChats(excluded: false)
         case .excludedChats:
             selectChats(excluded: true)
+        case .createInviteLink:
+            createInviteLink()
+        case .inviteLink(let index):
+            openInviteLink(inviteLinks[index])
         }
     }
 
@@ -535,7 +568,12 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     }
 
     private func editorRow(at indexPath: IndexPath) -> Row {
-        sections[indexPath.section].rows(shareable: draft.isShareable)[indexPath.row]
+        rows(in: sections[indexPath.section])[indexPath.row]
+    }
+
+    private func rows(in section: Section) -> [Row] {
+        guard section == .inviteLinks else { return section.rows(shareable: draft.isShareable) }
+        return [.createInviteLink] + inviteLinks.indices.map(Row.inviteLink)
     }
 
     /// ChatListFilterPresetController: until the user edits it, a new folder is named after its one chosen chat
@@ -544,6 +582,199 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         guard folderInfo == nil, (nameField.text ?? "") == automaticName else { return }
         automaticName = draft.automaticName ?? ""
         nameField.text = automaticName
+    }
+
+    private func loadInviteLinks() {
+        guard let folderInfo, let reader = session.reader, session.isCurrent else { return }
+        let client = reader.inviteLinkClient()
+        let folderID = folderInfo.id
+        Task { [weak self] in
+            let links = try? await client.send(TDNativeRequests.getChatFolderInviteLinks(chatFolderId: folderID))
+            guard let self, let links, session.isCurrent else { return }
+            inviteLinks = links.inviteLinks
+            reloadInviteLinks()
+        }
+    }
+
+    private func reloadInviteLinks() {
+        guard let section = sections.firstIndex(of: .inviteLinks) else { return }
+        tableView.reloadSections(IndexSet(integer: section), with: .none)
+    }
+
+    /// ChatListFilterPresetController's createLink: a saved folder with chosen chats and no chat types or exclusions
+    /// is shared. The editor's changes are saved first, and the new link takes every chat TDLib lets the user share,
+    /// then opens for editing.
+    private func createInviteLink() {
+        guard let folderInfo else {
+            presentLinkAlert(L10n.telegram("ChatListFilter.AlertCreateFolderBeforeSharingText"))
+            return
+        }
+        guard draft.canBeShared else {
+            presentLinkAlert(L10n.telegram("ChatListFilter.ErrorShareInvalidFolder"))
+            return
+        }
+        applyDraft { [weak self] in
+            self?.createInviteLink(folderID: folderInfo.id)
+        }
+    }
+
+    private func createInviteLink(folderID: Int) {
+        guard let reader = session.reader else { return }
+        let scope = session.scope(owner: self)
+        let client = reader.inviteLinkClient()
+        Task { [weak self] in
+            do {
+                let chats = try await scope.perform {
+                    try await client.send(TDNativeRequests.getChatsForChatFolderInviteLink(chatFolderId: folderID))
+                }
+                let shareable = chats.chatIds
+                guard !shareable.isEmpty else {
+                    self?.presentLinkAlert(L10n.telegram("FolderLinkScreen.TitleDescriptionUnavailable"))
+                    return
+                }
+                let link = try await scope.perform {
+                    try await client.send(TDNativeRequests.createChatFolderInviteLink(
+                        chatFolderId: folderID,
+                        name: "",
+                        chatIds: shareable,
+                    ))
+                }
+                guard let self else { return }
+                inviteLinks.insert(link, at: 0)
+                reloadInviteLinks()
+                pushInviteLink(link, shareableChatIDs: Set(shareable))
+            } catch {
+                guard let self, scope.isCurrent else { return }
+                presentLinkAlert(L10n.telegram("ChatListFilter.CreateLinkUnknownError"))
+            }
+        }
+    }
+
+    /// Telegram applies the editor's changes before sharing; an unchanged folder goes on at once.
+    private func applyDraft(then continuation: @escaping () -> Void) {
+        guard let folderInfo,
+              case .folder(_, let current) = session.folders.first(where: { $0.id == Int(folderInfo.id) })?.type
+        else { return }
+        let name = nameField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !name.isEmpty else {
+            presentFolderError(message: L10n.betterTG("Folders.EnterNameError"))
+            return
+        }
+        let updated = draft.replacingName(name, preserving: originalName)
+        guard !updated.hasSameEditableContent(as: current) else {
+            continuation()
+            return
+        }
+        session.mutate(.edit(folderInfo.id, updated), owner: self) { [weak self] result in
+            switch result {
+            case .success: continuation()
+            case .failure(let error): self?.presentFolderError(error)
+            }
+        }
+    }
+
+    /// The link opens with the chats TDLib lets the user share; if that lookup fails, with the link's own chats.
+    private func openInviteLink(_ link: TDNativeChatFolderInviteLink) {
+        guard let folderInfo, let reader = session.reader else { return }
+        let scope = session.scope(owner: self)
+        let client = reader.inviteLinkClient()
+        let folderID = folderInfo.id
+        Task { [weak self] in
+            let chats = try? await scope.perform {
+                try await client.send(TDNativeRequests.getChatsForChatFolderInviteLink(chatFolderId: folderID))
+            }
+            guard let self, scope.isCurrent else { return }
+            pushInviteLink(link, shareableChatIDs: Set(chats?.chatIds ?? link.chatIds))
+        }
+    }
+
+    private func pushInviteLink(_ link: TDNativeChatFolderInviteLink, shareableChatIDs: Set<Int64>) {
+        guard let folderInfo, let reader = session.reader else { return }
+        let fieldName = nameField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let controller = ChatFolderInviteLinkViewController(
+            session: session,
+            client: reader.inviteLinkClient(),
+            folderID: folderInfo.id,
+            folderTitle: fieldName.isEmpty ? folderInfo.name.text.text : fieldName,
+            folderChatIDs: draft.alwaysIncludedChatIDs,
+            shareableChatIDs: shareableChatIDs,
+            link: link,
+        )
+        let previous = link.inviteLink
+        controller.onChange = { [weak self] updated in
+            guard let self else { return }
+            if let updated {
+                if let index = inviteLinks.firstIndex(where: { $0.inviteLink == previous }) {
+                    inviteLinks[index] = updated
+                }
+            } else {
+                inviteLinks.removeAll { $0.inviteLink == previous }
+            }
+            reloadInviteLinks()
+        }
+        navigationController?.pushViewController(controller, animated: true)
+    }
+
+    /// Telegram's link menu in the folder editor: Copy, Share and Revoke.
+    @objc private func inviteLinkLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, session.scope(owner: self).isCurrent,
+              let indexPath = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+              case .inviteLink(let index) = editorRow(at: indexPath),
+              inviteLinks.indices.contains(index),
+              let cell = tableView.cellForRow(at: indexPath) else { return }
+        let invite = inviteLinks[index]
+        presentTelegramContextMenu(sourceView: cell, actions: [
+            TelegramContextMenuAction(
+                title: L10n.telegram("InviteLink.ContextCopy"),
+                image: UIImage(systemName: "doc.on.doc"),
+            ) { [weak self] in
+                guard let self else { return }
+                ChatFolderInviteLinkActions.copy(invite.inviteLink, in: self)
+            },
+            TelegramContextMenuAction(
+                title: L10n.telegram("InviteLink.ContextShare"),
+                image: UIImage(systemName: "square.and.arrow.up"),
+            ) { [weak self, weak cell] in
+                guard let self else { return }
+                ChatFolderInviteLinkActions.share(invite.inviteLink, from: self, sourceView: cell)
+            },
+            TelegramContextMenuAction(
+                title: L10n.telegram("InviteLink.ContextRevoke"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+            ) { [weak self] in self?.revokeInviteLink(invite) },
+        ])
+    }
+
+    /// Telegram revokes and deletes the link; TDLib's deleteChatFolderInviteLink does both.
+    private func revokeInviteLink(_ invite: TDNativeChatFolderInviteLink) {
+        guard let folderInfo, let reader = session.reader else { return }
+        let scope = session.scope(owner: self)
+        let client = reader.inviteLinkClient()
+        let folderID = folderInfo.id
+        let inviteLink = invite.inviteLink
+        Task { [weak self] in
+            do {
+                _ = try await scope.perform {
+                    try await client.send(TDNativeRequests.deleteChatFolderInviteLink(
+                        chatFolderId: folderID,
+                        inviteLink: inviteLink,
+                    ))
+                }
+                guard let self else { return }
+                inviteLinks.removeAll { $0.inviteLink == inviteLink }
+                reloadInviteLinks()
+            } catch {
+                guard let self, scope.isCurrent else { return }
+                presentFolderError(error)
+            }
+        }
+    }
+
+    private func presentLinkAlert(_ message: String) {
+        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        present(alert, animated: true)
     }
 
     private func selectChats(excluded: Bool) {
@@ -1005,6 +1236,13 @@ extension ChatFolder {
             && alwaysIncludedChatIDs == other.alwaysIncludedChatIDs && excludedChatIds == other.excludedChatIds
     }
 
+    /// ChatListFilterPresetController's share check: chosen chats and no chat types or exclusions.
+    var canBeShared: Bool {
+        !alwaysIncludedChatIDs.isEmpty && excludedChatIds.isEmpty
+            && !(includeContacts || includeNonContacts || includeGroups || includeChannels || includeBots)
+            && !(excludeMuted || excludeRead || excludeArchived)
+    }
+
     /// Telegram's chatListFilterType names: one chat type, or all types without read or muted chats; nil otherwise.
     var automaticName: String? {
         let types = ChatFolderInclusion.allCases.filter(includes)
@@ -1178,6 +1416,7 @@ private extension ChatFolderEditorViewController {
         case includedTypes
         case chats
         case excludedTypes
+        case inviteLinks
 
         // MARK: Internal
 
@@ -1187,15 +1426,18 @@ private extension ChatFolderEditorViewController {
             case .includedTypes: L10n.betterTG("Folders.IncludedTypes")
             case .chats: L10n.betterTG("Folders.SelectedChats")
             case .excludedTypes: L10n.betterTG("Folders.Exclude")
+            case .inviteLinks: L10n.telegram("ChatListFilter.SectionShare")
             }
         }
 
+        /// The rows of every section but the invite links, whose rows follow the loaded links.
         func rows(shareable: Bool) -> [Row] {
             switch self {
             case .name: [.name]
             case .includedTypes: ChatFolderInclusion.allCases.map(Row.include)
             case .chats: shareable ? [.includedChats] : [.includedChats, .excludedChats]
             case .excludedTypes: ChatFolderExclusion.allCases.map(Row.exclude)
+            case .inviteLinks: []
             }
         }
     }
@@ -1206,9 +1448,12 @@ private extension ChatFolderEditorViewController {
         case includedChats
         case excludedChats
         case exclude(ChatFolderExclusion)
+        case createInviteLink
+        case inviteLink(Int)
 
         // MARK: Internal
 
+        /// The cell sets the invite link rows' own text.
         var title: String {
             switch self {
             case .name: L10n.telegram("ChatListFolder.NameSectionHeader")
@@ -1216,6 +1461,7 @@ private extension ChatFolderEditorViewController {
             case .includedChats: L10n.betterTG("Folders.AlwaysInclude")
             case .excludedChats: L10n.betterTG("Folders.NeverInclude")
             case .exclude(let type): type.title
+            case .createInviteLink, .inviteLink: ""
             }
         }
 

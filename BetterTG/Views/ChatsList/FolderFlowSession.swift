@@ -35,6 +35,9 @@ import UIKit
         let searchChats: (String) async -> [CustomChat]
         /// TDLib's recommended folders (`getRecommendedChatFolders`).
         let recommendedFolders: () async -> [TDNativeRecommendedChatFolder]
+        /// The client a folder's invite links are read and changed on; the screens check the session's scope around
+        /// each request.
+        let inviteLinkClient: () -> TDLibClient
     }
 
     private(set) var state = State.waiting
@@ -174,6 +177,7 @@ import UIKit
                     let client = ChatListActionAuthority().client
                     return await (try? client.send(TDNativeRequests.getRecommendedChatFolders()))?.chatFolders ?? []
                 },
+                inviteLinkClient: { ChatListActionAuthority().client },
             ),
         )
     }
