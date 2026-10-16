@@ -47,6 +47,8 @@
             self.coordinate = probeCoordinate
             self.venue = venue
             self.liveMessage = nil
+            self.chatID = nil
+            self.sender = nil
         }
     }
 
