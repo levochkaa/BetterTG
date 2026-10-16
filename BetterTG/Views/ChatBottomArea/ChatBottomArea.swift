@@ -100,6 +100,10 @@ final class ChatComposerView: UIView {
     private let actionButton = UIButton(type: .system)
     private let restrictionLabel = UILabel()
     private let botStartButton = UIButton(type: .system)
+    /// ChatTextInputPanelNode's menu button: a bot's command list, labelled "Menu" while the input is empty.
+    private let botMenuButton = UIButton(type: .system)
+    /// The input context panel: a bot's commands or an inline bot's results above the input.
+    private let suggestionsView = ChatInputSuggestionsView()
     private let recordingRow = UIStackView()
     private lazy var recordingRowHeightConstraint = recordingRow.heightAnchor.constraint(equalToConstant: 36)
     private let cancelRecordingButton = UIButton(type: .system)
@@ -449,8 +453,8 @@ final class ChatComposerView: UIView {
         lastReplyID = chatVM.replyMessage?.id
         lastEditID = chatVM.editCustomMessage?.id
         let targetText = chatVM.editCustomMessage == nil ? chatVM.text : chatVM.editMessageText
-        // A bot link's Start replaces the input until it's sent (ChatBotStartInputPanelNode).
-        let showsBotStart = chatVM.botStartParameter != nil && chatVM.editCustomMessage == nil
+        // A bot link's Start, or a new bot chat's, replaces the input until it's sent (ChatTextInputPanelNode).
+        let showsBotStart = chatVM.showsBotStart
         let canWrite = (chatVM.canWriteAnyMessage || chatVM.pendingForward != nil) && !showsBotStart
         let canWriteText = chatVM.canWriteBasicMessages
         textView.isEditable = canWriteText
@@ -633,6 +637,10 @@ final class ChatComposerView: UIView {
         botStartButton.isHidden = !showsBotStart
         botStartButton.isEnabled = !chatVM.isStartingBot
         if showsBotStart, textView.isFirstResponder { textView.resignFirstResponder() }
+        let showsBotMenu = chatVM.showsBotMenuButton && canWrite && canWriteText
+        botMenuButton.isHidden = !showsBotMenu
+        if showsBotMenu { updateBotMenuButton(expanded: targetText.characters.isEmpty) }
+        updateSuggestions(enabled: canWrite && canWriteText)
         let showsScheduledMessages = chatVM.hasScheduledMessages && chatVM.canScheduleMessages
             && chatVM.editCustomMessage == nil && chatVM.text.characters.isEmpty
         if scheduledMessagesButton.isHidden == showsScheduledMessages {
@@ -830,12 +838,27 @@ final class ChatComposerView: UIView {
         )
         attachmentButton.accessibilityLabel = L10n.telegram("VoiceOver.AttachMedia")
         textView.backgroundColor = .clear
+        var menuConfiguration = UIButton.Configuration.filled()
+        menuConfiguration.cornerStyle = .capsule
+        menuConfiguration.image = UIImage(
+            systemName: "line.3.horizontal",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold),
+        )
+        menuConfiguration.imagePadding = 4
+        menuConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
+        botMenuButton.configuration = menuConfiguration
+        botMenuButton.accessibilityLabel = L10n.telegram("Conversation.InputMenu")
+        botMenuButton.isHidden = true
+        botMenuButton.setContentHuggingPriority(.required, for: .horizontal)
+        botMenuButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        inputRow.addArrangedSubview(botMenuButton)
         inputRow.addArrangedSubview(attachmentButton)
         inputRow.addArrangedSubview(textView)
         inputRow.addArrangedSubview(scheduledMessagesButton)
         inputRow.addArrangedSubview(replyKeyboardButton)
         inputRow.addArrangedSubview(actionButton)
         NSLayoutConstraint.activate([
+            botMenuButton.heightAnchor.constraint(equalToConstant: 36),
             attachmentButton.widthAnchor.constraint(equalToConstant: 34),
             attachmentButton.heightAnchor.constraint(equalToConstant: 36),
             scheduledMessagesButton.widthAnchor.constraint(equalToConstant: 34),
@@ -999,6 +1022,7 @@ final class ChatComposerView: UIView {
         recordingPreviewContainer.heightAnchor.constraint(equalToConstant: 30).isActive = true
         recordingPreviewContainer.widthAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
 
+        rootStack.addArrangedSubview(suggestionsView)
         rootStack.addArrangedSubview(replyContainer)
         rootStack.addArrangedSubview(photosScroll)
         rootStack.addArrangedSubview(documentsScroll)
@@ -1018,6 +1042,30 @@ final class ChatComposerView: UIView {
             for: .touchUpInside,
         )
         closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)
+        botMenuButton.addAction(
+            UIAction { [weak self] _ in self?.chatVM.showsBotCommandMenu.toggle() },
+            for: .touchUpInside,
+        )
+        suggestionsView.onSendCommand = { [weak self] command in self?.chatVM.sendBotCommand(command) }
+        suggestionsView.onInsertCommand = { [weak self] command in
+            guard let self else { return }
+            chatVM.insertBotCommand(command)
+            update(from: chatVM)
+            focusInput()
+            textView.moveCaretToEnd()
+        }
+        suggestionsView.onSelectInlineResult = { [weak self] item in self?.chatVM.sendInlineBotResult(item) }
+        suggestionsView.onLoadMoreInlineResults = { [weak self] in self?.chatVM.loadMoreInlineBotResults() }
+        suggestionsView.onInlineButton = { [weak self] username, parameter in
+            // HorizontalListContextResults' switchPeer: the bot's chat with its Start, sent only on the user's tap.
+            var components = URLComponents()
+            components.scheme = "https"
+            components.host = "t.me"
+            components.path = "/" + username
+            components.queryItems = [URLQueryItem(name: "start", value: parameter)]
+            guard let url = components.url else { return }
+            TelegramLinkRouter.shared.open(url, from: self?.nearestViewController)
+        }
         cancelRecordingButton.addTarget(self, action: #selector(cancelRecording), for: .touchUpInside)
         recordingPauseResumeButton.addTarget(self, action: #selector(toggleRecordingPause), for: .touchUpInside)
         recordingPreviewPlayButton.addTarget(self, action: #selector(toggleRecordingPreview), for: .touchUpInside)
@@ -1794,6 +1842,39 @@ final class ChatComposerView: UIView {
     ) {
         guard let forward = chatVM.pendingForward, forward.id == id else { return }
         chatVM.pendingForward = transform(forward)
+    }
+
+    /// ChatTextInputPanelNode's menu button reads "Menu" while the input is empty and folds to its icon while typing.
+    private func updateBotMenuButton(expanded: Bool) {
+        guard var configuration = botMenuButton.configuration else { return }
+        let title: AttributedString? = expanded
+            ? AttributedString(
+                L10n.telegram("Conversation.InputMenu"),
+                attributes: AttributeContainer([.font: UIFont.systemFont(ofSize: 15, weight: .semibold)]),
+            )
+            : nil
+        guard configuration.attributedTitle != title else { return }
+        configuration.attributedTitle = title
+        botMenuButton.configuration = configuration
+    }
+
+    /// ChatInterfaceInputContextPanels: an inline bot's results, the commands matching the typed "/", or the Menu's
+    /// whole command list, in that order.
+    private func updateSuggestions(enabled: Bool) {
+        let commands = chatVM.commandSuggestions
+        let content: ChatInputSuggestionsView.Content =
+            if !enabled || chatVM.editCustomMessage != nil {
+                .hidden
+            } else if let inline = chatVM.inlineBotQuery {
+                .inline(inline)
+            } else if !commands.isEmpty {
+                .commands(commands, showsBotNames: Set(chatVM.botCommands.map(\.botUserID)).count > 1)
+            } else if chatVM.showsBotCommandMenu, chatVM.showsBotMenuButton {
+                .commands(chatVM.botCommands, showsBotNames: false)
+            } else {
+                .hidden
+            }
+        suggestionsView.configure(content, client: chatVM.client)
     }
 
     /// WebpagePreviewAccessoryPanelNode: the site, then the page's title or description; a tap opens the options.

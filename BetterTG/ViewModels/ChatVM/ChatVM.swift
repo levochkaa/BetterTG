@@ -107,6 +107,16 @@ import UIKit
     /// (ChatBotStartInputPanelNode) instead of the text input.
     @Published private(set) var botStartParameter: String?
     @Published private(set) var isStartingBot = false
+    /// ChatBotInfoItem: the bot's "What can this bot do?" description, photo and animation for its chat.
+    @Published private(set) var botInfo: TDNativeBotInfo?
+    /// Telegram's peerCommands: the commands of the chat's bot or of the group's bots.
+    @Published private(set) var botCommands = [ChatBotCommand]()
+    /// ChatTextInputPanelNode's Menu opens the whole command list (CommandMenuChatInputContextPanelNode).
+    @Published var showsBotCommandMenu = false
+    /// The inline bot the input addresses and its results (contextRequestResult).
+    @Published private(set) var inlineBotQuery: InlineBotQueryState?
+    /// The history was read to its start without a message (`chatHistoryState == .loaded(isEmpty: true)`).
+    @Published private(set) var historyLoadedEmpty = false
 
     @Published var replyMessage: CustomMessage? {
         didSet {
@@ -125,7 +135,10 @@ import UIKit
     @Published var displayedDocuments = [SelectedDocument]()
     @Published var text: AttributedString = "" {
         didSet {
-            if text != oldValue { scheduleComposerLinkPreview() }
+            if text != oldValue {
+                scheduleComposerLinkPreview()
+                updateInlineBotQuery()
+            }
         }
     }
 
@@ -348,6 +361,9 @@ import UIKit
     private var composerLinkPreviewRequest: FormattedText?
     private var editLinkPreviewTask: Task<Void, Never>?
     private var editLinkPreviewRequest: FormattedText?
+    private var botInfoTask: Task<Void, Never>?
+    private var inlineBotQueryTask: Task<Void, Never>?
+    private var inlineBotMoreTask: Task<Void, Never>?
 
     /// Discrete changes (start, stop, restored drafts) publish like the other state; the tick writes the storage.
     var timerCount: Double {
@@ -825,6 +841,30 @@ import UIKit
         currentLinkPreviewOptions
     }
 
+    /// ChatTextInputPanelNode's Start: after a bot link, or in a bot chat whose history is empty and has no topic.
+    var showsBotStart: Bool {
+        guard editCustomMessage == nil, !previewing else { return false }
+        if botStartParameter != nil { return true }
+        guard case .bot = customChat.type, location.topic == nil, location.messageThreadID == nil else { return false }
+        return historyLoadedEmpty && messages.isEmpty
+    }
+
+    // MARK: Bots
+
+    /// CommandChatInputContextPanelNode's results: the commands starting with the "/" word the input is.
+    var commandSuggestions: [ChatBotCommand] {
+        guard editCustomMessage == nil, !botCommands.isEmpty,
+              case .command(let query) = ChatInputQuery.parse(text.string) else { return [] }
+        let normalized = query.lowercased()
+        return botCommands.filter { $0.command.lowercased().hasPrefix(normalized) }
+    }
+
+    /// ChatTextInputPanelNode's menu button: a bot chat with commands. A Mini App menu button isn't offered.
+    var showsBotMenuButton: Bool {
+        guard case .bot = customChat.type else { return false }
+        return editCustomMessage == nil && !botCommands.isEmpty && !showsBotStart
+    }
+
     private var usesOrdinaryDeliveryReceipts: Bool {
         guard location.topic == nil, !customChat.chat.viewAsTopics, !customChat.isSavedMessages else { return false }
         if case .chatTypeSupergroup(let type) = customChat.chat.type {
@@ -936,6 +976,14 @@ import UIKit
         guard let options = editLinkPreviewOptions else { return nil }
         if let preview = editLinkPreview, !options.url.isEmpty, options.url != preview.url { return nil }
         return options
+    }
+
+    /// A group's commands name their bot ("/command@bot"), as ChatControllerLoadDisplayNode's sendBotCommand does.
+    private var sendsCommandsToGroup: Bool {
+        switch customChat.type {
+        case .bot, .user: false
+        case .group, .supergroup: true
+        }
     }
 
     convenience init(
@@ -1270,6 +1318,16 @@ import UIKit
         case .messageVideo(let value): value.showCaptionAboveMedia
         default: false
         }
+    }
+
+    /// The inline bot behind a username (`searchPublicChat`) with its query placeholder; nil for anything else.
+    private static func inlineBot(username: String, client: TDLibClient) async -> (id: Int64, placeholder: String)? {
+        guard let chat = try? await client.send(TDNativeRequests.searchPublicChat(username: username)),
+              case .chatTypePrivate(let privateChat) = chat.type,
+              let user = try? await client.getUser(userId: privateChat.userId),
+              case .userTypeBot(let bot) = user.type, bot.isInline
+        else { return nil }
+        return (user.id, bot.inlineQueryPlaceholder)
     }
 
     /// An album this chat is still announcing: show it once every member arrived, or a moment after the send call.
@@ -1700,6 +1758,7 @@ import UIKit
         case .bot, .group:
             break
         }
+        loadBotInfo()
     }
 
     func updateSlowMode(expiresIn seconds: Double) {
@@ -1831,6 +1890,7 @@ import UIKit
         )
         oldestHistoryMessageID = cursor
         hasMoreMessages = !reachedEnd && noProgressCount < 2 && cursor != fromMessageID
+        historyLoadedEmpty = !hasMoreMessages && messages.isEmpty
         loadingMessagesTask = nil
         driveMessageRefresh()
     }
@@ -2738,7 +2798,17 @@ import UIKit
     }
 
     /// ChatController.startBot: `sendBotStartMessage` sends /start with the parameter; the panel goes once it's sent.
+    /// Without a parameter Telegram's requestStartBot sends a plain "/start".
     func sendBotStart() {
+        guard botStartParameter != nil else {
+            guard showsBotStart, !isStartingBot else { return }
+            isStartingBot = true
+            Task { [weak self] in
+                await self?.sendBotCommandText("/start")
+                self?.isStartingBot = false
+            }
+            return
+        }
         guard let parameter = botStartParameter, !isStartingBot, locationContextIsCurrent,
               case .chatTypePrivate(let privateChat) = customChat.chat.type else { return }
         isStartingBot = true
@@ -3275,6 +3345,88 @@ import UIKit
                 resultId: resultID,
                 hideViaBot: true,
             ))
+        }
+    }
+
+    /// A command picked from the suggestions or the menu.
+    func sendBotCommand(_ command: ChatBotCommand) {
+        showsBotCommandMenu = false
+        let messageText = command.messageText(inGroup: sendsCommandsToGroup)
+        Task { [weak self] in await self?.sendBotCommandText(messageText) }
+    }
+
+    /// CommandChatInputContextPanelNode's insert arrow: "/command " replaces the typed command.
+    func insertBotCommand(_ command: ChatBotCommand) {
+        showsBotCommandMenu = false
+        updateComposerTextFromUser(AttributedString("/" + command.command + " "))
+    }
+
+    /// ChatController's sendBotCommand: the command goes as a message with the current reply, and the input and the
+    /// reply are cleared.
+    func sendBotCommandText(_ command: String) async {
+        guard locationContextIsCurrent, canWriteBasicMessages else { return }
+        await sendClearingComposer(for: .text) { client, context in
+            try await client.sendMessage(
+                chatId: context.chatID,
+                inputMessageContent: .inputMessageText(InputMessageText(
+                    clearDraft: true,
+                    linkPreviewOptions: nil,
+                    text: FormattedText(entities: [], text: command),
+                )),
+                options: nil,
+                replyMarkup: nil,
+                replyTo: context.replyTo,
+                topicId: context.destinationTopic,
+            )
+        }
+    }
+
+    /// A tapped inline result goes with the current reply (sendInlineQueryResultMessage); the input is cleared.
+    func sendInlineBotResult(_ item: InlineBotResult) {
+        guard inlineBotQuery != nil else { return }
+        Task { [weak self] in
+            await self?.sendClearingComposer(for: .text) { client, context in
+                try await client.send(TDNativeRequests.sendInlineQueryResultMessage(
+                    chatId: context.chatID,
+                    topicId: context.destinationTopic,
+                    replyTo: context.replyTo,
+                    options: nil,
+                    queryId: item.queryID,
+                    resultId: item.resultID,
+                    hideViaBot: false,
+                ))
+            }
+        }
+    }
+
+    /// The inline results' next page once the list scrolls to its end (`next_offset`).
+    func loadMoreInlineBotResults() {
+        guard let state = inlineBotQuery, !state.isLoading, !state.nextOffset.isEmpty, inlineBotMoreTask == nil
+        else { return }
+        let client = client
+        let chatID = chatID
+        inlineBotMoreTask = Task { [weak self] in
+            let page = try? await client.send(TDNativeRequests.getInlineQueryResults(
+                botUserId: state.botUserID, chatId: chatID, userLocation: nil, query: state.query,
+                offset: state.nextOffset,
+            ))
+            guard let self else { return }
+            inlineBotMoreTask = nil
+            guard !Task.isCancelled, locationContextIsCurrent, let page, var current = inlineBotQuery,
+                  current.botUserID == state.botUserID, current.query == state.query,
+                  current.nextOffset == state.nextOffset else { return }
+            current.results += page.results.map { InlineBotResult(queryID: page.inlineQueryId, result: $0) }
+            current.nextOffset = page.nextOffset
+            inlineBotQuery = current
+        }
+    }
+
+    /// A bot's updated full info (`updateUserFullInfo`) refreshes its description and commands.
+    func applyBotFullInfo(_ info: TDNativeBotInfo?, botUserID: Int64) {
+        guard case .bot = customChat.type else { return }
+        botInfo = info
+        botCommands = (info?.commands ?? []).map {
+            ChatBotCommand(botUserID: botUserID, botUsername: nil, command: $0.command, description: $0.description)
         }
     }
 
@@ -4525,6 +4677,152 @@ import UIKit
         guard location.messageThreadID != nil, let messageThread,
               message.chatId == location.chatID else { return false }
         return messageThread.messages.contains { $0.id == message.id }
+    }
+
+    /// ChatInterfaceStateContextQueries' contextRequest: "@bot query" at the start of the input asks the inline bot
+    /// once the query has stopped changing for 0.4 s; the previous results stay until the new ones arrive.
+    private func updateInlineBotQuery() {
+        guard editCustomMessage == nil, !previewing,
+              case .inlineBot(let username, let query) = ChatInputQuery.parse(text.string)
+        else {
+            inlineBotQueryTask?.cancel()
+            inlineBotMoreTask?.cancel()
+            if inlineBotQuery != nil { inlineBotQuery = nil }
+            return
+        }
+        if let current = inlineBotQuery, current.username.lowercased() == username.lowercased(),
+           current.query == query { return }
+        inlineBotQueryTask?.cancel()
+        inlineBotMoreTask?.cancel()
+        var known = inlineBotQuery.flatMap { $0.username.lowercased() == username.lowercased() ? $0 : nil }
+        if known != nil {
+            known?.query = query
+            known?.isLoading = true
+            inlineBotQuery = known
+        }
+        let client = client
+        let chatID = chatID
+        let resolvedBot = known
+        inlineBotQueryTask = Task { [weak self] in
+            var state: InlineBotQueryState
+            if let resolvedBot {
+                state = resolvedBot
+            } else {
+                let bot = await Self.inlineBot(username: username, client: client)
+                guard !Task.isCancelled, let self, locationContextIsCurrent else { return }
+                guard let bot else {
+                    inlineBotQuery = nil
+                    return
+                }
+                state = InlineBotQueryState(
+                    botUserID: bot.id,
+                    username: username,
+                    placeholder: bot.placeholder,
+                    query: query,
+                )
+                inlineBotQuery = state
+            }
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            let page = try? await client.send(TDNativeRequests.getInlineQueryResults(
+                botUserId: state.botUserID, chatId: chatID, userLocation: nil, query: query, offset: "",
+            ))
+            guard !Task.isCancelled, let self, locationContextIsCurrent else { return }
+            state.isLoading = false
+            state.results = page.map { found in
+                found.results.map { InlineBotResult(queryID: found.inlineQueryId, result: $0) }
+            } ?? []
+            state.nextOffset = page?.nextOffset ?? ""
+            state.button = page?.button
+            inlineBotQuery = state
+        }
+    }
+
+    /// ChatHistoryEntriesForView's bot info and peerCommands: a bot chat's description and commands, and the
+    /// commands of every bot in a group.
+    private func loadBotInfo() {
+        botInfoTask?.cancel()
+        let client = client
+        let type = customChat.type
+        botInfoTask = Task { [weak self] in
+            var info: TDNativeBotInfo?
+            var sources = [(botUserID: Int64, commands: [TDNativeBotCommand])]()
+            switch type {
+            case .bot(let user):
+                info = try? await client.getUserFullInfo(userId: user.id).botInfo
+                if let info { sources = [(user.id, info.commands)] }
+            case .supergroup(let group):
+                if let full = try? await client.getSupergroupFullInfo(supergroupId: group.id) {
+                    sources = full.botCommands.map { ($0.botUserId, $0.commands) }
+                }
+            case .group(let group):
+                if let full = try? await client.getBasicGroupFullInfo(basicGroupId: group.id) {
+                    sources = full.botCommands.map { ($0.botUserId, $0.commands) }
+                }
+            case .user:
+                return
+            }
+            let isBotChat =
+                if case .bot = type {
+                    true
+                } else {
+                    false
+                }
+            var commands = [ChatBotCommand]()
+            for source in sources {
+                var username: String?
+                if !isBotChat, let bot = try? await client.getUser(userId: source.botUserID) {
+                    username = bot.usernames?.activeUsernames.first
+                }
+                commands += source.commands.map {
+                    ChatBotCommand(
+                        botUserID: source.botUserID,
+                        botUsername: username,
+                        command: $0.command,
+                        description: $0.description,
+                    )
+                }
+            }
+            guard !Task.isCancelled, let self, locationContextIsCurrent else { return }
+            botInfo = info
+            botCommands = commands
+        }
+    }
+
+    /// Sends a message a panel made in place of the input's text, then clears the input and its reply, as Telegram's
+    /// sendBotCommand and inline result sends do.
+    private func sendClearingComposer(
+        for kind: ChatSendContentKind,
+        _ send: (TDLibClient, ResolvedSendContext) async throws -> Message,
+    ) async {
+        await waitForComposerSend()
+        guard !sendingComposerMessage else { return }
+        if let wait = slowModeWaitMessage() {
+            sendErrorMessage = wait
+            return
+        }
+        sendingComposerMessage = true
+        defer { sendingComposerMessage = false }
+        do {
+            let context = try resolveSendContext(for: kind, replyingTo: replyMessage, useCurrentReplyOverride: true)
+            let message = try await send(client, context)
+            guard locationContextIsCurrent, context.matches(message: message)
+            else { throw ChatSendContextError.unexpectedDestination }
+            markComposerDirty()
+            text = ""
+            composerLinkPreviewOptions = nil
+            cancelReply(markDirty: false)
+            do {
+                try await updateDraft(in: context, replyTo: nil)
+                draftErrorMessage = nil
+            } catch {
+                composerIsDirty = true
+                scheduleDraftUpdateRetry(context, replyTo: nil)
+            }
+            sendErrorMessage = nil
+        } catch {
+            sendErrorMessage = error.localizedDescription
+        }
     }
 
     /// ChatControllerLinkPreview: the input's preview, asked for once the text stops changing.

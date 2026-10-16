@@ -1748,3 +1748,5 @@
 "DoNotTranslate.Title" = "Do Not Translate";
 "Translate.ChangeLanguage" = "Change Language";
 "Translate.Languages.Title" = "Languages";
+"Bot.DescriptionTitle" = "What can this bot do?";
+"Conversation.InputMenu" = "Menu";

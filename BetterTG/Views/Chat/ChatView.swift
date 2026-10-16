@@ -2880,6 +2880,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 retryClientRestoration()
             }
             .store(in: &cancellables)
+        // ChatBotInfoItem arrives with the bot's full info; an empty bot chat shows it in place of the placeholder.
+        chatVM.$botInfo
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, collectionView.backgroundView != nil else { return }
+                    collectionView.backgroundView = emptyStateView()
+                }
+            }
+            .store(in: &cancellables)
         chatVM.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
@@ -3422,7 +3433,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if batch.demand.animated, !previousItemIDs.isEmpty {
             riseInsertedLatestRows(after: previousItemIDs, ids: batch.content.ids)
         }
-        collectionView.backgroundView = batch.content.ids.isEmpty ? emptyLabel() : nil
+        collectionView.backgroundView = batch.content.ids.isEmpty ? emptyStateView() : nil
     }
 
     /// Telegram moves a new latest message in from the bottom edge together with the rows it pushes up. UIKit adds
@@ -3837,6 +3848,29 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 recordMessageNavigationGeometry("highlight-after", command: true)
             }
         #endif
+    }
+
+    /// ChatBotInfoItem in a bot chat without messages, otherwise Telegram's empty placeholder.
+    private func emptyStateView() -> UIView {
+        guard case .bot = chatVM.customChat.type, let info = chatVM.botInfo, !info.description.isEmpty else {
+            return emptyLabel()
+        }
+        let container = UIView()
+        let card = ChatBotInfoView(info: info, client: chatVM.client)
+        card.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(card)
+        let preferredWidth = card.widthAnchor.constraint(equalToConstant: 320)
+        preferredWidth.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            card.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            card.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            card.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 24),
+            card.topAnchor.constraint(greaterThanOrEqualTo: container.topAnchor, constant: 24),
+            preferredWidth,
+        ])
+        // The history is flipped; its background turns back upright.
+        container.transform = CGAffineTransform(scaleX: 1, y: -1)
+        return container
     }
 
     private func emptyLabel() -> UIView {
