@@ -401,11 +401,11 @@ From `codex/parity-media-audit` (compose) and `codex/parity-msg-actions` (messag
 | B-3 | P2 | No "/" command suggestions or Menu button | fixed `7ea12c36` |
 | B-4 | P2 | No inline bot mode ("@bot query") | fixed `7ea12c36`: list or strip results, paging, `sendInlineQueryResultMessage` on tap. Simulator: "@gif cats" in Saved Messages showed the GIF strip; cleared, nothing sent |
 | B-5 | P3 | Tapping a /command in a message did nothing | fixed `22c14b1d` |
-| B-6 | P3 | Reply keyboard phone, location, poll and request buttons show "unsupported" | open |
-| B-7 | P3 | A blocked bot has no Restart Bot | open |
+| B-6 | P3 | Reply keyboard phone, location, poll and request buttons show "unsupported" | fixed `c1eb5be8`: phone and location ask Telegram's "Share Your Phone Number?" / "Share Your Location?" and reply to the keyboard message only after OK; users and chat requests open a picker of peers TDLib accepts (`shareUsersWithBot`, `shareChatWithBot`). Poll, managed bot and Web App buttons stay unsupported. Build only: pressing would send |
+| B-7 | P3 | A blocked bot has no Restart Bot | fixed `ef5d6b2b`: Restart Bot replaces the composer while the bot is on the block list; a tap unblocks and sends /start (or the link parameter). Build only: no blocked bot to open without blocking one |
 | B-8 | P3 | The inline placeholder is a hint row, not in the input | partly fixed `7ea12c36` |
-| B-9 | P3 | No "@" member or recent inline bot suggestions | open |
-| B-10 | P3 | No bot info card above the first message of a non-empty chat | open |
+| B-9 | P3 | No "@" member or recent inline bot suggestions | fixed `d4ab2e6f`: recent inline bots when "@" opens the input, group members from `searchChatMembers(mention)` sorted by name, also while editing. Simulator: in a group "@" listed members, a typed prefix narrowed them, picking a member put the member's @username in the input; cleared, nothing sent |
+| B-10 | P3 | No bot info card above the first message of a non-empty chat | fixed `c1e2ba61`: a timeline row above the first date once the history reaches its start. Simulator: Rose showed "what can this bot do?" above Jul 29 /start; another bot (no description) showed none |
 | B-11 | P3 | Inline bots needing location get no location or permission prompt | open |
 | B-12 | — | Mini Apps (menu web app, web app buttons) | skipped: needs a WKWebView runtime with Telegram's WebApp bridge |
 
