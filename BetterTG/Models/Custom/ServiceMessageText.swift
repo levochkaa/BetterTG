@@ -1,6 +1,7 @@
 // ServiceMessageText.swift
 
 import Foundation
+import MapKit
 import TDLibKit
 
 /// Telegram's service-message wording with actor names (TelegramStringFormatting ServiceMessageStrings.swift,
@@ -387,8 +388,10 @@ enum ServiceMessageText {
         distance: Int,
         _ context: Context,
     ) -> String? {
-        let distance = Measurement(value: Double(distance), unit: UnitLength.meters)
-            .formatted(.measurement(width: .wide, usage: .road))
+        // Telegram's stringForDistance.
+        let formatter = MKDistanceFormatter()
+        formatter.unitStyle = .full
+        let distance = formatter.string(fromDistance: CLLocationDistance(distance))
         let travelerID = senderID(traveler)
         let watcherID = senderID(watcher)
         if let accountUserID = context.accountUserID, travelerID == accountUserID {
