@@ -79,6 +79,9 @@ final class PhotoCropViewController: UIViewController {
     /// The finished edit with the grid's thumbnail of it; `nil` when the photo is left untouched.
     var onDone: ((PhotoCropEdit?) -> Void)?
 
+    /// TGPhotoCropController's `_autoRotationAngle`: the straightening AUTO applies, zero for none.
+    private(set) var autoRotationAngle: CGFloat = 0
+
     private let image: UIImage
     private let imagePixelSize: CGSize
     /// The full photo's upright pixel size, which PGPhotoEditor gives the grain's scale (`_cropRect.size`).
@@ -113,6 +116,7 @@ final class PhotoCropViewController: UIViewController {
     private let hudView = PhotoEditorHUDView()
     private let renderQueue = DispatchQueue(label: "BetterTG.PhotoToolsPreview", qos: .userInitiated)
     private let histogramQueue = DispatchQueue(label: "BetterTG.PhotoToolsHistogram", qos: .userInitiated)
+    private let horizonQueue = DispatchQueue(label: "BetterTG.PhotoCropHorizon", qos: .userInitiated)
 
     private var editorTab: PhotoEditorTab
     private var toolsTab = PhotoToolsTab.list
@@ -134,6 +138,8 @@ final class PhotoCropViewController: UIViewController {
     private weak var histogramImage: UIImage?
     private var isCountingHistogram = false
     private var needsHistogram = false
+    /// `_resetButton.selected`: the button reads AUTO and straightens the photo.
+    private var isAutoButtonSelected = false
 
     /// The crop view's crop with the tools, which the crop view doesn't keep across RESET.
     private var currentAdjustments: PhotoCropAdjustments {
@@ -202,7 +208,8 @@ final class PhotoCropViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        cropView.onCroppingChanged = { [weak self] in self?.updateTabs() }
+        cropView.onCroppingChanged = { [weak self] in self?.croppingChanged() }
+        cropView.onInteractionBegan = { [weak self] in self?.setAutoButtonHidden(true) }
         view.addSubview(cropView)
         configurePreview()
         configureResetButton()
@@ -213,6 +220,7 @@ final class PhotoCropViewController: UIViewController {
         applyVisibility()
         updateTabs()
         schedulePreviewRender()
+        detectHorizon()
     }
 
     override func viewDidLayoutSubviews() {
@@ -312,6 +320,16 @@ final class PhotoCropViewController: UIViewController {
     private static func setVisible(_ view: UIView, _ isVisible: Bool) {
         view.alpha = isVisible ? 1 : 0
         view.isUserInteractionEnabled = isVisible
+    }
+
+    /// `setAutorotationAngle:`: a straightening of 5° or more is kept, and the button offers it as AUTO while the
+    /// whole photo shows without a locked ratio.
+    func setAutoRotationAngle(_ angle: CGFloat) {
+        guard abs(angle) >= 5 * .pi / 180 else { return }
+        autoRotationAngle = angle
+        if cropView.adjustments.hasDefaultCropping, !cropView.isAspectRatioLocked {
+            setAutoButtonHidden(false)
+        }
     }
 
     // MARK: Configuration
@@ -782,8 +800,55 @@ final class PhotoCropViewController: UIViewController {
         }
     }
 
+    /// The horizon's angle for AUTO, found off the main thread as the editor opens.
+    private func detectHorizon() {
+        let image = image
+        horizonQueue.async { [weak self] in
+            let angle = PhotoHorizonDetector.straighteningAngle(for: image)
+            DispatchQueue.main.async {
+                guard let angle else { return }
+                self?.setAutoRotationAngle(angle)
+            }
+        }
+    }
+
+    /// TGPhotoCropController's `croppingChanged`: any crop but the whole photo, or a locked ratio, takes AUTO away.
+    private func croppingChanged() {
+        updateTabs()
+        if !cropView.adjustments.hasDefaultCropping || cropView.isAspectRatioLocked {
+            setAutoButtonHidden(true)
+        }
+    }
+
+    /// `setAutoButtonHidden:`: the button reads AUTO while it would straighten the photo, RESET otherwise.
+    private func setAutoButtonHidden(_ hidden: Bool) {
+        guard isAutoButtonSelected == hidden else { return }
+        isAutoButtonSelected = !hidden
+        let title = L10n.telegram(hidden ? "PhotoEditor.CropReset" : "PhotoEditor.CropAuto")
+        UIView.performWithoutAnimation {
+            resetButton.setTitle(title, for: .normal)
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+        }
+    }
+
+    /// `resetButtonPressed`: AUTO springs the dial to the found angle and turns into RESET; RESET puts the crop back
+    /// and offers AUTO again when there is an angle.
     @objc private func resetPressed() {
-        cropView.reset(animated: true)
+        guard !cropView.isAnimatingContent else { return }
+        let hasAutoRotationAngle = abs(autoRotationAngle) > .ulpOfOne
+        if cropView.adjustments.hasDefaultCropping, !cropView.isAspectRatioLocked, hasAutoRotationAngle,
+           isAutoButtonSelected
+        {
+            cropView.animateRotation(to: autoRotationAngle)
+            setAutoButtonHidden(true)
+        } else {
+            cropView.reset(animated: true)
+            if hasAutoRotationAngle {
+                setAutoButtonHidden(false)
+            }
+        }
+        updateTabs()
     }
 
     @objc private func rotatePressed() {
@@ -844,7 +909,7 @@ final class PhotoCropViewController: UIViewController {
     /// `doneButtonPressed`: a waiting change settles, and the whole photo without a locked ratio or tools counts as
     /// no edit (PGPhotoEditorValues' `isDefaultValues`).
     @objc private func donePressed() {
-        guard !cropView.isTracking, !isToolTracking else { return }
+        guard !cropView.isTracking, !cropView.isAnimating, !isToolTracking else { return }
         cropView.commitPendingChanges()
         let adjustments = currentAdjustments
         var edit: PhotoCropEdit?

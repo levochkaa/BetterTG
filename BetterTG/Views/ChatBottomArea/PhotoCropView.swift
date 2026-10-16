@@ -80,7 +80,13 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
         contentGestureCount > 0 || areaView.isTracking || rotationView.isTracking
     }
 
+    /// TGPhotoCropView's `isAnimating`: the crop settling or turning on its own, or the dial springing to an angle.
     var isAnimating: Bool {
+        isAnimatingContent || rotationView.isSpringing
+    }
+
+    /// The crop settling or turning on its own, which a reset waits for; the dial's spring a reset stops.
+    var isAnimatingContent: Bool {
         animationCount > 0
     }
 
@@ -330,7 +336,9 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
 
     /// `resetAnimated`: the whole photo, upright, straight and unmirrored, without a locked ratio.
     func reset(animated requestedAnimation: Bool) {
-        guard !isAnimating else { return }
+        guard !isAnimatingContent else { return }
+        // POP replaces the dial's running animation, which ends the change it reported.
+        rotationView.stopSpring()
         let full = CGRect(origin: .zero, size: adjustments.originalSize)
         let turnsBack = adjustments.orientation != .up
             && (adjustments.isMirrored || abs(adjustments.rotation) > .ulpOfOne || adjustments.cropRect != full)
@@ -386,6 +394,14 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
     func commitPendingChanges() {
         guard isConfirmPending else { return }
         UIView.performWithoutAnimation { performConfirm(animated: false) }
+    }
+
+    /// `setRotation:animated:`: the dial springs to `angle` and the photo turns with it as under a drag, zooming in
+    /// only as far as the crop needs.
+    func animateRotation(to angle: CGFloat) {
+        guard hasArbitraryRotation, !isAnimating, !isTracking else { return }
+        let limit = PhotoCropAdjustments.maximumRotation
+        rotationView.springAngle(to: min(limit, max(-limit, angle)))
     }
 
     // MARK: Layout
@@ -1346,6 +1362,16 @@ final class PhotoCropRotationView: UIView, UIGestureRecognizerDelegate {
     private var beganInteraction = false
     private var endedInteraction = false
     private var isAnimating = false
+    /// The spring toward an angle that AUTO starts (`setAngle:animated:`), stepped every frame.
+    private var spring: PhotoCropDialSpring?
+    private var springLink: CADisplayLink?
+    private var springStart: CFTimeInterval = 0
+    private var springLastDegrees: CGFloat = 0
+
+    /// The dial turning on its own toward an angle.
+    var isSpringing: Bool {
+        springLink != nil
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1379,7 +1405,7 @@ final class PhotoCropRotationView: UIView, UIGestureRecognizerDelegate {
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer.view === self else { return super.gestureRecognizerShouldBegin(gestureRecognizer) }
-        return !isAnimating && (shouldBeginChanging?() ?? true)
+        return !isAnimating && !isSpringing && (shouldBeginChanging?() ?? true)
     }
 
     override func accessibilityIncrement() {
@@ -1397,8 +1423,9 @@ final class PhotoCropRotationView: UIView, UIGestureRecognizerDelegate {
         true
     }
 
-    /// `setAngle:` and `resetAnimated:`: the dial alone, without reporting the change.
+    /// `setAngle:` and `resetAnimated:`: the dial alone, without reporting the change. A running spring stops first.
     func setAngle(_ newAngle: CGFloat, animated: Bool) {
+        stopSpring()
         angle = newAngle
         updateAccessibilityValue()
         let transform = CGAffineTransform(rotationAngle: newAngle)
@@ -1411,6 +1438,50 @@ final class PhotoCropRotationView: UIView, UIGestureRecognizerDelegate {
             self.wheelView.transform = transform
         } completion: { _ in
             self.isAnimating = false
+        }
+    }
+
+    /// `setAngle:animated:`: POPSpringAnimation at speed 5 and bounciness 2 from the dial's angle to `newAngle`,
+    /// each step reported like a turn of the dial between `didBeginChanging` and `didEndChanging`.
+    func springAngle(to newAngle: CGFloat) {
+        stopSpring()
+        let from = angle * 180 / .pi
+        let to = newAngle * 180 / .pi
+        guard abs(to - from) >= CGFloat(Float.ulpOfOne) else { return }
+        didBeginChanging?()
+        spring = PhotoCropDialSpring(from: from, to: to)
+        springStart = CACurrentMediaTime()
+        springLastDegrees = from
+        let link = CADisplayLink(target: self, selector: #selector(stepSpring(_:)))
+        link.add(to: .main, forMode: .common)
+        springLink = link
+    }
+
+    /// POP's removal of a running animation: the dial stays where it got to, and the change ends.
+    func stopSpring() {
+        guard let springLink else { return }
+        springLink.invalidate()
+        self.springLink = nil
+        spring = nil
+        didEndChanging?()
+    }
+
+    @objc private func stepSpring(_ link: CADisplayLink) {
+        guard let spring else { return }
+        var degrees = spring.degrees(at: link.targetTimestamp - springStart)
+        // POPSpringAnimation's `hasConverged` at the property's 1° threshold: two steps within a fifth of a degree
+        // of each other and of the end, which then shows.
+        let isDone = abs(spring.target - degrees) < 0.2 && abs(degrees - springLastDegrees) < 0.2
+        if isDone {
+            degrees = spring.target
+        }
+        springLastDegrees = degrees
+        angle = degrees * .pi / 180
+        updateAccessibilityValue()
+        wheelView.transform = CGAffineTransform(rotationAngle: angle)
+        angleChanged?(angle)
+        if isDone {
+            stopSpring()
         }
     }
 
@@ -1462,7 +1533,7 @@ final class PhotoCropRotationView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func step(by degrees: CGFloat) {
-        guard !isAnimating, shouldBeginChanging?() ?? true else { return }
+        guard !isAnimating, !isSpringing, shouldBeginChanging?() ?? true else { return }
         let current = (angle * 180 / .pi).rounded()
         let newDegrees = min(Self.maximumDegrees, max(-Self.maximumDegrees, current + degrees))
         beginInteraction()
@@ -1473,5 +1544,61 @@ final class PhotoCropRotationView: UIView, UIGestureRecognizerDelegate {
 
     private func updateAccessibilityValue() {
         accessibilityValue = "\(Int((angle * 180 / .pi).rounded()))°"
+    }
+}
+
+// MARK: - PhotoCropDialSpring
+
+/// POPSpringAnimation's motion of the dial's degrees: `convertBounciness:speed:toTension:friction:mass:` turns the
+/// speed and bounciness into a spring of unit mass, which starts at rest.
+struct PhotoCropDialSpring {
+    let target: CGFloat
+
+    private let displacement: Double
+    private let tension: Double
+    private let friction: Double
+
+    init(from start: CGFloat, to target: CGFloat, speed: Double = 5, bounciness: Double = 2) {
+        self.target = target
+        self.displacement = Double(start - target)
+        // `POPBouncy3NormalizationScale` and `…Range`, then the bounciness and speed projected to their ranges.
+        let normalizedBounciness = bounciness / 1.7 / 20 * 0.8
+        let normalizedSpeed = speed / 1.7 / 20
+        let qcTension = 0.5 + normalizedSpeed * (200 - 0.5)
+        // `POPQuadraticOutInterpolation` from `POPBouncy3NoBounce` toward `POPBouncy3FrictionInterpolationMax`.
+        let progress = 2 * normalizedBounciness - normalizedBounciness * normalizedBounciness
+        let qcFriction = progress * 0.01 + (1 - progress) * Self.noBounceFriction(qcTension)
+        // `POP_ANIMATION_TENSION_FOR_QC_TENSION` and `POP_ANIMATION_FRICTION_FOR_QC_FRICTION`.
+        self.tension = 194 + (qcTension - 30) / 50 * (375 - 194)
+        self.friction = 25 + (qcFriction - 8) / 2 * (25 - 19)
+    }
+
+    /// `POPBouncy3NoBounce`.
+    private static func noBounceFriction(_ tension: Double) -> Double {
+        let squared = tension * tension
+        let cubed = squared * tension
+        if tension <= 18 {
+            return 0.0007 * cubed - 0.031 * squared + 0.64 * tension + 1.28
+        }
+        if tension <= 44 {
+            return 0.000044 * cubed - 0.006 * squared + 0.36 * tension + 2
+        }
+        return 0.00000045 * cubed - 0.000332 * squared + 0.1078 * tension + 5.84
+    }
+
+    /// The degrees `time` seconds after the start.
+    func degrees(at time: Double) -> CGFloat {
+        let elapsed = max(0, time)
+        let omega = tension.squareRoot()
+        let damping = friction / (2 * omega)
+        let offset: Double
+        if damping < 1 {
+            let damped = omega * (1 - damping * damping).squareRoot()
+            offset = displacement * exp(-damping * omega * elapsed)
+                * (cos(damped * elapsed) + damping * omega / damped * sin(damped * elapsed))
+        } else {
+            offset = displacement * (1 + omega * elapsed) * exp(-omega * elapsed)
+        }
+        return target + CGFloat(offset)
     }
 }

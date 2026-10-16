@@ -2056,3 +2056,4 @@
 "WebApp.LocationPermission.Undo" = "Undo";
 "PeerInfo.Permissions.Title" = "ALLOW ACCESS TO";
 "PeerInfo.Permissions.Geolocation" = "Geolocation";
+"PhotoEditor.CropAuto" = "AUTO";

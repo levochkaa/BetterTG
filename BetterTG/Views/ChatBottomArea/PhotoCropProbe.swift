@@ -9,6 +9,8 @@
     /// After `-ui-probe-photo-tools`, `blur` opens Blur with a radial blur already on, `linear` with a turned linear
     /// one, and `curves` opens Curves with the photo's histogram. Done shows the photo as it would be sent, with its
     /// crop and tools rendered at the standard 1280 px; nothing is sent.
+    /// `-ui-probe-photo-crop auto` opens the crop on a sea horizon rising 8° to the right, for AUTO. A few seconds
+    /// in it logs the angle Vision found, or gives AUTO the drawn tilt when Vision found none.
     @MainActor enum PhotoCropProbe {
         /// The rendered photo with its pixel size, closed by Close.
         private final class ResultViewController: UIViewController {
@@ -55,13 +57,17 @@
         }
 
         private static let photoSize = CGSize(width: 1600, height: 1200)
+        /// The horizon photo's tilt, inside the ±10° Vision finds a horizon in; leveling it is this turn clockwise.
+        private static let horizonTilt: CGFloat = 8 * .pi / 180
 
         static func runIfRequested(in window: UIWindow) {
             let arguments = ProcessInfo.processInfo.arguments
             let toolsIndex = arguments.firstIndex(of: "-ui-probe-photo-tools")
+            let cropIndex = arguments.firstIndex(of: "-ui-probe-photo-crop")
             let opensTools = toolsIndex != nil
-            guard opensTools || arguments.contains("-ui-probe-photo-crop") else { return }
+            guard opensTools || cropIndex != nil else { return }
             let toolsOption = toolsIndex.flatMap { arguments[safe: $0 + 1] }
+            let opensAuto = !opensTools && cropIndex.flatMap { arguments[safe: $0 + 1] } == "auto"
             Task { @MainActor in
                 for _ in 0..<60 where TDLib.shared.activeAccountID == nil {
                     try? await Task.sleep(for: .milliseconds(500))
@@ -73,7 +79,7 @@
                     presenter = presented
                 }
                 guard let presenter else { return }
-                let photo = makePhoto(withStrip: opensTools)
+                let photo = opensAuto ? makeHorizonPhoto() : makePhoto(withStrip: opensTools)
                 let preset = toolsPreset(for: toolsOption)
                 let editor = PhotoCropViewController(
                     image: photo,
@@ -93,7 +99,27 @@
                     }
                 }
                 presenter.present(editor, animated: true)
+                if opensAuto {
+                    try? await Task.sleep(for: .seconds(3))
+                    reportAutoRotation(of: editor)
+                }
             }
+        }
+
+        /// Vision's angle for AUTO, or the drawn tilt when Vision found none, so AUTO shows either way.
+        private static func reportAutoRotation(of editor: PhotoCropViewController) {
+            let drawn = Double(horizonTilt * 180 / .pi)
+            guard editor.autoRotationAngle == 0 else {
+                let found = Double(editor.autoRotationAngle * 180 / .pi)
+                log(String(
+                    format: "Photo crop probe: AUTO turns %.2f° clockwise; the horizon rises %.2f°",
+                    found,
+                    drawn,
+                ))
+                return
+            }
+            log(String(format: "Photo crop probe: Vision found no horizon; AUTO turns the drawn %.2f°", drawn))
+            editor.setAutoRotationAngle(horizonTilt)
         }
 
         /// The tools panel and the edit the editor opens with for the option after `-ui-probe-photo-tools`.
@@ -171,6 +197,45 @@
                     options: [],
                 )
                 context.cgContext.restoreGState()
+            }
+        }
+
+        /// Sky over dark water with waves along a horizon rising `horizonTilt` to the right.
+        private static func makeHorizonPhoto() -> UIImage {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            return UIGraphicsImageRenderer(size: photoSize, format: format).image { context in
+                let canvas = context.cgContext
+                canvas.translateBy(x: photoSize.width / 2, y: photoSize.height / 2)
+                // Counterclockwise on screen, so the horizon rises to the right.
+                canvas.rotate(by: -horizonTilt)
+                let side: CGFloat = 2400
+                let sky = CGRect(x: -side / 2, y: -side / 2, width: side, height: side / 2)
+                let skyColors = [
+                    UIColor(red: 0.25, green: 0.5, blue: 0.9, alpha: 1).cgColor,
+                    UIColor(red: 0.85, green: 0.92, blue: 1, alpha: 1).cgColor,
+                ]
+                if let gradient = CGGradient(
+                    colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                    colors: skyColors as CFArray,
+                    locations: [0, 1],
+                ) {
+                    canvas.saveGState()
+                    canvas.clip(to: sky)
+                    canvas.drawLinearGradient(
+                        gradient,
+                        start: CGPoint(x: 0, y: sky.minY),
+                        end: CGPoint(x: 0, y: sky.maxY),
+                        options: [],
+                    )
+                    canvas.restoreGState()
+                }
+                UIColor(red: 0.05, green: 0.2, blue: 0.35, alpha: 1).setFill()
+                canvas.fill(CGRect(x: -side / 2, y: 0, width: side, height: side / 2))
+                UIColor(red: 0.3, green: 0.5, blue: 0.65, alpha: 0.5).setFill()
+                for y in stride(from: CGFloat(40), to: side / 2, by: 37) {
+                    canvas.fill(CGRect(x: -side / 2, y: y, width: side, height: 3))
+                }
             }
         }
     }
