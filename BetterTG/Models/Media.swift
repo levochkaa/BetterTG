@@ -84,6 +84,10 @@ final class Media: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     /// Media activated the spoken-audio session for its own playback, so it gives it back when playback ends.
     private var ownsPlaybackSession = false
+    /// The loaded voice note follows the proximity sensor (SharedMediaPlayer's controlPlaybackWithProximity).
+    private var proximitySubscription: UUID?
+    /// The phone is at the ear, so the voice note plays from the earpiece (forceAudioToSpeaker off).
+    private var playsThroughEarpiece = false
 
     var playbackDuration: TimeInterval {
         TimeInterval(duration)
@@ -149,6 +153,7 @@ final class Media: ObservableObject {
         albumArtImage = nil
         player.stop()
         nowPlayingCenter.nowPlayingInfo = nil
+        endProximityControl()
     }
 
     /// The header's close button: stops playback and gives the audio session back.
@@ -267,6 +272,7 @@ final class Media: ObservableObject {
                 autoplay: false,
                 prefersFFmpegAudioFallback: true,
             )
+            beginProximityControl(for: item)
             play()
         } else {
             toggle()
@@ -287,6 +293,7 @@ final class Media: ObservableObject {
             prefersFFmpegAudioFallback: true,
             initialTime: max(0, time),
         )
+        beginProximityControl(for: item)
     }
 
     func setAudioSessionRecord() {
@@ -456,11 +463,20 @@ final class Media: ObservableObject {
 
     private func setAudioSessionPlayback() {
         do {
-            try audioSession.setActive(false)
-            try audioSession.setCategory(.playback, mode: .spokenAudio, policy: .default, options: [
-                .allowBluetoothHFP,
-                .allowBluetoothA2DP,
-            ])
+            if playsThroughEarpiece {
+                // ManagedAudioSession's playWithPossiblePortOverride in its system output: play-and-record without
+                // the speaker override routes to the earpiece. The category changes while the note keeps playing.
+                try audioSession.setCategory(.playAndRecord, mode: .default, policy: .default, options: [
+                    .allowBluetoothA2DP,
+                ])
+                try audioSession.overrideOutputAudioPort(.none)
+            } else {
+                try audioSession.setActive(false)
+                try audioSession.setCategory(.playback, mode: .spokenAudio, policy: .default, options: [
+                    .allowBluetoothHFP,
+                    .allowBluetoothA2DP,
+                ])
+            }
             try audioSession.setActive(true)
             ownsPlaybackSession = true
         } catch {
@@ -472,8 +488,41 @@ final class Media: ObservableObject {
     private func releasePlaybackSession() {
         guard ownsPlaybackSession else { return }
         ownsPlaybackSession = false
-        guard audioSession.category == .playback, audioSession.mode == .spokenAudio else { return }
+        let isSpeaker = audioSession.category == .playback && audioSession.mode == .spokenAudio
+        let isEarpiece = audioSession.category == .playAndRecord && audioSession.mode == .default
+        guard isSpeaker || isEarpiece else { return }
         try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// SharedMediaPlayer with controlPlaybackWithProximity, which MediaManager sets for voice notes while Raise to
+    /// Listen is on: the note starts on the earpiece if the phone is already at the ear.
+    private func beginProximityControl(for item: NowPlaying?) {
+        guard let item, !item.isMusic, RaiseToListenSettings.isEnabled else { return }
+        MainActor.assumeIsolated {
+            let monitor = DeviceProximityMonitor.shared
+            playsThroughEarpiece = monitor.currentValue
+            proximitySubscription = monitor.add { [weak self] value in self?.proximityChanged(value) }
+        }
+    }
+
+    private func endProximityControl() {
+        playsThroughEarpiece = false
+        guard let proximitySubscription else { return }
+        self.proximitySubscription = nil
+        MainActor.assumeIsolated { DeviceProximityMonitor.shared.remove(proximitySubscription) }
+    }
+
+    /// At the ear the note plays from the earpiece, from its start if it had barely begun; away from the ear it
+    /// pauses, and plays from the speaker again when resumed.
+    private func proximityChanged(_ value: Bool) {
+        guard playsThroughEarpiece != value, player.hasItem else { return }
+        playsThroughEarpiece = value
+        if value {
+            if playbackPosition < 1.5 { seekTo(0) }
+            play()
+        } else {
+            pause()
+        }
     }
 
     private func play() {

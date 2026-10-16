@@ -737,6 +737,16 @@ final class ChatComposerView: UIView {
         }
     }
 
+    /// Raise to Speak (activateRaiseGesture's requestAudioRecorder): with no finger on the button, Telegram's
+    /// recording starts locked. It always records voice, whichever mode the button shows.
+    func startRaisedVoiceRecording() async -> Bool {
+        guard !videoNoteState.isActive, !chatVM.recordingVoiceNote else { return false }
+        activeMediaRecordingMode = .voice
+        guard await chatVM.mediaStartRecordingVoice() else { return false }
+        chatVM.lockVoiceRecording()
+        return true
+    }
+
     private func configureViews() {
         translatesAutoresizingMaskIntoConstraints = false
         backgroundColor = .clear

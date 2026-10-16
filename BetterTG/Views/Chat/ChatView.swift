@@ -254,6 +254,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private var videoNoteChatActionActive = false
     private var videoNoteChatActionTask: Task<Void, Never>?
+    /// The chat's RaiseToListenManager (ChatControllerImpl.raiseToListen).
+    private var raiseToListen: RaiseToListenActivator?
+    private var raiseToListenRecordingTask: Task<Void, Never>?
+    private var isChatVisible = false
+    /// When the voice playlist last ran out: a recording raised right after waits a second from then.
+    private var voicePlaylistDidEndTimestamp: CFTimeInterval = 0
+    /// Notes this chat played, which count as listened before TDLib's update arrives.
+    private var playedListenableMessageIDs = Set<Int64>()
     private var restoredVideoRecordingDraftIDHandled: UUID?
     private var selectedDisplayedMessageIDs = Set<DisplayedMessageID>()
     private var isSelectingMessages = false
@@ -553,6 +561,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         acknowledgedVisibleRawIDs.removeAll()
+        isChatVisible = false
+        raiseToListen?.isEnabled = false
         #if DEBUG
             viewportCompletionProbe?.interrupt("controller disappeared")
         #endif
@@ -602,6 +612,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         restoreVisibleInlineVideoPlayback()
         acknowledgeCommittedVisibleMessages(requestHistory: true)
+        isChatVisible = true
+        setUpRaiseToListen()
         #if DEBUG
         if viewportCompletionProbe == nil, presentationMode == .full, chatVM.customChat.isSavedMessages,
            ChatViewportCompletionProbe.enabled
@@ -1933,6 +1945,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .sink { [weak self] finished in
                 guard let self, finished.chatID == chatVM.chatID,
                       finished.source == navigationClientSource else { return }
+                playedListenableMessageIDs.insert(finished.messageID)
                 playNextPlaylistItem(after: finished.messageID)
             }
             .store(in: &cancellables)
@@ -1999,7 +2012,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 }
             })
             .min(by: { $0.id < $1.id })
-        else { return }
+        else {
+            voicePlaylistEnded()
+            return
+        }
+        playListenableMessage(next)
+    }
+
+    /// OpenChatMessage for a voice note or instant video, as the playlist and Raise to Listen open them.
+    private func playListenableMessage(_ next: Message) {
         if case .messageVideoNote = next.content {
             guard let source = navigationClientSource else { return }
             scrollToMessage(id: next.id)
@@ -2028,6 +2049,123 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 _ = try? await client.openMessageContent(chatId: next.chatId, messageId: next.id)
             }
         }
+    }
+
+    // MARK: Raise to Listen
+
+    /// ChatControllerImpl sets up raiseToListen once the chat appears; it runs while the chat is on screen and the
+    /// app is in the foreground (canReadHistory).
+    private func setUpRaiseToListen() {
+        guard presentationMode == .full else { return }
+        if raiseToListen == nil {
+            raiseToListen = RaiseToListenActivator(
+                shouldActivate: { [weak self] in self?.raiseToListenShouldActivate() ?? false },
+                activate: { [weak self] in self?.activateRaiseGesture() },
+                deactivate: { [weak self] in self?.deactivateRaiseGesture() },
+            )
+            NotificationCenter.default
+                .publisher(for: UIApplication.didEnterBackgroundNotification)
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    raiseToListen?.applicationResignedActive()
+                    raiseToListen?.isEnabled = false
+                }
+                .store(in: &cancellables)
+            NotificationCenter.default
+                .publisher(for: UIApplication.willEnterForegroundNotification)
+                .sink { [weak self] _ in
+                    guard let self else { return }
+                    raiseToListen?.isEnabled = isChatVisible
+                }
+                .store(in: &cancellables)
+            Media.shared
+                .$nowPlaying
+                .compactMap(\.self)
+                .sink { [weak self] item in
+                    guard let self, !item.isMusic, item.chatID == chatVM.chatID,
+                          item.accountID == location.accountID else { return }
+                    playedListenableMessageIDs.insert(item.messageID)
+                }
+                .store(in: &cancellables)
+        }
+        raiseToListen?.isEnabled = UIApplication.shared.applicationState != .background
+    }
+
+    /// RaiseToListenManager's shouldActivate: Raise to Listen is on, the chat is the top screen with nothing over it,
+    /// nothing plays or records, no message is being edited, and there is a note to hear or a voice reply to record.
+    private func raiseToListenShouldActivate() -> Bool {
+        guard RaiseToListenSettings.isEnabled, isChatVisible, chatVM.locationContextIsCurrent,
+              navigationController?.topViewController === self, presentedViewController == nil,
+              chatVM.editCustomMessage == nil, Media.shared.nowPlaying == nil,
+              !chatVM.recordingVoiceNote, videoNoteRecorder == nil
+        else { return false }
+        if firstMessageToListen() != nil { return true }
+        return showsComposer && !messageSearchActive && !isSelectingMessages && chatVM.canRecordVoiceNote
+    }
+
+    /// firstLoadedMessageToListen: the oldest loaded incoming voice note or instant video not yet listened to.
+    /// Self-destructing notes open only in their play-once overlay, so they wait for a tap.
+    private func firstMessageToListen() -> Message? {
+        var oldest: Message?
+        for item in chatVM.messages {
+            for message in item.album.isEmpty ? [item.message] : item.album {
+                guard isMessageToListen(message), oldest.map({ message.id < $0.id }) ?? true else { continue }
+                oldest = message
+            }
+        }
+        return oldest
+    }
+
+    private func isMessageToListen(_ message: Message) -> Bool {
+        guard !message.isOutgoing, message.selfDestructType == nil,
+              !playedListenableMessageIDs.contains(message.id) else { return false }
+        switch message.content {
+        case .messageVoiceNote(let content): return !content.isListened
+        case .messageVideoNote(let content): return !content.isViewed && !content.isSecret
+        default: return false
+        }
+    }
+
+    /// activateRaiseGesture: the note to listen to plays. Without one a voice recording starts after its tone,
+    /// at least a second after the voice playlist ran out.
+    private func activateRaiseGesture() {
+        raiseToListenRecordingTask?.cancel()
+        raiseToListenRecordingTask = nil
+        if let message = firstMessageToListen() {
+            playedListenableMessageIDs.insert(message.id)
+            playListenableMessage(message)
+            return
+        }
+        let delay = max(0, voicePlaylistDidEndTimestamp + 1 - CACurrentMediaTime())
+        raiseToListenRecordingTask = Task { [weak self] in
+            if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+            guard !Task.isCancelled, let self, raiseToListen?.isActivated == true else { return }
+            Media.shared.setAudioSessionRecord()
+            await RecordingTone.play()
+            guard !Task.isCancelled, raiseToListen?.isActivated == true else {
+                Media.shared.endAudioSessionRecord()
+                return
+            }
+            let started = await composerView.startRaisedVoiceRecording()
+            // The phone left the ear while the recording started.
+            if started, raiseToListen?.isActivated != true { chatVM.pauseVoiceRecording() }
+        }
+    }
+
+    /// deactivateRaiseGesture: a recording about to start is called off, and one in progress stops into its preview
+    /// (dismissMediaRecorder(.pause)). A playing note pauses on its own through Media.
+    private func deactivateRaiseGesture() {
+        raiseToListenRecordingTask?.cancel()
+        raiseToListenRecordingTask = nil
+        guard chatVM.recordingVoiceNote, chatVM.voiceRecordingInteractionState == .locked else { return }
+        chatVM.pauseVoiceRecording()
+    }
+
+    /// setTempVoicePlaylistEnded: once the notes run out, a phone still at the ear records the reply.
+    private func voicePlaylistEnded() {
+        guard let raiseToListen, chatVM.canRecordVoiceNote else { return }
+        voicePlaylistDidEndTimestamp = CACurrentMediaTime()
+        raiseToListen.activateBasedOnProximity()
     }
 
     private func updateVoicePlaybackHeader(

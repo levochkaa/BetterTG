@@ -6,8 +6,8 @@ import UIKit
 // MARK: - DataAndStorageViewController
 
 /// Telegram's Data and Storage (DataAndStorageSettingsController): Storage Usage and Network Usage with their
-/// totals. BetterTG loads media as it shows it and has no automatic download policy, so Telegram's auto-download
-/// presets are not offered.
+/// totals, and Raise to Listen. BetterTG loads media as it shows it and has no automatic download policy, so
+/// Telegram's auto-download presets are not offered.
 final class DataAndStorageViewController: SettingsListViewController {
     private var storageSize: Int64?
     private var networkBytes: Int64?
@@ -43,7 +43,16 @@ final class DataAndStorageViewController: SettingsListViewController {
             ) { [weak self] in
                 self?.navigationController?.pushViewController(NetworkUsageViewController(), animated: true)
             },
-        ])]
+        ]), SettingsSection(
+            header: L10n.telegram("ChatSettings.Other").uppercased(),
+            footer: L10n.telegram("Settings.RaiseToListenInfo"),
+            rows: [SettingsRow(
+                title: L10n.telegram("Settings.RaiseToListen"),
+                accessory: .toggle(isOn: RaiseToListenSettings.isEnabled, onChange: { isOn in
+                    RaiseToListenSettings.isEnabled = isOn
+                }),
+            )],
+        )]
     }
 
     private func load() {

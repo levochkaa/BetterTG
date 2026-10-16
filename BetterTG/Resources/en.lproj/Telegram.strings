@@ -1197,6 +1197,9 @@
 "Cache.ServiceFiles" = "Service Files";
 "ChatSettings.Cache" = "Storage Usage";
 "ChatSettings.Title" = "Data and Storage";
+"ChatSettings.Other" = "OTHER";
+"Settings.RaiseToListen" = "Raise to Listen";
+"Settings.RaiseToListenInfo" = "Raise to Listen allows you to quickly listen and reply to incoming audio messages by raising the phone to your ear.";
 "NetworkUsageSettings.BytesReceived" = "Bytes Received";
 "NetworkUsageSettings.BytesSent" = "Bytes Sent";
 "NetworkUsageSettings.CallDataSection" = "CALLS";
