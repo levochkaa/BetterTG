@@ -1,4 +1,5 @@
 "NSCameraUsageDescription" = "Разрешите доступ к камере, чтобы отправлять фотографии в чатах.";
+"NSContactsUsageDescription" = "Разрешите доступ к контактам, чтобы делиться ими в чатах.";
 "NSLocationWhenInUseUsageDescription" = "Разрешите доступ к геопозиции, чтобы делиться местоположением в чатах.";
 "NSMicrophoneUsageDescription" = "Разрешите доступ к микрофону, чтобы отправлять голосовые сообщения в чатах.";
 "NSPhotoLibraryAddUsageDescription" = "Разрешите доступ к Фото, чтобы сохранять выбранные изображения.";

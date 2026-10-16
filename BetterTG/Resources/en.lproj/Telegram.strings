@@ -1902,3 +1902,14 @@
 "Time.PreciseDate_m10" = "Oct %1$@, %2$@ at %3$@";
 "Time.PreciseDate_m11" = "Nov %1$@, %2$@ at %3$@";
 "Time.PreciseDate_m12" = "Dec %1$@, %2$@ at %3$@";
+"Contacts.Title" = "Contacts";
+"ShareMenu.Send" = "Send";
+"Contacts.NotRegisteredSection" = "Phonebook";
+"Permissions.ContactsAllow.v0" = "Allow Access";
+"Permissions.ContactsAllowInSettings.v0" = "Allow in Settings";
+"Contacts.PermissionsTitle" = "Access to Contacts";
+"Contacts.PermissionsText" = "Please allow Telegram access to your phonebook to seamlessly find all your friends.";
+"Contacts.Search.NoResultsQueryDescription" = "There were no results for \"%@\".\nTry a new search.";
+"UserInfo.Title" = "Info";
+"ContactInfo.PhoneLabelMain" = "main";
+"ContactInfo.BirthdayLabel" = "birthday";

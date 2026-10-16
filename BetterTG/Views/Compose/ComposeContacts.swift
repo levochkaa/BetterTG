@@ -20,6 +20,8 @@ struct ComposeContact {
     let status: UserStatus
     let isBot: Bool
     let username: String?
+    /// The number the account sees, without the plus; empty when the person hides it.
+    let phoneNumber: String
     let peer: SettingsPeer
 
     var title: String {
@@ -48,6 +50,7 @@ struct ComposeContact {
                 false
             }
         self.username = user.usernames?.activeUsernames.first
+        self.phoneNumber = user.phoneNumber
         let name = [user.firstName, user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
         self.peer = SettingsPeer(
             id: user.id,
