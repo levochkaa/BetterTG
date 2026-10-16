@@ -38,6 +38,9 @@ struct TelegramContextMenuAction {
     let handler: () -> Void
     /// A title that arrives after the menu opens, such as Telegram's read time; it shrinks to the menu's width.
     var titleUpdates: AnyPublisher<String, Never>?
+    /// A row that only shows its text in the smaller 14-point font, such as when a checklist task was completed
+    /// (ContextMenuActionItem with `.small` text and no action): it is never highlighted or selected.
+    var isInformational = false
 
     init(
         title: String,
@@ -54,6 +57,18 @@ struct TelegramContextMenuAction {
         self.children = children
         self.handler = handler
     }
+}
+
+// MARK: - TelegramContextMenuSource
+
+/// One of Telegram's context sources (ContextController.Source). A menu with more than one source shows tabs at the
+/// bottom of the screen that switch between their actions, with the active source's footer above them.
+struct TelegramContextMenuSource {
+    let title: String
+    var footer: String?
+    let actions: [TelegramContextMenuAction]
+    /// Whether the reaction strip shows while the source is active; only the message's own actions carry reactions.
+    var showsReactions = true
 }
 
 // MARK: - TelegramContextQuoteSelection
@@ -215,6 +230,7 @@ extension UIViewController {
     /// A `.menuOnly` menu sits `menuSpacing` above `menuAnchorView`, or above the source when there is none.
     /// A `ContextMenuPressGestureRecognizer` passed as `gesture` hands its grown source over to the menu and
     /// keeps driving it: the same finger scrubs the actions and pans the preview.
+    /// With more than one of `sources` the menu opens on the first source's actions in place of `actions`.
     @discardableResult func presentTelegramContextMenu(
         sourceView: UIView,
         actions: [TelegramContextMenuAction],
@@ -225,8 +241,11 @@ extension UIViewController {
         menuSpacing: CGFloat = 4,
         reactionsProvider: TelegramContextReactionsProvider? = nil,
         quoteSelection: TelegramContextQuoteSelection? = nil,
+        sources: [TelegramContextMenuSource] = [],
         onDismiss: (() -> Void)? = nil,
     ) -> Bool {
+        let sources = sources.count > 1 ? sources : []
+        let actions = sources.first?.actions ?? actions
         // A menu that is still closing (a liquid morph settles for up to 1.6 s) does not block the next one.
         guard !actions.isEmpty,
               TelegramContextMenuController.activeController?.isOpen != true,
@@ -252,6 +271,7 @@ extension UIViewController {
             menuSpacing: menuSpacing,
             reactionsProvider: reactionsProvider,
             quoteSelection: quoteSelection,
+            sources: sources,
             owner: self, onDismiss: onDismiss,
         )
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -382,6 +402,13 @@ private final class TelegramContextMenuController: UIViewController {
     private weak var trackingGesture: UIGestureRecognizer?
     private var actions: [TelegramContextMenuAction]
     private var parentActions = [[TelegramContextMenuAction]]()
+    /// Telegram's context sources; with more than one, tabs under the menu switch between their actions.
+    private let sources: [TelegramContextMenuSource]
+    private var activeSourceIndex = 0
+    private let sourceTabsView = TelegramContextMenuSourceTabsView()
+    private let sourceFooterLabel = UILabel()
+    /// Whether the reactions provider returned any; the active source decides whether they show.
+    private var hasReactions = false
     private let backgroundEffectView = UIVisualEffectView(effect: nil)
     private let dimView = TelegramContextMenuDismissView()
     private let previewPanView = TelegramContextMenuPassthroughView()
@@ -447,6 +474,12 @@ private final class TelegramContextMenuController: UIViewController {
 
     fileprivate var isOpen: Bool { !isDismissing }
 
+    private var showsSourceTabs: Bool { sources.count > 1 }
+
+    private var activeSourceShowsReactions: Bool {
+        sources.indices.contains(activeSourceIndex) ? sources[activeSourceIndex].showsReactions : true
+    }
+
     /// Model frame of the preview including the pan, like the system's platterView.frame checks.
     private var previewFrame: CGRect {
         presentationStyle.showsPreview ? previewContainer.convert(previewContainer.bounds, to: view) : .zero
@@ -463,6 +496,7 @@ private final class TelegramContextMenuController: UIViewController {
         menuSpacing: CGFloat,
         reactionsProvider: TelegramContextReactionsProvider?,
         quoteSelection: TelegramContextQuoteSelection?,
+        sources: [TelegramContextMenuSource],
         owner: UIViewController,
         onDismiss: (() -> Void)?,
     ) {
@@ -476,6 +510,7 @@ private final class TelegramContextMenuController: UIViewController {
         self.previewController = previewController
         self.reactionsProvider = reactionsProvider
         self.quoteSelection = quoteSelection
+        self.sources = sources
         self.owner = owner
         self.onDismiss = onDismiss
         super.init(nibName: nil, bundle: nil)
@@ -674,7 +709,8 @@ private final class TelegramContextMenuController: UIViewController {
         view.addGestureRecognizer(touchRecognizer)
 
         rebuildActions()
-        reactionStrip.isHidden = reactionsProvider == nil
+        configureSourceTabs()
+        reactionStrip.isHidden = reactionsProvider == nil || !activeSourceShowsReactions
         reactionStrip.alpha = 0
         view.addSubview(reactionStrip)
         reactionStrip.onSelect = { [weak self] reaction in
@@ -687,10 +723,82 @@ private final class TelegramContextMenuController: UIViewController {
                 let reactions = await reactionsProvider()
                 guard let self, !Task.isCancelled, !isDismissing else { return }
                 reactionStrip.configure(reactions)
-                reactionStrip.isHidden = reactions.isEmpty
+                hasReactions = !reactions.isEmpty
+                reactionStrip.isHidden = !hasReactions || !activeSourceShowsReactions
                 UIView.performWithoutAnimation { self.layoutPreviewAndMenu() }
             }
         }
+    }
+
+    /// ContextSourceContainer's tab selector and footer, for a menu with more than one source.
+    private func configureSourceTabs() {
+        guard showsSourceTabs else { return }
+        sourceFooterLabel.font = .systemFont(ofSize: 13)
+        sourceFooterLabel.textColor = UIColor.label.withAlphaComponent(0.4)
+        sourceFooterLabel.textAlignment = .center
+        sourceFooterLabel.numberOfLines = 0
+        sourceFooterLabel.text = sources[activeSourceIndex].footer
+        sourceFooterLabel.alpha = 0
+        view.addSubview(sourceFooterLabel)
+        sourceTabsView.configure(titles: sources.map(\.title), selectedIndex: activeSourceIndex)
+        sourceTabsView.onSelect = { [weak self] index in self?.selectSource(at: index) }
+        sourceTabsView.alpha = 0
+        view.addSubview(sourceTabsView)
+    }
+
+    /// ContextSourceContainer: a tab, or a horizontal swipe, shows another source's actions and footer. Only a
+    /// source that carries reactions keeps the strip.
+    private func selectSource(at index: Int) {
+        guard sources.indices.contains(index), index != activeSourceIndex, !isDismissing, !isPerformingAction
+        else { return }
+        activeSourceIndex = index
+        let source = sources[index]
+        parentActions.removeAll()
+        actions = source.actions
+        sourceTabsView.setSelectedIndex(index, animated: true)
+        let showsReactions = reactionsProvider != nil && hasReactions && source.showsReactions
+        reactionStrip.isHidden = !showsReactions
+        if showsReactions { reactionStrip.alpha = 0 }
+        if let footer = source.footer { sourceFooterLabel.text = footer }
+        selectionFeedback.selectionChanged()
+        rebuildActions()
+        UIView.animate(
+            withDuration: 0.4,
+            delay: 0,
+            usingSpringWithDamping: 0.9,
+            initialSpringVelocity: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction],
+        ) {
+            self.layoutPreviewAndMenu()
+            self.menuView.layoutIfNeeded()
+            self.sourceFooterLabel.alpha = source.footer == nil ? 0 : 1
+            self.reactionStrip.alpha = showsReactions ? 1 : 0
+        }
+        UIAccessibility.post(notification: .layoutChanged, argument: actionButtons.first)
+    }
+
+    /// ContextSourceContainer's tabs sit 30 points above the bottom inset, its footer 20 points above them, and the
+    /// preview and menu stay above both. Returns the lowest point the menu may reach.
+    private func layoutSourceTabs(bottom: CGFloat, availableWidth: CGFloat) -> CGFloat {
+        guard showsSourceTabs else { return bottom }
+        let fitting = CGSize(width: availableWidth, height: .greatestFiniteMagnitude)
+        let tabsSize = sourceTabsView.sizeThatFits(fitting)
+        let tabsFrame = CGRect(
+            x: ((view.bounds.width - tabsSize.width) / 2).rounded(.down),
+            y: bottom - 30 - tabsSize.height,
+            width: tabsSize.width,
+            height: tabsSize.height,
+        )
+        sourceTabsView.frame = tabsFrame
+        guard sources[activeSourceIndex].footer != nil else { return tabsFrame.minY - 10 }
+        let footerSize = sourceFooterLabel.sizeThatFits(fitting)
+        sourceFooterLabel.frame = CGRect(
+            x: ((view.bounds.width - footerSize.width) / 2).rounded(.down),
+            y: tabsFrame.minY - 20 - footerSize.height,
+            width: footerSize.width,
+            height: footerSize.height,
+        )
+        return sourceFooterLabel.frame.minY - 10
     }
 
     private func rebuildActions() {
@@ -730,7 +838,7 @@ private final class TelegramContextMenuController: UIViewController {
             + separatorHeight
         let menuWidth = menuWidth(availableWidth: availableWidth)
         let bottomInset = max(view.safeAreaInsets.bottom, CGFloat(12))
-        let maximumBottom = view.bounds.height - bottomInset
+        let maximumBottom = layoutSourceTabs(bottom: view.bounds.height - bottomInset, availableWidth: availableWidth)
 
         switch presentationStyle {
         case .message:
@@ -974,6 +1082,10 @@ private final class TelegramContextMenuController: UIViewController {
                 }
             }
             self.reactionStrip.alpha = 1
+            if self.showsSourceTabs {
+                self.sourceTabsView.alpha = 1
+                self.sourceFooterLabel.alpha = self.sources[self.activeSourceIndex].footer == nil ? 0 : 1
+            }
         }
     }
 
@@ -1169,6 +1281,8 @@ private final class TelegramContextMenuController: UIViewController {
                     : self.originalContentCornerRadius
             }
             self.reactionStrip.alpha = 0
+            self.sourceTabsView.alpha = 0
+            self.sourceFooterLabel.alpha = 0
         } completion: { _ in self.finishDismissal() }
     }
 
@@ -1227,7 +1341,7 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     private func perform(_ button: TelegramContextMenuActionButton) {
-        guard !isPerformingAction else { return }
+        guard !isPerformingAction, !button.menuAction.isInformational else { return }
         if !button.menuAction.children.isEmpty {
             parentActions.append(actions)
             let back = TelegramContextMenuAction(
@@ -1300,6 +1414,7 @@ private final class TelegramContextMenuController: UIViewController {
     /// `nil` leaves the touch to the view under it: reactions, quote selection in the message text and the
     /// scrollable chat preview keep their own gestures.
     private func touchOrigin(at point: CGPoint) -> ContextMenuTouchSession.Origin? {
+        if showsSourceTabs, sourceTabsView.frame.contains(point) { return nil }
         if !reactionStrip.isHidden, reactionStrip.frame.contains(point) { return nil }
         if menuView.frame.contains(point) { return .menu }
         guard previewFrame.contains(point) else { return .outside }
@@ -1329,6 +1444,13 @@ private final class TelegramContextMenuController: UIViewController {
         switch state {
         case .ended:
             if touchSessionIsInitiating, reactionStrip.selectTrackedReaction() { return }
+            if let session = touchSession, !touchSessionIsInitiating, session.origin != .menu,
+               let step = sourceSwipeStep(from: session.start, to: point)
+            {
+                finishTracking()
+                selectSource(at: activeSourceIndex + step)
+                return
+            }
             // The selection delay fails on touch end, so the action under the finger counts once the touch may select.
             let index = touchSession?.selectsOnRelease == true ? actionIndex(at: point) : nil
             touchSession?.highlighted = index
@@ -1363,7 +1485,19 @@ private final class TelegramContextMenuController: UIViewController {
 
     private func actionIndex(at point: CGPoint) -> Int? {
         guard menuView.frame.contains(point) else { return nil }
-        return actionButtons.firstIndex { $0.convert($0.bounds, to: view).contains(point) }
+        return actionButtons.firstIndex { button in
+            !button.menuAction.isInformational && button.convert(button.bounds, to: view).contains(point)
+        }
+    }
+
+    /// ContextSourceContainer's horizontal pan: a mostly horizontal swipe of 80 points shows the next source to the
+    /// left, or the previous one to the right.
+    private func sourceSwipeStep(from start: CGPoint, to end: CGPoint) -> Int? {
+        guard showsSourceTabs else { return nil }
+        let deltaX = end.x - start.x
+        guard abs(deltaX) >= 80, abs(deltaX) > abs(end.y - start.y) * 2 else { return nil }
+        let step = deltaX < 0 ? 1 : -1
+        return sources.indices.contains(activeSourceIndex + step) ? step : nil
     }
 
     private func setPan(_ offset: CGPoint, tracking: Bool) {
@@ -1554,6 +1688,105 @@ private final class TelegramContextMenuSectionDivider: UIView {
     }
 }
 
+// MARK: - TelegramContextMenuSourceTabsView
+
+/// Telegram's TabSelectorComponent as ContextSourceContainer sets it up: medium 14-point titles in 32-point capsules
+/// with 12 points of inner inset, 9 points apart, and a faint capsule behind the selected one.
+private final class TelegramContextMenuSourceTabsView: UIView {
+    // MARK: Private
+
+    private static let height = CGFloat(32)
+    private static let innerInset = CGFloat(12)
+    private static let spacing = CGFloat(9)
+    private static let font = UIFont.systemFont(ofSize: 14, weight: .medium)
+
+    // MARK: Internal
+
+    var onSelect: ((Int) -> Void)?
+
+    private let selectionView = UIView()
+    private var buttons = [UIButton]()
+    private var selectedIndex = 0
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        selectionView.backgroundColor = UIColor.label.withAlphaComponent(0.1)
+        selectionView.layer.cornerRadius = Self.height / 2
+        selectionView.layer.cornerCurve = .continuous
+        selectionView.isUserInteractionEnabled = false
+        addSubview(selectionView)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let width = buttons.reduce(Self.spacing) { $0 + itemWidth($1) + Self.spacing }
+        return CGSize(width: min(width, size.width), height: Self.height)
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        var originX = Self.spacing
+        for button in buttons {
+            let width = itemWidth(button)
+            button.frame = CGRect(x: originX, y: 0, width: width, height: Self.height)
+            originX += width + Self.spacing
+        }
+        placeSelection()
+    }
+
+    func configure(titles: [String], selectedIndex: Int) {
+        buttons.forEach { $0.removeFromSuperview() }
+        buttons = titles.enumerated().map { index, title in
+            let button = UIButton(type: .custom)
+            button.setTitle(title, for: .normal)
+            button.titleLabel?.font = Self.font
+            button.setTitleColor(UIColor.label.withAlphaComponent(0.8), for: .normal)
+            button.setTitleColor(UIColor.label.withAlphaComponent(0.4), for: .highlighted)
+            button.addAction(UIAction { [weak self] _ in self?.onSelect?(index) }, for: .touchUpInside)
+            addSubview(button)
+            return button
+        }
+        self.selectedIndex = selectedIndex
+        updateAccessibility()
+        setNeedsLayout()
+    }
+
+    func setSelectedIndex(_ index: Int, animated: Bool) {
+        selectedIndex = index
+        updateAccessibility()
+        guard animated else {
+            placeSelection()
+            return
+        }
+        UIView.animate(
+            withDuration: 0.4,
+            delay: 0,
+            usingSpringWithDamping: 0.9,
+            initialSpringVelocity: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction],
+        ) { self.placeSelection() }
+    }
+
+    private func placeSelection() {
+        guard buttons.indices.contains(selectedIndex) else { return }
+        selectionView.frame = buttons[selectedIndex].frame
+    }
+
+    private func itemWidth(_ button: UIButton) -> CGFloat {
+        let title = (button.title(for: .normal) ?? "") as NSString
+        return ceil(title.size(withAttributes: [.font: Self.font]).width) + Self.innerInset * 2
+    }
+
+    private func updateAccessibility() {
+        for (index, button) in buttons.enumerated() {
+            button.accessibilityTraits = index == selectedIndex ? [.button, .selected] : .button
+        }
+    }
+}
+
 // MARK: - TelegramContextMenuActionButton
 
 private final class TelegramContextMenuActionButton: UIControl {
@@ -1575,7 +1808,7 @@ private final class TelegramContextMenuActionButton: UIControl {
         let color: UIColor = action.isDestructive ? .systemRed : .label
         titleLabel.text = action.title
         titleLabel.textColor = color
-        titleLabel.font = .systemFont(ofSize: TelegramContextMenuLayout.actionFontSize)
+        titleLabel.font = .systemFont(ofSize: action.isInformational ? 14 : TelegramContextMenuLayout.actionFontSize)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
 
@@ -1618,7 +1851,7 @@ private final class TelegramContextMenuActionButton: UIControl {
         NSLayoutConstraint.activate(constraints)
         isAccessibilityElement = true
         accessibilityLabel = action.title
-        accessibilityTraits = .button
+        accessibilityTraits = action.isInformational ? .staticText : .button
         if let updates = action.titleUpdates {
             titleLabel.adjustsFontSizeToFitWidth = true
             titleLabel.minimumScaleFactor = 0.7
