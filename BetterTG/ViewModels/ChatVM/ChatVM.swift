@@ -418,6 +418,12 @@ import UIKit
         canSendLivePhotos
     }
 
+    /// LegacyMediaPickerGallery's `hasCoverButton`: a video's cover is chosen in broadcast channels and Saved
+    /// Messages.
+    var allowsVideoCover: Bool {
+        customChat.isBroadcastChannel || customChat.isSavedMessages
+    }
+
     /// ChatSendMessageContextScreen's `canSchedule`: secret chats and channel direct messages can't schedule.
     var canScheduleMessages: Bool {
         if previewing || customChat.supergroup?.isDirectMessagesGroup == true { return false }
@@ -4228,7 +4234,8 @@ import UIKit
 
     /// A picked video as Telegram sends it from the gallery: converted to its preset when TDLib generates the file
     /// (`VideoSendGenerationCoordinator`), with the converted size, a 320 pt thumbnail and streaming. A trimmed
-    /// video has the trim's length.
+    /// video has the trim's length, and a chosen cover goes as the video's `cover` (LegacyMediaPickers'
+    /// `videoCover`); TDLib takes no cover for self-destructing media.
     func makeInputMessageVideo(
         _ video: SelectedVideo,
         thumbnail: URL,
@@ -4238,6 +4245,9 @@ import UIKit
         selfDestructType: TDNativeMessageSelfDestructType? = nil,
     ) -> InputMessageContent {
         let dimensions = video.sentDimensions
+        let cover: InputFile? = selfDestructType == nil
+            ? video.coverURL.map { InputFile.inputFileLocal(InputFileLocal(path: $0.path(percentEncoded: false))) }
+            : nil
         return .inputMessageVideo(InputMessageVideo(
             video: InputVideo(
                 video: .inputFileGenerated(InputFileGenerated(
@@ -4250,7 +4260,7 @@ import UIKit
                     width: Int(video.thumbnailSize.width),
                     height: Int(video.thumbnailSize.height),
                 ),
-                cover: nil,
+                cover: cover,
                 startTimestamp: 0,
                 addedStickerFileIds: [],
                 duration: Int(video.sentDuration.rounded()),

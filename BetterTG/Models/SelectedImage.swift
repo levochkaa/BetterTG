@@ -27,6 +27,8 @@ struct SelectedVideo: Equatable {
     var preset = VideoSendPreset.medium
     /// The gallery editor's trim and mute (TGVideoEditAdjustments).
     var edit: VideoEditAdjustments?
+    /// The editor's cover as a JPEG (VideoEditCover), sent as the video's `cover`.
+    var coverURL: URL?
 }
 
 // MARK: - MediaSelfDestructTimer
@@ -58,7 +60,7 @@ struct SelectedImage: Identifiable, Equatable, @unchecked Sendable {
 
     /// Every file the app keeps for this item in `SelectedDocumentFileStore`.
     var fileURLs: [URL] {
-        [url] + [livePhotoVideoURL, video?.url].compactMap(\.self)
+        [url] + [livePhotoVideoURL, video?.url, video?.coverURL].compactMap(\.self)
     }
 
     static func == (lhs: SelectedImage, rhs: SelectedImage) -> Bool {

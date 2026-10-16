@@ -197,7 +197,8 @@ enum SelectedVideoLoader {
     }
 
     /// A trimmed video's first frame and thumbnail come from the trim's start, and a cropped one's are cut as the
-    /// video will be.
+    /// video will be. A chosen cover is written next to the copy as LegacyMediaPickers stores it (VideoEditCover);
+    /// a cover that can't be read leaves the video without one.
     static func selection(forMovieAt url: URL, edit: VideoEditAdjustments? = nil) async -> SelectedImage? {
         let asset = AVURLAsset(url: url)
         do {
@@ -255,6 +256,18 @@ enum SelectedVideoLoader {
             }
             let thumbnailURL = url.deletingPathExtension().appendingPathExtension("thumbnail.jpg")
             try data.write(to: thumbnailURL, options: .atomic)
+            var coverURL: URL?
+            if let coverTime = edit?.coverTime {
+                let destination = url.deletingPathExtension().appendingPathExtension("cover.jpg")
+                if let cover = await VideoEditCover.image(at: coverTime, of: asset, edit: edit),
+                   let coverData = VideoEditCover.jpegData(for: cover),
+                   (try? coverData.write(to: destination, options: .atomic)) != nil
+                {
+                    coverURL = destination
+                } else {
+                    log("Could not write the picked video's cover")
+                }
+            }
             return SelectedImage(
                 image: preview,
                 url: thumbnailURL,
@@ -265,6 +278,7 @@ enum SelectedVideoLoader {
                     thumbnailSize: thumbnailSize,
                     hasAudio: hasAudio,
                     edit: edit,
+                    coverURL: coverURL,
                 ),
             )
         } catch {

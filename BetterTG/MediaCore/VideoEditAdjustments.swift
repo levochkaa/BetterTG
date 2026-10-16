@@ -7,7 +7,7 @@ import Foundation
 
 /// What TGVideoEditAdjustments keeps for a picked video in the attachment sheet: the trimmed part, `sendAsGif`,
 /// which mutes the video and sends it as a GIF that autoplays and loops, and the crop with its quarter turns and
-/// mirroring.
+/// mirroring. The cover TGMediaEditingContext keeps beside them goes with them here.
 struct VideoEditAdjustments: Equatable {
     /// `TGVideoScrubberMinimumTrimDuration`: the shortest part a trim keeps.
     static let minimumTrimDuration = 1.0
@@ -24,10 +24,14 @@ struct VideoEditAdjustments: Equatable {
     /// video's pixels; nil leaves the frame as it is. The straightening angle stays zero: Telegram's video crop has
     /// no dial (`hasArbitraryRotation`).
     var crop: PhotoCropAdjustments?
+    /// TGMediaEditingContext's `coverPositionForItem:`: the frame chosen as the cover, in seconds of the original;
+    /// nil sends no cover. It is chosen only where Telegram offers it (`hasCoverButton`), and it changes neither the
+    /// conversion nor the grid's frame.
+    var coverTime: Double?
 
     /// `isDefaultValues`: nothing to apply.
     var isDefault: Bool {
-        trimRange == nil && !sendsAsGIF && crop == nil
+        trimRange == nil && !sendsAsGIF && crop == nil && coverTime == nil
     }
 
     /// The sent length of a video `duration` seconds long.
