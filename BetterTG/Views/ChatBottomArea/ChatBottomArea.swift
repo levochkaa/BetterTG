@@ -35,11 +35,19 @@ final class ChatComposerView: UIView {
         case send
     }
 
+    /// The modes of ChatTextInputPanelNode's `.input` accessory item (ChatTextInputAccessoryItem.InputMode).
+    private enum MediaInputButtonIcon {
+        case emoji
+        case keyboard
+        case stickers
+    }
+
     // MARK: Internal
 
     /// Telegram's attach button: the attachment sheet.
     var onOpenAttachments: (() -> Void)?
-    var onPickEmojiMedia: (() -> Void)?
+    /// The media panel's search field: the chat opens the expanded search in this tab.
+    var onExpandMediaSearch: ((ComposerMediaPickerViewController.Mode) -> Void)?
     var onPasteImages: (([UIImage]) -> Void)?
     var onInteractionSettled: (() -> Void)?
     var onUserInteraction: (() -> Void)?
@@ -97,8 +105,11 @@ final class ChatComposerView: UIView {
     private let replyKeyboardButton = UIButton(type: .system)
     /// ChatTextInputPanelNode's scheduled messages accessory, shown while the input is empty.
     private let scheduledMessagesButton = UIButton(type: .system)
-    private let replyKeyboardResponder = ReplyKeyboardResponder()
+    /// ChatTextInputPanelNode's `.input` accessory: stickers or emoji open the media panel, the keyboard closes it.
+    private let mediaInputButton = UIButton(type: .system)
+    private let replyKeyboardResponder = ComposerInputResponder()
     private let replyKeyboardInputView = ReplyKeyboardInputView()
+    private let mediaInputResponder = ComposerInputResponder()
     private let actionButton = UIButton(type: .system)
     private let restrictionLabel = UILabel()
     private let botStartButton = UIButton(type: .system)
@@ -180,6 +191,12 @@ final class ChatComposerView: UIView {
     private var videoNoteTrimEditing = false
     private var videoNoteTrimSaving = false
     private var replyKeyboardButtonShowsSystemKeyboard: Bool?
+    private var mediaInputButtonIcon: MediaInputButtonIcon?
+    /// What the media panel may hold, as `update(from:)` last found it: whether the composer takes input at all, text
+    /// and stickers or GIFs.
+    private var mediaInputIsAvailable = false
+    private var mediaInputCanWriteText = false
+    private var mediaInputStickersEnabled = false
 
     var isInputFocused: Bool {
         textView.isFirstResponder
@@ -278,6 +295,7 @@ final class ChatComposerView: UIView {
         onReplyKeyboardButton = nil
         if textView.isFirstResponder { textView.resignFirstResponder() }
         if replyKeyboardResponder.isFirstResponder { replyKeyboardResponder.resignFirstResponder() }
+        if mediaInputResponder.isFirstResponder { mediaInputResponder.resignFirstResponder() }
     }
 
     func focusInput() {
@@ -289,6 +307,26 @@ final class ChatComposerView: UIView {
         guard window != nil, !hiddenForSearch, chatVM.canWriteBasicMessages, chatVM.editCustomMessage == nil,
               configureReplyKeyboardInputView() else { return false }
         return replyKeyboardResponder.isFirstResponder || replyKeyboardResponder.becomeFirstResponder()
+    }
+
+    /// Telegram's `.media` input mode: the emoji, sticker and GIF panel in place of the system keyboard, opened on
+    /// the given tab; false when the composer can't take it.
+    @discardableResult func showMediaInput(mode: ComposerMediaPickerViewController.Mode) -> Bool {
+        guard window != nil, !hiddenForSearch, mediaInputIsAvailable, chatVM.locationContextIsCurrent,
+              let picker = makeMediaInputPicker(mode: mode) else { return false }
+        let height = ReplyKeyboardInputView.standardHeight(
+            containerSize: window?.bounds.size ?? bounds.size,
+            bottomInset: window?.safeAreaInsets.bottom ?? 0,
+        )
+        mediaInputResponder.keyboardInputViewController = ComposerMediaInputViewController(
+            picker: picker,
+            height: height,
+        )
+        if mediaInputResponder.isFirstResponder {
+            mediaInputResponder.reloadInputViews()
+            return true
+        }
+        return mediaInputResponder.becomeFirstResponder()
     }
 
     func makeSendTransitionSnapshots(
@@ -422,6 +460,7 @@ final class ChatComposerView: UIView {
         if hidden {
             textView.resignFirstResponder()
             replyKeyboardResponder.resignFirstResponder()
+            mediaInputResponder.resignFirstResponder()
         } else {
             isHidden = false
             alpha = 0
@@ -663,11 +702,15 @@ final class ChatComposerView: UIView {
         botMenuButton.isHidden = !showsBotMenu
         if showsBotMenu { updateBotMenuButton(expanded: targetText.characters.isEmpty) }
         updateSuggestions(enabled: canWrite && canWriteText)
-        let showsScheduledMessages = chatVM.hasScheduledMessages && chatVM.canScheduleMessages
-            && chatVM.editCustomMessage == nil && chatVM.text.characters.isEmpty
-        if scheduledMessagesButton.isHidden == showsScheduledMessages {
-            scheduledMessagesButton.isHidden = !showsScheduledMessages
+        updateScheduledMessagesButton()
+        mediaInputCanWriteText = canWriteText
+        mediaInputStickersEnabled = chatVM.canSendStickersAndAnimations
+        mediaInputIsAvailable = canWrite
+            && (chatVM.editCustomMessage != nil || mediaInputCanWriteText || mediaInputStickersEnabled)
+        if !mediaInputIsAvailable, mediaInputResponder.isFirstResponder {
+            mediaInputResponder.resignFirstResponder()
         }
+        updateMediaInputButton()
         let isRecordingVideoNote = videoNoteState.isActive
         let isRecordingMedia = chatVM.recordingVoiceNote || isRecordingVideoNote
         photosScroll.isHidden = !canWrite || chatVM.displayedImages.isEmpty
@@ -901,6 +944,7 @@ final class ChatComposerView: UIView {
         inputRow.addArrangedSubview(attachmentButton)
         inputRow.addArrangedSubview(textView)
         inputRow.addArrangedSubview(scheduledMessagesButton)
+        inputRow.addArrangedSubview(mediaInputButton)
         inputRow.addArrangedSubview(replyKeyboardButton)
         inputRow.addArrangedSubview(actionButton)
         NSLayoutConstraint.activate([
@@ -909,6 +953,8 @@ final class ChatComposerView: UIView {
             attachmentButton.heightAnchor.constraint(equalToConstant: 36),
             scheduledMessagesButton.widthAnchor.constraint(equalToConstant: 34),
             scheduledMessagesButton.heightAnchor.constraint(equalToConstant: 36),
+            mediaInputButton.widthAnchor.constraint(equalToConstant: 34),
+            mediaInputButton.heightAnchor.constraint(equalToConstant: 36),
             replyKeyboardButton.widthAnchor.constraint(equalToConstant: 34),
             replyKeyboardButton.heightAnchor.constraint(equalToConstant: 36),
             actionButton.widthAnchor.constraint(equalToConstant: 34),
@@ -931,8 +977,26 @@ final class ChatComposerView: UIView {
         replyKeyboardResponder.frame = .zero
         replyKeyboardResponder.isUserInteractionEnabled = false
         replyKeyboardResponder.keyboardInputView = replyKeyboardInputView
-        replyKeyboardResponder.onActiveChange = { [weak self] in self?.updateReplyKeyboardButton() }
+        replyKeyboardResponder.onActiveChange = { [weak self] in
+            self?.updateReplyKeyboardButton()
+            self?.updateMediaInputButton()
+        }
         addSubview(replyKeyboardResponder)
+        var mediaInputConfiguration = UIButton.Configuration.plain()
+        mediaInputConfiguration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+            pointSize: 20,
+            weight: .regular,
+        )
+        mediaInputConfiguration.baseForegroundColor = .secondaryLabel
+        mediaInputConfiguration.contentInsets = .zero
+        // Telegram morphs the icon between stickers, emoji and the keyboard (`input_anim_stickerToKey` and others).
+        mediaInputConfiguration.symbolContentTransition = UISymbolContentTransition(.replace)
+        mediaInputButton.configuration = mediaInputConfiguration
+        mediaInputButton.isHidden = true
+        mediaInputResponder.frame = .zero
+        mediaInputResponder.isUserInteractionEnabled = false
+        mediaInputResponder.onActiveChange = { [weak self] in self?.mediaInputActiveChanged() }
+        addSubview(mediaInputResponder)
 
         restrictionLabel.textColor = .secondaryLabel
         restrictionLabel.font = .preferredFont(forTextStyle: .subheadline)
@@ -1083,6 +1147,7 @@ final class ChatComposerView: UIView {
     private func configureActions() {
         attachmentButton.addTarget(self, action: #selector(showAttachmentActions), for: .touchUpInside)
         replyKeyboardButton.addTarget(self, action: #selector(toggleReplyKeyboard), for: .touchUpInside)
+        mediaInputButton.addTarget(self, action: #selector(toggleMediaInput), for: .touchUpInside)
         scheduledMessagesButton.addAction(
             UIAction { [weak self] _ in self?.onOpenScheduledMessages?() },
             for: .touchUpInside,
@@ -1154,7 +1219,7 @@ final class ChatComposerView: UIView {
                     TelegramContextMenuAction(
                         title: L10n.telegram("EmojiInput.TabEmoji"),
                         image: UIImage(systemName: "face.smiling"),
-                    ) { [weak self] in self?.onPickEmojiMedia?() },
+                    ) { [weak self] in self?.showMediaInput(mode: .emoji) },
                 ],
                 presentationStyle: .sourceMorph,
             )
@@ -1196,13 +1261,15 @@ final class ChatComposerView: UIView {
     }
 
     /// Telegram's input buttons: the bot keyboard button while the input is empty, and the system keyboard button
-    /// while the bot keyboard is up (`ChatTextInputAccessoryItem.botInput`).
+    /// while the bot keyboard is up (`ChatTextInputAccessoryItem.botInput`). The media panel shows only its own
+    /// keyboard button.
     private func updateReplyKeyboardButton() {
         let isActive = replyKeyboardResponder.isFirstResponder
         let isOffered = chatVM.replyKeyboard.offeredKeyboard != nil
             && chatVM.canWriteBasicMessages
             && chatVM.editCustomMessage == nil
-        let isVisible = isOffered && (isActive || chatVM.text.characters.isEmpty)
+        let isVisible = isOffered && !mediaInputResponder.isFirstResponder
+            && (isActive || chatVM.text.characters.isEmpty)
         if replyKeyboardButton.isHidden == isVisible {
             replyKeyboardButton.isHidden = !isVisible
         }
@@ -1223,6 +1290,124 @@ final class ChatComposerView: UIView {
             chatVM.replyKeyboard.setClosed(false)
             showReplyKeyboard()
         }
+    }
+
+    /// ChatTextInputPanelNode's scheduled messages accessory, while the input is empty outside the media panel.
+    private func updateScheduledMessagesButton() {
+        let showsScheduledMessages = chatVM.hasScheduledMessages && chatVM.canScheduleMessages
+            && chatVM.editCustomMessage == nil && chatVM.text.characters.isEmpty
+            && !mediaInputResponder.isFirstResponder
+        if scheduledMessagesButton.isHidden == showsScheduledMessages {
+            scheduledMessagesButton.isHidden = !showsScheduledMessages
+        }
+    }
+
+    /// ChatTextInputPanelNode's `.input` accessory item (`textInputAccessoryItems`): the keyboard while the media
+    /// panel is up; emoji while editing, with text or with a forward; otherwise stickers, or nothing where stickers
+    /// are banned and text can't be sent. The bot keyboard's own button stands alone while that keyboard is up.
+    private func updateMediaInputButton() {
+        let icon: MediaInputButtonIcon?
+        if mediaInputResponder.isFirstResponder {
+            icon = .keyboard
+        } else if !mediaInputIsAvailable || replyKeyboardResponder.isFirstResponder {
+            icon = nil
+        } else if chatVM.editCustomMessage != nil {
+            icon = .emoji
+        } else {
+            let prefersEmoji = !chatVM.text.characters.isEmpty || chatVM.pendingForward != nil
+            icon =
+                if mediaInputStickersEnabled, !prefersEmoji {
+                    .stickers
+                } else {
+                    mediaInputCanWriteText ? .emoji : nil
+                }
+        }
+        if mediaInputButton.isHidden != (icon == nil) {
+            mediaInputButton.isHidden = icon == nil
+        }
+        guard let icon, mediaInputButtonIcon != icon else { return }
+        mediaInputButtonIcon = icon
+        let (symbol, label) =
+            switch icon {
+            case .emoji: ("face.smiling", L10n.telegram("VoiceOver.Stickers"))
+            case .keyboard: ("keyboard", L10n.telegram("VoiceOver.Keyboard"))
+            case .stickers: ("face.smiling.inverse", L10n.telegram("VoiceOver.Stickers"))
+            }
+        mediaInputButton.configuration?.image = UIImage(systemName: symbol)
+        mediaInputButton.accessibilityLabel = label
+    }
+
+    /// Telegram drops the media panel once the input leaves `.media`; the next opening builds it on its tab again.
+    private func mediaInputActiveChanged() {
+        if !mediaInputResponder.isFirstResponder {
+            mediaInputResponder.keyboardInputViewController = nil
+        }
+        updateMediaInputButton()
+        updateReplyKeyboardButton()
+        updateScheduledMessagesButton()
+    }
+
+    /// The keyboard icon returns to text input (`.text`); stickers and emoji open the panel on that tab, as
+    /// `openStickers` does with `defaultToEmojiTab`.
+    @objc private func toggleMediaInput() {
+        guard chatVM.locationContextIsCurrent else { return }
+        switch mediaInputButtonIcon {
+        case .keyboard:
+            if !mediaInputCanWriteText || !textView.becomeFirstResponder() {
+                mediaInputResponder.resignFirstResponder()
+            }
+        case .emoji:
+            showMediaInput(mode: .emoji)
+        case .stickers:
+            showMediaInput(mode: .stickers)
+        case nil:
+            break
+        }
+    }
+
+    /// ChatEntityKeyboardInputNode's interaction: emoji go into the input at the caret, the backspace deletes there,
+    /// and stickers and GIFs are sent at once while the panel stays up.
+    private func makeMediaInputPicker(mode: ComposerMediaPickerViewController.Mode)
+        -> ComposerMediaPickerViewController?
+    {
+        guard let accountID = chatVM.accountID else { return nil }
+        let picker = ComposerMediaPickerViewController(
+            accountID: accountID,
+            chatID: chatVM.chatID,
+            client: chatVM.client,
+        )
+        picker.presentationStyle = .input
+        picker.initialMode = mode
+        picker.allowsStickersAndGIFs = chatVM.editCustomMessage == nil && mediaInputStickersEnabled
+        picker.presentationHost = nearestViewController
+        picker.onEmoji = { [weak self] emoji in self?.textView.insertEmoji(emoji) }
+        picker.onCustomEmoji = { [weak self] sticker in
+            guard case .stickerFullTypeCustomEmoji(let type) = sticker.fullType else { return }
+            self?.textView.insertEmoji(sticker.emoji, customID: type.customEmojiId)
+        }
+        picker.onDeleteBackward = { [weak self] in self?.textView.deleteBackwardFromPanel() }
+        picker.onSwitchToKeyboard = { [weak self] in self?.textView.becomeFirstResponder() }
+        picker.onSticker = { [weak self] sticker in
+            guard let self, chatVM.locationContextIsCurrent else { return }
+            let chatVM = chatVM
+            Task { await chatVM.sendSticker(sticker) }
+        }
+        picker.onAnimation = { [weak self] animation in
+            guard let self, chatVM.locationContextIsCurrent else { return }
+            let chatVM = chatVM
+            Task { await chatVM.sendAnimation(animation) }
+        }
+        picker.onInlineAnimation = { [weak self] queryID, resultID in
+            guard let self, chatVM.locationContextIsCurrent else { return }
+            let chatVM = chatVM
+            Task { await chatVM.sendInlineAnimation(queryID: queryID, resultID: resultID) }
+        }
+        picker.onExpandSearch = { [weak self] mode in self?.onExpandMediaSearch?(mode) }
+        picker.onDismiss = { [weak self] in
+            guard let self, mediaInputResponder.isFirstResponder else { return }
+            mediaInputResponder.resignFirstResponder()
+        }
+        return picker
     }
 
     private func setReplyPreviewVisible(_ visible: Bool, animated: Bool) {
@@ -1456,6 +1641,7 @@ final class ChatComposerView: UIView {
         refreshMentionQuery()
         updateActionButton()
         updateReplyKeyboardButton()
+        updateMediaInputButton()
         draftTask?.cancel()
         draftTask = Task { [weak chatVM] in
             try? await Task<Never, Never>.sleep(for: .milliseconds(500))

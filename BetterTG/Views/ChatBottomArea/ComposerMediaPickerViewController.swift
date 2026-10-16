@@ -1,5 +1,6 @@
 // ComposerMediaPickerViewController.swift
 
+import AudioToolbox
 import Combine
 import TDLibKit
 import UIKit
@@ -13,6 +14,13 @@ UISearchBarDelegate {
         case customEmoji
         case stickers
         case gifs
+    }
+
+    /// A sheet with Done, or Telegram's media input panel where the system keyboard goes (ChatEntityKeyboardInputNode),
+    /// whose search field opens the expanded search and whose emoji tabs add the globe and backspace keys.
+    enum PresentationStyle {
+        case sheet
+        case input
     }
 
     /// Telegram's sticker tab groups (EmojiPagerContentSignals): Favorite Stickers, Recently Used, then every installed
@@ -66,6 +74,19 @@ UISearchBarDelegate {
     /// titled Sticker, with `stickersSubtitle` under the title.
     var showsStickersOnly = false
     var stickersSubtitle: String?
+    var presentationStyle = PresentationStyle.sheet
+    /// The tab the picker opens on; ChatEntityKeyboardInputNode's `defaultToEmojiTab` picks emoji or stickers.
+    var initialMode = Mode.emoji
+    /// The expanded search: the field takes focus as the sheet appears.
+    var focusesSearchOnAppear = false
+    /// Presents the picker's alerts, sticker packs and failures; the input panel lives in the keyboard's window.
+    weak var presentationHost: UIViewController?
+    var onDeleteBackward: (() -> Void)?
+    var onSwitchToKeyboard: (() -> Void)?
+    /// The input panel's search field opens the expanded search in this tab.
+    var onExpandSearch: ((Mode) -> Void)?
+    /// The sheet closed, by Done, a swipe or a pick.
+    var onDidDismiss: (() -> Void)?
 
     private let accountID: UUID
     private let chatID: Int64
@@ -78,6 +99,8 @@ UISearchBarDelegate {
     ])
     private let searchBar = UISearchBar()
     private var searchBarHeightConstraint: NSLayoutConstraint!
+    private let switchToKeyboardButton = UIButton(type: .system)
+    private let deleteBackwardButton = UIButton(type: .system)
     /// Telegram's emoji category icons (EntityKeyboardTopPanelComponent's static emoji segments) with Recently Used.
     private let emojiCategoryBar = UIStackView()
     private var emojiCategoryButtons = [(Section, UIButton)]()
@@ -111,6 +134,10 @@ UISearchBarDelegate {
         TDLib.shared.activeAccountID == accountID && TDLib.shared.activeClient.id == client.id
     }
 
+    private var presenter: UIViewController {
+        presentationHost ?? self
+    }
+
     init(accountID: UUID, chatID: Int64, client: TDLibClient) {
         self.accountID = accountID
         self.chatID = chatID
@@ -131,13 +158,15 @@ UISearchBarDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = presentationStyle == .input ? .clear : .systemBackground
         title = L10n.betterTG("Composer.EmojiAndStickersTitle")
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: L10n.telegram("Common.Done"), style: .plain,
-            target: self,
-            action: #selector(donePressed),
-        )
+        if presentationStyle == .sheet {
+            navigationItem.rightBarButtonItem = UIBarButtonItem(
+                title: L10n.telegram("Common.Done"), style: .plain,
+                target: self,
+                action: #selector(donePressed),
+            )
+        }
         configureViews()
         configureDataSource()
         if !allowsStickersAndGIFs {
@@ -155,16 +184,39 @@ UISearchBarDelegate {
             segmentedControl.heightAnchor.constraint(equalToConstant: 0).isActive = true
             segmentedControl.selectedSegmentIndex = Mode.stickers.rawValue
             modeChanged()
+        } else if initialMode != .emoji, allowsStickersAndGIFs || initialMode == .customEmoji {
+            segmentedControl.selectedSegmentIndex = initialMode.rawValue
+            modeChanged()
         }
+        updateInputKeys(animated: false)
         // Its stickers and GIFs are the presenting client's files. A renewed client (the app returning from the
-        // background) closes the sheet so the chat can move to the new client, instead of losing the next tap.
+        // background) closes the sheet or the panel so the chat can move to the new client, instead of losing the
+        // next tap.
         clientChangeCancellable = TDLib.shared
             .activeClientChanges
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                guard let self, !contextIsCurrent, presentingViewController != nil, !isBeingDismissed else { return }
-                dismissPicker()
+                guard let self, !contextIsCurrent else { return }
+                if presentationStyle == .input {
+                    onDismiss?()
+                } else if presentingViewController != nil, !isBeingDismissed {
+                    dismissPicker()
+                }
             }
+    }
+
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        guard focusesSearchOnAppear, !searchBar.isHidden else { return }
+        focusesSearchOnAppear = false
+        searchBar.becomeFirstResponder()
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard presentationStyle == .sheet, isBeingDismissed || navigationController?.isBeingDismissed == true
+        else { return }
+        onDidDismiss?()
     }
 
     /// BetterTG sends no Premium stickers.
@@ -218,7 +270,7 @@ UISearchBarDelegate {
                         preferredStyle: .alert,
                     )
                     alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .cancel))
-                    present(alert, animated: true)
+                    presenter.present(alert, animated: true)
                     return
                 }
                 onCustomEmoji?(sticker)
@@ -250,6 +302,13 @@ UISearchBarDelegate {
     func scrollViewDidScroll(_: UIScrollView) {
         guard mode == .emoji else { return }
         updateEmojiCategoryHighlight()
+    }
+
+    /// The input panel's search field opens Telegram's expanded search, where the system keyboard can come up.
+    func searchBarShouldBeginEditing(_: UISearchBar) -> Bool {
+        guard presentationStyle == .input else { return true }
+        if contextIsCurrent { onExpandSearch?(mode) }
+        return false
     }
 
     func searchBar(_: UISearchBar, textDidChange searchText: String) {
@@ -295,7 +354,7 @@ UISearchBarDelegate {
         configureEmojiCategoryBar()
 
         collectionView.translatesAutoresizingMaskIntoConstraints = false
-        collectionView.backgroundColor = .systemBackground
+        collectionView.backgroundColor = presentationStyle == .input ? .clear : .systemBackground
         collectionView.delegate = self
         collectionView.alwaysBounceVertical = true
         collectionView.register(ComposerEmojiCell.self, forCellWithReuseIdentifier: ComposerEmojiCell.reuseIdentifier)
@@ -321,10 +380,26 @@ UISearchBarDelegate {
         }
         collectionView.addGestureRecognizer(press)
         view.addSubview(collectionView)
+        let segmentedLeading: NSLayoutConstraint
+        let segmentedTrailing: NSLayoutConstraint
+        if presentationStyle == .input {
+            configureInputKeys()
+            segmentedLeading = segmentedControl.leadingAnchor.constraint(
+                equalTo: switchToKeyboardButton.trailingAnchor,
+                constant: 4,
+            )
+            segmentedTrailing = segmentedControl.trailingAnchor.constraint(
+                equalTo: deleteBackwardButton.leadingAnchor,
+                constant: -4,
+            )
+        } else {
+            segmentedLeading = segmentedControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16)
+            segmentedTrailing = segmentedControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16)
+        }
         NSLayoutConstraint.activate([
             segmentedControl.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            segmentedControl.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            segmentedControl.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            segmentedLeading,
+            segmentedTrailing,
             searchBar.topAnchor.constraint(equalTo: segmentedControl.bottomAnchor, constant: 4),
             searchBarHeightConstraint,
             searchBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
@@ -338,6 +413,64 @@ UISearchBarDelegate {
             emojiCategoryBar.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor),
             emojiCategoryBar.trailingAnchor.constraint(equalTo: searchBar.trailingAnchor),
         ])
+    }
+
+    /// EntityKeyboard's emoji accessory buttons beside the tabs: the globe switches to the system keyboard and the
+    /// backspace deletes the character before the caret with the keyboard's delete sound.
+    private func configureInputKeys() {
+        let keys = [
+            (switchToKeyboardButton, "globe", L10n.telegram("VoiceOver.Keyboard")),
+            (deleteBackwardButton, "delete.left", L10n.telegram("Common.Delete")),
+        ]
+        for (button, symbol, label) in keys {
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.setImage(
+                UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 18)),
+                for: .normal,
+            )
+            button.tintColor = .secondaryLabel
+            button.accessibilityLabel = label
+            view.addSubview(button)
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: 40),
+                button.heightAnchor.constraint(equalToConstant: 32),
+                button.centerYAnchor.constraint(equalTo: segmentedControl.centerYAnchor),
+            ])
+        }
+        NSLayoutConstraint.activate([
+            switchToKeyboardButton.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: 6,
+            ),
+            deleteBackwardButton.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+                constant: -6,
+            ),
+        ])
+        switchToKeyboardButton.addAction(UIAction { [weak self] _ in self?.onSwitchToKeyboard?() }, for: .touchUpInside)
+        deleteBackwardButton.addAction(UIAction { [weak self] _ in
+            self?.onDeleteBackward?()
+            AudioServicesPlaySystemSound(1155)
+        }, for: .touchUpInside)
+    }
+
+    /// The globe and backspace stand beside the emoji tabs only, scaling in and out over 0.2 s as Telegram's bottom
+    /// panel accessory buttons do.
+    private func updateInputKeys(animated: Bool) {
+        guard presentationStyle == .input else { return }
+        let visible = mode == .emoji || mode == .customEmoji
+        for button in [switchToKeyboardButton, deleteBackwardButton] where button.isEnabled != visible {
+            button.isEnabled = visible
+            let changes = {
+                button.alpha = visible ? 1 : 0
+                button.transform = visible ? .identity : CGAffineTransform(scaleX: 0.01, y: 0.01)
+            }
+            if animated {
+                UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState], animations: changes)
+            } else {
+                changes()
+            }
+        }
     }
 
     private func configureEmojiCategoryBar() {
@@ -474,6 +607,7 @@ UISearchBarDelegate {
         emojiCategoryBar.isHidden = mode != .emoji
         searchBarHeightConstraint.constant = mode == .emoji ? Self.emojiCategoryBarHeight : 44
         collectionView.collectionViewLayout.invalidateLayout()
+        updateInputKeys(animated: true)
         switch mode {
         case .emoji:
             applyEmojiSnapshot()
@@ -887,7 +1021,7 @@ UISearchBarDelegate {
             stickerActionTask = nil
             guard contextIsCurrent else { return }
             guard succeeded else {
-                presentChatListActionFailure()
+                presenter.presentChatListActionFailure()
                 return
             }
             if let toast {
@@ -912,7 +1046,7 @@ UISearchBarDelegate {
             stickerActionTask = nil
             guard contextIsCurrent else { return }
             guard succeeded else {
-                presentChatListActionFailure()
+                presenter.presentChatListActionFailure()
                 return
             }
             savedAnimations.removeAll { $0.animation.id == fileID }
@@ -922,9 +1056,9 @@ UISearchBarDelegate {
     }
 
     private func openStickerSet(_ setID: Int64) {
-        guard contextIsCurrent, presentedViewController == nil else { return }
+        guard contextIsCurrent, presenter.presentedViewController == nil else { return }
         let sendSticker = allowsStickersAndGIFs ? onSticker : nil
-        StickerPackPreviewViewController.present(setID: setID, client: client, from: self, onSend: sendSticker)
+        StickerPackPreviewViewController.present(setID: setID, client: client, from: presenter, onSend: sendSticker)
     }
 
     private func emptyLabel() -> UIView {
@@ -942,6 +1076,10 @@ UISearchBarDelegate {
     }
 
     private func dismissPicker() {
+        guard presentationStyle == .sheet else {
+            onDismiss?()
+            return
+        }
         dismiss(animated: true, completion: onDismiss)
     }
 }

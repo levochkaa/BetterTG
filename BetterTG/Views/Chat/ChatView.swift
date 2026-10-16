@@ -2384,7 +2384,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if showsComposer {
             view.keyboardLayoutGuide.usesBottomSafeArea = false
             composerView.onOpenAttachments = { [weak self] in self?.showAttachmentSheet() }
-            composerView.onPickEmojiMedia = { [weak self] in self?.showComposerMediaPicker() }
+            composerView.onExpandMediaSearch = { [weak self] mode in
+                self?.showComposerMediaPicker(mode: mode, expandedSearch: true)
+            }
             composerView.onPasteImages = { [weak self] in self?.importImages($0) }
             composerView.onInteractionSettled = { [weak self] in self?.retryClientRestoration() }
             composerView.onUserInteraction = { [weak self] in self?.abandonRestoredViewport() }
@@ -6587,7 +6589,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .location: showLocationPicker()
         case .poll: showPollCreator()
         case .contact: showContactPicker()
-        case .sticker: showComposerMediaPicker()
+        case .sticker:
+            if !composerView.showMediaInput(mode: .stickers) { showComposerMediaPicker(mode: .stickers) }
         }
     }
 
@@ -6690,7 +6693,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         acknowledgeCommittedVisibleMessages(requestHistory: true)
     }
 
-    private func showComposerMediaPicker() {
+    /// The emoji, sticker and GIF picker as a sheet. From the media panel's search field it is Telegram's expanded
+    /// search: full height with the field focused, and closing it brings the panel back (`.media(expanded: nil)`).
+    private func showComposerMediaPicker(
+        mode: ComposerMediaPickerViewController.Mode = .emoji,
+        expandedSearch: Bool = false,
+    ) {
         guard chatVM.canWriteBasicMessages || chatVM.canSendStickersAndAnimations,
               let accountID = chatVM.accountID
         else { return }
@@ -6700,6 +6708,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             client: chatVM.client,
         )
         picker.allowsStickersAndGIFs = chatVM.editCustomMessage == nil && chatVM.canSendStickersAndAnimations
+        picker.initialMode = mode
+        picker.focusesSearchOnAppear = expandedSearch
+        if expandedSearch {
+            picker.onDidDismiss = { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, presentedViewController == nil, chatVM.locationContextIsCurrent else { return }
+                    composerView.showMediaInput(mode: mode)
+                }
+            }
+        }
         picker.onEmoji = { [weak self] emoji in
             self?.composerView.insertEmoji(emoji)
         }
@@ -6728,7 +6746,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         let navigation = TelegramNavigationController(rootViewController: picker)
         navigation.modalPresentationStyle = .pageSheet
-        navigation.sheetPresentationController?.detents = [.medium(), .large()]
+        navigation.sheetPresentationController?.detents = expandedSearch ? [.large()] : [.medium(), .large()]
         navigation.sheetPresentationController?.prefersGrabberVisible = false
         navigation.presentationController?.delegate = self
         present(navigation, animated: true)

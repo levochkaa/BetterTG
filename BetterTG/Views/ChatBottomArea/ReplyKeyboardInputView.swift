@@ -3,21 +3,24 @@
 import TDLibKit
 import UIKit
 
-// MARK: - ReplyKeyboardResponder
+// MARK: - ComposerInputResponder
 
-/// Shows a bot's reply keyboard where the system keyboard goes, as Telegram's `.inputButtons` input mode does: the
-/// composer makes this view first responder with the keyboard panel as its input view, and focusing the text view
-/// brings the system keyboard back.
-final class ReplyKeyboardResponder: UIView {
-    /// Whether a bot keyboard currently stands in for the system keyboard, so its frame isn't taken for the system
+/// Shows a composer panel where the system keyboard goes, as Telegram's `.inputButtons` (a bot's reply keyboard)
+/// and `.media` (the emoji, sticker and GIF panel) input modes do: the composer makes this view first responder with
+/// the panel as its input view or input view controller, and focusing the text view brings the system keyboard back.
+final class ComposerInputResponder: UIView {
+    /// Whether a composer panel currently stands in for the system keyboard, so its frame isn't taken for the system
     /// keyboard's height.
     private(set) static var isAnyActive = false
 
-    override var canBecomeFirstResponder: Bool { keyboardInputView != nil }
+    override var canBecomeFirstResponder: Bool { keyboardInputView != nil || keyboardInputViewController != nil }
 
     override var inputView: UIView? { keyboardInputView }
 
+    override var inputViewController: UIInputViewController? { keyboardInputViewController }
+
     var keyboardInputView: UIView?
+    var keyboardInputViewController: UIInputViewController?
     var onActiveChange: (() -> Void)?
 
     @discardableResult override func becomeFirstResponder() -> Bool {
@@ -137,9 +140,24 @@ final class ReplyKeyboardInputView: UIInputView {
                 .cgRectValue else { return }
             MainActor.assumeIsolated {
                 // A hardware keyboard leaves only a shortcut bar; it isn't a keyboard height to match.
-                guard !ReplyKeyboardResponder.isAnyActive, frame.height >= 150 else { return }
+                guard !ComposerInputResponder.isAnyActive, frame.height >= 150 else { return }
                 ReplyKeyboardInputView.systemKeyboardHeights[Int(frame.width.rounded())] = frame.height
             }
+        }
+    }
+
+    /// The last system keyboard height for this width; before one was seen, Telegram's `DeviceMetrics` keyboard and
+    /// predictive bar heights, which include the home indicator inset. Telegram's panels take it as
+    /// `standardInputHeight`.
+    static func standardHeight(containerSize: CGSize, bottomInset: CGFloat) -> CGFloat {
+        if let height = systemKeyboardHeights[Int(containerSize.width.rounded())] { return height }
+        let isLandscape = containerSize.width > containerSize.height
+        let hasHomeIndicator = bottomInset > 0
+        return switch (isLandscape, hasHomeIndicator) {
+        case (false, true): 291 + 42
+        case (false, false): 216 + 42
+        case (true, true): 171 + 37
+        case (true, false): 162 + 37
         }
     }
 
@@ -157,20 +175,6 @@ final class ReplyKeyboardInputView: UIInputView {
         return resizes
             ? min(standardHeight + bottomInset, rowsHeight(rowCount: rowCount) + bottomInset)
             : standardHeight
-    }
-
-    /// The last system keyboard height for this width; before one was seen, Telegram's `DeviceMetrics` keyboard and
-    /// predictive bar heights, which include the home indicator inset.
-    private static func standardHeight(containerSize: CGSize, bottomInset: CGFloat) -> CGFloat {
-        if let height = systemKeyboardHeights[Int(containerSize.width.rounded())] { return height }
-        let isLandscape = containerSize.width > containerSize.height
-        let hasHomeIndicator = bottomInset > 0
-        return switch (isLandscape, hasHomeIndicator) {
-        case (false, true): 291 + 42
-        case (false, false): 216 + 42
-        case (true, true): 171 + 37
-        case (true, false): 162 + 37
-        }
     }
 
     /// Shows a keyboard's rows; true when the panel's height changed, so the responder must reload its input view.

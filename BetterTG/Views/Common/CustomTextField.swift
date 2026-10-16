@@ -208,6 +208,23 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         insertTelegramText(value)
     }
 
+    /// The emoji panel's backspace (EntityKeyboard's `deleteBackwards`), also while the panel holds the input
+    /// instead of this view: removes the selection, or the character or emoji before the caret.
+    func deleteBackwardFromPanel() {
+        guard isEditable else { return }
+        if markedTextRange != nil { unmarkText() }
+        let string = text as NSString
+        var range = selectedRange
+        guard ComposerText.isValid(range, in: string) else { return }
+        if range.length == 0 {
+            guard range.location > 0 else { return }
+            range = string.rangeOfComposedCharacterSequence(at: range.location - 1)
+        }
+        let updated = NSMutableAttributedString(attributedString: attributedText)
+        updated.deleteCharacters(in: range)
+        applyUserText(updated, selection: NSRange(location: range.location, length: 0))
+    }
+
     func receivePastedImages(_ images: [UIImage]) { onPasteImages?(images) }
 
     func setAttributedText(_ value: AttributedString) {
