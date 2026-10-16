@@ -376,6 +376,15 @@ extension MessageSender {
     }
 }
 
+extension PeerProfileMemberID {
+    var sender: MessageSender {
+        switch self {
+        case .chat(let chatID): .messageSenderChat(TDNativeMessageSenderChat(chatId: chatID))
+        case .user(let userID): .user(userID)
+        }
+    }
+}
+
 // MARK: - ChatMemberPickerViewController
 
 /// Telegram's ChannelMembersSearchController: the chat's members (recent first, or the basic group's list) with a

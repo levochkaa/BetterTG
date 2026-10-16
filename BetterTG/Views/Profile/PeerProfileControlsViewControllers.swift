@@ -131,6 +131,7 @@ import UIKit
     private var tagPreparationTask: Task<Void, Never>?
     private var memberNavigationTask: Task<Void, Never>?
     private var memberNavigationGeneration = UInt64.zero
+    private var managementTask: Task<Void, Never>?
     private var actionContext: MemberActionContext?
     private var actionContextTask: Task<Void, Never>?
     private var loadGeneration = UInt64.zero
@@ -159,7 +160,8 @@ import UIKit
     }
 
     private var isQuiescent: Bool {
-        tagPreparationTask == nil && memberNavigationTask == nil && presentedViewController == nil
+        tagPreparationTask == nil && memberNavigationTask == nil && managementTask == nil
+            && presentedViewController == nil
             && !isPresentingTelegramContextMenu
             && !tableView.isTracking && !tableView.isDragging && !tableView.isDecelerating
     }
@@ -168,6 +170,33 @@ import UIKit
         switch source {
         case .administrators: L10n.betterTG("Profile.NoAdmins")
         case .basicGroup, .supergroup: L10n.betterTG("Profile.NoMembers")
+        }
+    }
+
+    private var isChannel: Bool {
+        if case .chatTypeSupergroup(let supergroup) = actionContext?.chatType {
+            supergroup.isChannel
+        } else {
+            false
+        }
+    }
+
+    /// Who may add people: the owner, admins with the right, and in a group anyone the permissions let invite.
+    private var canAddMembers: Bool {
+        guard let actionContext else { return false }
+        if case .administrators = source { return false }
+        switch actionContext.actorStatus {
+        case .chatMemberStatusCreator:
+            return true
+        case .chatMemberStatusAdministrator(let administrator):
+            return administrator.rights.canInviteUsers
+        case .chatMemberStatusMember:
+            return !isChannel && actionContext.permissions.canInviteUsers
+        case .chatMemberStatusRestricted(let restricted):
+            return !isChannel && restricted.isMember && restricted.permissions.canInviteUsers
+                && actionContext.permissions.canInviteUsers
+        case .chatMemberStatusBanned, .chatMemberStatusLeft:
+            return false
         }
     }
 
@@ -212,6 +241,7 @@ import UIKit
         reloadTask?.cancel()
         tagPreparationTask?.cancel()
         memberNavigationTask?.cancel()
+        managementTask?.cancel()
         actionContextTask?.cancel()
     }
 
@@ -284,6 +314,7 @@ import UIKit
             guard let self, contextIsCurrent, event.source == identity.origin,
                   source.group == .basic(event.value.basicGroup.id) else { return }
             actionContext?.actorStatus = event.value.basicGroup.status
+            updateAddButton()
             guard groupRevision.observe(GroupListSignature(event.value.basicGroup)) else { return }
             scheduleReload()
         }
@@ -291,6 +322,7 @@ import UIKit
             guard let self, contextIsCurrent, event.source == identity.origin,
                   source.group == .supergroup(event.value.supergroup.id) else { return }
             actionContext?.actorStatus = event.value.supergroup.status
+            updateAddButton()
             guard groupRevision.observe(GroupListSignature(event.value.supergroup)) else { return }
             scheduleReload()
         }
@@ -298,6 +330,7 @@ import UIKit
             guard let self, contextIsCurrent, event.source == identity.origin,
                   event.value.chatId == source.chatID else { return }
             actionContext?.permissions = event.value.permissions
+            updateAddButton()
             guard permissionsRevision.observe(event.value.permissions) else { return }
             scheduleReload()
         }
@@ -501,8 +534,8 @@ import UIKit
         })
     }
 
-    /// Telegram's member menu (`openMemberContextMenu`): Send Message for anyone else, then the tag where the account
-    /// may edit it. Promote, Restrict and Remove are not offered yet.
+    /// Telegram's member menu (`openMemberContextMenu`): Send Message for anyone else, the tag where the account
+    /// may edit it, then Promote, Restrict and Remove as the account's rights allow.
     @objc private func memberLongPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began, contextIsCurrent, isQuiescent,
               let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
@@ -526,7 +559,149 @@ import UIKit
                 self?.openTagEditor(for: memberID)
             })
         }
+        actions += managementActions(for: memberID)
         return actions
+    }
+
+    /// PeerInfoData.availableActionsForMemberOfPeer: the owner reaches everyone; an admin reaches members with the
+    /// right to restrict or promote, and the admins they promoted themselves (TDLib's canBeEdited). A basic group
+    /// offers only Remove; a channel has nothing to restrict.
+    private func managementActions(for memberID: MemberID) -> [TelegramContextMenuAction] {
+        guard let accountUserID, memberID != .user(accountUserID), let actionContext,
+              let seed = seeds[memberID], let status = seed.status, !seed.isOwner else { return [] }
+        let isSupergroup =
+            if case .supergroup = source.group {
+                true
+            } else {
+                false
+            }
+        var canRestrict = false
+        var canPromote = false
+        switch actionContext.actorStatus {
+        case .chatMemberStatusCreator:
+            canRestrict = true
+            canPromote = isSupergroup
+        case .chatMemberStatusAdministrator(let actor):
+            if case .chatMemberStatusAdministrator(let target) = status {
+                canRestrict = isSupergroup && target.canBeEdited
+                canPromote = isSupergroup && target.canBeEdited && actor.rights.canPromoteMembers
+            } else {
+                canRestrict = actor.rights.canRestrictMembers
+                canPromote = isSupergroup && actor.rights.canPromoteMembers
+            }
+        case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember, .chatMemberStatusRestricted:
+            break
+        }
+        var actions = [TelegramContextMenuAction]()
+        if canPromote, case .user = memberID {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(seed.isAdministrator ? "GroupInfo.ActionEditAdmin" : "GroupInfo.ActionPromote"),
+                image: UIImage(systemName: "star"),
+            ) { [weak self] in
+                self?.openManagement(for: memberID) { target, member in
+                    ChatAdminRightsViewController(target: target, member: member, isNew: !seed.isAdministrator)
+                }
+            })
+        }
+        guard canRestrict else { return actions }
+        if isSupergroup, !isChannel {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("GroupInfo.ActionRestrict"),
+                image: UIImage(systemName: "hand.raised"),
+            ) { [weak self] in
+                self?.openManagement(for: memberID) { target, member in
+                    let isRestricted =
+                        if case .chatMemberStatusRestricted = member.status {
+                            true
+                        } else {
+                            false
+                        }
+                    return ChatMemberRestrictionViewController(target: target, member: member, isNew: !isRestricted)
+                }
+            })
+        }
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("GroupInfo.ActionRemove"),
+            image: UIImage(systemName: "person.badge.minus"),
+            isDestructive: true,
+        ) { [weak self] in self?.removeMember(memberID) })
+        return actions
+    }
+
+    /// Reads the chat as the management screens use it, then pushes this member's screen.
+    private func openManagement(
+        for memberID: MemberID,
+        screen: @escaping (ChatManagementTarget, ChatManagementMember) -> UIViewController,
+    ) {
+        guard managementTask == nil, memberNavigationTask == nil, tagPreparationTask == nil, contextIsCurrent,
+              let seed = seeds[memberID], let status = seed.status else { return }
+        let client = client
+        let chatID = source.chatID
+        let sender = memberID.sender
+        managementTask = Task { [weak self] in
+            let target = await ChatManagementTarget.load(chatID: chatID, client: client)
+            let peer = await SettingsPeer.resolve(sender, client: client)
+            guard let self else { return }
+            managementTask = nil
+            guard !Task.isCancelled, contextIsCurrent, let target, let peer,
+                  navigationController?.topViewController === self else { return }
+            let member = ChatManagementMember(sender: sender, peer: peer, status: status, tag: seed.tag)
+            navigationController?.pushViewController(screen(target, member), animated: true)
+        }
+    }
+
+    /// PeerInfoScreen's .remove: the member leaves and, in a supergroup, joins Removed Users (banChatMember).
+    private func removeMember(_ memberID: MemberID) {
+        guard contextIsCurrent else { return }
+        let client = client
+        let chatID = source.chatID
+        let sender = memberID.sender
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.banChatMember(
+                    chatId: chatID, memberId: sender, bannedUntilDate: 0, revokeMessages: false,
+                ))
+                guard let self, contextIsCurrent else { return }
+                scheduleReload()
+            } catch {
+                guard let self, contextIsCurrent else { return }
+                presentChatListActionFailure()
+            }
+        }
+    }
+
+    /// Add Members (Group.Members.AddMembers, Channel.Members.AddMembers) for whoever may invite people. A load
+    /// failure's Retry takes the place until the list loads again.
+    private func updateAddButton() {
+        guard loadError == nil else { return }
+        guard canAddMembers else {
+            navigationItem.rightBarButtonItem = nil
+            return
+        }
+        guard navigationItem.rightBarButtonItem == nil else { return }
+        let item = UIBarButtonItem(
+            image: UIImage(systemName: "person.badge.plus"),
+            style: .plain,
+            target: self,
+            action: #selector(addMembersPressed),
+        )
+        item.accessibilityLabel = L10n.telegram(isChannel ? "Channel.Members.AddMembers" : "Group.Members.AddMembers")
+        navigationItem.rightBarButtonItem = item
+    }
+
+    /// ContactMultiselectionController over the contacts; the people added appear through updateChatMember.
+    @objc private func addMembersPressed() {
+        guard contextIsCurrent, isQuiescent, canAddMembers else { return }
+        let isBasicGroup =
+            if case .basic = source.group {
+                true
+            } else {
+                false
+            }
+        navigationController?.pushViewController(
+            ComposeContactPickerViewController(mode: .addMembers(chatID: source.chatID, isBasicGroup: isBasicGroup)),
+            animated: true,
+        )
     }
 
     /// The menu title when the account may edit this member's tag, by the editor's own rule.
@@ -635,6 +810,7 @@ import UIKit
             actionContext = MemberActionContext(
                 chatType: chat.type, permissions: chat.permissions, actorStatus: actorStatus,
             )
+            updateAddButton()
             applySnapshot()
         }
     }
@@ -936,6 +1112,7 @@ import UIKit
         loadError = nil
         loadRetryID = nil
         navigationItem.rightBarButtonItem = nil
+        updateAddButton()
         tableView.tableFooterView = nil
         renderVisiblePlaceholders()
         loadMore()
@@ -1035,6 +1212,7 @@ import UIKit
         loadError = nil
         loadRetryID = nil
         navigationItem.rightBarButtonItem = nil
+        updateAddButton()
         tableView.tableFooterView = nil
         tableView.backgroundView = nil
         applySnapshot()

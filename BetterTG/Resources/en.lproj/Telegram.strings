@@ -1586,3 +1586,9 @@
 "MemberRequests.Title" = "Member Requests";
 "MemberRequests.UserAddedToChannel" = "%@ has been added to the channel.";
 "MemberRequests.UserAddedToGroup" = "%@ has been added to the group.";
+"Channel.Members.AddMembers" = "Add Subscribers";
+"Group.Members.AddMembers" = "Add Members";
+"GroupInfo.ActionEditAdmin" = "Edit Admin Rights";
+"GroupInfo.ActionPromote" = "Promote";
+"GroupInfo.ActionRemove" = "Remove";
+"GroupInfo.ActionRestrict" = "Restrict";

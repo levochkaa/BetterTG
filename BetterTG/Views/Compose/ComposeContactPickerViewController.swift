@@ -10,6 +10,8 @@ import UIKit
 /// and opens it in place of the compose screens. New Group (ContactMultiselectionController in `.groupCreation`)
 /// checks people, shows them as chips above the list and goes on to the group's name with Next.
 /// A new channel's subscribers (`.channelCreation`) join it with Next (addChatMembers), which also skips them.
+/// Add Members for an existing group or channel (`.peerSelection` from the members list) adds the checked people
+/// with Done and goes back.
 final class ComposeContactPickerViewController: SettingsListViewController, UISearchResultsUpdating,
 ComposeFlowScreen {
     enum Mode {
@@ -19,6 +21,8 @@ ComposeFlowScreen {
         case newGroup
         /// People to add to a channel just created; the channel opens after them.
         case channelSubscribers(chatID: Int64)
+        /// People to add to an existing group or channel; a basic group takes them one at a time.
+        case addMembers(chatID: Int64, isBasicGroup: Bool)
     }
 
     private static let searchDelay = Duration.milliseconds(250)
@@ -59,7 +63,7 @@ ComposeFlowScreen {
     /// Who the mode lists: a secret chat is only with a person.
     private var allowsPerson: (ComposeContact) -> Bool {
         switch mode {
-        case .channelSubscribers, .secretChat: { !$0.isBot }
+        case .addMembers, .channelSubscribers, .secretChat: { !$0.isBot }
         case .newGroup: { _ in true }
         }
     }
@@ -67,13 +71,19 @@ ComposeFlowScreen {
     private var isMultipleSelection: Bool {
         switch mode {
         case .secretChat: false
-        case .channelSubscribers, .newGroup: true
+        case .addMembers, .channelSubscribers, .newGroup: true
         }
     }
 
     private var nextButton: UIBarButtonItem {
-        UIBarButtonItem(
-            title: L10n.telegram("Common.Next"), style: .prominent, target: self, action: #selector(nextPressed),
+        let title =
+            if case .addMembers = mode {
+                "Common.Done"
+            } else {
+                "Common.Next"
+            }
+        return UIBarButtonItem(
+            title: L10n.telegram(title), style: .prominent, target: self, action: #selector(nextPressed),
         )
     }
 
@@ -104,6 +114,10 @@ ComposeFlowScreen {
             navigationItem.rightBarButtonItem = nextButton
             loadLimits()
         case .channelSubscribers:
+            title = L10n.telegram("GroupInfo.AddParticipantTitle")
+            searchController.searchBar.placeholder = L10n.telegram("Compose.GroupTokenListPlaceholder")
+            navigationItem.rightBarButtonItem = nextButton
+        case .addMembers:
             title = L10n.telegram("GroupInfo.AddParticipantTitle")
             searchController.searchBar.placeholder = L10n.telegram("Compose.GroupTokenListPlaceholder")
             navigationItem.rightBarButtonItem = nextButton
@@ -236,7 +250,7 @@ ComposeFlowScreen {
         switch mode {
         case .secretChat:
             startSecretChat(with: contact)
-        case .channelSubscribers, .newGroup:
+        case .addMembers, .channelSubscribers, .newGroup:
             toggle(contact)
         }
     }
@@ -302,6 +316,60 @@ ComposeFlowScreen {
             navigationController?.pushViewController(CreateGroupViewController(members: selected), animated: true)
         case .channelSubscribers(let chatID):
             addSubscribers(to: chatID)
+        case .addMembers(let chatID, let isBasicGroup):
+            addMembers(to: chatID, isBasicGroup: isBasicGroup)
+        }
+    }
+
+    // MARK: Add members
+
+    /// The checked people join the group or channel (addChatMembers, or addChatMember with Telegram's 100 forwarded
+    /// messages of history in a basic group); people whose privacy settings refuse are reported, then the list
+    /// returns.
+    private func addMembers(to chatID: Int64, isBasicGroup: Bool) {
+        guard actionTask == nil, contextIsCurrent else { return }
+        let userIDs = selected.map(\.userID)
+        guard !userIDs.isEmpty else {
+            navigationController?.popViewController(animated: true)
+            return
+        }
+        searchController.searchBar.resignFirstResponder()
+        setBusy(true)
+        let client = client
+        actionTask = Task { [weak self] in
+            var failure: Error?
+            var refused = false
+            do {
+                if isBasicGroup {
+                    for userID in userIDs {
+                        _ = try await client.send(TDNativeRequests.addChatMember(
+                            chatId: chatID, userId: userID, forwardLimit: 100,
+                        ))
+                    }
+                } else {
+                    let result = try await client.send(TDNativeRequests.addChatMembers(
+                        chatId: chatID, userIds: userIDs,
+                    ))
+                    refused = !result.failedToAddMembers.isEmpty
+                }
+            } catch {
+                failure = error
+            }
+            guard let self else { return }
+            actionTask = nil
+            setBusy(false)
+            guard contextIsCurrent else { return }
+            if let failure {
+                presentAlert(title: nil, message: ChatManagementRows.failureText(failure))
+            } else if refused {
+                presentAlert(
+                    title: nil,
+                    message: L10n.telegram("Privacy.GroupsAndChannels.InviteToChannelMultipleError"),
+                )
+                navigationController?.popViewController(animated: true)
+            } else {
+                navigationController?.popViewController(animated: true)
+            }
         }
     }
 
