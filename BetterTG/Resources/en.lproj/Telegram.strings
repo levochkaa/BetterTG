@@ -2045,3 +2045,4 @@
 "Chat.HashtagSuggestion.UseLocal.Title" = "Use %@";
 "Chat.HashtagSuggestion.UseLocal.Group.Text" = "searches only posts from this group";
 "Chat.HashtagSuggestion.UseLocal.Channel.Text" = "searches only posts from this channel";
+"AuthSessions.AddDevice.ScanTitle" = "Scan QR Code";

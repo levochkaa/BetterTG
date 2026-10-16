@@ -103,6 +103,14 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     private var webView: WKWebView!
     /// The header, page and bottom panel, which fullscreen moves over the sheet.
     private let contentView = UIView()
+    /// QR scanner, biometry, location and motion sensors reach the page and present through this.
+    private lazy var bridge = WebAppBridge(
+        launch: launch,
+        send: { [weak self] in self?.sendEvent($0, data: $1) },
+        presenter: { [weak self] in self },
+        toastHost: { [weak self] in self?.webView },
+    )
+    private lazy var qrScanner = WebAppQRScanner(bridge: bridge)
     private var bottomPanelHeight: NSLayoutConstraint!
     private var mainButtonState = ButtonState()
     private var secondaryButtonState = ButtonState()
@@ -729,6 +737,10 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
             fullscreen.setActive(false)
         case "web_app_toggle_orientation_lock":
             if let locked = json?["locked"] as? Bool { fullscreen.setOrientationLocked(locked) }
+        case "web_app_open_scan_qr_popup":
+            qrScanner.open(json)
+        case "web_app_close_scan_qr_popup":
+            qrScanner.close()
         default:
             break
         }
