@@ -3,18 +3,20 @@
 #if DEBUG
     import UIKit
 
-    /// Launch with `-ui-probe-photo-crop`. Once an account is active it opens the attachment sheet's crop editor on
-    /// a drawn 1600×1200 test photo, so the editor is checked without photo library access. Done shows the photo as
-    /// it would be sent, rendered at the standard 1280 px; nothing is sent.
+    /// Launch with `-ui-probe-photo-crop`, or `-ui-probe-photo-tools` for the Tools tab. Once an account is active it
+    /// opens the attachment sheet's photo editor on a drawn 1600×1200 test photo, so the editor is checked without
+    /// photo library access; the tools' photo adds a black-to-white strip for Highlights, Shadows, Fade and Curves.
+    /// Done shows the photo as it would be sent, with its crop and tools rendered at the standard 1280 px; nothing is
+    /// sent.
     @MainActor enum PhotoCropProbe {
         /// The rendered photo with its pixel size, closed by Close.
         private final class ResultViewController: UIViewController {
             private let image: UIImage
-            private let isCropped: Bool
+            private let isEdited: Bool
 
-            init(image: UIImage, isCropped: Bool) {
+            init(image: UIImage, isEdited: Bool) {
                 self.image = image
-                self.isCropped = isCropped
+                self.isEdited = isEdited
                 super.init(nibName: nil, bundle: nil)
                 modalPresentationStyle = .fullScreen
             }
@@ -29,7 +31,7 @@
                 let label = UILabel()
                 label.textColor = .white
                 label.textAlignment = .center
-                label.text = "\(isCropped ? "cropped" : "whole") \(Int(image.size.width))×\(Int(image.size.height))"
+                label.text = "\(isEdited ? "edited" : "whole") \(Int(image.size.width))×\(Int(image.size.height))"
                 let close = UIButton(type: .system, primaryAction: UIAction(title: "Close") { [weak self] _ in
                     self?.dismiss(animated: true)
                 })
@@ -54,7 +56,9 @@
         private static let photoSize = CGSize(width: 1600, height: 1200)
 
         static func runIfRequested(in window: UIWindow) {
-            guard ProcessInfo.processInfo.arguments.contains("-ui-probe-photo-crop") else { return }
+            let arguments = ProcessInfo.processInfo.arguments
+            let opensTools = arguments.contains("-ui-probe-photo-tools")
+            guard opensTools || arguments.contains("-ui-probe-photo-crop") else { return }
             Task { @MainActor in
                 for _ in 0..<60 where TDLib.shared.activeAccountID == nil {
                     try? await Task.sleep(for: .milliseconds(500))
@@ -66,15 +70,19 @@
                     presenter = presented
                 }
                 guard let presenter else { return }
-                let photo = makePhoto()
-                let editor = PhotoCropViewController(image: photo, adjustments: nil)
+                let photo = makePhoto(withStrip: opensTools)
+                let editor = PhotoCropViewController(
+                    image: photo,
+                    adjustments: nil,
+                    initialTab: opensTools ? .tools : .crop,
+                )
                 editor.onDone = { [weak presenter] edit in
-                    let result = edit?.adjustments.render(photo, sourcePixelSize: photoSize, maximumSide: 1280)
+                    let result = edit?.adjustments.renderEdited(photo, sourcePixelSize: photoSize, maximumSide: 1280)
                     // The editor dismisses itself right after handing back the edit.
                     Task { @MainActor in
                         try? await Task.sleep(for: .seconds(1))
                         presenter?.present(
-                            ResultViewController(image: result ?? photo, isCropped: edit != nil),
+                            ResultViewController(image: result ?? photo, isEdited: edit != nil),
                             animated: true,
                         )
                     }
@@ -84,8 +92,8 @@
         }
 
         /// Four colored quadrants with a grid and their corner names, so a crop, a turn or a mirror shows in the
-        /// result.
-        private static func makePhoto() -> UIImage {
+        /// result; `withStrip` adds a black-to-white strip along the bottom, so the tones the tools change show.
+        private static func makePhoto(withStrip: Bool) -> UIImage {
             let format = UIGraphicsImageRendererFormat()
             format.scale = 1
             return UIGraphicsImageRenderer(size: photoSize, format: format).image { context in
@@ -120,6 +128,23 @@
                 for y in stride(from: CGFloat(0), through: photoSize.height, by: 100) {
                     context.fill(CGRect(x: 0, y: y - 1, width: photoSize.width, height: 2))
                 }
+                guard withStrip,
+                      let gradient = CGGradient(
+                          colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                          colors: [UIColor.black.cgColor, UIColor.white.cgColor] as CFArray,
+                          locations: [0, 1],
+                      )
+                else { return }
+                let strip = CGRect(x: 0, y: photoSize.height - 150, width: photoSize.width, height: 150)
+                context.cgContext.saveGState()
+                context.cgContext.clip(to: strip)
+                context.cgContext.drawLinearGradient(
+                    gradient,
+                    start: CGPoint(x: strip.minX, y: strip.midY),
+                    end: CGPoint(x: strip.maxX, y: strip.midY),
+                    options: [],
+                )
+                context.cgContext.restoreGState()
             }
         }
     }
