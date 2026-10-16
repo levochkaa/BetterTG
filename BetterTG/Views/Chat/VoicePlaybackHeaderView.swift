@@ -5,7 +5,8 @@ import UIKit
 // MARK: - VoicePlaybackHeaderView
 
 /// Telegram's playback header (MediaNavigationAccessoryHeaderNode): play/pause, the author over "Voice Message" or
-/// the group, the playback rate, close, and a 2 pt progress line along the bottom. Tapping the text opens the note.
+/// the group, the playback rate, close, and a 2 pt progress line along the bottom. Tapping the text opens the note,
+/// or the expanded player for music.
 final class VoicePlaybackHeaderView: UIView {
     struct Content: Equatable {
         let title: String

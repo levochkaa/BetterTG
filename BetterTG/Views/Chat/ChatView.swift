@@ -1885,6 +1885,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         voicePlaybackHeader.onPlayPrevious = { Media.shared.swipeTrack(toNext: false) }
         voicePlaybackHeader.onOpen = { [weak self] in
             guard let self, let item = Media.shared.nowPlaying, item.accountID == location.accountID else { return }
+            // MediaPlaybackHeaderPanelComponent's tapAction opens OverlayAudioPlayerController for music.
+            if item.isMusic {
+                MusicPlayerViewController.present(from: self)
+                return
+            }
             navigate(to: .message(chatID: item.chatID, messageID: item.messageID, quote: nil))
         }
         Publishers.CombineLatest4(

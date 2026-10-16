@@ -698,11 +698,18 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
     }
 
-    /// Tapping the header opens the note's chat at the note, as MediaPlaybackHeaderPanelComponent does.
+    /// Tapping the header opens the note's chat at the note, and music opens the expanded player, as
+    /// MediaPlaybackHeaderPanelComponent's tapAction does.
     private func openVoicePlaybackMessage() {
         let scope = actionAuthority.scope(owner: self)
         guard scope.isCurrent, navigationController?.topViewController === self,
               let item = Media.shared.nowPlaying, item.accountID == scope.source?.accountID else { return }
+        if item.isMusic {
+            voicePlaybackOpenTask?.cancel()
+            voicePlaybackOpenTask = nil
+            MusicPlayerViewController.present(from: self)
+            return
+        }
         let client = actionAuthority.client
         let rootVM = rootVM
         voicePlaybackOpenTask?.cancel()
