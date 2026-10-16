@@ -6477,9 +6477,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// ChatInterfaceStateContextMenus' `banAuthor`: in a group, an admin who can delete messages or ban members
     /// deleting an incoming message from a person or another chat.
     private func adminDeleteRequest(for message: CustomMessage) -> AdminDeleteMessagesViewController.Request? {
+        guard !message.message.isOutgoing, message.properties.canBeDeletedForAllUsers else { return nil }
+        return adminDeleteRequest(for: message.sourceMessages)
+    }
+
+    /// ChatInterfaceStateContextMenus' `banAuthors`: the people and other chats behind the incoming messages being
+    /// deleted, for an admin who can delete messages or ban members. The user's own messages and the group posting as
+    /// itself are deleted without being acted on.
+    private func adminDeleteRequest(for messages: [Message]) -> AdminDeleteMessagesViewController.Request? {
         let customChat = chatVM.customChat
-        guard let supergroup = customChat.supergroup, !supergroup.isChannel, !message.message.isOutgoing,
-              message.properties.canBeDeletedForAllUsers, message.message.sendingState == nil else { return nil }
+        guard let supergroup = customChat.supergroup, !supergroup.isChannel else { return nil }
         let canBan: Bool =
             switch supergroup.status {
             case .chatMemberStatusCreator: true
@@ -6488,19 +6495,25 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         let canDeleteAll = customChat.canDeleteAllMessages
         guard canBan || canDeleteAll else { return nil }
-        switch message.message.senderId {
-        case .messageSenderUser:
-            break
-        case .messageSenderChat(let sender):
-            guard sender.chatId != message.message.chatId else { return nil }
+        var senders = [MessageSender]()
+        var spamMessageIDs = [Int64]()
+        for message in messages where !message.isOutgoing && message.sendingState == nil {
+            if case .messageSenderChat(let sender) = message.senderId, sender.chatId == message.chatId { continue }
+            spamMessageIDs.append(message.id)
+            if !senders.contains(message.senderId) {
+                senders.append(message.senderId)
+            }
         }
+        guard !senders.isEmpty else { return nil }
         return AdminDeleteMessagesViewController.Request(
-            chatID: message.message.chatId,
+            chatID: customChat.chat.id,
             supergroupID: supergroup.id,
-            messageIDs: message.sourceMessages.map(\.id),
-            sender: message.message.senderId,
+            messageIDs: messages.map(\.id),
+            spamMessageIDs: spamMessageIDs,
+            senders: senders,
             canDeleteAll: canDeleteAll,
             canBan: canBan,
+            chatPermissions: customChat.chat.permissions,
         )
     }
 
@@ -7021,6 +7034,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             guard let self else { return }
             var canDeleteForSelf = true
             var canDeleteForAll = true
+            var resolvedMessages = [Message]()
             do {
                 for messageID in sourceIDs {
                     try Task.checkCancellation()
@@ -7028,6 +7042,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         chatId: chatVM.chatID,
                         messageId: messageID,
                     )
+                    let resolved = try await client.getMessage(chatId: chatVM.chatID, messageId: messageID)
+                    resolvedMessages.append(resolved)
                     canDeleteForSelf = canDeleteForSelf && properties.canBeDeletedOnlyForSelf
                     canDeleteForAll = canDeleteForAll && properties.canBeDeletedForAllUsers
                 }
@@ -7041,6 +7057,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 selectionCapabilityTask = nil
                 selectionCapabilityGeneration = nil
                 updateMessageSelectionChrome()
+                // ChatControllerLoadDisplayNode deleteSelectedMessages: incoming messages of other members open
+                // AdminUserActionsSheet for an admin, which deletes the whole selection for everyone.
+                if canDeleteForAll, let request = adminDeleteRequest(for: resolvedMessages) {
+                    AdminDeleteMessagesViewController.present(request, from: self) { [weak self] text in
+                        self?.endMessageSelection()
+                        self?.showChatToast(text)
+                    }
+                    return
+                }
                 presentDeleteSelectedConfirmation(
                     messageIDs: sourceIDs,
                     canDeleteForSelf: canDeleteForSelf,
