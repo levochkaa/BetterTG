@@ -133,6 +133,8 @@ import UIKit
     @Published var highlightedMessageId: Int64?
     @Published var displayedImages = [SelectedImage]()
     @Published var displayedDocuments = [SelectedDocument]()
+    /// MediaPickerScreen's Move Caption Up for the composer's photos and videos (`showCaptionAboveMedia`).
+    @Published var mediaCaptionIsAbove = false
     @Published var text: AttributedString = "" {
         didSet {
             if text != oldValue {
@@ -357,6 +359,8 @@ import UIKit
     private var composerSendHold: (id: UUID, earlierMessageIDs: Set<Int64>, sentMessageIDs: Set<Int64>?)?
     /// The send-button menu's options for the composer send in progress (silent, scheduled or when online).
     private var composerSendOptions: TDNativeMessageSendOptions?
+    /// How the send menu asked the composer's photos and videos to go.
+    private var composerMediaSendMode = ComposerMediaSendMode.grouped
     private var composerLinkPreviewTask: Task<Void, Never>?
     private var composerLinkPreviewRequest: FormattedText?
     private var editLinkPreviewTask: Task<Void, Never>?
@@ -380,6 +384,11 @@ import UIKit
         } else {
             true
         }
+    }
+
+    /// MediaPickerScreen's isSpoilerAvailable: spoilers aren't offered in secret chats.
+    var canHideMediaWithSpoiler: Bool {
+        canSendLivePhotos
     }
 
     /// ChatSendMessageContextScreen's `canSchedule`: secret chats and channel direct messages can't schedule.
@@ -1328,6 +1337,27 @@ import UIKit
               case .userTypeBot(let bot) = user.type, bot.isInline
         else { return nil }
         return (user.id, bot.inlineQueryPlaceholder)
+    }
+
+    /// MediaPickerScreen's Send as File: the picked photo, or the original video with its first frame as the
+    /// thumbnail, sent as a document without TDLib's type detection.
+    private static func makeInputMessageFile(_ image: SelectedImage, caption: FormattedText) -> InputMessageContent {
+        let file = image.video?.url ?? image.url
+        let thumbnail = image.video.map { video in
+            TDNativeInputThumbnail(
+                thumbnail: .inputFileLocal(InputFileLocal(path: image.url.path(percentEncoded: false))),
+                width: Int(video.thumbnailSize.width),
+                height: Int(video.thumbnailSize.height),
+            )
+        }
+        return .inputMessageDocument(TDNativeInputMessageDocument(
+            document: TDNativeInputDocument(
+                document: .inputFileLocal(InputFileLocal(path: file.path(percentEncoded: false))),
+                thumbnail: thumbnail,
+                disableContentTypeDetection: true,
+            ),
+            caption: caption.text.isEmpty ? nil : caption,
+        ))
     }
 
     /// An album this chat is still announcing: show it once every member arrived, or a moment after the send call.
@@ -2895,6 +2925,7 @@ import UIKit
         let keptIDs = Set(images.map(\.id))
         let removed = displayedImages.filter { !keptIDs.contains($0.id) }
         displayedImages = images
+        mediaCaptionIsAbove = false
         removeTemporaryImages(removed)
     }
 
@@ -2907,7 +2938,15 @@ import UIKit
     func discardDisplayedImages() {
         let removed = displayedImages
         displayedImages = []
+        mediaCaptionIsAbove = false
         removeTemporaryImages(removed)
+    }
+
+    /// MediaPickerScreen's Hide With Spoiler and Disable Spoiler, for every picked item at once.
+    func setDisplayedMediaSpoiler(_ hasSpoiler: Bool) {
+        for index in displayedImages.indices {
+            displayedImages[index].hasSpoiler = hasSpoiler
+        }
     }
 
     func getCustomMessage(fromId id: Int64) async -> CustomMessage? {
@@ -2967,15 +3006,21 @@ import UIKit
     }
 
     /// Sends the composer. `options` carries the send-button menu's choice: without sound, at a date or when the
-    /// user comes online. A scheduled send never reaches this history, so it skips the bubble transition.
-    func sendMessage(options: TDNativeMessageSendOptions? = nil) async {
+    /// user comes online; `mediaMode` how picked photos and videos go. A scheduled send never reaches this history,
+    /// so it skips the bubble transition.
+    func sendMessage(
+        options: TDNativeMessageSendOptions? = nil,
+        mediaMode: ComposerMediaSendMode = .grouped,
+    ) async {
         guard !sendingComposerMessage else { return }
         sendingComposerMessage = true
         composerSendOptions = options
+        composerMediaSendMode = mediaMode
         defer {
             sendingComposerMessage = false
             sendMessageTask = nil
             composerSendOptions = nil
+            composerMediaSendMode = .grouped
         }
         switch composerEditState.prepare(message: editCustomMessage?.message, text: editMessageText) {
         case .ordinary:
@@ -3047,6 +3092,7 @@ import UIKit
             }
             displayedImages.removeAll { sentImageIDs.contains($0.id) }
             displayedDocuments.removeAll { sentDocumentIDs.contains($0.id) }
+            if displayedImages.isEmpty { mediaCaptionIsAbove = false }
             if text == sentText {
                 text = ""
             }
@@ -3532,18 +3578,18 @@ import UIKit
         }
     }
 
-    /// Sends the composer's photos and videos, one message or an album that may mix both, as Telegram does.
+    /// Sends the composer's photos and videos as Telegram's media picker does: albums of up to ten that may mix both,
+    /// one message each (Send Without Grouping) or the picked files themselves (Send as File). The caption goes with
+    /// the first item, above the media when it was moved up, and marked items are hidden with a spoiler.
     func sendMessageMedia() async throws -> (context: ResolvedSendContext, messages: [Message]) {
         let images = displayedImages
+        let mode = composerMediaSendMode
         let sendsVideos = images.contains { $0.video != nil }
-        if sendsVideos, images.contains(where: { $0.video == nil }) {
+        if mode != .files, sendsVideos, images.contains(where: { $0.video == nil }) {
             _ = try resolveSendContext(for: .photo, replyingTo: replyMessage, useCurrentReplyOverride: true)
         }
-        let context = try resolveSendContext(
-            for: sendsVideos ? .video : .photo,
-            replyingTo: replyMessage,
-            useCurrentReplyOverride: true,
-        )
+        let kind: ChatSendContentKind = mode == .files ? .document : sendsVideos ? .video : .photo
+        let context = try resolveSendContext(for: kind, replyingTo: replyMessage, useCurrentReplyOverride: true)
         guard !images.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
         for image in images {
             MediaUploadProgressRegistry.rememberSentPreview(image.image, path: image.url.path(percentEncoded: false))
@@ -3551,12 +3597,16 @@ import UIKit
         // Telegram attaches the input's caption to the first item of a group (`TGMediaAssetsController`).
         let noCaption = FormattedText(entities: [], text: "")
         let caption = try await composerCaption() ?? noCaption
-        try await sendChatAction(
-            sendsVideos
-                ? .chatActionUploadingVideo(ChatActionUploadingVideo(progress: 0))
-                : .chatActionUploadingPhoto(ChatActionUploadingPhoto(progress: 0)),
-            in: context,
-        )
+        let captionIsAbove = mediaCaptionIsAbove && !caption.text.isEmpty
+        let action: ChatAction =
+            switch mode {
+            case .files: .chatActionUploadingDocument(ChatActionUploadingDocument(progress: 0))
+            case .grouped, .separately:
+                sendsVideos
+                    ? .chatActionUploadingVideo(ChatActionUploadingVideo(progress: 0))
+                    : .chatActionUploadingPhoto(ChatActionUploadingPhoto(progress: 0))
+            }
+        try await sendChatAction(action, in: context)
         let provisionalMessageIDs = images.map { _ in -Int64.random(in: 1...Int64.max) }
         do {
             try leaseOutgoingMedia(images, as: provisionalMessageIDs, in: context)
@@ -3565,13 +3615,24 @@ import UIKit
             throw error
         }
         var boundCount = 0
+        var sentMessages = [Message]()
         do {
-            let sentMessages: [Message]
             var messageContents = [InputMessageContent]()
             for (index, image) in images.enumerated() {
                 let caption = index == 0 ? caption : noCaption
+                let showsCaptionAbove = index == 0 && captionIsAbove
+                if mode == .files {
+                    messageContents.append(Self.makeInputMessageFile(image, caption: caption))
+                    continue
+                }
                 if let video = image.video {
-                    messageContents.append(makeInputMessageVideo(video, thumbnail: image.url, caption: caption))
+                    messageContents.append(makeInputMessageVideo(
+                        video,
+                        thumbnail: image.url,
+                        caption: caption,
+                        hasSpoiler: image.hasSpoiler,
+                        showCaptionAboveMedia: showsCaptionAbove,
+                    ))
                     continue
                 }
                 await messageContents.append(makeInputMessageContent(
@@ -3581,45 +3642,56 @@ import UIKit
                         .isLivePhotoEnabled && canSendLivePhotos
                         ? image.livePhotoVideoURL
                         : nil,
+                    hasSpoiler: image.hasSpoiler,
+                    showCaptionAboveMedia: showsCaptionAbove,
                 ))
             }
             guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
-            if messageContents.count == 1, let content = messageContents.first {
-                let message = try await client.sendMessage(
-                    chatId: context.chatID,
-                    inputMessageContent: content,
-                    options: composerSendOptions,
-                    replyMarkup: nil,
-                    replyTo: context.replyTo,
-                    topicId: context.destinationTopic,
-                )
-                boundCount = bindOutgoingMedia([message], leasedAs: provisionalMessageIDs, in: context)
-                guard context.matches(message: message) else {
-                    throw ChatSendContextError.unexpectedDestination
+            // Telegram groups up to ten items a message (`legacyAssetPickerEnqueueMessages`); without grouping
+            // every item is its own message.
+            let groupSize = mode == .separately ? 1 : 10
+            var start = 0
+            while start < messageContents.count {
+                let end = min(start + groupSize, messageContents.count)
+                let group = Array(messageContents[start..<end])
+                let groupMessages: [Message]
+                if group.count == 1, let content = group.first {
+                    groupMessages = try await [client.sendMessage(
+                        chatId: context.chatID,
+                        inputMessageContent: content,
+                        options: composerSendOptions,
+                        replyMarkup: nil,
+                        replyTo: context.replyTo,
+                        topicId: context.destinationTopic,
+                    )]
+                } else {
+                    let hold = beginOutgoingAlbum(count: group.count)
+                    defer { endOutgoingAlbum(hold) }
+                    groupMessages = try await client.sendMessageAlbum(
+                        chatId: context.chatID,
+                        inputMessageContents: group,
+                        options: composerSendOptions,
+                        replyTo: context.replyTo,
+                        topicId: context.destinationTopic,
+                    )
+                    .messages
                 }
-                sentMessages = [message]
-            } else {
-                let hold = beginOutgoingAlbum(count: messageContents.count)
-                defer { endOutgoingAlbum(hold) }
-                let result = try await client.sendMessageAlbum(
-                    chatId: context.chatID,
-                    inputMessageContents: messageContents,
-                    options: composerSendOptions,
-                    replyTo: context.replyTo,
-                    topicId: context.destinationTopic,
+                boundCount += bindOutgoingMedia(
+                    groupMessages,
+                    leasedAs: Array(provisionalMessageIDs[start..<end]),
+                    in: context,
                 )
-                let messages = result.messages
-                boundCount = bindOutgoingMedia(messages, leasedAs: provisionalMessageIDs, in: context)
-                guard messages.count == messageContents.count else {
+                guard groupMessages.count == group.count else {
                     throw ChatSendContextError.partialAlbum(
-                        sent: messages.count,
+                        sent: sentMessages.count + groupMessages.count,
                         expected: messageContents.count,
                     )
                 }
-                guard messages.allSatisfy({ context.matches(message: $0) }) else {
+                guard groupMessages.allSatisfy({ context.matches(message: $0) }) else {
                     throw ChatSendContextError.unexpectedDestination
                 }
-                sentMessages = messages
+                sentMessages += groupMessages
+                start = end
             }
             for (image, message) in zip(images, sentMessages) {
                 guard let video = image.video, case .messageVideo(let content) = message.content else { continue }
@@ -3636,6 +3708,9 @@ import UIKit
             try? await cancelChatAction(in: context)
             return (context, sentMessages)
         } catch {
+            // Items already sent leave the composer, so retrying sends only the rest.
+            let sentIDs = Set(images.prefix(sentMessages.count).map(\.id))
+            displayedImages.removeAll { sentIDs.contains($0.id) }
             releaseOutgoingMedia(images, leasedAs: provisionalMessageIDs, from: boundCount, in: context)
             try? await cancelChatAction(in: context)
             throw error
@@ -3644,7 +3719,13 @@ import UIKit
 
     /// A picked video as Telegram sends it from the gallery: converted to the medium preset when TDLib generates
     /// the file (`VideoSendGenerationCoordinator`), with the converted size, a 320 pt thumbnail and streaming.
-    func makeInputMessageVideo(_ video: SelectedVideo, thumbnail: URL, caption: FormattedText) -> InputMessageContent {
+    func makeInputMessageVideo(
+        _ video: SelectedVideo,
+        thumbnail: URL,
+        caption: FormattedText,
+        hasSpoiler: Bool = false,
+        showCaptionAboveMedia: Bool = false,
+    ) -> InputMessageContent {
         let dimensions = VideoSendPreset.outputDimensions(for: video.presentationSize)
         return .inputMessageVideo(InputMessageVideo(
             video: InputVideo(
@@ -3667,9 +3748,9 @@ import UIKit
                 supportsStreaming: true,
             ),
             caption: caption,
-            showCaptionAboveMedia: false,
+            showCaptionAboveMedia: showCaptionAboveMedia,
             selfDestructType: nil,
-            hasSpoiler: false,
+            hasSpoiler: hasSpoiler,
         ))
     }
 
@@ -3677,6 +3758,8 @@ import UIKit
         for url: URL,
         caption: FormattedText,
         livePhotoVideoURL: URL? = nil,
+        hasSpoiler: Bool = false,
+        showCaptionAboveMedia: Bool = false,
     ) async -> InputMessageContent {
         let path = url.path(percentEncoded: false)
         let dimensions = await Task.detached(priority: .userInitiated) {
@@ -3703,10 +3786,10 @@ import UIKit
         return .inputMessagePhoto(
             InputMessagePhoto(
                 caption: caption,
-                hasSpoiler: false,
+                hasSpoiler: hasSpoiler,
                 photo: photo,
                 selfDestructType: nil,
-                showCaptionAboveMedia: false,
+                showCaptionAboveMedia: showCaptionAboveMedia,
             ),
         )
     }

@@ -1736,3 +1736,12 @@
 "Translate.Languages.Title" = "Languages";
 "Bot.DescriptionTitle" = "What can this bot do?";
 "Conversation.InputMenu" = "Menu";
+"Attachment.DisableSpoiler" = "Disable Spoiler";
+"Attachment.EnableSpoiler" = "Hide With Spoiler";
+"Attachment.SendAsFile" = "Send as File";
+"Attachment.SendAsFiles" = "Send as Files";
+"Attachment.SendWithoutGrouping" = "Send Without Grouping";
+"Chat.SendMessageMenu.MoveCaptionDown" = "Move Caption Down";
+"Chat.SendMessageMenu.MoveCaptionUp" = "Move Caption Up";
+"MediaPicker.InvertCaption.Updated.Down.Title" = "Caption moved down";
+"MediaPicker.InvertCaption.Updated.Up.Title" = "Caption moved up";

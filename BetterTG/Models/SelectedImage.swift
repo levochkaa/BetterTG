@@ -2,6 +2,16 @@
 
 import UIKit
 
+// MARK: - ComposerMediaSendMode
+
+/// How the composer's photos and videos go, as MediaPickerScreen's menu offers: albums of up to ten, one message each
+/// (Send Without Grouping) or as files (Send as File).
+enum ComposerMediaSendMode {
+    case grouped
+    case separately
+    case files
+}
+
 // MARK: - SelectedVideo
 
 /// A video picked for sending. `url` is the app's copy of the library file, which TDLib converts when it asks for
@@ -25,6 +35,8 @@ struct SelectedImage: Identifiable, Equatable, @unchecked Sendable {
     var livePhotoVideoURL: URL?
     var isLivePhotoEnabled = true
     var video: SelectedVideo?
+    /// Telegram's Hide With Spoiler for this item (`hasSpoiler`).
+    var hasSpoiler = false
 
     /// Every file the app keeps for this item in `SelectedDocumentFileStore`.
     var fileURLs: [URL] {
@@ -33,6 +45,6 @@ struct SelectedImage: Identifiable, Equatable, @unchecked Sendable {
 
     static func == (lhs: SelectedImage, rhs: SelectedImage) -> Bool {
         lhs.url == rhs.url && lhs.livePhotoVideoURL == rhs.livePhotoVideoURL && lhs.isLivePhotoEnabled == rhs
-            .isLivePhotoEnabled && lhs.video == rhs.video
+            .isLivePhotoEnabled && lhs.video == rhs.video && lhs.hasSpoiler == rhs.hasSpoiler
     }
 }

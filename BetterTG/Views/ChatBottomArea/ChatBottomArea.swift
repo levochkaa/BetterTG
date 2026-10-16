@@ -134,6 +134,8 @@ final class ChatComposerView: UIView {
     )
 
     private var displayedImageIDs = [UUID]()
+    /// The picked items shown hidden with a spoiler, so the strip redraws when the send menu toggles them.
+    private var displayedSpoilerImageIDs = Set<UUID>()
     private var displayedDocumentIDs = [UUID]()
     private var contentSizeCategoryObserver: NSObjectProtocol?
     private var draftTask: Task<Void, Never>?
@@ -623,8 +625,10 @@ final class ChatComposerView: UIView {
         setReplyPreviewVisible(canWrite && showsReplyPreview, animated: window != nil)
 
         let imageIDs = chatVM.displayedImages.map(\.id)
-        if displayedImageIDs != imageIDs {
+        let spoilerImageIDs = Set(chatVM.displayedImages.filter(\.hasSpoiler).map(\.id))
+        if displayedImageIDs != imageIDs || displayedSpoilerImageIDs != spoilerImageIDs {
             displayedImageIDs = imageIDs
+            displayedSpoilerImageIDs = spoilerImageIDs
             rebuildPhotos()
         }
         let documentIDs = chatVM.displayedDocuments.map(\.id)
@@ -712,14 +716,16 @@ final class ChatComposerView: UIView {
     }
 
     /// Sends the composer, with the send menu's options when it chose some.
-    func send(options: TDNativeMessageSendOptions?) {
+    func send(options: TDNativeMessageSendOptions?, mediaMode: ComposerMediaSendMode = .grouped) {
         guard !chatVM.sendingComposerMessage, chatVM.editCustomMessage == nil || options == nil else { return }
         draftTask?.cancel()
         draftTask = nil
         typingTask?.cancel()
         typingTask = nil
         lastTypingActionDate = nil
-        chatVM.sendMessageTask = Task { [weak chatVM] in await chatVM?.sendMessage(options: options) }
+        chatVM.sendMessageTask = Task { [weak chatVM] in
+            await chatVM?.sendMessage(options: options, mediaMode: mediaMode)
+        }
     }
 
     private func configureViews() {
@@ -1244,6 +1250,19 @@ final class ChatComposerView: UIView {
                 self?.chatVM.removeDisplayedImage(id: selectedImage.id)
             }, for: .touchUpInside)
             container.addSubview(imageView)
+            if selectedImage.hasSpoiler {
+                // Telegram's picker covers a spoilered item with its spoiler dust; a blur stands in for it here.
+                let spoilerView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialDark))
+                spoilerView.translatesAutoresizingMaskIntoConstraints = false
+                spoilerView.isUserInteractionEnabled = false
+                container.addSubview(spoilerView)
+                NSLayoutConstraint.activate([
+                    spoilerView.topAnchor.constraint(equalTo: container.topAnchor),
+                    spoilerView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                    spoilerView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                    spoilerView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                ])
+            }
             container.addSubview(removeButton)
             if let video = selectedImage.video {
                 // Telegram's gallery marks a video with its duration in the bottom corner.
@@ -2012,16 +2031,30 @@ final class ChatComposerView: UIView {
         send(options: nil)
     }
 
-    /// ChatSendMessageContextScreen's items: Send Without Sound and Send When Online (not for reminders), then
-    /// Schedule Message or, in Saved Messages, Set a Reminder.
+    /// ChatSendMessageContextScreen's items: Move Caption Up or Down for captioned media, Send Without Sound and Send
+    /// When Online (not for reminders), then Schedule Message or, in Saved Messages, Set a Reminder. Picked photos and
+    /// videos add MediaPickerScreen's menu: Send as File, Send Without Grouping and Hide With Spoiler.
     @objc private func showSendOptions(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began, chatVM.locationContextIsCurrent else { return }
         let reminders = chatVM.customChat.isSavedMessages
+        let mediaCount = chatVM.editCustomMessage == nil ? chatVM.displayedImages.count : 0
         var actions = [TelegramContextMenuAction]()
+        if mediaCount > 0, !chatVM.text.characters.isEmpty {
+            let isAbove = chatVM.mediaCaptionIsAbove
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(isAbove
+                    ? "Chat.SendMessageMenu.MoveCaptionDown"
+                    : "Chat.SendMessageMenu.MoveCaptionUp"),
+                image: UIImage(systemName: isAbove ? "text.below.photo" : "text.above.photo"),
+            ) { [weak self] in
+                self?.toggleMediaCaptionPosition()
+            })
+        }
         if !reminders {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("Conversation.SendMessage.SendSilently"),
                 image: UIImage(systemName: "bell.slash"),
+                startsNewSection: !actions.isEmpty,
             ) { [weak self] in
                 self?.send(options: ChatVM.sendOptions(silent: true))
             })
@@ -2040,14 +2073,68 @@ final class ChatComposerView: UIView {
                     ? "Conversation.SendMessage.SetReminder"
                     : "Conversation.SendMessage.ScheduleMessage"),
                 image: UIImage(systemName: "calendar.badge.clock"),
+                startsNewSection: reminders && !actions.isEmpty,
             ) { [weak self] in
                 self?.onScheduleMessage?()
             })
+        }
+        if mediaCount > 0 {
+            actions += mediaSendActions(count: mediaCount)
         }
         nearestViewController?.presentTelegramContextMenu(
             sourceView: actionButton,
             actions: actions,
             presentationStyle: .sourceMorph,
+        )
+    }
+
+    /// MediaPickerScreen's media menu: Send as File(s) without spoilers, Send Without Grouping for several items, and
+    /// Hide With Spoiler or Disable Spoiler outside secret chats.
+    private func mediaSendActions(count: Int) -> [TelegramContextMenuAction] {
+        var actions = [TelegramContextMenuAction]()
+        let hasSpoilers = chatVM.displayedImages.contains(where: \.hasSpoiler)
+        let hasGeneric = chatVM.displayedImages.contains { !$0.hasSpoiler }
+        if !hasSpoilers, chatVM.canAttachDocuments {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(count > 1 ? "Attachment.SendAsFiles" : "Attachment.SendAsFile"),
+                image: UIImage(systemName: "doc"),
+                startsNewSection: true,
+            ) { [weak self] in
+                self?.send(options: nil, mediaMode: .files)
+            })
+        }
+        if count > 1 {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Attachment.SendWithoutGrouping"),
+                image: UIImage(systemName: "rectangle.split.2x2"),
+                startsNewSection: actions.isEmpty,
+            ) { [weak self] in
+                self?.send(options: nil, mediaMode: .separately)
+            })
+        }
+        if chatVM.canHideMediaWithSpoiler {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(hasGeneric ? "Attachment.EnableSpoiler" : "Attachment.DisableSpoiler"),
+                image: UIImage(systemName: hasGeneric ? "eye.slash" : "eye"),
+                startsNewSection: true,
+            ) { [weak self] in
+                self?.chatVM.setDisplayedMediaSpoiler(hasGeneric)
+            })
+        }
+        return actions
+    }
+
+    /// ChatSendMessageContextScreen's caption position, with MediaPickerScreen's toast naming where it went.
+    private func toggleMediaCaptionPosition() {
+        chatVM.mediaCaptionIsAbove.toggle()
+        guard let host = nearestViewController?.view else { return }
+        TelegramUndoToast.show(
+            text: L10n.telegram(chatVM.mediaCaptionIsAbove
+                ? "MediaPicker.InvertCaption.Updated.Up.Title"
+                : "MediaPicker.InvertCaption.Updated.Down.Title"),
+            in: host,
+            bottomInset: bounds.height + 8,
+            undo: nil,
         )
     }
 
