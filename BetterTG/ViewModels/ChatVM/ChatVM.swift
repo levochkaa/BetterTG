@@ -3141,12 +3141,25 @@ import UIKit
     }
 
     func sendMessageDocuments() async throws -> (context: ResolvedSendContext, messages: [Message]) {
+        let documents = Array(displayedDocuments.prefix(10))
+        // Telegram's file picker sends an mp3, m4a or flac file as music with its tags (iCloudFileDescription);
+        // music and other files need their own permissions.
+        var musicMetadata = [UUID: ComposerAudioMetadata]()
+        for document in documents {
+            if let metadata = await ComposerAudioMetadata.read(document.url) {
+                musicMetadata[document.id] = metadata
+            }
+        }
+        let sendsMusic = !musicMetadata.isEmpty
+        let sendsOtherFiles = musicMetadata.count < documents.count
+        if sendsMusic, sendsOtherFiles {
+            _ = try resolveSendContext(for: .audio, replyingTo: replyMessage, useCurrentReplyOverride: true)
+        }
         let context = try resolveSendContext(
-            for: .document,
+            for: sendsOtherFiles ? .document : .audio,
             replyingTo: replyMessage,
             useCurrentReplyOverride: true,
         )
-        let documents = Array(displayedDocuments.prefix(10))
         guard !documents.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
         let caption = try await composerCaption()
         let provisionalMessageIDs = documents.map { _ in -Int64.random(in: 1...Int64.max) }
@@ -3178,28 +3191,37 @@ import UIKit
                 in: context,
             )
             let contents = documents.enumerated().map { index, document in
-                InputMessageContent.inputMessageDocument(InputMessageDocument(
+                let file = InputFile.inputFileLocal(InputFileLocal(path: document.url.path(percentEncoded: false)))
+                if let music = musicMetadata[document.id] {
+                    return InputMessageContent.inputMessageAudio(TDNativeInputMessageAudio(
+                        audio: TDNativeInputAudio(
+                            audio: file,
+                            albumCoverThumbnail: music.coverURL.map { cover in
+                                TDNativeInputThumbnail(
+                                    thumbnail: .inputFileLocal(InputFileLocal(path: cover.path(percentEncoded: false))),
+                                    width: Int(music.coverSize.width),
+                                    height: Int(music.coverSize.height),
+                                )
+                            },
+                            duration: music.duration,
+                            title: music.title,
+                            performer: music.performer,
+                        ),
+                        caption: index == 0 ? caption : nil,
+                    ))
+                }
+                return InputMessageContent.inputMessageDocument(InputMessageDocument(
                     caption: index == 0 ? caption : nil,
                     document: InputDocument(
                         disableContentTypeDetection: true,
-                        document: .inputFileLocal(InputFileLocal(path: document.url.path(percentEncoded: false))),
+                        document: file,
                         thumbnail: nil,
                     ),
                 ))
             }
             guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
             let messages: [Message]
-            if contents.count == 1, let content = contents.first {
-                let message = try await client.sendMessage(
-                    chatId: context.chatID,
-                    inputMessageContent: content,
-                    options: composerSendOptions,
-                    replyMarkup: nil,
-                    replyTo: context.replyTo,
-                    topicId: context.destinationTopic,
-                )
-                messages = [message]
-            } else {
+            if contents.count > 1, !(sendsMusic && sendsOtherFiles) {
                 let hold = beginOutgoingAlbum(count: contents.count)
                 defer { endOutgoingAlbum(hold) }
                 let result = try await client.sendMessageAlbum(
@@ -3210,6 +3232,26 @@ import UIKit
                     topicId: context.destinationTopic,
                 )
                 messages = result.messages
+            } else {
+                // Telegram groups files only when all are music or none are; a mix goes one message each. A failure
+                // after the first keeps what went out, which the partial check below reports.
+                var sent = [Message]()
+                for content in contents {
+                    do {
+                        try await sent.append(client.sendMessage(
+                            chatId: context.chatID,
+                            inputMessageContent: content,
+                            options: composerSendOptions,
+                            replyMarkup: nil,
+                            replyTo: context.replyTo,
+                            topicId: context.destinationTopic,
+                        ))
+                    } catch {
+                        if sent.isEmpty { throw error }
+                        break
+                    }
+                }
+                messages = sent
             }
             for index in 0..<min(messages.count, documents.count) {
                 let resolvedMessageID = bufferedDocumentMessageIDAliases[messages[index].id] ?? messages[index].id
@@ -6029,6 +6071,8 @@ import UIKit
             switch kind {
             case .animation, .sticker:
                 \.canSendOtherMessages
+            case .audio:
+                \.canSendAudios
             case .document:
                 \.canSendDocuments
             case .photo:

@@ -7,6 +7,7 @@ import TDLibKit
 
 enum ChatSendContentKind {
     case animation
+    case audio
     case document
     case photo
     case sticker

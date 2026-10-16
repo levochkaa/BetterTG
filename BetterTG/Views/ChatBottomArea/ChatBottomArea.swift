@@ -2,6 +2,7 @@
 
 import TDLibKit
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - ChatMediaRecordingMode
 
@@ -1352,7 +1353,9 @@ final class ChatComposerView: UIView {
             container.layer.cornerCurve = .continuous
             container.layer.cornerRadius = 10
 
-            let iconView = UIImageView(image: UIImage(systemName: "doc.fill"))
+            // A music file goes as music (ComposerAudioMetadata), so it shows a note.
+            let isMusic = UTType(filenameExtension: document.url.pathExtension)?.conforms(to: .audio) == true
+            let iconView = UIImageView(image: UIImage(systemName: isMusic ? "music.note" : "doc.fill"))
             iconView.translatesAutoresizingMaskIntoConstraints = false
             iconView.contentMode = .scaleAspectFit
             iconView.tintColor = .systemBlue
