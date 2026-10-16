@@ -10,6 +10,8 @@ import UIKit
 /// Voted, Allow Multiple Answers, Allow Adding Options, Allow Revoting, Shuffle Options, Set Correct Answer, Limit
 /// Duration with Hide Results, and a channel's Restrict to Subscribers); and a quiz's explanation. Send checks the poll
 /// as Telegram's validatedInput does and hands it over as `inputMessagePoll` once the screen has been dismissed.
+/// Every field takes custom emoji from the emoji picker, the way ListComposePollOptionComponent's input mode button
+/// swaps in Telegram's emoji keyboard, and the poll keeps only their entities.
 @MainActor final class CreatePollViewController: UITableViewController, UITableViewDragDelegate,
     UITableViewDropDelegate, UIAdaptivePresentationControllerDelegate
 {
@@ -46,9 +48,21 @@ import UIKit
         case failed(String)
     }
 
+    /// A field the emoji picker inserts into.
+    private enum TextField: Equatable {
+        case question
+        case description
+        case option(Int)
+        case explanation
+    }
+
     private struct DraftOption {
         let id: Int
-        var text = ""
+        var text = NSAttributedString()
+
+        var isEmpty: Bool {
+            text.string.isEmpty
+        }
     }
 
     /// ComposePollScreen's limits: 200 characters for the question and the explanation, 1024 for the description and
@@ -73,15 +87,22 @@ import UIKit
 
     private let isChannel: Bool
     private let client: TDLibClient
+    /// The account and chat the emoji picker loads the user's emoji for; without an account the fields take only the
+    /// keyboard's emoji.
+    private let accountID: UUID?
+    private let chatID: Int64
     private let send: (InputMessageContent) -> Void
     private var maximumOptionCount = 10
     private var maximumOpenPeriod: Int?
-    private var question = ""
-    private var pollDescription = ""
-    private var explanation = ""
+    private var question = NSAttributedString()
+    private var pollDescription = NSAttributedString()
+    private var explanation = NSAttributedString()
     private var options = [DraftOption]()
     private var nextOptionID = 0
     private var editingOptionID: Int?
+    /// The field the open emoji picker inserts into. An option being filled from it stays while its field is covered.
+    private var emojiPickerField: TextField?
+    private var emojiPickerObserver: SheetDismissObserver?
     private var isAnonymous = true
     private var allowsMultipleAnswers = true
     private var canAddOptions = false
@@ -115,18 +136,18 @@ import UIKit
 
     /// The options a filled one can be moved among: all but an empty last one.
     private var reorderableOptionCount: Int {
-        options.last?.text.isEmpty == true ? options.count - 1 : options.count
+        options.last?.isEmpty == true ? options.count - 1 : options.count
     }
 
     /// ComposePollScreen's hasAnyData, which asks before the poll is discarded.
     private var hasAnyData: Bool {
-        !question.isEmpty || !pollDescription.isEmpty || !explanation.isEmpty
-            || options.contains { !$0.text.isEmpty }
+        !question.string.isEmpty || !pollDescription.string.isEmpty || !explanation.string.isEmpty
+            || options.contains { !$0.isEmpty }
     }
 
     private var optionsFooterText: String {
         if options.count >= maximumOptionCount { return L10n.telegram("CreatePoll.AllOptionsAdded") }
-        let remaining = maximumOptionCount - options.count(where: { !$0.text.isEmpty })
+        let remaining = maximumOptionCount - options.count(where: { !$0.isEmpty })
         return L10n.telegramPlural("CreatePoll.OptionCountFooterFormat", count: remaining)
             .replacingOccurrences(of: "{count}", with: "\(remaining)")
     }
@@ -135,16 +156,22 @@ import UIKit
     ///   - isChannel: A channel's polls are anonymous and shuffled by default, and offer Restrict to Subscribers in
     ///     place of Show Who Voted and Allow Adding Options.
     ///   - forcedQuiz: A bot's poll request (`setupPoll(isQuiz:)`): true for a quiz, false for a regular poll.
+    ///   - accountID: The account whose emoji the picker offers.
+    ///   - chatID: The chat the poll goes to; Saved Messages takes custom emoji without Premium.
     ///   - send: Called with the poll once the screen has been dismissed.
     init(
         isChannel: Bool,
         client: TDLibClient,
         forcedQuiz: Bool? = nil,
+        accountID: UUID?,
+        chatID: Int64,
         send: @escaping (InputMessageContent) -> Void,
     ) {
         self.isChannel = isChannel
         self.client = client
         self.forcedQuiz = forcedQuiz
+        self.accountID = accountID
+        self.chatID = chatID
         self.send = send
         super.init(style: .insetGrouped)
         // ComposePollScreen's initial state: two empty options, multiple answers and revoting allowed, and outside
@@ -233,27 +260,32 @@ import UIKit
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         switch sections[indexPath.section] {
         case .text:
-            let cell = textCell(tableView, at: indexPath)
             if indexPath.row == 0 {
+                let cell = textCell(tableView, at: indexPath, field: .question)
                 cell.configure(CreatePollTextCell.Configuration(
                     text: question,
                     placeholder: L10n.telegram("CreatePoll.TextPlaceholder"),
                     lengthLimit: Self.questionLengthLimit,
+                    allowsEmoji: accountID != nil,
                 ))
                 cell.onTextChange = { [weak self] in self?.question = $0 }
-            } else {
-                cell.configure(CreatePollTextCell.Configuration(
-                    text: pollDescription,
-                    placeholder: L10n.telegram("CreatePoll.DescriptionPlaceholder"),
-                    lengthLimit: Self.descriptionLengthLimit,
-                ))
-                cell.onTextChange = { [weak self] in self?.pollDescription = $0 }
+                return cell
             }
+            let cell = textCell(tableView, at: indexPath, field: .description)
+            cell.configure(CreatePollTextCell.Configuration(
+                text: pollDescription,
+                placeholder: L10n.telegram("CreatePoll.DescriptionPlaceholder"),
+                lengthLimit: Self.descriptionLengthLimit,
+                allowsEmoji: accountID != nil,
+            ))
+            cell.onTextChange = { [weak self] in self?.pollDescription = $0 }
             return cell
         case .options:
-            let cell = textCell(tableView, at: indexPath)
-            guard let option = options[safe: indexPath.row] else { return cell }
+            guard let option = options[safe: indexPath.row] else {
+                return textCell(tableView, at: indexPath, field: nil)
+            }
             let id = option.id
+            let cell = textCell(tableView, at: indexPath, field: .option(id))
             cell.configure(optionConfiguration(at: indexPath.row))
             cell.onTextChange = { [weak self] in self?.optionTextChanged(id: id, text: $0) }
             cell.onReturn = { [weak self] in self?.optionReturnPressed(id: id) }
@@ -268,12 +300,13 @@ import UIKit
             configureSettingsCell(cell, item: item, animated: false)
             return cell
         case .explanation:
-            let cell = textCell(tableView, at: indexPath)
+            let cell = textCell(tableView, at: indexPath, field: .explanation)
             cell.configure(CreatePollTextCell.Configuration(
                 text: explanation,
                 placeholder: L10n.telegram("CreatePoll.Explanation"),
                 lengthLimit: Self.explanationLengthLimit,
                 lineFeedLimit: Self.explanationLineFeedLimit,
+                allowsEmoji: accountID != nil,
             ))
             cell.onTextChange = { [weak self] in self?.explanation = $0 }
             return cell
@@ -306,7 +339,7 @@ import UIKit
     }
 
     override func tableView(_: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool {
-        sections[safe: indexPath.section] == .options && options[safe: indexPath.row]?.text.isEmpty == false
+        sections[safe: indexPath.section] == .options && options[safe: indexPath.row]?.isEmpty == false
     }
 
     override func tableView(
@@ -320,6 +353,18 @@ import UIKit
         DispatchQueue.main.async { [weak self] in
             self?.refreshOptionCells()
         }
+    }
+
+    // MARK: Sending
+
+    /// ComposePollScreen's validatedInput keeps only a field's custom emoji entities.
+    private static func pollText(_ value: NSAttributedString) -> FormattedText {
+        let formatted = ComposerText.formatted(value)
+        let entities = formatted.entities.filter { entity in
+            if case .textEntityTypeCustomEmoji = entity.type { return true }
+            return false
+        }
+        return FormattedText(entities: entities, text: formatted.text)
     }
 
     /// The screen in its sheet, which asks before a swipe discards an unsent poll.
@@ -339,7 +384,7 @@ import UIKit
         at indexPath: IndexPath,
     ) -> [UIDragItem] {
         guard sections[safe: indexPath.section] == .options,
-              let option = options[safe: indexPath.row], !option.text.isEmpty,
+              let option = options[safe: indexPath.row], !option.isEmpty,
               let cell = tableView.cellForRow(at: indexPath) as? CreatePollTextCell,
               cell.reorderHandleContains(session.location(in: cell))
         else { return [] }
@@ -382,13 +427,17 @@ import UIKit
 
     // MARK: Options
 
-    private func textCell(_ tableView: UITableView, at indexPath: IndexPath) -> CreatePollTextCell {
+    private func textCell(_ tableView: UITableView, at indexPath: IndexPath, field: TextField?) -> CreatePollTextCell {
         guard let cell = tableView.dequeueReusableCell(
             withIdentifier: CreatePollTextCell.reuseIdentifier,
             for: indexPath,
         ) as? CreatePollTextCell else { return CreatePollTextCell(style: .default, reuseIdentifier: nil) }
         cell.resetActions()
+        cell.customEmojiClient = client
         cell.onHeightChange = { [weak self] in self?.updateRowHeights() }
+        if let field {
+            cell.onEmoji = { [weak self] in self?.presentEmojiPicker(for: field) }
+        }
         return cell
     }
 
@@ -398,7 +447,7 @@ import UIKit
         let option = options[index]
         let isLast = index == options.count - 1
         let indicator: CreatePollTextCell.Indicator =
-            if !option.text.isEmpty {
+            if !option.isEmpty {
                 .reorder
             } else if index != 0, index < maximumOptionCount {
                 .add
@@ -418,10 +467,11 @@ import UIKit
                     allowsMultiple: allowsMultipleAnswers,
                 )
                 : nil,
+            allowsEmoji: accountID != nil,
         )
     }
 
-    private func optionTextChanged(id: Int, text: String) {
+    private func optionTextChanged(id: Int, text: NSAttributedString) {
         guard let index = options.firstIndex(where: { $0.id == id }) else { return }
         options[index].text = text
         updateOptions(from: options.map(\.id))
@@ -432,6 +482,8 @@ import UIKit
             editingOptionID = id
             return
         }
+        // The emoji picker covers the field it fills: the option stays until the picker closes.
+        guard emojiPickerField != .option(id) else { return }
         if editingOptionID == id { editingOptionID = nil }
         // An empty option left behind may go now; the table may be mid-update while the field resigns.
         DispatchQueue.main.async { [weak self] in
@@ -482,13 +534,13 @@ import UIKit
     /// ComposePollScreen's option upkeep: an empty last option goes when the one before it is empty too and it isn't
     /// being edited, and a filled last option gets an empty one after it while there's room.
     private func normalizeOptions() {
-        while options.count > 2, let last = options.last, last.text.isEmpty, last.id != editingOptionID,
-              options[options.count - 2].text.isEmpty
+        while options.count > 2, let last = options.last, last.isEmpty, last.id != editingOptionID,
+              options[options.count - 2].isEmpty
         {
             options.removeLast()
             correctOptionIDs.remove(last.id)
         }
-        if options.count < maximumOptionCount, let last = options.last, !last.text.isEmpty {
+        if options.count < maximumOptionCount, let last = options.last, !last.isEmpty {
             options.append(DraftOption(id: nextOptionID))
             nextOptionID += 1
         }
@@ -535,6 +587,68 @@ import UIKit
     private func updateRowHeights() {
         UIView.performWithoutAnimation {
             tableView.performBatchUpdates(nil)
+        }
+    }
+
+    // MARK: Emoji
+
+    /// ListComposePollOptionComponent's input mode button. Telegram swaps the keyboard for its emoji keyboard; here
+    /// the composer's emoji picker opens over the screen, emoji only, and fills the field that was being edited.
+    private func presentEmojiPicker(for field: TextField) {
+        guard let accountID, presentedViewController == nil else { return }
+        let picker = ComposerMediaPickerViewController(accountID: accountID, chatID: chatID, client: client)
+        picker.allowsStickersAndGIFs = false
+        picker.onEmoji = { [weak self] emoji in
+            self?.insertEmoji(emoji, customID: nil, in: field)
+        }
+        picker.onCustomEmoji = { [weak self] sticker in
+            guard case .stickerFullTypeCustomEmoji(let type) = sticker.fullType else { return }
+            self?.insertEmoji(sticker.emoji, customID: type.customEmojiId, in: field)
+        }
+        picker.onDismiss = { [weak self] in self?.emojiPickerDidDismiss() }
+        emojiPickerField = field
+        let observer = SheetDismissObserver { [weak self] in self?.emojiPickerDidDismiss() }
+        emojiPickerObserver = observer
+        let navigation = TelegramNavigationController(rootViewController: picker)
+        navigation.modalPresentationStyle = .pageSheet
+        navigation.sheetPresentationController?.detents = [.medium(), .large()]
+        navigation.sheetPresentationController?.prefersGrabberVisible = false
+        navigation.presentationController?.delegate = observer
+        present(navigation, animated: true)
+    }
+
+    private func insertEmoji(_ emoji: String, customID: Int64?, in field: TextField) {
+        guard let indexPath = rowIndexPath(for: field),
+              let cell = tableView.cellForRow(at: indexPath) as? CreatePollTextCell else { return }
+        cell.insertEmoji(emoji, customID: customID)
+    }
+
+    /// Telegram's emoji keyboard switches back to the keyboard in the same field.
+    private func emojiPickerDidDismiss() {
+        guard let field = emojiPickerField else { return }
+        emojiPickerField = nil
+        emojiPickerObserver = nil
+        let indexPath = rowIndexPath(for: field)
+        if let indexPath { focusRow(at: indexPath) }
+        if case .option(let id) = field,
+           indexPath.flatMap({ tableView.cellForRow(at: $0) as? CreatePollTextCell })?.isEditingText != true
+        {
+            optionEditingChanged(id: id, isEditing: false)
+        }
+    }
+
+    private func rowIndexPath(for field: TextField) -> IndexPath? {
+        switch field {
+        case .question:
+            return sections.firstIndex(of: .text).map { IndexPath(row: 0, section: $0) }
+        case .description:
+            return sections.firstIndex(of: .text).map { IndexPath(row: 1, section: $0) }
+        case .option(let id):
+            guard let section = sections.firstIndex(of: .options),
+                  let row = options.firstIndex(where: { $0.id == id }) else { return nil }
+            return IndexPath(row: row, section: section)
+        case .explanation:
+            return sections.firstIndex(of: .explanation).map { IndexPath(row: 0, section: $0) }
         }
     }
 
@@ -815,14 +929,12 @@ import UIKit
         refreshSettingsCells()
     }
 
-    // MARK: Sending
-
     /// ComposePollScreen's validatedInput: a question, at least one option and, in a quiz, a correct answer.
     private func validatedPoll() -> Validation {
-        guard !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !question.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .failed(L10n.telegram("CreatePoll.QuestionNeeded"))
         }
-        let filled = options.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let filled = options.filter { !$0.text.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         guard !filled.isEmpty else {
             return .failed(L10n.telegram(isQuiz ? "CreatePoll.OptionsNeeded" : "CreatePoll.OptionsNeededOne"))
         }
@@ -836,7 +948,7 @@ import UIKit
             if isQuiz {
                 .inputPollTypeQuiz(TDNativeInputPollTypeQuiz(
                     correctOptionIds: correctIndices,
-                    explanation: FormattedText(entities: [], text: explanation),
+                    explanation: Self.pollText(explanation),
                     explanationMedia: nil,
                 ))
             } else {
@@ -851,10 +963,9 @@ import UIKit
             }
         }
         return .ready(.inputMessagePoll(TDNativeInputMessagePoll(
-            question: FormattedText(entities: [], text: question),
-            options: filled
-                .map { TDNativeInputPollOption(text: FormattedText(entities: [], text: $0.text), media: nil) },
-            description: FormattedText(entities: [], text: pollDescription),
+            question: Self.pollText(question),
+            options: filled.map { TDNativeInputPollOption(text: Self.pollText($0.text), media: nil) },
+            description: Self.pollText(pollDescription),
             media: nil,
             isAnonymous: isAnonymous,
             // A poll with one option takes a single answer (`.poll(multipleAnswers: isMultiAnswer && count > 1)`).
@@ -950,17 +1061,33 @@ import UIKit
         guard count != maximumOptionCount else { return }
         let previousIDs = options.map(\.id)
         maximumOptionCount = count
-        while options.count > max(2, count), options.last?.text.isEmpty == true {
+        while options.count > max(2, count), options.last?.isEmpty == true {
             options.removeLast()
         }
         updateOptions(from: previousIDs)
     }
 }
 
+// MARK: - SheetDismissObserver
+
+/// Reports a sheet the user swiped away.
+@MainActor private final class SheetDismissObserver: NSObject, UIAdaptivePresentationControllerDelegate {
+    private let onDismiss: () -> Void
+
+    init(onDismiss: @escaping () -> Void) {
+        self.onDismiss = onDismiss
+    }
+
+    func presentationControllerDidDismiss(_: UIPresentationController) {
+        onDismiss()
+    }
+}
+
 // MARK: - CreatePollTextCell
 
 /// ListComposePollOptionComponent as a table row: a growing field with a hard character limit and, for an option, the
-/// reorder or add indicator before it and a quiz's correct answer check.
+/// reorder or add indicator before it and a quiz's correct answer check, and the emoji button while it's edited.
+/// Custom emoji stay whole: an edit that touches one replaces all of it.
 private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
     enum Indicator {
         /// The indicator's space without one, as the first empty option has.
@@ -975,7 +1102,7 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
     }
 
     struct Configuration {
-        var text: String
+        var text: NSAttributedString
         var placeholder: String
         var lengthLimit: Int
         var allowsLineFeeds = true
@@ -983,36 +1110,51 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         var returnKeyType = UIReturnKeyType.default
         var indicator: Indicator?
         var check: Check?
+        /// ListComposePollOptionComponent's input mode button.
+        var allowsEmoji = false
     }
 
     static let reuseIdentifier = "CreatePollTextCell"
 
-    var onTextChange: ((String) -> Void)?
+    private static var font: UIFont {
+        .preferredFont(forTextStyle: .body)
+    }
+
+    var onTextChange: ((NSAttributedString) -> Void)?
     var onReturn: (() -> Void)?
     var onDeleteBackwardWhenEmpty: (() -> Void)?
     var onEditingChange: ((Bool) -> Void)?
     var onHeightChange: (() -> Void)?
     var onToggleCheck: (() -> Void)?
+    var onEmoji: (() -> Void)?
 
     private let textView = CreatePollTextView()
     private let placeholderLabel = UILabel()
     private let indicatorView = UIImageView()
     private let checkButton = UIButton(type: .system)
+    private let emojiButton = UIButton(type: .system)
     private var configuration: Configuration?
     private var indicator: Indicator?
+
+    /// The client whose account owns the field's custom emoji.
+    var customEmojiClient: TDLibClient? {
+        get { textView.customEmojiClient }
+        set { textView.customEmojiClient = newValue }
+    }
+
+    var isEditingText: Bool {
+        textView.isFirstResponder
+    }
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         selectionStyle = .none
         backgroundColor = .secondarySystemGroupedBackground
-        textView.font = .preferredFont(forTextStyle: .body)
-        textView.adjustsFontForContentSizeCategory = true
-        textView.isScrollEnabled = false
-        textView.backgroundColor = .clear
-        textView.textContainerInset = .zero
-        textView.textContainer.lineFragmentPadding = 0
+        textView.font = Self.font
+        textView.typingAttributes = typingAttributes(at: 0)
         textView.delegate = self
         textView.onDeleteBackwardWhenEmpty = { [weak self] in self?.onDeleteBackwardWhenEmpty?() }
+        textView.onPasteTelegramText = { [weak self] in self?.insert($0) ?? false }
         placeholderLabel.font = .preferredFont(forTextStyle: .body)
         placeholderLabel.adjustsFontForContentSizeCategory = true
         placeholderLabel.textColor = .placeholderText
@@ -1021,7 +1163,15 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         indicatorView.tintColor = .placeholderText
         indicatorView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 15, weight: .regular)
         checkButton.addTarget(self, action: #selector(checkPressed), for: .touchUpInside)
-        let stack = UIStackView(arrangedSubviews: [indicatorView, checkButton, textView])
+        emojiButton.setImage(
+            UIImage(systemName: "face.smiling", withConfiguration: UIImage.SymbolConfiguration(pointSize: 19)),
+            for: .normal,
+        )
+        emojiButton.tintColor = .secondaryLabel
+        emojiButton.accessibilityLabel = L10n.telegram("EmojiInput.TabEmoji")
+        emojiButton.addTarget(self, action: #selector(emojiPressed), for: .touchUpInside)
+        setEmojiButtonVisible(false, animated: false)
+        let stack = UIStackView(arrangedSubviews: [indicatorView, checkButton, textView, emojiButton])
         stack.axis = .horizontal
         stack.alignment = .center
         stack.spacing = 12
@@ -1032,6 +1182,8 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
             indicatorView.widthAnchor.constraint(equalToConstant: 22),
             checkButton.widthAnchor.constraint(equalToConstant: 26),
             checkButton.heightAnchor.constraint(equalToConstant: 26),
+            emojiButton.widthAnchor.constraint(equalToConstant: 28),
+            emojiButton.heightAnchor.constraint(equalToConstant: 28),
             stack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
             stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
@@ -1058,13 +1210,18 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         onEditingChange = nil
         onHeightChange = nil
         onToggleCheck = nil
+        onEmoji = nil
     }
 
     func configure(_ configuration: Configuration) {
         self.configuration = configuration
-        if textView.text != configuration.text { textView.text = configuration.text }
+        if textView.markedTextRange == nil, !textView.attributedText.isEqual(to: configuration.text) {
+            textView.attributedText = configuration.text
+            textView.typingAttributes = typingAttributes(at: textView.selectedRange.location)
+            textView.updateCustomEmoji()
+        }
         placeholderLabel.text = configuration.placeholder
-        placeholderLabel.isHidden = !configuration.text.isEmpty
+        placeholderLabel.isHidden = !configuration.text.string.isEmpty
         if textView.returnKeyType != configuration.returnKeyType {
             textView.returnKeyType = configuration.returnKeyType
             if textView.isFirstResponder { textView.reloadInputViews() }
@@ -1092,10 +1249,25 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
             checkButton.tintColor = check.isSelected ? .systemGreen : .tertiaryLabel
             checkButton.accessibilityTraits = check.isSelected ? [.button, .selected] : .button
         }
+        setHidden(emojiButton, !configuration.allowsEmoji)
     }
 
     func beginEditing() {
         textView.becomeFirstResponder()
+    }
+
+    /// Inserts a picked emoji at the caret as one run, if it fits the field's limit.
+    func insertEmoji(_ emoji: String, customID: Int64?) {
+        guard !emoji.isEmpty else { return }
+        let value = NSMutableAttributedString(attributedString: ComposerText
+            .importing(NSAttributedString(string: emoji)))
+        if let customID {
+            ComposerText.setCustomEmoji(
+                [TelegramCustomEmojiRun(id: customID, range: NSRange(location: 0, length: value.length))],
+                in: value,
+            )
+        }
+        _ = insert(value)
     }
 
     /// Whether a drag starting here is on the reorder indicator.
@@ -1105,23 +1277,33 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
     }
 
     func textViewDidBeginEditing(_: UITextView) {
+        setEmojiButtonVisible(true, animated: true)
         onEditingChange?(true)
     }
 
     func textViewDidEndEditing(_: UITextView) {
+        setEmojiButtonVisible(false, animated: true)
         onEditingChange?(false)
     }
 
     /// TextFieldComponent's character limit, which cuts what doesn't fit; in an option the return key moves on and
-    /// pasted line breaks become spaces.
+    /// pasted line breaks become spaces. A custom emoji is one glyph: a partial edit replaces the whole emoji.
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         guard let configuration else { return true }
         if !configuration.allowsLineFeeds, text == "\n" {
             onReturn?()
             return false
         }
-        let current = textView.text ?? ""
-        guard let bounds = Range(range, in: current) else { return false }
+        let current = textView.textStorage.string
+        guard ComposerText.isValid(range, in: current as NSString) else { return false }
+        textView.typingAttributes = typingAttributes(at: range.location)
+        var editedRange = range
+        for emoji in TelegramCustomEmojiRun.extract(from: textView.textStorage)
+            where range.length > 0 && NSIntersectionRange(range, emoji.range).length > 0
+        {
+            editedRange = NSUnionRange(editedRange, emoji.range)
+        }
+        guard let bounds = Range(editedRange, in: current) else { return false }
         let kept = current.replacingCharacters(in: bounds, with: "")
         var replacement = configuration.allowsLineFeeds
             ? text
@@ -1137,25 +1319,76 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         }
         let available = max(0, configuration.lengthLimit - kept.count)
         if replacement.count > available { replacement = String(replacement.prefix(available)) }
-        if replacement == text { return true }
-        guard let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
-              let end = textView.position(from: start, offset: range.length),
+        if replacement == text, editedRange == range { return true }
+        guard let start = textView.position(from: textView.beginningOfDocument, offset: editedRange.location),
+              let end = textView.position(from: start, offset: editedRange.length),
               let textRange = textView.textRange(from: start, to: end)
         else { return false }
         textView.replace(textRange, withText: replacement)
-        reportChange()
+        textDidChange()
         return false
     }
 
     func textViewDidChange(_: UITextView) {
+        textDidChange()
+    }
+
+    /// Puts `value` in place of the selection as the user's edit, if it fits the field's limits; pasted custom emoji
+    /// come here too, and fall back to plain text when they don't fit.
+    private func insert(_ value: NSAttributedString) -> Bool {
+        guard let configuration else { return false }
+        if value.string.contains(where: \.isNewline),
+           !configuration.allowsLineFeeds || configuration.lineFeedLimit != nil
+        {
+            return false
+        }
+        if textView.markedTextRange != nil { textView.unmarkText() }
+        let storage = textView.textStorage
+        var range = textView.selectedRange
+        if !ComposerText.isValid(range, in: storage.string as NSString) {
+            range = NSRange(location: storage.length, length: 0)
+        }
+        var editedRange = range
+        for emoji in TelegramCustomEmojiRun.extract(from: storage)
+            where range.length > 0 && NSIntersectionRange(range, emoji.range).length > 0
+        {
+            editedRange = NSUnionRange(editedRange, emoji.range)
+        }
+        guard let bounds = Range(editedRange, in: storage.string) else { return false }
+        let kept = storage.string.replacingCharacters(in: bounds, with: "")
+        guard kept.count + value.string.count <= configuration.lengthLimit else { return false }
+        storage.replaceCharacters(in: editedRange, with: value)
+        textView.selectedRange = NSRange(location: editedRange.location + value.length, length: 0)
+        textDidChange()
+        return true
+    }
+
+    /// Keeps the custom emoji entities that still match their text, as the composer does, in the field's font.
+    private func textDidChange() {
+        let storage = textView.textStorage
+        if textView.markedTextRange == nil {
+            storage.beginEditing()
+            ComposerText.refresh(storage)
+            storage.addAttribute(.font, value: Self.font, range: NSRange(location: 0, length: storage.length))
+            storage.endEditing()
+            textView.typingAttributes = typingAttributes(at: textView.selectedRange.location)
+        }
+        textView.updateCustomEmoji()
         reportChange()
     }
 
+    /// The composer's typing attributes, which never carry a custom emoji on, in the field's font.
+    private func typingAttributes(at location: Int) -> [NSAttributedString.Key: Any] {
+        var attributes = ComposerText.typingAttributes(in: textView.textStorage, at: location)
+        attributes[.font] = Self.font
+        return attributes
+    }
+
     private func reportChange() {
-        let text = textView.text ?? ""
-        guard text != configuration?.text else { return }
+        let text = NSAttributedString(attributedString: textView.textStorage)
+        guard configuration?.text.isEqual(to: text) != true else { return }
         configuration?.text = text
-        placeholderLabel.isHidden = !text.isEmpty
+        placeholderLabel.isHidden = !text.string.isEmpty
         onTextChange?(text)
         let fitting = textView.sizeThatFits(CGSize(width: textView.bounds.width, height: .greatestFiniteMagnitude))
         if abs(fitting.height - textView.bounds.height) > 0.5 { onHeightChange?() }
@@ -1165,21 +1398,63 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         if view.isHidden != hidden { view.isHidden = hidden }
     }
 
+    /// The input mode button shows while the field is edited (ListComposePollOptionComponent's displaySelector).
+    private func setEmojiButtonVisible(_ visible: Bool, animated: Bool) {
+        emojiButton.isUserInteractionEnabled = visible
+        let changes = { [emojiButton] in
+            emojiButton.alpha = visible ? 1 : 0
+            emojiButton.transform = visible ? .identity : CGAffineTransform(scaleX: 0.001, y: 0.001)
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.2,
+                delay: 0,
+                options: [.curveEaseInOut, .beginFromCurrentState],
+                animations: changes,
+            )
+        } else {
+            changes()
+        }
+    }
+
     @objc private func checkPressed() {
         onToggleCheck?()
+    }
+
+    @objc private func emojiPressed() {
+        onEmoji?()
     }
 }
 
 // MARK: - CreatePollTextView
 
-/// Reports backspace in an empty field, which moves to the field before it (TextFieldComponent's backspaceKeyAction).
-private final class CreatePollTextView: UITextView {
+/// Reports backspace in an empty field, which moves to the field before it (TextFieldComponent's backspaceKeyAction),
+/// and pastes BetterTG's copied custom emoji.
+private final class CreatePollTextView: CustomEmojiTextView {
     var onDeleteBackwardWhenEmpty: (() -> Void)?
+    /// Takes pasted text with custom emoji; false pastes it as plain text.
+    var onPasteTelegramText: ((NSAttributedString) -> Bool)?
 
     override func deleteBackward() {
         let wasEmpty = text.isEmpty
         super.deleteBackward()
         if wasEmpty { onDeleteBackwardWhenEmpty?() }
+    }
+
+    /// BetterTG's own pasteboard payload is the only trusted source of custom emoji, as in the composer.
+    override func paste(_ sender: Any?) {
+        if let data = UIPasteboard.general.data(forPasteboardType: TelegramEmojiPasteboardPayload.type),
+           let payload = try? JSONDecoder().decode(TelegramEmojiPasteboardPayload.self, from: data),
+           !payload.emojis.isEmpty
+        {
+            let value = NSMutableAttributedString(
+                attributedString: ComposerText.importing(NSAttributedString(string: payload.text)),
+            )
+            payload.apply(to: value)
+            ComposerText.setCustomEmoji(TelegramCustomEmojiRun.extract(from: value), in: value)
+            if onPasteTelegramText?(value) == true { return }
+        }
+        super.paste(sender)
     }
 }
 

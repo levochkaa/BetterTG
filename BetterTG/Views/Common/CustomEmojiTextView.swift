@@ -8,7 +8,9 @@ import UIKit
 /// A text view that draws Telegram's custom emoji over their fallback glyphs, as the composer does
 /// (ComposerCustomEmojiRenderer), for text that isn't a message's: a poll's question, options and explanation, and
 /// the poll creator's fields. With scrolling off it sizes to its text at its width, like a multi-line label.
-final class CustomEmojiTextView: UITextView {
+/// The poll creator's editable field subclasses it.
+// swiftformat:disable:next preferFinalClasses
+class CustomEmojiTextView: UITextView {
     // MARK: Private
 
     private lazy var emojiRenderer = ComposerCustomEmojiRenderer(textView: self)

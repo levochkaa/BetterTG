@@ -1478,6 +1478,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             isChannel: chatVM.createsChannelPoll,
             client: chatVM.client,
             forcedQuiz: forcedQuiz,
+            accountID: chatVM.accountID,
+            chatID: chatVM.chatID,
         ) { [weak chatVM] content in
             Task { await chatVM?.sendAttachmentContents([content], kind: .poll) }
         }
@@ -6415,6 +6417,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let poll = CreatePollViewController(
             isChannel: chatVM.createsChannelPoll,
             client: chatVM.client,
+            accountID: chatVM.accountID,
+            chatID: chatVM.chatID,
         ) { [weak chatVM] content in
             Task { await chatVM?.sendAttachmentContents([content], kind: .poll) }
         }

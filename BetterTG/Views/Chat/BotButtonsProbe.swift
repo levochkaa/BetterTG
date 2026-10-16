@@ -41,6 +41,8 @@
                         isChannel: false,
                         client: TDLib.shared.activeClient,
                         forcedQuiz: true,
+                        accountID: nil,
+                        chatID: 0,
                     ) { _ in }
                     presenter.present(poll.makeNavigationController(), animated: true)
                     return
