@@ -168,10 +168,9 @@ final class MessageTranslationViewController: SettingsListViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("Translate.Title")
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            systemItem: .close,
-            primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
-        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem(primaryAction: UIAction(
+            title: L10n.telegram("Common.Close"),
+        ) { [weak self] _ in self?.dismiss(animated: true) })
         loadTranslation()
     }
 

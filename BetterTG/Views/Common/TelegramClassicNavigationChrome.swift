@@ -325,11 +325,14 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
             return custom
         }
         let button = UIButton(type: .system)
-        button.setTitle(item.title, for: .normal)
+        // An item made from a UIAction keeps its title and image there and runs it instead of a target-action.
+        let primaryAction = item.primaryAction
+        let title = [item.title, primaryAction?.title].compactMap(\.self).first { !$0.isEmpty }
+        button.setTitle(title, for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 17, weight: item.style == .prominent ? .semibold : .regular)
-        button.setImage(item.image, for: .normal)
+        button.setImage(item.image ?? primaryAction?.image, for: .normal)
         button.setPreferredSymbolConfiguration(.init(pointSize: 18, weight: .medium), forImageIn: .normal)
-        button.accessibilityLabel = item.accessibilityLabel ?? item.title
+        button.accessibilityLabel = item.accessibilityLabel ?? title
         button.accessibilityIdentifier = item.accessibilityIdentifier
         button.accessibilityHint = item.accessibilityHint
         button.isEnabled = item.isEnabled
@@ -337,7 +340,12 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         button.menu = item.menu
         button.showsMenuAsPrimaryAction = item.menu != nil
         button.addAction(UIAction { [weak item] _ in
-            guard let item, item.isEnabled, let action = item.action else { return }
+            guard let item, item.isEnabled else { return }
+            if let primaryAction = item.primaryAction {
+                primaryAction.performWithSender(item, target: nil)
+                return
+            }
+            guard let action = item.action else { return }
             UIApplication.shared.sendAction(action, to: item.target, from: item, for: nil)
         }, for: .touchUpInside)
         return button

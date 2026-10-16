@@ -2415,10 +2415,9 @@ final class TelegramContactDetailsViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            systemItem: .close,
-            primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
-        )
+        navigationItem.rightBarButtonItem = UIBarButtonItem(primaryAction: UIAction(
+            title: L10n.telegram("Common.Close"),
+        ) { [weak self] _ in self?.dismiss(animated: true) })
 
         let scrollView = UIScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false

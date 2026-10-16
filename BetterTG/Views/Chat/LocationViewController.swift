@@ -819,13 +819,14 @@ private final class LocationLiveCell: UITableViewCell {
         super.viewDidLoad()
         title = L10n.telegram("Map.LocationTitle")
         view.backgroundColor = .systemGroupedBackground
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            systemItem: .close,
-            primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
-        )
+        // The classic chrome draws no system items, so Close is Telegram's text button.
+        navigationItem.leftBarButtonItem = UIBarButtonItem(primaryAction: UIAction(
+            title: L10n.telegram("Common.Close"),
+        ) { [weak self] _ in self?.dismiss(animated: true) })
         if !isLiveView {
-            let shareItem = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.up"), primaryAction: nil)
-            shareItem.primaryAction = UIAction { [weak self, weak shareItem] _ in
+            let shareItem = UIBarButtonItem()
+            shareItem.primaryAction = UIAction(image: UIImage(systemName: "square.and.arrow.up")) {
+                [weak self, weak shareItem] _ in
                 guard let shareItem else { return }
                 self?.share(from: shareItem)
             }
