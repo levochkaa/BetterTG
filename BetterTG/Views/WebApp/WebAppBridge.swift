@@ -29,7 +29,8 @@ import UIKit
         self.botName = launch.botName
         self.botUsername = launch.botUsername
         self.client = launch.client
-        self.accountKey = TDLib.shared.activeAccountID?.uuidString ?? "none"
+        // The account that opened the Web App, which can differ from the active one.
+        self.accountKey = (launch.accountID ?? TDLib.shared.activeAccountID)?.uuidString ?? "none"
         self.send = send
         self.presenter = presenter
         self.toastHost = toastHost
