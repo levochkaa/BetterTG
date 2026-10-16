@@ -2895,11 +2895,13 @@ final class TelegramContactDetailsViewController: UIViewController {
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-message-content") else { return }
             Task { @MainActor in
                 try? await ProbeFixtures.waitForActiveAccount()
-                run(in: window)
+                // A real custom emoji, so the poll fixture draws one the account can load.
+                let statuses = try? await TDLib.shared.activeClient.send(TDNativeRequests.getDefaultEmojiStatuses())
+                run(in: window, customEmojiID: statuses?.customEmojiIds.first)
             }
         }
 
-        private static func run(in window: UIWindow) {
+        private static func run(in window: UIWindow, customEmojiID: Int64?) {
             let controller = ProbeViewController()
             let navigation = TelegramNavigationController(rootViewController: controller)
             navigation.modalPresentationStyle = .fullScreen
@@ -2908,7 +2910,7 @@ final class TelegramContactDetailsViewController: UIViewController {
 
             let client = TDLib.shared.activeClient
             let pollInteractionStore = MessagePollInteractionStore()
-            let fixtures = makeFixtures()
+            let fixtures = makeFixtures(customEmojiID: customEmojiID)
             var actions = [String]()
             var installedNames = [String]()
             var views = [MessageStructuredContentView]()
@@ -3001,7 +3003,7 @@ final class TelegramContactDetailsViewController: UIViewController {
             }
             let expectedNames = [
                 "file", "file", "attachmentAlbum", "contact", "contact", "location", "location",
-                "poll", "poll", "dice", "stickerGlyph", "service", "service", "checklist", "checklist", "game",
+                "poll", "poll", "poll", "dice", "stickerGlyph", "service", "service", "checklist", "checklist", "game",
                 "story", "story",
             ]
             let actionProof = actions.contains("poll:0") && actions.contains("poll:0,1")
@@ -3018,7 +3020,7 @@ final class TelegramContactDetailsViewController: UIViewController {
             }
         }
 
-        private static func makeFixtures() -> [Fixture] {
+        private static func makeFixtures(customEmojiID: Int64?) -> [Fixture] {
             let file = probeFile(id: 91)
             let audio = Audio(
                 albumCoverMinithumbnail: nil,
@@ -3089,6 +3091,16 @@ final class TelegramContactDetailsViewController: UIViewController {
                     name: "multi-poll",
                     messageID: 908,
                     content: .messagePoll(makePoll(quiz: false, multiple: true)),
+                ),
+                Fixture(
+                    name: "poll-media",
+                    messageID: 919,
+                    content: .messagePoll(makePoll(
+                        quiz: true,
+                        multiple: false,
+                        mediaLocation: location,
+                        customEmojiID: customEmojiID,
+                    )),
                 ),
                 Fixture(name: "dice", messageID: 909, content: .messageDice(MessageDice(
                     emoji: "🎲",
@@ -3172,7 +3184,38 @@ final class TelegramContactDetailsViewController: UIViewController {
             )
         }
 
-        private static func makePoll(quiz: Bool, multiple: Bool) -> MessagePoll {
+        /// A poll, or with a media location a quiz whose question, answers and solution carry places, and whose
+        /// question and first answer end with a custom emoji.
+        private static func makePoll(
+            quiz: Bool,
+            multiple: Bool,
+            mediaLocation: Location? = nil,
+            customEmojiID: Int64? = nil,
+        ) -> MessagePoll {
+            func text(_ value: String) -> FormattedText {
+                guard let customEmojiID else { return FormattedText(entities: [], text: value) }
+                let marked = value + " ⭐"
+                return FormattedText(
+                    entities: [TextEntity(
+                        length: 1,
+                        offset: marked.utf16.count - 1,
+                        type: .textEntityTypeCustomEmoji(.init(customEmojiId: customEmojiID)),
+                    )],
+                    text: marked,
+                )
+            }
+            let venue = mediaLocation.map { location in
+                TDNativePollMedia.pollMediaVenue(TDNativePollMediaVenue(venue: TDNativeVenue(
+                    location: location,
+                    title: "Freedom Square",
+                    address: "Tbilisi",
+                    provider: "",
+                    id: "",
+                    type: "",
+                )))
+            }
+            let place = mediaLocation
+                .map { TDNativePollMedia.pollMediaLocation(TDNativePollMediaLocation(location: $0)) }
             let options = [
                 PollOption(
                     additionDate: 0,
@@ -3180,9 +3223,11 @@ final class TelegramContactDetailsViewController: UIViewController {
                     id: "first",
                     isBeingChosen: false,
                     isChosen: false,
-                    media: nil,
+                    media: venue,
                     recentVoterIds: [],
-                    text: FormattedText(entities: [], text: "First answer"),
+                    text: mediaLocation == nil
+                        ? FormattedText(entities: [], text: "First answer")
+                        : text("First answer"),
                     votePercentage: 60,
                     voterCount: 6,
                 ),
@@ -3192,7 +3237,7 @@ final class TelegramContactDetailsViewController: UIViewController {
                     id: "second",
                     isBeingChosen: false,
                     isChosen: false,
-                    media: nil,
+                    media: place,
                     recentVoterIds: [],
                     text: FormattedText(entities: [], text: "Second answer"),
                     votePercentage: 40,
@@ -3203,13 +3248,13 @@ final class TelegramContactDetailsViewController: UIViewController {
                 ? .pollTypeQuiz(PollTypeQuiz(
                     correctOptionIds: [0],
                     explanation: FormattedText(entities: [], text: "Because it is first."),
-                    explanationMedia: nil,
+                    explanationMedia: place,
                 ))
                 : .pollTypeRegular
             return MessagePoll(
                 canAddOption: false,
                 description: FormattedText(entities: [], text: "Poll caption"),
-                media: nil,
+                media: place,
                 poll: Poll(
                     allowsMultipleAnswers: multiple,
                     allowsRevoting: true,
@@ -3224,7 +3269,9 @@ final class TelegramContactDetailsViewController: UIViewController {
                     openPeriod: 0,
                     optionOrder: [1, 0],
                     options: options,
-                    question: FormattedText(entities: [], text: quiz ? "Which answer is correct?" : "Choose answers"),
+                    question: mediaLocation == nil
+                        ? FormattedText(entities: [], text: quiz ? "Which answer is correct?" : "Choose answers")
+                        : text("Where do we meet?"),
                     recentVoterIds: [],
                     totalVoterCount: 10,
                     type: type,
