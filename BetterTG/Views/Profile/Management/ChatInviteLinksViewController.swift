@@ -7,7 +7,7 @@ import UIKit
 
 /// How Telegram's invite link rows read (ItemListInviteLinkItem, ItemListPermanentInviteLinkItem).
 @MainActor enum ChatInviteLinkText {
-    static var now: Int {
+    nonisolated static var now: Int {
         Int(Foundation.Date().timeIntervalSince1970)
     }
 
@@ -221,7 +221,7 @@ final class ChatInviteLinksViewController: SettingsListViewController {
         let chatID = target.chatID
         loadTask = Task { [weak self] in
             let userID = await (try? client.getMe())?.id ?? 0
-            func links(revoked: Bool) async -> [ChatInviteLink] {
+            func loadLinks(revoked: Bool) async -> [ChatInviteLink] {
                 await (try? client.send(TDNativeRequests.getChatInviteLinks(
                     chatId: chatID,
                     creatorUserId: userID,
@@ -231,8 +231,8 @@ final class ChatInviteLinksViewController: SettingsListViewController {
                     limit: Self.pageLimit,
                 )))?.inviteLinks ?? []
             }
-            let active = await links(revoked: false)
-            let revoked = await links(revoked: true)
+            let active = await loadLinks(revoked: false)
+            let revoked = await loadLinks(revoked: true)
             guard let self, !Task.isCancelled, contextIsCurrent else { return }
             loadTask = nil
             myUserID = userID

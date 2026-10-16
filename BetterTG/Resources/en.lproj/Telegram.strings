@@ -1286,7 +1286,6 @@
 "Contacts.TopSection" = "CONTACTS";
 "Compose.NewEncryptedChat" = "New Secret Chat";
 "Compose.NewEncryptedChatTitle" = "New Secret Chat";
-"TwoStepAuth.FloodError" = "Limit exceeded. Please try again later.";
 "Compose.NewGroup" = "New Group";
 "Compose.NewGroupTitle" = "New Group";
 "Compose.GroupTokenListPlaceholder" = "Search for contacts or usernames";
