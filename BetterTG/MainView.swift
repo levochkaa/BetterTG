@@ -36,6 +36,16 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private let voicePlaybackHeader = VoicePlaybackHeaderView()
     private var voicePlaybackPanelHeightConstraint: NSLayoutConstraint?
     private var voicePlaybackOpenTask: Task<Void, Never>?
+    /// Telegram's live location panel (LiveLocationHeaderPanelComponent in the chat list) under the media header
+    /// while the account shares a live location.
+    private let liveLocationContainer = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let liveLocationPanel = LiveLocationPanelView()
+    private var liveLocationPanelHeightConstraint: NSLayoutConstraint?
+    /// This client's shared live locations, newest first.
+    private var liveLocationBroadcasts = [LiveLocationBroadcast]()
+    private var liveLocationChatTitles = [Int64: String]()
+    private var liveLocationTitleTask: Task<Void, Never>?
+    private var liveLocationOpenTask: Task<Void, Never>?
     private lazy var customNavigationBar = TelegramListNavigationBar(
         title: "BetterTG",
         placeholder: L10n.telegram("DialogList.SearchLabel"),
@@ -88,6 +98,16 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         voicePlaybackPanelHeightConstraint?.constant ?? 0
     }
 
+    private var liveLocationInset: CGFloat {
+        liveLocationPanelHeightConstraint?.constant ?? 0
+    }
+
+    /// The chats seeing the live location, newest message first.
+    private var liveLocationChatIDs: [Int64] {
+        var seen = Set<Int64>()
+        return liveLocationBroadcasts.map(\.chatID).filter { seen.insert($0).inserted }
+    }
+
     init(rootVM: RootVM, restoration: ClientRestorationState? = nil) {
         self.rootVM = rootVM
         self.isClientRestoration = restoration != nil
@@ -111,6 +131,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         configureFolderPicker()
         configureSearchResults()
         configureVoicePlaybackHeader()
+        configureLiveLocationPanel()
 
         rootVM.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -131,7 +152,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             .store(in: &cancellables)
         folderUnreadStates = FolderUnreadStore.shared.states(for: actionAuthority.client.id)
         reloadFromState()
-        updateVoicePlaybackHeader(animated: false)
+        updateHeaderPanels(animated: false)
         if !isClientRestoration { configureAutomatedSmokeRoute() }
     }
 
@@ -503,7 +524,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
         customNavigationBar.onSearchActiveChange = { [weak self] active in
             guard let self else { return }
-            updateVoicePlaybackHeader(animated: !isRestoringSearchFocus, searchActive: active)
+            updateHeaderPanels(animated: !isRestoringSearchFocus, searchActive: active)
             for folderController in folderControllers {
                 folderController.setSearchActive(
                     active,
@@ -577,7 +598,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         let showsResults = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         guard showsResults != isShowingSearchResults else { return }
         isShowingSearchResults = showsResults
-        updateVoicePlaybackHeader(animated: animated)
+        updateHeaderPanels(animated: animated)
         let resultsView = searchResultsController.view!
         if showsResults {
             resultsView.isHidden = false
@@ -645,13 +666,50 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         )
         .combineLatest(Media.shared.$nowPlayingDisplay)
         .receive(on: DispatchQueue.main)
-        .sink { [weak self] _ in self?.updateVoicePlaybackHeader(animated: true) }
+        .sink { [weak self] _ in self?.updateHeaderPanels(animated: true) }
         .store(in: &cancellables)
     }
 
-    /// The note's chat named it while it was open; Telegram hides the header panels while search is shown.
-    private func updateVoicePlaybackHeader(animated: Bool, searchActive: Bool? = nil) {
-        guard let heightConstraint = voicePlaybackPanelHeightConstraint else { return }
+    private func configureLiveLocationPanel() {
+        liveLocationContainer.translatesAutoresizingMaskIntoConstraints = false
+        liveLocationContainer.clipsToBounds = true
+        liveLocationContainer.isHidden = true
+        view.insertSubview(liveLocationContainer, belowSubview: customNavigationBar)
+        liveLocationPanel.translatesAutoresizingMaskIntoConstraints = false
+        liveLocationContainer.contentView.addSubview(liveLocationPanel)
+        let heightConstraint = liveLocationContainer.heightAnchor.constraint(equalToConstant: 0)
+        liveLocationPanelHeightConstraint = heightConstraint
+        NSLayoutConstraint.activate([
+            liveLocationContainer.topAnchor.constraint(equalTo: voicePlaybackPanel.bottomAnchor),
+            liveLocationContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            liveLocationContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            heightConstraint,
+            liveLocationPanel.topAnchor.constraint(equalTo: liveLocationContainer.contentView.topAnchor),
+            liveLocationPanel.leadingAnchor.constraint(equalTo: liveLocationContainer.contentView.leadingAnchor),
+            liveLocationPanel.trailingAnchor.constraint(equalTo: liveLocationContainer.contentView.trailingAnchor),
+            liveLocationPanel.bottomAnchor.constraint(equalTo: liveLocationContainer.contentView.bottomAnchor),
+        ])
+        liveLocationPanel.onOpen = { [weak self] in self?.openLiveLocation() }
+        liveLocationPanel.onClose = { [weak self] in self?.closeLiveLocation() }
+        LiveLocationManager.shared
+            .$broadcasts
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] broadcasts in
+                guard let self else { return }
+                let source = navigationClientSource
+                liveLocationBroadcasts = broadcasts
+                    .filter { $0.source == source }
+                    .sorted { $0.date > $1.date }
+                updateHeaderPanels(animated: true)
+            }
+            .store(in: &cancellables)
+    }
+
+    /// The media header and the live location panel. The note's chat named it while it was open; Telegram hides the
+    /// header panels while search is shown.
+    private func updateHeaderPanels(animated: Bool, searchActive: Bool? = nil) {
+        guard let heightConstraint = voicePlaybackPanelHeightConstraint,
+              let liveHeightConstraint = liveLocationPanelHeightConstraint else { return }
         let media = Media.shared
         let display = media.nowPlayingDisplay.flatMap { display in
             display.item == media.nowPlaying && display.item.accountID == navigationClientSource?.accountID
@@ -673,18 +731,24 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         let searching = searchActive ?? customNavigationBar.isSearchActive
         let shows = display != nil && !searching && !isShowingSearchResults
         let height = shows ? VoicePlaybackHeaderView.contentHeight : 0
-        guard abs(heightConstraint.constant - height) > 0.5 else { return }
+        let showsLiveLocation = updateLiveLocationPanelContent() && !searching && !isShowingSearchResults
+        let liveHeight = showsLiveLocation ? LiveLocationPanelView.contentHeight : 0
+        guard abs(heightConstraint.constant - height) > 0.5 || abs(liveHeightConstraint.constant - liveHeight) > 0.5
+        else { return }
         if shows { voicePlaybackPanel.isHidden = false }
+        if showsLiveLocation { liveLocationContainer.isHidden = false }
         heightConstraint.constant = height
+        liveHeightConstraint.constant = liveHeight
         let changes = {
             for folderController in self.folderControllers {
-                folderController.setAccessoryTopInset(height)
+                folderController.setAccessoryTopInset(height + liveHeight)
             }
             self.view.layoutIfNeeded()
         }
         guard animated, view.window != nil, !UIAccessibility.isReduceMotionEnabled else {
             changes()
             voicePlaybackPanel.isHidden = !shows
+            liveLocationContainer.isHidden = !showsLiveLocation
             return
         }
         UIView.animate(
@@ -695,6 +759,109 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         ) { [weak self] _ in
             guard let self else { return }
             voicePlaybackPanel.isHidden = voicePlaybackInset == 0
+            liveLocationContainer.isHidden = liveLocationInset == 0
+        }
+    }
+
+    /// LocationBroadcastNavigationAccessoryPanel's summary: "sharing with" the chat, or how many chats see the
+    /// location. False while nothing is shared.
+    private func updateLiveLocationPanelContent() -> Bool {
+        let chatIDs = liveLocationChatIDs
+        guard let firstChatID = chatIDs.first else { return false }
+        let subtitle = chatIDs.count == 1
+            ? L10n.telegram("DialogList.LiveLocationSharingTo", liveLocationChatTitles[firstChatID] ?? "")
+            : L10n.telegramPlural("DialogList.LiveLocationChatsCount", count: chatIDs.count)
+        liveLocationPanel.configure(subtitle: subtitle, isAccent: false)
+        loadLiveLocationChatTitles(chatIDs)
+        return true
+    }
+
+    private func loadLiveLocationChatTitles(_ chatIDs: [Int64]) {
+        let missing = chatIDs.filter { liveLocationChatTitles[$0] == nil }
+        guard !missing.isEmpty, liveLocationTitleTask == nil else { return }
+        let client = actionAuthority.client
+        liveLocationTitleTask = Task { [weak self] in
+            var titles = [Int64: String]()
+            for chatID in missing {
+                // A chat that can't be read keeps an empty title instead of being asked for again.
+                titles[chatID] = await (try? client.getChat(chatId: chatID))?.title ?? ""
+            }
+            guard let self, !Task.isCancelled else { return }
+            liveLocationTitleTask = nil
+            liveLocationChatTitles.merge(titles) { _, new in new }
+            updateHeaderPanels(animated: false)
+        }
+    }
+
+    /// LiveLocationHeaderPanelComponent's tap in the chat list: one live location opens its chat at the message, and
+    /// several are listed with Stop All.
+    private func openLiveLocation() {
+        if liveLocationBroadcasts.count == 1, let broadcast = liveLocationBroadcasts.first {
+            openLiveLocationChat(broadcast)
+        } else if !liveLocationBroadcasts.isEmpty {
+            presentLiveLocationMenu()
+        }
+    }
+
+    /// LiveLocationHeaderPanelComponent's close: the chats with Stop All when there are several, else Stop Sharing
+    /// Location.
+    private func closeLiveLocation() {
+        if liveLocationChatIDs.count > 1 {
+            presentLiveLocationMenu()
+        } else if let broadcast = liveLocationBroadcasts.first {
+            let sheet = LiveLocationPanelView.stopSheet(sourceView: liveLocationPanel) {
+                LiveLocationManager.shared.stop(chatID: broadcast.chatID, source: broadcast.source)
+            }
+            view.endEditing(true)
+            present(sheet, animated: true)
+        }
+    }
+
+    /// "You are sharing Live Location with N chats.", a row per chat that opens it, Stop All, and Cancel.
+    private func presentLiveLocationMenu() {
+        let broadcasts = liveLocationChatIDs.compactMap { chatID in
+            liveLocationBroadcasts.first(where: { $0.chatID == chatID })
+        }
+        guard !broadcasts.isEmpty else { return }
+        let sheet = UIAlertController(
+            title: nil,
+            message: L10n.telegramPlural("LiveLocation.MenuChatsCount", count: broadcasts.count),
+            preferredStyle: .actionSheet,
+        )
+        for broadcast in broadcasts {
+            let title = liveLocationChatTitles[broadcast.chatID].flatMap { $0.isEmpty ? nil : $0 }
+                ?? L10n.telegram("Message.LiveLocation")
+            sheet.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+                self?.openLiveLocationChat(broadcast)
+            })
+        }
+        sheet.addAction(UIAlertAction(title: L10n.telegram("LiveLocation.MenuStopAll"), style: .destructive) { _ in
+            for broadcast in broadcasts {
+                LiveLocationManager.shared.stop(chatID: broadcast.chatID, source: broadcast.source)
+            }
+        })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = liveLocationPanel
+            popover.sourceRect = liveLocationPanel.bounds
+        }
+        view.endEditing(true)
+        present(sheet, animated: true)
+    }
+
+    /// Telegram opens the live location's map; BetterTG opens its chat at the message.
+    private func openLiveLocationChat(_ broadcast: LiveLocationBroadcast) {
+        let scope = actionAuthority.scope(owner: self)
+        guard scope.isCurrent, navigationController?.topViewController === self,
+              broadcast.source == scope.source else { return }
+        let client = actionAuthority.client
+        let rootVM = rootVM
+        liveLocationOpenTask?.cancel()
+        liveLocationOpenTask = Task { [weak self] in
+            let chat = await rootVM.getCustomChatForNavigation(from: broadcast.chatID, client: client)
+            guard let self, let chat, scope.isCurrent, navigationController?.topViewController === self else { return }
+            liveLocationOpenTask = nil
+            NavigationStorage.shared.push(.customChat(chat, targetMessageID: broadcast.messageID))
         }
     }
 
@@ -773,7 +940,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 restorationViewport: restorationViewports.removeValue(forKey: folder.id),
             )
             controller.setSearchActive(customNavigationBar.isSearchActive, animated: false, preservingViewport: true)
-            controller.setAccessoryTopInset(voicePlaybackInset)
+            controller.setAccessoryTopInset(voicePlaybackInset + liveLocationInset)
             controller.isSearchActive = { [weak self] in self?.customNavigationBar.isSearchActive == true }
             controller.allowsRowSwipe = { [weak self] in
                 guard let self else { return false }

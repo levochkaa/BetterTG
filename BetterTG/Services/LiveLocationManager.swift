@@ -17,6 +17,8 @@ struct LiveLocationBroadcast: Equatable {
     let source: TdUpdateSource
     let chatID: Int64
     let messageID: Int64
+    /// The message's date, for Telegram's newest-first order.
+    let date: Int
     /// When sharing ends, in Unix time; nil for an indefinite period.
     let deadline: Int?
     /// Kept on every update: TDLib takes 0 as turning the proximity alert off.
@@ -167,6 +169,7 @@ struct LiveLocationBroadcast: Equatable {
                 source: source,
                 chatID: message.chatId,
                 messageID: message.id,
+                date: message.date,
                 deadline: period == Self.indefinitePeriod ? nil : message.date + period,
                 proximityAlertRadius: live.location.proximityAlertRadius,
             )

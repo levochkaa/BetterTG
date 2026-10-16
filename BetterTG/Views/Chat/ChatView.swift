@@ -151,6 +151,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var topicReopenBarHeightConstraint: NSLayoutConstraint!
     private let voicePlaybackHeader = VoicePlaybackHeaderView()
     private var voicePlaybackHeaderHeightConstraint: NSLayoutConstraint!
+    private let liveLocationPanel = LiveLocationPanelView()
+    private var liveLocationPanelHeightConstraint: NSLayoutConstraint!
+    /// The account's live location shared in this chat, shown in `liveLocationPanel`.
+    private var liveLocationBroadcast: LiveLocationBroadcast?
     private var pinnedMessageBannerTransitionGeneration = UInt64.zero
     private let composerKeyboardEdgeView = ComposerKeyboardEdgeView()
     private lazy var composerView: ChatComposerView = {
@@ -1820,12 +1824,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             voicePlaybackHeaderHeightConstraint,
         ])
         configureVoicePlaybackHeader()
+        liveLocationPanel.translatesAutoresizingMaskIntoConstraints = false
+        liveLocationPanel.isHidden = true
+        view.addSubview(liveLocationPanel)
+        liveLocationPanelHeightConstraint = liveLocationPanel.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            liveLocationPanel.topAnchor.constraint(equalTo: voicePlaybackHeader.bottomAnchor),
+            liveLocationPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            liveLocationPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            liveLocationPanelHeightConstraint,
+        ])
+        configureLiveLocationPanel()
         pinnedMessageBanner.translatesAutoresizingMaskIntoConstraints = false
         pinnedMessageBanner.isHidden = true
         view.addSubview(pinnedMessageBanner)
         pinnedMessageBannerHeightConstraint = pinnedMessageBanner.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
-            pinnedMessageBanner.topAnchor.constraint(equalTo: voicePlaybackHeader.bottomAnchor),
+            pinnedMessageBanner.topAnchor.constraint(equalTo: liveLocationPanel.bottomAnchor),
             pinnedMessageBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             pinnedMessageBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             pinnedMessageBannerHeightConstraint,
@@ -1921,6 +1936,51 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 playNextPlaylistItem(after: finished.messageID)
             }
             .store(in: &cancellables)
+    }
+
+    /// Telegram's live location panel in a chat (LocationBroadcastNavigationAccessoryPanel in peer mode) while the
+    /// account shares its live location here: tapping it shows the message, and close asks before stopping.
+    private func configureLiveLocationPanel() {
+        liveLocationPanel.configure(subtitle: L10n.telegram("Conversation.LiveLocationYou"), isAccent: true)
+        liveLocationPanel.onOpen = { [weak self] in
+            guard let self, let broadcast = liveLocationBroadcast else { return }
+            navigate(to: .message(chatID: broadcast.chatID, messageID: broadcast.messageID, quote: nil))
+        }
+        liveLocationPanel.onClose = { [weak self] in self?.confirmStopLiveLocation() }
+        LiveLocationManager.shared
+            .$broadcasts
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] broadcasts in self?.updateLiveLocationPanel(broadcasts) }
+            .store(in: &cancellables)
+    }
+
+    private func updateLiveLocationPanel(_ broadcasts: [LiveLocationBroadcast]) {
+        guard liveLocationPanelHeightConstraint != nil else { return }
+        let broadcast = presentationMode == .full
+            ? broadcasts.first(where: { $0.source.matches(location) && $0.chatID == chatVM.chatID })
+            : nil
+        liveLocationBroadcast = broadcast
+        let desiredHeight = broadcast == nil ? 0 : LiveLocationPanelView.contentHeight
+        guard abs(liveLocationPanelHeightConstraint.constant - desiredHeight) > 0.5 else { return }
+        if broadcast != nil { liveLocationPanel.isHidden = false }
+        liveLocationPanelHeightConstraint.constant = desiredHeight
+        UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.2) {
+            self.view.layoutIfNeeded()
+        } completion: { [weak self] _ in
+            guard let self else { return }
+            liveLocationPanel.isHidden = liveLocationPanelHeightConstraint.constant == 0
+            updateHistoryInsets()
+        }
+    }
+
+    /// LiveLocationHeaderPanelComponent's close in a chat: Stop Sharing Location, then cancelLiveLocation.
+    private func confirmStopLiveLocation() {
+        guard let broadcast = liveLocationBroadcast else { return }
+        let sheet = LiveLocationPanelView.stopSheet(sourceView: liveLocationPanel) {
+            LiveLocationManager.shared.stop(chatID: broadcast.chatID, source: broadcast.source)
+        }
+        view.endEditing(true)
+        present(sheet, animated: true)
     }
 
     /// Telegram's voice playlist (`.voiceOrInstantVideo`, OpenChatMessage) continues with the chat's next voice
@@ -4070,6 +4130,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         let visualTopInset = (pinnedMessageBannerHeightConstraint?.constant ?? 0) > 0
             || (voicePlaybackHeaderHeightConstraint?.constant ?? 0) > 0
+            || (liveLocationPanelHeightConstraint?.constant ?? 0) > 0
             || (topicReopenBarHeightConstraint?.constant ?? 0) > 0
             ? topicReopenBar.frame.maxY + 8
             : customNavigationBar.frame.maxY + 8

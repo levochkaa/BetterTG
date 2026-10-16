@@ -1870,3 +1870,12 @@
 "Attachment.Sticker" = "Sticker";
 "Attachment.SelectedMedia_many" = "%@ Selected";
 "Attachment.SelectedMedia_0" = "%@ Selected";
+"Conversation.LiveLocation" = "Live Location";
+"Conversation.LiveLocationYou" = "You";
+"DialogList.LiveLocationSharingTo" = "sharing with %@";
+"DialogList.LiveLocationChatsCount_1" = "sharing with 1 chat";
+"DialogList.LiveLocationChatsCount_any" = "sharing with %@ chats";
+"LiveLocation.MenuChatsCount_1" = "You are sharing Live Location with 1 chat.";
+"LiveLocation.MenuChatsCount_any" = "You are sharing Live Location with %@ chats.";
+"LiveLocation.MenuStopAll" = "Stop All";
+"Map.StopLiveLocation" = "Stop Sharing Location";
