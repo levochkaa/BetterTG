@@ -491,15 +491,22 @@ private final class PhotoTintButtonsWrapperView: UIView {
 
 // MARK: - PhotoCurvesPanelView
 
-/// TGPhotoEditorCurvesHistogramView's channel buttons: All, Red, Green and Blue at fifths of the width.
+/// TGPhotoEditorCurvesHistogramView: All, Red, Green and Blue at fifths of the width over the channel's histogram.
 final class PhotoCurvesPanelView: UIView {
+    // MARK: Private
+
+    /// `histogramViewSize` in portrait: the panel and the toolbar without the tool buttons' strip, under the buttons.
+    private static let histogramFrameTop: CGFloat = 34
+    private static let histogramHeight: CGFloat = 115 + 49 - 53 - 34
+
     // MARK: Internal
 
     var onChannelChanged: ((PhotoCurvesChannel) -> Void)?
 
-    // MARK: Private
-
     private var buttons = [(channel: PhotoCurvesChannel, button: UIButton)]()
+    private let histogramView = PhotoHistogramView()
+    private var histogram: PhotoHistogram?
+    private var channel = PhotoCurvesChannel.luminance
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -516,6 +523,7 @@ final class PhotoCurvesPanelView: UIView {
             addSubview(button)
             buttons.append((channel, button))
         }
+        addSubview(histogramView)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
@@ -528,6 +536,18 @@ final class PhotoCurvesPanelView: UIView {
                 y: 10,
             )
         }
+        histogramView.frame = CGRect(
+            x: 0,
+            y: Self.histogramFrameTop,
+            width: bounds.width,
+            height: Self.histogramHeight,
+        )
+    }
+
+    /// The histogram signal's next value: the edited photo's histogram, shown for the chosen channel.
+    func setHistogram(_ histogram: PhotoHistogram) {
+        self.histogram = histogram
+        histogramView.setBins(histogram[channel], channel: channel)
     }
 
     @objc private func channelButtonPressed(_ sender: UIButton) {
@@ -537,8 +557,88 @@ final class PhotoCurvesPanelView: UIView {
             item.button.isSelected = item.button === sender
         }
         if changed {
+            channel = pressed.channel
+            histogramView.setBins(histogram?[pressed.channel], channel: pressed.channel)
             onChannelChanged?(pressed.channel)
         }
+    }
+}
+
+// MARK: - PhotoHistogramView
+
+/// TGHistogramView: a channel's bins as a Catmull-Rom outline filled with the channel's color, morphing to new bins
+/// or another channel over 0.25 s.
+final class PhotoHistogramView: UIView {
+    // MARK: Private
+
+    /// `TGHistogramGranularity`.
+    private static let granularity = 20
+
+    private let shapeLayer = CAShapeLayer()
+    private var bins: [CGFloat]?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        shapeLayer.fillColor = UIColor.white.cgColor
+        layer.addSublayer(shapeLayer)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        shapeLayer.frame = bounds
+        shapeLayer.path = path(for: bins)
+        CATransaction.commit()
+    }
+
+    /// `setHistogram:type:animated:`, always animated as the curves view calls it.
+    func setBins(_ bins: [CGFloat]?, channel: PhotoCurvesChannel) {
+        self.bins = bins
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.25)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+        shapeLayer.path = path(for: bins)
+        shapeLayer.fillColor = channel.color.cgColor
+        CATransaction.commit()
+    }
+
+    /// `_bezierPathForHistogramBins:`: from the bottom left up to the first bin, through the bins on a Catmull-Rom
+    /// spline clamped to the view, then down past the right edge.
+    private func path(for bins: [CGFloat]?) -> CGPath {
+        let path = CGMutablePath()
+        guard let bins, bins.count >= 4 else { return path }
+        let size = bounds.size
+        let xStep = size.width / 255
+        func point(at index: Int) -> CGPoint {
+            CGPoint(x: CGFloat(index) * xStep, y: (1 - bins[index]) * size.height)
+        }
+        path.move(to: CGPoint(x: -1, y: size.height))
+        path.addLine(to: CGPoint(x: -1, y: (1 - bins[0]) * size.height))
+        for index in 1..<(bins.count - 2) {
+            let point0 = point(at: index - 1)
+            let point1 = point(at: index)
+            let point2 = point(at: index + 1)
+            let point3 = point(at: index + 2)
+            for step in 1..<Self.granularity {
+                let t = CGFloat(step) / CGFloat(Self.granularity)
+                let tt = t * t
+                let ttt = tt * t
+                let x = PhotoCurve.catmullRom(point0.x, point1.x, point2.x, point3.x, t: t, tt: tt, ttt: ttt)
+                let y = PhotoCurve.catmullRom(point0.y, point1.y, point2.y, point3.y, t: t, tt: tt, ttt: ttt)
+                if x > point0.x {
+                    path.addLine(to: CGPoint(x: x, y: max(0, min(size.height, y))))
+                }
+            }
+            path.addLine(to: point2)
+        }
+        path.addLine(to: CGPoint(x: size.width + 1, y: (1 - bins[bins.count - 1]) * size.height))
+        path.addLine(to: CGPoint(x: size.width + 1, y: size.height))
+        path.closeSubpath()
+        return path
     }
 }
 

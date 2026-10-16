@@ -111,7 +111,8 @@ struct PhotoCurve: Equatable {
         zip(levels, Self.defaultLevels).allSatisfy { abs($0 - $1) < .ulpOfOne }
     }
 
-    private static func catmullRom(
+    /// The Catmull-Rom spline through `value1` and `value2` at `t`, which the curves and the histogram draw with.
+    static func catmullRom(
         _ value0: CGFloat,
         _ value1: CGFloat,
         _ value2: CGFloat,

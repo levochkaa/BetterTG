@@ -112,6 +112,7 @@ final class PhotoCropViewController: UIViewController {
     private let curvesPanelView = PhotoCurvesPanelView()
     private let hudView = PhotoEditorHUDView()
     private let renderQueue = DispatchQueue(label: "BetterTG.PhotoToolsPreview", qos: .userInitiated)
+    private let histogramQueue = DispatchQueue(label: "BetterTG.PhotoToolsHistogram", qos: .userInitiated)
 
     private var editorTab: PhotoEditorTab
     private var toolsTab = PhotoToolsTab.list
@@ -129,6 +130,10 @@ final class PhotoCropViewController: UIViewController {
     private var previewEditedTools: PhotoToolValues?
     private var isRenderingPreview = false
     private var needsPreviewRender = false
+    /// The shown photo the histogram was last counted from.
+    private weak var histogramImage: UIImage?
+    private var isCountingHistogram = false
+    private var needsHistogram = false
 
     /// The crop view's crop with the tools, which the crop view doesn't keep across RESET.
     private var currentAdjustments: PhotoCropAdjustments {
@@ -599,6 +604,7 @@ final class PhotoCropViewController: UIViewController {
         case .curves: curvesAreaView.setValue(toolValues.curves, channel: curvesChannel)
         }
         updateTabs()
+        updateHistogram()
         view.setNeedsLayout()
         UIView.animate(withDuration: 0.25) {
             self.view.layoutIfNeeded()
@@ -667,6 +673,39 @@ final class PhotoCropViewController: UIViewController {
     private func updatePreviewImage() {
         let showsTools = !isShowingOriginal && !toolValues.isDefault
         previewView.image = showsTools ? previewEditedImage ?? previewBaseImage : previewBaseImage
+        updateHistogram()
+    }
+
+    /// PGPhotoEditor's `histogramSignal` for Curves: the shown photo counted off the main thread whenever it changes
+    /// while Curves is open, one count at a time.
+    private func updateHistogram() {
+        guard editorTab == .tools, toolsTab == .curves, let image = previewView.image, image !== histogramImage else {
+            return
+        }
+        guard !isCountingHistogram else {
+            needsHistogram = true
+            return
+        }
+        guard let cgImage = image.cgImage else { return }
+        histogramImage = image
+        isCountingHistogram = true
+        histogramQueue.async { [weak self] in
+            let histogram = PhotoHistogram(image: cgImage)
+            DispatchQueue.main.async {
+                self?.finishHistogram(histogram)
+            }
+        }
+    }
+
+    private func finishHistogram(_ histogram: PhotoHistogram?) {
+        isCountingHistogram = false
+        if let histogram {
+            curvesPanelView.setHistogram(histogram)
+        }
+        if needsHistogram {
+            needsHistogram = false
+            updateHistogram()
+        }
     }
 
     @objc private func cropTabPressed() {
