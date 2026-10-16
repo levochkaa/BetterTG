@@ -103,8 +103,10 @@ final class ChatManagementViewController: SettingsListViewController {
         }
         let settings = settingsRows(target)
         if !settings.isEmpty { sections.append(SettingsSection(rows: settings)) }
+        if let topics = topicsSection(target) { sections.append(topics) }
         let management = managementRows(target)
         if !management.isEmpty { sections.append(SettingsSection(rows: management)) }
+        if let hideMembers = hideMembersSection(target) { sections.append(hideMembers) }
         if target.isCreator {
             sections.append(SettingsSection(rows: [SettingsRow(
                 title: L10n.telegram(isChannel ? "ChannelInfo.DeleteChannel" : "Group.DeleteGroup"),
@@ -152,7 +154,120 @@ final class ChatManagementViewController: SettingsListViewController {
                 self?.push(ChatInviteLinksViewController(target: target))
             })
         }
+        // Chat History for New Members: a private supergroup without a linked channel or topics.
+        if !isChannel, let info = target.supergroupInfo, target.rights?.canRestrictMembers == true,
+           !target.isPublic, info.linkedChatId == 0, !target.isForum
+        {
+            let title = L10n.telegram("GroupInfo.GroupHistoryShort")
+            rows.append(disclosure(
+                title,
+                symbol: "clock.arrow.circlepath",
+                value: L10n.telegram(info.isAllHistoryAvailable
+                    ? "GroupInfo.GroupHistoryVisible"
+                    : "GroupInfo.GroupHistoryHidden"),
+            ) { [weak self] in self?.presentHistoryMenu(rowTitle: title, isVisible: info.isAllHistoryAvailable) })
+        }
         return rows
+    }
+
+    /// Topics for the owner of a group without a linked channel (PeerInfo.OptionTopics).
+    private func topicsSection(_ target: ChatManagementTarget) -> SettingsSection? {
+        guard target.isCreator, !isChannel, let supergroup = target.supergroup,
+              (target.supergroupInfo?.linkedChatId ?? 0) == 0 else { return nil }
+        let supergroupID = supergroup.id
+        let hasTabs = supergroup.hasForumTabs
+        return SettingsSection(
+            footer: L10n.telegram("PeerInfo.OptionTopicsText"),
+            rows: [SettingsRow(
+                title: L10n.telegram("PeerInfo.OptionTopics"),
+                symbol: "bubble.left.and.bubble.right",
+                accessory: .toggle(isOn: target.isForum, onChange: { [weak self] isOn in
+                    self?.apply { client in
+                        _ = try await client.send(TDNativeRequests.toggleSupergroupIsForum(
+                            supergroupId: supergroupID, isForum: isOn, hasForumTabs: hasTabs,
+                        ))
+                    }
+                }),
+            )],
+        )
+    }
+
+    /// ChannelMembersController's Hide Members for admins who may restrict, once the group is large enough.
+    private func hideMembersSection(_ target: ChatManagementTarget) -> SettingsSection? {
+        guard !isChannel, let supergroupID = target.supergroupID, let info = target.supergroupInfo,
+              target.rights?.canRestrictMembers == true else { return nil }
+        return SettingsSection(
+            footer: L10n.telegram(info.hasHiddenMembers
+                ? "GroupMembers.MembersHiddenOn"
+                : "GroupMembers.MembersHiddenOff"),
+            rows: [SettingsRow(
+                title: L10n.telegram("GroupMembers.HideMembers"),
+                symbol: "eye.slash",
+                accessory: .toggle(isOn: info.hasHiddenMembers, onChange: { [weak self] isOn in
+                    self?.apply { client in
+                        _ = try await client.send(TDNativeRequests.toggleSupergroupHasHiddenMembers(
+                            supergroupId: supergroupID, hasHiddenMembers: isOn,
+                        ))
+                    }
+                }),
+                isEnabled: info.canHideMembers || info.hasHiddenMembers,
+            )],
+        )
+    }
+
+    /// GroupPreHistorySetupController's two choices, applied on the tap.
+    private func presentHistoryMenu(rowTitle: String, isVisible: Bool) {
+        guard contextIsCurrent, let supergroupID = target?.supergroupID,
+              let cell = cell(titled: rowTitle) else { return }
+        let check = UIImage(systemName: "checkmark")
+        let actions = [true, false].map { visible in
+            TelegramContextMenuAction(
+                title: L10n.telegram(visible ? "Group.Setup.HistoryVisible" : "Group.Setup.HistoryHidden"),
+                image: visible == isVisible ? check : nil,
+            ) { [weak self] in
+                guard visible != isVisible else { return }
+                self?.apply { client in
+                    _ = try await client.send(TDNativeRequests.toggleSupergroupIsAllHistoryAvailable(
+                        supergroupId: supergroupID, isAllHistoryAvailable: visible,
+                    ))
+                }
+            }
+        }
+        presentTelegramContextMenu(sourceView: cell, actions: actions, presentationStyle: .menuOnly)
+    }
+
+    private func cell(titled title: String) -> UITableViewCell? {
+        for (sectionIndex, section) in sections.enumerated() {
+            if let row = section.rows.firstIndex(where: { $0.title == title }) {
+                return tableView.cellForRow(at: IndexPath(row: row, section: sectionIndex))
+            }
+        }
+        return nil
+    }
+
+    /// A setting changed by its switch or menu; the screen rereads the chat either way, so a refused change flips
+    /// back.
+    private func apply(_ request: @escaping @MainActor (TDLibClient) async throws -> Void) {
+        guard contextIsCurrent, actionTask == nil else {
+            reload()
+            return
+        }
+        let client = client
+        actionTask = Task { [weak self] in
+            var failure: Error?
+            do {
+                try await request(client)
+            } catch {
+                failure = error
+            }
+            guard let self else { return }
+            actionTask = nil
+            guard contextIsCurrent else { return }
+            if let failure { presentAlert(title: nil, message: ChatManagementRows.failureText(failure)) }
+            loadTask?.cancel()
+            loadTask = nil
+            load()
+        }
     }
 
     /// Who is in the chat and what they may do: members, admins, permissions, requests, removed users, the log.
@@ -208,9 +323,9 @@ final class ChatManagementViewController: SettingsListViewController {
         let chatID = chatID
         loadTask = Task { [weak self] in
             let target = await ChatManagementTarget.load(chatID: chatID, client: client)
-            guard let self else { return }
+            guard let self, !Task.isCancelled else { return }
             loadTask = nil
-            guard !Task.isCancelled, contextIsCurrent, let target else { return }
+            guard contextIsCurrent, let target else { return }
             self.target = target
             if !fieldsLoaded {
                 fieldsLoaded = true

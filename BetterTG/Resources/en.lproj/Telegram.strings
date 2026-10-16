@@ -1620,3 +1620,13 @@
 "Group.Username.InvalidEndsWithUnderscore" = "Group names can't end with an underscore.";
 "Group.Username.InvalidTooShort" = "Group names must have at least 5 characters.";
 "Group.Username.InvalidStartsWithNumber" = "Group names can't start with a number.";
+"Group.Setup.HistoryHidden" = "Hidden";
+"Group.Setup.HistoryVisible" = "Visible";
+"GroupInfo.GroupHistoryHidden" = "Hidden";
+"GroupInfo.GroupHistoryShort" = "Chat History";
+"GroupInfo.GroupHistoryVisible" = "Visible";
+"GroupMembers.HideMembers" = "Hide Members";
+"GroupMembers.MembersHiddenOff" = "Switch this on to hide the list of members in this group. Admins will remain visible.";
+"GroupMembers.MembersHiddenOn" = "Switch this off to show the list of members in this group.";
+"PeerInfo.OptionTopics" = "Topics";
+"PeerInfo.OptionTopicsText" = "The group chat will be divided into topics created by admins or users.";
