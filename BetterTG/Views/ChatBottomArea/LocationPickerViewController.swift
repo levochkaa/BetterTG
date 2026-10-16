@@ -777,8 +777,7 @@ struct LocationPickerVenue {
 
     /// Telegram's goToCoordinate from search: the address becomes the picked location and the search closes.
     private func goToCoordinate(_ coordinate: CLLocationCoordinate2D) {
-        telegramNavigationSearch.searchBar.text = nil
-        telegramNavigationSearch.isActive = false
+        telegramNavigationSearch.endTelegramNavigationSearch()
         searchQuery = ""
         searchTask?.cancel()
         searchResults = nil

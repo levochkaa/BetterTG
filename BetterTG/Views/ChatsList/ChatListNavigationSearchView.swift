@@ -92,6 +92,11 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         searchField.text = query
     }
 
+    /// Ends the search as the close button does.
+    func endSearch() {
+        closeSearch()
+    }
+
     func textFieldDidBeginEditing(_: UITextField) {
         setActive(true)
     }

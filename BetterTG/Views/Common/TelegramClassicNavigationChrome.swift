@@ -1,5 +1,6 @@
 // TelegramClassicNavigationChrome.swift
 
+import Combine
 import UIKit
 
 // MARK: - TelegramEmbeddedNavigationChrome
@@ -13,6 +14,20 @@ protocol TelegramEmbeddedNavigationChrome: AnyObject {}
 /// additional bottom toolbar search even while the native bar is hidden.
 @MainActor protocol TelegramNavigationSearchProvider: AnyObject {
     var telegramNavigationSearch: UISearchController { get }
+}
+
+extension UISearchController {
+    /// Ends the classic chrome's search for this controller as its close button does: the field clears and gives up
+    /// the keyboard, and the results updater hears the empty query. Telegram closes a picker's search once a result
+    /// is chosen.
+    func endTelegramNavigationSearch() {
+        searchBar.text = nil
+        NotificationCenter.default.post(name: .telegramNavigationSearchEnd, object: self)
+    }
+}
+
+private extension Notification.Name {
+    static let telegramNavigationSearchEnd = Self("telegramNavigationSearchEnd")
 }
 
 // MARK: - TelegramNavigationAttemptHandling
@@ -166,6 +181,7 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     private weak var customTitle: UIView?
     private weak var searchController: UISearchController?
     private var searchView: ChatListNavigationSearchView?
+    private var searchEndSubscription: AnyCancellable?
     private var searchActive = false
 
     var contentHeight: CGFloat { promptHeight + 44 + (searchView != nil && !searchActive ? 44 : 0) }
@@ -274,6 +290,7 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         titleLabel.isHidden = customTitle != nil
         if searchController !== newSearch {
             searchView?.removeFromSuperview()
+            searchEndSubscription = nil
             searchController = newSearch
             searchActive = false
             if let search = newSearch {
@@ -289,6 +306,9 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
                     searchActive = active
                     onHeightChange?()
                 }
+                searchEndSubscription = NotificationCenter.default
+                    .publisher(for: .telegramNavigationSearchEnd, object: search)
+                    .sink { [weak field] _ in field?.endSearch() }
                 addSubview(field)
                 searchView = field
             } else { searchView = nil }
