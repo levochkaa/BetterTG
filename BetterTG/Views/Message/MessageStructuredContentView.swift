@@ -1124,15 +1124,40 @@ private final class LocationMessageContentView: UIControl, MessageSupplementView
     private let markerView = UIImageView(image: UIImage(systemName: "mappin.circle.fill"))
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
+    private let timerView = LiveLocationTimerView()
     private let content: MessageContentPresentation.LocationContent
     private let onAction: (MessageContentAction) -> Void
     private var snapshotter: MKMapSnapshotter?
     private var generation = UUID()
     private var liveTimer: Timer?
 
+    private var isLive: Bool {
+        content.liveDeadline != nil || content.liveIndefinite
+    }
+
+    /// Telegram's activeLiveBroadcastingTimeout: a live location shared until stopped, or one whose period has not
+    /// run out yet.
+    private var isActiveLive: Bool {
+        content.liveIndefinite || (content.liveDeadline.map { $0 > Foundation.Date() } ?? false)
+    }
+
     private var showsMetadata: Bool {
         // Venues always carry an address or coordinates; a plain location has neither.
-        content.liveDeadline != nil || content.liveIndefinite || content.subtitle != nil
+        isLive || content.subtitle != nil
+    }
+
+    /// BetterTG's countdown, spoken by VoiceOver and shown when the presentation has no update time.
+    private var remainingText: String? {
+        guard !content.liveIndefinite, let liveDeadline = content.liveDeadline else { return nil }
+        let remaining = max(0, Int(ceil(liveDeadline.timeIntervalSinceNow)))
+        guard remaining > 0 else { return nil }
+        return if remaining >= 3600 {
+            L10n.betterTG("Message.LiveForHours", remaining / 3600, (remaining % 3600) / 60)
+        } else if remaining >= 60 {
+            L10n.betterTG("Message.LiveForMinutes", remaining / 60, remaining % 60)
+        } else {
+            L10n.betterTG("Message.LiveForSeconds", remaining)
+        }
     }
 
     init(
@@ -1153,6 +1178,26 @@ private final class LocationMessageContentView: UIControl, MessageSupplementView
 
     deinit {
         liveTimer?.invalidate()
+    }
+
+    /// Telegram's stringForRelativeLiveLocationTimestamp, with stringForFullDate for an update before today.
+    private static func updatedText(since updateDate: Foundation.Date) -> String {
+        let now = Foundation.Date()
+        let difference = Int(now.timeIntervalSince(updateDate))
+        if difference < 60 {
+            return L10n.telegram("LiveLocationUpdated.JustNow")
+        }
+        if difference < 60 * 60 {
+            return L10n.telegramPlural("LiveLocationUpdated.MinutesAgo", count: difference / 60)
+        }
+        let time = updateDate.formatted(date: .omitted, time: .shortened)
+        let calendar = Foundation.Calendar.current
+        if calendar.isDate(updateDate, inSameDayAs: now) {
+            return L10n.telegram("LiveLocationUpdated.TodayAt", time)
+        }
+        let components = calendar.dateComponents([.day, .month, .year], from: updateDate)
+        guard let day = components.day, let month = components.month, let year = components.year else { return time }
+        return L10n.telegram("Time.PreciseDate_m\(month)", "\(day)", "\(year)", time)
     }
 
     func prepareForReuse() {
@@ -1206,7 +1251,8 @@ private final class LocationMessageContentView: UIControl, MessageSupplementView
             markerView.heightAnchor.constraint(equalToConstant: 34),
             titleLabel.topAnchor.constraint(equalTo: mapImageView.bottomAnchor, constant: 7),
             titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
+            // ChatMessageMapBubbleContentNode keeps 40 pt of a live location's text width for the timer ring.
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: isLive ? -42 : -2),
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 1),
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
@@ -1216,6 +1262,20 @@ private final class LocationMessageContentView: UIControl, MessageSupplementView
         } else {
             mapImageView.bottomAnchor.constraint(equalTo: bottomAnchor).isActive = true
         }
+        if isLive {
+            timerView.translatesAutoresizingMaskIntoConstraints = false
+            timerView.isHidden = true
+            addSubview(timerView)
+            // The ring sits 11 pt under the map and 10 pt in from its edge, 5 pt below the title and 3 pt further in
+            // than the text.
+            NSLayoutConstraint.activate([
+                timerView.widthAnchor.constraint(equalToConstant: 28),
+                timerView.heightAnchor.constraint(equalToConstant: 28),
+                timerView.topAnchor.constraint(equalTo: mapImageView.bottomAnchor, constant: 12),
+                timerView.trailingAnchor.constraint(equalTo: mapImageView.trailingAnchor, constant: -5),
+                timerView.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
+            ])
+        }
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
         isAccessibilityElement = true
         accessibilityTraits = [.button, .image]
@@ -1224,37 +1284,53 @@ private final class LocationMessageContentView: UIControl, MessageSupplementView
     }
 
     private func configureLiveStatus() {
-        if content.liveIndefinite {
-            subtitleLabel.text = L10n.telegram("Message.LiveLocation")
-            updateAccessibilityLabel()
-            return
-        }
-        guard content.liveDeadline != nil else { return }
+        guard isLive else { return }
+        timerView.configure(
+            deadline: content.liveDeadline,
+            period: TimeInterval(content.livePeriod),
+            isIndefinite: content.liveIndefinite,
+        )
         updateLiveStatus()
-        guard let deadline = content.liveDeadline, deadline > Foundation.Date() else { return }
-        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+        scheduleLiveRefresh()
+    }
+
+    /// Telegram redraws the ring every 10 seconds and the update time every 30, and lays the bubble out again at the
+    /// deadline. One timer covers all three: it fires every 10 seconds, or at the deadline when that comes first. The
+    /// per-second countdown shown without an update time keeps its 1-second refresh.
+    private func scheduleLiveRefresh() {
+        liveTimer?.invalidate()
+        liveTimer = nil
+        var interval: TimeInterval = content.liveUpdatedAt == nil ? 1 : 10
+        if !content.liveIndefinite {
+            guard let liveDeadline = content.liveDeadline else { return }
+            let remaining = liveDeadline.timeIntervalSinceNow
+            guard remaining > 0 else { return }
+            interval = min(interval, remaining)
+        }
+        let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
             self?.updateLiveStatus()
+            self?.scheduleLiveRefresh()
         }
         liveTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 
+    /// While the location is live, Telegram's ChatMessageLiveLocationTextNode replaces the second line with the
+    /// update time and the ring shows what is left; once it ends, the ring goes away.
     private func updateLiveStatus() {
-        guard let liveDeadline = content.liveDeadline else { return }
-        let remaining = max(0, Int(ceil(liveDeadline.timeIntervalSinceNow)))
-        if remaining == 0 {
-            subtitleLabel.text = L10n.betterTG("Message.LiveLocationEnded")
-            liveTimer?.invalidate()
-            liveTimer = nil
+        let isActive = isActiveLive
+        timerView.isHidden = !isActive
+        if isActive, let liveUpdatedAt = content.liveUpdatedAt {
+            timerView.setNeedsDisplay()
+            subtitleLabel.text = Self.updatedText(since: liveUpdatedAt)
+            accessibilityValue = remainingText
+        } else if isActive {
+            timerView.setNeedsDisplay()
+            subtitleLabel.text = remainingText ?? L10n.telegram("Message.LiveLocation")
+            accessibilityValue = nil
         } else {
-            subtitleLabel.text =
-                if remaining >= 3600 {
-                    L10n.betterTG("Message.LiveForHours", remaining / 3600, (remaining % 3600) / 60)
-                } else if remaining >= 60 {
-                    L10n.betterTG("Message.LiveForMinutes", remaining / 60, remaining % 60)
-                } else {
-                    L10n.betterTG("Message.LiveForSeconds", remaining)
-                }
+            subtitleLabel.text = L10n.betterTG("Message.LiveLocationEnded")
+            accessibilityValue = nil
         }
         updateAccessibilityLabel()
     }

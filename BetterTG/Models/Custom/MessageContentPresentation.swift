@@ -10,6 +10,11 @@ struct MessageContentPresentation {
         let location: Location
         let subtitle: String?
         let title: String
+        /// The live period in seconds, which the bubble's timer ring counts down against.
+        var livePeriod = 0
+        /// When the live location last moved (Telegram's EditedMessageAttribute date, or the message date before the
+        /// first update). Nil when the presentation was built from content alone.
+        var liveUpdatedAt: Foundation.Date?
     }
 
     struct DiceContent {
@@ -94,14 +99,14 @@ struct MessageContentPresentation {
         case .messageChecklist, .messageStory:
             make(message.content).attributed(to: message)
         case .messageLiveLocation(let liveLocation):
-            make(liveLocation, date: message.date)
+            make(liveLocation, date: message.date, editDate: message.editDate)
         default:
             make(message.content)
         }
     }
 
     static func make(_ content: MessageContent) -> Self {
-        make(content, liveLocationDeadline: nil, liveLocationIndefinite: false)
+        make(content, liveLocationDeadline: nil, liveLocationIndefinite: false, liveLocationUpdatedAt: nil)
     }
 
     static func diceStickers(_ dice: DiceStickers?) -> [Sticker] {
@@ -115,7 +120,7 @@ struct MessageContentPresentation {
         }
     }
 
-    private static func make(_ liveLocation: MessageLiveLocation, date: Int) -> Self {
+    private static func make(_ liveLocation: MessageLiveLocation, date: Int, editDate: Int) -> Self {
         let livePeriod = liveLocation.location.livePeriod
         let isIndefinite = livePeriod >= Int(Int32.max)
         let deadline: Foundation.Date? =
@@ -126,10 +131,14 @@ struct MessageContentPresentation {
             } else {
                 Foundation.Date().addingTimeInterval(TimeInterval(max(0, liveLocation.expiresIn)))
             }
+        let updateDate = editDate > 0 ? editDate : date
         return make(
             .messageLiveLocation(liveLocation),
             liveLocationDeadline: deadline,
             liveLocationIndefinite: isIndefinite,
+            liveLocationUpdatedAt: updateDate > 0
+                ? Foundation.Date(timeIntervalSince1970: TimeInterval(updateDate))
+                : nil,
         )
     }
 
@@ -137,6 +146,7 @@ struct MessageContentPresentation {
         _ content: MessageContent,
         liveLocationDeadline: Foundation.Date?,
         liveLocationIndefinite: Bool,
+        liveLocationUpdatedAt: Foundation.Date?,
     ) -> Self {
         switch content {
         case .messageText(let message):
@@ -244,6 +254,8 @@ struct MessageContentPresentation {
                     location: message.location.location,
                     subtitle: nil,
                     title: L10n.telegram("Message.LiveLocation"),
+                    livePeriod: message.location.livePeriod,
+                    liveUpdatedAt: liveLocationUpdatedAt,
                 )),
             )
         case .messageLocation(let message):
