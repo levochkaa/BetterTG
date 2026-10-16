@@ -132,6 +132,11 @@ import UIKit
         return configuration
     }
 
+    /// Info.plist's orientations, or the one a Web App locked (`web_app_toggle_orientation_lock`).
+    func application(_: UIApplication, supportedInterfaceOrientationsFor _: UIWindow?) -> UIInterfaceOrientationMask {
+        WebAppOrientationLock.supportedOrientations
+    }
+
     // MARK: Private
 
     private func configureAppearance() {

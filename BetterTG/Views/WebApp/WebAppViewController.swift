@@ -85,6 +85,8 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     window.TelegramWebviewProxy = new TelegramWebviewProxyProto();
     """
 
+    let fullscreen = WebAppFullscreen()
+
     private let launch: WebAppLaunch
     private let actions: Actions
     private let proxy = ScriptMessageProxy()
@@ -99,6 +101,8 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     private let secondaryButton = UIButton(type: .system)
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
     private var webView: WKWebView!
+    /// The header, page and bottom panel, which fullscreen moves over the sheet.
+    private let contentView = UIView()
     private var bottomPanelHeight: NSLayoutConstraint!
     private var mainButtonState = ButtonState()
     private var secondaryButtonState = ButtonState()
@@ -173,27 +177,45 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         loadingIndicator.hidesWhenStopped = true
         loadingIndicator.startAnimating()
 
+        contentView.frame = view.bounds
+        contentView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(contentView)
         for subview in [webView!, headerView, bottomPanel, loadingIndicator] as [UIView] {
             subview.translatesAutoresizingMaskIntoConstraints = false
-            view.addSubview(subview)
+            contentView.addSubview(subview)
         }
         bottomPanelHeight = bottomPanel.heightAnchor.constraint(equalToConstant: 0)
+        let webViewTop = webView.topAnchor.constraint(equalTo: headerView.bottomAnchor)
         NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: view.topAnchor),
-            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            headerView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             headerView.heightAnchor.constraint(equalToConstant: 56),
-            webView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
-            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            webViewTop,
+            webView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: bottomPanel.topAnchor),
-            bottomPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            bottomPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomPanel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            bottomPanel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            bottomPanel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            bottomPanel.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             bottomPanelHeight,
             loadingIndicator.centerXAnchor.constraint(equalTo: webView.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: webView.centerYAnchor),
         ])
+        fullscreen.attach(to: self, configuration: .init(
+            title: launch.botName,
+            contentView: contentView,
+            headerView: headerView,
+            webView: webView,
+            webViewTopToHeader: webViewTop,
+            menu: { [weak self] in self?.menuActions() ?? [] },
+            back: { [weak self] in self?.leftButtonTapped() },
+            send: { [weak self] in self?.sendEvent($0, data: $1) },
+            layoutChanged: { [weak self] force in
+                self?.updateBottomPanelHeight()
+                self?.sendViewport(force: force)
+            },
+        ))
         updateColors()
         updateHeaderButtons()
         load()
@@ -207,6 +229,11 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         super.viewDidLayoutSubviews()
         updateBottomPanelHeight()
         sendViewport(force: false)
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if isBeingDismissed { fullscreen.disappear(alongside: transitionCoordinator) }
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -472,6 +499,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8)
         leftButton.configuration = configuration
         leftButton.accessibilityLabel = hasBackButton ? L10n.telegram("Common.Back") : L10n.telegram("Common.Close")
+        fullscreen.hasBack = hasBackButton
     }
 
     private func updateColors() {
@@ -482,8 +510,10 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         titleLabel.textColor = foreground
         leftButton.tintColor = foreground
         moreButton.tintColor = foreground
+        fullscreen.usesDarkContent = header.isLight
         let background = (backgroundColor ?? .systemBackground).resolvedColor(with: traits)
         view.backgroundColor = background
+        contentView.backgroundColor = background
         webView?.backgroundColor = background
         webView?.scrollView.backgroundColor = background
         bottomPanel.backgroundColor = (bottomBarColor ?? .secondarySystemBackground).resolvedColor(with: traits)
@@ -578,6 +608,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     private func finish() {
         guard !didClose else { return }
         didClose = true
+        fullscreen.tearDown()
         if case .button(let launchID) = launch.source {
             let client = launch.client
             Task { _ = try? await client.closeWebApp(webAppLaunchId: launchID) }
@@ -692,6 +723,12 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         case "web_app_secure_storage_clear", "web_app_secure_storage_get_key", "web_app_secure_storage_restore_key",
              "web_app_secure_storage_save_key":
             handleSecureStorage(eventName, json: json)
+        case "web_app_request_fullscreen":
+            fullscreen.setActive(true)
+        case "web_app_exit_fullscreen":
+            fullscreen.setActive(false)
+        case "web_app_toggle_orientation_lock":
+            if let locked = json?["locked"] as? Bool { fullscreen.setOrientationLocked(locked) }
         default:
             break
         }
@@ -1100,13 +1137,14 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         sendEvent("viewport_changed", data: ["height": height, "is_expanded": expanded, "is_state_stable": true])
         let bottom = mainButtonState.isVisible || secondaryButtonState.isVisible ? 0 : view.safeAreaInsets.bottom
         let insets: [String: Any] = [
-            "top": 0,
+            "top": fullscreen.safeAreaTop,
             "bottom": bottom,
             "left": view.safeAreaInsets.left,
             "right": view.safeAreaInsets.right,
         ]
         sendEvent("safe_area_changed", data: insets)
-        sendEvent("content_safe_area_changed", data: ["top": 0, "bottom": 0, "left": 0, "right": 0])
+        let contentTop = fullscreen.contentSafeAreaTop
+        sendEvent("content_safe_area_changed", data: ["top": contentTop, "bottom": 0, "left": 0, "right": 0])
     }
 
     /// WebAppWebView's sendEvent: `TelegramGameProxy.receiveEvent`, only to the launch's origin when it must stay
