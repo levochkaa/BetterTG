@@ -113,6 +113,8 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     private lazy var qrScanner = WebAppQRScanner(bridge: bridge)
     private lazy var biometry = WebAppBiometry(bridge: bridge)
     private lazy var location = WebAppLocation(bridge: bridge)
+    /// Made on the first sensor event, so closing stops only sensors that exist.
+    private var motionSensors: WebAppSensors?
     private var bottomPanelHeight: NSLayoutConstraint!
     private var mainButtonState = ButtonState()
     private var secondaryButtonState = ButtonState()
@@ -129,6 +131,13 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     private var lastViewport: (height: CGFloat, expanded: Bool)?
     private var didClose = false
     private var dataTask: Task<Void, Never>?
+
+    private var sensors: WebAppSensors {
+        if let motionSensors { return motionSensors }
+        let created = WebAppSensors(bridge: bridge)
+        motionSensors = created
+        return created
+    }
 
     private var trustedOrigin: String? {
         launch.url.host.map { "\(launch.url.scheme ?? "https")://\($0)" }
@@ -619,6 +628,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         guard !didClose else { return }
         didClose = true
         fullscreen.tearDown()
+        motionSensors?.stopAll()
         if case .button(let launchID) = launch.source {
             let client = launch.client
             Task { _ = try? await client.closeWebApp(webAppLaunchId: launchID) }
@@ -759,6 +769,18 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
             location.check()
         case "web_app_open_location_settings":
             if consumeRecentTouch() { location.openSettings() }
+        case "web_app_start_accelerometer":
+            sensors.startAccelerometer(json)
+        case "web_app_stop_accelerometer":
+            sensors.stopAccelerometer()
+        case "web_app_start_gyroscope":
+            sensors.startGyroscope(json)
+        case "web_app_stop_gyroscope":
+            sensors.stopGyroscope()
+        case "web_app_start_device_orientation":
+            sensors.startDeviceOrientation(json)
+        case "web_app_stop_device_orientation":
+            sensors.stopDeviceOrientation()
         default:
             break
         }
