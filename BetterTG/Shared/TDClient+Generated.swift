@@ -448,6 +448,10 @@ extension TDClient {
         try await send(TDNativeRequests.getGroupsInCommon(userId: userId, offsetChatId: offsetChatId, limit: limit))
     }
 
+    func getInternalLink(type: TDNativeInternalLinkType, isHttp: Bool) async throws -> TDNativeHttpUrl {
+        try await send(TDNativeRequests.getInternalLink(type: type, isHttp: isHttp))
+    }
+
     func getLanguagePackInfo(languagePackId: String) async throws -> TDNativeLanguagePackInfo {
         try await send(TDNativeRequests.getLanguagePackInfo(languagePackId: languagePackId))
     }

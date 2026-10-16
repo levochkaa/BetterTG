@@ -171,6 +171,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         showToast: { [weak self] text in self?.showChatToast(text) },
         openUserProfile: { [weak self] userID in self?.openContactProfile(userID: userID) },
         insertInlineQuery: { [weak self] query in self?.insertInlineQuery(query) },
+        chooseInlineChat: { [weak self] text, types, messageID in
+            self?.presentSwitchInlinePicker(text: text, types: types, messageID: messageID)
+        },
     ))
 
     private let messageSelectionToolbar = MessageSelectionToolbar()
@@ -712,21 +715,50 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         destination: ChatLocation,
         navigationController: UINavigationController?,
     ) {
-        guard let navigationController else { return }
+        openChat(chat, topic: topic, destination: destination, navigationController: navigationController)?
+            .chatVM
+            .beginExternalReply(to: message, targetMessageID: targetMessageID, quote: quote)
+    }
+
+    /// Switch inline's chosen chat (ChatControllerOpenPeer `peerSelected`): the destination, already open or
+    /// pushed, gets "@bot query" in its composer, in place of its draft.
+    static func openSwitchInline(
+        _ text: String,
+        in chat: CustomChat,
+        topic: ForumTopic?,
+        destination: ChatLocation,
+        navigationController: UINavigationController?,
+    ) {
+        guard let controller = openChat(
+            chat,
+            topic: topic,
+            destination: destination,
+            navigationController: navigationController,
+        ) else { return }
+        controller.loadViewIfNeeded()
+        controller.insertInlineQuery(text)
+    }
+
+    /// The destination's full chat on top of the stack: popped back to when open, pushed otherwise.
+    private static func openChat(
+        _ chat: CustomChat,
+        topic: ForumTopic?,
+        destination: ChatLocation,
+        navigationController: UINavigationController?,
+    ) -> ChatViewController? {
+        guard let navigationController else { return nil }
         let open = navigationController.viewControllers.last {
             ($0 as? ChatViewController).map { $0.presentationMode == .full && $0.location == destination } == true
         } as? ChatViewController
-        let controller: ChatViewController
         if let open {
             if navigationController.topViewController !== open {
                 navigationController.popToViewController(open, animated: true)
             }
-            controller = open
-        } else {
-            controller = ChatViewController(customChat: chat, location: destination, forumTopic: topic)
-            navigationController.pushViewController(controller, animated: true)
+            return open
         }
-        controller.chatVM.beginExternalReply(to: message, targetMessageID: targetMessageID, quote: quote)
+        let controller = ChatViewController(customChat: chat, location: destination, forumTopic: topic)
+        navigationController.pushViewController(controller, animated: true)
+        return controller
     }
 
     private static func isChatGalleryMedia(_ message: Message) -> Bool {
@@ -6771,7 +6803,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             seedChats: seedChats,
             purpose: .replyInAnotherChat,
         )
-        picker.onReplyDestination = { [weak self, weak reply] chat, topic in
+        picker.onChosenChat = { [weak self, weak reply] chat, topic in
             guard let self, let reply, TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == chatVM.client.id else { return }
             let destination = ChatLocation.current(
@@ -6785,6 +6817,50 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 to: reply,
                 targetMessageID: targetMessageID,
                 quote: quote,
+                in: chat,
+                topic: topic,
+                destination: destination,
+                navigationController: navigationController,
+            )
+        }
+        let pickerNavigation = TelegramNavigationController(rootViewController: picker)
+        pickerNavigation.modalPresentationStyle = .fullScreen
+        present(pickerNavigation, animated: true)
+    }
+
+    /// Switch inline's `targetChatChosen` (ChatControllerOpenPeer with `peerTypes`): the Forward picker offers the
+    /// writable chats of the button's kinds. This chat takes the query in its composer; another chat opens with it.
+    private func presentSwitchInlinePicker(text: String, types: InlineTargetChatTypes, messageID: Int64) {
+        guard presentationMode == .full,
+              presentedViewController == nil,
+              let accountID = TDLib.shared.activeAccountID,
+              TDLib.shared.activeClient.id == chatVM.client.id,
+              let request = try? MessageForwardRequest(sourceLocation: chatVM.location, messageIDs: [messageID])
+        else { return }
+        var seen = Set<Int64>()
+        let seedChats = RootVM.shared
+            .allFolders
+            .flatMap(\.chats)
+            .map(\.chat)
+            .filter { seen.insert($0.id).inserted }
+        let picker = ForwardMessagesViewController(
+            request: request,
+            client: chatVM.client,
+            accountID: accountID,
+            seedChats: seedChats,
+            purpose: .switchInline(types),
+        )
+        picker.onChosenChat = { [weak self] chat, topic in
+            guard let self, TDLib.shared.activeAccountID == accountID,
+                  TDLib.shared.activeClient.id == chatVM.client.id else { return }
+            let destination = ChatLocation.current(
+                chatID: chat.id,
+                topic: topic.map { .messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId)) },
+                client: chatVM.client,
+            )
+            guard destination != location else { return insertInlineQuery(text) }
+            Self.openSwitchInline(
+                text,
                 in: chat,
                 topic: topic,
                 destination: destination,

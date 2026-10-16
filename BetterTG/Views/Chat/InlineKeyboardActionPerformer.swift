@@ -11,6 +11,33 @@ struct InlineKeyboardButtonPress {
     let type: TDNativeInlineKeyboardButtonType
 }
 
+// MARK: - InlineTargetChatTypes
+
+/// `targetChatTypes`: the kinds of chat a switch inline button may continue in.
+struct InlineTargetChatTypes: Equatable {
+    let users: Bool
+    let bots: Bool
+    let groups: Bool
+    let channels: Bool
+
+    /// No kind set: TDLib's empty `targetChatTypes`, which Telegram's `requestPeerTypes` treats as any chat.
+    var isEmpty: Bool { !(users || bots || groups || channels) }
+
+    init(_ types: TDNativeTargetChatTypes) {
+        self.users = types.allowUserChats
+        self.bots = types.allowBotChats
+        self.groups = types.allowGroupChats
+        self.channels = types.allowChannelChats
+    }
+
+    init(users: Bool, bots: Bool, groups: Bool, channels: Bool) {
+        self.users = users
+        self.bots = bots
+        self.groups = groups
+        self.channels = channels
+    }
+}
+
 // MARK: - InlineKeyboardActionPerformer
 
 /// Telegram's inline keyboard actions (ChatController `requestMessageActionCallback`, `openUrl`,
@@ -23,6 +50,8 @@ struct InlineKeyboardButtonPress {
         let showToast: (String) -> Void
         let openUserProfile: (Int64) -> Void
         let insertInlineQuery: (String) -> Void
+        /// Picks a chat of the given kinds and puts the text into its composer.
+        let chooseInlineChat: (_ text: String, _ types: InlineTargetChatTypes, _ messageID: Int64) -> Void
     }
 
     // MARK: Private
@@ -332,10 +361,13 @@ struct InlineKeyboardButtonPress {
         }
     }
 
-    /// Telegram's switch inline button for the current chat: the composer gets "@bot query". Choosing another chat
-    /// needs a chat picker.
+    /// Telegram's switch inline button (`activateSwitchInline`): "@bot query" goes into this chat's composer, or a
+    /// chosen chat's of the allowed kinds; an internal link target opens that link.
     private func switchInline(query: String, target: TDNativeTargetChat, message: Message, client: TDLibClient) {
-        guard case .targetChatCurrent = target else { return showUnsupported() }
+        if case .targetChatInternalLink(let link) = target {
+            openInternalLink(link.link, key: "\(message.id):inline-link", client: client)
+            return
+        }
         let botUserID: Int64? =
             if message.viaBotUserId != 0 {
                 message.viaBotUserId
@@ -347,13 +379,32 @@ struct InlineKeyboardButtonPress {
         guard let botUserID else { return }
         let key = "\(message.id):inline"
         guard tasks[key] == nil else { return }
+        let messageID = message.id
         tasks[key] = Task { [weak self] in
             let user = try? await client.getUser(userId: botUserID)
             guard let self else { return }
             tasks[key] = nil
             guard !Task.isCancelled, host.isCurrent(), TDLib.shared.activeClient.id == client.id,
                   let username = user?.usernames?.activeUsernames.first, !username.isEmpty else { return }
-            host.insertInlineQuery("@\(username) \(query)")
+            let text = "@\(username) \(query)"
+            if case .targetChatChosen(let chosen) = target {
+                host.chooseInlineChat(text, InlineTargetChatTypes(chosen.types), messageID)
+            } else {
+                host.insertInlineQuery(text)
+            }
+        }
+    }
+
+    /// TDLib's internal link as a tg:// URL, opened by the link router.
+    private func openInternalLink(_ link: TDNativeInternalLinkType, key: String, client: TDLibClient) {
+        guard tasks[key] == nil else { return }
+        tasks[key] = Task { [weak self] in
+            let url = try? await client.getInternalLink(type: link, isHttp: false)
+            guard let self else { return }
+            tasks[key] = nil
+            guard !Task.isCancelled, host.isCurrent(), TDLib.shared.activeClient.id == client.id else { return }
+            guard let url else { return showAlert(L10n.telegram("Login.UnknownError")) }
+            openURL(url.url, confirming: false)
         }
     }
 

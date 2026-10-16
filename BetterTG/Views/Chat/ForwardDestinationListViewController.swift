@@ -16,6 +16,11 @@ import UIKit
     private let accountID: UUID
     private let seedChats: [Chat]
     private let preparedForward: PreparedMessageForward?
+    /// A switch inline button's chat kinds; nil lists every chat.
+    private let chatTypes: InlineTargetChatTypes?
+    /// Private chats with bots, told apart from users only when the kinds treat them differently.
+    private var botChatIDs = Set<Int64>()
+    private var checkedBotChatIDs = Set<Int64>()
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
     private var dataSource: UITableViewDiffableDataSource<Section, Int64>!
@@ -59,12 +64,14 @@ import UIKit
         client: TDLibClient,
         accountID: UUID,
         seedChats: [Chat],
+        chatTypes: InlineTargetChatTypes? = nil,
     ) {
         self.folder = folder
         self.preparedForward = prepared
         self.client = client
         self.accountID = accountID
         self.seedChats = seedChats
+        self.chatTypes = chatTypes
         super.init(nibName: nil, bundle: nil)
         for chat in seedChats {
             chatsByID[chat.id] = chat
@@ -177,7 +184,7 @@ import UIKit
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath), let chat = chatsByID[id],
-              eligibilityByChatID[id]?.isAllowed == true else { return }
+              eligibilityByChatID[id]?.isAllowed == true, allowsType(of: id) else { return }
         onSelect?(chat, forumChatIDs.contains(id))
     }
 
@@ -282,6 +289,13 @@ import UIKit
                     }
                 }
             }
+            if let chatTypes, chatTypes.users != chatTypes.bots, let chat = chatsByID[chatID],
+               case .chatTypePrivate(let privateChat) = chat.type, !checkedBotChatIDs.contains(chatID),
+               let user = try? await client.getUser(userId: privateChat.userId)
+            {
+                checkedBotChatIDs.insert(chatID)
+                if case .userTypeBot = user.type { botChatIDs.insert(chatID) }
+            }
         }
         guard !Task.isCancelled,
               generation == queryGeneration,
@@ -344,7 +358,7 @@ import UIKit
     private func applyEligibleSnapshot() {
         var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
         snapshot.appendSections([.chats])
-        snapshot.appendItems(visibleChatIDs.filter { eligibilityByChatID[$0]?.isAllowed == true })
+        snapshot.appendItems(visibleChatIDs.filter { eligibilityByChatID[$0]?.isAllowed == true && allowsType(of: $0) })
         let firstPage = !didApplyFirstPage
         dataSource.apply(snapshot, animatingDifferences: !firstPage) { [weak self] in
             guard let self, firstPage else { return }
@@ -352,6 +366,21 @@ import UIKit
             view.setNeedsLayout()
         }
         updateBackgroundView()
+    }
+
+    /// PeerSelectionController's `requestPeerType` for a switch inline button: users, bots, groups or channels.
+    private func allowsType(of chatID: Int64) -> Bool {
+        guard let chatTypes, let chat = chatsByID[chatID] else { return true }
+        switch chat.type {
+        case .chatTypePrivate:
+            return botChatIDs.contains(chatID) ? chatTypes.bots : chatTypes.users
+        case .chatTypeBasicGroup:
+            return chatTypes.groups
+        case .chatTypeSupergroup(let supergroup):
+            return supergroup.isChannel ? chatTypes.channels : chatTypes.groups
+        case .chatTypeSecret:
+            return false
+        }
     }
 
     private func updateBackgroundView() {

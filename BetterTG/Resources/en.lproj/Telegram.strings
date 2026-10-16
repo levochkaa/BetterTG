@@ -1968,3 +1968,4 @@
 "Conversation.OpenBotLinkLogin" = "Log in to **%1$@** as %2$@";
 "Conversation.OpenBotLinkAllowMessages" = "Allow **%@** to send me messages";
 "Conversation.OpenBotLinkOpen" = "Open";
+"ChatImport.Title" = "Select Chat";

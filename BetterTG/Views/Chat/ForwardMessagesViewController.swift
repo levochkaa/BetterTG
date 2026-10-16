@@ -7,16 +7,19 @@ import UIKit
 @MainActor final class ForwardMessagesViewController: UIViewController, UIPageViewControllerDataSource,
 UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     /// What the chosen chat receives.
-    enum Purpose {
+    enum Purpose: Equatable {
         case forward
         /// ChatMessageActionOptions' Reply in Another Chat: a chat the user can write to, for a reply to the
         /// request's message.
         case replyInAnotherChat
+        /// A switch inline button's chosen chat (`targetChatChosen`): a chat of the allowed kinds the user can write
+        /// to, whose composer gets the bot's query.
+        case switchInline(InlineTargetChatTypes)
     }
 
     var onSelect: ((CustomChat, ForumTopic?, PendingMessageForward) -> Void)?
-    /// The chat chosen in the reply purpose.
-    var onReplyDestination: ((CustomChat, ForumTopic?) -> Void)?
+    /// The chat chosen in the reply and switch inline purposes.
+    var onChosenChat: ((CustomChat, ForumTopic?) -> Void)?
 
     private let request: MessageForwardRequest
     private let purpose: Purpose
@@ -28,9 +31,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private let pageController = UIPageViewController(transitionStyle: .scroll, navigationOrientation: .horizontal)
     private let folderPicker = FolderPickerView()
     private lazy var customNavigationBar = TelegramListNavigationBar(
-        title: purpose == .replyInAnotherChat
-            ? L10n.telegram("Conversation.MoveReplyToAnotherChatTitle")
-            : L10n.betterTG("Forward.Title"),
+        title: pickerTitle,
         placeholder: L10n.telegram("Common.Search"),
         leftImage: UIImage(systemName: "xmark"),
         rightImage: nil,
@@ -55,6 +56,28 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
 
     private var currentPage: ForwardDestinationListViewController? {
         pageController.viewControllers?.first as? ForwardDestinationListViewController
+    }
+
+    private var allowedChatTypes: InlineTargetChatTypes? {
+        if case .switchInline(let types) = purpose, !types.isEmpty {
+            types
+        } else {
+            nil
+        }
+    }
+
+    /// PeerSelectionController's title: Choose User, Bot, Group or Channel for one requested kind, Select Chat for
+    /// several, and Forward otherwise.
+    private var pickerTitle: String {
+        if purpose == .replyInAnotherChat { return L10n.telegram("Conversation.MoveReplyToAnotherChatTitle") }
+        guard let types = allowedChatTypes else { return L10n.betterTG("Forward.Title") }
+        let titles = [
+            (types.users, "RequestPeer.ChooseUserTitle"),
+            (types.bots, "RequestPeer.ChooseBotTitle"),
+            (types.channels, "RequestPeer.ChooseChannelTitle"),
+            (types.groups, "RequestPeer.ChooseGroupTitle"),
+        ].filter(\.0)
+        return L10n.telegram(titles.count == 1 ? titles[0].1 : "ChatImport.Title")
     }
 
     private var contextIsCurrent: Bool {
@@ -163,9 +186,9 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
             defer { spinner.removeFromSuperview() }
             do {
                 let prepared: PreparedMessageForward =
-                    if purpose == .replyInAnotherChat {
-                        // moveReplyMessageToAnotherChat's onlyWriteable chats: text must be allowed there, and secret
-                        // chats take no replies to other chats.
+                    if purpose != .forward {
+                        // moveReplyMessageToAnotherChat's and switch inline's onlyWriteable chats: text must be
+                        // allowed there, and secret chats take no replies to other chats or inline queries.
                         PreparedMessageForward(
                             request: request,
                             canForward: true,
@@ -190,6 +213,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
                         client: self.client,
                         accountID: self.accountID,
                         seedChats: self.seedChats,
+                        chatTypes: self.allowedChatTypes,
                     )
                     page.updateQuery(self.query)
                     page.setSearchActive(self.customNavigationBar.isSearchActive, animated: false)
@@ -345,13 +369,13 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
 
     private func openDestination(_ chat: Chat, topic: ForumTopic?) {
         guard selectionTask == nil, let preparedForward, contextIsCurrent else { return }
-        if purpose == .replyInAnotherChat {
+        if purpose != .forward {
             selectionTask = Task { [weak self] in
                 guard let self else { return }
                 defer { selectionTask = nil }
                 guard let customChat = await RootVM.shared.getCustomChatForNavigation(from: chat.id, client: client),
                       !Task.isCancelled, contextIsCurrent else { return }
-                dismiss(animated: true) { [onReplyDestination] in onReplyDestination?(customChat, topic) }
+                dismiss(animated: true) { [onChosenChat] in onChosenChat?(customChat, topic) }
             }
             return
         }
