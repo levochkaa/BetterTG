@@ -5574,19 +5574,30 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// Telegram's Save Image / Save Video (saveToCameraRoll) and Save to Files (saveMediaToFiles) message items for a
-    /// single media message the chat lets save, following the gallery's export rules.
-    private func mediaSaveActions(for message: CustomMessage) -> [TelegramContextMenuAction] {
+    /// media message the chat lets save, following the gallery's export rules. In an album they save the item that
+    /// was pressed, as Telegram's per-item album menus do.
+    private func mediaSaveActions(
+        for message: CustomMessage,
+        albumItemID: Int64? = nil,
+    ) -> [TelegramContextMenuAction] {
         if case .chatTypeSecret = chatVM.customChat.chat.type { return [] }
-        guard message.sourceMessages.count == 1,
-              message.properties.canBeSaved,
+        let source: Message
+        if message.sourceMessages.count <= 1 {
+            source = message.message
+        } else if let albumItemID, let item = message.sourceMessages.first(where: { $0.id == albumItemID }) {
+            source = item
+        } else {
+            return []
+        }
+        guard message.properties.canBeSaved,
               !message.properties.hasProtectedContentByCurrentUser,
               !message.properties.hasProtectedContentByOtherUser,
-              message.message.selfDestructType == nil
+              source.selfDestructType == nil
         else { return [] }
-        let messageID = message.message.id
-        switch message.message.content {
+        let messageID = source.id
+        switch source.content {
         case .messagePhoto, .messageVideo:
-            guard let asset = MediaGalleryExportAsset(message.message), !asset.isSecretMedia,
+            guard let asset = MediaGalleryExportAsset(source), !asset.isSecretMedia,
                   let saveTitle = asset.saveActionTitle else { return [] }
             return [TelegramContextMenuAction(
                 title: saveTitle,
@@ -6004,9 +6015,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         else { return }
         // A file or music album quotes the caption of the file under the finger, replying to that file.
         let quoteTarget = cell.contextQuoteTarget(at: gesture.location(in: cell))
+        let albumItemID = cell.contextAlbumItemID(at: gesture.location(in: cell))
         presentTelegramContextMenu(
             sourceView: cell.contextPreviewView,
-            actions: menu(for: message),
+            actions: menu(for: message, albumItemID: albumItemID),
             tracking: gesture,
             reactionsProvider: contextReactionsProvider(for: message),
             quoteSelection: quoteTarget.flatMap { target -> TelegramContextQuoteSelection? in
@@ -6216,7 +6228,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         panGesture.isEnabled = true
     }
 
-    private func menu(for message: CustomMessage) -> [TelegramContextMenuAction] {
+    /// The message menu; `albumItemID` is the album item the long press was on, for actions on a single item.
+    private func menu(for message: CustomMessage, albumItemID: Int64? = nil) -> [TelegramContextMenuAction] {
         if chatVM.isReadOnlyTopic {
             var readOnlyActions = [TelegramContextMenuAction]()
             if message.properties.canBeCopied,
@@ -6230,7 +6243,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             if let translateAction = translateAction(for: message) {
                 readOnlyActions.append(translateAction)
             }
-            readOnlyActions.append(contentsOf: mediaSaveActions(for: message))
+            readOnlyActions.append(contentsOf: mediaSaveActions(for: message, albumItemID: albumItemID))
             return readOnlyActions
         }
         var elements = [TelegramContextMenuAction]()
@@ -6328,7 +6341,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             })
         }
         elements.append(contentsOf: stickerAndAnimationActions(for: message))
-        elements.append(contentsOf: mediaSaveActions(for: message))
+        elements.append(contentsOf: mediaSaveActions(for: message, albumItemID: albumItemID))
         if canOfferPinAction(for: message) {
             if message.isPinned {
                 // Telegram unpins from the message menu without a confirmation (askForConfirmation: false).

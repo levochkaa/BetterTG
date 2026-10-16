@@ -311,6 +311,11 @@ final class MessageMediaView: UIView {
         return self
     }
 
+    /// The photo or video of an album under `point` (in `coordinateSpace`); nil outside an album.
+    func albumItemMessageID(at point: CGPoint, in coordinateSpace: UIView) -> Int64? {
+        (contentView as? AlbumMediaView)?.messageID(at: point, in: coordinateSpace)
+    }
+
     func makeGalleryTransitionSnapshot(for messageID: Int64) -> UIView? {
         guard transitionIsCurrent(for: messageID) else { return nil }
         return switch contentView {
@@ -583,6 +588,10 @@ final class AlbumMediaView: UIView, ReusableMediaView {
 
     func transitionSourceView(for messageID: Int64) -> UIView? {
         tiles.first(where: { $0.messageID == messageID })
+    }
+
+    func messageID(at point: CGPoint, in coordinateSpace: UIView) -> Int64? {
+        tiles.first { $0.convert($0.bounds, to: coordinateSpace).contains(point) }?.messageID
     }
 
     func transitionSnapshot(for messageID: Int64) -> UIView? {

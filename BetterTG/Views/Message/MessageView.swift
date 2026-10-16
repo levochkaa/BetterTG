@@ -365,6 +365,16 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         return structuredContentView.albumCaptionItems.first { $0.messageID == messageID }?.caption
     }
 
+    /// The album item a long press at `point` (in the cell's coordinates) is on: a photo or video of a media album,
+    /// or a file of a file or music album, as Telegram's per-item album menus act on that item.
+    func contextAlbumItemID(at point: CGPoint) -> Int64? {
+        if let id = mediaView.albumItemMessageID(at: point, in: self) { return id }
+        guard structuredContentView.handlesAlbumCaptions else { return nil }
+        return structuredContentView.albumCaptionItems
+            .first { $0.view.convert($0.view.bounds, to: self).contains(point) }?
+            .messageID
+    }
+
     /// Collection layout attributes own the cell's alpha/transform. Keep deletion
     /// inside that boundary while retaining the inverted timeline's content flip.
     func setDeletionPresentation(alpha: CGFloat, transform: CGAffineTransform) {
