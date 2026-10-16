@@ -6140,6 +6140,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let picker = LocationPickerViewController(
             peerName: chatVM.liveLocationPeerName,
             allowsLiveLocation: chatVM.canShareLiveLocation,
+            client: chatVM.client,
+            chatID: chatVM.chatID,
         ) { [weak chatVM] content in
             Task { await chatVM?.sendAttachmentContents([content], kind: .text) }
         }

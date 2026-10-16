@@ -7,8 +7,8 @@ import UIKit
 
 // MARK: - LocationPickerVenue
 
-/// A place Telegram lists under Or choose a place, here a MapKit point of interest. Telegram asks its venue bot for
-/// Foursquare places; MapKit's category is mapped to the Foursquare type Telegram keys venue icons and colors on.
+/// A place Telegram lists under Choose a place: a venue result of the venue search bot's inline query, whose
+/// Foursquare type keys the icon and its color.
 struct LocationPickerVenue {
     /// Telegram's `venueColors` (VenueIconResources) for the types this picker sends.
     private static let venueColors: [String: Int] = [
@@ -28,6 +28,9 @@ struct LocationPickerVenue {
     let title: String
     let address: String
     let coordinate: CLLocationCoordinate2D
+    /// The venue's provider ("foursquare", "gplaces") and its ID there.
+    let provider: String
+    let id: String
     let type: String
 
     var location: CLLocation {
@@ -62,7 +65,7 @@ struct LocationPickerVenue {
         }
     }
 
-    /// Telegram's sendVenue: the place goes as a venue with its title and address.
+    /// Telegram's sendVenue: the place goes as the bot gave it.
     var content: InputMessageContent {
         .inputMessageVenue(TDNativeInputMessageVenue(venue: TDNativeVenue(
             location: TDNativeLocation(
@@ -72,48 +75,19 @@ struct LocationPickerVenue {
             ),
             title: title,
             address: address,
-            provider: "",
-            id: "",
+            provider: provider,
+            id: id,
             type: type,
         )))
     }
 
-    init?(mapItem: MKMapItem) {
-        guard let name = mapItem.name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
-            return nil
-        }
-        self.title = name
-        self.address = mapItem.address?.shortAddress ?? mapItem.address?.fullAddress ?? ""
-        self.coordinate = mapItem.location.coordinate
-        self.type = Self.telegramType(for: mapItem.pointOfInterestCategory)
-    }
-
-    private static func telegramType(for category: MKPointOfInterestCategory?) -> String {
-        guard let category else { return "" }
-        switch category {
-        case .bakery, .cafe, .foodMarket, .restaurant:
-            return "food/default"
-        case .brewery, .nightlife, .winery:
-            return "nightlife/default"
-        case .hotel:
-            return "travel/hotel"
-        case .airport, .carRental, .evCharger, .gasStation, .parking, .publicTransport:
-            return "travel/default"
-        case .amusementPark, .aquarium, .movieTheater, .museum, .stadium, .theater, .zoo:
-            return "arts_entertainment/default"
-        case .beach, .campground, .marina, .nationalPark, .park:
-            return "parks_outdoors/default"
-        case .library, .school, .university:
-            return "education/default"
-        case .hospital, .pharmacy:
-            return "building/medical"
-        case .fitnessCenter:
-            return "building/gym"
-        case .store:
-            return "shops/default"
-        default:
-            return "building/default"
-        }
+    init(venue: TDNativeVenue) {
+        self.title = venue.title
+        self.address = venue.address
+        self.coordinate = CLLocationCoordinate2D(latitude: venue.location.latitude, longitude: venue.location.longitude)
+        self.provider = venue.provider
+        self.id = venue.id
+        self.type = venue.type
     }
 }
 
@@ -122,7 +96,8 @@ struct LocationPickerVenue {
 /// Telegram's LocationPickerController in share mode (LocationPickerControllerNode): the map with the user's
 /// location, Send My Current Location with its accuracy, a pin moved by dragging the map as Send This Location with
 /// its address, a place's pin as Send This Place, Share My Live Location for a chosen period, places nearby or in
-/// the dragged-to area, and a place search. LiveLocationManager keeps a sent live location updated.
+/// the dragged-to area from the venue search bot, and a search of addresses and places. LiveLocationManager keeps a
+/// sent live location updated.
 @MainActor final class LocationPickerViewController: UIViewController, UITableViewDataSource, UITableViewDelegate,
     MKMapViewDelegate, CLLocationManagerDelegate, UIGestureRecognizerDelegate, UISearchResultsUpdating,
     TelegramNavigationSearchProvider
@@ -163,9 +138,18 @@ struct LocationPickerVenue {
     private enum Row {
         case send
         case liveLocation
+        case placemark(SearchPlacemark)
         case venue(LocationPickerVenue)
         case loading
         case message(String)
+    }
+
+    /// An address found for the search query (LocationSearchContainerNode's placemark entries).
+    private struct SearchPlacemark {
+        let title: String
+        let coordinate: CLLocationCoordinate2D
+        /// From the map's center when the search ran.
+        let distance: CLLocationDistance
     }
 
     private final class VenueAnnotation: MKPointAnnotation {
@@ -186,8 +170,6 @@ struct LocationPickerVenue {
     private static let defaultSpan = MKCoordinateSpan(latitudeDelta: 0.016, longitudeDelta: 0.016)
     /// Telegram's live location periods (LocationLiveLocationContextMenu), the last being liveLocationIndefinitePeriod.
     private static let livePeriods = [15 * 60, 60 * 60 - 1, 8 * 60 * 60, Int(Int32.max)]
-    private static let venueRadius: CLLocationDistance = 1000
-    private static let maximumVenues = 50
     /// TDLib's limit for a location's horizontal accuracy.
     private static let maximumAccuracy: CLLocationAccuracy = 1500
 
@@ -199,6 +181,9 @@ struct LocationPickerVenue {
 
     private let peerName: String?
     private let allowsLiveLocation: Bool
+    /// The chat's client asks the venue search bot; the chat is the inline query's chat.
+    private let client: TDLibClient
+    private let chatID: Int64
     private let send: (InputMessageContent) -> Void
     private let locationManager = CLLocationManager()
     private let mapView = MKMapView()
@@ -219,6 +204,8 @@ struct LocationPickerVenue {
     private var accessDenied = false
     private var centeredOnUser = false
     private var userIsDraggingMap = false
+    /// Where the nearby places were asked for (Telegram's throttledUserLocation).
+    private var venuesLocation: CLLocation?
     /// Places around the user's location; nil while they load.
     private var nearbyVenues: [LocationPickerVenue]?
     /// Places In This Area: places around a dragged-to location, shown instead of the nearby ones.
@@ -226,7 +213,9 @@ struct LocationPickerVenue {
     private var areaCoordinate: CLLocation?
     private var searchingVenuesAround = false
     private var searchQuery = ""
-    private var searchResults: [LocationPickerVenue]?
+    /// The query's addresses and places; nil while they load.
+    private var searchResults: (placemarks: [SearchPlacemark], venues: [LocationPickerVenue])?
+    private var venueSearchBotUserID: Int64?
     private var nearbyTask: Task<Void, Never>?
     private var areaTask: Task<Void, Never>?
     private var geocodeTask: Task<Void, Never>?
@@ -236,24 +225,23 @@ struct LocationPickerVenue {
 
     private var isSearching: Bool { !searchQuery.isEmpty }
 
-    private var displayedVenues: [LocationPickerVenue]? {
-        if isSearching { return searchResults }
-        if areaVenues != nil || searchingVenuesAround { return areaVenues }
-        return nearbyVenues
-    }
-
+    /// The send rows, or the found addresses while searching.
     private var actionRows: [Row] {
-        guard !isSearching else { return [] }
-        return allowsLiveLocation ? [.send, .liveLocation] : [.send]
+        guard isSearching else { return allowsLiveLocation ? [.send, .liveLocation] : [.send] }
+        return (searchResults?.placemarks ?? []).map { .placemark($0) }
     }
 
     private var venueRows: [Row] {
-        guard let venues = displayedVenues else { return [.loading] }
-        guard !venues.isEmpty else {
-            return [.message(isSearching
-                    ? L10n.telegram("Map.SearchNoResultsDescription", searchQuery)
-                    : L10n.telegram("Map.NoPlacesNearby"))]
+        if isSearching {
+            guard let searchResults else { return [.loading] }
+            guard !searchResults.placemarks.isEmpty || !searchResults.venues.isEmpty else {
+                return [.message(L10n.telegram("Map.SearchNoResultsDescription", searchQuery))]
+            }
+            return searchResults.venues.map { .venue($0) }
         }
+        let venues = areaVenues != nil || searchingVenuesAround ? areaVenues : nearbyVenues
+        guard let venues else { return [.loading] }
+        guard !venues.isEmpty else { return [.message(L10n.telegram("Map.NoPlacesNearby"))] }
         return venues.map { .venue($0) }
     }
 
@@ -266,10 +254,20 @@ struct LocationPickerVenue {
     /// - Parameters:
     ///   - peerName: The other user's name in a private chat, for the live location description.
     ///   - allowsLiveLocation: Telegram offers live location outside secret chats and Saved Messages.
+    ///   - client: The chat's client, which asks the venue search bot.
+    ///   - chatID: The chat the venue search bot's inline queries come from.
     ///   - send: Called with the chosen content once the picker has been dismissed.
-    init(peerName: String?, allowsLiveLocation: Bool, send: @escaping (InputMessageContent) -> Void) {
+    init(
+        peerName: String?,
+        allowsLiveLocation: Bool,
+        client: TDLibClient,
+        chatID: Int64,
+        send: @escaping (InputMessageContent) -> Void,
+    ) {
         self.peerName = peerName
         self.allowsLiveLocation = allowsLiveLocation
+        self.client = client
+        self.chatID = chatID
         self.send = send
         super.init(nibName: nil, bundle: nil)
     }
@@ -309,16 +307,6 @@ struct LocationPickerVenue {
         authorizationChanged()
     }
 
-    private static func venues(around coordinate: CLLocationCoordinate2D) async -> [LocationPickerVenue] {
-        let request = MKLocalPointsOfInterestRequest(center: coordinate, radius: venueRadius)
-        let response = try? await MKLocalSearch(request: request).start()
-        let center = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-        let venues = (response?.mapItems ?? [])
-            .compactMap(LocationPickerVenue.init(mapItem:))
-            .sorted { center.distance(from: $0.location) < center.distance(from: $1.location) }
-        return Array(venues.prefix(maximumVenues))
-    }
-
     private static func address(of item: MKMapItem) -> String? {
         if let address = item.addressRepresentations?.fullAddress(includingRegion: true, singleLine: true),
            !address.isEmpty
@@ -327,6 +315,23 @@ struct LocationPickerVenue {
         }
         if let address = item.address?.fullAddress, !address.isEmpty { return address }
         return item.name
+    }
+
+    /// Telegram's geocodeLocation(address:) in search: the addresses matching the query, with their distance from the
+    /// map's center.
+    private static func placemarks(for query: String, around coordinate: CLLocationCoordinate2D) async
+        -> [SearchPlacemark]
+    {
+        guard let request = MKGeocodingRequest(addressString: query) else { return [] }
+        let items = await (try? request.mapItems) ?? []
+        let center = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        return items.map { item in
+            SearchPlacemark(
+                title: item.name ?? address(of: item) ?? L10n.telegram("Map.Unknown"),
+                coordinate: item.location.coordinate,
+                distance: item.location.distance(from: center),
+            )
+        }
     }
 
     private static func livePeriodTitle(_ period: Int) -> String {
@@ -346,8 +351,13 @@ struct LocationPickerVenue {
     }
 
     func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
-        guard section == 1, !isSearching else { return nil }
-        return L10n.telegram("Map.ChooseAPlace").uppercased()
+        guard isSearching else { return section == 1 ? L10n.telegram("Map.ChooseAPlace").uppercased() : nil }
+        // LocationSearchContainerNode's mapAddress and nearbyVenues headers.
+        guard let searchResults else { return nil }
+        if section == 0 {
+            return searchResults.placemarks.isEmpty ? nil : L10n.telegram("Map.AddressOnMap").uppercased()
+        }
+        return searchResults.venues.isEmpty ? nil : L10n.telegram("Map.PlacesNearby").uppercased()
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -386,6 +396,13 @@ struct LocationPickerVenue {
             configuration.secondaryText = L10n.telegram("Map.ShareLiveLocationHelp")
             configuration.textProperties.color = .tintColor
             configuration.image = icon(symbol: "dot.radiowaves.left.and.right", color: UIColor(rgb: 0x6CC138))
+        case .placemark(let placemark):
+            configuration.text = placemark.title
+            configuration.secondaryText = L10n.telegram(
+                "Map.DistanceAway",
+                distanceFormatter.string(fromDistance: placemark.distance),
+            )
+            configuration.image = icon(symbol: "mappin", color: UIColor(rgb: 0x008DF2))
         case .venue(let venue):
             configuration.text = venue.title
             configuration.secondaryText = venue.address
@@ -410,6 +427,8 @@ struct LocationPickerVenue {
             sendSelection()
         case .liveLocation:
             shareLiveLocation(from: tableView.cellForRow(at: indexPath))
+        case .placemark(let placemark):
+            goToCoordinate(placemark.coordinate)
         case .venue(let venue):
             finish(with: venue.content)
         case .loading, .message:
@@ -421,13 +440,12 @@ struct LocationPickerVenue {
 
     func mapView(_ mapView: MKMapView, didUpdate mapUserLocation: MKUserLocation) {
         guard let location = mapUserLocation.location else { return }
-        let isFirstFix = userLocation == nil
         userLocation = location
         if case .current = selection, !centeredOnUser {
             centeredOnUser = true
             mapView.setRegion(MKCoordinateRegion(center: location.coordinate, span: Self.defaultSpan), animated: false)
         }
-        if isFirstFix, nearbyVenues == nil { loadNearbyVenues(around: location.coordinate) }
+        updateVenuesLocation(location)
         reloadActionRows()
     }
 
@@ -485,17 +503,17 @@ struct LocationPickerVenue {
         searchResults = nil
         tableView.reloadData()
         guard !query.isEmpty else { return }
-        let region = mapView.region
+        let coordinate = mapView.centerCoordinate
+        // LocationSearchContainerNode: a second after typing stops, the addresses for the query and the venue bot's
+        // places for it around the map's center.
         searchTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(300))
-            guard !Task.isCancelled else { return }
-            let request = MKLocalSearch.Request()
-            request.naturalLanguageQuery = query
-            request.region = region
-            request.resultTypes = .pointOfInterest
-            let response = try? await MKLocalSearch(request: request).start()
-            guard let self, !Task.isCancelled, searchQuery == query else { return }
-            searchResults = (response?.mapItems ?? []).compactMap(LocationPickerVenue.init(mapItem:))
+            try? await Task.sleep(for: .seconds(1))
+            guard let self, !Task.isCancelled else { return }
+            async let foundPlacemarks = Self.placemarks(for: query, around: coordinate)
+            let places = await venues(around: coordinate, query: query) ?? []
+            let placemarks = await foundPlacemarks
+            guard !Task.isCancelled, searchQuery == query else { return }
+            searchResults = (placemarks, places)
             tableView.reloadData()
         }
     }
@@ -682,9 +700,10 @@ struct LocationPickerVenue {
         tableView.reloadData()
         areaTask?.cancel()
         areaTask = Task { [weak self] in
-            let venues = await Self.venues(around: coordinate)
-            guard let self, !Task.isCancelled else { return }
-            areaVenues = venues
+            guard let self else { return }
+            let found = await venues(around: coordinate)
+            guard !Task.isCancelled else { return }
+            areaVenues = found ?? []
             areaCoordinate = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
             updatePlacesButton()
             updateVenueAnnotations()
@@ -695,12 +714,86 @@ struct LocationPickerVenue {
     private func loadNearbyVenues(around coordinate: CLLocationCoordinate2D) {
         nearbyTask?.cancel()
         nearbyTask = Task { [weak self] in
-            let venues = await Self.venues(around: coordinate)
-            guard let self, !Task.isCancelled else { return }
-            nearbyVenues = venues
+            guard let self else { return }
+            let found = await venues(around: coordinate)
+            guard !Task.isCancelled else { return }
+            // Telegram lists no places when the bot doesn't answer.
+            nearbyVenues = found ?? []
             updateVenueAnnotations()
             tableView.reloadData()
         }
+    }
+
+    /// Telegram's throttledUserLocation: places load for the first fix with an accuracy, then again once the user
+    /// moves over 250 m or the fix gets better than 50 m.
+    private func updateVenuesLocation(_ location: CLLocation) {
+        guard location.horizontalAccuracy > 0 else { return }
+        if let current = venuesLocation {
+            guard location.distance(from: current) > 250
+                || (location.horizontalAccuracy < 50 && location.horizontalAccuracy < current.horizontalAccuracy)
+            else { return }
+        }
+        venuesLocation = location
+        loadNearbyVenues(around: location.coordinate)
+    }
+
+    /// SearchBotsConfiguration.venueBotUsername: the bot named by venue_search_bot_username, else @foursquare,
+    /// resolved once.
+    private func venueSearchBot() async -> Int64? {
+        if let venueSearchBotUserID { return venueSearchBotUserID }
+        var username = "foursquare"
+        if case .optionValueString(let option) = try? await client.getOption(name: "venue_search_bot_username"),
+           !option.value.isEmpty
+        {
+            username = option.value
+        }
+        guard let chat = try? await client.send(TDNativeRequests.searchPublicChat(username: username)),
+              case .chatTypePrivate(let bot) = chat.type
+        else { return nil }
+        venueSearchBotUserID = bot.userId
+        return bot.userId
+    }
+
+    /// Telegram's nearbyVenues: an inline query to the venue search bot with the location, the search text or
+    /// nothing as its query, and the venues among its results. Nil when the bot doesn't answer.
+    private func venues(around coordinate: CLLocationCoordinate2D, query: String = "") async -> [LocationPickerVenue]? {
+        guard let botUserID = await venueSearchBot() else { return nil }
+        guard let found = try? await client.send(TDNativeRequests.getInlineQueryResults(
+            botUserId: botUserID,
+            chatId: chatID,
+            userLocation: TDNativeLocation(
+                latitude: coordinate.latitude,
+                longitude: coordinate.longitude,
+                horizontalAccuracy: 0,
+            ),
+            query: query,
+            offset: "",
+        )) else { return nil }
+        return found.results.compactMap { result -> LocationPickerVenue? in
+            guard case .inlineQueryResultVenue(let venue) = result else { return nil }
+            return LocationPickerVenue(venue: venue.venue)
+        }
+    }
+
+    /// Telegram's goToCoordinate from search: the address becomes the picked location and the search closes.
+    private func goToCoordinate(_ coordinate: CLLocationCoordinate2D) {
+        telegramNavigationSearch.searchBar.text = nil
+        telegramNavigationSearch.isActive = false
+        searchQuery = ""
+        searchTask?.cancel()
+        searchResults = nil
+        geocodeTask?.cancel()
+        searchingVenuesAround = false
+        selection = .location(coordinate, address: nil)
+        for annotation in mapView.selectedAnnotations {
+            mapView.deselectAnnotation(annotation, animated: false)
+        }
+        mapView.setCenter(coordinate, animated: true)
+        updatePin()
+        updatePlacesButton()
+        updateVenueAnnotations()
+        tableView.reloadData()
+        reverseGeocode(coordinate)
     }
 
     private func reverseGeocode(_ coordinate: CLLocationCoordinate2D) {
@@ -764,7 +857,7 @@ struct LocationPickerVenue {
     }
 
     private func reloadActionRows() {
-        guard !actionRows.isEmpty else { return }
+        guard !isSearching else { return }
         UIView.performWithoutAnimation {
             tableView.reloadSections(IndexSet(integer: 0), with: .none)
         }

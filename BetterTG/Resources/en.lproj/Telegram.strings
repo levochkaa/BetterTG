@@ -1879,3 +1879,6 @@
 "LiveLocation.MenuChatsCount_any" = "You are sharing Live Location with %@ chats.";
 "LiveLocation.MenuStopAll" = "Stop All";
 "Map.StopLiveLocation" = "Stop Sharing Location";
+"Map.DistanceAway" = "%@ away";
+"Map.AddressOnMap" = "Address On Map";
+"Map.PlacesNearby" = "Places Nearby";
