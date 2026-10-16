@@ -1970,3 +1970,13 @@
 "Conversation.OpenBotLinkOpen" = "Open";
 "ChatImport.Title" = "Select Chat";
 "MediaPicker.VideoMuteDescription" = "Sound is now muted, so the video will autoplay and loop like a GIF.";
+"WebApp.OpenBot" = "Open Bot";
+"WebApp.ReloadPage" = "Reload Page";
+"WebApp.Settings" = "Settings";
+"WebApp.CloseConfirmation" = "Changes that you made may not be saved.";
+"WebApp.CloseAnyway" = "Close Anyway";
+"WebApp.LaunchTermsConfirmation" = "By launching this mini app, you agree to the [Terms of Service for Mini Apps]().";
+"WebApp.LaunchTermsConfirmation_URL" = "https://telegram.org/tos/mini-apps";
+"WebApp.LaunchOpenApp" = "Open App";
+"WebApp.PrivacyPolicy" = "Privacy Policy";
+"WebApp.PrivacyPolicy_URL" = "https://telegram.org/privacy-tpa";

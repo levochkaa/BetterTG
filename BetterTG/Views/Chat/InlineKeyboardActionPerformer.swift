@@ -95,8 +95,7 @@ struct InlineTargetChatTypes: Equatable {
         case .inlineKeyboardButtonTypeLoginUrl(let value):
             requestLoginURL(value, message: message, client: client)
         case .inlineKeyboardButtonTypeWebApp(let value):
-            // A Web App screen with launch parameters (`openWebApp`) is not built yet; the page opens as a link.
-            openURL(value.url, confirming: true)
+            openButtonWebApp(url: value.url, message: message, client: client)
         case .inlineKeyboardButtonTypeCallback(let value):
             requestAnswer(
                 .callbackQueryPayloadData(.init(data: value.data)),
@@ -126,6 +125,53 @@ struct InlineTargetChatTypes: Equatable {
         case .inlineKeyboardButtonTypeDisabled:
             break
         }
+    }
+
+    /// A reply keyboard's Web App button (Telegram's simple web view, `getWebAppUrl`): the page may send data back
+    /// with the button's text. The bot is the keyboard message's sender.
+    func openKeyboardWebApp(
+        url: String,
+        buttonText: String,
+        keyboardMessageID: Int64,
+        chatID: Int64,
+        client: TDLibClient,
+    ) {
+        let key = "\(keyboardMessageID):webapp"
+        guard host.isCurrent(), tasks[key] == nil else { return }
+        tasks[key] = Task { [weak self] in
+            let message = try? await client.getMessage(chatId: chatID, messageId: keyboardMessageID)
+            guard let self else { return }
+            tasks[key] = nil
+            let botUserID: Int64? =
+                if case .messageSenderUser(let sender) = message?.senderId {
+                    sender.userId
+                } else {
+                    nil
+                }
+            guard let botUserID, !Task.isCancelled, host.isCurrent() else { return }
+            launchWebApp(
+                url: url,
+                botUserID: botUserID,
+                source: .keyboard(buttonText: buttonText),
+                chatID: chatID,
+                topic: nil,
+                messageID: keyboardMessageID,
+                client: client,
+            )
+        }
+    }
+
+    func presentWebApp(_ launch: WebAppLaunch, messageID: Int64) {
+        guard let presenter = host.presenter() else { return }
+        let host = host
+        let controller = WebAppViewController(launch: launch, actions: .init(
+            openTelegramLink: { url in TelegramLinkRouter.shared.open(url, from: host.presenter()) },
+            switchInline: { text, types in
+                guard host.isCurrent() else { return }
+                if let types { host.chooseInlineChat(text, types, messageID) } else { host.insertInlineQuery(text) }
+            },
+        ))
+        presenter.present(controller, animated: true)
     }
 
     /// The bot's answer is an alert when it asks for one, a short toast otherwise, and its URL opens without the
@@ -392,6 +438,129 @@ struct InlineTargetChatTypes: Equatable {
             } else {
                 host.insertInlineQuery(text)
             }
+        }
+    }
+
+    /// An inline button's Web App (ChatControllerOpenWebApp, `requestWebView` from a button): `openWebApp` in this
+    /// chat and topic, for the message's bot.
+    private func openButtonWebApp(url: String, message: Message, client: TDLibClient) {
+        let botUserID: Int64? =
+            if message.viaBotUserId != 0 {
+                message.viaBotUserId
+            } else if case .messageSenderUser(let sender) = message.senderId {
+                sender.userId
+            } else {
+                nil
+            }
+        guard let botUserID else { return openURL(url, confirming: true) }
+        launchWebApp(
+            url: url,
+            botUserID: botUserID,
+            source: nil,
+            chatID: message.chatId,
+            topic: message.topicId,
+            messageID: message.id,
+            client: client,
+        )
+    }
+
+    /// webAppLaunchConfirmationController the first time a bot's Web App opens (`getBotGameNotice`), then the
+    /// launch and the sheet. A nil source is an inline button's `openWebApp`.
+    private func launchWebApp(
+        url: String,
+        botUserID: Int64,
+        source: WebAppLaunch.Source?,
+        chatID: Int64,
+        topic: TDNativeMessageTopic?,
+        messageID: Int64,
+        client: TDLibClient,
+    ) {
+        let key = "\(messageID):webapp-launch"
+        guard tasks[key] == nil else { return }
+        tasks[key] = Task { [weak self] in
+            let bot = try? await client.getUser(userId: botUserID)
+            guard let self else { return }
+            tasks[key] = nil
+            guard !Task.isCancelled, host.isCurrent(), TDLib.shared.activeClient.id == client.id,
+                  let presenter = host.presenter() else { return }
+            let botName = Self.displayName(of: bot)
+            let noticeKey = "bettertg.webAppNotice.\(TDLib.shared.activeAccountID?.uuidString ?? "").\(botUserID)"
+            let open = { [weak self] in
+                UserDefaults.standard.set(true, forKey: noticeKey)
+                self?.startWebApp(
+                    url: url,
+                    bot: (botUserID, botName, bot?.usernames?.activeUsernames.first),
+                    source: source,
+                    chatID: chatID,
+                    topic: topic,
+                    messageID: messageID,
+                    client: client,
+                )
+            }
+            guard !UserDefaults.standard.bool(forKey: noticeKey) else { return open() }
+            let terms = L10n.telegram("WebApp.LaunchTermsConfirmation")
+                .replacingOccurrences(of: #"\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+            let alert = UIAlertController(title: botName, message: terms, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+            alert.addAction(UIAlertAction(title: L10n.telegram("WebApp.LaunchOpenApp"), style: .default) { _ in
+                open()
+            })
+            presenter.present(alert, animated: true)
+        }
+    }
+
+    private func startWebApp(
+        url: String,
+        bot: (id: Int64, name: String, username: String?),
+        source: WebAppLaunch.Source?,
+        chatID: Int64,
+        topic: TDNativeMessageTopic?,
+        messageID: Int64,
+        client: TDLibClient,
+    ) {
+        let key = "\(messageID):webapp-open"
+        guard tasks[key] == nil, let presenter = host.presenter() else { return }
+        let parameters = TDNativeWebAppOpenParameters(
+            theme: WebAppViewController.themeParameters(for: presenter.traitCollection),
+            applicationName: "BetterTG",
+            mode: nil,
+        )
+        tasks[key] = Task { [weak self] in
+            var resolved: (source: WebAppLaunch.Source, url: TDNativeWebAppUrl)?
+            if let source {
+                if let webAppURL = try? await client.getWebAppUrl(botUserId: bot.id, url: url, parameters: parameters) {
+                    resolved = (source, webAppURL)
+                }
+            } else if let info = try? await client.openWebApp(
+                chatId: chatID,
+                botUserId: bot.id,
+                url: url,
+                topicId: topic,
+                replyTo: nil,
+                parameters: parameters,
+            ) {
+                resolved = (.button(launchID: info.launchId), info.url)
+            }
+            guard let self else { return }
+            tasks[key] = nil
+            guard !Task.isCancelled, host.isCurrent(), TDLib.shared.activeClient.id == client.id else {
+                if case .button(let launchID) = resolved?.source {
+                    _ = try? await client.closeWebApp(webAppLaunchId: launchID)
+                }
+                return
+            }
+            guard let resolved, let pageURL = URL(string: resolved.url.url) else {
+                return showAlert(L10n.telegram("Login.UnknownError"))
+            }
+            presentWebApp(WebAppLaunch(
+                source: resolved.source,
+                url: pageURL,
+                requiresSameOrigin: resolved.url.requireSameOrigin,
+                botUserID: bot.id,
+                botName: bot.name,
+                botUsername: bot.username,
+                client: client,
+            ), messageID: messageID)
         }
     }
 

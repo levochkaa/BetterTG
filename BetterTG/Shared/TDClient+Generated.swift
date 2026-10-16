@@ -84,6 +84,10 @@ extension TDClient {
         try await send(TDNativeRequests.closeStory(storyPosterChatId: storyPosterChatId, storyId: storyId))
     }
 
+    func closeWebApp(webAppLaunchId: Int64) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.closeWebApp(webAppLaunchId: webAppLaunchId))
+    }
+
     func createBasicGroupChat(basicGroupId: Int64, force: Bool) async throws -> TDNativeChat {
         try await send(TDNativeRequests.createBasicGroupChat(basicGroupId: basicGroupId, force: force))
     }
@@ -637,6 +641,14 @@ extension TDClient {
         try await send(TDNativeRequests.getUserProfilePhotos(userId: userId, offset: offset, limit: limit))
     }
 
+    func getWebAppUrl(
+        botUserId: Int64,
+        url: String,
+        parameters: TDNativeWebAppOpenParameters,
+    ) async throws -> TDNativeWebAppUrl {
+        try await send(TDNativeRequests.getWebAppUrl(botUserId: botUserId, url: url, parameters: parameters))
+    }
+
     func logOut() async throws -> TDNativeOk {
         try await send(TDNativeRequests.logOut())
     }
@@ -665,6 +677,24 @@ extension TDClient {
 
     func openStory(storyId: Int, storyPosterChatId: Int64) async throws -> TDNativeOk {
         try await send(TDNativeRequests.openStory(storyPosterChatId: storyPosterChatId, storyId: storyId))
+    }
+
+    func openWebApp(
+        chatId: Int64,
+        botUserId: Int64,
+        url: String,
+        topicId: TDNativeMessageTopic?,
+        replyTo: TDNativeInputMessageReplyTo?,
+        parameters: TDNativeWebAppOpenParameters,
+    ) async throws -> TDNativeWebAppInfo {
+        try await send(TDNativeRequests.openWebApp(
+            chatId: chatId,
+            botUserId: botUserId,
+            url: url,
+            topicId: topicId,
+            replyTo: replyTo,
+            parameters: parameters,
+        ))
     }
 
     func pinChatMessage(
@@ -891,6 +921,10 @@ extension TDClient {
             options: options,
             inputMessageContents: inputMessageContents,
         ))
+    }
+
+    func sendWebAppData(botUserId: Int64, buttonText: String, data: String) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.sendWebAppData(botUserId: botUserId, buttonText: buttonText, data: data))
     }
 
     func setAuthenticationEmailAddress(emailAddress: String) async throws -> TDNativeOk {

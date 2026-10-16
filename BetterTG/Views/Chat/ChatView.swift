@@ -1444,6 +1444,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 forcedQuiz: poll.forceQuiz ? true : poll.forceRegular ? false : nil,
                 keyboardMessageID: keyboardMessageID,
             )
+        case .keyboardButtonTypeWebApp(let webApp):
+            inlineKeyboardActions.openKeyboardWebApp(
+                url: webApp.url,
+                buttonText: button.text,
+                keyboardMessageID: keyboardMessageID,
+                chatID: chatVM.location.chatID,
+                client: chatVM.client,
+            )
         default:
             Task { await chatVM.pressReplyKeyboardButton(button, keyboardMessageID: keyboardMessageID) }
         }
