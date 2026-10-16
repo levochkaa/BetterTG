@@ -5,12 +5,24 @@ import Combine
 import Photos
 import UIKit
 
+// MARK: - VideoEditorTab
+
+/// The video editor's tabs: TGMediaPickerGalleryVideoItemView's trim and mute, and the crop of
+/// TGPhotoEditorController's video intent (TGPhotoCropController with `forVideo`).
+enum VideoEditorTab {
+    case video
+    case crop
+}
+
 // MARK: - VideoEditViewController
 
-/// TGMediaPickerGalleryVideoItemView's editing of a picked video, opened from the attachment sheet: the scrubber with
-/// the trim on top, the player with its play button, the mute button that sends the video as a GIF, and Cancel and
-/// Done in TGPhotoEditorController's toolbar. Done hands back the trim and mute, or nothing for the video as it was;
-/// Cancel asks before it drops changes.
+/// TGMediaPickerGalleryVideoItemView's editing of a picked video, opened from the attachment sheet, with the crop of
+/// TGPhotoEditorController's video intent, switched at the top like the photo editor's tabs. The Video tab has the
+/// scrubber with the trim on top, the player showing the crop turned and mirrored (`_layoutPlayerViewWithCropRect:`)
+/// with its play button, and the mute button that sends the video as a GIF. The Crop tab is TGPhotoCropController for
+/// video: the crop view over the playing video without the straightening dial, RESET, and Rotate, Mirror and Aspect
+/// Ratio; a tap plays or pauses, and moving the crop pauses the video until it settles. Done hands back the trim,
+/// mute and crop, or nothing for the video as it was; Cancel asks before it drops changes.
 final class VideoEditViewController: UIViewController {
     // MARK: Private
 
@@ -19,10 +31,23 @@ final class VideoEditViewController: UIViewController {
     private static let playButtonSide: CGFloat = 60
     /// TGMediaPickerGalleryInterfaceView's mute button.
     private static let muteButtonSide: CGFloat = 40
-    /// The app's tint for Done and the muted state, where Telegram uses its accent.
-    private static let activeColor = UIColor.systemBlue
+    /// The app's tint for Done and the applied states, where Telegram uses its accent.
+    private static let activeColor = PhotoEditorColors.accent
     /// `play` starts over from the trim's start this close to its end.
     private static let restartThreshold = 0.5
+    /// The strip at the top with the Video and Crop tabs, as in the photo editor.
+    private static let tabBarHeight: CGFloat = 44
+    /// TGPhotoEditorButton's size; the touch area is larger.
+    private static let tabSide: CGFloat = 33
+    private static let tabTouchSide: CGFloat = 44
+    /// `TGPhotoCropButtonsWrapperSize`: RESET's strip right above the toolbar.
+    private static let buttonsWrapperHeight: CGFloat = 61
+    /// `TGPhotoCropAreaInsetSize`.
+    private static let areaInset: CGFloat = 9
+    /// `photoContainerFrameForParentViewFrame` without the dial: `TGPhotoEditorPanelSize` less 55.
+    private static let cropPanelHeight: CGFloat = 60
+    /// The still frame under the crop, at TGPhotoEditorController's screen image size.
+    private static let frameImageSide: CGFloat = 1280
 
     override var prefersStatusBarHidden: Bool {
         true
@@ -30,21 +55,41 @@ final class VideoEditViewController: UIViewController {
 
     // MARK: Internal
 
-    /// The finished edit; `nil` when the whole video goes with its sound.
+    /// The finished edit; `nil` when the whole video goes with its sound and frame.
     var onDone: ((VideoEditAdjustments?) -> Void)?
 
     private let asset: AVAsset
     private let initialAdjustments: VideoEditAdjustments
     private var allowsTrimming: Bool
     private var sendsAsGIF: Bool
+    private var editorTab: VideoEditorTab
     private let player = AVPlayer()
+    /// The crop's box; the whole frame turns and mirrors inside it.
+    private let playerClipView = UIView()
     private let playerView = LocalVideoSurfaceView()
     private let scrubber = VideoScrubberView()
     private let playButton = UIButton(type: .custom)
     private let muteButton = UIButton(type: .custom)
+    private let resetButton = UIButton(type: .system)
+    private let tabBarView = UIView()
+    private let videoTabButton = UIButton(type: .system)
+    private let cropTabButton = UIButton(type: .system)
+    private let tabSelectionView = PhotoCropViewController.makeSelectionView()
     private let toolbarView = UIView()
     private let cancelButton = UIButton(type: .system)
+    private let rotateButton = UIButton(type: .system)
+    private let mirrorButton = UIButton(type: .system)
+    private let aspectRatioButton = UIButton(type: .system)
     private let doneButton = UIButton(type: .system)
+    /// TGPhotoCropView for video, made once the displayed frame's size is known.
+    private var cropView: PhotoCropView?
+    /// The displayed frame's size, which the crop is measured in.
+    private var presentedSize = CGSize.zero
+    /// Reads the frame on screen for the crop's quarter turn.
+    private var frameGenerator: AVAssetImageGenerator?
+    private var isFetchingFrame = false
+    /// TGPhotoAvatarPreviewController's `_wasPlayingBeforeCropping`.
+    private var wasPlayingBeforeCropping = false
     private var duration: Double = 0
     /// The edit as the editor first showed it, for Cancel's test.
     private var loadedAdjustments: VideoEditAdjustments?
@@ -56,12 +101,25 @@ final class VideoEditViewController: UIViewController {
     private var chaseTarget = CMTime.invalid
     private var isChasingTime = false
 
+    /// The crop the video goes with: none for the whole frame without a locked ratio (`hasDefaultCropping`).
+    private var currentCrop: PhotoCropAdjustments? {
+        guard let cropView else { return initialAdjustments.crop }
+        guard !cropView.adjustments.hasDefaultCropping || cropView.isAspectRatioLocked else { return nil }
+        return cropView.adjustments
+    }
+
+    /// The crop the player shows, the whole frame without one.
+    private var displayedCrop: PhotoCropAdjustments {
+        cropView?.adjustments ?? PhotoCropAdjustments(originalSize: presentedSize)
+    }
+
     private var currentAdjustments: VideoEditAdjustments {
         var adjustments = VideoEditAdjustments()
         if scrubber.hasTrimming, scrubber.trimStart < scrubber.trimEnd {
             adjustments.trimRange = scrubber.trimStart...scrubber.trimEnd
         }
         adjustments.sendsAsGIF = sendsAsGIF
+        adjustments.crop = currentCrop
         return adjustments
     }
 
@@ -70,12 +128,24 @@ final class VideoEditViewController: UIViewController {
         return currentAdjustments != loadedAdjustments
     }
 
+    private var isCropBusy: Bool {
+        guard let cropView else { return false }
+        return cropView.isTracking || cropView.isAnimating
+    }
+
     /// `allowsTrimming` is false for slow-motion videos, which Telegram doesn't trim (`itemIsHighFramerateVideo`).
-    init(asset: AVAsset, adjustments: VideoEditAdjustments?, allowsTrimming: Bool = true) {
+    /// `initialTab` is the tab the editor opens in.
+    init(
+        asset: AVAsset,
+        adjustments: VideoEditAdjustments?,
+        allowsTrimming: Bool = true,
+        initialTab: VideoEditorTab = .video,
+    ) {
         self.asset = asset
         self.initialAdjustments = adjustments ?? VideoEditAdjustments()
         self.allowsTrimming = allowsTrimming
         self.sendsAsGIF = adjustments?.sendsAsGIF ?? false
+        self.editorTab = initialTab
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
         modalTransitionStyle = .crossDissolve
@@ -89,12 +159,20 @@ final class VideoEditViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .black
         playerView.playerLayer.player = player
-        playerView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(videoTapped)))
-        view.addSubview(playerView)
+        playerView.playerLayer.videoGravity = .resize
+        playerView.isUserInteractionEnabled = false
+        playerClipView.clipsToBounds = true
+        playerClipView.addSubview(playerView)
+        playerClipView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(videoTapped)))
+        view.addSubview(playerClipView)
         configureScrubber()
         configurePlayButton()
         configureMuteButton()
+        configureResetButton()
+        configureTabBar()
         configureToolbar()
+        applyVisibility()
+        updateTabs()
         loadVideo()
     }
 
@@ -103,35 +181,33 @@ final class VideoEditViewController: UIViewController {
         let bounds = view.bounds
         let safeArea = view.safeAreaInsets
         let toolbarTop = bounds.height - safeArea.bottom - Self.toolbarHeight
+        let contentWidth = bounds.width - safeArea.left - safeArea.right
         toolbarView.frame = CGRect(
             x: 0,
             y: toolbarTop,
             width: bounds.width,
             height: Self.toolbarHeight + safeArea.bottom,
         )
-        cancelButton.frame = CGRect(x: 0, y: 0, width: Self.toolbarHeight, height: Self.toolbarHeight)
-        doneButton.frame = CGRect(
-            x: bounds.width - Self.toolbarHeight,
-            y: 0,
-            width: Self.toolbarHeight,
-            height: Self.toolbarHeight,
-        )
+        layoutToolbar()
+        tabBarView.frame = CGRect(x: 0, y: safeArea.top, width: bounds.width, height: Self.tabBarHeight)
+        layoutTabBar()
+        let contentTop = safeArea.top + Self.tabBarHeight
         // The scrubber sits in TGMediaPickerScrubberHeaderView's panel at the top.
         scrubber.frame = CGRect(
             x: safeArea.left,
-            y: safeArea.top,
-            width: bounds.width - safeArea.left - safeArea.right,
+            y: contentTop,
+            width: contentWidth,
             height: VideoScrubberView.preferredHeight,
         )
         let videoTop = scrubber.frame.maxY + 8
-        playerView.frame = CGRect(
+        layoutPlayer(in: CGRect(
             x: safeArea.left,
             y: videoTop,
-            width: bounds.width - safeArea.left - safeArea.right,
+            width: contentWidth,
             height: max(0, toolbarTop - 8 - videoTop),
-        )
+        ))
         playButton.bounds = CGRect(x: 0, y: 0, width: Self.playButtonSide, height: Self.playButtonSide)
-        playButton.center = CGPoint(x: playerView.frame.midX, y: playerView.frame.midY)
+        playButton.center = CGPoint(x: playerClipView.frame.midX, y: playerClipView.frame.midY)
         // `_muteButtonFrameForOrientation:`: the video's bottom left corner, above the toolbar.
         muteButton.frame = CGRect(
             x: safeArea.left + 12,
@@ -139,6 +215,23 @@ final class VideoEditViewController: UIViewController {
             width: Self.muteButtonSide,
             height: Self.muteButtonSide,
         )
+        // RESET at 20 pt into its strip above the toolbar, reaching 10 pt further for touches.
+        let resetWidth = ceil(resetButton.titleLabel?.intrinsicContentSize.width ?? 0)
+        let resetFrame = CGRect(
+            x: (bounds.width - resetWidth) / 2,
+            y: toolbarTop - Self.buttonsWrapperHeight + 20,
+            width: resetWidth,
+            height: 24,
+        )
+        resetButton.frame = resetFrame.insetBy(dx: -10, dy: -10)
+        // The crop tab's container under the tabs, with the smaller panel of a crop without the dial.
+        let container = CGRect(
+            x: safeArea.left,
+            y: contentTop,
+            width: contentWidth,
+            height: max(0, toolbarTop - Self.cropPanelHeight - contentTop),
+        )
+        cropView?.frame = container.insetBy(dx: Self.areaInset, dy: Self.areaInset)
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -167,8 +260,39 @@ final class VideoEditViewController: UIViewController {
         }
     }
 
+    /// TGMediaAssetImageSignals' exact frames, upright, at the editor's screen size.
+    private static func makeFrameGenerator(for asset: AVAsset) -> AVAssetImageGenerator {
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: frameImageSide, height: frameImageSide)
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        return generator
+    }
+
+    /// A black frame until the video's first frame is read.
+    private static func placeholderFrame() -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: CGSize(width: 2, height: 2), format: format).image { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+    }
+
+    private static func setVisible(_ view: UIView, _ isVisible: Bool) {
+        view.alpha = isVisible ? 1 : 0
+        view.isUserInteractionEnabled = isVisible
+    }
+
+    private static func setSelected(_ button: UIButton, _ isSelected: Bool) {
+        button.tintColor = isSelected ? activeColor : .white
+        button.accessibilityTraits = isSelected ? [.button, .selected] : .button
+    }
+
+    // MARK: Configuration
+
     private func configureScrubber() {
-        scrubber.isHidden = true
         scrubber.onBeginScrubbing = { [weak self] in
             guard let self else { return }
             wasPlayingBeforeScrubbing = isPlaying
@@ -198,6 +322,7 @@ final class VideoEditViewController: UIViewController {
             guard let self else { return }
             updatePlayerRange()
             setPlayButtonHidden(false, animated: true)
+            updateTabs()
         }
         view.addSubview(scrubber)
     }
@@ -236,9 +361,33 @@ final class VideoEditViewController: UIViewController {
         muteButton.layer.cornerRadius = Self.muteButtonSide / 2
         muteButton.accessibilityLabel = L10n.betterTG("Accessibility.VideoEditor.Mute")
         muteButton.addTarget(self, action: #selector(mutePressed), for: .touchUpInside)
-        muteButton.isHidden = true
         updateMuteButton()
         view.addSubview(muteButton)
+    }
+
+    private func configureResetButton() {
+        resetButton.setTitle(L10n.telegram("PhotoEditor.CropReset"), for: .normal)
+        resetButton.titleLabel?.font = .systemFont(ofSize: 13)
+        resetButton.tintColor = .white
+        resetButton.addTarget(self, action: #selector(resetPressed), for: .touchUpInside)
+        view.addSubview(resetButton)
+    }
+
+    /// The photo editor's tab strip with the Video and Crop tabs.
+    private func configureTabBar() {
+        tabBarView.addSubview(tabSelectionView)
+        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
+        let items: [(button: UIButton, symbol: String, label: String, action: Selector)] = [
+            (videoTabButton, "video", L10n.betterTG("Accessibility.VideoEditor.Video"), #selector(videoTabPressed)),
+            (cropTabButton, "crop.rotate", L10n.betterTG("Accessibility.PhotoEditor.Crop"), #selector(cropTabPressed)),
+        ]
+        for item in items {
+            item.button.setImage(UIImage(systemName: item.symbol, withConfiguration: symbolConfiguration), for: .normal)
+            item.button.accessibilityLabel = item.label
+            item.button.addTarget(self, action: item.action, for: .touchUpInside)
+            tabBarView.addSubview(item.button)
+        }
+        view.addSubview(tabBarView)
     }
 
     private func configureToolbar() {
@@ -246,6 +395,19 @@ final class VideoEditViewController: UIViewController {
         let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
         let items: [(button: UIButton, symbol: String, label: String, action: Selector)] = [
             (cancelButton, "xmark", L10n.telegram("Common.Cancel"), #selector(cancelPressed)),
+            (rotateButton, "rotate.left", L10n.betterTG("Accessibility.PhotoEditor.Rotate"), #selector(rotatePressed)),
+            (
+                mirrorButton,
+                "flip.horizontal",
+                L10n.betterTG("Accessibility.PhotoEditor.Mirror"),
+                #selector(mirrorPressed),
+            ),
+            (
+                aspectRatioButton,
+                "aspectratio",
+                L10n.betterTG("Accessibility.PhotoEditor.AspectRatio"),
+                #selector(aspectRatioPressed),
+            ),
             (doneButton, "checkmark", L10n.telegram("Common.Done"), #selector(donePressed)),
         ]
         for item in items {
@@ -259,43 +421,200 @@ final class VideoEditViewController: UIViewController {
         view.addSubview(toolbarView)
     }
 
+    /// TGPhotoCropView without the dial over the playing video: player layers sharing the editor's player show the
+    /// frame, the still frame staying under them for the quarter turn. Moving the crop pauses the video until it
+    /// settles, and a tap plays or pauses (TGPhotoAvatarPreviewController's `interactionBegan`, `interactionEnded`
+    /// and `tapped`).
+    private func makeCropView(frame: UIImage?, crop: PhotoCropAdjustments?) {
+        let cropView = PhotoCropView(
+            image: frame ?? Self.placeholderFrame(),
+            adjustments: crop ?? PhotoCropAdjustments(originalSize: presentedSize),
+            hasArbitraryRotation: false,
+        )
+        let player = player
+        cropView.setContentViews {
+            let surface = LocalVideoSurfaceView()
+            surface.playerLayer.videoGravity = .resize
+            surface.playerLayer.player = player
+            return surface
+        }
+        cropView.onCroppingChanged = { [weak self] in
+            self?.updateTabs()
+        }
+        cropView.onInteractionBegan = { [weak self] in
+            guard let self else { return }
+            wasPlayingBeforeCropping = isPlaying || wasPlayingBeforeCropping
+            pause()
+        }
+        cropView.onInteractionEnded = { [weak self] in
+            guard let self, wasPlayingBeforeCropping else { return }
+            wasPlayingBeforeCropping = false
+            play()
+        }
+        cropView.onTap = { [weak self] in
+            self?.videoTapped()
+        }
+        view.insertSubview(cropView, aboveSubview: playerClipView)
+        self.cropView = cropView
+    }
+
+    // MARK: Layout
+
+    /// TGPhotoToolbarView's portrait layout: Cancel and Done in 49 pt squares at the ends, and the crop's three tools
+    /// at a quarter, half and three quarters of the width between them, the outer ones 5 pt further out.
+    private func layoutToolbar() {
+        let width = toolbarView.bounds.width
+        let side = Self.toolbarHeight
+        cancelButton.frame = CGRect(x: 0, y: 0, width: side, height: side)
+        doneButton.frame = CGRect(x: width - side, y: 0, width: side, height: side)
+        let available = width - side * 2
+        let sideOffset: CGFloat = 5
+        let centers = [
+            side + available / 4 - sideOffset,
+            side + available / 2,
+            side + available * 3 / 4 + sideOffset,
+        ]
+        for (button, centerX) in zip([rotateButton, mirrorButton, aspectRatioButton], centers) {
+            button.bounds = CGRect(x: 0, y: 0, width: Self.tabTouchSide, height: Self.tabTouchSide)
+            button.center = CGPoint(x: centerX, y: 8 + Self.tabSide / 2)
+        }
+    }
+
+    private func layoutTabBar() {
+        let width = tabBarView.bounds.width
+        let centerY = Self.tabBarHeight / 2
+        for (button, offset) in [(videoTabButton, -30), (cropTabButton, 30)] as [(UIButton, CGFloat)] {
+            button.bounds = CGRect(x: 0, y: 0, width: Self.tabTouchSide, height: Self.tabTouchSide)
+            button.center = CGPoint(x: width / 2 + offset, y: centerY)
+        }
+        tabSelectionView.center = (editorTab == .video ? videoTabButton : cropTabButton).center
+    }
+
+    /// `_layoutPlayerViewWithCropRect:`: the crop fitted into the area, with the whole frame turned and mirrored
+    /// behind it so only the crop shows.
+    private func layoutPlayer(in area: CGRect) {
+        guard presentedSize.width > 0, presentedSize.height > 0 else {
+            playerClipView.frame = area
+            return
+        }
+        let crop = displayedCrop
+        let size = PhotoCropAdjustments.scaleToSize(crop.croppedSize, area.size)
+        playerClipView.frame = CGRect(
+            x: area.midX - size.width / 2,
+            y: area.midY - size.height / 2,
+            width: size.width,
+            height: size.height,
+        )
+        let placement = crop.contentPlacement(in: size)
+        playerView.bounds = CGRect(origin: .zero, size: presentedSize)
+        playerView.center = placement.center
+        playerView.transform = placement.transform
+    }
+
+    /// What each tab shows: the scrubber, player and mute button, or the crop with RESET and its tools.
+    private func applyVisibility() {
+        let isCrop = editorTab == .crop
+        let isLoaded = loadedAdjustments != nil
+        Self.setVisible(scrubber, !isCrop && isLoaded)
+        Self.setVisible(muteButton, !isCrop && isLoaded)
+        Self.setVisible(playerClipView, !isCrop)
+        if let cropView {
+            Self.setVisible(cropView, isCrop)
+        }
+        Self.setVisible(resetButton, isCrop && cropView != nil)
+        for button in [rotateButton, mirrorButton, aspectRatioButton] {
+            Self.setVisible(button, isCrop && cropView != nil)
+        }
+        Self.setVisible(tabBarView, cropView != nil)
+    }
+
+    /// `highlightedTabs`: Mirror while mirrored, Aspect Ratio while a ratio is locked, and a tab while its edit
+    /// applies.
+    private func updateTabs() {
+        Self.setSelected(mirrorButton, cropView?.adjustments.isMirrored == true)
+        Self.setSelected(aspectRatioButton, cropView?.isAspectRatioLocked == true)
+        PhotoCropViewController.style(
+            videoTabButton,
+            isSelected: editorTab == .video,
+            isApplied: scrubber.hasTrimming || sendsAsGIF,
+        )
+        PhotoCropViewController.style(
+            cropTabButton,
+            isSelected: editorTab == .crop,
+            isApplied: currentCrop.map { !$0.hasDefaultCropping } ?? false,
+        )
+        tabSelectionView.center = (editorTab == .video ? videoTabButton : cropTabButton).center
+    }
+
+    /// `presentTab`: the crop settles before the player shows it, and the scrubber's frames take its shape
+    /// (`croppingChanged`'s `updateThumbnails`).
+    private func setTab(_ newTab: VideoEditorTab) {
+        guard newTab != editorTab, let cropView, !isCropBusy, !scrubber.isTrimming, !scrubber.isScrubbing else {
+            return
+        }
+        cropView.commitPendingChanges()
+        editorTab = newTab
+        switch newTab {
+        case .video:
+            scrubber.setCrop(currentCrop)
+        case .crop:
+            refreshCropFrame()
+        }
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        updateTabs()
+        setPlayButtonHidden(isPlaying, animated: false)
+        UIView.animate(withDuration: 0.2) { self.applyVisibility() }
+    }
+
     // MARK: Loading
 
     private func loadVideo() {
         let asset = asset
+        let start = CMTime(seconds: initialAdjustments.trimRange?.lowerBound ?? 0, preferredTimescale: 600)
         Task { [weak self] in
             do {
                 let duration = try await asset.load(.duration).seconds
-                var aspectRatio: CGFloat = 1
+                var presentedSize = CGSize.zero
                 if let track = try await asset.loadTracks(withMediaType: .video).first {
                     let naturalSize = try await track.load(.naturalSize)
                     let transform = try await track.load(.preferredTransform)
-                    let presented = CGRect(origin: .zero, size: naturalSize).applying(transform).size
-                    if presented.height > 0 {
-                        aspectRatio = presented.width / presented.height
-                    }
+                    // Measured as the sent video measures its frame, so the crop needs no rescaling.
+                    presentedSize = CGRect(origin: .zero, size: naturalSize).applying(transform).size
                 }
-                self?.didLoad(duration: duration, aspectRatio: aspectRatio)
+                let generator = Self.makeFrameGenerator(for: asset)
+                let frame = try? await generator.image(at: start).image
+                self?.didLoad(duration: duration, presentedSize: presentedSize, generator: generator, frame: frame)
             } catch {
                 log("Could not read the video to edit: \(error)")
             }
         }
     }
 
-    /// `preparePlayerAndPlay:` without playing: the player starts at the trim and stops at its end.
-    private func didLoad(duration: Double, aspectRatio: CGFloat) {
+    /// `preparePlayerAndPlay:` without playing: the player starts at the trim and stops at its end, and the crop
+    /// is measured in the displayed frame.
+    private func didLoad(duration: Double, presentedSize: CGSize, generator: AVAssetImageGenerator, frame: CGImage?) {
         guard duration.isFinite, duration > 0 else { return }
         self.duration = duration
+        self.presentedSize = presentedSize
+        frameGenerator = generator
         // `allowsTrimming`: videos shorter than `TGVideoEditMinimumTrimmableDuration` aren't trimmed.
         allowsTrimming = allowsTrimming && duration >= VideoEditAdjustments.minimumTrimmableDuration
+        let hasFrame = presentedSize.width > 0 && presentedSize.height > 0
+        let initialCrop = hasFrame ? initialAdjustments.crop(inFrameOf: presentedSize) : nil
         scrubber.allowsTrimming = allowsTrimming
         scrubber.configure(
             asset: asset,
             duration: duration,
-            aspectRatio: aspectRatio,
+            frameSize: presentedSize,
             trimRange: allowsTrimming ? initialAdjustments.trimRange : nil,
         )
-        scrubber.isHidden = false
+        scrubber.setCrop(initialCrop)
+        if hasFrame {
+            makeCropView(frame: frame.map { UIImage(cgImage: $0) }, crop: initialCrop)
+        } else {
+            editorTab = .video
+        }
         loadedAdjustments = currentAdjustments
         let item = AVPlayerItem(asset: asset)
         player.actionAtItemEnd = .none
@@ -314,12 +633,36 @@ final class VideoEditViewController: UIViewController {
         }
         updatePlayerRange()
         seek(to: scrubber.trimStart)
-        muteButton.isHidden = false
+        applyVisibility()
+        updateTabs()
+        view.setNeedsLayout()
         // A muted video plays at once, as Telegram's gallery loops a GIF.
         if sendsAsGIF {
             play()
         } else {
             setPlayButtonHidden(false, animated: false)
+        }
+    }
+
+    /// The frame on screen, for the crop's still frame.
+    private func currentFrame() async -> UIImage? {
+        guard let frameGenerator else { return nil }
+        let time = player.currentTime()
+        guard let image = try? await frameGenerator.image(at: time.isValid ? time : .zero).image else { return nil }
+        return UIImage(cgImage: image)
+    }
+
+    /// The crop's still frame follows the video to where it stopped.
+    private func refreshCropFrame() {
+        guard !isFetchingFrame else { return }
+        isFetchingFrame = true
+        Task { [weak self] in
+            let frame = await self?.currentFrame()
+            guard let self else { return }
+            isFetchingFrame = false
+            if let frame {
+                cropView?.setImage(frame)
+            }
         }
     }
 
@@ -348,9 +691,10 @@ final class VideoEditViewController: UIViewController {
         player.pause()
     }
 
-    /// `playerItemDidPlayToEndTime:`: a GIF loops; a video stops with its play button at the trim's start.
+    /// `playerItemDidPlayToEndTime:`: a GIF loops, and so does the video under the crop; otherwise the video stops
+    /// with its play button at the trim's start.
     private func playerItemDidPlayToEnd() {
-        if sendsAsGIF {
+        if sendsAsGIF || editorTab == .crop {
             scrubber.setPlaybackPosition(scrubber.trimStart)
         } else {
             pause()
@@ -398,7 +742,9 @@ final class VideoEditViewController: UIViewController {
         }
     }
 
-    private func setPlayButtonHidden(_ hidden: Bool, animated: Bool) {
+    /// The play button shows over the paused video in the Video tab; the Crop tab plays and pauses by a tap.
+    private func setPlayButtonHidden(_ requestedHidden: Bool, animated: Bool) {
+        let hidden = requestedHidden || editorTab == .crop
         guard animated else {
             playButton.isHidden = hidden
             playButton.alpha = hidden ? 0 : 1
@@ -409,7 +755,7 @@ final class VideoEditViewController: UIViewController {
             self.playButton.alpha = hidden ? 0 : 1
         } completion: { finished in
             if finished {
-                self.playButton.isHidden = hidden || self.isPlaying
+                self.playButton.isHidden = hidden || self.isPlaying || self.editorTab == .crop
             }
         }
     }
@@ -437,6 +783,7 @@ final class VideoEditViewController: UIViewController {
     @objc private func mutePressed() {
         sendsAsGIF.toggle()
         updateMuteButton()
+        updateTabs()
         player.isMuted = sendsAsGIF
         guard sendsAsGIF else { return }
         TelegramUndoToast.show(
@@ -450,9 +797,70 @@ final class VideoEditViewController: UIViewController {
         }
     }
 
+    // MARK: Crop
+
+    @objc private func videoTabPressed() {
+        setTab(.video)
+    }
+
+    @objc private func cropTabPressed() {
+        setTab(.crop)
+    }
+
+    /// `cropReset`: the whole frame, upright and unmirrored, without a locked ratio.
+    @objc private func resetPressed() {
+        cropView?.reset(animated: true)
+    }
+
+    /// `rotate`: the quarter turn's snapshot is the frame on screen.
+    @objc private func rotatePressed() {
+        guard let cropView, !isCropBusy, !isFetchingFrame else { return }
+        isFetchingFrame = true
+        Task { [weak self] in
+            let frame = await self?.currentFrame()
+            guard let self else { return }
+            isFetchingFrame = false
+            if let frame {
+                cropView.setImage(frame)
+            }
+            cropView.rotate90DegreesCounterclockwise()
+        }
+    }
+
+    @objc private func mirrorPressed() {
+        cropView?.mirror()
+    }
+
+    /// `aspectRatioButtonPressedWithSourceView`: a locked ratio unlocks; otherwise the crop settles and the photo
+    /// editor's sheet offers the frame's own ratio, a square and six more turned to the crop's longer side.
+    @objc private func aspectRatioPressed() {
+        guard let cropView, !cropView.isAnimating else { return }
+        if cropView.isAspectRatioLocked {
+            cropView.unlockAspectRatio()
+            return
+        }
+        cropView.performConfirm(animated: true)
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        for choice in PhotoCropViewController.aspectRatioChoices(for: cropView.adjustments) {
+            let ratio = choice.ratio
+            sheet.addAction(UIAlertAction(title: choice.title, style: .default) { [weak self] _ in
+                // Telegram lets the sheet go first on iPhone.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self?.cropView?.setLockedAspectRatio(ratio, animated: true)
+                }
+            })
+        }
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        sheet.popoverPresentationController?.sourceView = aspectRatioButton
+        sheet.popoverPresentationController?.sourceRect = aspectRatioButton.bounds
+        present(sheet, animated: true)
+    }
+
+    // MARK: Finishing
+
     /// `dismissEditor`: changes are dropped only after Discard Changes.
     @objc private func cancelPressed() {
-        guard !scrubber.isTrimming, !scrubber.isScrubbing else { return }
+        guard !scrubber.isTrimming, !scrubber.isScrubbing, !isCropBusy else { return }
         guard hasChanges else {
             dismiss(animated: true)
             return
@@ -470,13 +878,15 @@ final class VideoEditViewController: UIViewController {
         present(sheet, animated: true)
     }
 
-    /// The trim and mute go with the video; an untouched video hands back nothing (`isDefaultValues`).
+    /// The trim, mute and crop go with the video; a waiting crop change settles first, and an untouched video hands
+    /// back nothing (`isDefaultValues`).
     @objc private func donePressed() {
-        guard !scrubber.isTrimming, !scrubber.isScrubbing else { return }
+        guard !scrubber.isTrimming, !scrubber.isScrubbing, cropView?.isTracking != true else { return }
         guard loadedAdjustments != nil else {
             dismiss(animated: true)
             return
         }
+        cropView?.commitPendingChanges()
         let adjustments = currentAdjustments
         onDone?(adjustments.isDefault ? nil : adjustments)
         dismiss(animated: true)

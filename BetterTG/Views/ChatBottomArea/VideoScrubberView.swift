@@ -5,7 +5,8 @@ import UIKit
 
 // MARK: - VideoScrubberView
 
-/// TGMediaPickerGalleryVideoScrubber without its hold-to-zoom: a strip of frames across the video, the trim frame
+/// TGMediaPickerGalleryVideoScrubber without its hold-to-zoom: a strip of frames across the video, cut to the crop
+/// and turned as it goes (TGMediaPickerGalleryVideoScrubberThumbnailView), the trim frame
 /// (TGMediaPickerGalleryVideoTrimView) with dark curtains over the cut parts, and the white playhead. Moving a trim
 /// handle seeks to its edge and keeps at least `minimumLength`; the playhead scrubs inside the trim.
 final class VideoScrubberView: UIView {
@@ -61,8 +62,13 @@ final class VideoScrubberView: UIView {
     private let playheadView = ExpandedHitView()
 
     private var asset: AVAsset?
-    private var aspectRatio: CGFloat = 1
-    private var thumbnailViews = [UIImageView]()
+    /// The displayed frame's size, which the crop is measured in (`videoScrubberOriginalSize:`).
+    private var frameSize = CGSize(width: 1, height: 1)
+    /// The crop the frames show; `nil` for the whole frame upright.
+    private var crop: PhotoCropAdjustments?
+    private var thumbnailViews = [VideoScrubberThumbnailView]()
+    /// `_summaryThumbnailSnapshotView`: the old frames over the new ones until they load.
+    private var thumbnailSnapshotView: UIView?
     private var thumbnailTask: Task<Void, Never>?
     private var loadedStripWidth: CGFloat = 0
     private var trimInteractionBegan = false
@@ -81,9 +87,21 @@ final class VideoScrubberView: UIView {
         return CGRect(x: handle, y: 0, width: max(1, wrapperView.bounds.width - handle * 2), height: Self.stripHeight)
     }
 
-    /// `_thumbnailSizeWithAspectRatio:`: 40 pt high, at least half as wide.
+    /// The crop the frames show, the whole frame without one (`videoScrubberOriginalSize:cropRect:`).
+    private var displayedCrop: PhotoCropAdjustments {
+        crop ?? PhotoCropAdjustments(originalSize: frameSize)
+    }
+
+    /// `_thumbnailSize`: 40 pt high, as wide as the crop turned, its own width at least half its height
+    /// (`reloadThumbnails`' `frameAspectRatio`).
     private var thumbnailSize: CGSize {
-        CGSize(width: ceil(Self.stripHeight * max(0.5, aspectRatio)), height: Self.stripHeight)
+        let crop = displayedCrop
+        let rect = crop.cropRect
+        var aspectRatio = rect.width > 0 && rect.height > 0 ? max(0.5, rect.width / rect.height) : 1
+        if crop.orientation.isSideward {
+            aspectRatio = 1 / aspectRatio
+        }
+        return CGSize(width: ceil(Self.stripHeight * aspectRatio), height: Self.stripHeight)
     }
 
     override init(frame: CGRect) {
@@ -139,11 +157,14 @@ final class VideoScrubberView: UIView {
             : String(format: "%d:%02d", minutes, remainder)
     }
 
-    /// The video to scrub and its trim; `aspectRatio` is its displayed width over height.
-    func configure(asset: AVAsset, duration: Double, aspectRatio: CGFloat, trimRange: ClosedRange<Double>?) {
+    /// The video to scrub and its trim; `frameSize` is its displayed frame's size.
+    func configure(asset: AVAsset, duration: Double, frameSize: CGSize, trimRange: ClosedRange<Double>?) {
         self.asset = asset
         self.duration = max(0, duration)
-        self.aspectRatio = aspectRatio.isFinite && aspectRatio > 0 ? aspectRatio : 1
+        let hasFrame = frameSize.width.isFinite && frameSize.height.isFinite && frameSize.width > 0
+            && frameSize.height > 0
+        self.frameSize = hasFrame ? frameSize : CGSize(width: 1, height: 1)
+        crop = nil
         trimStart = min(max(0, trimRange?.lowerBound ?? 0), self.duration)
         trimEnd = min(max(trimStart, trimRange?.upperBound ?? self.duration), self.duration)
         value = trimStart
@@ -151,6 +172,26 @@ final class VideoScrubberView: UIView {
         trimView.setHighlighted(hasTrimming, animated: false)
         updateAccessibilityValues()
         setNeedsLayout()
+    }
+
+    /// `updateThumbnails`: the frames take the crop, crossfading from the old ones; a crop of another shape
+    /// reloads them, the old ones staying until the new ones load (`reloadDataAndReset:false`).
+    func setCrop(_ newCrop: PhotoCropAdjustments?) {
+        guard newCrop != crop else { return }
+        let oldSize = thumbnailSize
+        crop = newCrop
+        guard !thumbnailViews.isEmpty else { return }
+        addThumbnailSnapshot()
+        if thumbnailSize == oldSize {
+            let crop = displayedCrop
+            for view in thumbnailViews {
+                view.crop = crop
+            }
+            fadeOutThumbnailSnapshot()
+        } else {
+            loadedStripWidth = 0
+            setNeedsLayout()
+        }
     }
 
     /// `setValue:resetPosition:`: the player's position, ignored while the playhead is held.
@@ -325,7 +366,8 @@ final class VideoScrubberView: UIView {
         }
     }
 
-    /// `reloadThumbnails`: enough evenly spaced frames to cover the strip, at most twice its scale.
+    /// `reloadThumbnails`: enough evenly spaced frames of the crop's shape to cover the strip, read whole at the
+    /// frame's own aspect and at most twice the strip's scale.
     private func reloadThumbnailsIfNeeded() {
         let width = stripView.bounds.width
         guard let asset, duration > Self.valueEpsilon, width > 0, width != loadedStripWidth else { return }
@@ -338,21 +380,17 @@ final class VideoScrubberView: UIView {
         let count = max(1, Int(ceil(width / size.width)))
         let interval = duration / Double(count)
         let times = (0..<count).map { CMTime(seconds: Double($0) * interval, preferredTimescale: 600) }
+        let crop = displayedCrop
         thumbnailViews = times.map { _ in
-            let view = UIImageView()
-            view.contentMode = .scaleAspectFill
-            view.clipsToBounds = true
+            let view = VideoScrubberThumbnailView(crop: crop)
             stripView.addSubview(view)
             return view
         }
+        if let thumbnailSnapshotView {
+            stripView.bringSubviewToFront(thumbnailSnapshotView)
+        }
         layoutThumbnails()
-        let scale = min(2, traitCollection.displayScale)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(
-            width: ceil(Self.stripHeight * aspectRatio) * scale,
-            height: Self.stripHeight * scale,
-        )
+        let generator = makeThumbnailGenerator(for: asset)
         thumbnailTask = Task { [weak self] in
             for await result in generator.images(for: times) {
                 guard !Task.isCancelled else { return }
@@ -360,11 +398,46 @@ final class VideoScrubberView: UIView {
                       let index = times.firstIndex(of: result.requestedTime),
                       index < thumbnailViews.count
                 else { continue }
-                let view = thumbnailViews[index]
-                view.image = UIImage(cgImage: image)
-                view.alpha = 0
-                UIView.animate(withDuration: 0.15) { view.alpha = 1 }
+                thumbnailViews[index].setImage(UIImage(cgImage: image), fadesIn: thumbnailSnapshotView == nil)
             }
+            guard !Task.isCancelled else { return }
+            self?.fadeOutThumbnailSnapshot()
+        }
+    }
+
+    /// TGMediaAssetImageSignals' `videoThumbnailsForAVAsset:`: exact upright frames of the whole picture, sized
+    /// by the frame's own aspect.
+    private func makeThumbnailGenerator(for asset: AVAsset) -> AVAssetImageGenerator {
+        let scale = min(2, traitCollection.displayScale)
+        let generator = AVAssetImageGenerator(asset: asset)
+        generator.appliesPreferredTrackTransform = true
+        generator.requestedTimeToleranceBefore = .zero
+        generator.requestedTimeToleranceAfter = .zero
+        generator.maximumSize = CGSize(
+            width: ceil(Self.stripHeight * frameSize.width / frameSize.height) * scale,
+            height: Self.stripHeight * scale,
+        )
+        return generator
+    }
+
+    /// A picture of the strip as it is, over its frames.
+    private func addThumbnailSnapshot() {
+        guard thumbnailSnapshotView == nil, let snapshot = stripView.snapshotView(afterScreenUpdates: false) else {
+            return
+        }
+        snapshot.frame = stripView.bounds
+        snapshot.isUserInteractionEnabled = false
+        stripView.addSubview(snapshot)
+        thumbnailSnapshotView = snapshot
+    }
+
+    private func fadeOutThumbnailSnapshot() {
+        guard let snapshot = thumbnailSnapshotView else { return }
+        thumbnailSnapshotView = nil
+        UIView.animate(withDuration: 0.2) {
+            snapshot.alpha = 0
+        } completion: { _ in
+            snapshot.removeFromSuperview()
         }
     }
 
@@ -573,6 +646,75 @@ extension VideoScrubberView: UIGestureRecognizerDelegate {
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer,
     ) -> Bool {
         gestureRecognizer.view === otherGestureRecognizer.view
+    }
+}
+
+// MARK: - VideoScrubberThumbnailView
+
+/// TGMediaPickerGalleryVideoScrubberThumbnailView: the whole frame turned and mirrored behind a box that shows the
+/// crop from its top left, the crop's width filling the box (`updateCropping`), with a faint dark line on the right
+/// edge between frames.
+private final class VideoScrubberThumbnailView: UIView {
+    // MARK: Private
+
+    /// `1 - TGRetinaPixel`.
+    private static let stripeThickness: CGFloat = 0.5
+
+    // MARK: Internal
+
+    var crop: PhotoCropAdjustments {
+        didSet { updateCropping() }
+    }
+
+    private let imageView = UIImageView()
+    private let stripeView = UIView()
+
+    init(crop: PhotoCropAdjustments) {
+        self.crop = crop
+        super.init(frame: .zero)
+        clipsToBounds = true
+        isUserInteractionEnabled = false
+        imageView.contentMode = .scaleToFill
+        addSubview(imageView)
+        stripeView.backgroundColor = UIColor(white: 0, alpha: 0.3)
+        addSubview(stripeView)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateCropping()
+    }
+
+    /// The frame's picture; the first one fades in.
+    func setImage(_ image: UIImage, fadesIn: Bool) {
+        imageView.image = image
+        guard fadesIn else { return }
+        alpha = 0
+        UIView.animate(withDuration: 0.15) { self.alpha = 1 }
+    }
+
+    /// `updateCropping`: the frame, `originalSize` large, placed as the player places it, then moved so the crop's
+    /// top meets the box's when the box's shape was held to half its height.
+    private func updateCropping() {
+        let size = bounds.size
+        let rect = crop.cropRect
+        guard size.width > 0, rect.width > 0, rect.height > 0 else { return }
+        let turned = crop.orientation.isSideward ? CGSize(width: rect.height, height: rect.width) : rect.size
+        let contentHeight = turned.height * size.width / turned.width
+        var placement = crop.contentPlacement(in: size)
+        placement.center.y += (contentHeight - size.height) / 2
+        imageView.transform = .identity
+        imageView.bounds = CGRect(origin: .zero, size: crop.originalSize)
+        imageView.center = placement.center
+        imageView.transform = placement.transform
+        stripeView.frame = CGRect(
+            x: size.width - Self.stripeThickness,
+            y: 0,
+            width: Self.stripeThickness,
+            height: size.height,
+        )
     }
 }
 

@@ -625,3 +625,4 @@
 "Accessibility.VideoEditor.TrimStart" = "Начало обрезки";
 "Accessibility.VideoEditor.TrimEnd" = "Конец обрезки";
 "Accessibility.VideoEditor.Mute" = "Без звука";
+"Accessibility.VideoEditor.Video" = "Видео";

@@ -17,7 +17,8 @@ enum PhotoCropGridMode {
 /// area resized by its handles, turned a quarter, mirrored, and straightened with the dial under it. The photo and the
 /// area are laid out in a frame that turns with the crop's quarter turns, and the photo's place follows from the
 /// area's frame and the crop rectangle. A second after the area changes it evenly fills the view again; at rest the
-/// photo outside it is blurred.
+/// photo outside it is blurred. A video's crop (`hasArbitraryRotation` off) has no dial and can show the playing
+/// video over the still frame.
 final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
     // MARK: Private
 
@@ -31,11 +32,22 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
 
     /// TGPhotoCropView's `croppingChanged`.
     var onCroppingChanged: (() -> Void)?
+    /// TGPhotoCropView's `interactionBegan`: the photo or the area starts moving.
+    var onInteractionBegan: (() -> Void)?
+    /// TGPhotoCropView's `interactionEnded`: the crop settled after the movement.
+    var onInteractionEnded: (() -> Void)?
+
+    /// TGPhotoAvatarCropView's `tapped`: a tap on the picture, which a video's crop uses to play and pause.
+    var onTap: (() -> Void)? {
+        didSet { tapRecognizer.isEnabled = onTap != nil }
+    }
 
     private(set) var adjustments: PhotoCropAdjustments
 
-    private let image: UIImage
-    private let imagePixelSize: CGSize
+    private var image: UIImage
+    private var imagePixelSize: CGSize
+    /// TGPhotoCropView's `hasArbitraryRotation`: the straightening dial, which a video's crop doesn't have.
+    private let hasArbitraryRotation: Bool
     private let orientedView = PhotoCropOrientedView()
     private let imageView = UIImageView()
     private let blurView = UIVisualEffectView(effect: nil)
@@ -46,6 +58,9 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
     private let rotationView = PhotoCropRotationView()
     private lazy var panRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
     private lazy var pinchRecognizer = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+    private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+    /// The views over the still frame, under the area and in it, such as player layers sharing one player.
+    private var contentViews = [UIView]()
 
     /// The crop area in the turned frame.
     private var areaFrame = CGRect.zero
@@ -59,6 +74,7 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
     private var confirmGeneration = 0
     private var isConfirmPending = false
     private var cropAreaChanged = false
+    private var isInteracting = false
 
     var isTracking: Bool {
         contentGestureCount > 0 || areaView.isTracking || rotationView.isTracking
@@ -72,10 +88,12 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
         adjustments.lockedAspectRatio > .ulpOfOne
     }
 
-    init(image: UIImage, adjustments: PhotoCropAdjustments) {
+    /// `hasArbitraryRotation` off is TGPhotoCropController's `forVideo`: the crop turns only by quarters.
+    init(image: UIImage, adjustments: PhotoCropAdjustments, hasArbitraryRotation: Bool = true) {
         self.image = image
         self.imagePixelSize = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
         self.adjustments = adjustments
+        self.hasArbitraryRotation = hasArbitraryRotation
         super.init(frame: .zero)
         for imageView in [imageView, areaImageView] {
             imageView.image = image
@@ -99,12 +117,18 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
         orientedView.areaView = areaView
         addSubview(orientedView)
         addSubview(rotationView)
+        // Without the dial the view stays in place for the quarter turn's snapshot and takes no touches.
+        rotationView.isHidden = !hasArbitraryRotation
+        rotationView.isUserInteractionEnabled = hasArbitraryRotation
         configureArea()
         configureRotationView()
         panRecognizer.delegate = self
         pinchRecognizer.delegate = self
+        tapRecognizer.delegate = self
+        tapRecognizer.isEnabled = false
         addGestureRecognizer(panRecognizer)
         addGestureRecognizer(pinchRecognizer)
+        addGestureRecognizer(tapRecognizer)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
@@ -125,7 +149,7 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
     /// Touches under and beside the area belong to the photo (`hitTestEdgeInsets`), and the handles reach past it.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard isUserInteractionEnabled, !isHidden, alpha > 0.01 else { return nil }
-        if !rotationView.isHidden, rotationView.alpha > 0.01,
+        if hasArbitraryRotation, !rotationView.isHidden, rotationView.alpha > 0.01,
            let hit = rotationView.hitTest(convert(point, to: rotationView), with: event)
         {
             return hit
@@ -140,7 +164,9 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
     // MARK: Gestures
 
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        if gestureRecognizer === panRecognizer || gestureRecognizer === pinchRecognizer {
+        if gestureRecognizer === panRecognizer || gestureRecognizer === pinchRecognizer
+            || gestureRecognizer === tapRecognizer
+        {
             return !isAnimating && !areaView.isTracking && !rotationView.isTracking
         }
         return super.gestureRecognizerShouldBegin(gestureRecognizer)
@@ -172,6 +198,31 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
     ) -> Bool {
         let pair: [UIGestureRecognizer] = [panRecognizer, pinchRecognizer]
         return pair.contains { $0 === gestureRecognizer } && pair.contains { $0 === otherGestureRecognizer }
+    }
+
+    /// TGPhotoCropView's `setImage:`: another picture of the same frame, such as a video's current frame for the
+    /// quarter turn's snapshot.
+    func setImage(_ newImage: UIImage) {
+        image = newImage
+        imagePixelSize = CGSize(
+            width: newImage.size.width * newImage.scale,
+            height: newImage.size.height * newImage.scale,
+        )
+        imageView.image = newImage
+        areaImageView.image = newImage
+    }
+
+    /// The video crop's picture: two views from `makeView`, under the area and in it, over the still frame, which
+    /// stays for the quarter turn's snapshot. Each fills a frame of `originalSize` and turns and mirrors with it.
+    func setContentViews(_ makeView: () -> UIView) {
+        contentViews.forEach { $0.removeFromSuperview() }
+        contentViews = [imageView, areaImageView].map { holder in
+            let view = makeView()
+            view.isUserInteractionEnabled = false
+            view.frame = holder.bounds
+            holder.addSubview(view)
+            return view
+        }
     }
 
     /// `rotate90DegreesCCWAnimated`: a picture of the crop turns into place, then the area fills the view in the new
@@ -218,6 +269,7 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
             self.setInterfaceHidden(false, animated: true)
             self.setCropAreaHidden(false, animated: true)
             self.showBackdrop(animated: true)
+            self.endInteraction()
         }
         onCroppingChanged?()
     }
@@ -232,6 +284,7 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
         UIView.performWithoutAnimation { applyLayout() }
         showBackdrop(animated: false)
         onCroppingChanged?()
+        endInteraction()
     }
 
     /// `setLockedAspectRatio:performResize:`: the crop takes the ratio about its center, inside the photo, or inside
@@ -263,7 +316,9 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
         }
         cancelConfirmCountdown()
         adjustments.cropRect = adjustments.fitted(resized, allowsScale: true)
-        evenlyFillArea(animated: animated)
+        evenlyFillArea(animated: animated) { [weak self] in
+            self?.endInteraction()
+        }
         onCroppingChanged?()
     }
 
@@ -296,6 +351,7 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
         evenlyFillArea(animated: animated) { [weak self] in
             self?.setInterfaceHidden(false, animated: true)
             self?.setCropAreaHidden(false, animated: true)
+            self?.endInteraction()
         }
         onCroppingChanged?()
     }
@@ -315,11 +371,14 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
             }
             showBackdrop(animated: animated)
             onCroppingChanged?()
+            endInteraction()
             return
         }
         cropAreaChanged = false
         adjustments.cropRect = adjustments.fitted(constrained, allowsScale: true)
-        evenlyFillArea(animated: animated)
+        evenlyFillArea(animated: animated) { [weak self] in
+            self?.endInteraction()
+        }
         onCroppingChanged?()
     }
 
@@ -380,6 +439,9 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
         areaImageView.transform = transform
         areaView.frame = areaFrame
         blurView.frame = orientedView.bounds.insetBy(dx: -Self.overscreen, dy: -Self.overscreen)
+        for contentView in contentViews {
+            contentView.frame = imageBounds
+        }
         layoutOverlays()
     }
 
@@ -471,11 +533,25 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
 
     /// `setIntefaceHidden`: the dial hides while the area is resized or turned.
     private func setInterfaceHidden(_ hidden: Bool, animated: Bool) {
+        guard hasArbitraryRotation else { return }
         Self.setHidden(rotationView, hidden, animated: animated)
     }
 
     private func setCropAreaHidden(_ hidden: Bool, animated: Bool) {
         Self.setHidden(areaView, hidden, animated: animated)
+    }
+
+    private func beginInteraction() {
+        guard !isInteracting else { return }
+        isInteracting = true
+        onInteractionBegan?()
+    }
+
+    /// The interaction ends once the crop settles, or when a button changes it before that.
+    private func endInteraction() {
+        guard isInteracting else { return }
+        isInteracting = false
+        onInteractionEnded?()
     }
 
     // MARK: Confirmation
@@ -502,6 +578,7 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
     private func contentGestureBegan() {
         contentGestureCount += 1
         guard contentGestureCount == 1 else { return }
+        beginInteraction()
         resetBackdrop(animated: true)
         cancelConfirmCountdown()
         areaView.setGridMode(.major, animated: true)
@@ -516,6 +593,10 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
         animateContent(animated: true)
         startConfirmCountdown()
         onCroppingChanged?()
+    }
+
+    @objc private func handleTap() {
+        onTap?()
     }
 
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
@@ -593,6 +674,7 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
         }
         areaView.didBeginResizing = { [weak self] in
             guard let self else { return }
+            beginInteraction()
             resetBackdrop(animated: false)
             cancelConfirmCountdown()
             areaView.setGridMode(.major, animated: true)
@@ -669,6 +751,7 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
         }
         rotationView.didBeginChanging = { [weak self] in
             guard let self else { return }
+            beginInteraction()
             resetBackdrop(animated: true)
             cancelConfirmCountdown()
             areaView.setGridMode(.minor, animated: true)

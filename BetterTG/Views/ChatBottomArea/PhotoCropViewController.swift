@@ -272,7 +272,7 @@ final class PhotoCropViewController: UIViewController {
     }
 
     /// TGPhotoEditorButton's selection: a light rounded square behind the selected tab.
-    private static func makeSelectionView() -> UIView {
+    static func makeSelectionView() -> UIView {
         let selectionView = UIView(frame: CGRect(x: 0, y: 0, width: tabSide, height: tabSide))
         selectionView.backgroundColor = PhotoEditorColors.selectionBackground
         selectionView.layer.cornerRadius = 8
@@ -282,9 +282,31 @@ final class PhotoCropViewController: UIViewController {
     }
 
     /// TGPhotoEditorButton's states: the selected tab dark on its light square, an applied one in the accent color.
-    private static func style(_ button: UIButton, isSelected: Bool, isApplied: Bool) {
+    static func style(_ button: UIButton, isSelected: Bool, isApplied: Bool) {
         button.tintColor = isSelected ? PhotoEditorColors.selectedIcon : isApplied ? activeColor : .white
         button.accessibilityTraits = isSelected ? [.button, .selected] : .button
+    }
+
+    /// TGPhotoCropController's aspect ratio sheet: the photo's own ratio, a square, and six more turned to the
+    /// crop's longer side. Ratios are the crop's height over its width before its quarter turns.
+    static func aspectRatioChoices(for adjustments: PhotoCropAdjustments) -> [(title: String, ratio: CGFloat)] {
+        let croppedSize = adjustments.croppedSize
+        let originalSize = adjustments.originalSize
+        var choices: [(title: String, ratio: CGFloat)] = [
+            (L10n.telegram("PhotoEditor.CropAspectRatioOriginal"), originalSize.height / originalSize.width),
+            (L10n.telegram("PhotoEditor.CropAspectRatioSquare"), 1),
+        ]
+        for definition in ratios {
+            let isLandscape = croppedSize.width >= croppedSize.height
+            let widthComponent = isLandscape ? definition.longer : definition.shorter
+            let heightComponent = isLandscape ? definition.shorter : definition.longer
+            let ratio = heightComponent / widthComponent
+            choices.append((
+                "\(Int(widthComponent)):\(Int(heightComponent))",
+                adjustments.orientation.isSideward ? 1 / ratio : ratio,
+            ))
+        }
+        return choices
     }
 
     private static func setVisible(_ view: UIView, _ isVisible: Bool) {
@@ -781,24 +803,7 @@ final class PhotoCropViewController: UIViewController {
             return
         }
         cropView.performConfirm(animated: true)
-        let adjustments = cropView.adjustments
-        let croppedSize = adjustments.croppedSize
-        let originalSize = adjustments.originalSize
-        // Ratios are the crop's height over its width before its quarter turns.
-        var choices: [(title: String, ratio: CGFloat)] = [
-            (L10n.telegram("PhotoEditor.CropAspectRatioOriginal"), originalSize.height / originalSize.width),
-            (L10n.telegram("PhotoEditor.CropAspectRatioSquare"), 1),
-        ]
-        for definition in Self.ratios {
-            let isLandscape = croppedSize.width >= croppedSize.height
-            let widthComponent = isLandscape ? definition.longer : definition.shorter
-            let heightComponent = isLandscape ? definition.shorter : definition.longer
-            let ratio = heightComponent / widthComponent
-            choices.append((
-                "\(Int(widthComponent)):\(Int(heightComponent))",
-                adjustments.orientation.isSideward ? 1 / ratio : ratio,
-            ))
-        }
+        let choices = Self.aspectRatioChoices(for: cropView.adjustments)
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
         for choice in choices {
             let ratio = choice.ratio
