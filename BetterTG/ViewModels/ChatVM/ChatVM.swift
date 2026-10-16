@@ -119,6 +119,8 @@ import UIKit
     @Published private(set) var historyLoadedEmpty = false
     /// MentionChatInputContextPanelNode's results for the "@" word at the caret.
     @Published private(set) var mentionSuggestions = [ChatMentionSuggestion]()
+    /// The user blocked this chat's person or bot (`chat.block_list`); a blocked bot offers Restart Bot.
+    @Published private(set) var isChatBlocked = false
 
     @Published var replyMessage: CustomMessage? {
         didSet {
@@ -861,8 +863,16 @@ import UIKit
     var showsBotStart: Bool {
         guard editCustomMessage == nil, !previewing else { return false }
         if botStartParameter != nil { return true }
-        guard case .bot = customChat.type, location.topic == nil, location.messageThreadID == nil else { return false }
+        guard case .bot = customChat.type else { return false }
+        // ChatUnblockInputPanelNode: a blocked bot's input is Restart Bot.
+        if isChatBlocked { return true }
+        guard location.topic == nil, location.messageThreadID == nil else { return false }
         return historyLoadedEmpty && messages.isEmpty
+    }
+
+    /// "Restart Bot" for a blocked bot (Bot.Unblock), otherwise "Start".
+    var botStartTitle: String {
+        L10n.telegram(isChatBlocked ? "Bot.Unblock" : "Bot.Start")
     }
 
     // MARK: Bots
@@ -2837,6 +2847,10 @@ import UIKit
     /// ChatController.startBot: `sendBotStartMessage` sends /start with the parameter; the panel goes once it's sent.
     /// Without a parameter Telegram's requestStartBot sends a plain "/start".
     func sendBotStart() {
+        if isChatBlocked {
+            restartBot()
+            return
+        }
         guard botStartParameter != nil else {
             guard showsBotStart, !isStartingBot else { return }
             isStartingBot = true
@@ -2862,6 +2876,11 @@ import UIKit
             guard locationContextIsCurrent else { return }
             if message != nil, botStartParameter == parameter { botStartParameter = nil }
         }
+    }
+
+    /// `updateChatBlockList` for this chat.
+    func updateChatBlocked(_ isBlocked: Bool) {
+        if isChatBlocked != isBlocked { isChatBlocked = isBlocked }
     }
 
     func cancelReply(markDirty: Bool = true) {
@@ -4872,6 +4891,35 @@ import UIKit
         return messageThread.messages.contains { $0.id == message.id }
     }
 
+    /// ChatControllerReport's unblockPeer for a bot: the bot is unblocked (setMessageSenderBlockList), then started
+    /// with the link's parameter or a plain "/start", only after the user's tap.
+    private func restartBot() {
+        guard isChatBlocked, !isStartingBot, locationContextIsCurrent, case .bot(let user) = customChat.type else {
+            return
+        }
+        isStartingBot = true
+        let client = client
+        Task { [weak self] in
+            let unblocked = await (try? client.send(TDNativeRequests.setMessageSenderBlockList(
+                senderId: .messageSenderUser(.init(userId: user.id)),
+                blockList: nil,
+            ))) != nil
+            guard let self else { return }
+            guard unblocked, locationContextIsCurrent else {
+                isStartingBot = false
+                return
+            }
+            isChatBlocked = false
+            if botStartParameter != nil {
+                isStartingBot = false
+                sendBotStart()
+            } else {
+                await sendBotCommandText("/start")
+                isStartingBot = false
+            }
+        }
+    }
+
     /// ChatInterfaceStateContextQueries' contextRequest: "@bot query" at the start of the input asks the inline bot
     /// once the query has stopped changing for 0.4 s; the previous results stay until the new ones arrive.
     private func updateInlineBotQuery() {
@@ -4935,6 +4983,7 @@ import UIKit
     /// commands of every bot in a group.
     private func loadBotInfo() {
         botInfoTask?.cancel()
+        updateChatBlocked(customChat.chat.blockList != nil)
         let client = client
         let type = customChat.type
         botInfoTask = Task { [weak self] in

@@ -275,6 +275,10 @@ extension ChatVM {
             updateRecipientNoteRestriction(update.userFullInfo.hasRestrictedVoiceAndVideoNoteMessages)
             applyBotFullInfo(update.userFullInfo.botInfo, botUserID: update.userId)
         }
+        observeCurrentUpdate(.updateChatBlockList) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.chatId == chatID else { return }
+            updateChatBlocked(update.blockList != nil)
+        }
         observeCurrentUpdate(.updateUser) { [weak self] update, authority in
             guard let self, locationContextIsCurrent else { return }
             metadataResolver.update(user: update.user)

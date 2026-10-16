@@ -641,6 +641,9 @@ final class ChatComposerView: UIView {
         restrictionLabel.isHidden = canWrite || showsBotStart
         botStartButton.isHidden = !showsBotStart
         botStartButton.isEnabled = !chatVM.isStartingBot
+        if showsBotStart, botStartButton.title(for: .normal) != chatVM.botStartTitle {
+            botStartButton.setTitle(chatVM.botStartTitle, for: .normal)
+        }
         if showsBotStart, textView.isFirstResponder { textView.resignFirstResponder() }
         let showsBotMenu = chatVM.showsBotMenuButton && canWrite && canWriteText
         botMenuButton.isHidden = !showsBotMenu

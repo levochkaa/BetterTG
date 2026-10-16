@@ -1747,3 +1747,4 @@
 "MediaPicker.InvertCaption.Updated.Up.Title" = "Caption moved up";
 "MediaPlayer.UnknownArtist" = "Unknown Artist";
 "MediaPlayer.UnknownTrack" = "Unknown Track";
+"Bot.Unblock" = "Restart Bot";
