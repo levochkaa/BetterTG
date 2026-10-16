@@ -129,8 +129,16 @@ final class ChatManagementViewController: SettingsListViewController {
     }
 
     /// The chat's own settings: type, links and history.
-    private func settingsRows(_: ChatManagementTarget) -> [SettingsRow] {
-        []
+    private func settingsRows(_ target: ChatManagementTarget) -> [SettingsRow] {
+        var rows = [SettingsRow]()
+        // PeerInfoProfileItems: the owner manages links while the chat is private; other admins with the right
+        // manage their own links.
+        if target.isCreator ? !target.isPublic : target.rights?.canInviteUsers == true {
+            rows.append(disclosure(L10n.telegram("GroupInfo.InviteLinks"), symbol: "link") { [weak self] in
+                self?.push(ChatInviteLinksViewController(target: target))
+            })
+        }
+        return rows
     }
 
     /// Who is in the chat and what they may do: members, admins, permissions, requests, removed users, the log.
