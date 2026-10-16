@@ -6243,6 +6243,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             captionIsAbove: chatVM.mediaCaptionIsAbove,
         )
         let sheet = AttachmentSheetViewController(configuration: configuration)
+        // LegacyAttachmentMenu resets the video quality to the server's upload default as the menu opens.
+        if chatVM.canAttachVideos {
+            let client = chatVM.client
+            Task { [weak sheet] in
+                let preset = await VideoSendPreset.uploadDefault(client: client)
+                sheet?.setDefaultVideoPreset(preset)
+            }
+        }
         sheet.onSelectTab = { [weak self] tab in self?.openAttachmentTab(tab) }
         sheet.onCamera = { [weak self] in self?.showCamera() }
         sheet.onSend = { [weak self] request in self?.sendAttachmentMedia(request) }
@@ -6271,7 +6279,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             request.assets,
             highQualityPhotos: request.highQualityPhotos,
             spoilerAssetIDs: request.spoilerAssetIDs,
-            isViewOnce: request.isViewOnce,
+            selfDestructTimer: request.selfDestructTimer,
+            videoPreset: request.videoPreset,
         ) { [self] images in
             guard finishImageImport(images, token: token, barrier: barrier), !images.isEmpty,
                   chatVM.locationContextIsCurrent else { return }

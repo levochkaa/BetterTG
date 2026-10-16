@@ -80,7 +80,8 @@ struct AttachmentMediaSendRequest {
     let timing: Timing
     let highQualityPhotos: Bool
     let spoilerAssetIDs: Set<String>
-    let isViewOnce: Bool
+    let selfDestructTimer: MediaSelfDestructTimer?
+    let videoPreset: VideoSendPreset
     let captionIsAbove: Bool
 }
 
@@ -88,9 +89,9 @@ struct AttachmentMediaSendRequest {
 
 /// Telegram's attachment sheet: AttachmentController with MediaPickerScreen as its Gallery. The library grid takes up
 /// to 100 numbered items, with the camera tile in Recents, the albums under the title, the picked items' own view and
-/// the More menu (Send as File, Send in High Quality, Send Without Grouping, Move Caption, Spoiler, View Once). The
-/// panel's buttons open the chat's other attachments; with items picked the send panel takes their place, sending
-/// them with the composer's text as the caption, and holding Send offers the send options.
+/// the More menu (Send as File, Send in High Quality, Send Without Grouping, Move Caption, Spoiler, the timer and the
+/// video quality). The panel's buttons open the chat's other attachments; with items picked the send panel takes
+/// their place, sending them with the composer's text as the caption, and holding Send offers the send options.
 @MainActor final class AttachmentSheetViewController: UIViewController, UICollectionViewDataSource,
     UICollectionViewDelegate, UICollectionViewDataSourcePrefetching, UIAdaptivePresentationControllerDelegate,
     PHPhotoLibraryChangeObserver
@@ -139,7 +140,11 @@ struct AttachmentMediaSendRequest {
     private var selection = [PHAsset]()
     private var spoilerAssetIDs = Set<String>()
     private var displayMode = DisplayMode.all
-    private var isViewOnce = false
+    private var selfDestructTimer: MediaSelfDestructTimer?
+    /// The videos' quality: the server's upload default for the network until the user picks one
+    /// (`TG_preferredVideoPreset_v0`, which the attachment menu resets when it opens).
+    private var videoPreset = VideoSendPreset.medium
+    private var choseVideoPreset = false
     private var isHighQuality = UserDefaults.standard.bool(forKey: PhotoSendPreset.highQualityDefaultsKey)
     private var captionIsAbove: Bool
     private var thumbnailSize = CGSize.zero
@@ -160,6 +165,15 @@ struct AttachmentMediaSendRequest {
 
     private var selectionHasPhoto: Bool {
         selection.contains { $0.mediaType == .image }
+    }
+
+    /// TGPhotoQualityController's highest preset for the picked videos: the best their sizes allow, nil without
+    /// videos.
+    private var maximumVideoPreset: VideoSendPreset? {
+        selection
+            .filter { $0.mediaType == .video }
+            .map { VideoSendPreset.bestAvailable(for: CGSize(width: $0.pixelWidth, height: $0.pixelHeight)) }
+            .max()
     }
 
     /// The chat's media kinds; MediaAssetsContext filters the grid to one when the other is banned.
@@ -249,6 +263,12 @@ struct AttachmentMediaSendRequest {
     private static func openSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url)
+    }
+
+    /// The upload default once the server's auto-download presets arrive; a quality the user picked stays.
+    func setDefaultVideoPreset(_ preset: VideoSendPreset) {
+        guard !choseVideoPreset else { return }
+        videoPreset = preset
     }
 
     func makeNavigationController() -> UINavigationController {
@@ -595,8 +615,8 @@ struct AttachmentMediaSendRequest {
     }
 
     private func selectionChanged() {
-        // View Once is a single photo's or video's timer.
-        if selection.count != 1 { isViewOnce = false }
+        // The timer is a single photo's or video's.
+        if selection.count != 1 { selfDestructTimer = nil }
         navigationController?.isModalInPresentation = !selection.isEmpty && !isClosing
         updateNavigation()
         panel.update(
@@ -698,8 +718,9 @@ struct AttachmentMediaSendRequest {
     // MARK: Menus
 
     /// MediaPickerScreen's More menu: Send as File(s) without spoilers, Send in High Quality, Send Without Grouping
-    /// for several items, then Move Caption with a caption and the spoiler outside secret chats. View Once, which
-    /// Telegram sets with the preview's timer, joins them for one photo or video in a private chat.
+    /// for several items, then Move Caption with a caption and the spoiler outside secret chats. The timer and the
+    /// video quality, which Telegram sets in the preview's toolbar, join them: the timer for one photo or video in a
+    /// private chat, the quality with videos picked.
     @objc private func morePressed() {
         let count = selection.count
         guard count > 0 else { return }
@@ -744,7 +765,10 @@ struct AttachmentMediaSendRequest {
             })
         }
         if configuration.allowsViewOnce, count == 1, let item = selection.first {
-            options.append(viewOnceAction(isVideo: item.mediaType == .video))
+            options.append(timerAction(isVideo: item.mediaType == .video))
+        }
+        if let maximumVideoPreset {
+            options.append(videoQualityAction(maximum: maximumVideoPreset))
         }
         if !actions.isEmpty, !options.isEmpty {
             options[0].startsNewSection = true
@@ -765,7 +789,7 @@ struct AttachmentMediaSendRequest {
         if !configuration.caption.isEmpty {
             actions.append(captionPositionAction())
         }
-        let canSchedule = configuration.canSchedule && !isViewOnce
+        let canSchedule = configuration.canSchedule && selfDestructTimer == nil
         if !configuration.isReminders {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("Conversation.SendMessage.SendSilently"),
@@ -808,24 +832,62 @@ struct AttachmentMediaSendRequest {
         }
     }
 
-    /// MediaPickerScreen's timer choice for one item: View Once, or Do Not Delete to turn it off, with the tooltip
-    /// naming what the item will do.
-    private func viewOnceAction(isVideo: Bool) -> TelegramContextMenuAction {
-        TelegramContextMenuAction(
-            title: L10n.telegram(isViewOnce ? "MediaPicker.Timer.DoNotDelete" : "MediaPicker.Timer.ViewOnce"),
-            image: UIImage(systemName: isViewOnce ? "xmark.circle" : "1.circle"),
-        ) { [weak self] in
-            guard let self else { return }
-            isViewOnce.toggle()
-            let key =
-                switch (isVideo, isViewOnce) {
-                case (false, true): "MediaPicker.Timer.Photo.ViewOnceTooltip"
-                case (false, false): "MediaPicker.Timer.Photo.KeepTooltip"
-                case (true, true): "MediaPicker.Timer.Video.ViewOnceTooltip"
-                case (true, false): "MediaPicker.Timer.Video.KeepTooltip"
+    /// LegacyMessageInputPanel's presentTimeoutSetup for one item: View Once, 3, 10 or 30 seconds after opening, or
+    /// Do Not Delete, with the current one checked. A change shows the tooltip naming what the item will do.
+    private func timerAction(isVideo: Bool) -> TelegramContextMenuAction {
+        let current = selfDestructTimer
+        let choices: [(MediaSelfDestructTimer?, String)] =
+            [(.viewOnce, L10n.telegram("MediaPicker.Timer.ViewOnce"))]
+                + MediaSelfDestructTimer.secondsValues.map {
+                    (.seconds($0), L10n.telegramPlural("MediaPicker.Timer.Seconds", count: $0))
                 }
-            showToast(L10n.telegram(key))
+                + [(nil, L10n.telegram("MediaPicker.Timer.DoNotDelete"))]
+        return TelegramContextMenuAction(
+            title: L10n.telegram("Media.SendWithTimer"),
+            image: UIImage(systemName: current == nil ? "timer" : "flame"),
+            children: choices.map { timer, title in
+                TelegramContextMenuAction(
+                    title: title,
+                    image: timer == current ? UIImage(systemName: "checkmark") : nil,
+                ) { [weak self] in
+                    self?.setSelfDestructTimer(timer, isVideo: isVideo)
+                }
+            },
+        )
+    }
+
+    /// presentTimeoutTooltip.
+    private func setSelfDestructTimer(_ timer: MediaSelfDestructTimer?, isVideo: Bool) {
+        guard timer != selfDestructTimer else { return }
+        selfDestructTimer = timer
+        let kind = isVideo ? "Video" : "Photo"
+        switch timer {
+        case .viewOnce:
+            showToast(L10n.telegram("MediaPicker.Timer.\(kind).ViewOnceTooltip"))
+        case .seconds(let seconds):
+            showToast(L10n.telegram("MediaPicker.Timer.\(kind).TimerTooltip", String(seconds)))
+        case nil:
+            showToast(L10n.telegram("MediaPicker.Timer.\(kind).KeepTooltip"))
         }
+    }
+
+    /// TGPhotoQualityController for the picked videos: 240p up to the best their sizes allow, with the current one
+    /// checked. The choice covers this sheet's videos, each capped at its own size.
+    private func videoQualityAction(maximum: VideoSendPreset) -> TelegramContextMenuAction {
+        let current = min(videoPreset, maximum)
+        return TelegramContextMenuAction(
+            title: L10n.telegram("PhotoEditor.QualityTool") + " · " + current.title,
+            image: UIImage(systemName: "film"),
+            children: VideoSendPreset.allCases.filter { $0 <= maximum }.map { preset in
+                TelegramContextMenuAction(
+                    title: preset.title,
+                    image: preset == current ? UIImage(systemName: "checkmark") : nil,
+                ) { [weak self] in
+                    self?.videoPreset = preset
+                    self?.choseVideoPreset = true
+                }
+            },
+        )
     }
 
     private func setSpoiler(_ hasSpoiler: Bool) {
@@ -894,7 +956,8 @@ struct AttachmentMediaSendRequest {
             timing: timing,
             highQualityPhotos: isHighQuality,
             spoilerAssetIDs: spoilerAssetIDs,
-            isViewOnce: isViewOnce && selection.count == 1 && mode != .files,
+            selfDestructTimer: selection.count == 1 && mode != .files ? selfDestructTimer : nil,
+            videoPreset: videoPreset,
             captionIsAbove: captionIsAbove && !configuration.caption.isEmpty,
         )
         let onSend = onSend

@@ -3978,9 +3978,12 @@ import UIKit
                     messageContents.append(Self.makeInputMessageFile(image, caption: caption))
                     continue
                 }
-                let selfDestructType: TDNativeMessageSelfDestructType? = image.isViewOnce
-                    ? .messageSelfDestructTypeImmediately
-                    : nil
+                let selfDestructType: TDNativeMessageSelfDestructType? =
+                    switch image.selfDestructTimer {
+                    case .viewOnce: .messageSelfDestructTypeImmediately
+                    case .seconds(let seconds): .messageSelfDestructTypeTimer(.init(selfDestructTime: seconds))
+                    case nil: nil
+                    }
                 if let video = image.video {
                     messageContents.append(makeInputMessageVideo(
                         video,
@@ -4075,8 +4078,8 @@ import UIKit
         }
     }
 
-    /// A picked video as Telegram sends it from the gallery: converted to the medium preset when TDLib generates
-    /// the file (`VideoSendGenerationCoordinator`), with the converted size, a 320 pt thumbnail and streaming.
+    /// A picked video as Telegram sends it from the gallery: converted to its preset when TDLib generates the file
+    /// (`VideoSendGenerationCoordinator`), with the converted size, a 320 pt thumbnail and streaming.
     func makeInputMessageVideo(
         _ video: SelectedVideo,
         thumbnail: URL,
@@ -4085,13 +4088,13 @@ import UIKit
         showCaptionAboveMedia: Bool = false,
         selfDestructType: TDNativeMessageSelfDestructType? = nil,
     ) -> InputMessageContent {
-        let dimensions = VideoSendPreset.outputDimensions(for: video.presentationSize)
+        let dimensions = video.preset.outputDimensions(for: video.presentationSize)
         return .inputMessageVideo(InputMessageVideo(
             video: InputVideo(
                 video: .inputFileGenerated(InputFileGenerated(
                     originalPath: video.url.path(percentEncoded: false),
-                    conversion: VideoSendGenerationCoordinator.conversion,
-                    expectedSize: VideoSendPreset.estimatedSize(duration: video.duration, hasAudio: video.hasAudio),
+                    conversion: video.preset.conversion,
+                    expectedSize: video.preset.estimatedSize(duration: video.duration, hasAudio: video.hasAudio),
                 )),
                 thumbnail: InputThumbnail(
                     thumbnail: .inputFileLocal(InputFileLocal(path: thumbnail.path(percentEncoded: false))),

@@ -74,9 +74,6 @@ import TDLibKit
 
     static let shared = VideoSendGenerationCoordinator()
 
-    /// Stays the same across launches: TDLib restarts an unfinished generation with the original path and conversion.
-    static let conversion = "bettertg-video-medium-v1"
-
     private var jobs = [Int64: Job]()
     private var cancellables = Set<AnyCancellable>()
 
@@ -103,13 +100,15 @@ import TDLibKit
     }
 
     private func begin(_ update: UpdateFileGenerationStart, source: TdUpdateSource) {
-        guard update.conversion == Self.conversion else { return }
+        // The conversion names the preset and stays the same across launches: TDLib restarts an unfinished
+        // generation with the original path and conversion.
+        guard let preset = VideoSendPreset(conversion: update.conversion) else { return }
         let generationID = update.generationId
         stop(generationID: generationID)
         let original = URL(fileURLWithPath: update.originalPath)
         let originalPath = update.originalPath
         let destination = URL(fileURLWithPath: update.destinationPath)
-        let transcoder = VideoSendTranscoder()
+        let transcoder = VideoSendTranscoder(preset: preset)
         let task = Task { [weak self] in
             let result = await Task.detached(priority: .userInitiated) { () -> Error? in
                 let work = SelectedVideoLoader.directory.appendingPathComponent("\(UUID().uuidString).mp4")

@@ -1,26 +1,126 @@
 // VideoSendTranscoder.swift
 
 import AVFoundation
+import Network
 import UIKit
 
 // MARK: - VideoSendPreset
 
-/// Telegram's default preset for videos sent from the gallery, `TGMediaVideoConversionPresetCompressedMedium`
-/// (`TGMediaVideoConverter`, `TGMediaVideoConversionPresetSettings`, `LegacyMediaPickers`).
-enum VideoSendPreset {
-    static let maximumSide: CGFloat = 848
-    static let videoBitrateKbps = 1600
-    static let audioBitrateKbps = 64
-    static let audioChannels = 2
+/// Telegram's presets for videos sent from the gallery, `TGMediaVideoConversionPresetCompressedVeryLow` to
+/// `CompressedVeryHigh` (`TGMediaVideoConverter`, `TGMediaVideoConversionPresetSettings`), with
+/// `TGMediaVideoConversionPreset`'s raw values. Medium is the default; the gallery's quality tool picks another, at
+/// most the source's own size (`bestAvailablePresetForDimensions`).
+enum VideoSendPreset: Int, CaseIterable, Comparable {
+    case veryLow = 1
+    case low = 2
+    case medium = 3
+    case high = 4
+    case veryHigh = 5
+
     static let audioSampleRate = 44100
     /// Presets below CompressedVeryHigh always render at 30 fps.
     static let frameRate: Int32 = 30
     static let thumbnailSide: CGFloat = 320
     static let thumbnailQuality: CGFloat = 0.4
 
-    /// `dimensionsFor:adjustments:preset:` for an uncropped video: `TGFitSizeF` into 848 x 848, round up, then
-    /// `_renderSizeWithCropSize:` takes the width down to a multiple of 16 and the height with it.
-    static func outputDimensions(for size: CGSize) -> CGSize {
+    /// `maximumSizeForPreset:`.
+    var maximumSide: CGFloat {
+        switch self {
+        case .veryLow: 480
+        case .low: 640
+        case .medium: 848
+        case .high: 1280
+        case .veryHigh: 1920
+        }
+    }
+
+    /// `_videoBitrateKbpsForPreset:`.
+    var videoBitrateKbps: Int {
+        switch self {
+        case .veryLow: 400
+        case .low: 700
+        case .medium: 1600
+        case .high: 3000
+        case .veryHigh: 6600
+        }
+    }
+
+    /// `_audioBitrateKbpsForPreset:`.
+    var audioBitrateKbps: Int {
+        self <= .low ? 32 : 64
+    }
+
+    /// `_audioChannelsCountForPreset:`: mono for the two lowest presets.
+    var audioChannels: Int {
+        self <= .low ? 1 : 2
+    }
+
+    /// CompressedVeryHigh keeps the source's frame rate; the others render at 30 fps.
+    var keepsSourceFrameRate: Bool {
+        self == .veryHigh
+    }
+
+    /// TGPhotoQualityController's labels.
+    var title: String {
+        switch self {
+        case .veryLow: "240p"
+        case .low: "360p"
+        case .medium: "480p"
+        case .high: "720p"
+        case .veryHigh: "1080p"
+        }
+    }
+
+    /// The TDLib conversion that names this preset. Medium keeps the name it had before the other presets, so
+    /// TDLib can restart an unfinished generation from an earlier launch.
+    var conversion: String {
+        switch self {
+        case .veryLow: "bettertg-video-verylow-v1"
+        case .low: "bettertg-video-low-v1"
+        case .medium: "bettertg-video-medium-v1"
+        case .high: "bettertg-video-high-v1"
+        case .veryHigh: "bettertg-video-veryhigh-v1"
+        }
+    }
+
+    init?(conversion: String) {
+        guard let preset = Self.allCases.first(where: { $0.conversion == conversion }) else { return nil }
+        self = preset
+    }
+
+    static func < (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+
+    /// `bestAvailablePresetForDimensions:`: the largest preset whose side the source reaches, at least Low.
+    static func bestAvailable(for size: CGSize) -> Self {
+        let side = max(size.width, size.height)
+        return [.veryHigh, .high, .medium].first { side >= $0.maximumSide } ?? .low
+    }
+
+    /// `defaultVideoPresetForContext`: the server's auto-download preset for the current network, high on Wi-Fi and
+    /// medium otherwise. Its video upload bitrate, a percentage, picks one of the five presets; 0 keeps Medium.
+    static func uploadDefault(client: TDLibClient) async -> Self {
+        guard let presets = try? await client.getAutoDownloadSettingsPresets() else { return .medium }
+        let settings = VideoSendNetwork.shared.isWiFi ? presets.high : presets.medium
+        let bitrate = settings.videoUploadBitrate
+        switch bitrate == 0 ? 0 : bitrate * 5 / 100 {
+        case 1: return .veryLow
+        case 2: return .low
+        case 4: return .high
+        case 5: return .veryHigh
+        default: return .medium
+        }
+    }
+
+    /// The preset a video of `size` converts with: this one, capped at the source's best (TGMediaVideoConverter).
+    func capped(for size: CGSize) -> Self {
+        min(self, Self.bestAvailable(for: size))
+    }
+
+    /// `dimensionsFor:adjustments:preset:` for an uncropped video: `TGFitSizeF` into the preset's square, round
+    /// up, then `_renderSizeWithCropSize:` takes the width down to a multiple of 16 and the height with it.
+    func outputDimensions(for size: CGSize) -> CGSize {
         var fitted = CGSize(width: max(1, size.width), height: max(1, size.height))
         if fitted.width > maximumSide {
             fitted = CGSize(width: maximumSide, height: fitted.height * maximumSide / fitted.width)
@@ -39,10 +139,34 @@ enum VideoSendPreset {
     }
 
     /// `estimatedSizeForPreset:duration:hasAudio:`.
-    static func estimatedSize(duration: Double, hasAudio: Bool) -> Int64 {
+    func estimatedSize(duration: Double, hasAudio: Bool) -> Int64 {
         var bitrate = videoBitrateKbps
         if hasAudio { bitrate += audioBitrateKbps * audioChannels }
         return Int64(Double(bitrate * 1000 / 8) * max(0, duration))
+    }
+}
+
+// MARK: - VideoSendNetwork
+
+/// Telegram's account network type for the upload default: Wi-Fi unless the path goes over cellular.
+final class VideoSendNetwork: @unchecked Sendable {
+    static let shared = VideoSendNetwork()
+
+    private let monitor = NWPathMonitor()
+    private let lock = NSLock()
+    private var cellular = false
+
+    var isWiFi: Bool {
+        lock.withLock { !cellular }
+    }
+
+    private init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            guard let self else { return }
+            let usesCellular = path.usesInterfaceType(.cellular)
+            lock.withLock { self.cellular = usesCellular }
+        }
+        monitor.start(queue: DispatchQueue(label: "BetterTG.VideoSendNetwork"))
     }
 }
 
@@ -90,7 +214,8 @@ enum SelectedVideoLoader {
             generator.maximumSize = CGSize(width: 960, height: 960)
             let preview = try await UIImage(cgImage: generator.image(at: .zero).image)
             // The thumbnail fits the sent dimensions into 320 x 320 (`aspectFitted`), JPEG quality 0.4.
-            let sent = VideoSendPreset.outputDimensions(for: presented)
+            // The thumbnail's shape follows the sent video's, which the presets share up to rounding.
+            let sent = VideoSendPreset.medium.outputDimensions(for: presented)
             let scale = min(VideoSendPreset.thumbnailSide / sent.width, VideoSendPreset.thumbnailSide / sent.height)
             let thumbnailSize = CGSize(
                 width: max(1, (sent.width * scale).rounded(.down)),
@@ -127,9 +252,9 @@ enum SelectedVideoLoader {
 
 // MARK: - VideoSendTranscoder
 
-/// Converts a picked video as `TGMediaVideoConverter` does for the medium preset: H.264 High profile with CABAC at
-/// 1600 kbit/s and 30 fps, stereo AAC at 64 kbit/s and 44.1 kHz, in an MP4. The `moov` box goes first so the
-/// video streams before it downloads (`supportsStreaming`).
+/// Converts a picked video as `TGMediaVideoConverter` does for its preset: H.264 High profile with CABAC at the
+/// preset's bitrate and 30 fps (the source's rate for 1080p), AAC at 44.1 kHz with the preset's bitrate and
+/// channels, in an MP4. The `moov` box goes first so the video streams before it downloads (`supportsStreaming`).
 final class VideoSendTranscoder: @unchecked Sendable {
     enum Failure: Error {
         case noVideoTrack
@@ -138,18 +263,26 @@ final class VideoSendTranscoder: @unchecked Sendable {
         case cancelled
     }
 
-    private static var stereoLayout: Data {
+    let preset: VideoSendPreset
+
+    private let lock = NSLock()
+    private var reader: AVAssetReader?
+    private var cancelled = false
+
+    private var channelLayout: Data {
         var layout = AudioChannelLayout()
-        layout.mChannelLayoutTag = kAudioChannelLayoutTag_Stereo
+        layout.mChannelLayoutTag = preset.audioChannels > 1
+            ? kAudioChannelLayoutTag_Stereo
+            : kAudioChannelLayoutTag_Mono
         return Data(bytes: &layout, count: MemoryLayout<AudioChannelLayout>.size)
     }
 
-    private static var decodedAudioSettings: [String: Any] {
+    private var decodedAudioSettings: [String: Any] {
         [
             AVFormatIDKey: kAudioFormatLinearPCM,
             AVSampleRateKey: VideoSendPreset.audioSampleRate,
-            AVNumberOfChannelsKey: VideoSendPreset.audioChannels,
-            AVChannelLayoutKey: stereoLayout,
+            AVNumberOfChannelsKey: preset.audioChannels,
+            AVChannelLayoutKey: channelLayout,
             AVLinearPCMBitDepthKey: 16,
             AVLinearPCMIsFloatKey: false,
             AVLinearPCMIsBigEndianKey: false,
@@ -158,24 +291,24 @@ final class VideoSendTranscoder: @unchecked Sendable {
     }
 
     /// `audioSettingsForPreset:`.
-    private static var encodedAudioSettings: [String: Any] {
+    private var encodedAudioSettings: [String: Any] {
         [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: VideoSendPreset.audioSampleRate,
-            AVEncoderBitRateKey: VideoSendPreset.audioBitrateKbps * 1000,
-            AVNumberOfChannelsKey: VideoSendPreset.audioChannels,
-            AVChannelLayoutKey: stereoLayout,
+            AVEncoderBitRateKey: preset.audioBitrateKbps * 1000,
+            AVNumberOfChannelsKey: preset.audioChannels,
+            AVChannelLayoutKey: channelLayout,
         ]
     }
-
-    private let lock = NSLock()
-    private var reader: AVAssetReader?
-    private var cancelled = false
 
     private var isCancelled: Bool {
         lock.lock()
         defer { lock.unlock() }
         return cancelled
+    }
+
+    init(preset: VideoSendPreset) {
+        self.preset = preset
     }
 
     /// Stops reading; the writer is cancelled on the pump queue once both inputs have stopped appending.
@@ -203,7 +336,8 @@ final class VideoSendTranscoder: @unchecked Sendable {
         let preferredTransform = try await videoTrack.load(.preferredTransform)
         let presented = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
         guard presented.width > 0, presented.height > 0 else { throw Failure.noVideoTrack }
-        let dimensions = VideoSendPreset.outputDimensions(for: presented.size)
+        let dimensions = preset.outputDimensions(for: presented.size)
+        let frameRate = try await frameRate(of: videoTrack)
 
         let reader = try AVAssetReader(asset: asset)
         let videoOutput = AVAssetReaderVideoCompositionOutput(
@@ -217,6 +351,7 @@ final class VideoSendTranscoder: @unchecked Sendable {
             transform: preferredTransform,
             presented: presented,
             dimensions: dimensions,
+            frameRate: frameRate,
             duration: duration,
         )
         guard reader.canAdd(videoOutput) else { throw Failure.unreadable }
@@ -224,15 +359,18 @@ final class VideoSendTranscoder: @unchecked Sendable {
 
         let writer = try AVAssetWriter(outputURL: destination, fileType: .mp4)
         writer.shouldOptimizeForNetworkUse = true
-        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings(dimensions: dimensions))
+        let videoInput = AVAssetWriterInput(
+            mediaType: .video,
+            outputSettings: videoSettings(dimensions: dimensions, frameRate: frameRate),
+        )
         videoInput.expectsMediaDataInRealTime = false
         guard writer.canAdd(videoInput) else { throw Failure.unwritable }
         writer.add(videoInput)
 
         var audio: (output: AVAssetReaderTrackOutput, input: AVAssetWriterInput)?
         if let audioTrack {
-            let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: Self.decodedAudioSettings)
-            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: Self.encodedAudioSettings)
+            let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: decodedAudioSettings)
+            let input = AVAssetWriterInput(mediaType: .audio, outputSettings: encodedAudioSettings)
             input.expectsMediaDataInRealTime = false
             if reader.canAdd(output), writer.canAdd(input) {
                 reader.add(output)
@@ -338,6 +476,7 @@ final class VideoSendTranscoder: @unchecked Sendable {
         transform: CGAffineTransform,
         presented: CGRect,
         dimensions: CGSize,
+        frameRate: Int32,
         duration: CMTime,
     ) -> AVVideoComposition {
         var layer = AVVideoCompositionLayerInstruction.Configuration(assetTrack: track)
@@ -359,20 +498,31 @@ final class VideoSendTranscoder: @unchecked Sendable {
             colorPrimaries: AVVideoColorPrimaries_ITU_R_709_2,
             colorTransferFunction: AVVideoTransferFunction_ITU_R_709_2,
             colorYCbCrMatrix: AVVideoYCbCrMatrix_ITU_R_709_2,
-            frameDuration: CMTime(value: 1, timescale: VideoSendPreset.frameRate),
+            frameDuration: CMTime(value: 1, timescale: frameRate),
             instructions: [instruction],
             renderSize: dimensions,
         ))
     }
 
-    private func videoSettings(dimensions: CGSize) -> [String: Any] {
+    /// `_setupVideoComposition`: 30 fps, except that 1080p keeps the source's rate, rounded up from its nominal
+    /// rate or taken from its shortest frame.
+    private func frameRate(of track: AVAssetTrack) async throws -> Int32 {
+        guard preset.keepsSourceFrameRate else { return VideoSendPreset.frameRate }
+        let nominal = try await track.load(.nominalFrameRate)
+        if nominal > 0 { return Int32(nominal.rounded(.up)) }
+        let minimumDuration = try await track.load(.minFrameDuration)
+        guard minimumDuration.isValid, minimumDuration.seconds > 0 else { return VideoSendPreset.frameRate }
+        return Int32((1 / minimumDuration.seconds).rounded(.up))
+    }
+
+    private func videoSettings(dimensions: CGSize, frameRate: Int32) -> [String: Any] {
         var settings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.h264,
             AVVideoWidthKey: Int(dimensions.width),
             AVVideoHeightKey: Int(dimensions.height),
             AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: VideoSendPreset.videoBitrateKbps * 1000,
-                AVVideoExpectedSourceFrameRateKey: Int(VideoSendPreset.frameRate),
+                AVVideoAverageBitRateKey: preset.videoBitrateKbps * 1000,
+                AVVideoExpectedSourceFrameRateKey: Int(frameRate),
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
                 AVVideoH264EntropyModeKey: AVVideoH264EntropyModeCABAC,
             ] as [String: Any],

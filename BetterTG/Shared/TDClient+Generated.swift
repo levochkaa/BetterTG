@@ -224,6 +224,10 @@ extension TDClient {
         ))
     }
 
+    func getAutoDownloadSettingsPresets() async throws -> TDNativeAutoDownloadSettingsPresets {
+        try await send(TDNativeRequests.getAutoDownloadSettingsPresets())
+    }
+
     func getBasicGroup(basicGroupId: Int64) async throws -> TDNativeBasicGroup {
         try await send(TDNativeRequests.getBasicGroup(basicGroupId: basicGroupId))
     }

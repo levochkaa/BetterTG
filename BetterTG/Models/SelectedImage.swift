@@ -23,6 +23,20 @@ struct SelectedVideo: Equatable {
     let presentationSize: CGSize
     let thumbnailSize: CGSize
     let hasAudio: Bool
+    /// The gallery's quality for this video, already capped at its own size.
+    var preset = VideoSendPreset.medium
+}
+
+// MARK: - MediaSelfDestructTimer
+
+/// LegacyMessageInputPanel's media timer for a single photo or video in a private chat: View Once
+/// (`viewOnceTimeout`) or deletion a few seconds after opening.
+enum MediaSelfDestructTimer: Equatable {
+    case viewOnce
+    case seconds(Int)
+
+    /// presentTimeoutSetup's values.
+    static let secondsValues = [3, 10, 30]
 }
 
 // MARK: - SelectedImage
@@ -37,9 +51,8 @@ struct SelectedImage: Identifiable, Equatable, @unchecked Sendable {
     var video: SelectedVideo?
     /// Telegram's Hide With Spoiler for this item (`hasSpoiler`).
     var hasSpoiler = false
-    /// MediaPickerScreen's View Once timer for a single photo or video in a private chat
-    /// (`messageSelfDestructTypeImmediately`).
-    var isViewOnce = false
+    /// MediaPickerScreen's timer for a single photo or video in a private chat.
+    var selfDestructTimer: MediaSelfDestructTimer?
 
     /// Every file the app keeps for this item in `SelectedDocumentFileStore`.
     var fileURLs: [URL] {
@@ -49,6 +62,6 @@ struct SelectedImage: Identifiable, Equatable, @unchecked Sendable {
     static func == (lhs: SelectedImage, rhs: SelectedImage) -> Bool {
         lhs.url == rhs.url && lhs.livePhotoVideoURL == rhs.livePhotoVideoURL && lhs.isLivePhotoEnabled == rhs
             .isLivePhotoEnabled && lhs.video == rhs.video && lhs.hasSpoiler == rhs.hasSpoiler
-            && lhs.isViewOnce == rhs.isViewOnce
+            && lhs.selfDestructTimer == rhs.selfDestructTimer
     }
 }

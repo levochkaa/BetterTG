@@ -1860,6 +1860,11 @@
 "MediaPicker.Timer.Video.ViewOnceTooltip" = "Video set to view once.";
 "MediaPicker.Timer.Photo.KeepTooltip" = "Photo will be kept in chat.";
 "MediaPicker.Timer.Video.KeepTooltip" = "Video will be kept in chat.";
+"MediaPicker.Timer.Seconds_1" = "%d Second";
+"MediaPicker.Timer.Seconds_any" = "%d Seconds";
+"MediaPicker.Timer.Photo.TimerTooltip" = "Photo will be deleted in\n%@ seconds after opening.";
+"MediaPicker.Timer.Video.TimerTooltip" = "Video will be deleted in\n%@ seconds after opening.";
+"Media.SendWithTimer" = "Send With Timer";
 "Attachment.CancelSelectionAlertText" = "Cancel selection?";
 "Attachment.Manage" = "Manage";
 "Media.LimitedAccessSelectMore" = "Select More Photos...";
