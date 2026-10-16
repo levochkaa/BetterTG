@@ -42,6 +42,10 @@ final class Media: ObservableObject {
 
     private static let playbackRateKey = "BetterTG.voicePlaybackRate"
 
+    /// A video note, Live Photo or play-once media took the audio. A gallery video in Picture in Picture pauses for
+    /// it as for a voice note, since Telegram's media manager keeps one playing source.
+    let exclusivePlaybackBegan = PassthroughSubject<Void, Never>()
+
     @Published var savedMediaPath = ""
     @Published var isPlaying = false
     @Published var currentTime: Int32 = 0
@@ -164,6 +168,7 @@ final class Media: ObservableObject {
     func beginExclusivePlayback() {
         stop()
         setAudioSessionPlayback()
+        exclusivePlaybackBegan.send()
     }
 
     func onChatOpen(title: String) {

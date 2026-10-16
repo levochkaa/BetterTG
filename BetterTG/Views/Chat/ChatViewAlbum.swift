@@ -6168,10 +6168,12 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         mediaTakeoverCancellable = Media.shared
             .$savedMediaPath
             .dropFirst()
+            .filter { !$0.isEmpty }
+            .map { _ in () }
+            .merge(with: Media.shared.exclusivePlaybackBegan)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] path in
+            .sink { [weak self] in
                 guard let self,
-                      !path.isEmpty,
                       pictureInPictureAudioSessionToken != nil
                 else { return }
                 if let pictureInPictureAudioSessionToken {
