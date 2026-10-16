@@ -398,6 +398,30 @@ From `codex/parity-media-audit` (compose) and `codex/parity-msg-actions` (messag
 | M-17 | P3 | Translate lacks Do Not Translate languages, Change Language and the selection menu item | open |
 
 
+### Group and channel management — 2026-10-16
+
+From `codex/parity-groups` (cherry-picked; build fix `12f1b2ce`).
+
+| ID | Sev | Finding | Status |
+|---|---|---|---|
+| G-1 | P2 | Edit had only title and description; admins without Change Info got no Edit | fixed `f449cf52`: photo, name, description, the management rows the rights allow, Delete for the owner. Simulator: a channel the account administers shows invite links, subscribers 33, administrators 33, removed users 1, recent actions |
+| G-2 | P2 | No chat photo change | fixed `f449cf52` |
+| G-3 | P2 | No Delete Group/Channel | fixed `f449cf52` |
+| G-4 | P2 | No default permissions, slowmode or exceptions | fixed `36fa63ee` |
+| G-5 | P2 | No Removed Users or unban | fixed `d033dc0a` |
+| G-6 | P2 | Read-only admin list | fixed `0aeb8555`: add admin, rights editor, custom title, dismiss, sign messages and show authors. Simulator: 33 admins with "promoted by" lines and Add Admin |
+| G-7 | P2 | No Promote, Restrict, Remove or Add Members | fixed `727e7704` |
+| G-8 | P2 | No invite link management | fixed `1e480f34`, `12f1b2ce`: primary link, create/edit/revoke/delete, joined members |
+| G-9 | P2 | No join requests | fixed `06fc4b8a` |
+| G-10 | P2 | No Group/Channel Type | fixed `f26dd7d8`: public link check or private invite link, join-to-send, approve members, restrict saving |
+| G-11 | P3 | No chat history, topics, hide members toggles | fixed `8c775528` |
+| G-12 | P3 | Auto-delete missing from Edit | not a defect: Telegram keeps it in the More menu (S-7) |
+| G-13 | P3 | No Recent Actions | fixed `91d5d6ef`: `getChatEventLog` by day with Telegram's sentences. Simulator: Telegram's empty state for the last 48 h |
+| G-14 | P3 | No discussion group link setup | fixed `d7acd743` |
+
+Not ported: other admins' links and QR codes, the apply-to-existing-links prompt, Create New Group for discussion, collectible link ordering, Recent Actions filters and bubbles. Switches in these screens apply on tap, so the Simulator check stayed on list and detail screens.
+
+
 ### Probe sweep — 2026-10-12
 
 Repeat on the merged build `e05d541` (localization merge): 86 of 91 probes report a pass; `draft-coding` passes in the app's tmp folder, and the four observation probes need live UI as above.
