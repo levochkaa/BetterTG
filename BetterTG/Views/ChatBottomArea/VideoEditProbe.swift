@@ -7,16 +7,24 @@
     /// Launch with `-ui-probe-video-edit`, or `-ui-probe-video-edit crop` to open in the Crop tab. Once an account
     /// is active it opens the attachment sheet's video editor on a generated six-second test video with a tone, so the
     /// trim, mute, crop and the scrubber's zoom are checked without photo library access. Done shows the edit, with
-    /// the crop in the frame's pixels, and converts the video as it would be sent, with `VideoSendTranscoder` at
-    /// Medium, then shows the converted file's length, size and sound; nothing is sent.
+    /// the crop in the frame's pixels, and the grid's thumbnail of a cropped or trimmed video in a square cell
+    /// (VideoEditThumbnail). It converts the video as it would be sent, with `VideoSendTranscoder` at Medium, then
+    /// shows the converted file's length, size and sound; nothing is sent.
     @MainActor enum VideoEditProbe {
-        /// The edit and the converted file, closed by Close.
+        /// The edit, its grid thumbnail and the converted file, closed by Close.
         private final class ResultViewController: UIViewController {
             private let label = UILabel()
+            private let thumbnailView = UIImageView()
 
             var text: String {
                 get { label.text ?? "" }
                 set { label.text = newValue }
+            }
+
+            /// Shown as the grid's 128 pt cell fills with it.
+            var thumbnail: UIImage? {
+                get { thumbnailView.image }
+                set { thumbnailView.image = newValue }
             }
 
             init(text: String) {
@@ -34,10 +42,12 @@
                 label.textAlignment = .center
                 label.numberOfLines = 0
                 label.font = .monospacedSystemFont(ofSize: 15, weight: .regular)
+                thumbnailView.contentMode = .scaleAspectFill
+                thumbnailView.clipsToBounds = true
                 let close = UIButton(type: .system, primaryAction: UIAction(title: "Close") { [weak self] _ in
                     self?.dismiss(animated: true)
                 })
-                for subview in [label, close] as [UIView] {
+                for subview in [thumbnailView, label, close] as [UIView] {
                     subview.translatesAutoresizingMaskIntoConstraints = false
                     view.addSubview(subview)
                 }
@@ -48,6 +58,10 @@
                     label.centerYAnchor.constraint(equalTo: guide.centerYAnchor),
                     label.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 16),
                     label.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -16),
+                    thumbnailView.bottomAnchor.constraint(equalTo: label.topAnchor, constant: -16),
+                    thumbnailView.centerXAnchor.constraint(equalTo: guide.centerXAnchor),
+                    thumbnailView.widthAnchor.constraint(equalToConstant: 128),
+                    thumbnailView.heightAnchor.constraint(equalToConstant: 128),
                 ])
             }
         }
@@ -86,8 +100,16 @@
                         let summary = describe(edit)
                         let result = ResultViewController(text: summary + "\n\nconverting…")
                         presenter?.present(result, animated: true)
+                        var text = summary
+                        if let edit, VideoEditThumbnail.isNeeded(for: edit) {
+                            let thumbnail = await VideoEditThumbnail.make(for: edit, of: AVURLAsset(url: url))
+                            result.thumbnail = thumbnail
+                            text += thumbnail.map { "\ngrid thumbnail \(Int($0.size.width))×\(Int($0.size.height))" }
+                                ?? "\nno grid thumbnail"
+                        }
+                        result.text = text + "\n\nconverting…"
                         let converted = await convert(url, edit: edit)
-                        result.text = summary + "\n\n" + converted
+                        result.text = text + "\n\n" + converted
                     }
                 }
                 presenter.present(editor, animated: true)

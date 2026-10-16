@@ -1,5 +1,6 @@
 // AttachmentSheetViewController.swift
 
+import AVFoundation
 import Photos
 import PhotosUI
 import UIKit
@@ -161,6 +162,8 @@ struct AttachmentMediaSendRequest {
     private var didSettleInitialOffset = false
     private var photoEdits = [String: PhotoCropEdit]()
     private var videoEdits = [String: VideoEditAdjustments]()
+    /// An edited video's frame for the grid (VideoEditThumbnail), kept while the edit lasts.
+    private var videoEditThumbnails = [String: UIImage]()
     private var isClosing = false
 
     private var allowsMedia: Bool {
@@ -572,7 +575,7 @@ struct AttachmentMediaSendRequest {
         let identifier = asset.localIdentifier
         guard cell.representedAssetIdentifier != identifier else { return }
         cell.representedAssetIdentifier = identifier
-        if let thumbnail = photoEdits[identifier]?.thumbnail {
+        if let thumbnail = photoEdits[identifier]?.thumbnail ?? videoEditThumbnails[identifier] {
             cell.imageView.image = thumbnail
             return
         }
@@ -1083,6 +1086,12 @@ struct AttachmentMediaSendRequest {
         if edit != nil, !selection.contains(where: { $0.localIdentifier == identifier }) {
             toggleSelection(of: asset)
         }
+        reloadThumbnail(of: asset)
+    }
+
+    /// Shows the asset's current thumbnail in its visible cells.
+    private func reloadThumbnail(of asset: PHAsset) {
+        let identifier = asset.localIdentifier
         for cell in collectionView.visibleCells {
             guard let gridCell = cell as? MediaPickerGridCell,
                   gridCell.representedAssetIdentifier == identifier else { continue }
@@ -1102,17 +1111,30 @@ struct AttachmentMediaSendRequest {
                 adjustments: adjustments,
                 allowsTrimming: !asset.mediaSubtypes.contains(.videoHighFrameRate),
             )
-            editor.onDone = { [weak self] edit in self?.finishEditing(asset, videoEdit: edit) }
+            editor.onDone = { [weak self] edit in self?.finishEditing(asset, videoEdit: edit, video: video) }
             present(editor, animated: true)
         }
     }
 
-    /// The trim and mute stay with the video while the sheet is open, and an edit picks it.
-    private func finishEditing(_ asset: PHAsset, videoEdit: VideoEditAdjustments?) {
+    /// The trim, mute and crop stay with the video while the sheet is open, and an edit picks it. The grid shows the
+    /// edited frame once it is read, as it shows a cropped photo.
+    private func finishEditing(_ asset: PHAsset, videoEdit: VideoEditAdjustments?, video: AVAsset) {
         let identifier = asset.localIdentifier
         videoEdits[identifier] = videoEdit
         if videoEdit != nil, !selection.contains(where: { $0.localIdentifier == identifier }) {
             toggleSelection(of: asset)
+        }
+        guard let videoEdit, VideoEditThumbnail.isNeeded(for: videoEdit) else {
+            if videoEditThumbnails.removeValue(forKey: identifier) != nil {
+                reloadThumbnail(of: asset)
+            }
+            return
+        }
+        Task { [weak self] in
+            let thumbnail = await VideoEditThumbnail.make(for: videoEdit, of: video)
+            guard let self, videoEdits[identifier] == videoEdit else { return }
+            videoEditThumbnails[identifier] = thumbnail
+            reloadThumbnail(of: asset)
         }
     }
 }
