@@ -382,15 +382,20 @@ From `codex/parity-media-audit` (compose) and `codex/parity-msg-actions` (messag
 | M-1 | P2 | No Copy Link | fixed `e5fddc03`. Simulator: Hacker News post copied `https://t.me/hacker_news_feed/132813` with Telegram's toast |
 | M-2 | P2 | No Report | fixed `ea348b3d`: TDLib's reason pages and comment step, a report only on a chosen reason. Simulator: Report appears in a channel post menu (not opened) |
 | M-3 | P2 | No Seen By | fixed `e925392b`: `getMessageViewers` sheet. Build only |
-| M-4 | P3 | No who-reacted list | fixed `e925392b` as a menu item (`getMessageAddedReactions`); a long press on a reaction chip is still missing |
+| M-4 | P3 | No who-reacted list | fixed `e925392b` as a menu item, and `f85fd719`: a long press on a reaction chip lists who chose that reaction. Build only |
 | M-5 | P2 | No silent, scheduled or when-online sends | fixed `280e2f8f`: Send long-press menu and Telegram's schedule picker. Simulator: Saved Messages offers Set a Reminder, the picker reads "remind today at 07:30"; cancelled, nothing sent |
 | M-6 | P2 | No Scheduled Messages screen | fixed `280e2f8f`: grouped list with Send Now, Reschedule, Copy, Delete, and the input calendar button. Build only: no chat has scheduled messages |
 | M-7 | P2 | Scheduled messages could enter the normal history | fixed `280e2f8f` |
-| M-8 | P3 | No Translate | open: Telegram hides it behind a setting BetterTG lacks |
-| M-9 | P3 | No Save Image/Video in the message menu | open: the gallery saves |
-| M-10 | P3 | No link preview panel or remove-preview | open |
-| M-11 | P3 | No admin delete options (delete all from user, report spam, ban) | open |
-| M-12 | P3 | No read date in private chats | open |
+| M-8 | P3 | No Translate | fixed `ce574a59`: Show Translate Button in Settings > Language (off by default), Translate for messages not in the app or a system language (Telegram's canTranslateText), `translateText` sheet with Copy Translation. Build only |
+| M-9 | P3 | No Save Image/Video in the message menu | fixed `6519446b`: Save Image/Video (with Photos permission and toasts) and Save to Files for documents and audio, hidden for protected, secret and self-destructing messages. Build only |
+| M-10 | P3 | No link preview panel or remove-preview | fixed `a7bed387`: debounced `getLinkPreview` panel in the reply slot, × disables, a tap opens Move Up/Down, Enlarge/Shrink and Do Not Preview, kept in drafts. Simulator: typing https://telegram.org in Saved Messages showed "Telegram — a new era of messaging" and the options menu; text cleared, nothing sent |
+| M-11 | P3 | No admin delete options (delete all from user, report spam, ban) | fixed `d7c453fb`: Telegram's admin sheet with Report Spam, Delete All From and Ban, run only on Proceed. Build only |
+| M-12 | P3 | No read date in private chats | fixed `7549082a`: "read today at HH:MM" from `getMessageReadDate`, and the show-read-time alert. Build only |
+| M-13 | P3 | Deleting several selected messages uses the plain delete, not the admin sheet | open |
+| M-14 | P3 | The admin sheet bans but has no partial restriction options | open |
+| M-15 | P3 | Edits and media captions show no link preview panel | open |
+| M-16 | P3 | Save items only for single messages, not per album item | open |
+| M-17 | P3 | Translate lacks Do Not Translate languages, Change Language and the selection menu item | open |
 
 
 ### Probe sweep — 2026-10-12
