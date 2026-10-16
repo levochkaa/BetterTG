@@ -3056,7 +3056,8 @@ final class TelegramContactDetailsViewController: UIViewController {
     }
 #endif
 
-private extension UIFont {
+extension UIFont {
+    /// The system font at this size with another weight.
     func withWeight(_ weight: UIFont.Weight) -> UIFont {
         UIFont.systemFont(ofSize: pointSize, weight: weight)
     }
