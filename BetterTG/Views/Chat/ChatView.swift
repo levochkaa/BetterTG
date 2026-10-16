@@ -1363,6 +1363,85 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     #endif
 
+    /// Telegram's reply keyboard buttons (ChatControllerInteraction): the phone and location requests ask first and
+    /// then send as a reply to the keyboard's message (shareAccountContact, shareCurrentLocation); the users and chat
+    /// requests open the picker (openRequestedPeerSelection); text buttons send at once.
+    private func handleReplyKeyboardButton(_ button: TDNativeKeyboardButton, keyboardMessageID: Int64) {
+        let chatVM = chatVM
+        switch button.type {
+        case .keyboardButtonTypeRequestPhoneNumber:
+            confirmKeyboardRequest(
+                title: "Conversation.ShareBotContactConfirmationTitle",
+                message: "Conversation.ShareBotContactConfirmation",
+            ) {
+                Task {
+                    guard let content = await chatVM.ownContactContent() else { return }
+                    await chatVM.sendKeyboardRequest(content, keyboardMessageID: keyboardMessageID)
+                }
+            }
+        case .keyboardButtonTypeRequestLocation:
+            confirmKeyboardRequest(
+                title: "Conversation.ShareBotLocationConfirmationTitle",
+                message: "Conversation.ShareBotLocationConfirmation",
+            ) { [weak self] in
+                Task { [weak self] in
+                    guard let coordinate = await OneShotLocation.current() else {
+                        self?.presentKeyboardRequestFailure()
+                        return
+                    }
+                    await chatVM.sendKeyboardRequest(
+                        .inputMessageLocation(TDNativeInputMessageLocation(location: TDNativeLocation(
+                            latitude: coordinate.latitude,
+                            longitude: coordinate.longitude,
+                            horizontalAccuracy: 0,
+                        ))),
+                        keyboardMessageID: keyboardMessageID,
+                    )
+                }
+            }
+        case .keyboardButtonTypeRequestUsers(let users):
+            presentBotPeerRequest(.users(users), keyboardMessageID: keyboardMessageID)
+        case .keyboardButtonTypeRequestChat(let chat):
+            presentBotPeerRequest(.chat(chat), keyboardMessageID: keyboardMessageID)
+        default:
+            Task { await chatVM.pressReplyKeyboardButton(button, keyboardMessageID: keyboardMessageID) }
+        }
+    }
+
+    private func confirmKeyboardRequest(title: String, message: String, perform: @escaping () -> Void) {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: L10n.telegram(title),
+            message: L10n.telegram(message),
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { _ in perform() })
+        present(alert, animated: true)
+    }
+
+    private func presentKeyboardRequestFailure() {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(title: nil, message: L10n.telegram("Login.UnknownError"), preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        present(alert, animated: true)
+    }
+
+    private func presentBotPeerRequest(_ request: BotPeerRequestViewController.Request, keyboardMessageID: Int64) {
+        // The bot is the keyboard's sender; in its own chat, the chat itself.
+        let sender = chatVM.messages.first { $0.sourceMessages.contains { $0.id == keyboardMessageID } }?.senderUser
+        let botName = sender.map { $0.firstName.isEmpty ? $0.lastName : $0.firstName } ?? chatVM.customChat.displayTitle
+        BotPeerRequestViewController.present(
+            request,
+            source: .keyboardButtonSourceMessage(TDNativeKeyboardButtonSourceMessage(
+                chatId: chatVM.chatID,
+                messageId: keyboardMessageID,
+            )),
+            botName: botName,
+            from: self,
+        ) { [weak self] in self?.chatVM.noteKeyboardRequestAnswered(keyboardMessageID: keyboardMessageID) }
+    }
+
     /// Telegram's Scheduled Messages for this chat or topic, from the input panel's button or after a message was
     /// scheduled (ChatController.openScheduledMessages).
     private func openScheduledMessages() {
@@ -2086,8 +2165,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
             composerView.onReplyKeyboardButton = { [weak self] button, messageID in
                 guard let self, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
-                let chatVM = chatVM
-                Task { await chatVM.pressReplyKeyboardButton(button, keyboardMessageID: messageID) }
+                handleReplyKeyboardButton(button, keyboardMessageID: messageID)
             }
             view.addSubview(composerKeyboardEdgeView)
             view.addSubview(composerView)

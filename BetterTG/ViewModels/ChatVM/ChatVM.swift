@@ -3613,14 +3613,67 @@ import UIKit
         }
     }
 
+    /// Telegram's shareAccountContact for a request-phone button: the account's own contact card.
+    func ownContactContent() async -> InputMessageContent? {
+        guard let me = try? await client.getMe(), !me.phoneNumber.isEmpty else { return nil }
+        return .inputMessageContact(TDNativeInputMessageContact(contact: TDNativeContact(
+            phoneNumber: me.phoneNumber,
+            firstName: me.firstName,
+            lastName: me.lastName,
+            vcard: "",
+            userId: me.id,
+        )))
+    }
+
+    /// shareAccountContact and shareCurrentLocation after the user confirmed a request button: the contact or the
+    /// location goes as a reply to the keyboard's message, and a one-time keyboard goes away.
+    func sendKeyboardRequest(_ content: InputMessageContent, keyboardMessageID: Int64) async {
+        guard supportsReplyKeyboard, locationContextIsCurrent else { return }
+        await waitForComposerSend()
+        guard !sendingComposerMessage, locationContextIsCurrent else { return }
+        if let wait = slowModeWaitMessage() {
+            sendErrorMessage = wait
+            return
+        }
+        sendingComposerMessage = true
+        defer { sendingComposerMessage = false }
+        replyKeyboard.noteButtonUsed(messageID: keyboardMessageID)
+        do {
+            let context = try resolveSendContext(for: .text, replyingTo: nil)
+            let message = try await client.sendMessage(
+                chatId: context.chatID,
+                inputMessageContent: content,
+                options: nil,
+                replyMarkup: nil,
+                replyTo: .inputMessageReplyToMessage(TDNativeInputMessageReplyToMessage(
+                    messageId: keyboardMessageID,
+                    quote: nil,
+                    checklistTaskId: 0,
+                    pollOptionId: "",
+                )),
+                topicId: context.destinationTopic,
+            )
+            guard locationContextIsCurrent, context.matches(message: message)
+            else { throw ChatSendContextError.unexpectedDestination }
+            sendErrorMessage = nil
+        } catch {
+            sendErrorMessage = error.localizedDescription
+        }
+    }
+
+    /// A users or chat request button was answered (shareUsersWithBot / shareChatWithBot).
+    func noteKeyboardRequestAnswered(keyboardMessageID: Int64) {
+        replyKeyboard.noteButtonUsed(messageID: keyboardMessageID)
+    }
+
     /// A reply keyboard's text button sends its title with the current reply, then clears that reply, as Telegram's
     /// `controllerInteraction.sendMessage` does; a one-time keyboard goes away at once.
     func pressReplyKeyboardButton(_ button: TDNativeKeyboardButton, keyboardMessageID: Int64) async {
         guard supportsReplyKeyboard, locationContextIsCurrent,
               replyKeyboard.offeredKeyboard?.messageID == keyboardMessageID else { return }
         guard case .keyboardButtonTypeText = button.type else {
-            // Sharing the phone number or location, creating a poll, choosing users or chats, creating a managed bot
-            // and Web Apps need screens BetterTG doesn't have yet.
+            // Creating a poll, creating a managed bot and Web Apps need screens BetterTG doesn't have yet; the phone,
+            // location, users and chat requests are answered by the chat screen.
             messageActionErrorMessage = L10n.betterTG("Chat.UnsupportedButtonBetterTG")
             return
         }
