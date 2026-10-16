@@ -165,36 +165,44 @@
             let audioFormat = try audioFormatDescription()
             let samplesPerFrame = sampleRate / frameRate
             let frameCount = seconds * frameRate
-            // Each frame goes with its stretch of sound, so the writer can interleave the two.
-            for frame in 0..<frameCount {
-                try await waitUntilReady(videoInput)
-                guard let buffer = pixelBuffer(
-                    frame: frame,
-                    of: frameCount,
-                    still: stills[frame / frameRate],
-                    pool: adaptor.pixelBufferPool,
-                ),
-                    adaptor.append(buffer, withPresentationTime: CMTime(
-                        value: CMTimeValue(frame),
-                        timescale: CMTimeScale(frameRate),
-                    ))
-                else { throw writer.error ?? Failure.unwritable }
-                try await waitUntilReady(audioInput)
-                if let sample = tone(start: frame * samplesPerFrame, count: samplesPerFrame, format: audioFormat) {
-                    audioInput.append(sample)
+            // The writer interleaves the tracks and holds one back until the other catches up, so each track is
+            // fed whenever it is ready instead of in lockstep.
+            var videoFrame = 0
+            var audioFrame = 0
+            while videoFrame < frameCount || audioFrame < frameCount {
+                guard writer.status == .writing else { throw writer.error ?? Failure.unwritable }
+                var appended = false
+                if videoFrame < frameCount, videoInput.isReadyForMoreMediaData {
+                    guard let buffer = pixelBuffer(
+                        frame: videoFrame,
+                        of: frameCount,
+                        still: stills[videoFrame / frameRate],
+                        pool: adaptor.pixelBufferPool,
+                    ),
+                        adaptor.append(buffer, withPresentationTime: CMTime(
+                            value: CMTimeValue(videoFrame),
+                            timescale: CMTimeScale(frameRate),
+                        ))
+                    else { throw writer.error ?? Failure.unwritable }
+                    videoFrame += 1
+                    if videoFrame == frameCount { videoInput.markAsFinished() }
+                    appended = true
                 }
+                if audioFrame < frameCount, audioInput.isReadyForMoreMediaData {
+                    guard let sample = tone(
+                        start: audioFrame * samplesPerFrame,
+                        count: samplesPerFrame,
+                        format: audioFormat,
+                    ), audioInput.append(sample) else { throw writer.error ?? Failure.unwritable }
+                    audioFrame += 1
+                    if audioFrame == frameCount { audioInput.markAsFinished() }
+                    appended = true
+                }
+                if !appended { try await Task.sleep(for: .milliseconds(5)) }
             }
-            videoInput.markAsFinished()
-            audioInput.markAsFinished()
             await writer.finishWriting()
             guard writer.status == .completed else { throw writer.error ?? Failure.unwritable }
             return url
-        }
-
-        private static func waitUntilReady(_ input: AVAssetWriterInput) async throws {
-            while !input.isReadyForMoreMediaData {
-                try await Task.sleep(for: .milliseconds(5))
-            }
         }
 
         private static func still(_ second: Int) -> CGImage? {
