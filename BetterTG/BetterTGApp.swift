@@ -75,6 +75,7 @@ import UIKit
         AvatarColorPalette.shared.start()
         PushRelayCoordinator.shared.start()
         RichNotificationCacheCoordinator.shared.start()
+        LiveLocationManager.shared.start()
         TDLib.shared.startTdLibUpdateHandler()
         logPendingRichNotificationDiagnostics()
         configureAppearance()

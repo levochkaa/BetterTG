@@ -122,7 +122,7 @@ struct LocationPickerVenue {
 /// Telegram's LocationPickerController in share mode (LocationPickerControllerNode): the map with the user's
 /// location, Send My Current Location with its accuracy, a pin moved by dragging the map as Send This Location with
 /// its address, a place's pin as Send This Place, Share My Live Location for a chosen period, places nearby or in
-/// the dragged-to area, and a place search. The live location goes once; BetterTG doesn't update it while sharing.
+/// the dragged-to area, and a place search. LiveLocationManager keeps a sent live location updated.
 @MainActor final class LocationPickerViewController: UIViewController, UITableViewDataSource, UITableViewDelegate,
     MKMapViewDelegate, CLLocationManagerDelegate, UIGestureRecognizerDelegate, UISearchResultsUpdating,
     TelegramNavigationSearchProvider
