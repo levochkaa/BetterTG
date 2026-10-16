@@ -1969,3 +1969,4 @@
 "Conversation.OpenBotLinkAllowMessages" = "Allow **%@** to send me messages";
 "Conversation.OpenBotLinkOpen" = "Open";
 "ChatImport.Title" = "Select Chat";
+"MediaPicker.VideoMuteDescription" = "Sound is now muted, so the video will autoplay and loop like a GIF.";

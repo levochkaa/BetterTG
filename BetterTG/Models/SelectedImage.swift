@@ -25,6 +25,8 @@ struct SelectedVideo: Equatable {
     let hasAudio: Bool
     /// The gallery's quality for this video, already capped at its own size.
     var preset = VideoSendPreset.medium
+    /// The gallery editor's trim and mute (TGVideoEditAdjustments).
+    var edit: VideoEditAdjustments?
 }
 
 // MARK: - MediaSelfDestructTimer
