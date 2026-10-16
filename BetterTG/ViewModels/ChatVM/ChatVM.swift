@@ -136,9 +136,17 @@ import UIKit
 
     @Published var editMessageText: AttributedString = "" {
         didSet {
-            if editMessageText != oldValue { composerEditState.changeText() }
+            if editMessageText != oldValue {
+                composerEditState.changeText()
+                scheduleEditLinkPreview()
+            }
         }
     }
+
+    /// Telegram's `editingUrlPreview`: the preview of the first link in a text message being edited.
+    @Published private(set) var editLinkPreview: TDNativeLinkPreview?
+    /// The edit's link panel choices, starting from the message's own.
+    @Published private(set) var editLinkPreviewOptions: TDNativeLinkPreviewOptions?
 
     @Published var recordingVoiceNote = false
     /// Telegram's play-once toggle on a locked or previewed voice recording (ChatTextInputPanelNode.viewOnce).
@@ -338,6 +346,8 @@ import UIKit
     private var composerSendOptions: TDNativeMessageSendOptions?
     private var composerLinkPreviewTask: Task<Void, Never>?
     private var composerLinkPreviewRequest: FormattedText?
+    private var editLinkPreviewTask: Task<Void, Never>?
+    private var editLinkPreviewRequest: FormattedText?
 
     /// Discrete changes (start, stop, restored drafts) publish like the other state; the tick writes the storage.
     var timerCount: Double {
@@ -793,11 +803,21 @@ import UIKit
     }
 
     /// The link panel shown in the reply slot: a text message's preview the user hasn't turned off. Telegram's
-    /// accessory panels put it ahead of a forward or a reply; a media caption has no link preview.
+    /// accessory panels put it ahead of a forward or a reply, and while editing ahead of the edit panel; a media
+    /// caption has no link preview.
     var visibleComposerLinkPreview: TDNativeLinkPreview? {
+        if editCustomMessage != nil {
+            guard let preview = editLinkPreview, currentEditLinkPreviewOptions?.isDisabled != true else { return nil }
+            return preview
+        }
         guard editCustomMessage == nil, displayedImages.isEmpty, displayedDocuments.isEmpty,
               let preview = composerLinkPreview, currentLinkPreviewOptions?.isDisabled != true else { return nil }
         return preview
+    }
+
+    /// The choices of the link panel on screen: the edit's while editing, otherwise the composer's.
+    var visibleLinkPreviewOptions: TDNativeLinkPreviewOptions? {
+        editCustomMessage == nil ? currentLinkPreviewOptions : currentEditLinkPreviewOptions
     }
 
     /// The options the composer sends and keeps in its draft; nil leaves TDLib's own preview.
@@ -909,6 +929,12 @@ import UIKit
     private var currentLinkPreviewOptions: TDNativeLinkPreviewOptions? {
         guard let options = composerLinkPreviewOptions else { return nil }
         if let preview = composerLinkPreview, !options.url.isEmpty, options.url != preview.url { return nil }
+        return options
+    }
+
+    private var currentEditLinkPreviewOptions: TDNativeLinkPreviewOptions? {
+        guard let options = editLinkPreviewOptions else { return nil }
+        if let preview = editLinkPreview, !options.url.isEmpty, options.url != preview.url { return nil }
         return options
     }
 
@@ -2888,8 +2914,9 @@ import UIKit
             // An invalid edit is never an intent to send the preserved compose draft.
             return
         case .edit(let attempt):
+            let linkPreviewOptions = currentEditLinkPreviewOptions
             let completion = await composerEditState.perform(attempt) { [self] attempt in
-                try await editMessage(attempt)
+                try await editMessage(attempt, linkPreviewOptions: linkPreviewOptions)
             }
             guard locationContextIsCurrent, composerEditState.isCurrent(attempt), !Task.isCancelled else { return }
             switch completion {
@@ -3912,6 +3939,15 @@ import UIKit
     func beginMessageEditing(_ message: CustomMessage) {
         composerEditState.changeSession()
         editCustomMessage = message
+        editLinkPreviewTask?.cancel()
+        editLinkPreviewRequest = nil
+        if case .messageText(let content) = message.message.content {
+            editLinkPreview = content.linkPreview
+            editLinkPreviewOptions = content.linkPreviewOptions
+        } else {
+            editLinkPreview = nil
+            editLinkPreviewOptions = nil
+        }
         setEditMessageText(from: message.message)
     }
 
@@ -4523,9 +4559,50 @@ import UIKit
         }
     }
 
+    /// UpdateChatPresentationInterfaceState's editingUrlPreview: a text message being edited previews its first link
+    /// the same way; an edited caption doesn't.
+    private func scheduleEditLinkPreview() {
+        editLinkPreviewTask?.cancel()
+        guard let editCustomMessage, case .messageText = editCustomMessage.message.content else {
+            editLinkPreviewRequest = nil
+            if editLinkPreview != nil { editLinkPreview = nil }
+            return
+        }
+        let formatted = FormattedText(entities: getEntities(from: editMessageText), text: editMessageText.string)
+        guard formatted.text.contains(".") else {
+            editLinkPreviewRequest = nil
+            if editLinkPreview != nil { editLinkPreview = nil }
+            return
+        }
+        guard formatted != editLinkPreviewRequest else { return }
+        let client = client
+        let messageID = editCustomMessage.id
+        editLinkPreviewTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            let preview = try? await client.send(TDNativeRequests.getLinkPreview(
+                text: formatted,
+                linkPreviewOptions: nil,
+            ))
+            guard let self, !Task.isCancelled, locationContextIsCurrent, self.editCustomMessage?.id == messageID
+            else { return }
+            editLinkPreviewRequest = formatted
+            if let preview, let options = editLinkPreviewOptions, !options.url.isEmpty, options.url != preview.url {
+                editLinkPreviewOptions = nil
+            }
+            editLinkPreview = preview
+        }
+    }
+
     private func updateComposerLinkPreviewOptions(
         _ make: (TDNativeLinkPreviewOptions?, String) -> TDNativeLinkPreviewOptions,
     ) {
+        if editCustomMessage != nil {
+            // The edit's choices go with the edit; the compose draft keeps its own.
+            guard let preview = editLinkPreview, locationContextIsCurrent else { return }
+            editLinkPreviewOptions = make(currentEditLinkPreviewOptions, preview.url)
+            return
+        }
         guard let preview = composerLinkPreview, locationContextIsCurrent else { return }
         markComposerDirty()
         composerLinkPreviewOptions = make(currentLinkPreviewOptions, preview.url)
@@ -5138,20 +5215,23 @@ import UIKit
         pendingForward = seed.forward?.renewed(for: location)
     }
 
-    private func editMessage(_ attempt: ChatComposerEditState.Attempt) async throws {
+    private func editMessage(
+        _ attempt: ChatComposerEditState.Attempt,
+        linkPreviewOptions: TDNativeLinkPreviewOptions?,
+    ) async throws {
         let message = attempt.message
         let context = try resolveEditContext(for: message)
         try Task.checkCancellation()
         switch message.content {
-        case .messageText(let current):
-            // An edit keeps the message's link preview choices, as Telegram's edit keeps its preview state.
+        case .messageText:
+            // The edit's link panel choices, which start from the message's own (Telegram's editingUrlPreview).
             _ = try await client.editMessageText(
                 chatId: context.chatID,
                 inputMessageContent:
                 .inputMessageText(
                     .init(
                         clearDraft: false,
-                        linkPreviewOptions: current.linkPreviewOptions,
+                        linkPreviewOptions: linkPreviewOptions,
                         text: attempt.text,
                     ),
                 ),

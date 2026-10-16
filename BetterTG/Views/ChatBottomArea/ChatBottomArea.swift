@@ -482,7 +482,11 @@ final class ChatComposerView: UIView {
 
         let showsReplyPreview: Bool
         showsLinkPreviewPanel = false
-        if let edited = chatVM.editCustomMessage {
+        if chatVM.editCustomMessage != nil, let preview = chatVM.visibleComposerLinkPreview {
+            // ChatInterfaceStateAccessoryPanels: an edited text's link preview takes the edit panel's place.
+            showsReplyPreview = true
+            configureLinkPreviewPanel(preview)
+        } else if let edited = chatVM.editCustomMessage {
             showsReplyPreview = true
             closeReplyButton.isHidden = false
             replySnippet.configure(
@@ -576,19 +580,8 @@ final class ChatComposerView: UIView {
                 }
             }
         } else if let preview = chatVM.visibleComposerLinkPreview {
-            // WebpagePreviewAccessoryPanelNode: the site, then the page's title or description.
             showsReplyPreview = true
-            showsLinkPreviewPanel = true
-            closeReplyButton.isHidden = false
-            let pageDescription = preview.description.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            replySnippet.configure(
-                title: preview.siteName.isEmpty ? preview.displayUrl : preview.siteName,
-                text: preview.title.isEmpty
-                    ? (pageDescription.isEmpty ? preview.displayUrl : pageDescription)
-                    : preview.title,
-            ) { [weak self] in
-                self?.showLinkPreviewOptions()
-            }
+            configureLinkPreviewPanel(preview)
         } else if let forward = chatVM.pendingForward {
             showsReplyPreview = true
             closeReplyButton.isHidden = false
@@ -1803,11 +1796,26 @@ final class ChatComposerView: UIView {
         chatVM.pendingForward = transform(forward)
     }
 
+    /// WebpagePreviewAccessoryPanelNode: the site, then the page's title or description; a tap opens the options.
+    private func configureLinkPreviewPanel(_ preview: TDNativeLinkPreview) {
+        showsLinkPreviewPanel = true
+        closeReplyButton.isHidden = false
+        let pageDescription = preview.description.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        replySnippet.configure(
+            title: preview.siteName.isEmpty ? preview.displayUrl : preview.siteName,
+            text: preview.title.isEmpty
+                ? (pageDescription.isEmpty ? preview.displayUrl : pageDescription)
+                : preview.title,
+        ) { [weak self] in
+            self?.showLinkPreviewOptions()
+        }
+    }
+
     /// ChatMessageActionOptions' link options: Move Up / Move Down, Enlarge or Shrink the media where the preview
     /// can change its size, and Do Not Preview.
     private func showLinkPreviewOptions() {
         guard let preview = chatVM.visibleComposerLinkPreview else { return }
-        let options = chatVM.composerLinkPreviewSendOptions
+        let options = chatVM.visibleLinkPreviewOptions
         let isAbove = options?.showAboveText ?? preview.showAboveText
         var actions = [TelegramContextMenuAction(
             title: L10n.telegram(isAbove
@@ -1861,11 +1869,12 @@ final class ChatComposerView: UIView {
     }
 
     @objc private func cancelReplyOrEdit() {
-        // Editing hides a pending forward without owning it: closing the edit brings the forward panel back.
-        if chatVM.editCustomMessage != nil {
-            chatVM.cancelMessageEditing()
-        } else if showsLinkPreviewPanel {
+        // The link panel's × turns the preview off, also while editing. Editing hides a pending forward without
+        // owning it: closing the edit brings the forward panel back.
+        if showsLinkPreviewPanel {
             chatVM.disableComposerLinkPreview()
+        } else if chatVM.editCustomMessage != nil {
+            chatVM.cancelMessageEditing()
         } else {
             chatVM.pendingForward = nil
             chatVM.cancelReply()
