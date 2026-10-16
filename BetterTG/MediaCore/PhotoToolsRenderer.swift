@@ -133,16 +133,42 @@ final class PhotoToolsSource: @unchecked Sendable {
 
 // MARK: - PhotoToolsRenderer
 
-/// PGPhotoEditor's tool processing on Metal: the Enhance and Sharpen passes, then PGPhotoToolComposer's shader with
-/// the rest of the tools in their order. The kernels port the tools' GLSL and keep 8 bits per channel between passes
-/// like GPUImage's framebuffers.
+/// PGPhotoEditor's tool processing on Metal: the Enhance, Sharpen and Blur passes, then PGPhotoToolComposer's shader
+/// with the rest of the tools in their order. The kernels port the tools' GLSL and keep 8 bits per channel between
+/// passes like GPUImage's framebuffers.
 final class PhotoToolsRenderer: @unchecked Sendable {
     private struct Pipelines {
         let device: MTLDevice
         let queue: MTLCommandQueue
         let enhance: MTLComputePipelineState
         let sharpen: MTLComputePipelineState
+        let blurVertical: MTLComputePipelineState
+        let blurFocus: MTLComputePipelineState
         let compose: MTLComputePipelineState
+    }
+
+    /// The shader's `PhotoBlurParameters`: PGPhotoBlurPass's uniforms and the Gaussian's sampling radius, all floats.
+    private struct BlurParameters {
+        var type: Float = 0
+        var pointX: Float = 0.5
+        var pointY: Float = 0.5
+        var size: Float = 0
+        var falloff: Float = 0
+        var angle: Float = 0
+        var aspectRatio: Float = 1
+        var sampleRadius: Float = 0
+
+        init(blur: PhotoBlurValue, width: Int, height: Int, sampleRadius: Int) {
+            self.type = blur.type == .linear ? 2 : 1
+            self.pointX = Float(blur.point.x)
+            self.pointY = Float(blur.point.y)
+            self.size = Float(blur.size)
+            self.falloff = Float(blur.falloff)
+            // PGPhotoBlurPass turns the angle a quarter for the shader.
+            self.angle = Float(blur.angle + .pi / 2)
+            self.aspectRatio = Float(height) / Float(width)
+            self.sampleRadius = Float(sampleRadius)
+        }
     }
 
     /// The shader's `PhotoToolParameters`: the tools' `updateParameters` values, all floats.
@@ -232,6 +258,17 @@ final class PhotoToolsRenderer: @unchecked Sendable {
         float grain;
         float vignette;
         float skipTone;
+    };
+    
+    struct PhotoBlurParameters {
+        float type;
+        float pointX;
+        float pointY;
+        float size;
+        float falloff;
+        float angle;
+        float aspectRatio;
+        float sampleRadius;
     };
     
     constant float toolEpsilon = 0.005;
@@ -340,6 +377,72 @@ final class PhotoToolsRenderer: @unchecked Sendable {
         float3 edges = leftTextureColor * edgeMultiplier + rightTextureColor * edgeMultiplier
             + topTextureColor * edgeMultiplier + bottomTextureColor * edgeMultiplier;
         destination[gid.y * size.x + gid.x] = storePixel(textureColor * centerMultiplier - edges);
+    }
+    
+    // PGPhotoGaussianBlurFilter's first pass, down the columns.
+    kernel void photoToolsBlurVertical(
+        device const uchar4 *source [[buffer(0)]],
+        device uchar4 *destination [[buffer(1)]],
+        constant float *weights [[buffer(2)]],
+        constant uint2 &size [[buffer(4)]],
+        constant PhotoBlurParameters &blur [[buffer(5)]],
+        uint2 gid [[thread_position_in_grid]])
+    {
+        if (gid.x >= size.x || gid.y >= size.y) {
+            return;
+        }
+        int x = int(gid.x);
+        int y = int(gid.y);
+        int radius = int(blur.sampleRadius);
+        float3 sum = loadPixel(source, size, x, y).rgb * weights[0];
+        for (int offset = 1; offset <= radius; offset++) {
+            float3 pair = loadPixel(source, size, x, y + offset).rgb + loadPixel(source, size, x, y - offset).rgb;
+            sum += pair * weights[offset];
+        }
+        destination[gid.y * size.x + gid.x] = storePixel(sum);
+    }
+    
+    // PGPhotoGaussianBlurFilter's second pass across the rows, then PGPhotoRadialBlurShaderString or
+    // PGPhotoLinearBlurShaderString keeping the photo sharp around the point.
+    kernel void photoToolsBlurFocus(
+        device const uchar4 *source [[buffer(0)]],
+        device uchar4 *destination [[buffer(1)]],
+        constant float *weights [[buffer(2)]],
+        constant uint2 &size [[buffer(4)]],
+        constant PhotoBlurParameters &blur [[buffer(5)]],
+        device const uchar4 *vertical [[buffer(6)]],
+        uint2 gid [[thread_position_in_grid]])
+    {
+        if (gid.x >= size.x || gid.y >= size.y) {
+            return;
+        }
+        int x = int(gid.x);
+        int y = int(gid.y);
+        int radius = int(blur.sampleRadius);
+        float3 sum = loadPixel(vertical, size, x, y).rgb * weights[0];
+        for (int offset = 1; offset <= radius; offset++) {
+            float3 pair = loadPixel(vertical, size, x + offset, y).rgb + loadPixel(vertical, size, x - offset, y).rgb;
+            sum += pair * weights[offset];
+        }
+        // The blurred photo is kept in 8 bits like the filter's framebuffer.
+        float3 blurredColor = round(clamp(sum, float3(0.0), float3(1.0)) * 255.0) / 255.0;
+        float3 sharpColor = loadPixel(source, size, x, y).rgb;
+        float2 texCoord = (float2(gid) + 0.5) / float2(size);
+        float2 texCoordToUse = float2(texCoord.x, texCoord.y * blur.aspectRatio + 0.5 - 0.5 * blur.aspectRatio);
+        float2 excludePoint = float2(blur.pointX, blur.pointY);
+        float distanceFromCenter;
+        if (blur.type > 1.5) {
+            distanceFromCenter = abs((texCoordToUse.x - excludePoint.x) * cos(blur.angle)
+                + (texCoordToUse.y - excludePoint.y) * sin(blur.angle));
+        } else {
+            distanceFromCenter = distance(excludePoint, texCoordToUse);
+        }
+        float value = clamp(distanceFromCenter / blur.size, 0.0, 1.0);
+        // smoothstep(1.0, excludeFalloff, value) as GLSL computes it with reversed edges.
+        float span = blur.falloff - 1.0;
+        float ramp = span == 0.0 ? 0.0 : clamp((value - 1.0) / span, 0.0, 1.0);
+        float sharpness = ramp * ramp * (3.0 - 2.0 * ramp);
+        destination[gid.y * size.x + gid.x] = storePixel(mix(blurredColor, sharpColor, float3(sharpness)));
     }
     
     // PGPhotoToolAncillaryShaderString.
@@ -706,6 +809,26 @@ final class PhotoToolsRenderer: @unchecked Sendable {
     private var pipelines: Pipelines?
     private var didFail = false
 
+    /// PGPhotoGaussianBlurFilter's `setInputSize`: a sigma of 0.8% of the picture's longer side, sampled out to where
+    /// a tap would weigh under 1/256 and rounded up to an even count, with the normalized weights from the center
+    /// out. `nil` when the picture is too large for the filter's formula.
+    private static func gaussianWeights(width: Int, height: Int) -> [Float]? {
+        let sigma = (Double(max(width, height)) * 0.008).rounded(.up)
+        guard sigma >= 1 else { return [1] }
+        let variance = sigma * sigma
+        let normalization = (2 * Double.pi * variance).squareRoot()
+        let edge = -2 * variance * log(normalization / 256)
+        guard edge > 0 else { return nil }
+        var sampleRadius = Int(edge.squareRoot().rounded(.down))
+        sampleRadius += sampleRadius % 2
+        guard sampleRadius >= 1 else { return [1] }
+        let weights = (0...sampleRadius).map { offset in
+            exp(-Double(offset * offset) / (2 * variance)) / normalization
+        }
+        let sum = weights.dropFirst().reduce(weights[0]) { $0 + 2 * $1 }
+        return weights.map { Float($0 / sum) }
+    }
+
     /// Draws `image` and renders the tools over it. Call off the main thread.
     func render(_ image: CGImage, tools: PhotoToolValues, grainSize: CGSize) -> CGImage? {
         guard let source = PhotoToolsSource(image: image) else { return nil }
@@ -748,6 +871,41 @@ final class PhotoToolsRenderer: @unchecked Sendable {
             )
             current = output
         }
+        if !tools.blur.isDefault,
+           let weights = Self.gaussianWeights(width: source.width, height: source.height),
+           let vertical = pipelines.device.makeBuffer(length: length, options: .storageModePrivate),
+           let output = pipelines.device.makeBuffer(length: length, options: .storageModePrivate)
+        {
+            let weightsBuffer = weights.withUnsafeBytes { bytes -> MTLBuffer? in
+                guard let baseAddress = bytes.baseAddress else { return nil }
+                return pipelines.device.makeBuffer(bytes: baseAddress, length: bytes.count, options: .storageModeShared)
+            }
+            if let weightsBuffer {
+                var blur = BlurParameters(
+                    blur: tools.blur,
+                    width: source.width,
+                    height: source.height,
+                    sampleRadius: weights.count - 1,
+                )
+                encode(
+                    pipelines.blurVertical,
+                    in: commandBuffer,
+                    buffers: [(0, current), (1, vertical), (2, weightsBuffer)],
+                    blur: &blur,
+                    parameters: &parameters,
+                    size: &size,
+                )
+                encode(
+                    pipelines.blurFocus,
+                    in: commandBuffer,
+                    buffers: [(0, current), (1, output), (2, weightsBuffer), (6, vertical)],
+                    blur: &blur,
+                    parameters: &parameters,
+                    size: &size,
+                )
+                current = output
+            }
+        }
         guard let result = pipelines.device.makeBuffer(length: length, options: .storageModeShared) else { return nil }
         var curves = [PhotoCurvesChannel.luminance, .red, .green, .blue]
             .flatMap { tools.curves[$0].interpolated().data }
@@ -786,6 +944,8 @@ final class PhotoToolsRenderer: @unchecked Sendable {
                     queue: queue,
                     enhance: pipeline("photoToolsEnhance"),
                     sharpen: pipeline("photoToolsSharpen"),
+                    blurVertical: pipeline("photoToolsBlurVertical"),
+                    blurFocus: pipeline("photoToolsBlurFocus"),
                     compose: pipeline("photoToolsCompose"),
                 )
                 pipelines = prepared
@@ -831,6 +991,24 @@ final class PhotoToolsRenderer: @unchecked Sendable {
         for (index, buffer) in buffers.enumerated() {
             encoder.setBuffer(buffer, offset: 0, index: index)
         }
+        dispatch(pipeline, encoder: encoder, parameters: &parameters, size: &size)
+    }
+
+    /// The blur's passes with their buffers at the shader's indices.
+    private func encode(
+        _ pipeline: MTLComputePipelineState,
+        in commandBuffer: MTLCommandBuffer,
+        buffers: [(index: Int, buffer: MTLBuffer)],
+        blur: inout BlurParameters,
+        parameters: inout Parameters,
+        size: inout SIMD2<UInt32>,
+    ) {
+        guard let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
+        encoder.setComputePipelineState(pipeline)
+        for item in buffers {
+            encoder.setBuffer(item.buffer, offset: 0, index: item.index)
+        }
+        encoder.setBytes(&blur, length: MemoryLayout<BlurParameters>.stride, index: 5)
         dispatch(pipeline, encoder: encoder, parameters: &parameters, size: &size)
     }
 

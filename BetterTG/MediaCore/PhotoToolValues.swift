@@ -229,11 +229,54 @@ struct PhotoCurvesValue: Equatable {
     }
 }
 
+// MARK: - PhotoBlurType
+
+/// PGBlurToolType without Portrait, whose button TGPhotoEditorBlurToolView leaves out.
+enum PhotoBlurType: CaseIterable {
+    case off
+    case radial
+    case linear
+
+    var titleKey: String {
+        switch self {
+        case .off: "PhotoEditor.BlurToolOff"
+        case .radial: "PhotoEditor.BlurToolRadial"
+        case .linear: "PhotoEditor.BlurToolLinear"
+        }
+    }
+}
+
+// MARK: - PhotoBlurValue
+
+/// PGBlurToolValue: the blur's shape and the sharp part it leaves. `point` is the sharp part's center over the
+/// photo's width from its left, and from the top of a square on the width centered on the photo. `falloff` and
+/// `size` are where the blur starts and where it is full, from the center for Radial and from the line through it
+/// for Linear, over the photo's width; the controls on screen measure them over the shorter side, as Telegram does.
+/// `angle` turns Linear's band, in radians.
+struct PhotoBlurValue: Equatable {
+    /// TGPhotoEditorRadialBlurView's `TGRadialBlurMinimumFalloff`.
+    static let minimumFalloff: CGFloat = 0.1
+    /// `TGRadialBlurMinimumDifference`: how much larger the full blur's edge stays than its start.
+    static let minimumDifference: CGFloat = 0.02
+
+    var type = PhotoBlurType.off
+    var point = CGPoint(x: 0.5, y: 0.5)
+    var falloff: CGFloat = 0.12
+    var size: CGFloat = 0.24
+    var angle: CGFloat = 0
+
+    /// PGBlurTool's `shouldBeSkipped`.
+    var isDefault: Bool {
+        type == .off
+    }
+}
+
 // MARK: - PhotoToolValues
 
-/// The tool values PGPhotoEditorValues keeps for an edited photo (`toolValues`): the sliders, Tint and Curves.
+/// The tool values PGPhotoEditorValues keeps for an edited photo (`toolValues`): the sliders, Tint, Blur and Curves.
 struct PhotoToolValues: Equatable {
     var tint = PhotoTintValue()
+    var blur = PhotoBlurValue()
     var curves = PhotoCurvesValue()
 
     /// Only the sliders off zero, so equal edits compare equal.
@@ -241,7 +284,7 @@ struct PhotoToolValues: Equatable {
 
     /// PGPhotoEditorValues' `toolsApplied` negated: no tool would change the photo.
     var isDefault: Bool {
-        sliders.isEmpty && tint.isDefault && curves.isDefault
+        sliders.isEmpty && tint.isDefault && blur.isDefault && curves.isDefault
     }
 
     subscript(tool: PhotoTool) -> Int {
