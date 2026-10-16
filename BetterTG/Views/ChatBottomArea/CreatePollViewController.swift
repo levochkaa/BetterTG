@@ -12,6 +12,9 @@ import UIKit
 /// as Telegram's validatedInput does and hands it over as `inputMessagePoll` once the screen has been dismissed.
 /// Every field takes custom emoji from the emoji picker, the way ListComposePollOptionComponent's input mode button
 /// swaps in Telegram's emoji keyboard, and the poll keeps only their entities.
+/// The description row (the poll's own media), each option once it has text and the explanation take media from
+/// presentPollAttachmentScreen's pickers; the media's thumbnail takes the attach button's place and offers Replace
+/// and Delete, and an option's link reopens its editor.
 @MainActor final class CreatePollViewController: UITableViewController, UITableViewDragDelegate,
     UITableViewDropDelegate, UIAdaptivePresentationControllerDelegate
 {
@@ -54,11 +57,46 @@ import UIKit
         case description
         case option(Int)
         case explanation
+
+        /// The media the field's attach button adds; the question takes none.
+        var mediaTarget: MediaTarget? {
+            switch self {
+            case .question: nil
+            case .description: .poll
+            case .option(let id): .option(id)
+            case .explanation: .explanation
+            }
+        }
+    }
+
+    /// ComposePollScreen's MediaAttachSubject: the poll's media, attached in its description row, the explanation's,
+    /// or an option's.
+    private enum MediaTarget: Equatable {
+        case poll
+        case explanation
+        case option(Int)
+
+        var subject: PollMediaSubject {
+            switch self {
+            case .poll: .description
+            case .explanation: .explanation
+            case .option: .option
+            }
+        }
+
+        var field: TextField {
+            switch self {
+            case .poll: .description
+            case .explanation: .explanation
+            case .option(let id): .option(id)
+            }
+        }
     }
 
     private struct DraftOption {
         let id: Int
         var text = NSAttributedString()
+        var media: PollDraftMedia?
 
         var isEmpty: Bool {
             text.string.isEmpty
@@ -97,6 +135,11 @@ import UIKit
     private var question = NSAttributedString()
     private var pollDescription = NSAttributedString()
     private var explanation = NSAttributedString()
+    /// ComposePollScreen's pollDescriptionMedia and quizAnswerMedia.
+    private var pollMedia: PollDraftMedia?
+    private var explanationMedia: PollDraftMedia?
+    /// The attachment pickers on screen, which end with the picked media.
+    private var mediaFlow: PollMediaAttachmentFlow?
     private var options = [DraftOption]()
     private var nextOptionID = 0
     private var editingOptionID: Int?
@@ -142,7 +185,7 @@ import UIKit
     /// ComposePollScreen's hasAnyData, which asks before the poll is discarded.
     private var hasAnyData: Bool {
         !question.string.isEmpty || !pollDescription.string.isEmpty || !explanation.string.isEmpty
-            || options.contains { !$0.isEmpty }
+            || options.contains { !$0.isEmpty } || pollMedia != nil || explanationMedia != nil
     }
 
     private var optionsFooterText: String {
@@ -272,12 +315,7 @@ import UIKit
                 return cell
             }
             let cell = textCell(tableView, at: indexPath, field: .description)
-            cell.configure(CreatePollTextCell.Configuration(
-                text: pollDescription,
-                placeholder: L10n.telegram("CreatePoll.DescriptionPlaceholder"),
-                lengthLimit: Self.descriptionLengthLimit,
-                allowsEmoji: accountID != nil,
-            ))
+            cell.configure(descriptionConfiguration())
             cell.onTextChange = { [weak self] in self?.pollDescription = $0 }
             return cell
         case .options:
@@ -301,13 +339,7 @@ import UIKit
             return cell
         case .explanation:
             let cell = textCell(tableView, at: indexPath, field: .explanation)
-            cell.configure(CreatePollTextCell.Configuration(
-                text: explanation,
-                placeholder: L10n.telegram("CreatePoll.Explanation"),
-                lengthLimit: Self.explanationLengthLimit,
-                lineFeedLimit: Self.explanationLineFeedLimit,
-                allowsEmoji: accountID != nil,
-            ))
+            cell.configure(explanationConfiguration())
             cell.onTextChange = { [weak self] in self?.explanation = $0 }
             return cell
         }
@@ -375,6 +407,20 @@ import UIKit
         return navigation
     }
 
+    #if DEBUG
+    /// The poll attachment probe's draft: the question, the first option's text, and media on the poll and on
+    /// that option. Call before the screen loads.
+    func applyProbeDraft(question: String, option: String, pollMedia: PollDraftMedia, optionMedia: PollDraftMedia) {
+        let font = UIFont.preferredFont(forTextStyle: .body)
+        self.question = NSAttributedString(string: question, attributes: [.font: font])
+        options[0].text = NSAttributedString(string: option, attributes: [.font: font])
+        options[0].media = optionMedia
+        self.pollMedia = pollMedia
+        normalizeOptions()
+        if isViewLoaded { tableView.reloadData() }
+    }
+    #endif
+
     // MARK: Reordering
 
     /// A filled option moves by its reorder indicator, as ListComposePollOptionComponent's `canReorder` does.
@@ -422,6 +468,7 @@ import UIKit
     }
 
     func presentationControllerDidDismiss(_: UIPresentationController) {
+        if !didSend { discardAllMedia() }
         onDismiss?()
     }
 
@@ -438,11 +485,38 @@ import UIKit
         if let field {
             cell.onEmoji = { [weak self] in self?.presentEmojiPicker(for: field) }
         }
+        if let target = field?.mediaTarget {
+            cell.onAttach = { [weak self] in self?.openAttachedMedia(target, sourceView: nil) }
+            cell.onMedia = { [weak self] source in self?.openAttachedMedia(target, sourceView: source) }
+        }
         return cell
     }
 
+    /// The description, whose attach button always shows (`alwaysDisplayAttachButton`).
+    private func descriptionConfiguration() -> CreatePollTextCell.Configuration {
+        CreatePollTextCell.Configuration(
+            text: pollDescription,
+            placeholder: L10n.telegram("CreatePoll.DescriptionPlaceholder"),
+            lengthLimit: Self.descriptionLengthLimit,
+            allowsEmoji: accountID != nil,
+            attachment: CreatePollTextCell.Attachment(media: pollMedia, alwaysShowsButton: true),
+        )
+    }
+
+    private func explanationConfiguration() -> CreatePollTextCell.Configuration {
+        CreatePollTextCell.Configuration(
+            text: explanation,
+            placeholder: L10n.telegram("CreatePoll.Explanation"),
+            lengthLimit: Self.explanationLengthLimit,
+            lineFeedLimit: Self.explanationLineFeedLimit,
+            allowsEmoji: accountID != nil,
+            attachment: CreatePollTextCell.Attachment(media: explanationMedia, alwaysShowsButton: true),
+        )
+    }
+
     /// ListComposePollOptionComponent for an option: the reorder indicator once it has text, the add indicator on an
-    /// empty option after the first, Add an Option as the last one's placeholder, and a quiz's correct answer check.
+    /// empty option after the first, Add an Option as the last one's placeholder, a quiz's correct answer check, and
+    /// the attach button once it has text.
     private func optionConfiguration(at index: Int) -> CreatePollTextCell.Configuration {
         let option = options[index]
         let isLast = index == options.count - 1
@@ -468,6 +542,7 @@ import UIKit
                 )
                 : nil,
             allowsEmoji: accountID != nil,
+            attachment: CreatePollTextCell.Attachment(media: option.media, alwaysShowsButton: false),
         )
     }
 
@@ -515,6 +590,7 @@ import UIKit
 
     private func deleteOption(id: Int) {
         let previousIDs = options.map(\.id)
+        discardMedia(options.first { $0.id == id }?.media)
         options.removeAll { $0.id == id }
         correctOptionIDs.remove(id)
         updateOptions(from: previousIDs)
@@ -539,6 +615,7 @@ import UIKit
         {
             options.removeLast()
             correctOptionIDs.remove(last.id)
+            discardMedia(last.media)
         }
         if options.count < maximumOptionCount, let last = options.last, !last.isEmpty {
             options.append(DraftOption(id: nextOptionID))
@@ -649,6 +726,127 @@ import UIKit
             return IndexPath(row: row, section: section)
         case .explanation:
             return sections.firstIndex(of: .explanation).map { IndexPath(row: 0, section: $0) }
+        }
+    }
+
+    // MARK: Media
+
+    /// ComposePollScreen's openAttachedMedia: an option's link reopens its editor (openAttachedLinkMedia), other
+    /// attached media offer Replace and Delete (openAttachMediaContextMenu), and otherwise
+    /// presentPollAttachmentScreen opens on the gallery with the field's buttons.
+    private func openAttachedMedia(_ target: MediaTarget, sourceView: UIView?, replace: Bool = false) {
+        guard presentedViewController == nil else { return }
+        view.endEditing(true)
+        if !replace, let media = media(for: target) {
+            if case .option = target, let link = media.link {
+                openAttachedLink(link, for: target)
+            } else {
+                presentMediaMenu(for: target, sourceView: sourceView)
+            }
+            return
+        }
+        let flow = PollMediaAttachmentFlow(
+            subject: target.subject,
+            client: client,
+            accountID: accountID,
+            chatID: chatID,
+            presenter: self,
+        ) { [weak self] media in
+            guard let self else {
+                if let media { SelectedDocumentFileStore.remove(media.fileURLs) }
+                return
+            }
+            mediaFlow = nil
+            if let media { setMedia(media, for: target) }
+        }
+        mediaFlow = flow
+        flow.start()
+    }
+
+    /// chatTextLinkEditController for an attached link: an empty link removes it, a new one replaces it.
+    private func openAttachedLink(_ link: String, for target: MediaTarget) {
+        let editor = PollLinkEditor.make(link: link) { [weak self] value in
+            guard let self, let value else { return }
+            setMedia(value.isEmpty ? nil : PollDraftMedia.link(value), for: target)
+        }
+        present(editor, animated: true)
+    }
+
+    /// openAttachMediaContextMenu's Replace and Delete.
+    private func presentMediaMenu(for target: MediaTarget, sourceView: UIView?) {
+        let cell = rowIndexPath(for: target.field).flatMap { tableView.cellForRow(at: $0) }
+        guard let sourceView = sourceView ?? cell else { return }
+        let actions = [
+            TelegramContextMenuAction(
+                title: L10n.telegram("CreatePoll.Media.Replace"),
+                image: UIImage(systemName: "arrow.triangle.2.circlepath"),
+            ) { [weak self] in
+                self?.openAttachedMedia(target, sourceView: nil, replace: true)
+            },
+            TelegramContextMenuAction(
+                title: L10n.telegram("CreatePoll.Media.Delete"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+            ) { [weak self] in
+                self?.setMedia(nil, for: target)
+            },
+        ]
+        presentTelegramContextMenu(sourceView: sourceView, actions: actions, presentationStyle: .menuOnly)
+    }
+
+    private func media(for target: MediaTarget) -> PollDraftMedia? {
+        switch target {
+        case .poll: pollMedia
+        case .explanation: explanationMedia
+        case .option(let id): options.first { $0.id == id }?.media
+        }
+    }
+
+    /// ComposePollScreen's setAttachedMedia; the replaced media's files go.
+    private func setMedia(_ media: PollDraftMedia?, for target: MediaTarget) {
+        let previous = self.media(for: target)
+        switch target {
+        case .poll:
+            pollMedia = media
+        case .explanation:
+            explanationMedia = media
+        case .option(let id):
+            guard let index = options.firstIndex(where: { $0.id == id }) else {
+                discardMedia(media)
+                return
+            }
+            options[index].media = media
+        }
+        if previous?.id != media?.id { discardMedia(previous) }
+        refreshMediaCell(for: target)
+    }
+
+    private func refreshMediaCell(for target: MediaTarget) {
+        switch target {
+        case .explanation, .poll:
+            guard let indexPath = rowIndexPath(for: target.field),
+                  let cell = tableView.cellForRow(at: indexPath) as? CreatePollTextCell else { break }
+            cell.configure(target == .poll ? descriptionConfiguration() : explanationConfiguration())
+        case .option:
+            refreshOptionCells()
+        }
+        updateRowHeights()
+    }
+
+    private func discardMedia(_ media: PollDraftMedia?) {
+        guard let media else { return }
+        SelectedDocumentFileStore.remove(media.fileURLs)
+    }
+
+    /// The poll was closed without sending: the picked files go.
+    private func discardAllMedia() {
+        discardMedia(pollMedia)
+        discardMedia(explanationMedia)
+        pollMedia = nil
+        explanationMedia = nil
+        for index in options.indices {
+            discardMedia(options[index].media)
+            options[index].media = nil
         }
     }
 
@@ -949,7 +1147,7 @@ import UIKit
                 .inputPollTypeQuiz(TDNativeInputPollTypeQuiz(
                     correctOptionIds: correctIndices,
                     explanation: Self.pollText(explanation),
-                    explanationMedia: nil,
+                    explanationMedia: explanationMedia?.input,
                 ))
             } else {
                 .inputPollTypeRegular(TDNativeInputPollTypeRegular(allowAddingOptions: canAddOptions))
@@ -964,9 +1162,9 @@ import UIKit
         }
         return .ready(.inputMessagePoll(TDNativeInputMessagePoll(
             question: Self.pollText(question),
-            options: filled.map { TDNativeInputPollOption(text: Self.pollText($0.text), media: nil) },
+            options: filled.map { TDNativeInputPollOption(text: Self.pollText($0.text), media: $0.media?.input) },
             description: Self.pollText(pollDescription),
-            media: nil,
+            media: pollMedia?.input,
             isAnonymous: isAnonymous,
             // A poll with one option takes a single answer (`.poll(multipleAnswers: isMultiAnswer && count > 1)`).
             allowsMultipleAnswers: isQuiz ? allowsMultipleAnswers : allowsMultipleAnswers && filled.count > 1,
@@ -1027,6 +1225,7 @@ import UIKit
 
     private func close() {
         view.endEditing(true)
+        discardAllMedia()
         let onDismiss = onDismiss
         dismiss(animated: true) { onDismiss?() }
     }
@@ -1087,6 +1286,7 @@ import UIKit
 
 /// ListComposePollOptionComponent as a table row: a growing field with a hard character limit and, for an option, the
 /// reorder or add indicator before it and a quiz's correct answer check, and the emoji button while it's edited.
+/// A field that takes media ends with the attach button, or with the attached media's 40-point thumbnail.
 /// Custom emoji stay whole: an edit that touches one replaces all of it.
 private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
     enum Indicator {
@@ -1101,6 +1301,13 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         var allowsMultiple: Bool
     }
 
+    /// ListComposePollOptionComponent's Attachment: the field's media, whose thumbnail takes the attach button's
+    /// place, and whether the button shows on an empty field (`alwaysDisplayAttachButton`).
+    struct Attachment {
+        var media: PollDraftMedia?
+        var alwaysShowsButton: Bool
+    }
+
     struct Configuration {
         var text: NSAttributedString
         var placeholder: String
@@ -1112,6 +1319,7 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         var check: Check?
         /// ListComposePollOptionComponent's input mode button.
         var allowsEmoji = false
+        var attachment: Attachment?
     }
 
     static let reuseIdentifier = "CreatePollTextCell"
@@ -1127,14 +1335,22 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
     var onHeightChange: (() -> Void)?
     var onToggleCheck: (() -> Void)?
     var onEmoji: (() -> Void)?
+    var onAttach: (() -> Void)?
+    /// The attached media's thumbnail was tapped; it's the source of the media's menu.
+    var onMedia: ((UIView) -> Void)?
 
     private let textView = CreatePollTextView()
     private let placeholderLabel = UILabel()
     private let indicatorView = UIImageView()
     private let checkButton = UIButton(type: .system)
     private let emojiButton = UIButton(type: .system)
+    private let attachButton = UIButton(type: .system)
+    private let mediaView = PollMediaThumbnailView()
     private var configuration: Configuration?
     private var indicator: Indicator?
+    /// The media the thumbnail shows.
+    private var mediaID: UUID?
+    private var showsAttachButton = false
 
     /// The client whose account owns the field's custom emoji.
     var customEmojiClient: TDLibClient? {
@@ -1171,7 +1387,20 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         emojiButton.accessibilityLabel = L10n.telegram("EmojiInput.TabEmoji")
         emojiButton.addTarget(self, action: #selector(emojiPressed), for: .touchUpInside)
         setEmojiButtonVisible(false, animated: false)
-        let stack = UIStackView(arrangedSubviews: [indicatorView, checkButton, textView, emojiButton])
+        attachButton.setImage(
+            UIImage(systemName: "paperclip", withConfiguration: UIImage.SymbolConfiguration(pointSize: 19)),
+            for: .normal,
+        )
+        attachButton.tintColor = .secondaryLabel
+        attachButton.addTarget(self, action: #selector(attachPressed), for: .touchUpInside)
+        attachButton.isHidden = true
+        setVisible(attachButton, false, animated: false)
+        mediaView.isHidden = true
+        mediaView.setPlaybackVisible(true)
+        mediaView.addTarget(self, action: #selector(mediaPressed), for: .touchUpInside)
+        let stack = UIStackView(arrangedSubviews: [
+            indicatorView, checkButton, textView, emojiButton, attachButton, mediaView,
+        ])
         stack.axis = .horizontal
         stack.alignment = .center
         stack.spacing = 12
@@ -1184,6 +1413,10 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
             checkButton.heightAnchor.constraint(equalToConstant: 26),
             emojiButton.widthAnchor.constraint(equalToConstant: 28),
             emojiButton.heightAnchor.constraint(equalToConstant: 28),
+            attachButton.widthAnchor.constraint(equalToConstant: 28),
+            attachButton.heightAnchor.constraint(equalToConstant: 28),
+            mediaView.widthAnchor.constraint(equalToConstant: PollMediaThumbnailView.size.width),
+            mediaView.heightAnchor.constraint(equalToConstant: PollMediaThumbnailView.size.height),
             stack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
             stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 11),
@@ -1211,6 +1444,8 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         onHeightChange = nil
         onToggleCheck = nil
         onEmoji = nil
+        onAttach = nil
+        onMedia = nil
     }
 
     func configure(_ configuration: Configuration) {
@@ -1250,6 +1485,7 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
             checkButton.accessibilityTraits = check.isSelected ? [.button, .selected] : .button
         }
         setHidden(emojiButton, !configuration.allowsEmoji)
+        updateAttachment(animated: false)
     }
 
     func beginEditing() {
@@ -1389,6 +1625,7 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         guard configuration?.text.isEqual(to: text) != true else { return }
         configuration?.text = text
         placeholderLabel.isHidden = !text.string.isEmpty
+        updateAttachment(animated: true)
         onTextChange?(text)
         let fitting = textView.sizeThatFits(CGSize(width: textView.bounds.width, height: .greatestFiniteMagnitude))
         if abs(fitting.height - textView.bounds.height) > 0.5 { onHeightChange?() }
@@ -1398,12 +1635,40 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         if view.isHidden != hidden { view.isHidden = hidden }
     }
 
+    /// The media's thumbnail, or the attach button, which shows once an option has text
+    /// (ListComposePollOptionComponent's `alwaysDisplayAttachButton || hasText`).
+    private func updateAttachment(animated: Bool) {
+        let attachment = configuration?.attachment
+        let media = attachment?.media
+        setHidden(attachButton, attachment == nil || media != nil)
+        setHidden(mediaView, media == nil)
+        if let media {
+            if media.id != mediaID, let client = customEmojiClient {
+                mediaID = media.id
+                mediaView.configure(draft: media.preview, client: client)
+            }
+        } else if mediaID != nil {
+            mediaID = nil
+            mediaView.prepareForReuse()
+        }
+        let hasText = configuration?.text.string.isEmpty == false
+        let showsButton = attachment.map { $0.alwaysShowsButton || hasText } ?? false
+        guard showsButton != showsAttachButton else { return }
+        showsAttachButton = showsButton
+        setVisible(attachButton, showsButton, animated: animated)
+    }
+
     /// The input mode button shows while the field is edited (ListComposePollOptionComponent's displaySelector).
     private func setEmojiButtonVisible(_ visible: Bool, animated: Bool) {
-        emojiButton.isUserInteractionEnabled = visible
-        let changes = { [emojiButton] in
-            emojiButton.alpha = visible ? 1 : 0
-            emojiButton.transform = visible ? .identity : CGAffineTransform(scaleX: 0.001, y: 0.001)
+        setVisible(emojiButton, visible, animated: animated)
+    }
+
+    /// A trailing button fades and scales in or out in its reserved space.
+    private func setVisible(_ button: UIButton, _ visible: Bool, animated: Bool) {
+        button.isUserInteractionEnabled = visible
+        let changes = { [button] in
+            button.alpha = visible ? 1 : 0
+            button.transform = visible ? .identity : CGAffineTransform(scaleX: 0.001, y: 0.001)
         }
         if animated {
             UIView.animate(
@@ -1423,6 +1688,14 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
 
     @objc private func emojiPressed() {
         onEmoji?()
+    }
+
+    @objc private func attachPressed() {
+        onAttach?()
+    }
+
+    @objc private func mediaPressed() {
+        onMedia?(mediaView)
     }
 }
 
