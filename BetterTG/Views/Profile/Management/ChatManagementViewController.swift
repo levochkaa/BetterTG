@@ -131,6 +131,20 @@ final class ChatManagementViewController: SettingsListViewController {
     /// The chat's own settings: type, links and history.
     private func settingsRows(_ target: ChatManagementTarget) -> [SettingsRow] {
         var rows = [SettingsRow]()
+        if target.isCreator {
+            let typeKey =
+                switch (isChannel, target.isPublic) {
+                case (true, true): "Channel.Setup.TypePublic"
+                case (true, false): "Channel.Setup.TypePrivate"
+                case (false, true): "Group.Setup.TypePublic"
+                case (false, false): "Group.Setup.TypePrivate"
+                }
+            rows.append(disclosure(
+                L10n.telegram(isChannel ? "Channel.TypeSetup.Title" : "GroupInfo.GroupType"),
+                symbol: "globe",
+                value: L10n.telegram(typeKey),
+            ) { [weak self] in self?.push(ChatTypeViewController(target: target)) })
+        }
         // PeerInfoProfileItems: the owner manages links while the chat is private; other admins with the right
         // manage their own links.
         if target.isCreator ? !target.isPublic : target.rights?.canInviteUsers == true {

@@ -101,25 +101,40 @@ final class ChannelLinkSetupViewController: SettingsListViewController, ComposeF
         return sections
     }
 
-    /// Telegram's checkAddressNameFormat with the channel wording.
-    private static func formatError(_ value: String) -> String? {
+    /// Telegram's checkAddressNameFormat, with the group or channel wording.
+    static func formatError(_ value: String, isGroup: Bool = false) -> String? {
+        let prefix = isGroup ? "Group.Username." : "Channel.Username."
         let characters = Array(value)
         for (index, character) in characters.enumerated() {
             if character == "_" {
-                if index == 0 { return L10n.telegram("Channel.Username.InvalidStartsWithUnderscore") }
+                if index == 0 { return L10n.telegram(prefix + "InvalidStartsWithUnderscore") }
                 if index == characters.count - 1 {
                     return characters.count < 4
-                        ? L10n.telegram("Channel.Username.InvalidTooShort")
-                        : L10n.telegram("Channel.Username.InvalidEndsWithUnderscore")
+                        ? L10n.telegram(prefix + "InvalidTooShort")
+                        : L10n.telegram(prefix + "InvalidEndsWithUnderscore")
                 }
             }
             if index == 0, character.isASCII, character.isNumber {
-                return L10n.telegram("Channel.Username.InvalidStartsWithNumber")
+                return L10n.telegram(prefix + "InvalidStartsWithNumber")
             }
             let isAllowed = character == "_" || (character.isASCII && (character.isLetter || character.isNumber))
             if !isAllowed { return L10n.telegram("Channel.Username.InvalidCharacters") }
         }
-        return characters.count < 4 ? L10n.telegram("Channel.Username.InvalidTooShort") : nil
+        return characters.count < 4 ? L10n.telegram(prefix + "InvalidTooShort") : nil
+    }
+
+    /// checkChatUsername's answer as Telegram words it; nil when the link is free.
+    static func availabilityError(_ result: TDNativeCheckChatUsernameResult?) -> String? {
+        switch result {
+        case .checkChatUsernameResultOk:
+            nil
+        case .checkChatUsernameResultUsernameOccupied, .checkChatUsernameResultUsernamePurchasable:
+            L10n.telegram("Channel.Username.InvalidTaken")
+        case .checkChatUsernameResultPublicChatsTooMany:
+            L10n.telegram("Username.TooManyPublicUsernamesError")
+        case .checkChatUsernameResultPublicGroupsUnavailable, .checkChatUsernameResultUsernameInvalid, nil:
+            L10n.telegram("Channel.Username.InvalidCharacters")
+        }
     }
 
     private func statusRows() -> [SettingsRow] {
@@ -187,16 +202,7 @@ final class ChannelLinkSetupViewController: SettingsListViewController, ComposeF
             guard !Task.isCancelled else { return }
             let result = try? await client.send(TDNativeRequests.checkChatUsername(chatId: chatID, username: text))
             guard let self, !Task.isCancelled, username == text else { return }
-            status =
-                switch result {
-                case .checkChatUsernameResultOk: .available
-                case .checkChatUsernameResultUsernameOccupied, .checkChatUsernameResultUsernamePurchasable:
-                    .invalid(L10n.telegram("Channel.Username.InvalidTaken"))
-                case .checkChatUsernameResultPublicChatsTooMany:
-                    .invalid(L10n.telegram("Username.TooManyPublicUsernamesError"))
-                case .checkChatUsernameResultPublicGroupsUnavailable, .checkChatUsernameResultUsernameInvalid, nil:
-                    .invalid(L10n.telegram("Channel.Username.InvalidCharacters"))
-                }
+            status = Self.availabilityError(result).map { .invalid($0) } ?? .available
             updateStatus()
         }
     }

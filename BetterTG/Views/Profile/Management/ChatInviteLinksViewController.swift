@@ -144,23 +144,24 @@ final class ChatInviteLinksViewController: SettingsListViewController {
 
     override func makeSections() -> [SettingsSection] {
         let mainAddress = publicAddress ?? mainLink?.inviteLink ?? target.inviteLink
-        let mainRow =
+        // A chat without a primary link yet (a basic group that never exported one) shows only the others.
+        let mainRows: [SettingsRow] =
             if let mainAddress {
-                SettingsRow(
+                [SettingsRow(
                     title: ChatInviteLinkText.address(mainAddress),
                     detail: publicAddress == nil ? ChatInviteLinkText.joined(mainLink?.memberCount ?? 0) : nil,
                     style: .subtitle,
                     symbol: "link",
-                ) { [weak self] in self?.presentMainMenu(mainAddress) }
+                ) { [weak self] in self?.presentMainMenu(mainAddress) }]
             } else {
-                ChatManagementRows.loading
+                isLoaded ? [] : [ChatManagementRows.loading]
             }
         var sections = [SettingsSection(
             header: L10n.telegram(publicAddress == nil ? "InviteLink.InviteLink" : "InviteLink.PublicLink"),
             footer: L10n.telegram(
                 target.isChannel ? "InviteLink.CreatePrivateLinkHelpChannel" : "InviteLink.CreatePrivateLinkHelp",
             ),
-            rows: [mainRow],
+            rows: mainRows,
         )]
         var linkRows = [SettingsRow(
             title: L10n.telegram("InviteLink.Create"),
