@@ -21,10 +21,11 @@ enum PhotoEditorTab {
 
 // MARK: - PhotoToolsTab
 
-/// TGPhotoToolsController's `availableTabs` without Blur: the slider list, Tint and Curves.
+/// TGPhotoToolsController's `availableTabs`: the slider list, Tint, Blur and Curves.
 private enum PhotoToolsTab {
     case list
     case tint
+    case blur
     case curves
 }
 
@@ -33,9 +34,9 @@ private enum PhotoToolsTab {
 /// TGPhotoEditorController for a picked photo with its crop tab (TGPhotoCropController) and its tools tab
 /// (TGPhotoToolsController), switched at the top like the gallery's edit buttons. The crop tab has the crop view with
 /// its straightening dial, RESET above the toolbar, and Rotate, Mirror and Aspect Ratio. The tools tab shows the
-/// cropped photo with the tools over it as they change, the tools list, Tint and Curves; holding the photo shows the
-/// original and tapping it hides the controls. Done hands back the crop and tools with a thumbnail, or nothing for an
-/// untouched photo; Cancel asks before it drops changes.
+/// cropped photo with the tools over it as they change, the tools list, Tint, Blur and Curves; holding the photo shows
+/// the original and tapping it hides the controls. Done hands back the crop and tools with a thumbnail, or nothing for
+/// an untouched photo; Cancel asks before it drops changes.
 final class PhotoCropViewController: UIViewController {
     // MARK: Private
 
@@ -97,14 +98,17 @@ final class PhotoCropViewController: UIViewController {
     private let aspectRatioButton = UIButton(type: .system)
     private let toolsListButton = UIButton(type: .system)
     private let tintButton = UIButton(type: .system)
+    private let blurButton = UIButton(type: .system)
     private let curvesButton = UIButton(type: .system)
     private let doneButton = UIButton(type: .system)
     private let previewView = UIImageView()
     private let curvesAreaView = PhotoCurvesAreaView()
+    private let blurAreaView = PhotoBlurAreaView()
     private let toolsPanelView = UIView()
     private let toolsPanelBackgroundView = UIView()
     private let toolsListView: PhotoToolsListView
     private let tintView = PhotoTintToolView()
+    private let blurView = PhotoBlurToolView()
     private let curvesPanelView = PhotoCurvesPanelView()
     private let hudView = PhotoEditorHUDView()
     private let renderQueue = DispatchQueue(label: "BetterTG.PhotoToolsPreview", qos: .userInitiated)
@@ -142,7 +146,7 @@ final class PhotoCropViewController: UIViewController {
     }
 
     private var isToolTracking: Bool {
-        toolsListView.isTracking || tintView.isTracking
+        toolsListView.isTracking || tintView.isTracking || blurAreaView.isTracking
     }
 
     // MARK: Tabs
@@ -151,6 +155,7 @@ final class PhotoCropViewController: UIViewController {
         switch toolsTab {
         case .list: toolsListButton
         case .tint: tintButton
+        case .blur: blurButton
         case .curves: curvesButton
         }
     }
@@ -300,6 +305,13 @@ final class PhotoCropViewController: UIViewController {
             toolValuesChanged()
         }
         view.addSubview(curvesAreaView)
+        blurAreaView.setValue(toolValues.blur)
+        blurAreaView.onValueChanged = { [weak self] blur in
+            guard let self else { return }
+            toolValues.blur = blur
+            toolValuesChanged()
+        }
+        view.addSubview(blurAreaView)
     }
 
     private func configureResetButton() {
@@ -345,6 +357,14 @@ final class PhotoCropViewController: UIViewController {
             toolValues.tint = tint
             toolValuesChanged()
         }
+        blurView.backgroundColor = PhotoEditorColors.panelBackground
+        blurView.setType(toolValues.blur.type)
+        blurView.onTypeChanged = { [weak self] type in
+            guard let self else { return }
+            toolValues.blur.type = type
+            blurAreaView.setValue(toolValues.blur)
+            toolValuesChanged()
+        }
         curvesPanelView.backgroundColor = PhotoEditorColors.panelBackground
         curvesPanelView.onChannelChanged = { [weak self] channel in
             guard let self else { return }
@@ -352,7 +372,7 @@ final class PhotoCropViewController: UIViewController {
             curvesAreaView.setValue(toolValues.curves, channel: channel)
         }
         curvesAreaView.setValue(toolValues.curves, channel: curvesChannel)
-        for panel in [toolsListView, tintView, curvesPanelView] as [UIView] {
+        for panel in [toolsListView, tintView, blurView, curvesPanelView] as [UIView] {
             toolsPanelView.addSubview(panel)
         }
         view.addSubview(toolsPanelView)
@@ -406,6 +426,7 @@ final class PhotoCropViewController: UIViewController {
                 #selector(toolsListPressed),
             ),
             (tintButton, "drop.halffull", L10n.telegram("PhotoEditor.TintTool"), #selector(tintPressed)),
+            (blurButton, "drop", L10n.telegram("PhotoEditor.TiltShift"), #selector(blurPressed)),
             (
                 curvesButton,
                 "point.topleft.down.to.point.bottomright.curvepath",
@@ -427,8 +448,9 @@ final class PhotoCropViewController: UIViewController {
 
     // MARK: Layout
 
-    /// TGPhotoToolbarView's portrait layout: Cancel and Done in 49 pt squares at the ends, and the tab's three tools
-    /// at a quarter, half and three quarters of the width between them, the outer ones 5 pt further out.
+    /// TGPhotoToolbarView's portrait layout: Cancel and Done in 49 pt squares at the ends, and the tab's tools between
+    /// them: three at a quarter, half and three quarters of the width with the outer ones 5 pt further out, or four at
+    /// fifths with the outer ones 5 pt and the inner ones 2.5 pt further out.
     private func layoutToolbar() {
         let width = toolbarView.bounds.width
         let side = Self.toolbarHeight
@@ -436,15 +458,26 @@ final class PhotoCropViewController: UIViewController {
         doneButton.frame = CGRect(x: width - side, y: 0, width: side, height: side)
         let available = width - side * 2
         let sideOffset: CGFloat = 5
-        let centers = [
+        let scale = max(1, traitCollection.displayScale)
+        let innerOffset = floor(sideOffset / 2 * scale) / scale
+        let threeCenters = [
             side + available / 4 - sideOffset,
             side + available / 2,
             side + available * 3 / 4 + sideOffset,
         ]
+        let fourCenters = [
+            side + available / 5 - sideOffset,
+            side + available * 2 / 5 - innerOffset,
+            side + available * 3 / 5 + innerOffset,
+            side + available * 4 / 5 + sideOffset,
+        ]
         let centerY = 8 + Self.tabSide / 2
-        let groups = [[rotateButton, mirrorButton, aspectRatioButton], [toolsListButton, tintButton, curvesButton]]
+        let groups: [(buttons: [UIButton], centers: [CGFloat])] = [
+            ([rotateButton, mirrorButton, aspectRatioButton], threeCenters),
+            ([toolsListButton, tintButton, blurButton, curvesButton], fourCenters),
+        ]
         for group in groups {
-            for (button, centerX) in zip(group, centers) {
+            for (button, centerX) in zip(group.buttons, group.centers) {
                 button.bounds = CGRect(x: 0, y: 0, width: Self.tabTouchSide, height: Self.tabTouchSide)
                 button.center = CGPoint(x: centerX, y: centerY)
             }
@@ -463,11 +496,12 @@ final class PhotoCropViewController: UIViewController {
     }
 
     /// TGPhotoToolsController's `updateToolViews` and `updatePreviewView`: the panel over the bottom of the photo's
-    /// container, the photo fitted in the container or in the whole screen while previewing, and Curves over it.
+    /// container, the photo fitted in the container or in the whole screen while previewing, and Curves and Blur over
+    /// it.
     private func layoutTools(container: CGRect, toolbarTop: CGFloat) {
         let panelHeight = toolsTab == .list ? Self.toolsPanelHeight : Self.panelHeight
         toolsPanelView.frame = CGRect(x: 0, y: toolbarTop - panelHeight, width: view.bounds.width, height: panelHeight)
-        for panel in [toolsPanelBackgroundView, toolsListView, tintView, curvesPanelView] as [UIView] {
+        for panel in [toolsPanelBackgroundView, toolsListView, tintView, blurView, curvesPanelView] as [UIView] {
             panel.frame = toolsPanelView.bounds
         }
         hudView.frame = container
@@ -481,6 +515,16 @@ final class PhotoCropViewController: UIViewController {
         )
         curvesAreaView.frame = previewContainer
         curvesAreaView.actualArea = previewView.frame.offsetBy(dx: -previewContainer.minX, dy: -previewContainer.minY)
+        // The blur's area is the container's size around the photo's center, and doesn't animate.
+        UIView.performWithoutAnimation {
+            blurAreaView.frame = CGRect(
+                x: previewView.frame.midX - previewContainer.width / 2,
+                y: previewView.frame.midY - previewContainer.height / 2,
+                width: previewContainer.width,
+                height: previewContainer.height,
+            )
+            blurAreaView.actualAreaSize = previewView.frame.size
+        }
     }
 
     /// What each tab shows; previewing leaves only the photo.
@@ -491,14 +535,16 @@ final class PhotoCropViewController: UIViewController {
         Self.setVisible(resetButton, isCrop)
         Self.setVisible(previewView, !isCrop)
         Self.setVisible(curvesAreaView, !isCrop && toolsTab == .curves)
+        Self.setVisible(blurAreaView, !isCrop && toolsTab == .blur)
         Self.setVisible(toolsPanelView, !isCrop && showsControls)
         Self.setVisible(toolsListView, toolsTab == .list)
         Self.setVisible(tintView, toolsTab == .tint)
+        Self.setVisible(blurView, toolsTab == .blur)
         Self.setVisible(curvesPanelView, toolsTab == .curves)
         for button in [rotateButton, mirrorButton, aspectRatioButton] {
             Self.setVisible(button, isCrop)
         }
-        for button in [toolsListButton, tintButton, curvesButton] {
+        for button in [toolsListButton, tintButton, blurButton, curvesButton] {
             Self.setVisible(button, !isCrop)
         }
         toolbarSelectionView.alpha = isCrop ? 0 : 1
@@ -519,6 +565,7 @@ final class PhotoCropViewController: UIViewController {
         let hasSliderValues = PhotoTool.allCases.contains { toolValues[$0] != 0 }
         Self.style(toolsListButton, isSelected: toolsTab == .list, isApplied: hasSliderValues)
         Self.style(tintButton, isSelected: toolsTab == .tint, isApplied: !toolValues.tint.isDefault)
+        Self.style(blurButton, isSelected: toolsTab == .blur, isApplied: !toolValues.blur.isDefault)
         Self.style(curvesButton, isSelected: toolsTab == .curves, isApplied: !toolValues.curves.isDefault)
         toolbarSelectionView.center = selectedToolsButton.center
         Self.style(cropTabButton, isSelected: editorTab == .crop, isApplied: !adjustments.hasDefaultCropping)
@@ -546,6 +593,9 @@ final class PhotoCropViewController: UIViewController {
         switch newTab {
         case .list: break
         case .tint: tintView.setValue(toolValues.tint)
+        case .blur:
+            blurView.setType(toolValues.blur.type)
+            blurAreaView.setValue(toolValues.blur)
         case .curves: curvesAreaView.setValue(toolValues.curves, channel: curvesChannel)
         }
         updateTabs()
@@ -633,6 +683,10 @@ final class PhotoCropViewController: UIViewController {
 
     @objc private func tintPressed() {
         setToolsTab(.tint)
+    }
+
+    @objc private func blurPressed() {
+        setToolsTab(.blur)
     }
 
     @objc private func curvesPressed() {

@@ -2022,3 +2022,7 @@
 "WebApp.SharePhoneTitle" = "Share Phone Number?";
 "WebApp.SharePhoneConfirmation" = "**%@** will know your phone number. This can be useful for integration with other services.";
 "WebApp.SharePhoneConfirmationUnblock" = "**%@** will know your phone number. This can be useful for integration with other services.\n\nThis will also unblock the bot.";
+"PhotoEditor.TiltShift" = "Tilt Shift";
+"PhotoEditor.BlurToolOff" = "Off";
+"PhotoEditor.BlurToolRadial" = "Radial";
+"PhotoEditor.BlurToolLinear" = "Linear";
