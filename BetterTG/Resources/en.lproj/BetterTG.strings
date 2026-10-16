@@ -304,7 +304,8 @@
 "Accessibility.PlayPauseAudioHint" = "Plays or pauses the audio";
 "Accessibility.OpenDocumentHint" = "Opens the document";
 "Accessibility.OpenContactHint" = "Opens contact details";
-"Accessibility.OpenLocationHint" = "Opens this location in Maps";
+"Accessibility.OpenLocationHint" = "Shows this location on the map";
+"Accessibility.ShowMyLocation" = "Show my location";
 "Accessibility.Percent" = "%d percent";
 "Accessibility.SelectPollOptionHint" = "Selects this poll option";
 "Accessibility.OpenPollVotersHint" = "Shows who chose this answer";

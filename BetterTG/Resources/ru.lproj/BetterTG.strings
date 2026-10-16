@@ -304,7 +304,8 @@
 "Accessibility.PlayPauseAudioHint" = "Воспроизводит или приостанавливает аудио";
 "Accessibility.OpenDocumentHint" = "Открывает документ";
 "Accessibility.OpenContactHint" = "Открывает данные контакта";
-"Accessibility.OpenLocationHint" = "Открывает место в Картах";
+"Accessibility.OpenLocationHint" = "Показывает место на карте";
+"Accessibility.ShowMyLocation" = "Показать моё местоположение";
 "Accessibility.Percent" = "%d%%";
 "Accessibility.SelectPollOptionHint" = "Выбирает этот вариант ответа";
 "Accessibility.OpenPollVotersHint" = "Показывает, кто выбрал этот ответ";

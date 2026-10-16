@@ -5072,15 +5072,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 height: 1,
             )
             present(activity, animated: true)
-        case .openLocation(let location, let title):
-            var components = URLComponents(string: "https://maps.apple.com/")
-            components?.queryItems = [
-                URLQueryItem(name: "ll", value: "\(location.latitude),\(location.longitude)"),
-                URLQueryItem(name: "q", value: title),
-            ]
-            if let url = components?.url {
-                UIApplication.shared.open(url)
-            }
+        case .openLocation(let location, _):
+            // Telegram opens a location, venue or live location message in LocationViewController.
+            let subject = message.sourceMessages.lazy.compactMap { LocationViewSubject(message: $0) }.first
+                ?? LocationViewSubject(location: location)
+            presentLocationViewer(subject)
         case .submitPollAnswer(let messageID, let optionIDs, let submission):
             chatVM.submitPollAnswer(messageID: messageID, optionIDs: optionIDs, submission: submission)
         case .openPollResults(let messageID, let optionID):
@@ -5107,6 +5103,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 sourceIsRound: sourceIsRound,
             )
         }
+    }
+
+    private func presentLocationViewer(_ subject: LocationViewSubject) {
+        guard !clientOwnerRetired, presentedViewController == nil else { return }
+        view.endEditing(true)
+        present(LocationViewController(subject: subject).makeNavigationController(), animated: true)
     }
 
     /// Telegram's openChatMessage opens a shared story or a mention on its own in the story viewer

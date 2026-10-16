@@ -13,6 +13,24 @@
 	</array>
 	<key>BetterTGRelayBaseURL</key>
 	<string>$(BETTERTG_RELAY_BASE_URL)</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>foursquare</string>
+		<string>comgooglemaps-x-callback</string>
+		<string>yangomaps</string>
+		<string>yandexmaps</string>
+		<string>uber</string>
+		<string>lyft</string>
+		<string>citymapper</string>
+		<string>yandexnavi</string>
+		<string>dgis</string>
+		<string>moovit</string>
+		<string>here-location</string>
+		<string>waze</string>
+		<string>yandextaxi</string>
+		<string>yangoride</string>
+		<string>rizogo</string>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

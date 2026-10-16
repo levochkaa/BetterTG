@@ -1913,3 +1913,15 @@
 "UserInfo.Title" = "Info";
 "ContactInfo.PhoneLabelMain" = "main";
 "ContactInfo.BirthdayLabel" = "birthday";
+"Map.LocationTitle" = "Location";
+"Map.Location" = "Location";
+"Map.YouAreHere" = "you are here";
+"Map.GetDirections" = "Get Directions";
+"Map.ETAMinutes_1" = "%@ min";
+"Map.ETAMinutes_any" = "%@ min";
+"Map.ETAHours_1" = "%@ h";
+"Map.ETAHours_any" = "%@ h";
+"Map.ETADays_1" = "%@ day";
+"Map.ETADays_any" = "%@ days";
+"Map.OpenIn" = "Open In";
+"Conversation.ContextMenuShare" = "Share";
