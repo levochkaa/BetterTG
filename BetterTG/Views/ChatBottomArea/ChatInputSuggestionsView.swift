@@ -8,7 +8,9 @@ import UIKit
 /// Telegram's input context panels above the text: a bot's commands while "/" is typed (CommandChatInputContext-
 /// PanelNode) or from the Menu button (CommandMenuChatInputContextPanelNode), and an inline bot's results as a list
 /// (VerticalListContextResultsChatInputContextPanelNode) or a media strip (HorizontalListContextResultsChatInput-
-/// ContextPanelNode). Tapping a command or a result sends it; a command's arrow puts it into the input instead.
+/// ContextPanelNode). Tapping a command or a result sends it; a command's arrow puts it into the input instead. It also
+/// shows recently used hashtags (HashtagChatInputContextPanelNode), emoji for a ":" keyword in a bubble over the caret
+/// (EmojisChatInputContextPanelNode) and stickers for a lone emoji (InlineReactionSearchPanel).
 final class ChatInputSuggestionsView: UIView, UITableViewDataSource, UITableViewDelegate, UICollectionViewDataSource,
 UICollectionViewDelegateFlowLayout {
     enum Content: Equatable {
@@ -16,6 +18,10 @@ UICollectionViewDelegateFlowLayout {
         case commands([ChatBotCommand], showsBotNames: Bool)
         case mentions([ChatMentionSuggestion])
         case inline(InlineBotQueryState)
+        case hashtags(ChatHashtagSuggestions)
+        /// The emoji and the caret's x in this view, which the bubble's arrow points at.
+        case emojis([ChatEmojiSuggestion], caretX: CGFloat?)
+        case stickers([Sticker])
 
         static func == (lhs: Content, rhs: Content) -> Bool {
             switch (lhs, rhs) {
@@ -30,14 +36,26 @@ UICollectionViewDelegateFlowLayout {
                     && lhsState.isLoading == rhsState.isLoading && lhsState.nextOffset == rhsState.nextOffset
                     && lhsState.button?.text == rhsState.button?.text
                     && lhsState.results.map(\.resultID) == rhsState.results.map(\.resultID)
+            case (.hashtags(let lhsHashtags), .hashtags(let rhsHashtags)):
+                lhsHashtags == rhsHashtags
+            case (.emojis(let lhsEmoji, let lhsCaret), .emojis(let rhsEmoji, let rhsCaret)):
+                lhsEmoji == rhsEmoji && lhsCaret == rhsCaret
+            case (.stickers(let lhsStickers), .stickers(let rhsStickers)):
+                lhsStickers.map(\.sticker.id) == rhsStickers.map(\.sticker.id)
             default:
                 false
             }
         }
     }
 
+    private enum Display {
+        case list, gallery, stickers, emojis
+    }
+
     private static let rowHeight: CGFloat = 52
+    private static let hashtagRowHeight: CGFloat = 42
     private static let galleryHeight: CGFloat = 96
+    private static let emojiBubbleHeight: CGFloat = 55
 
     var onSendCommand: ((ChatBotCommand) -> Void)?
     var onInsertCommand: ((ChatBotCommand) -> Void)?
@@ -45,16 +63,44 @@ UICollectionViewDelegateFlowLayout {
     var onSelectInlineResult: ((InlineBotResult) -> Void)?
     var onLoadMoreInlineResults: (() -> Void)?
     var onInlineButton: ((_ username: String, _ parameter: String) -> Void)?
+    var onSelectHashtag: ((String) -> Void)?
+    var onRemoveHashtag: ((String) -> Void)?
+    var onSelectEmoji: ((String) -> Void)?
+    var onSelectSticker: ((Sticker) -> Void)?
+    /// A long press on a suggested sticker, for its preview menu.
+    var onStickerMenu: ((Sticker, UIView, UIGestureRecognizer) -> Void)?
 
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let collectionView: UICollectionView
+    private let stickerGrid: UICollectionView
+    private let emojiBubble = ChatInputEmojiBubbleView()
     private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 0)
     private var content = Content.hidden
     private var client: TDLibClient?
+    private var stickerGridWidth: CGFloat = 0
 
     private var inlineState: InlineBotQueryState? {
         if case .inline(let state) = content { return state }
         return nil
+    }
+
+    private var hashtagRows: [ChatHashtagSuggestions.Row] {
+        if case .hashtags(let suggestions) = content { return suggestions.rows }
+        return []
+    }
+
+    private var suggestedStickers: [Sticker] {
+        if case .stickers(let stickers) = content { return stickers }
+        return []
+    }
+
+    private var display: Display {
+        switch content {
+        case .stickers: .stickers
+        case .emojis: .emojis
+        case .inline: inlineState?.isMediaGallery == true && inlineButton == nil ? .gallery : .list
+        case .commands, .hashtags, .hidden, .mentions: .list
+        }
     }
 
     /// VerticalListContextResultsChatInputPanelButtonItem: the bot's "switch to the bot" button heads the list.
@@ -64,6 +110,10 @@ UICollectionViewDelegateFlowLayout {
         return (button.text, start.parameter)
     }
 
+    private var panelWidth: CGFloat {
+        bounds.width > 0 ? bounds.width : window?.bounds.width ?? 0
+    }
+
     override init(frame: CGRect) {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .horizontal
@@ -71,6 +121,11 @@ UICollectionViewDelegateFlowLayout {
         layout.minimumLineSpacing = 4
         layout.sectionInset = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
         self.collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        let stickerLayout = UICollectionViewFlowLayout()
+        stickerLayout.minimumInteritemSpacing = 2
+        stickerLayout.minimumLineSpacing = 2
+        stickerLayout.sectionInset = UIEdgeInsets(top: 7, left: 2, bottom: 4, right: 2)
+        self.stickerGrid = UICollectionView(frame: .zero, collectionViewLayout: stickerLayout)
         super.init(frame: frame)
         isHidden = true
         heightConstraint.priority = .defaultHigh
@@ -92,7 +147,21 @@ UICollectionViewDelegateFlowLayout {
             ChatInputGalleryResultCell.self,
             forCellWithReuseIdentifier: ChatInputGalleryResultCell.reuseIdentifier,
         )
-        for subview in [tableView, collectionView] {
+        stickerGrid.backgroundColor = .clear
+        stickerGrid.showsVerticalScrollIndicator = false
+        stickerGrid.dataSource = self
+        stickerGrid.delegate = self
+        stickerGrid.register(ComposerStickerCell.self, forCellWithReuseIdentifier: ComposerStickerCell.reuseIdentifier)
+        // StickerPreviewPeekContent: the sticker grows under the finger, then its menu opens.
+        let stickerPress = ContextMenuPressGestureRecognizer(target: self, action: #selector(stickerLongPressed(_:)))
+        stickerPress.pressedViewProvider = { [weak self] gesture in
+            guard let self,
+                  let path = stickerGrid.indexPathForItem(at: gesture.location(in: stickerGrid)) else { return nil }
+            return stickerGrid.cellForItem(at: path)
+        }
+        stickerGrid.addGestureRecognizer(stickerPress)
+        emojiBubble.onSelect = { [weak self] emoji in self?.onSelectEmoji?(emoji) }
+        for subview in [tableView, collectionView, stickerGrid, emojiBubble] as [UIView] {
             subview.translatesAutoresizingMaskIntoConstraints = false
             addSubview(subview)
             NSLayoutConstraint.activate([
@@ -108,6 +177,17 @@ UICollectionViewDelegateFlowLayout {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // The sticker grid's rows follow the width, which may arrive after the stickers.
+        guard display == .stickers, bounds.width > 0, bounds.width != stickerGridWidth else { return }
+        stickerGridWidth = bounds.width
+        stickerGrid.collectionViewLayout.invalidateLayout()
+        if !isHidden {
+            heightConstraint.constant = stickerPanelHeight(count: suggestedStickers.count, width: bounds.width)
+        }
+    }
+
     private static func sameQuery(_ lhs: Content, _ rhs: Content) -> Bool {
         switch (lhs, rhs) {
         case (.inline(let lhsState), .inline(let rhsState)):
@@ -119,32 +199,50 @@ UICollectionViewDelegateFlowLayout {
         }
     }
 
+    /// InlineReactionSearchStickersNode: five to eight stickers a row, by width.
+    private static func stickerItemSize(width: CGFloat) -> (side: CGFloat, perRow: Int) {
+        let perRow = min(8, max(5, Int(width / 80)))
+        let side = floor((width - 2 * 2 - 2 * CGFloat(perRow - 1)) / CGFloat(perRow))
+        return (max(side, 1), perRow)
+    }
+
     func configure(_ newContent: Content, client: TDLibClient) {
         self.client = client
         guard newContent != content else { return }
         let previous = content
         content = newContent
-        let usesGallery = inlineState?.isMediaGallery == true && inlineButton == nil
-        tableView.isHidden = usesGallery
-        collectionView.isHidden = !usesGallery
+        let display = display
+        tableView.isHidden = display != .list
+        collectionView.isHidden = display != .gallery
+        stickerGrid.isHidden = display != .stickers
+        emojiBubble.isHidden = display != .emojis
         let rows = tableView(tableView, numberOfRowsInSection: 0)
         let height: CGFloat =
             switch content {
             case .hidden: 0
             case .commands, .mentions: min(CGFloat(rows), 4.5) * Self.rowHeight
-            case .inline: usesGallery ? Self.galleryHeight : min(CGFloat(rows), 3.5) * Self.rowHeight
+            case .inline: display == .gallery ? Self.galleryHeight : min(CGFloat(rows), 3.5) * Self.rowHeight
+            case .hashtags: min(CGFloat(rows), 4.5) * Self.hashtagRowHeight
+            case .emojis(let emoji, _): emoji.isEmpty ? 0 : Self.emojiBubbleHeight
+            case .stickers(let stickers): stickerPanelHeight(count: stickers.count, width: panelWidth)
             }
-        isHidden = height == 0 || (!usesGallery && rows == 0)
+        isHidden = height == 0 || (display == .list && rows == 0)
         heightConstraint.constant = isHidden ? 0 : height
-        if usesGallery {
+        switch display {
+        case .gallery:
             collectionView.reloadData()
-        } else {
+        case .list:
             tableView.reloadData()
+        case .stickers:
+            stickerGrid.reloadData()
+        case .emojis:
+            if case .emojis(let emoji, let caretX) = content { emojiBubble.configure(emoji, caretX: caretX) }
         }
         // A new query starts at the top; another page keeps the place.
         if !Self.sameQuery(previous, newContent) {
             tableView.setContentOffset(.zero, animated: false)
             collectionView.setContentOffset(.zero, animated: false)
+            stickerGrid.setContentOffset(.zero, animated: false)
         }
     }
 
@@ -154,12 +252,18 @@ UICollectionViewDelegateFlowLayout {
 
     func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
         switch content {
-        case .hidden: 0
+        case .emojis, .hidden, .stickers: 0
         case .commands(let commands, _): commands.count
         case .mentions(let mentions): mentions.count
         case .inline(let state):
             state.results.count + (inlineButton == nil ? 0 : 1)
+        case .hashtags: hashtagRows.count
         }
+    }
+
+    func tableView(_: UITableView, heightForRowAt _: IndexPath) -> CGFloat {
+        if case .hashtags = content { return Self.hashtagRowHeight }
+        return Self.rowHeight
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -168,7 +272,7 @@ UICollectionViewDelegateFlowLayout {
             for: indexPath,
         ) as? ChatInputSuggestionCell else { return UITableViewCell() }
         switch content {
-        case .hidden:
+        case .emojis, .hidden, .stickers:
             break
         case .commands(let commands, let showsBotNames):
             guard let command = commands[safe: indexPath.row] else { break }
@@ -192,6 +296,10 @@ UICollectionViewDelegateFlowLayout {
             {
                 cell.configureResult(item.result, client: client)
             }
+        case .hashtags:
+            if case .hashtags(let suggestions) = content, let row = hashtagRows[safe: indexPath.row] {
+                cell.configureHashtag(row, chat: suggestions.chat, client: client)
+            }
         }
         return cell
     }
@@ -199,7 +307,7 @@ UICollectionViewDelegateFlowLayout {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         switch content {
-        case .hidden:
+        case .emojis, .hidden, .stickers:
             break
         case .commands(let commands, _):
             if let command = commands[safe: indexPath.row] { onSendCommand?(command) }
@@ -211,7 +319,25 @@ UICollectionViewDelegateFlowLayout {
             } else if let item = state.results[safe: indexPath.row - (inlineButton == nil ? 0 : 1)] {
                 onSelectInlineResult?(item)
             }
+        case .hashtags:
+            if let row = hashtagRows[safe: indexPath.row] { onSelectHashtag?(row.hashtag) }
         }
+    }
+
+    /// HashtagChatInputPanelItem's reveal option: Delete forgets a recently used hashtag.
+    func tableView(
+        _: UITableView,
+        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath,
+    ) -> UISwipeActionsConfiguration? {
+        guard case .recent(let hashtag) = hashtagRows[safe: indexPath.row] else { return nil }
+        let delete = UIContextualAction(style: .destructive, title: L10n.telegram("Common.Delete")) {
+            [weak self] _, _, completion in
+            self?.onRemoveHashtag?(hashtag)
+            completion(true)
+        }
+        let configuration = UISwipeActionsConfiguration(actions: [delete])
+        configuration.performsFirstActionWithFullSwipe = false
+        return configuration
     }
 
     func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
@@ -221,14 +347,24 @@ UICollectionViewDelegateFlowLayout {
 
     // MARK: Media Strip
 
-    func collectionView(_: UICollectionView, numberOfItemsInSection _: Int) -> Int {
-        inlineState?.results.count ?? 0
+    func collectionView(_ view: UICollectionView, numberOfItemsInSection _: Int) -> Int {
+        view === stickerGrid ? suggestedStickers.count : inlineState?.results.count ?? 0
     }
 
     func collectionView(
         _ collectionView: UICollectionView,
         cellForItemAt indexPath: IndexPath,
     ) -> UICollectionViewCell {
+        if collectionView === stickerGrid {
+            let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: ComposerStickerCell.reuseIdentifier,
+                for: indexPath,
+            )
+            if let client, let sticker = suggestedStickers[safe: indexPath.item] {
+                (cell as? ComposerStickerCell)?.configure(sticker: sticker, client: client)
+            }
+            return cell
+        }
         let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: ChatInputGalleryResultCell.reuseIdentifier,
             for: indexPath,
@@ -239,21 +375,44 @@ UICollectionViewDelegateFlowLayout {
         return cell
     }
 
-    func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+    func collectionView(_ view: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        // A pick is an action, so the same item can be picked again while the panel stays.
+        view.deselectItem(at: indexPath, animated: false)
+        if view === stickerGrid {
+            if let sticker = suggestedStickers[safe: indexPath.item] { onSelectSticker?(sticker) }
+            return
+        }
         guard let item = inlineState?.results[safe: indexPath.item] else { return }
         onSelectInlineResult?(item)
     }
 
-    func collectionView(_: UICollectionView, willDisplay _: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+    func collectionView(
+        _ view: UICollectionView,
+        willDisplay cell: UICollectionViewCell,
+        forItemAt indexPath: IndexPath,
+    ) {
+        if view === stickerGrid {
+            (cell as? ComposerStickerCell)?.setPlaybackVisible(true)
+            return
+        }
         guard let state = inlineState, indexPath.item >= state.results.count - 4 else { return }
         onLoadMoreInlineResults?()
     }
 
+    func collectionView(_ view: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt _: IndexPath) {
+        guard view === stickerGrid else { return }
+        (cell as? ComposerStickerCell)?.setPlaybackVisible(false)
+    }
+
     func collectionView(
-        _: UICollectionView,
+        _ view: UICollectionView,
         layout _: UICollectionViewLayout,
         sizeForItemAt indexPath: IndexPath,
     ) -> CGSize {
+        if view === stickerGrid {
+            let side = Self.stickerItemSize(width: view.bounds.width > 0 ? view.bounds.width : panelWidth).side
+            return CGSize(width: side, height: side)
+        }
         let height = Self.galleryHeight - 8
         guard let result = inlineState?.results[safe: indexPath.item]?.result else {
             return CGSize(width: height, height: height)
@@ -262,6 +421,21 @@ UICollectionViewDelegateFlowLayout {
         guard size.width > 0, size.height > 0 else { return CGSize(width: height, height: height) }
         let width = (height * size.width / size.height).rounded()
         return CGSize(width: min(max(width, height * 0.6), height * 1.8), height: height)
+    }
+
+    /// One row shows whole; more show one and a half rows at first, the rest scroll.
+    private func stickerPanelHeight(count: Int, width: CGFloat) -> CGFloat {
+        guard count > 0, width > 0 else { return count > 0 ? 1 : 0 }
+        let item = Self.stickerItemSize(width: width)
+        return count > item.perRow ? floor(item.side * 1.5) : 7 + item.side + 4
+    }
+
+    @objc private func stickerLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard gesture.state == .began,
+              let path = stickerGrid.indexPathForItem(at: gesture.location(in: stickerGrid)),
+              let sticker = suggestedStickers[safe: path.item],
+              let cell = stickerGrid.cellForItem(at: path) else { return }
+        onStickerMenu?(sticker, cell, gesture)
     }
 }
 
@@ -362,6 +536,8 @@ private final class ChatInputSuggestionCell: UITableViewCell {
 
     private let thumbnailView = TDImageLoadingView()
     private let avatarView = ProfileAvatarView()
+    private let hashtagIcon = UIImageView()
+    private let hashtagAvatar = ProfileAvatarView()
     private let titleLabel = UILabel()
     private let detailLabel = UILabel()
     private let insertButton = UIButton(type: .system)
@@ -373,6 +549,12 @@ private final class ChatInputSuggestionCell: UITableViewCell {
         equalTo: thumbnailView.trailingAnchor,
         constant: 10,
     )
+    private lazy var textLeadingAfterHashtag = titleLabel.leadingAnchor.constraint(
+        equalTo: hashtagIcon.trailingAnchor,
+        constant: 13,
+    )
+    private lazy var titleBottom = titleLabel.bottomAnchor.constraint(equalTo: contentView.centerYAnchor)
+    private lazy var titleCenter = titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -388,7 +570,19 @@ private final class ChatInputSuggestionCell: UITableViewCell {
         insertButton.tintColor = .secondaryLabel
         insertButton.accessibilityLabel = L10n.telegram("Common.Edit")
         insertButton.addAction(UIAction { [weak self] _ in self?.onInsert?() }, for: .touchUpInside)
-        for subview in [thumbnailView, avatarView, titleLabel, detailLabel, insertButton] as [UIView] {
+        hashtagIcon.image = UIImage(
+            systemName: "number",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold),
+        )
+        hashtagIcon.contentMode = .center
+        // The badge takes the cell's accent; the image view's own tint is the white of the sign.
+        hashtagIcon.tintColor = .white
+        hashtagIcon.backgroundColor = tintColor
+        hashtagIcon.layer.cornerRadius = 15
+        hashtagIcon.clipsToBounds = true
+        for subview in [thumbnailView, avatarView, hashtagIcon, hashtagAvatar, titleLabel, detailLabel, insertButton]
+            as [UIView]
+        {
             subview.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview(subview)
         }
@@ -401,8 +595,16 @@ private final class ChatInputSuggestionCell: UITableViewCell {
             avatarView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             avatarView.widthAnchor.constraint(equalToConstant: 40),
             avatarView.heightAnchor.constraint(equalToConstant: 40),
+            hashtagIcon.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            hashtagIcon.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            hashtagIcon.widthAnchor.constraint(equalToConstant: 30),
+            hashtagIcon.heightAnchor.constraint(equalToConstant: 30),
+            hashtagAvatar.leadingAnchor.constraint(equalTo: hashtagIcon.leadingAnchor),
+            hashtagAvatar.topAnchor.constraint(equalTo: hashtagIcon.topAnchor),
+            hashtagAvatar.widthAnchor.constraint(equalToConstant: 30),
+            hashtagAvatar.heightAnchor.constraint(equalToConstant: 30),
             titleLabel.trailingAnchor.constraint(equalTo: insertButton.leadingAnchor, constant: -8),
-            titleLabel.bottomAnchor.constraint(equalTo: contentView.centerYAnchor),
+            titleBottom,
             detailLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             detailLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
             detailLabel.topAnchor.constraint(equalTo: contentView.centerYAnchor, constant: 1),
@@ -422,7 +624,49 @@ private final class ChatInputSuggestionCell: UITableViewCell {
         thumbnailView.cancel()
         thumbnailView.image = nil
         avatarView.prepareForReuse()
+        hashtagAvatar.prepareForReuse()
         onInsert = nil
+    }
+
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        hashtagIcon.backgroundColor = tintColor
+    }
+
+    /// HashtagChatInputPanelItem: the hashtag badge, or the chat's photo for a tag naming the chat, "#tag" in
+    /// semibold, and for "Use" rows what the tag finds.
+    func configureHashtag(_ row: ChatHashtagSuggestions.Row, chat: SettingsPeer?, client: TDLibClient?) {
+        titleLabel.textColor = .label
+        switch row {
+        case .useGeneric(let hashtag):
+            titleLabel.text = L10n.telegram("Chat.HashtagSuggestion.UseGeneric.Title", "#" + hashtag)
+            detailLabel.text = L10n.telegram("Chat.HashtagSuggestion.UseGeneric.Text")
+        case .useLocal(let hashtag, let isChannel):
+            titleLabel.text = L10n.telegram("Chat.HashtagSuggestion.UseLocal.Title", "#" + hashtag)
+            detailLabel.text = L10n.telegram(
+                isChannel
+                    ? "Chat.HashtagSuggestion.UseLocal.Channel.Text"
+                    : "Chat.HashtagSuggestion.UseLocal.Group.Text",
+            )
+        case .recent(let hashtag):
+            titleLabel.text = "#" + hashtag
+            detailLabel.text = nil
+        }
+        layout(thumbnail: false, insert: false, hashtag: true)
+        let photoChat = row.hashtag.contains("@") ? chat : nil
+        hashtagIcon.isHidden = photoChat != nil
+        hashtagAvatar.isHidden = photoChat == nil
+        if let photoChat, let client {
+            hashtagAvatar.configure(
+                file: photoChat.file,
+                minithumbnail: photoChat.minithumbnail,
+                placeholder: photoChat.placeholder,
+                accountID: TDLib.shared.activeAccountID,
+                accountUserID: 0,
+                client: client,
+            )
+        }
+        selectionStyle = .default
     }
 
     /// MentionChatInputPanelItem: the person's photo and name, with the username below.
@@ -478,13 +722,25 @@ private final class ChatInputSuggestionCell: UITableViewCell {
         selectionStyle = .default
     }
 
-    private func layout(thumbnail: Bool, insert: Bool, avatar: Bool = false) {
+    private func layout(thumbnail: Bool, insert: Bool, avatar: Bool = false, hashtag: Bool = false) {
         thumbnailView.isHidden = !thumbnail
         avatarView.isHidden = !avatar
+        hashtagIcon.isHidden = !hashtag
+        hashtagAvatar.isHidden = true
         insertButton.isHidden = !insert
-        // The avatar sits where the thumbnail does.
-        textLeading.isActive = !thumbnail && !avatar
-        textLeadingAfterThumbnail.isActive = thumbnail || avatar
+        // The avatar sits where the thumbnail does; the hashtag badge is narrower.
+        textLeading.isActive = false
+        textLeadingAfterThumbnail.isActive = false
+        textLeadingAfterHashtag.isActive = false
+        if hashtag {
+            textLeadingAfterHashtag.isActive = true
+        } else if thumbnail || avatar {
+            textLeadingAfterThumbnail.isActive = true
+        } else {
+            textLeading.isActive = true
+        }
+        titleBottom.isActive = !hashtag || detailLabel.text?.isEmpty == false
+        titleCenter.isActive = !titleBottom.isActive
     }
 }
 
@@ -536,5 +792,153 @@ private final class ChatInputGalleryResultCell: UICollectionViewCell {
             imageView.loadPlaceholder(data: preview.minithumbnail, client: client)
         }
         accessibilityLabel = preview.title
+    }
+}
+
+// MARK: - ChatInputEmojiBubbleView
+
+/// EmojisChatInputContextPanelNode's bubble: a row of 45 pt emoji, at most the width less 10 pt a side, whose arrow
+/// points down at the caret. A tap puts the emoji in place of the ":" word.
+private final class ChatInputEmojiBubbleView: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
+    private static let itemSide: CGFloat = 45
+    private static let arrowHeight: CGFloat = 10
+    private static let sideInset: CGFloat = 10
+    private static let cornerRadius: CGFloat = 8
+
+    var onSelect: ((String) -> Void)?
+
+    private let shape = CAShapeLayer()
+    private let collectionView: UICollectionView
+    private var emoji = [ChatEmojiSuggestion]()
+    private var caretX: CGFloat?
+
+    override init(frame: CGRect) {
+        let layout = UICollectionViewFlowLayout()
+        layout.scrollDirection = .horizontal
+        layout.itemSize = CGSize(width: Self.itemSide, height: Self.itemSide)
+        layout.minimumLineSpacing = 0
+        layout.minimumInteritemSpacing = 0
+        self.collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        super.init(frame: frame)
+        shape.lineWidth = 1 / max(1, traitCollection.displayScale)
+        shape.shadowOpacity = 0.08
+        shape.shadowRadius = 6
+        shape.shadowOffset = CGSize(width: 0, height: 2)
+        layer.addSublayer(shape)
+        collectionView.backgroundColor = .clear
+        collectionView.showsHorizontalScrollIndicator = false
+        collectionView.layer.cornerRadius = Self.cornerRadius
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        collectionView.register(ChatInputEmojiCell.self, forCellWithReuseIdentifier: ChatInputEmojiCell.reuseIdentifier)
+        addSubview(collectionView)
+        updateColors()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: ChatInputEmojiBubbleView, _) in
+            view.updateColors()
+        }
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let width = min(
+            max(24, bounds.width - Self.sideInset * 2),
+            max(24, CGFloat(emoji.count) * Self.itemSide),
+        )
+        let height = max(0, bounds.height - Self.arrowHeight)
+        // The arrow sits 55 pt into the bubble unless the caret pulls the bubble along, clamped to the edges.
+        let anchor = caretX ?? Self.sideInset + 55
+        let maxX = max(Self.sideInset, bounds.width - Self.sideInset - width)
+        let bubbleX = min(max(Self.sideInset, anchor - 55), maxX)
+        let arrowInset = Self.cornerRadius + 9
+        let arrowX = min(max(anchor, bubbleX + arrowInset), bubbleX + width - arrowInset)
+        let bubble = CGRect(x: bubbleX, y: 0, width: width, height: height)
+        let path = UIBezierPath(roundedRect: bubble, cornerRadius: Self.cornerRadius)
+        let arrow = UIBezierPath()
+        arrow.move(to: CGPoint(x: arrowX - 9, y: height - 0.5))
+        arrow.addQuadCurve(
+            to: CGPoint(x: arrowX, y: height + Self.arrowHeight - 1),
+            controlPoint: CGPoint(x: arrowX - 3, y: height + 2),
+        )
+        arrow.addQuadCurve(
+            to: CGPoint(x: arrowX + 9, y: height - 0.5),
+            controlPoint: CGPoint(x: arrowX + 3, y: height + 2),
+        )
+        arrow.close()
+        path.append(arrow)
+        shape.path = path.cgPath
+        shape.shadowPath = path.cgPath
+        collectionView.frame = bubble
+    }
+
+    func configure(_ emoji: [ChatEmojiSuggestion], caretX: CGFloat?) {
+        let changed = emoji != self.emoji
+        self.emoji = emoji
+        self.caretX = caretX
+        if changed {
+            collectionView.reloadData()
+            collectionView.setContentOffset(.zero, animated: false)
+        }
+        setNeedsLayout()
+    }
+
+    func collectionView(_: UICollectionView, numberOfItemsInSection _: Int) -> Int { emoji.count }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        cellForItemAt indexPath: IndexPath,
+    ) -> UICollectionViewCell {
+        let cell = collectionView.dequeueReusableCell(
+            withReuseIdentifier: ChatInputEmojiCell.reuseIdentifier,
+            for: indexPath,
+        )
+        if let item = emoji[safe: indexPath.item] { (cell as? ChatInputEmojiCell)?.configure(item) }
+        return cell
+    }
+
+    func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        collectionView.deselectItem(at: indexPath, animated: false)
+        if let item = emoji[safe: indexPath.item] { onSelect?(item.emoji) }
+    }
+
+    private func updateColors() {
+        shape.fillColor = UIColor.systemBackground.resolvedColor(with: traitCollection).cgColor
+        shape.strokeColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
+    }
+}
+
+// MARK: - ChatInputEmojiCell
+
+/// EmojisChatInputPanelItem: the emoji in 32 pt type.
+private final class ChatInputEmojiCell: UICollectionViewCell {
+    static let reuseIdentifier = "ChatInputEmojiCell"
+
+    override var isHighlighted: Bool {
+        didSet { contentView.alpha = isHighlighted ? 0.5 : 1 }
+    }
+
+    private let label = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        label.font = .systemFont(ofSize: 32)
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+        ])
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    func configure(_ item: ChatEmojiSuggestion) {
+        label.text = item.emoji
+        accessibilityLabel = item.emoji
+        accessibilityHint = item.keyword
     }
 }

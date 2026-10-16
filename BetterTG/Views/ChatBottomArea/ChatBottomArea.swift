@@ -66,6 +66,8 @@ final class ChatComposerView: UIView {
     var onScheduleMessage: (() -> Void)?
     /// The input panel's scheduled messages button.
     var onOpenScheduledMessages: (() -> Void)?
+    /// A long press on a sticker suggested for the typed emoji: the chat shows its menu.
+    var onSuggestedStickerMenu: ((Sticker, UIView, UIGestureRecognizer) -> Void)?
 
     private let chatVM: ChatVM
     private let glassView: UIVisualEffectView = {
@@ -754,6 +756,18 @@ final class ChatComposerView: UIView {
         return true
     }
 
+    /// InlineReactionSearchPanel's tap: the sticker goes out and the emoji that found it leaves the input
+    /// (sendSticker with clearInput). The sticker menu's Send Silently passes its options.
+    func sendSuggestedSticker(_ sticker: Sticker, options: TDNativeMessageSendOptions? = nil) {
+        guard let query = textView.contextQuery(), case .stickers = query.query else { return }
+        textView.replaceText(
+            in: NSRange(location: 0, length: textView.attributedText.length),
+            with: NSAttributedString(),
+        )
+        let chatVM = chatVM
+        Task { await chatVM.sendSticker(sticker, options: options) }
+    }
+
     private func configureViews() {
         translatesAutoresizingMaskIntoConstraints = false
         backgroundColor = .clear
@@ -1120,6 +1134,13 @@ final class ChatComposerView: UIView {
             refreshMentionQuery()
         }
         suggestionsView.onSelectMention = { [weak self] mention in self?.insertMention(mention) }
+        suggestionsView.onSelectHashtag = { [weak self] hashtag in self?.insertHashtag(hashtag) }
+        suggestionsView.onRemoveHashtag = { [weak self] hashtag in self?.chatVM.removeRecentHashtag(hashtag) }
+        suggestionsView.onSelectEmoji = { [weak self] emoji in self?.insertSuggestedEmoji(emoji) }
+        suggestionsView.onSelectSticker = { [weak self] sticker in self?.sendSuggestedSticker(sticker) }
+        suggestionsView.onStickerMenu = { [weak self] sticker, cell, gesture in
+            self?.onSuggestedStickerMenu?(sticker, cell, gesture)
+        }
     }
 
     /// Telegram's attach button opens the attachment sheet. While editing, the custom menu morphs out of the button.
@@ -1889,16 +1910,24 @@ final class ChatComposerView: UIView {
         botMenuButton.configuration = configuration
     }
 
-    /// ChatInterfaceInputContextPanels: an inline bot's results, the commands matching the typed "/", or the Menu's
-    /// whole command list, in that order.
+    /// ChatInterfaceInputContextPanels: stickers for a lone emoji, hashtags, mentions, emoji for a ":" keyword, an
+    /// inline bot's results, the commands matching the typed "/", or the Menu's whole command list, in that order.
+    /// Editing a message keeps the hashtag, mention and emoji panels, as Telegram's edit mode does.
     private func updateSuggestions(enabled: Bool) {
         let commands = chatVM.commandSuggestions
+        let isEditing = chatVM.editCustomMessage != nil
         let content: ChatInputSuggestionsView.Content =
             if !enabled {
                 .hidden
+            } else if !isEditing, chatVM.canSendStickersAndAnimations, !chatVM.stickerSuggestions.isEmpty {
+                .stickers(chatVM.stickerSuggestions)
+            } else if let hashtags = chatVM.hashtagSuggestions, !hashtags.rows.isEmpty {
+                .hashtags(hashtags)
             } else if !chatVM.mentionSuggestions.isEmpty {
                 .mentions(chatVM.mentionSuggestions)
-            } else if chatVM.editCustomMessage != nil {
+            } else if !chatVM.emojiSuggestions.isEmpty {
+                .emojis(chatVM.emojiSuggestions, caretX: suggestionsCaretX())
+            } else if isEditing {
                 .hidden
             } else if let inline = chatVM.inlineBotQuery {
                 .inline(inline)
@@ -1917,6 +1946,33 @@ final class ChatComposerView: UIView {
     private func refreshMentionQuery() {
         let mention = textView.mentionQueryRange()
         chatVM.updateMentionQuery(mention?.query, includesInlineBots: mention?.range.location == 0)
+        let context = textView.contextQuery()?.query
+        let allowsContext =
+            switch context {
+            case .stickers: chatVM.editCustomMessage == nil && chatVM.canSendStickersAndAnimations
+            case .emojiSearch, .hashtag, nil: true
+            }
+        chatVM.updateContextQuery(allowsContext ? context : nil)
+    }
+
+    /// ChatTextInputPanelNode's caret in the suggestions panel, where the emoji bubble's arrow points.
+    private func suggestionsCaretX() -> CGFloat? {
+        guard let position = textView.selectedTextRange?.end else { return nil }
+        let caret = textView.caretRect(for: position)
+        guard caret.origin.x.isFinite else { return nil }
+        return textView.convert(caret, to: suggestionsView).midX
+    }
+
+    /// HashtagChatInputPanelItem's pick: "hashtag " in place of the word after "#".
+    private func insertHashtag(_ hashtag: String) {
+        guard let query = textView.contextQuery(), case .hashtag = query.query else { return }
+        textView.replaceText(in: query.range, with: NSAttributedString(string: hashtag + " "))
+    }
+
+    /// EmojisChatInputContextPanelNode's pick: the emoji in place of ":keyword".
+    private func insertSuggestedEmoji(_ emoji: String) {
+        guard let query = textView.contextQuery(), case .emojiSearch = query.query else { return }
+        textView.replaceText(in: query.range, with: NSAttributedString(string: emoji))
     }
 
     /// MentionChatInputContextPanelNode's pick: "@username " in place of the typed word, or for someone without a

@@ -2398,6 +2398,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
             composerView.onOpenReplyOptions = { [weak self] source in self?.presentReplyOptions(from: source) }
             composerView.onScheduleMessage = { [weak self] in self?.presentScheduleMessagePicker() }
+            composerView.onSuggestedStickerMenu = { [weak self] sticker, cell, gesture in
+                self?.presentSuggestedStickerMenu(sticker, from: cell, tracking: gesture)
+            }
             composerView.onOpenScheduledMessages = { [weak self] in self?.openScheduledMessages() }
             composerView.onVoiceGestureActivityChange = { [weak self] active in
                 guard let self, voiceGestureDefersSystemGestures != active else { return }
@@ -6180,6 +6183,46 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
             : nil
         StickerPackPreviewViewController.present(setID: setID, client: chatVM.client, from: self, onSend: send)
+    }
+
+    /// InlineReactionSearchPanel's peek menu for a sticker suggested by the typed emoji: Send Silently outside Saved
+    /// Messages and secret chats, Add to or Remove from Favorites, and View Pack.
+    private func presentSuggestedStickerMenu(
+        _ sticker: Sticker,
+        from cell: UIView,
+        tracking gesture: UIGestureRecognizer,
+    ) {
+        guard presentationMode == .full, presentedViewController == nil, !clientOwnerRetired,
+              chatVM.locationContextIsCurrent else { return }
+        var actions = [TelegramContextMenuAction]()
+        let isSecret =
+            if case .chatTypeSecret = chatVM.customChat.chat.type {
+                true
+            } else {
+                false
+            }
+        if !chatVM.customChat.isSavedMessages, !isSecret {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.SendMessage.SendSilently"),
+                image: UIImage(systemName: "bell.slash"),
+            ) { [weak self] in
+                self?.composerView.sendSuggestedSticker(sticker, options: ChatVM.sendOptions(silent: true))
+            })
+        }
+        let fileID = sticker.sticker.id
+        let isFavorite = favoriteStickerFileIDs.contains(fileID)
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram(isFavorite ? "Stickers.RemoveFromFavorites" : "Stickers.AddToFavorites"),
+            image: UIImage(systemName: isFavorite ? "star.slash" : "star"),
+        ) { [weak self] in self?.setStickerFavorite(fileID: fileID, favorite: !isFavorite) })
+        if sticker.setId != 0 {
+            let setID = sticker.setId
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("StickerPack.ViewPack"),
+                image: UIImage(systemName: "square.grid.2x2"),
+            ) { [weak self] in self?.presentStickerPack(setID: setID) })
+        }
+        presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture, presentationStyle: .menuOnly)
     }
 
     /// Telegram's sticker and GIF message items (ChatInterfaceStateContextMenus): Add to or Remove from Favorites and

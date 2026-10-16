@@ -124,6 +124,12 @@ import UIKit
     @Published private(set) var historyReachedStart = false
     /// MentionChatInputContextPanelNode's results for the "@" word at the caret.
     @Published private(set) var mentionSuggestions = [ChatMentionSuggestion]()
+    /// HashtagChatInputContextPanelNode's results for the "#" word at the caret.
+    @Published private(set) var hashtagSuggestions: ChatHashtagSuggestions?
+    /// EmojisChatInputContextPanelNode's results for the ":" word at the caret.
+    @Published private(set) var emojiSuggestions = [ChatEmojiSuggestion]()
+    /// InlineReactionSearchPanel's stickers for a lone emoji in the input.
+    @Published private(set) var stickerSuggestions = [Sticker]()
     /// The user blocked this chat's person or bot (`chat.block_list`); a blocked bot offers Restart Bot.
     @Published private(set) var isChatBlocked = false
 
@@ -387,6 +393,8 @@ import UIKit
     private var inlineBotMoreTask: Task<Void, Never>?
     private var mentionQueryTask: Task<Void, Never>?
     private var mentionQuery: (query: String, includesInlineBots: Bool)?
+    private var contextQueryTask: Task<Void, Never>?
+    private var contextQuery: ChatInputContextQuery?
 
     /// Discrete changes (start, stop, restored drafts) publish like the other state; the tick writes the storage.
     var timerCount: Double {
@@ -3458,7 +3466,7 @@ import UIKit
         }
     }
 
-    func sendSticker(_ sticker: Sticker) async {
+    func sendSticker(_ sticker: Sticker, options: TDNativeMessageSendOptions? = nil) async {
         // A sticker or GIF chosen while the composer's message is still sending goes out after it, as Telegram
         // queues sends, instead of being dropped.
         await waitForComposerSend()
@@ -3492,7 +3500,7 @@ import UIKit
                         width: sticker.width,
                     ),
                 )),
-                options: nil,
+                options: options,
                 replyMarkup: nil,
                 replyTo: context.replyTo,
                 topicId: context.destinationTopic,
@@ -3712,6 +3720,102 @@ import UIKit
             }
             .map(\.suggestion)
         }
+    }
+
+    /// ChatInterfaceStateContextQueries' `.emoji`, `.hashtag` and `.emojiSearch`: stickers for a lone emoji
+    /// (getStickers, installed sets first, then TDLib's other matches), recently used hashtags (searchHashtags) or
+    /// emoji by keyword (getKeywordEmojis for one letter, searchEmojis after). A query of another kind clears the
+    /// previous kind's results at once; nil clears them all.
+    func updateContextQuery(_ query: ChatInputContextQuery?) {
+        guard let query, !previewing else {
+            contextQueryTask?.cancel()
+            contextQuery = nil
+            if hashtagSuggestions != nil { hashtagSuggestions = nil }
+            if !emojiSuggestions.isEmpty { emojiSuggestions = [] }
+            if !stickerSuggestions.isEmpty { stickerSuggestions = [] }
+            return
+        }
+        guard query != contextQuery else { return }
+        contextQuery = query
+        contextQueryTask?.cancel()
+        switch query {
+        case .stickers:
+            if hashtagSuggestions != nil { hashtagSuggestions = nil }
+            if !emojiSuggestions.isEmpty { emojiSuggestions = [] }
+        case .hashtag:
+            if !stickerSuggestions.isEmpty { stickerSuggestions = [] }
+            if !emojiSuggestions.isEmpty { emojiSuggestions = [] }
+        case .emojiSearch:
+            if !stickerSuggestions.isEmpty { stickerSuggestions = [] }
+            if hashtagSuggestions != nil { hashtagSuggestions = nil }
+        }
+        let client = client
+        let chatID = chatID
+        let publicChat: (username: String, isChannel: Bool, peer: SettingsPeer)? =
+            if case .supergroup(let supergroup) = customChat.type,
+            let username = supergroup.usernames?.activeUsernames.first {
+                (username, supergroup.isChannel, SettingsPeer(chat: customChat.chat))
+            } else {
+                nil
+            }
+        contextQueryTask = Task { [weak self] in
+            switch query {
+            case .stickers(let emoji):
+                let result = try? await client.getStickers(
+                    chatId: chatID,
+                    limit: 100,
+                    query: emoji,
+                    stickerType: .stickerTypeRegular,
+                )
+                guard !Task.isCancelled, let self, locationContextIsCurrent, contextQuery == query else { return }
+                var seen = Set<Int>()
+                stickerSuggestions = (result?.stickers ?? []).filter { seen.insert($0.sticker.id).inserted }
+            case .hashtag(let prefix):
+                let result = try? await client.send(TDNativeRequests.searchHashtags(prefix: prefix, limit: 50))
+                guard !Task.isCancelled, let self, locationContextIsCurrent, contextQuery == query else { return }
+                hashtagSuggestions = ChatHashtagSuggestions(
+                    query: prefix,
+                    hashtags: result?.hashtags ?? [],
+                    publicUsername: publicChat?.username,
+                    isChannel: publicChat?.isChannel ?? false,
+                    chat: publicChat?.peer,
+                )
+            case .emojiSearch(let text, let languageCodes):
+                var found = [ChatEmojiSuggestion]()
+                if text.count < 2 {
+                    let result = try? await client.send(TDNativeRequests.getKeywordEmojis(
+                        text: text,
+                        inputLanguageCodes: languageCodes,
+                    ))
+                    found = (result?.emojis ?? []).map { ChatEmojiSuggestion(emoji: $0, keyword: text) }
+                } else {
+                    let result = try? await client.send(TDNativeRequests.searchEmojis(
+                        text: text,
+                        inputLanguageCodes: languageCodes,
+                    ))
+                    found = (result?.emojiKeywords ?? []).map {
+                        ChatEmojiSuggestion(emoji: $0.emoji, keyword: $0.keyword)
+                    }
+                }
+                guard !Task.isCancelled, let self, locationContextIsCurrent, contextQuery == query else { return }
+                var seen = Set<String>()
+                emojiSuggestions = found.filter { seen.insert($0.emoji).inserted }
+            }
+        }
+    }
+
+    /// HashtagChatInputPanelItem's Delete: removeRecentHashtag, and the row goes at once.
+    func removeRecentHashtag(_ hashtag: String) {
+        let client = client
+        Task { _ = try? await client.send(TDNativeRequests.removeRecentHashtag(hashtag: hashtag)) }
+        guard let current = hashtagSuggestions else { return }
+        hashtagSuggestions = ChatHashtagSuggestions(
+            query: current.query,
+            hashtags: current.hashtags.filter { $0 != hashtag },
+            publicUsername: current.publicUsername,
+            isChannel: current.isChannel,
+            chat: current.chat,
+        )
     }
 
     /// ChatController's sendBotCommand: the command goes as a message with the current reply, and the input and the

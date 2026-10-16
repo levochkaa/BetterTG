@@ -2040,3 +2040,8 @@
 "CreatePoll.Media.Delete" = "Delete";
 "CreatePoll.Link.Description" = "Attach a link to this option.";
 "TextFormat.EditLinkTitle" = "Edit Link";
+"Chat.HashtagSuggestion.UseGeneric.Title" = "Use %@";
+"Chat.HashtagSuggestion.UseGeneric.Text" = "searches posts from all channels";
+"Chat.HashtagSuggestion.UseLocal.Title" = "Use %@";
+"Chat.HashtagSuggestion.UseLocal.Group.Text" = "searches only posts from this group";
+"Chat.HashtagSuggestion.UseLocal.Channel.Text" = "searches only posts from this channel";

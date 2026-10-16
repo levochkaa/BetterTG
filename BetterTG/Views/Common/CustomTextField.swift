@@ -49,6 +49,14 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         set { emojiRenderer.client = newValue }
     }
 
+    /// The keyboard's language for emoji keywords, with English after it as Telegram searches.
+    private var keyboardLanguageCodes: [String]? {
+        guard let language = textInputMode?.primaryLanguage, !["emoji", "dictation"].contains(language) else {
+            return nil
+        }
+        return language.lowercased().hasPrefix("en") ? [language] : [language, "en-US"]
+    }
+
     init(placeholder: String) {
         self.placeholder = placeholder
         let storage = NSTextStorage()
@@ -275,6 +283,48 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         applyUserText(updated, selection: NSRange(location: range.location + value.length, length: 0))
     }
 
+    /// ChatContextQuery's other queries at the caret, with the range a pick replaces: a lone emoji as the whole text,
+    /// the word after "#" (the range leaves the "#" out) or the word after ":" (the range takes the ":" in). The
+    /// "#" or ":" opens the text or follows a space, a newline, a period or a comma, as the "@" of a mention does.
+    func contextQuery() -> (query: ChatInputContextQuery, range: NSRange)? {
+        guard markedTextRange == nil, selectedRange.length == 0 else { return nil }
+        let string = text as NSString
+        guard string.length > 0 else { return nil }
+        let full = string as String
+        let trimmed = full.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
+        if full.count < 3, trimmed.isLoneEmoji,
+           attributedText.attribute(.init(TelegramCustomEmojiAttribute.name), at: 0, effectiveRange: nil) == nil
+        {
+            return (
+                .stickers(emoji: trimmed.withoutSkinTone),
+                NSRange(location: 0, length: (trimmed as NSString).length),
+            )
+        }
+        let caret = min(selectedRange.location, string.length)
+        var index = caret - 1
+        while index >= 0 {
+            let character = string.character(at: index)
+            switch character {
+            case 0x0A, 0x20, 0x2F, 0x40:
+                // A space or a newline ends the word; "/" and "@" start a command or a mention.
+                return nil
+            case 0x23, 0x3A:
+                if index > 0, ![0x20, 0x0A, 0x2E, 0x2C].contains(string.character(at: index - 1)) { return nil }
+                let word = NSRange(location: index + 1, length: caret - index - 1)
+                let query = string.substring(with: word)
+                if character == 0x23 { return (.hashtag(query), word) }
+                guard !query.isEmpty, let languageCodes = keyboardLanguageCodes else { return nil }
+                return (
+                    .emojiSearch(query, languageCodes: languageCodes),
+                    NSRange(location: index, length: caret - index),
+                )
+            default:
+                index -= 1
+            }
+        }
+        return nil
+    }
+
     func textViewDidChange(_: UITextView) {
         if markedTextRange == nil {
             ComposerText.refresh(textStorage)
@@ -439,5 +489,21 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         ))
         contextPlaceholderLabel.attributedText = value
         contextPlaceholderLabel.isHidden = false
+    }
+}
+
+private extension String {
+    /// Telegram's `isSingleEmoji`.
+    var isLoneEmoji: Bool {
+        count == 1 && unicodeScalars.contains {
+            $0.properties.isEmojiPresentation || $0.value == 0xFE0F || $0.value == 0x200D
+        }
+    }
+
+    /// Telegram's `basicEmoji`: the emoji without its skin tone.
+    var withoutSkinTone: String {
+        var scalars = String.UnicodeScalarView()
+        scalars.append(contentsOf: unicodeScalars.filter { !(0x1F3FB...0x1F3FF).contains($0.value) })
+        return String(scalars)
     }
 }
