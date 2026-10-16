@@ -6559,6 +6559,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             allowsSpoiler: chatVM.canHideMediaWithSpoiler,
             showsLivePhotos: chatVM.canSendLivePhotos,
             allowsViewOnce: allowsViewOnce,
+            allowsVideoCover: chatVM.allowsVideoCover,
             isReminders: customChat.isSavedMessages,
             canSchedule: chatVM.canScheduleMessages,
             canSendWhenOnline: chatVM.canSendWhenOnline,

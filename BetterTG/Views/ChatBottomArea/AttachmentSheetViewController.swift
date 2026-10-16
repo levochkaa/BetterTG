@@ -60,6 +60,9 @@ struct AttachmentSheetConfiguration {
     var showsLivePhotos = false
     /// MediaPickerScreen's `hasTimer`: a private chat with someone other than the user.
     var allowsViewOnce = false
+    /// LegacyMediaPickerGallery's `hasCoverButton`: the video editor chooses a cover in broadcast channels and Saved
+    /// Messages.
+    var allowsVideoCover = false
     /// Saved Messages sets reminders instead of scheduling and has no Send Silently.
     var isReminders = false
     var canSchedule = false
@@ -1101,7 +1104,7 @@ struct AttachmentMediaSendRequest {
     }
 
     /// TGMediaPickerGalleryVideoItemView's editing, which doesn't trim slow-motion videos
-    /// (`itemIsHighFramerateVideo`).
+    /// (`itemIsHighFramerateVideo`) and chooses a cover where the chat takes one.
     private func editVideo(_ asset: PHAsset) {
         let adjustments = videoEdits[asset.localIdentifier]
         VideoEditViewController.loadAsset(for: asset) { [weak self] video in
@@ -1110,6 +1113,7 @@ struct AttachmentMediaSendRequest {
                 asset: video,
                 adjustments: adjustments,
                 allowsTrimming: !asset.mediaSubtypes.contains(.videoHighFrameRate),
+                allowsCover: configuration.allowsVideoCover,
             )
             editor.onDone = { [weak self] edit in self?.finishEditing(asset, videoEdit: edit, video: video) }
             present(editor, animated: true)

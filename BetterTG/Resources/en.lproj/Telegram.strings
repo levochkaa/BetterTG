@@ -2058,3 +2058,6 @@
 "PeerInfo.Permissions.Geolocation" = "Geolocation";
 "PhotoEditor.CropAuto" = "AUTO";
 "VoiceOver.Stickers" = "Stickers";
+"Media.EditCover" = "Edit Cover";
+"Media.SelectFrame" = "Select Frame";
+"Media.SaveCover" = "Save Cover";

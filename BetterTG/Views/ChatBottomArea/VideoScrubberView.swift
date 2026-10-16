@@ -10,7 +10,8 @@ import UIKit
 /// curtains over the cut parts, and the white playhead. Moving a trim handle seeks to its edge and keeps at least
 /// `minimumLength`; the playhead scrubs inside the trim. Holding a handle or the playhead still for a quarter second
 /// zooms the strip about it until a frame's interval spans the strip, with denser frames read for it, so a short trim
-/// lands where it should; letting go zooms back out.
+/// lands where it should; letting go zooms back out. As the cover picker (`cover`) it has no trim, and its playhead is
+/// a frame-sized handle that a tap on the strip moves.
 final class VideoScrubberView: UIView {
     // MARK: Private
 
@@ -35,6 +36,8 @@ final class VideoScrubberView: UIView {
     private static let trimRectEpsilon: CGFloat = 3
     private static let valueEpsilon = 0.001
     private static let playheadSize = CGSize(width: 5, height: 48)
+    /// The cover picker's handle (`_scrubberHandle` with `cover`).
+    private static let coverHandleSize = CGSize(width: 30, height: 48)
     /// The step of a VoiceOver swipe on a trim handle.
     private static let accessibilityStep = 1.0
     /// `TGVideoScrubberZoomActivationInterval`: how long a hold rests before the strip zooms.
@@ -66,12 +69,20 @@ final class VideoScrubberView: UIView {
         }
     }
 
+    /// TGMediaPickerGalleryVideoScrubber's `cover`: no trimming, the 30 pt outlined handle, and a tap on the strip
+    /// that moves it (`handleTap:`).
+    var isCoverPicker = false {
+        didSet { applyCoverPicker() }
+    }
+
     private let wrapperView = ExpandedHitView()
     private let stripView = UIView()
     private let leftCurtainView = UIView()
     private let rightCurtainView = UIView()
     private let trimView = VideoTrimFrameView()
     private let playheadView = ExpandedHitView()
+    private let playheadImageView = UIImageView(image: VideoScrubberView.playheadImage())
+    private let stripTapGesture = UITapGestureRecognizer()
 
     private var asset: AVAsset?
     /// The displayed frame's size, which the crop is measured in (`videoScrubberOriginalSize:`).
@@ -196,6 +207,24 @@ final class VideoScrubberView: UIView {
             : String(format: "%d:%02d", minutes, remainder)
     }
 
+    /// The cover picker's handle: a rounded white outline 2 pt less a hairline wide, with the playhead's shadow.
+    private static func coverHandleImage() -> UIImage {
+        let format = UIGraphicsImageRendererFormat.preferred()
+        // `TGSeparatorHeight`: a hairline of the screen.
+        let lineWidth = 2 - 1 / max(1, format.scale)
+        return UIGraphicsImageRenderer(size: coverHandleSize, format: format).image { context in
+            let cgContext = context.cgContext
+            cgContext.setShadow(offset: .zero, blur: 0.5, color: UIColor(white: 0, alpha: 0.65).cgColor)
+            let path = UIBezierPath(
+                roundedRect: CGRect(origin: .zero, size: coverHandleSize).insetBy(dx: lineWidth / 2, dy: lineWidth / 2),
+                cornerRadius: 8,
+            )
+            path.lineWidth = lineWidth
+            UIColor.white.setStroke()
+            path.stroke()
+        }
+    }
+
     /// The video to scrub and its trim; `frameSize` is its displayed frame's size.
     func configure(asset: AVAsset, duration: Double, frameSize: CGSize, trimRange: ClosedRange<Double>?) {
         discardZoom()
@@ -251,6 +280,14 @@ final class VideoScrubberView: UIView {
         playheadView.center.x = trimView.frame.minX + rect.minX + playheadView.bounds.width / 2
     }
 
+    /// The cover picker's `trimStartValue` and `trimEndValue`, the main scrubber's trim, which a tap keeps the handle
+    /// inside.
+    func setTrimRange(_ range: ClosedRange<Double>) {
+        trimStart = min(max(0, range.lowerBound), duration)
+        trimEnd = min(max(trimStart, range.upperBound), duration)
+        setNeedsLayout()
+    }
+
     private func configureViews() {
         wrapperView.hitInsets = UIEdgeInsets(top: -5, left: -10, bottom: -5, right: -10)
         addSubview(wrapperView)
@@ -275,9 +312,8 @@ final class VideoScrubberView: UIView {
         wrapperView.addSubview(trimView)
         playheadView.frame = CGRect(origin: CGPoint(x: 0, y: -4), size: Self.playheadSize)
         playheadView.hitInsets = UIEdgeInsets(top: -5, left: -12, bottom: -5, right: -12)
-        let playheadImage = UIImageView(image: Self.playheadImage())
-        playheadImage.frame = playheadView.bounds
-        playheadView.addSubview(playheadImage)
+        playheadImageView.frame = playheadView.bounds
+        playheadView.addSubview(playheadImageView)
         playheadView.isAccessibilityElement = false
         wrapperView.addSubview(playheadView)
 
@@ -308,6 +344,21 @@ final class VideoScrubberView: UIView {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePlayheadPan(_:)))
         pan.delegate = self
         playheadView.addGestureRecognizer(pan)
+        stripTapGesture.addTarget(self, action: #selector(handleStripTap(_:)))
+        stripTapGesture.isEnabled = false
+        stripView.addGestureRecognizer(stripTapGesture)
+    }
+
+    /// The cover picker's look and touches; the trim's are the main scrubber's.
+    private func applyCoverPicker() {
+        allowsTrimming = !isCoverPicker
+        let size = isCoverPicker ? Self.coverHandleSize : Self.playheadSize
+        playheadView.frame = CGRect(origin: CGPoint(x: playheadView.frame.minX, y: -4), size: size)
+        playheadImageView.frame = playheadView.bounds
+        playheadImageView.image = isCoverPicker ? Self.coverHandleImage() : Self.playheadImage()
+        stripView.isUserInteractionEnabled = isCoverPicker
+        stripTapGesture.isEnabled = isCoverPicker
+        setNeedsLayout()
     }
 
     // MARK: Geometry
@@ -397,9 +448,10 @@ final class VideoScrubberView: UIView {
         let normalRect = scrubbingRect(zoomedIn: false)
         let width = playheadView.bounds.width
         var x = floor(playheadCenterX(for: value, zoomedIn: zoomedIn)) - width / 2
-        if trimStart > Self.valueEpsilon, abs(value - trimStart) < 0.01 {
+        // The cover picker's handle isn't held against a trim it doesn't show.
+        if allowsTrimming, trimStart > Self.valueEpsilon, abs(value - trimStart) < 0.01 {
             x = trimView.frame.minX + normalRect.minX
-        } else if abs(value - trimEnd) < 0.01 {
+        } else if allowsTrimming, abs(value - trimEnd) < 0.01 {
             x = trimView.frame.maxX - normalRect.minX - width
         }
         playheadView.frame.origin = CGPoint(x: x, y: -4)
@@ -972,6 +1024,23 @@ final class VideoScrubberView: UIView {
         if isZoomedIn {
             zoomOut()
         }
+    }
+
+    /// `handleTap:`: the cover's handle springs to the tapped place, kept inside the trim, and the player follows.
+    @objc private func handleStripTap(_ gesture: UITapGestureRecognizer) {
+        guard isCoverPicker, duration > Self.valueEpsilon, !isScrubbing, !isZoomedIn, !isPreparingToZoomIn else {
+            return
+        }
+        let tappedX = gesture.location(in: wrapperView).x
+        let tapped = min(max(position(forPlayheadCenterX: tappedX), trimStart), trimEnd)
+        value = tapped
+        let centerX = playheadCenterX(for: tapped, zoomedIn: false)
+        UIView.animate(withDuration: 0.2, delay: 0, usingSpringWithDamping: 1.1, initialSpringVelocity: 0) {
+            self.playheadView.center.x = centerX
+        }
+        onBeginScrubbing?()
+        onScrub?(tapped)
+        onEndScrubbing?()
     }
 }
 

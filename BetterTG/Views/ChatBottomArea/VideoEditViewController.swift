@@ -22,7 +22,9 @@ enum VideoEditorTab {
 /// with its play button, and the mute button that sends the video as a GIF. The Crop tab is TGPhotoCropController for
 /// video: the crop view over the playing video without the straightening dial, RESET, and Rotate, Mirror and Aspect
 /// Ratio; a tap plays or pauses, and moving the crop pauses the video until it settles. Done hands back the trim,
-/// mute and crop, or nothing for the video as it was; Cancel asks before it drops changes.
+/// mute and crop, or nothing for the video as it was; Cancel asks before it drops changes. Where the chat takes a
+/// cover, a video of a minute or more has TGMediaPickerGalleryInterfaceView's Edit Cover: Select Frame stops the
+/// video and swaps the trim for the cover picker, and Save Cover keeps the frame under its handle.
 final class VideoEditViewController: UIViewController {
     // MARK: Private
 
@@ -48,6 +50,13 @@ final class VideoEditViewController: UIViewController {
     private static let cropPanelHeight: CGFloat = 60
     /// The still frame under the crop, at TGPhotoEditorController's screen image size.
     private static let frameImageSide: CGFloat = 1280
+    /// TGMediaPickerCoverButton's frame width; the pill inside is narrower.
+    private static let coverButtonWidth: CGFloat = 180
+    /// The saved cover in the pill's 24 pt circle.
+    private static let coverThumbnailSide: CGFloat = 96
+    /// `_saveCoverButton`'s height and its inset from the edges.
+    private static let saveCoverHeight: CGFloat = 50
+    private static let saveCoverInset: CGFloat = 16
 
     override var prefersStatusBarHidden: Bool {
         true
@@ -61,7 +70,11 @@ final class VideoEditViewController: UIViewController {
     private let asset: AVAsset
     private let initialAdjustments: VideoEditAdjustments
     private var allowsTrimming: Bool
+    /// LegacyMediaPickerGallery's `hasCoverButton`: broadcast channels and Saved Messages.
+    private let allowsCover: Bool
     private var sendsAsGIF: Bool
+    /// TGMediaEditingContext's `coverPositionForItem:`.
+    private var coverTime: Double?
     private var editorTab: VideoEditorTab
     private let player = AVPlayer()
     /// The crop's box; the whole frame turns and mirrors inside it.
@@ -81,6 +94,15 @@ final class VideoEditViewController: UIViewController {
     private let mirrorButton = UIButton(type: .system)
     private let aspectRatioButton = UIButton(type: .system)
     private let doneButton = UIButton(type: .system)
+    private let coverButton = VideoCoverButton()
+    /// `_coverScrubberView`, read once the cover is first edited.
+    private let coverScrubber = VideoScrubberView()
+    private let coverTitleLabel = UILabel()
+    private let coverCancelButton = UIButton(type: .system)
+    private let saveCoverButton = UIButton(type: .system)
+    /// `_isCoverEditing`.
+    private var isCoverEditing = false
+    private var isCoverScrubberLoaded = false
     /// TGPhotoCropView for video, made once the displayed frame's size is known.
     private var cropView: PhotoCropView?
     /// The displayed frame's size, which the crop is measured in.
@@ -120,6 +142,7 @@ final class VideoEditViewController: UIViewController {
         }
         adjustments.sendsAsGIF = sendsAsGIF
         adjustments.crop = currentCrop
+        adjustments.coverTime = coverTime
         return adjustments
     }
 
@@ -133,18 +156,26 @@ final class VideoEditViewController: UIViewController {
         return cropView.isTracking || cropView.isAnimating
     }
 
+    /// `canHaveCover`: the chat takes a cover and the video is a minute or more (`originalDuration`).
+    private var canHaveCover: Bool {
+        allowsCover && duration >= VideoEditCover.minimumDuration
+    }
+
     /// `allowsTrimming` is false for slow-motion videos, which Telegram doesn't trim (`itemIsHighFramerateVideo`).
-    /// `initialTab` is the tab the editor opens in.
+    /// `allowsCover` offers the cover where the chat takes one, and `initialTab` is the tab the editor opens in.
     init(
         asset: AVAsset,
         adjustments: VideoEditAdjustments?,
         allowsTrimming: Bool = true,
+        allowsCover: Bool = false,
         initialTab: VideoEditorTab = .video,
     ) {
         self.asset = asset
         self.initialAdjustments = adjustments ?? VideoEditAdjustments()
         self.allowsTrimming = allowsTrimming
+        self.allowsCover = allowsCover
         self.sendsAsGIF = adjustments?.sendsAsGIF ?? false
+        self.coverTime = adjustments?.coverTime
         self.editorTab = initialTab
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
@@ -168,6 +199,7 @@ final class VideoEditViewController: UIViewController {
         configureScrubber()
         configurePlayButton()
         configureMuteButton()
+        configureCover()
         configureResetButton()
         configureTabBar()
         configureToolbar()
@@ -199,12 +231,22 @@ final class VideoEditViewController: UIViewController {
             width: contentWidth,
             height: VideoScrubberView.preferredHeight,
         )
+        coverScrubber.frame = scrubber.frame
+        // Save Cover spans the bottom while the cover is chosen, and the video ends above it.
+        let saveCoverFrame = CGRect(
+            x: safeArea.left + Self.saveCoverInset,
+            y: bounds.height - safeArea.bottom - Self.saveCoverHeight - Self.saveCoverInset,
+            width: max(0, contentWidth - Self.saveCoverInset * 2),
+            height: Self.saveCoverHeight,
+        )
+        saveCoverButton.frame = saveCoverFrame
+        let videoBottom = isCoverEditing ? saveCoverFrame.minY - 8 : toolbarTop - 8
         let videoTop = scrubber.frame.maxY + 8
         layoutPlayer(in: CGRect(
             x: safeArea.left,
             y: videoTop,
             width: contentWidth,
-            height: max(0, toolbarTop - 8 - videoTop),
+            height: max(0, videoBottom - videoTop),
         ))
         playButton.bounds = CGRect(x: 0, y: 0, width: Self.playButtonSide, height: Self.playButtonSide)
         playButton.center = CGPoint(x: playerClipView.frame.midX, y: playerClipView.frame.midY)
@@ -214,6 +256,24 @@ final class VideoEditViewController: UIViewController {
             y: toolbarTop - Self.muteButtonSide - 12,
             width: Self.muteButtonSide,
             height: Self.muteButtonSide,
+        )
+        // `_coverButtonFrameForOrientation:`: centered above the toolbar, here level with the mute button, as no
+        // caption panel sits between them.
+        let coverWidth = max(Self.coverButtonWidth, coverButton.intrinsicContentSize.width)
+        coverButton.frame = CGRect(
+            x: ((bounds.width - coverWidth) / 2).rounded(.down),
+            y: muteButton.frame.minY,
+            width: coverWidth,
+            height: Self.muteButtonSide,
+        )
+        // Select Frame and its Cancel take the tabs' strip.
+        let stripCenterY = safeArea.top + Self.tabBarHeight / 2
+        coverTitleLabel.sizeToFit()
+        coverTitleLabel.center = CGPoint(x: bounds.midX, y: stripCenterY)
+        coverCancelButton.sizeToFit()
+        coverCancelButton.frame.origin = CGPoint(
+            x: safeArea.left + 16,
+            y: stripCenterY - coverCancelButton.bounds.height / 2,
         )
         // RESET at 20 pt into its strip above the toolbar, reaching 10 pt further for touches.
         let resetWidth = ceil(resetButton.titleLabel?.intrinsicContentSize.width ?? 0)
@@ -373,6 +433,44 @@ final class VideoEditViewController: UIViewController {
         view.addSubview(resetButton)
     }
 
+    /// TGMediaPickerGalleryInterfaceView's cover editing: the Edit Cover pill, and while the cover is chosen, Select
+    /// Frame with Cancel at the top, the cover picker in the trim scrubber's place, and Save Cover across the bottom
+    /// in the app's tint. Moving the picker shows its frame and keeps the trim scrubber's playhead with it
+    /// (`videoScrubber:valueDidChange:`).
+    private func configureCover() {
+        coverButton.addTarget(self, action: #selector(coverButtonPressed), for: .touchUpInside)
+        view.addSubview(coverButton)
+        coverScrubber.isCoverPicker = true
+        coverScrubber.onBeginScrubbing = { [weak self] in
+            self?.pause()
+        }
+        coverScrubber.onScrub = { [weak self] position in
+            guard let self else { return }
+            seek(to: position)
+            scrubber.setPlaybackPosition(position)
+        }
+        view.addSubview(coverScrubber)
+        coverTitleLabel.text = L10n.telegram("Media.SelectFrame")
+        coverTitleLabel.font = .boldSystemFont(ofSize: 17)
+        coverTitleLabel.textColor = .white
+        coverTitleLabel.accessibilityTraits = .header
+        view.addSubview(coverTitleLabel)
+        coverCancelButton.setTitle(L10n.telegram("Common.Cancel"), for: .normal)
+        coverCancelButton.titleLabel?.font = .systemFont(ofSize: 17)
+        coverCancelButton.tintColor = .white
+        coverCancelButton.addTarget(self, action: #selector(cancelCoverPressed), for: .touchUpInside)
+        view.addSubview(coverCancelButton)
+        saveCoverButton.setTitle(L10n.telegram("Media.SaveCover"), for: .normal)
+        saveCoverButton.titleLabel?.font = .boldSystemFont(ofSize: 17)
+        saveCoverButton.tintColor = .white
+        saveCoverButton.backgroundColor = Self.activeColor
+        saveCoverButton.layer.cornerRadius = 10
+        saveCoverButton.layer.cornerCurve = .continuous
+        saveCoverButton.clipsToBounds = true
+        saveCoverButton.addTarget(self, action: #selector(saveCoverPressed), for: .touchUpInside)
+        view.addSubview(saveCoverButton)
+    }
+
     /// The photo editor's tab strip with the Video and Crop tabs.
     private func configureTabBar() {
         tabBarView.addSubview(tabSelectionView)
@@ -511,12 +609,19 @@ final class VideoEditViewController: UIViewController {
         playerView.transform = placement.transform
     }
 
-    /// What each tab shows: the scrubber, player and mute button, or the crop with RESET and its tools.
+    /// What each tab shows: the scrubber, player, mute and Edit Cover, or the crop with RESET and its tools. Choosing
+    /// a cover hides the tabs, the toolbar and the trim behind Select Frame (`setAllInterfaceHidden:keepHeader:`).
     private func applyVisibility() {
         let isCrop = editorTab == .crop
         let isLoaded = loadedAdjustments != nil
-        Self.setVisible(scrubber, !isCrop && isLoaded)
-        Self.setVisible(muteButton, !isCrop && isLoaded)
+        let isCover = isCoverEditing
+        Self.setVisible(scrubber, !isCrop && isLoaded && !isCover)
+        Self.setVisible(muteButton, !isCrop && isLoaded && !isCover)
+        Self.setVisible(coverButton, !isCrop && isLoaded && !isCover && canHaveCover)
+        for coverView in [coverScrubber, coverTitleLabel, coverCancelButton, saveCoverButton] as [UIView] {
+            Self.setVisible(coverView, isCover)
+        }
+        Self.setVisible(toolbarView, !isCover)
         Self.setVisible(playerClipView, !isCrop)
         if let cropView {
             Self.setVisible(cropView, isCrop)
@@ -525,7 +630,7 @@ final class VideoEditViewController: UIViewController {
         for button in [rotateButton, mirrorButton, aspectRatioButton] {
             Self.setVisible(button, isCrop && cropView != nil)
         }
-        Self.setVisible(tabBarView, cropView != nil)
+        Self.setVisible(tabBarView, cropView != nil && !isCover)
     }
 
     /// `highlightedTabs`: Mirror while mirrored, Aspect Ratio while a ratio is locked, and a tab while its edit
@@ -549,7 +654,9 @@ final class VideoEditViewController: UIViewController {
     /// `presentTab`: the crop settles before the player shows it, and the scrubber's frames take its shape
     /// (`croppingChanged`'s `updateThumbnails`).
     private func setTab(_ newTab: VideoEditorTab) {
-        guard newTab != editorTab, let cropView, !isCropBusy, !scrubber.isTrimming, !scrubber.isScrubbing else {
+        guard newTab != editorTab, let cropView, !isCropBusy, !scrubber.isTrimming, !scrubber.isScrubbing,
+              !isCoverEditing
+        else {
             return
         }
         cropView.commitPendingChanges()
@@ -558,6 +665,10 @@ final class VideoEditViewController: UIViewController {
         switch newTab {
         case .video:
             scrubber.setCrop(currentCrop)
+            // The cover goes cut as the video is, so its circle follows a changed crop.
+            if coverTime != nil {
+                updateCoverImage()
+            }
         case .crop:
             refreshCropFrame()
         }
@@ -616,6 +727,11 @@ final class VideoEditViewController: UIViewController {
         } else {
             editorTab = .video
         }
+        // A video too short for a cover, or a chat without covers, keeps none.
+        if !canHaveCover {
+            coverTime = nil
+        }
+        updateCoverImage()
         loadedAdjustments = currentAdjustments
         let item = AVPlayerItem(asset: asset)
         player.actionAtItemEnd = .none
@@ -746,7 +862,7 @@ final class VideoEditViewController: UIViewController {
 
     /// The play button shows over the paused video in the Video tab; the Crop tab plays and pauses by a tap.
     private func setPlayButtonHidden(_ requestedHidden: Bool, animated: Bool) {
-        let hidden = requestedHidden || editorTab == .crop
+        let hidden = requestedHidden || editorTab == .crop || isCoverEditing
         guard animated else {
             playButton.isHidden = hidden
             playButton.alpha = hidden ? 0 : 1
@@ -757,7 +873,7 @@ final class VideoEditViewController: UIViewController {
             self.playButton.alpha = hidden ? 0 : 1
         } completion: { finished in
             if finished {
-                self.playButton.isHidden = hidden || self.isPlaying || self.editorTab == .crop
+                self.playButton.isHidden = hidden || self.isPlaying || self.editorTab == .crop || self.isCoverEditing
             }
         }
     }
@@ -774,7 +890,7 @@ final class VideoEditViewController: UIViewController {
     }
 
     @objc private func videoTapped() {
-        guard player.currentItem != nil else { return }
+        guard player.currentItem != nil, !isCoverEditing else { return }
         if isPlaying {
             pause()
             setPlayButtonHidden(false, animated: true)
@@ -802,6 +918,85 @@ final class VideoEditViewController: UIViewController {
         )
         if !isPlaying {
             play()
+        }
+    }
+
+    // MARK: Cover
+
+    /// `coverButtonPressed` with `prepareForCoverEditing`: the video stops, and the cover picker takes the trim
+    /// scrubber's place at the saved cover, or where the video stands, its tap kept inside the trim.
+    @objc private func coverButtonPressed() {
+        guard canHaveCover, !isCoverEditing, editorTab == .video, !scrubber.isTrimming, !scrubber.isScrubbing else {
+            return
+        }
+        isCoverEditing = true
+        pause()
+        if !isCoverScrubberLoaded {
+            isCoverScrubberLoaded = true
+            coverScrubber.configure(asset: asset, duration: duration, frameSize: presentedSize, trimRange: nil)
+        }
+        coverScrubber.setTrimRange(scrubber.trimStart...max(scrubber.trimStart, scrubber.trimEnd))
+        coverScrubber.setCrop(currentCrop)
+        let current = player.currentTime().seconds
+        let position = coverTime ?? (current.isFinite ? current : scrubber.trimStart)
+        coverScrubber.setPlaybackPosition(position)
+        if coverTime != nil {
+            seek(to: position)
+            scrubber.setPlaybackPosition(position)
+        }
+        setPlayButtonHidden(true, animated: true)
+        UIView.animate(withDuration: 0.2) {
+            self.applyVisibility()
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    /// `saveCoverButtonPressed`: the frame under the handle becomes the cover (`currentPosition`).
+    @objc private func saveCoverPressed() {
+        guard isCoverEditing, !coverScrubber.isScrubbing else { return }
+        coverTime = coverScrubber.value
+        updateCoverImage()
+        endCoverEditing()
+    }
+
+    /// `cancelCoverButtonPressed`: the cover stays as it was.
+    @objc private func cancelCoverPressed() {
+        guard isCoverEditing, !coverScrubber.isScrubbing else { return }
+        endCoverEditing()
+    }
+
+    /// `coverEditorTransitionOut` with `returnFromCoverEditing`: the editor comes back with the play button.
+    private func endCoverEditing() {
+        isCoverEditing = false
+        setPlayButtonHidden(isPlaying, animated: true)
+        UIView.animate(withDuration: 0.3) {
+            self.applyVisibility()
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    /// The pill's circle shows the saved cover as it will go, cut by the crop (`coverImageSignalForItem:`).
+    private func updateCoverImage() {
+        guard let coverTime else {
+            coverButton.setImage(nil)
+            view.setNeedsLayout()
+            return
+        }
+        var edit = VideoEditAdjustments()
+        edit.crop = currentCrop
+        let asset = asset
+        Task { [weak self] in
+            let image = await VideoEditCover.image(
+                at: coverTime,
+                of: asset,
+                edit: edit,
+                maximumSide: Self.coverThumbnailSide,
+            )
+            guard let self, self.coverTime == coverTime else { return }
+            coverButton.setImage(image)
+            view.setNeedsLayout()
         }
     }
 
@@ -868,7 +1063,7 @@ final class VideoEditViewController: UIViewController {
 
     /// `dismissEditor`: changes are dropped only after Discard Changes.
     @objc private func cancelPressed() {
-        guard !scrubber.isTrimming, !scrubber.isScrubbing, !isCropBusy else { return }
+        guard !scrubber.isTrimming, !scrubber.isScrubbing, !isCropBusy, !isCoverEditing else { return }
         guard hasChanges else {
             dismiss(animated: true)
             return
@@ -886,10 +1081,12 @@ final class VideoEditViewController: UIViewController {
         present(sheet, animated: true)
     }
 
-    /// The trim, mute and crop go with the video; a waiting crop change settles first, and an untouched video hands
-    /// back nothing (`isDefaultValues`).
+    /// The trim, mute, crop and cover go with the video; a waiting crop change settles first, and an untouched video
+    /// hands back nothing (`isDefaultValues`).
     @objc private func donePressed() {
-        guard !scrubber.isTrimming, !scrubber.isScrubbing, cropView?.isTracking != true else { return }
+        guard !scrubber.isTrimming, !scrubber.isScrubbing, cropView?.isTracking != true, !isCoverEditing else {
+            return
+        }
         guard loadedAdjustments != nil else {
             dismiss(animated: true)
             return
