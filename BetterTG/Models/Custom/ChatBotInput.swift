@@ -1,7 +1,7 @@
 // ChatBotInput.swift
 
-import Foundation
 import TDLibKit
+import UIKit
 
 // MARK: - ChatBotCommand
 
@@ -17,6 +17,49 @@ struct ChatBotCommand: Equatable {
     func messageText(inGroup: Bool) -> String {
         guard inGroup, let botUsername, !botUsername.isEmpty else { return "/" + command }
         return "/" + command + "@" + botUsername
+    }
+}
+
+// MARK: - ChatMentionSuggestion
+
+/// One row of MentionChatInputContextPanelNode: a recently used inline bot or a member matching the "@" word.
+struct ChatMentionSuggestion: Equatable {
+    let userID: Int64
+    /// Inserted as "@username"; without one the short name goes in as a text mention.
+    let username: String?
+    /// Telegram's compactDisplayTitle: the first name, else the last name.
+    let compactTitle: String
+    let peer: SettingsPeer
+
+    init?(user: User) {
+        if case .userTypeDeleted = user.type { return nil }
+        let fullName = [user.firstName, user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
+        guard !fullName.isEmpty else { return nil }
+        self.userID = user.id
+        self.username = user.usernames?.activeUsernames.first
+        self.compactTitle = user.firstName.isEmpty ? user.lastName : user.firstName
+        self.peer = SettingsPeer(
+            id: user.id,
+            title: fullName,
+            file: user.profilePhoto?.small,
+            minithumbnail: user.profilePhoto?.minithumbnail,
+            placeholder: user.telegramAvatarPlaceholder,
+        )
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.userID == rhs.userID && lhs.username == rhs.username && lhs.compactTitle == rhs.compactTitle
+            && lhs.peer.title == rhs.peer.title && lhs.peer.file?.id == rhs.peer.file?.id
+    }
+
+    /// searchPeerMembers' match: a name word or the username starting with the query.
+    func matches(_ normalizedQuery: String) -> Bool {
+        guard !normalizedQuery.isEmpty else { return true }
+        if username?.lowercased().hasPrefix(normalizedQuery) == true { return true }
+        return peer.title
+            .lowercased()
+            .split(whereSeparator: \.isWhitespace)
+            .contains { $0.hasPrefix(normalizedQuery) }
     }
 }
 

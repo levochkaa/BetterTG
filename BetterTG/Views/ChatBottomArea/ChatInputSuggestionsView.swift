@@ -14,6 +14,7 @@ UICollectionViewDelegateFlowLayout {
     enum Content: Equatable {
         case hidden
         case commands([ChatBotCommand], showsBotNames: Bool)
+        case mentions([ChatMentionSuggestion])
         case inline(InlineBotQueryState)
 
         static func == (lhs: Content, rhs: Content) -> Bool {
@@ -22,6 +23,8 @@ UICollectionViewDelegateFlowLayout {
                 true
             case (.commands(let lhsCommands, let lhsNames), .commands(let rhsCommands, let rhsNames)):
                 lhsCommands == rhsCommands && lhsNames == rhsNames
+            case (.mentions(let lhsMentions), .mentions(let rhsMentions)):
+                lhsMentions == rhsMentions
             case (.inline(let lhsState), .inline(let rhsState)):
                 lhsState.botUserID == rhsState.botUserID && lhsState.query == rhsState.query
                     && lhsState.isLoading == rhsState.isLoading && lhsState.nextOffset == rhsState.nextOffset
@@ -38,6 +41,7 @@ UICollectionViewDelegateFlowLayout {
 
     var onSendCommand: ((ChatBotCommand) -> Void)?
     var onInsertCommand: ((ChatBotCommand) -> Void)?
+    var onSelectMention: ((ChatMentionSuggestion) -> Void)?
     var onSelectInlineResult: ((InlineBotResult) -> Void)?
     var onLoadMoreInlineResults: (() -> Void)?
     var onInlineButton: ((_ username: String, _ parameter: String) -> Void)?
@@ -113,7 +117,7 @@ UICollectionViewDelegateFlowLayout {
         switch (lhs, rhs) {
         case (.inline(let lhsState), .inline(let rhsState)):
             lhsState.botUserID == rhsState.botUserID && lhsState.query == rhsState.query
-        case (.commands, .commands):
+        case (.commands, .commands), (.mentions, .mentions):
             true
         default:
             false
@@ -132,7 +136,7 @@ UICollectionViewDelegateFlowLayout {
         let height: CGFloat =
             switch content {
             case .hidden: 0
-            case .commands: min(CGFloat(rows), 4.5) * Self.rowHeight
+            case .commands, .mentions: min(CGFloat(rows), 4.5) * Self.rowHeight
             case .inline: usesGallery ? Self.galleryHeight : min(CGFloat(rows), 3.5) * Self.rowHeight
             }
         isHidden = height == 0 || (!usesGallery && rows == 0)
@@ -157,6 +161,7 @@ UICollectionViewDelegateFlowLayout {
         switch content {
         case .hidden: 0
         case .commands(let commands, _): commands.count
+        case .mentions(let mentions): mentions.count
         case .inline(let state):
             showsInlineHint ? 1 : state.results.count + (inlineButton == nil ? 0 : 1)
         }
@@ -181,6 +186,9 @@ UICollectionViewDelegateFlowLayout {
             cell.configureCommand(title: "/" + command.command, detail: detail) { [weak self] in
                 self?.onInsertCommand?(command)
             }
+        case .mentions(let mentions):
+            if let client,
+               let mention = mentions[safe: indexPath.row] { cell.configureMention(mention, client: client) }
         case .inline(let state):
             if showsInlineHint {
                 cell.configureHint(state.placeholder)
@@ -202,6 +210,8 @@ UICollectionViewDelegateFlowLayout {
             break
         case .commands(let commands, _):
             if let command = commands[safe: indexPath.row] { onSendCommand?(command) }
+        case .mentions(let mentions):
+            if let mention = mentions[safe: indexPath.row] { onSelectMention?(mention) }
         case .inline(let state):
             guard !showsInlineHint else { return }
             if let button = inlineButton, indexPath.row == 0 {
@@ -359,6 +369,7 @@ private final class ChatInputSuggestionCell: UITableViewCell {
     static let reuseIdentifier = "ChatInputSuggestionCell"
 
     private let thumbnailView = TDImageLoadingView()
+    private let avatarView = ProfileAvatarView()
     private let titleLabel = UILabel()
     private let detailLabel = UILabel()
     private let insertButton = UIButton(type: .system)
@@ -385,7 +396,7 @@ private final class ChatInputSuggestionCell: UITableViewCell {
         insertButton.tintColor = .secondaryLabel
         insertButton.accessibilityLabel = L10n.telegram("Common.Edit")
         insertButton.addAction(UIAction { [weak self] _ in self?.onInsert?() }, for: .touchUpInside)
-        for subview in [thumbnailView, titleLabel, detailLabel, insertButton] as [UIView] {
+        for subview in [thumbnailView, avatarView, titleLabel, detailLabel, insertButton] as [UIView] {
             subview.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview(subview)
         }
@@ -394,6 +405,10 @@ private final class ChatInputSuggestionCell: UITableViewCell {
             thumbnailView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             thumbnailView.widthAnchor.constraint(equalToConstant: 40),
             thumbnailView.heightAnchor.constraint(equalToConstant: 40),
+            avatarView.leadingAnchor.constraint(equalTo: thumbnailView.leadingAnchor),
+            avatarView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            avatarView.widthAnchor.constraint(equalToConstant: 40),
+            avatarView.heightAnchor.constraint(equalToConstant: 40),
             titleLabel.trailingAnchor.constraint(equalTo: insertButton.leadingAnchor, constant: -8),
             titleLabel.bottomAnchor.constraint(equalTo: contentView.centerYAnchor),
             detailLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
@@ -414,7 +429,25 @@ private final class ChatInputSuggestionCell: UITableViewCell {
         super.prepareForReuse()
         thumbnailView.cancel()
         thumbnailView.image = nil
+        avatarView.prepareForReuse()
         onInsert = nil
+    }
+
+    /// MentionChatInputPanelItem: the person's photo and name, with the username below.
+    func configureMention(_ mention: ChatMentionSuggestion, client: TDLibClient) {
+        layout(thumbnail: false, insert: false, avatar: true)
+        titleLabel.text = mention.peer.title
+        titleLabel.textColor = .label
+        detailLabel.text = mention.username.map { "@" + $0 }
+        avatarView.configure(
+            file: mention.peer.file,
+            minithumbnail: mention.peer.minithumbnail,
+            placeholder: mention.peer.placeholder,
+            accountID: TDLib.shared.activeAccountID,
+            accountUserID: 0,
+            client: client,
+        )
+        selectionStyle = .default
     }
 
     func configureCommand(title: String, detail: String, onInsert: @escaping () -> Void) {
@@ -461,11 +494,13 @@ private final class ChatInputSuggestionCell: UITableViewCell {
         selectionStyle = .none
     }
 
-    private func layout(thumbnail: Bool, insert: Bool) {
+    private func layout(thumbnail: Bool, insert: Bool, avatar: Bool = false) {
         thumbnailView.isHidden = !thumbnail
+        avatarView.isHidden = !avatar
         insertButton.isHidden = !insert
-        textLeading.isActive = !thumbnail
-        textLeadingAfterThumbnail.isActive = thumbnail
+        // The avatar sits where the thumbnail does.
+        textLeading.isActive = !thumbnail && !avatar
+        textLeadingAfterThumbnail.isActive = thumbnail || avatar
     }
 }
 

@@ -19,6 +19,8 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     var onPasteImages: (([UIImage]) -> Void)?
     var onInteractionSettled: (() -> Void)?
     var onUserInteraction: (() -> Void)?
+    /// The caret moved; the mention panel follows the "@" word at the caret.
+    var onSelectionChange: (() -> Void)?
 
     private var isPresentingEditMenu = false
 
@@ -218,6 +220,37 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         typingAttributes = ComposerText.typingAttributes(in: attributedText, at: selectedRange.location)
     }
 
+    /// ChatContextQuery's mention query: the word after an "@" at the caret, where the "@" opens the text or follows a
+    /// space, a newline, a period or a comma. The range covers the "@" and the word.
+    func mentionQueryRange() -> (range: NSRange, query: String)? {
+        guard markedTextRange == nil, selectedRange.length == 0 else { return nil }
+        let string = text as NSString
+        let caret = min(selectedRange.location, string.length)
+        var index = caret - 1
+        while index >= 0 {
+            switch string.character(at: index) {
+            case 0x0A, 0x20, 0x23, 0x2F, 0x3A:
+                // A space or a newline ends the word; "#", "/" and ":" start other queries.
+                return nil
+            case 0x40:
+                if index > 0, ![0x20, 0x0A, 0x2E, 0x2C].contains(string.character(at: index - 1)) { return nil }
+                let range = NSRange(location: index, length: caret - index)
+                return (range, string.substring(with: NSRange(location: index + 1, length: caret - index - 1)))
+            default:
+                index -= 1
+            }
+        }
+        return nil
+    }
+
+    /// Replaces part of the text as the user's edit, such as a picked mention, with the caret after it.
+    func replaceText(in range: NSRange, with value: NSAttributedString) {
+        guard isEditable, markedTextRange == nil, ComposerText.isValid(range, in: text as NSString) else { return }
+        let updated = NSMutableAttributedString(attributedString: attributedText)
+        updated.replaceCharacters(in: range, with: value)
+        applyUserText(updated, selection: NSRange(location: range.location + value.length, length: 0))
+    }
+
     func textViewDidChange(_: UITextView) {
         if markedTextRange == nil {
             ComposerText.refresh(textStorage)
@@ -238,6 +271,7 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
             typingAttributes = ComposerText.typingAttributes(in: attributedText, at: selectedRange.location)
         }
         onInteractionSettled?()
+        onSelectionChange?()
     }
 
     func textView(_: UITextView, willPresentEditMenuWith _: any UIEditMenuInteractionAnimating) {

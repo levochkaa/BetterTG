@@ -117,6 +117,8 @@ import UIKit
     @Published private(set) var inlineBotQuery: InlineBotQueryState?
     /// The history was read to its start without a message (`chatHistoryState == .loaded(isEmpty: true)`).
     @Published private(set) var historyLoadedEmpty = false
+    /// MentionChatInputContextPanelNode's results for the "@" word at the caret.
+    @Published private(set) var mentionSuggestions = [ChatMentionSuggestion]()
 
     @Published var replyMessage: CustomMessage? {
         didSet {
@@ -140,6 +142,8 @@ import UIKit
             if text != oldValue {
                 scheduleComposerLinkPreview()
                 updateInlineBotQuery()
+                if text.characters.isEmpty,
+                   editCustomMessage == nil { updateMentionQuery(nil, includesInlineBots: false) }
             }
         }
     }
@@ -154,6 +158,7 @@ import UIKit
             if editMessageText != oldValue {
                 composerEditState.changeText()
                 scheduleEditLinkPreview()
+                if editMessageText.characters.isEmpty { updateMentionQuery(nil, includesInlineBots: false) }
             }
         }
     }
@@ -368,6 +373,8 @@ import UIKit
     private var botInfoTask: Task<Void, Never>?
     private var inlineBotQueryTask: Task<Void, Never>?
     private var inlineBotMoreTask: Task<Void, Never>?
+    private var mentionQueryTask: Task<Void, Never>?
+    private var mentionQuery: (query: String, includesInlineBots: Bool)?
 
     /// Discrete changes (start, stop, restored drafts) publish like the other state; the tick writes the storage.
     var timerCount: Double {
@@ -3447,6 +3454,67 @@ import UIKit
     func insertBotCommand(_ command: ChatBotCommand) {
         showsBotCommandMenu = false
         updateComposerTextFromUser(AttributedString("/" + command.command + " "))
+    }
+
+    /// ChatInterfaceStateContextQueries' `.mention`: for the "@" word at the caret, recently used inline bots when the
+    /// "@" opens the input (getRecentInlineBots), then the group's members (searchChatMembers with the mention
+    /// filter), sorted by name as Telegram sorts them. nil clears the suggestions.
+    func updateMentionQuery(_ query: String?, includesInlineBots: Bool) {
+        guard let query, !previewing else {
+            mentionQueryTask?.cancel()
+            mentionQuery = nil
+            if !mentionSuggestions.isEmpty { mentionSuggestions = [] }
+            return
+        }
+        if let current = mentionQuery, current.query == query, current.includesInlineBots == includesInlineBots {
+            return
+        }
+        mentionQuery = (query, includesInlineBots)
+        mentionQueryTask?.cancel()
+        let client = client
+        let chatID = chatID
+        let topic = location.topic
+        let searchesMembers =
+            switch customChat.type {
+            case .group, .supergroup: true
+            case .bot, .user: false
+            }
+        let accountUserID = TDLib.shared.activeAccount?.userID
+        mentionQueryTask = Task { [weak self] in
+            let normalized = query.lowercased()
+            var bots = [ChatMentionSuggestion]()
+            if includesInlineBots, let recent = try? await client.send(TDNativeRequests.getRecentInlineBots()) {
+                for userID in recent.userIds {
+                    guard let user = try? await client.getUser(userId: userID),
+                          let suggestion = ChatMentionSuggestion(user: user), suggestion.matches(normalized)
+                    else { continue }
+                    bots.append(suggestion)
+                }
+            }
+            var members = [(suggestion: ChatMentionSuggestion, sortKey: String)]()
+            if searchesMembers, let found = try? await client.send(TDNativeRequests.searchChatMembers(
+                chatId: chatID,
+                query: query,
+                limit: 50,
+                filter: .chatMembersFilterMention(.init(topicId: topic)),
+            )) {
+                let botIDs = Set(bots.map(\.userID))
+                for member in found.members {
+                    guard case .messageSenderUser(let sender) = member.memberId, sender.userId != accountUserID,
+                          !botIDs.contains(sender.userId),
+                          let user = try? await client.getUser(userId: sender.userId),
+                          let suggestion = ChatMentionSuggestion(user: user)
+                    else { continue }
+                    members.append((suggestion, [user.lastName, user.firstName].joined(separator: " ")))
+                }
+            }
+            guard !Task.isCancelled, let self, locationContextIsCurrent,
+                  mentionQuery?.query == query else { return }
+            mentionSuggestions = bots + members.sorted {
+                $0.sortKey.localizedCaseInsensitiveCompare($1.sortKey) == .orderedAscending
+            }
+            .map(\.suggestion)
+        }
     }
 
     /// ChatController's sendBotCommand: the command goes as a message with the current reply, and the input and the

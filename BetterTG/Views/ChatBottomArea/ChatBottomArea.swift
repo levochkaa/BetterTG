@@ -1090,6 +1090,11 @@ final class ChatComposerView: UIView {
         textView.onPasteImages = { [weak self] in self?.onPasteImages?($0) }
         textView.onInteractionSettled = { [weak self] in self?.onInteractionSettled?() }
         textView.onUserInteraction = { [weak self] in self?.onUserInteraction?() }
+        textView.onSelectionChange = { [weak self] in
+            guard let self, !isApplyingState else { return }
+            refreshMentionQuery()
+        }
+        suggestionsView.onSelectMention = { [weak self] mention in self?.insertMention(mention) }
     }
 
     /// The same custom menu as the rest of the app, morphing out of the button.
@@ -1424,6 +1429,7 @@ final class ChatComposerView: UIView {
         } else {
             chatVM.editMessageText = text
         }
+        refreshMentionQuery()
         updateActionButton()
         updateReplyKeyboardButton()
         draftTask?.cancel()
@@ -1885,7 +1891,11 @@ final class ChatComposerView: UIView {
     private func updateSuggestions(enabled: Bool) {
         let commands = chatVM.commandSuggestions
         let content: ChatInputSuggestionsView.Content =
-            if !enabled || chatVM.editCustomMessage != nil {
+            if !enabled {
+                .hidden
+            } else if !chatVM.mentionSuggestions.isEmpty {
+                .mentions(chatVM.mentionSuggestions)
+            } else if chatVM.editCustomMessage != nil {
                 .hidden
             } else if let inline = chatVM.inlineBotQuery {
                 .inline(inline)
@@ -1897,6 +1907,33 @@ final class ChatComposerView: UIView {
                 .hidden
             }
         suggestionsView.configure(content, client: chatVM.client)
+    }
+
+    /// MentionChatInputContextPanelNode follows the "@" word at the caret; an "@" opening the input also lists
+    /// recently used inline bots.
+    private func refreshMentionQuery() {
+        let mention = textView.mentionQueryRange()
+        chatVM.updateMentionQuery(mention?.query, includesInlineBots: mention?.range.location == 0)
+    }
+
+    /// MentionChatInputContextPanelNode's pick: "@username " in place of the typed word, or for someone without a
+    /// username their short name as a text mention (ChatTextInputTextMentionAttribute).
+    private func insertMention(_ mention: ChatMentionSuggestion) {
+        guard let query = textView.mentionQueryRange() else { return }
+        let piece =
+            if let username = mention.username, !username.isEmpty {
+                FormattedText(entities: [], text: "@" + username + " ")
+            } else {
+                FormattedText(
+                    entities: [TextEntity(
+                        length: (mention.compactTitle as NSString).length,
+                        offset: 0,
+                        type: .textEntityTypeMentionName(.init(userId: mention.userID)),
+                    )],
+                    text: mention.compactTitle + " ",
+                )
+            }
+        textView.replaceText(in: query.range, with: ComposerText.uiKit(ComposerText.attributed(piece)))
     }
 
     /// WebpagePreviewAccessoryPanelNode: the site, then the page's title or description; a tap opens the options.
