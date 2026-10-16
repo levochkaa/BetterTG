@@ -20,6 +20,8 @@ final class ChatManagementViewController: SettingsListViewController {
     )
     private lazy var photoPicker = ComposePhotoPicker(host: self)
     private var target: ChatManagementTarget?
+    /// The linked channel or discussion group, by name.
+    private var linkedChatTitle: String?
     private var chatTitle = ""
     private var chatDescription = ""
     private var savedTitle = ""
@@ -153,6 +155,24 @@ final class ChatManagementViewController: SettingsListViewController {
             rows.append(disclosure(L10n.telegram("GroupInfo.InviteLinks"), symbol: "link") { [weak self] in
                 self?.push(ChatInviteLinksViewController(target: target))
             })
+        }
+        // PeerInfoProfileItems: a channel's Discussion for those who may change its info; a group shows the
+        // channel it is linked to.
+        if target.supergroupID != nil {
+            let isLinked = (target.supergroupInfo?.linkedChatId ?? 0) != 0
+            if isChannel, target.rights?.canChangeInfo == true {
+                rows.append(disclosure(
+                    L10n.telegram("Channel.DiscussionGroup"),
+                    symbol: "bubble.left.and.text.bubble.right",
+                    value: isLinked ? linkedChatTitle : L10n.telegram("Channel.DiscussionGroupAdd"),
+                ) { [weak self] in self?.push(ChatDiscussionViewController(target: target)) })
+            } else if !isChannel, isLinked, target.rights?.canChangeInfo == true {
+                rows.append(disclosure(
+                    L10n.telegram("Group.LinkedChannel"),
+                    symbol: "megaphone",
+                    value: linkedChatTitle,
+                ) { [weak self] in self?.push(ChatDiscussionViewController(target: target)) })
+            }
         }
         // Chat History for New Members: a private supergroup without a linked channel or topics.
         if !isChannel, let info = target.supergroupInfo, target.rights?.canRestrictMembers == true,
@@ -333,10 +353,14 @@ final class ChatManagementViewController: SettingsListViewController {
         let chatID = chatID
         loadTask = Task { [weak self] in
             let target = await ChatManagementTarget.load(chatID: chatID, client: client)
+            let linkedChatID = target?.supergroupInfo?.linkedChatId ?? 0
+            var linkedTitle: String?
+            if linkedChatID != 0 { linkedTitle = await (try? client.getChat(chatId: linkedChatID))?.title }
             guard let self, !Task.isCancelled else { return }
             loadTask = nil
             guard contextIsCurrent, let target else { return }
             self.target = target
+            linkedChatTitle = linkedTitle
             if !fieldsLoaded {
                 fieldsLoaded = true
                 savedTitle = target.chat.title
