@@ -4,10 +4,11 @@
     import AVFoundation
     import UIKit
 
-    /// Launch with `-ui-probe-video-edit`. Once an account is active it opens the attachment sheet's video editor on
-    /// a generated six-second test video with a tone, so the trim and mute are checked without photo library access.
-    /// Done shows the edit and converts the video as it would be sent, with `VideoSendTranscoder` at Medium, then
-    /// shows the converted file's length, size and sound; nothing is sent.
+    /// Launch with `-ui-probe-video-edit`, or `-ui-probe-video-edit crop` to open in the Crop tab. Once an account
+    /// is active it opens the attachment sheet's video editor on a generated six-second test video with a tone, so the
+    /// trim, mute, crop and the scrubber's zoom are checked without photo library access. Done shows the edit, with
+    /// the crop in the frame's pixels, and converts the video as it would be sent, with `VideoSendTranscoder` at
+    /// Medium, then shows the converted file's length, size and sound; nothing is sent.
     @MainActor enum VideoEditProbe {
         /// The edit and the converted file, closed by Close.
         private final class ResultViewController: UIViewController {
@@ -52,7 +53,9 @@
         }
 
         static func runIfRequested(in window: UIWindow) {
-            guard ProcessInfo.processInfo.arguments.contains("-ui-probe-video-edit") else { return }
+            let arguments = ProcessInfo.processInfo.arguments
+            guard let flagIndex = arguments.firstIndex(of: "-ui-probe-video-edit") else { return }
+            let initialTab: VideoEditorTab = arguments[safe: flagIndex + 1] == "crop" ? .crop : .video
             Task { @MainActor in
                 for _ in 0..<60 where TDLib.shared.activeAccountID == nil {
                     try? await Task.sleep(for: .milliseconds(500))
@@ -71,7 +74,11 @@
                     presenter = presented
                 }
                 guard let presenter else { return }
-                let editor = VideoEditViewController(asset: AVURLAsset(url: url), adjustments: nil)
+                let editor = VideoEditViewController(
+                    asset: AVURLAsset(url: url),
+                    adjustments: nil,
+                    initialTab: initialTab,
+                )
                 editor.onDone = { [weak presenter] edit in
                     // The editor dismisses itself right after handing back the edit.
                     Task { @MainActor in
@@ -94,6 +101,13 @@
                 lines.append(String(format: "trim %.2f–%.2f s", trimRange.lowerBound, trimRange.upperBound))
             }
             lines.append(edit.sendsAsGIF ? "muted: sent as a GIF" : "with sound")
+            if let crop = edit.crop {
+                let rect = crop.videoCropRect
+                let line = "crop \(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))×\(Int(rect.height))"
+                    + " of \(Int(crop.originalSize.width))×\(Int(crop.originalSize.height))"
+                    + ", turned \(crop.orientation)" + (crop.isMirrored ? ", mirrored" : "")
+                lines.append(line)
+            }
             lines.append(edit.conversion(for: .medium))
             return lines.joined(separator: "\n")
         }
