@@ -25,7 +25,9 @@ final class VoicePlaybackHeaderView: UIView {
     var onCycleRate: (() -> Void)?
     var onClose: (() -> Void)?
     var onOpen: (() -> Void)?
-    /// MediaNavigationAccessoryHeaderNode's horizontal swipe: left to the next track, right to the previous one.
+    /// MediaNavigationAccessoryHeaderNode's horizontal swipe, which pulls in the track beside the current one: the
+    /// playlist's next track sits on the left, so a swipe to the right plays it and a swipe to the left plays the
+    /// previous one.
     var onPlayNext: (() -> Void)?
     var onPlayPrevious: (() -> Void)?
 
@@ -199,7 +201,7 @@ final class VoicePlaybackHeaderView: UIView {
 
     @objc private func trackSwiped(_ gesture: UISwipeGestureRecognizer) {
         guard content?.isMusic == true else { return }
-        if gesture.direction == .left {
+        if gesture.direction == .right {
             onPlayNext?()
         } else {
             onPlayPrevious?()

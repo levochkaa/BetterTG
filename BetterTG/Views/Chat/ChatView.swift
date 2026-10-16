@@ -1881,8 +1881,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         voicePlaybackHeader.onTogglePlayback = { Media.shared.togglePlayback() }
         voicePlaybackHeader.onCycleRate = { Media.shared.cyclePlaybackRate() }
         voicePlaybackHeader.onClose = { Media.shared.close() }
-        voicePlaybackHeader.onPlayNext = { VoicePlaylistContinuation.shared.skipMusic(toOlder: true) }
-        voicePlaybackHeader.onPlayPrevious = { VoicePlaylistContinuation.shared.skipMusic(toOlder: false) }
+        voicePlaybackHeader.onPlayNext = { Media.shared.swipeTrack(toNext: true) }
+        voicePlaybackHeader.onPlayPrevious = { Media.shared.swipeTrack(toNext: false) }
         voicePlaybackHeader.onOpen = { [weak self] in
             guard let self, let item = Media.shared.nowPlaying, item.accountID == location.accountID else { return }
             navigate(to: .message(chatID: item.chatID, messageID: item.messageID, quote: nil))

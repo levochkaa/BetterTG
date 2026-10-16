@@ -634,8 +634,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         voicePlaybackHeader.onTogglePlayback = { Media.shared.togglePlayback() }
         voicePlaybackHeader.onCycleRate = { Media.shared.cyclePlaybackRate() }
         voicePlaybackHeader.onClose = { Media.shared.close() }
-        voicePlaybackHeader.onPlayNext = { VoicePlaylistContinuation.shared.skipMusic(toOlder: true) }
-        voicePlaybackHeader.onPlayPrevious = { VoicePlaylistContinuation.shared.skipMusic(toOlder: false) }
+        voicePlaybackHeader.onPlayNext = { Media.shared.swipeTrack(toNext: true) }
+        voicePlaybackHeader.onPlayPrevious = { Media.shared.swipeTrack(toNext: false) }
         voicePlaybackHeader.onOpen = { [weak self] in self?.openVoicePlaybackMessage() }
         Publishers.CombineLatest4(
             Media.shared.$nowPlaying,

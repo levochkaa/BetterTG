@@ -60,6 +60,11 @@ final class Media: ObservableObject {
         return playbackRates.contains(stored) ? stored : 1
     }()
 
+    /// The music playlist's order and looping (MusicPlaybackSettings), which the music player changes.
+    @Published private(set) var musicSettings = MusicPlaybackSettings.load()
+    /// The loaded track's album art once it's read, for the music player (playerAlbumArt).
+    @Published private(set) var albumArtImage: UIImage?
+
     // MARK: Private
 
     private var duration = 0
@@ -141,6 +146,7 @@ final class Media: ObservableObject {
         albumArtworkTask?.cancel()
         albumArtworkTask = nil
         albumArtwork = nil
+        albumArtImage = nil
         player.stop()
         nowPlayingCenter.nowPlayingInfo = nil
     }
@@ -193,21 +199,48 @@ final class Media: ObservableObject {
         loadAlbumArtwork(for: display)
     }
 
-    /// The lock screen's next track: the chat's older track, as the header's swipe plays it.
+    /// SharedMediaPlayer.control(.next): the playlist's next track in the saved order, from the lock screen, the
+    /// header or the music player.
     func playNextTrack() {
         guard nowPlaying?.isMusic == true else { return }
-        Task { @MainActor in VoicePlaylistContinuation.shared.skipMusic(toOlder: true) }
+        Task { @MainActor in VoicePlaylistContinuation.shared.controlMusic(.next) }
     }
 
     /// SharedMediaPlayer.control(.previous): past 5 s into a track longer than 5 s it starts the track again;
-    /// otherwise the chat's newer track plays.
+    /// otherwise the playlist's previous track plays.
     func playPreviousTrack() {
         guard nowPlaying?.isMusic == true else { return }
         if duration > 5, playbackPosition > 5 {
             seekTo(0)
         } else {
-            Task { @MainActor in VoicePlaylistContinuation.shared.skipMusic(toOlder: false) }
+            Task { @MainActor in VoicePlaylistContinuation.shared.controlMusic(.previous) }
         }
+    }
+
+    /// MediaNavigationAccessoryHeaderNode's swipe, which brings in the neighbouring track the header shows beside the
+    /// current one: the playlist's next track from the left, its previous one from the right. A shuffled playlist has
+    /// no neighbours to swipe to.
+    func swipeTrack(toNext: Bool) {
+        guard nowPlaying?.isMusic == true, musicSettings.order != .random else { return }
+        if toNext {
+            playNextTrack()
+        } else {
+            playPreviousTrack()
+        }
+    }
+
+    /// Plays the loaded track again from its start, as SharedMediaPlayer does when the playlist lands on it again.
+    func restartCurrentTrack() {
+        guard !savedMediaPath.isEmpty, player.hasItem else { return }
+        seekTo(0)
+        if !player.isPlaybackRequested { play() }
+    }
+
+    /// Saves the music playlist's order and looping (updateMusicPlaybackSettingsInteractively).
+    func updateMusicSettings(_ settings: MusicPlaybackSettings) {
+        guard settings != musicSettings else { return }
+        musicSettings = settings
+        settings.save()
     }
 
     func seekForward() {
@@ -307,6 +340,11 @@ final class Media: ObservableObject {
                 case .playing:
                     isPlaying = true
                 case .ended:
+                    // SharedMediaPlayer's action at the end: a track looping on itself starts over.
+                    if nowPlaying?.isMusic == true, musicSettings.looping == .item {
+                        player.play()
+                        return
+                    }
                     let finished = nowPlaying
                     stop()
                     releasePlaybackSession()
@@ -485,6 +523,7 @@ final class Media: ObservableObject {
             guard !Task.isCancelled, let self, nowPlaying == item, let image else { return }
             let artwork = Self.mediaArtwork(image)
             albumArtwork = artwork
+            albumArtImage = image
             nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] = artwork
         }
     }
