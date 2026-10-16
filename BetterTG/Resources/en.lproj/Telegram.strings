@@ -1925,3 +1925,7 @@
 "Map.ETADays_any" = "%@ days";
 "Map.OpenIn" = "Open In";
 "Conversation.ContextMenuShare" = "Share";
+"Map.LiveLocationShowAll" = "Show All";
+"Map.SharingLocation" = "Sharing Location...";
+"Map.TapToAddTime" = "tap to add time";
+"Map.LiveLocationExtendDescription" = "For how long do you want to extend sharing your location?";

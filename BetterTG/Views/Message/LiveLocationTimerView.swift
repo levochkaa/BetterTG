@@ -2,13 +2,44 @@
 
 import UIKit
 
+// MARK: - LiveLocationUpdateText
+
+/// Telegram's stringForRelativeLiveLocationTimestamp, with stringForFullDate for an update before today: when a
+/// live location last moved.
+enum LiveLocationUpdateText {
+    static func string(since updateDate: Foundation.Date) -> String {
+        let now = Foundation.Date()
+        let difference = Int(now.timeIntervalSince(updateDate))
+        if difference < 60 {
+            return L10n.telegram("LiveLocationUpdated.JustNow")
+        }
+        if difference < 60 * 60 {
+            return L10n.telegramPlural("LiveLocationUpdated.MinutesAgo", count: difference / 60)
+        }
+        let time = updateDate.formatted(date: .omitted, time: .shortened)
+        let calendar = Foundation.Calendar.current
+        if calendar.isDate(updateDate, inSameDayAs: now) {
+            return L10n.telegram("LiveLocationUpdated.TodayAt", time)
+        }
+        let components = calendar.dateComponents([.day, .month, .year], from: updateDate)
+        guard let day = components.day, let month = components.month, let year = components.year else { return time }
+        return L10n.telegram("Time.PreciseDate_m\(month)", "\(day)", "\(year)", time)
+    }
+}
+
+// MARK: - LiveLocationTimerView
+
 /// Telegram's ChatMessageLiveLocationTimerNode: a ring in the tint color that empties as a live location's period
 /// runs out, around the remaining minutes, the rounded hours, or ∞ for a location shared until it is stopped. The
-/// owner redraws it; Telegram does so every 10 seconds.
+/// owner redraws it; Telegram does so every 10 seconds. A ring under 28 points, as in the location viewer's lists,
+/// uses the node's compact fonts.
 final class LiveLocationTimerView: UIView {
     private static let infinityFont = roundedBoldFont(size: 15)
     private static let textFont = roundedBoldFont(size: 13)
     private static let smallTextFont = roundedBoldFont(size: 11)
+    private static let compactInfinityFont = roundedBoldFont(size: 14)
+    private static let compactTextFont = roundedBoldFont(size: 12)
+    private static let compactSmallTextFont = roundedBoldFont(size: 10)
 
     private var deadline: Foundation.Date?
     private var period: TimeInterval = 0
@@ -59,22 +90,24 @@ final class LiveLocationTimerView: UIView {
         foregroundColor.setStroke()
         path.stroke()
 
+        let isCompact = bounds.width < 28
         let font: UIFont =
             if string == "∞" {
-                Self.infinityFont
+                isCompact ? Self.compactInfinityFont : Self.infinityFont
             } else if string.count > 2 {
-                Self.smallTextFont
+                isCompact ? Self.compactSmallTextFont : Self.smallTextFont
             } else {
-                Self.textFont
+                isCompact ? Self.compactTextFont : Self.textFont
             }
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: foregroundColor]
         let label = string as NSString
         let size = label.size(withAttributes: attributes)
+        let pixel = 1 / max(1, traitCollection.displayScale)
         let offset: CGPoint =
             if string == "∞" {
-                CGPoint(x: 1, y: -1)
+                isCompact ? CGPoint(x: 1 - pixel, y: 0) : CGPoint(x: 1, y: -1)
             } else if string.count > 2 {
-                CGPoint(x: 0, y: 1 / max(1, traitCollection.displayScale))
+                CGPoint(x: 0, y: pixel)
             } else {
                 .zero
             }

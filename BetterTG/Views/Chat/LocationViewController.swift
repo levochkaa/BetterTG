@@ -1,5 +1,6 @@
 // LocationViewController.swift
 
+import Combine
 import CoreLocation
 import MapKit
 import TDLibKit
@@ -362,11 +363,284 @@ private final class LocationInfoCell: UITableViewCell {
     }
 }
 
+// MARK: - LocationSender
+
+/// A live location's sender as the viewer shows them: Telegram's displayTitle and avatar.
+private struct LocationSender {
+    let title: String
+    let file: File?
+    let minithumbnail: Minithumbnail?
+    let placeholder: TelegramAvatarPlaceholder
+
+    /// The sender as one number: users are positive, and the chats that send messages negative.
+    static func key(of sender: MessageSender) -> Int64 {
+        switch sender {
+        case .messageSenderChat(let chat): chat.chatId
+        case .messageSenderUser(let user): user.userId
+        }
+    }
+
+    @MainActor static func load(_ sender: MessageSender, client: TDLibClient) async -> Self? {
+        switch sender {
+        case .messageSenderChat(let value):
+            guard let chat = try? await client.getChat(chatId: value.chatId) else { return nil }
+            return Self(
+                title: chat.title,
+                file: chat.photo?.small,
+                minithumbnail: chat.photo?.minithumbnail,
+                placeholder: TelegramAvatarPlaceholder(
+                    peerID: chat.id,
+                    accentColorID: chat.accentColorId,
+                    upgradedGiftColors: chat.upgradedGiftColors,
+                    letters: chat.title.telegramAvatarFirstLetter.map { [$0] } ?? [],
+                    isDeleted: false,
+                ),
+            )
+        case .messageSenderUser(let value):
+            guard let user = try? await client.getUser(userId: value.userId) else { return nil }
+            let name = [user.firstName, user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
+            return Self(
+                title: name.isEmpty ? L10n.telegram("User.DeletedAccount") : name,
+                file: user.profilePhoto?.small,
+                minithumbnail: user.profilePhoto?.minithumbnail,
+                placeholder: user.telegramAvatarPlaceholder,
+            )
+        }
+    }
+}
+
+// MARK: - LiveLocationRing
+
+/// The state of a live location's remaining-time ring.
+private struct LiveLocationRing {
+    let deadline: Foundation.Date
+    let period: TimeInterval
+    let isIndefinite: Bool
+}
+
+// MARK: - LiveLocationAnnotation
+
+/// LocationPinAnnotation for a live location message: the sender's pin at their latest location.
+private final class LiveLocationAnnotation: MKPointAnnotation {
+    let messageID: Int64
+    let senderKey: Int64
+
+    init(messageID: Int64, senderKey: Int64) {
+        self.messageID = messageID
+        self.senderKey = senderKey
+        super.init()
+    }
+}
+
+// MARK: - LiveLocationAnnotationView
+
+/// LocationPinAnnotationView for a person: their avatar in a small round badge, raised into a pin while selected.
+private final class LiveLocationAnnotationView: MKAnnotationView {
+    private static let shadowInset: CGFloat = 3
+    private static let pinRadius: CGFloat = 31
+    private static let pinTail: CGFloat = 12
+    private static let badgeDiameter: CGFloat = 40
+    private static let pinImage = makePinImage()
+    private static let badgeImage = makeBadgeImage()
+
+    private let backgroundView = UIImageView()
+    private let avatarView = ProfileAvatarView()
+
+    override init(annotation: (any MKAnnotation)?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        canShowCallout = false
+        displayPriority = .required
+        collisionMode = .circle
+        avatarView.showsContextMenu = false
+        avatarView.isUserInteractionEnabled = false
+        addSubview(backgroundView)
+        addSubview(avatarView)
+        applyAppearance(selected: false)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        avatarView.prepareForReuse()
+    }
+
+    override func setSelected(_ selected: Bool, animated: Bool) {
+        super.setSelected(selected, animated: animated)
+        guard animated, !UIAccessibility.isReduceMotionEnabled else {
+            applyAppearance(selected: selected)
+            return
+        }
+        UIView.animate(withDuration: 0.2) {
+            self.applyAppearance(selected: selected)
+            self.layoutIfNeeded()
+        }
+    }
+
+    /// LocationPinAnnotationView's pin: a white circle around a 55 point avatar, pointing at the location.
+    private static func makePinImage() -> UIImage {
+        let size = CGSize(width: (pinRadius + shadowInset) * 2, height: (pinRadius + shadowInset) * 2 + pinTail)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            let center = CGPoint(x: size.width / 2, y: shadowInset + pinRadius)
+            let path = UIBezierPath(
+                arcCenter: center,
+                radius: pinRadius,
+                startAngle: CGFloat.pi / 2 + 0.35,
+                endAngle: CGFloat.pi / 2 - 0.35,
+                clockwise: true,
+            )
+            path.addLine(to: CGPoint(x: center.x, y: size.height - shadowInset))
+            path.close()
+            context.cgContext.setShadow(offset: .zero, blur: 3, color: UIColor.black.withAlphaComponent(0.3).cgColor)
+            UIColor.white.setFill()
+            path.fill()
+        }
+    }
+
+    /// LocationPinAnnotationView's small node: a white badge around the avatar.
+    private static func makeBadgeImage() -> UIImage {
+        let side = badgeDiameter + shadowInset * 2
+        let size = CGSize(width: side, height: side)
+        return UIGraphicsImageRenderer(size: size).image { context in
+            context.cgContext.setShadow(offset: .zero, blur: 4, color: UIColor.black.withAlphaComponent(0.5).cgColor)
+            UIColor.white.setFill()
+            UIBezierPath(ovalIn: CGRect(origin: .zero, size: size).insetBy(dx: shadowInset, dy: shadowInset)).fill()
+        }
+    }
+
+    func configure(sender: LocationSender?, client: TDLibClient) {
+        guard let sender else { return }
+        avatarView.configure(
+            file: sender.file,
+            minithumbnail: sender.minithumbnail,
+            placeholder: sender.placeholder,
+            client: client,
+        )
+    }
+
+    /// The pin's tip, or the badge's center, sits on the location.
+    private func applyAppearance(selected: Bool) {
+        let image = selected ? Self.pinImage : Self.badgeImage
+        bounds = CGRect(origin: .zero, size: image.size)
+        backgroundView.image = image
+        backgroundView.frame = bounds
+        let avatarSize: CGFloat = selected ? 55 : 35
+        let avatarCenter = CGPoint(
+            x: image.size.width / 2,
+            y: selected ? Self.shadowInset + Self.pinRadius : image.size.height / 2,
+        )
+        avatarView.frame = CGRect(
+            x: avatarCenter.x - avatarSize / 2,
+            y: avatarCenter.y - avatarSize / 2,
+            width: avatarSize,
+            height: avatarSize,
+        )
+        centerOffset = selected ? CGPoint(x: 0, y: -(image.size.height / 2 - Self.shadowInset)) : .zero
+    }
+}
+
+// MARK: - LocationLiveCell
+
+/// LocationLiveListItem: the sender's avatar, their name, when their location was updated and how far away it is,
+/// the ring of the time left, and the directions buttons.
+private final class LocationLiveCell: UITableViewCell {
+    static let reuseIdentifier = "LocationLiveCell"
+
+    var onDirections: ((LocationDirections) -> Void)?
+
+    private let avatarView = ProfileAvatarView()
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private let timerView = LiveLocationTimerView()
+    private let directionsView = LocationDirectionsView(buttonHeight: 36, fontSize: 14, fillsWidth: false)
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        avatarView.translatesAutoresizingMaskIntoConstraints = false
+        avatarView.showsContextMenu = false
+        avatarView.isUserInteractionEnabled = false
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.font = .preferredFont(forTextStyle: .body).withWeight(.semibold)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        subtitleLabel.font = .preferredFont(forTextStyle: .subheadline)
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.adjustsFontForContentSizeCategory = true
+        timerView.translatesAutoresizingMaskIntoConstraints = false
+        directionsView.translatesAutoresizingMaskIntoConstraints = false
+        directionsView.onDirections = { [weak self] directions in self?.onDirections?(directions) }
+        for subview in [avatarView, titleLabel, subtitleLabel, timerView, directionsView] {
+            contentView.addSubview(subview)
+        }
+        NSLayoutConstraint.activate([
+            avatarView.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            avatarView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            avatarView.widthAnchor.constraint(equalToConstant: 40),
+            avatarView.heightAnchor.constraint(equalToConstant: 40),
+            titleLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 12),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: timerView.leadingAnchor, constant: -8),
+            titleLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 8),
+            subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: timerView.leadingAnchor, constant: -8),
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor),
+            timerView.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            timerView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
+            timerView.widthAnchor.constraint(equalToConstant: 24),
+            timerView.heightAnchor.constraint(equalToConstant: 24),
+            directionsView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            directionsView.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            directionsView.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 8),
+            directionsView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -10),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        avatarView.prepareForReuse()
+        onDirections = nil
+    }
+
+    /// - Parameter ring: Nil once the period has ended, which hides the ring.
+    func configure(
+        sender: LocationSender?,
+        subtitle: String,
+        ring: LiveLocationRing?,
+        driving: LocationTravelTime,
+        walking: LocationTravelTime,
+        client: TDLibClient,
+    ) {
+        if let sender {
+            avatarView.configure(
+                file: sender.file,
+                minithumbnail: sender.minithumbnail,
+                placeholder: sender.placeholder,
+                client: client,
+            )
+        }
+        titleLabel.text = sender?.title ?? " "
+        subtitleLabel.text = subtitle
+        timerView.isHidden = ring == nil
+        if let ring {
+            timerView.configure(deadline: ring.deadline, period: ring.period, isIndefinite: ring.isIndefinite)
+        }
+        directionsView.configure(driving: driving, walking: walking)
+    }
+}
+
 // MARK: - LocationViewController
 
-/// Telegram's LocationViewController for a location or a venue: the map centered on the place's pin, and under it
-/// the place's title, its address and distance, and directions by car and on foot with their travel times. Share
-/// opens the place in another app or shares a link to it; the map buttons switch the map type and follow the user.
+/// Telegram's LocationViewController. For a location or a venue: the map centered on the place's pin, and under it
+/// the place's title, its address and distance, and directions by car and on foot with their travel times; Share
+/// opens the place in another app or shares a link to it. For a live location: every live location shared in the
+/// chat, as avatar pins and as rows with when each was updated, its distance, the time left and directions, with the
+/// actions that share, extend or stop the account's own, and Show All. The map buttons switch the map type and follow
+/// the user.
 @MainActor final class LocationViewController: UIViewController, UITableViewDataSource, UITableViewDelegate,
     MKMapViewDelegate, CLLocationManagerDelegate
 {
@@ -392,20 +666,53 @@ private final class LocationInfoCell: UITableViewCell {
         }
     }
 
-    private enum Row {
+    /// LocationViewEntry.
+    private enum Row: Equatable {
         case info
+        /// Share My Live Location for...
+        case shareLiveLocation
+        /// Sharing Location... with the ring of the time left; tapping it adds time.
+        case extendLiveLocation
+        /// Stop Sharing Location, with the ring when it is the only action.
+        case stopLiveLocation(showsRing: Bool)
+        case liveLocation(messageID: Int64)
+    }
+
+    /// Travel times to a live location and when they were asked for.
+    private struct LiveTravelTimes {
+        let date: Foundation.Date
+        let driving: LocationTravelTime
+        let walking: LocationTravelTime
     }
 
     /// The message's own pin, kept selected as Telegram's forcedSelection.
     private final class SubjectAnnotation: MKPointAnnotation {}
 
     private static let subjectAnnotationIdentifier = "LocationSubject"
+    private static let liveAnnotationIdentifier = "LocationLive"
+    private static let userAnnotationIdentifier = "LocationUser"
+    private static let actionCellIdentifier = "LocationActionCell"
     /// Telegram's LocationMapNode.viewMapSpan.
     private static let viewSpan = MKCoordinateSpan(latitudeDelta: 0.008, longitudeDelta: 0.008)
     /// The list never covers more of the screen than this.
     private static let maximumListFraction: CGFloat = 0.6
+    /// Telegram redraws the live locations' times every 10 seconds.
+    private static let liveRefreshInterval: TimeInterval = 10
+    /// Telegram asks for a live location's travel times again once they are a minute old.
+    private static let travelTimeLifetime: TimeInterval = 60
+    /// TDLib's limit for a location's horizontal accuracy.
+    private static let maximumAccuracy: CLLocationAccuracy = 1500
+    /// LocationActionListItem's live location colors.
+    private static let startColor = UIColor(rgb: 0x6CC138)
+    private static let stopColor = UIColor(rgb: 0xFF6464)
 
     private let subject: LocationViewSubject
+    private let client: TDLibClient
+    private let source: TdUpdateSource?
+    private let canShareLiveLocation: Bool
+    private let peerName: String?
+    private let showsAllLiveLocations: Bool
+    private let sendLiveLocation: ((InputMessageContent) -> Void)?
     private let locationManager = CLLocationManager()
     private let mapView = MKMapView()
     private let mapModeButton = UIButton(type: .system)
@@ -418,9 +725,16 @@ private final class LocationInfoCell: UITableViewCell {
         return formatter
     }()
 
+    private let shortDistanceFormatter: MKDistanceFormatter = {
+        let formatter = MKDistanceFormatter()
+        formatter.unitStyle = .abbreviated
+        return formatter
+    }()
+
     private var tableHeightConstraint: NSLayoutConstraint?
     private var contentSizeObservation: NSKeyValueObservation?
     private var mapMode = MapMode.map
+    private var rows: [[Row]] = [[.info]]
     private var userLocation: CLLocation?
     private var accessDenied = false
     /// The venue's address, or the reverse geocoded one; nil while it is looked up.
@@ -430,13 +744,60 @@ private final class LocationInfoCell: UITableViewCell {
     private var geocodeTask: Task<Void, Never>?
     private var travelTimeTask: Task<Void, Never>?
     private var iconCache = [String: UIImage]()
+    private var cancellables = Set<AnyCancellable>()
+    /// Telegram's live locations of the chat (topPeerActiveLiveLocationMessages), the opened message first.
+    private var liveMessages = [Message]()
+    /// The account's own live locations in the chat that LiveLocationManager is sharing.
+    private var ownBroadcastIDs = Set<Int64>()
+    private var senders = [Int64: LocationSender]()
+    private var loadingSenders = Set<Int64>()
+    private var liveAnnotations = [Int64: LiveLocationAnnotation]()
+    private var liveTravelTimes = [Int64: LiveTravelTimes]()
+    private var liveTravelTasks = [Int64: Task<Void, Never>]()
+    private var refreshingMessageIDs = Set<Int64>()
+    private var staleMessageIDs = Set<Int64>()
+    private var liveLoadTask: Task<Void, Never>?
+    private var liveTimer: Timer?
+    /// Whether the user's location shows the account's avatar for its own live location.
+    private var showsOwnAnnotation = false
+    private var didShowAllLiveLocations = false
 
-    private var rows: [[Row]] {
-        [[.info]]
+    private var isLiveView: Bool {
+        subject.liveMessage != nil
     }
 
-    init(subject: LocationViewSubject) {
+    private var chatID: Int64 {
+        subject.liveMessage?.chatId ?? 0
+    }
+
+    /// Telegram's activeOwnLiveLocation: the account's own live location here while it is shared.
+    private var ownLiveMessage: Message? {
+        liveMessages.first { $0.isOutgoing && ownBroadcastIDs.contains($0.id) }
+    }
+
+    /// - Parameters:
+    ///   - client: The client of the message's chat.
+    ///   - source: That client's updates keep the live locations current.
+    ///   - canShareLiveLocation: Whether the account can share its live location in the chat.
+    ///   - peerName: The other user's name in a private chat, for the live location description.
+    ///   - showsAllLiveLocations: Telegram's showAll for the viewer opened from the live location panel.
+    ///   - sendLiveLocation: Sends the account's live location to the chat.
+    init(
+        subject: LocationViewSubject,
+        client: TDLibClient,
+        source: TdUpdateSource?,
+        canShareLiveLocation: Bool = false,
+        peerName: String? = nil,
+        showsAllLiveLocations: Bool = false,
+        sendLiveLocation: ((InputMessageContent) -> Void)? = nil,
+    ) {
         self.subject = subject
+        self.client = client
+        self.source = source
+        self.canShareLiveLocation = canShareLiveLocation
+        self.peerName = peerName
+        self.showsAllLiveLocations = showsAllLiveLocations
+        self.sendLiveLocation = sendLiveLocation
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -447,6 +808,11 @@ private final class LocationInfoCell: UITableViewCell {
     deinit {
         geocodeTask?.cancel()
         travelTimeTask?.cancel()
+        liveLoadTask?.cancel()
+        liveTimer?.invalidate()
+        for task in liveTravelTasks.values {
+            task.cancel()
+        }
     }
 
     override func viewDidLoad() {
@@ -457,24 +823,62 @@ private final class LocationInfoCell: UITableViewCell {
             systemItem: .close,
             primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
         )
-        let shareItem = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.up"), primaryAction: nil)
-        shareItem.primaryAction = UIAction { [weak self, weak shareItem] _ in
-            guard let shareItem else { return }
-            self?.share(from: shareItem)
+        if !isLiveView {
+            let shareItem = UIBarButtonItem(image: UIImage(systemName: "square.and.arrow.up"), primaryAction: nil)
+            shareItem.primaryAction = UIAction { [weak self, weak shareItem] _ in
+                guard let shareItem else { return }
+                self?.share(from: shareItem)
+            }
+            shareItem.accessibilityLabel = L10n.telegram("Conversation.ContextMenuShare")
+            navigationItem.rightBarButtonItem = shareItem
         }
-        shareItem.accessibilityLabel = L10n.telegram("Conversation.ContextMenuShare")
-        navigationItem.rightBarButtonItem = shareItem
         configureMap()
         configureTable()
         layoutViews()
         locationManager.delegate = self
         authorizationChanged()
-        loadAddress()
+        if isLiveView {
+            startLiveLocations()
+        } else {
+            loadAddress()
+        }
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateTableHeight()
+    }
+
+    /// PeerLiveLocationsContext's filter: a live location whose period hasn't ended, or one shared until stopped.
+    private static func isActive(_ message: Message) -> Bool {
+        liveRing(of: message) != nil
+    }
+
+    /// The remaining-time ring of a live location, nil once its period has ended.
+    private static func liveRing(of message: Message) -> LiveLocationRing? {
+        guard case .messageLiveLocation(let live) = message.content else { return nil }
+        let period = live.location.livePeriod
+        let isIndefinite = period == LiveLocationManager.indefinitePeriod
+        let deadline = message.date + period
+        guard isIndefinite || deadline > Int(Foundation.Date().timeIntervalSince1970) else { return nil }
+        return LiveLocationRing(
+            deadline: Foundation.Date(timeIntervalSince1970: TimeInterval(deadline)),
+            period: TimeInterval(period),
+            isIndefinite: isIndefinite,
+        )
+    }
+
+    private static func coordinate(of message: Message) -> CLLocationCoordinate2D? {
+        guard case .messageLiveLocation(let live) = message.content else { return nil }
+        return CLLocationCoordinate2D(
+            latitude: live.location.location.latitude,
+            longitude: live.location.location.longitude,
+        )
+    }
+
+    /// The EditedMessageAttribute's date, else the message's.
+    private static func updateDate(of message: Message) -> Foundation.Date {
+        Foundation.Date(timeIntervalSince1970: TimeInterval(message.editDate > 0 ? message.editDate : message.date))
     }
 
     /// Telegram presents the viewer as a sheet.
@@ -499,7 +903,8 @@ private final class LocationInfoCell: UITableViewCell {
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        switch rows[indexPath.section][indexPath.row] {
+        let row = rows[indexPath.section][indexPath.row]
+        switch row {
         case .info:
             let cell = tableView.dequeueReusableCell(withIdentifier: LocationInfoCell.reuseIdentifier, for: indexPath)
             guard let infoCell = cell as? LocationInfoCell else { return cell }
@@ -511,10 +916,28 @@ private final class LocationInfoCell: UITableViewCell {
                 driving: drivingTime,
                 walking: walkingTime,
             )
+            let coordinate = subject.coordinate
+            let venue = subject.venue
             infoCell.onDirections = { [weak self, weak infoCell] directions in
-                self?.requestDirections(directions, name: nil, sourceView: infoCell)
+                self?.requestDirections(
+                    directions,
+                    coordinate: coordinate,
+                    venue: venue,
+                    name: nil,
+                    sourceView: infoCell,
+                )
             }
             return infoCell
+        case .extendLiveLocation, .shareLiveLocation, .stopLiveLocation:
+            let cell = tableView.dequeueReusableCell(withIdentifier: Self.actionCellIdentifier, for: indexPath)
+            configureAction(cell, row: row)
+            return cell
+        case .liveLocation(let messageID):
+            let cell = tableView.dequeueReusableCell(withIdentifier: LocationLiveCell.reuseIdentifier, for: indexPath)
+            guard let liveCell = cell as? LocationLiveCell,
+                  let message = liveMessages.first(where: { $0.id == messageID }) else { return cell }
+            configureLive(liveCell, message: message)
+            return liveCell
         }
     }
 
@@ -523,6 +946,16 @@ private final class LocationInfoCell: UITableViewCell {
         switch rows[indexPath.section][indexPath.row] {
         case .info:
             goToCoordinate(subject.coordinate)
+        case .shareLiveLocation:
+            presentLivePeriods(extend: false, sourceView: tableView.cellForRow(at: indexPath))
+        case .extendLiveLocation:
+            presentLivePeriods(extend: true, sourceView: tableView.cellForRow(at: indexPath))
+        case .stopLiveLocation:
+            stopLiveLocation()
+        case .liveLocation(let messageID):
+            guard let message = liveMessages.first(where: { $0.id == messageID }),
+                  let coordinate = Self.coordinate(of: message) else { return }
+            goToCoordinate(coordinate)
         }
     }
 
@@ -533,12 +966,37 @@ private final class LocationInfoCell: UITableViewCell {
         let isFirstLocation = userLocation == nil
         userLocation = location
         if isFirstLocation {
-            calculateTravelTimes()
+            if isLiveView {
+                updateLiveTravelTimes()
+            } else {
+                calculateTravelTimes()
+            }
         }
-        reconfigureInfoRow()
+        reloadRows()
     }
 
     func mapView(_ mapView: MKMapView, viewFor annotation: any MKAnnotation) -> MKAnnotationView? {
+        if annotation is MKUserLocation {
+            // Telegram's userLocationAnnotation: the account's avatar while it shares its live location here.
+            guard showsOwnAnnotation, let own = ownLiveMessage else { return nil }
+            let view = mapView.dequeueReusableAnnotationView(
+                withIdentifier: Self.userAnnotationIdentifier,
+                for: annotation,
+            )
+            (view as? LiveLocationAnnotationView)?.configure(
+                sender: senders[LocationSender.key(of: own.senderId)],
+                client: client,
+            )
+            return view
+        }
+        if let live = annotation as? LiveLocationAnnotation {
+            let view = mapView.dequeueReusableAnnotationView(
+                withIdentifier: Self.liveAnnotationIdentifier,
+                for: annotation,
+            )
+            (view as? LiveLocationAnnotationView)?.configure(sender: senders[live.senderKey], client: client)
+            return view
+        }
         guard annotation === subjectAnnotation else { return nil }
         let view = mapView.dequeueReusableAnnotationView(
             withIdentifier: Self.subjectAnnotationIdentifier,
@@ -586,10 +1044,20 @@ private final class LocationInfoCell: UITableViewCell {
             MKMarkerAnnotationView.self,
             forAnnotationViewWithReuseIdentifier: Self.subjectAnnotationIdentifier,
         )
+        mapView.register(
+            LiveLocationAnnotationView.self,
+            forAnnotationViewWithReuseIdentifier: Self.liveAnnotationIdentifier,
+        )
+        mapView.register(
+            LiveLocationAnnotationView.self,
+            forAnnotationViewWithReuseIdentifier: Self.userAnnotationIdentifier,
+        )
         mapView.setRegion(MKCoordinateRegion(center: subject.coordinate, span: Self.viewSpan), animated: false)
-        subjectAnnotation.coordinate = subject.coordinate
-        subjectAnnotation.title = subject.venue?.title
-        mapView.addAnnotation(subjectAnnotation)
+        if !isLiveView {
+            subjectAnnotation.coordinate = subject.coordinate
+            subjectAnnotation.title = subject.venue?.title
+            mapView.addAnnotation(subjectAnnotation)
+        }
 
         // LocationMapHeaderNode's options: the map type, and following the user's location.
         for button in [mapModeButton, trackingButton] {
@@ -618,6 +1086,8 @@ private final class LocationInfoCell: UITableViewCell {
         tableView.dataSource = self
         tableView.delegate = self
         tableView.register(LocationInfoCell.self, forCellReuseIdentifier: LocationInfoCell.reuseIdentifier)
+        tableView.register(LocationLiveCell.self, forCellReuseIdentifier: LocationLiveCell.reuseIdentifier)
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: Self.actionCellIdentifier)
         contentSizeObservation = tableView.observe(\.contentSize) { [weak self] _, _ in
             MainActor.assumeIsolated { self?.updateTableHeight() }
         }
@@ -690,13 +1160,13 @@ private final class LocationInfoCell: UITableViewCell {
         default:
             accessDenied = true
             mapView.showsUserLocation = false
-            // Without the user's location MapKit has no travel times, and the row offers Get Directions.
+            // Without the user's location MapKit has no travel times, and the rows offer Get Directions.
             if drivingTime == .calculating || walkingTime == .calculating {
                 travelTimeTask?.cancel()
                 drivingTime = .unknown
                 walkingTime = .unknown
-                reconfigureInfoRow()
             }
+            reloadRows()
         }
     }
 
@@ -747,7 +1217,7 @@ private final class LocationInfoCell: UITableViewCell {
             guard let self, !Task.isCancelled else { return }
             address = item?.address?.shortAddress ?? item?.addressRepresentations?.cityName
                 ?? item?.addressRepresentations?.regionName ?? ""
-            reconfigureInfoRow()
+            reloadRows()
         }
     }
 
@@ -762,7 +1232,7 @@ private final class LocationInfoCell: UITableViewCell {
             guard let self, !Task.isCancelled else { return }
             drivingTime = drivingResult
             walkingTime = walking
-            reconfigureInfoRow()
+            reloadRows()
         }
     }
 
@@ -780,36 +1250,507 @@ private final class LocationInfoCell: UITableViewCell {
         return components.filter { !$0.isEmpty }.joined(separator: " • ")
     }
 
-    private func reconfigureInfoRow() {
-        guard isViewLoaded else { return }
-        var indexPaths = [IndexPath]()
-        for (section, sectionRows) in rows.enumerated() {
-            for (row, value) in sectionRows.enumerated() {
-                if case .info = value {
-                    indexPaths.append(IndexPath(row: row, section: section))
+    /// LocationViewControllerNode's entries: the info row for a location or a venue; for a live location the actions
+    /// for the account's own, then everyone else's live locations.
+    private func makeRows() -> [[Row]] {
+        guard isLiveView else { return [[.info]] }
+        var actions = [Row]()
+        let own = ownLiveMessage
+        if let own, case .messageLiveLocation(let live) = own.content {
+            actions =
+                if live.location.livePeriod == LiveLocationManager.indefinitePeriod {
+                    [.stopLiveLocation(showsRing: true)]
+                } else {
+                    [.extendLiveLocation, .stopLiveLocation(showsRing: false)]
                 }
+        } else if canShareLiveLocation, sendLiveLocation != nil {
+            actions = [.shareLiveLocation]
+        }
+        let sharers = liveMessages.filter { $0.id != own?.id }.map { Row.liveLocation(messageID: $0.id) }
+        return [actions, sharers].filter { !$0.isEmpty }
+    }
+
+    /// A change of the rows reloads the list; otherwise the visible rows show the latest times and distances.
+    private func reloadRows() {
+        guard isViewLoaded else { return }
+        let newRows = makeRows()
+        guard newRows == rows else {
+            rows = newRows
+            tableView.reloadData()
+            return
+        }
+        let visible = tableView.indexPathsForVisibleRows ?? []
+        guard !visible.isEmpty else { return }
+        tableView.reconfigureRows(at: visible)
+    }
+
+    /// LocationActionListItem: Share My Live Location; or Sharing Location... with the ring of the time left, and Stop
+    /// Sharing Location with when the location was updated.
+    private func configureAction(_ cell: UITableViewCell, row: Row) {
+        var configuration = UIListContentConfiguration.subtitleCell()
+        configuration.textProperties.font = .preferredFont(forTextStyle: .body).withWeight(.semibold)
+        configuration.secondaryTextProperties.color = .secondaryLabel
+        configuration.imageProperties.maximumSize = CGSize(width: 40, height: 40)
+        configuration.imageProperties.reservedLayoutSize = CGSize(width: 40, height: 40)
+        var showsRing = false
+        switch row {
+        case .shareLiveLocation:
+            configuration.text = L10n.telegram("Map.ShareLiveLocation")
+            configuration.secondaryText = L10n.telegram("Map.ShareLiveLocationHelp")
+            configuration.textProperties.color = .tintColor
+            configuration.image = icon(symbol: "dot.radiowaves.left.and.right", color: Self.startColor)
+        case .extendLiveLocation:
+            configuration.text = L10n.telegram("Map.SharingLocation")
+            configuration.secondaryText = L10n.telegram("Map.TapToAddTime")
+            configuration.image = icon(symbol: "location.fill", color: Self.startColor, addsPlus: true)
+            showsRing = true
+        case .stopLiveLocation(let ring):
+            configuration.text = L10n.telegram("Map.StopLiveLocation")
+            configuration.secondaryText = ownLiveMessage
+                .map { LiveLocationUpdateText.string(since: Self.updateDate(of: $0)) }
+            configuration.image = icon(symbol: "location.slash.fill", color: Self.stopColor)
+            showsRing = ring
+        case .info, .liveLocation:
+            break
+        }
+        cell.contentConfiguration = configuration
+        guard showsRing, let own = ownLiveMessage, let ring = Self.liveRing(of: own) else {
+            cell.accessoryView = nil
+            return
+        }
+        let timerView = cell.accessoryView as? LiveLocationTimerView
+            ?? LiveLocationTimerView(frame: CGRect(x: 0, y: 0, width: 24, height: 24))
+        timerView.configure(deadline: ring.deadline, period: ring.period, isIndefinite: ring.isIndefinite)
+        cell.accessoryView = timerView
+    }
+
+    /// LocationLiveListItem's subtitle: when the location was updated, and how far away it is.
+    private func configureLive(_ cell: LocationLiveCell, message: Message) {
+        let coordinate = Self.coordinate(of: message)
+        var subtitle = LiveLocationUpdateText.string(since: Self.updateDate(of: message))
+        if let userLocation, let coordinate {
+            let distance = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+                .distance(from: userLocation)
+            subtitle += " • " + L10n.telegram("Map.DistanceAway", shortDistance(distance))
+        }
+        let sender = senders[LocationSender.key(of: message.senderId)]
+        let times = travelTimes(for: message)
+        cell.configure(
+            sender: sender,
+            subtitle: subtitle,
+            ring: Self.liveRing(of: message),
+            driving: times.driving,
+            walking: times.walking,
+            client: client,
+        )
+        cell.onDirections = { [weak self, weak cell] directions in
+            guard let self, let coordinate else { return }
+            requestDirections(directions, coordinate: coordinate, venue: nil, name: sender?.title, sourceView: cell)
+        }
+    }
+
+    /// Telegram's shortStringForDistance.
+    private func shortDistance(_ distance: CLLocationDistance) -> String {
+        let result = shortDistanceFormatter.string(fromDistance: Double(max(1, Int(distance))))
+        return result.hasPrefix("0 ") ? result.replacingOccurrences(of: "0 ", with: "1 ") : result
+    }
+
+    /// Travel times are only asked for others' live locations; without the user's location the row offers Get
+    /// Directions.
+    private func travelTimes(for message: Message) -> (driving: LocationTravelTime, walking: LocationTravelTime) {
+        guard !accessDenied, !message.isOutgoing else { return (.unknown, .unknown) }
+        guard let times = liveTravelTimes[message.id] else { return (.calculating, .calculating) }
+        return (times.driving, times.walking)
+    }
+
+    // Live locations
+
+    /// Telegram's topPeerActiveLiveLocationMessages for the chat: TDLib's recent locations of its members, kept
+    /// current by the messages' updates, with the account's own from LiveLocationManager.
+    private func startLiveLocations() {
+        guard let message = subject.liveMessage else { return }
+        liveMessages = [message]
+        observeLiveLocations()
+        LiveLocationManager.shared
+            .$broadcasts
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] broadcasts in self?.broadcastsChanged(broadcasts) }
+            .store(in: &cancellables)
+        let timer = Timer(timeInterval: Self.liveRefreshInterval, repeats: true) { [weak self] _ in
+            self?.liveTimerFired()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        liveTimer = timer
+        liveLocationsChanged()
+        let client = client
+        let chatID = chatID
+        liveLoadTask = Task { [weak self] in
+            let found = try? await client.searchChatRecentLocationMessages(chatId: chatID, limit: 100)
+            guard let self, !Task.isCancelled, let found else { return }
+            for message in found.messages {
+                merge(message)
+            }
+            liveLocationsChanged()
+        }
+    }
+
+    private func observeLiveLocations() {
+        nc.scopedPublisher(&cancellables, for: .updateMessageContent) { [weak self] event in
+            guard let self, event.source == source, event.value.chatId == chatID,
+                  liveMessages.contains(where: { $0.id == event.value.messageId }) else { return }
+            refreshMessage(event.value.messageId)
+        }
+        nc.scopedPublisher(&cancellables, for: .updateMessageEdited) { [weak self] event in
+            guard let self, event.source == source, event.value.chatId == chatID,
+                  liveMessages.contains(where: { $0.id == event.value.messageId }) else { return }
+            refreshMessage(event.value.messageId)
+        }
+        nc.scopedPublisher(&cancellables, for: .updateNewMessage) { [weak self] event in
+            let message = event.value.message
+            guard let self, event.source == source, message.chatId == chatID, message.sendingState == nil,
+                  case .messageLiveLocation = message.content else { return }
+            if merge(message) {
+                liveLocationsChanged()
             }
         }
-        guard !indexPaths.isEmpty else { return }
-        tableView.reconfigureRows(at: indexPaths)
+        nc.scopedPublisher(&cancellables, for: .updateDeleteMessages) { [weak self] event in
+            guard let self, event.source == source, event.value.chatId == chatID,
+                  event.value.isPermanent else { return }
+            let deleted = Set(event.value.messageIds)
+            let count = liveMessages.count
+            liveMessages.removeAll { deleted.contains($0.id) }
+            if liveMessages.count != count {
+                liveLocationsChanged()
+            }
+        }
+    }
+
+    /// LiveLocationManager's broadcasts tell which live location here is the account's own and still shared.
+    private func broadcastsChanged(_ broadcasts: [LiveLocationBroadcast]) {
+        let ids = Set(broadcasts.filter { $0.source == source && $0.chatID == chatID }.map(\.messageID))
+        guard ids != ownBroadcastIDs else { return }
+        ownBroadcastIDs = ids
+        for id in ids where !liveMessages.contains(where: { $0.id == id }) {
+            refreshMessage(id)
+        }
+        liveLocationsChanged()
+    }
+
+    /// The message's latest state from TDLib after an edit; another update meanwhile asks again.
+    private func refreshMessage(_ messageID: Int64) {
+        guard !refreshingMessageIDs.contains(messageID) else {
+            staleMessageIDs.insert(messageID)
+            return
+        }
+        refreshingMessageIDs.insert(messageID)
+        let client = client
+        let chatID = chatID
+        Task { [weak self] in
+            let message = try? await client.getMessage(chatId: chatID, messageId: messageID)
+            guard let self else { return }
+            refreshingMessageIDs.remove(messageID)
+            if let message, merge(message) {
+                liveLocationsChanged()
+            }
+            if staleMessageIDs.remove(messageID) != nil {
+                refreshMessage(messageID)
+            }
+        }
+    }
+
+    /// A live location stays while it is shared; the opened message stays first either way.
+    @discardableResult private func merge(_ message: Message) -> Bool {
+        guard message.chatId == chatID else { return false }
+        let index = liveMessages.firstIndex { $0.id == message.id }
+        let keeps = message.id == subject.liveMessage?.id || Self.isActive(message)
+        switch (index, keeps) {
+        case (let index?, true):
+            liveMessages[index] = message
+        case (let index?, false):
+            liveMessages.remove(at: index)
+        case (nil, true):
+            liveMessages.append(message)
+        case (nil, false):
+            return false
+        }
+        return true
+    }
+
+    private func liveLocationsChanged() {
+        for message in liveMessages {
+            loadSender(of: message)
+        }
+        updateLiveAnnotations()
+        updateLiveTravelTimes()
+        reloadRows()
+    }
+
+    /// Telegram redraws the times every 10 seconds; a live location whose period has ended leaves the list.
+    private func liveTimerFired() {
+        let subjectID = subject.liveMessage?.id
+        let count = liveMessages.count
+        liveMessages.removeAll { $0.id != subjectID && !Self.isActive($0) }
+        if liveMessages.count != count {
+            liveLocationsChanged()
+        } else {
+            updateLiveTravelTimes()
+            reloadRows()
+        }
+    }
+
+    private func loadSender(of message: Message) {
+        let senderID = message.senderId
+        let key = LocationSender.key(of: senderID)
+        guard senders[key] == nil, !loadingSenders.contains(key) else { return }
+        loadingSenders.insert(key)
+        let client = client
+        Task { [weak self] in
+            let sender = await LocationSender.load(senderID, client: client)
+            guard let self else { return }
+            loadingSenders.remove(key)
+            guard let sender else { return }
+            senders[key] = sender
+            senderLoaded(key)
+        }
+    }
+
+    private func senderLoaded(_ key: Int64) {
+        for annotation in liveAnnotations.values where annotation.senderKey == key {
+            (mapView.view(for: annotation) as? LiveLocationAnnotationView)?.configure(
+                sender: senders[key],
+                client: client,
+            )
+        }
+        if showsOwnAnnotation, let own = ownLiveMessage, LocationSender.key(of: own.senderId) == key {
+            (mapView.view(for: mapView.userLocation) as? LiveLocationAnnotationView)?.configure(
+                sender: senders[key],
+                client: client,
+            )
+        }
+        reloadRows()
+    }
+
+    /// LocationMapNode's annotations: a pin for everyone else's live location, and the account's own on the user's
+    /// location as Telegram's userLocationAnnotation.
+    private func updateLiveAnnotations() {
+        let own = ownLiveMessage
+        let shown = liveMessages.filter { $0.id != own?.id }
+        let shownIDs = Set(shown.map(\.id))
+        for (messageID, annotation) in liveAnnotations where !shownIDs.contains(messageID) {
+            mapView.removeAnnotation(annotation)
+            liveAnnotations[messageID] = nil
+        }
+        for message in shown {
+            guard let coordinate = Self.coordinate(of: message) else { continue }
+            if let annotation = liveAnnotations[message.id] {
+                if annotation.coordinate.latitude != coordinate.latitude
+                    || annotation.coordinate.longitude != coordinate.longitude
+                {
+                    annotation.coordinate = coordinate
+                }
+            } else {
+                let annotation = LiveLocationAnnotation(
+                    messageID: message.id,
+                    senderKey: LocationSender.key(of: message.senderId),
+                )
+                annotation.coordinate = coordinate
+                liveAnnotations[message.id] = annotation
+                mapView.addAnnotation(annotation)
+            }
+        }
+        if (own != nil) != showsOwnAnnotation {
+            showsOwnAnnotation = own != nil
+            // MapKit asks for the user's location view again: the avatar, or the standard dot.
+            if mapView.showsUserLocation {
+                mapView.showsUserLocation = false
+                mapView.showsUserLocation = true
+            }
+        }
+        updateShowAllButton()
+        if showsAllLiveLocations, !didShowAllLiveLocations, !liveAnnotations.isEmpty {
+            didShowAllLiveLocations = true
+            showAllLiveLocations()
+        }
+    }
+
+    /// Telegram's right bar button for a live location: Show All while there are pins.
+    private func updateShowAllButton() {
+        let showsAll = !liveAnnotations.isEmpty
+        guard showsAll != (navigationItem.rightBarButtonItem != nil) else { return }
+        guard showsAll else {
+            navigationItem.rightBarButtonItem = nil
+            return
+        }
+        let action = UIAction(title: L10n.telegram("Map.LiveLocationShowAll")) { [weak self] _ in
+            self?.showAllLiveLocations()
+        }
+        navigationItem.rightBarButtonItem = UIBarButtonItem(primaryAction: action)
+    }
+
+    /// LocationMapNode.showAll: the user and every pin in view, each with 50 meters around it.
+    private func showAllLiveLocations() {
+        var coordinates = liveAnnotations.values.map(\.coordinate)
+        if let userLocation {
+            coordinates.append(userLocation.coordinate)
+        }
+        var zoomRect: MKMapRect?
+        for coordinate in coordinates {
+            let point = MKMapPoint(coordinate)
+            let side = MKMapPointsPerMeterAtLatitude(coordinate.latitude) * 100
+            let rect = MKMapRect(x: point.x - side / 2, y: point.y - side / 2, width: side, height: side)
+            zoomRect = zoomRect.map { $0.union(rect) } ?? rect
+        }
+        guard let zoomRect else { return }
+        mapView.setUserTrackingMode(.none, animated: false)
+        mapView.setVisibleMapRect(
+            zoomRect,
+            edgePadding: UIEdgeInsets(top: 80, left: 48, bottom: 32, right: 48),
+            animated: true,
+        )
+    }
+
+    /// Telegram's travel times for each live location: MapKit's estimates once the user's location is known, asked
+    /// for again when they are a minute old.
+    private func updateLiveTravelTimes() {
+        guard userLocation != nil, !accessDenied else { return }
+        let now = Foundation.Date()
+        for message in liveMessages where !message.isOutgoing {
+            let messageID = message.id
+            if let times = liveTravelTimes[messageID], now.timeIntervalSince(times.date) < Self.travelTimeLifetime {
+                continue
+            }
+            guard liveTravelTasks[messageID] == nil, let coordinate = Self.coordinate(of: message) else { continue }
+            liveTravelTasks[messageID] = Task { [weak self] in
+                async let driving = LocationTravelTime.calculate(to: coordinate, by: .driving)
+                let walking = await LocationTravelTime.calculate(to: coordinate, by: .walking)
+                let drivingResult = await driving
+                guard let self, !Task.isCancelled else { return }
+                liveTravelTasks[messageID] = nil
+                liveTravelTimes[messageID] = LiveTravelTimes(
+                    date: Foundation.Date(),
+                    driving: drivingResult,
+                    walking: walking,
+                )
+                reloadRows()
+            }
+        }
+    }
+
+    /// Telegram's sendLiveLocation: location access, then the period from makeLiveLocationDurationContextController,
+    /// which asks how much longer when extending.
+    private func presentLivePeriods(extend: Bool, sourceView: UIView?) {
+        guard !accessDenied else {
+            presentAccessDenied()
+            return
+        }
+        guard locationManager.authorizationStatus != .notDetermined else {
+            locationManager.requestWhenInUseAuthorization()
+            return
+        }
+        let description =
+            if extend {
+                L10n.telegram("Map.LiveLocationExtendDescription")
+            } else {
+                (peerName.map { L10n.telegram("Map.LiveLocationPrivateNewDescription", $0) }
+                    ?? L10n.telegram("Map.LiveLocationGroupNewDescription"))
+                    .replacingOccurrences(of: "**", with: "")
+            }
+        let sheet = UIAlertController(title: nil, message: description, preferredStyle: .actionSheet)
+        for period in LocationPickerViewController.livePeriods {
+            let title = LocationPickerViewController.livePeriodTitle(period)
+            sheet.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+                if extend {
+                    self?.extendLiveLocation(by: period)
+                } else {
+                    self?.shareLiveLocation(period: period)
+                }
+            })
+        }
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        if let popover = sheet.popoverPresentationController {
+            let anchor = sourceView ?? tableView
+            popover.sourceView = anchor
+            popover.sourceRect = anchor.bounds
+        }
+        present(sheet, animated: true)
+    }
+
+    /// The user's location as a live location for the period; the map then shows everyone.
+    private func shareLiveLocation(period: Int) {
+        guard let send = sendLiveLocation, let location = userLocation ?? mapView.userLocation.location else { return }
+        let accuracy = location.horizontalAccuracy > 0 ? min(location.horizontalAccuracy, Self.maximumAccuracy) : 0
+        send(.inputMessageLiveLocation(TDNativeInputMessageLiveLocation(location: TDNativeLiveLocation(
+            location: TDNativeLocation(
+                latitude: location.coordinate.latitude,
+                longitude: location.coordinate.longitude,
+                horizontalAccuracy: accuracy,
+            ),
+            livePeriod: period,
+            heading: 0,
+            proximityAlertRadius: 0,
+        ))))
+        showAllLiveLocations()
+    }
+
+    /// RequestEditMessage's extendPeriod: the period grows by the chosen one, or becomes indefinite.
+    private func extendLiveLocation(by period: Int) {
+        guard let own = ownLiveMessage, case .messageLiveLocation(let live) = own.content else { return }
+        let indefinite = LiveLocationManager.indefinitePeriod
+        let location = LiveLocation(
+            location: Location(
+                latitude: live.location.location.latitude,
+                longitude: live.location.location.longitude,
+                horizontalAccuracy: live.location.location.horizontalAccuracy,
+            ),
+            livePeriod: period == indefinite ? indefinite : live.location.livePeriod + period,
+            heading: live.location.heading,
+            proximityAlertRadius: live.location.proximityAlertRadius,
+        )
+        let client = client
+        let chatID = own.chatId
+        let messageID = own.id
+        Task {
+            _ = try? await client.editMessageLiveLocation(
+                chatId: chatID,
+                messageId: messageID,
+                replyMarkup: nil,
+                location: location,
+            )
+        }
+    }
+
+    /// Telegram's stopLiveLocation: cancelLiveLocation for the chat, and the viewer closes.
+    private func stopLiveLocation() {
+        guard let source else { return }
+        LiveLocationManager.shared.stop(chatID: chatID, source: source)
+        dismiss(animated: true)
     }
 
     /// Telegram's requestDirections: Apple Maps at once when no other app can open the place, else the apps to choose
     /// from.
-    private func requestDirections(_ directions: LocationDirections, name: String?, sourceView: UIView?) {
-        let options = LocationOpenInOption.available(
-            coordinate: subject.coordinate,
-            venue: subject.venue,
-            directions: directions,
-        )
+    private func requestDirections(
+        _ directions: LocationDirections,
+        coordinate: CLLocationCoordinate2D,
+        venue: LocationPickerVenue?,
+        name: String?,
+        sourceView: UIView?,
+    ) {
+        let options = LocationOpenInOption.available(coordinate: coordinate, venue: venue, directions: directions)
         guard options.count > 1 else {
-            openInMaps(directions: directions, name: name)
+            openInMaps(coordinate: coordinate, venue: venue, directions: directions, name: name)
             return
         }
-        presentOpenIn(options, directions: directions, name: name, share: nil) { popover in
-            let source = sourceView ?? self.tableView
-            popover.sourceView = source
-            popover.sourceRect = source.bounds
+        presentOpenIn(
+            options,
+            coordinate: coordinate,
+            venue: venue,
+            directions: directions,
+            name: name,
+            share: nil,
+        ) { popover in
+            let anchor = sourceView ?? self.tableView
+            popover.sourceView = anchor
+            popover.sourceRect = anchor.bounds
         }
     }
 
@@ -824,13 +1765,22 @@ private final class LocationInfoCell: UITableViewCell {
             [weak self] _ in
             self?.shareLink(from: item)
         }
-        presentOpenIn(options, directions: nil, name: nil, share: shareAction) { popover in
+        presentOpenIn(
+            options,
+            coordinate: subject.coordinate,
+            venue: subject.venue,
+            directions: nil,
+            name: nil,
+            share: shareAction,
+        ) { popover in
             popover.sourceItem = item
         }
     }
 
     private func presentOpenIn(
         _ options: [LocationOpenInOption],
+        coordinate: CLLocationCoordinate2D,
+        venue: LocationPickerVenue?,
         directions: LocationDirections?,
         name: String?,
         share: UIAlertAction?,
@@ -842,7 +1792,7 @@ private final class LocationInfoCell: UITableViewCell {
                 if let url = option.url {
                     UIApplication.shared.open(url)
                 } else {
-                    self?.openInMaps(directions: directions, name: name)
+                    self?.openInMaps(coordinate: coordinate, venue: venue, directions: directions, name: name)
                 }
             })
         }
@@ -858,13 +1808,17 @@ private final class LocationInfoCell: UITableViewCell {
 
     /// Telegram's openLocation action: Apple Maps shows the place under the venue's title or the sharer's name, or
     /// the route to it.
-    private func openInMaps(directions: LocationDirections?, name: String?) {
-        let coordinate = subject.coordinate
+    private func openInMaps(
+        coordinate: CLLocationCoordinate2D,
+        venue: LocationPickerVenue?,
+        directions: LocationDirections?,
+        name: String?,
+    ) {
         let item = MKMapItem(
             location: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude),
             address: nil,
         )
-        item.name = subject.venue?.title ?? name
+        item.name = venue?.title ?? name
         if let directions {
             MKMapItem.openMaps(
                 with: [MKMapItem.forCurrentLocation(), item],
@@ -901,8 +1855,9 @@ private final class LocationInfoCell: UITableViewCell {
         present(alert, animated: true)
     }
 
-    private func icon(symbol: String, color: UIColor) -> UIImage {
-        let key = "\(symbol)|\(color.description)"
+    /// A list icon: the glyph in white on a colored circle; LocationActionListItem's extend icon adds a plus.
+    private func icon(symbol: String, color: UIColor, addsPlus: Bool = false) -> UIImage {
+        let key = "\(symbol)|\(color.description)|\(addsPlus)"
         if let cached = iconCache[key] { return cached }
         let size = CGSize(width: 40, height: 40)
         let glyph = UIImage(
@@ -910,17 +1865,30 @@ private final class LocationInfoCell: UITableViewCell {
             withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold),
         )?.withTintColor(.white, renderingMode: .alwaysOriginal)
         let image = UIGraphicsImageRenderer(size: size)
-            .image { _ in
+            .image { context in
                 color.setFill()
                 UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
                 if let glyph {
+                    let offset: CGFloat = addsPlus ? 3 : 0
                     glyph.draw(in: CGRect(
-                        x: (size.width - glyph.size.width) / 2,
+                        x: (size.width - glyph.size.width) / 2 + offset,
                         y: (size.height - glyph.size.height) / 2,
                         width: glyph.size.width,
                         height: glyph.size.height,
                     ))
                 }
+                guard addsPlus else { return }
+                let cgContext = context.cgContext
+                cgContext.setStrokeColor(UIColor.white.cgColor)
+                cgContext.setLineWidth(2)
+                cgContext.setLineCap(.round)
+                let length: CGFloat = 6
+                let center = CGPoint(x: 11, y: 13)
+                cgContext.move(to: CGPoint(x: center.x - length / 2, y: center.y))
+                cgContext.addLine(to: CGPoint(x: center.x + length / 2, y: center.y))
+                cgContext.move(to: CGPoint(x: center.x, y: center.y - length / 2))
+                cgContext.addLine(to: CGPoint(x: center.x, y: center.y + length / 2))
+                cgContext.strokePath()
             }
             .withRenderingMode(.alwaysOriginal)
         iconCache[key] = image

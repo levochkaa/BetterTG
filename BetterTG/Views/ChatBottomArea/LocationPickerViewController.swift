@@ -163,13 +163,15 @@ struct LocationPickerVenue {
         }
     }
 
+    /// Telegram's live location periods (LocationLiveLocationContextMenu), the last being liveLocationIndefinitePeriod.
+    /// The location viewer offers them too.
+    static let livePeriods = [15 * 60, 60 * 60 - 1, 8 * 60 * 60, Int(Int32.max)]
+
     private static let cellIdentifier = "LocationPickerCell"
     private static let loadingCellIdentifier = "LocationPickerLoadingCell"
     private static let venueAnnotationIdentifier = "LocationPickerVenue"
     /// Telegram's LocationMapNode.defaultMapSpan.
     private static let defaultSpan = MKCoordinateSpan(latitudeDelta: 0.016, longitudeDelta: 0.016)
-    /// Telegram's live location periods (LocationLiveLocationContextMenu), the last being liveLocationIndefinitePeriod.
-    private static let livePeriods = [15 * 60, 60 * 60 - 1, 8 * 60 * 60, Int(Int32.max)]
     /// TDLib's limit for a location's horizontal accuracy.
     private static let maximumAccuracy: CLLocationAccuracy = 1500
 
@@ -307,6 +309,14 @@ struct LocationPickerVenue {
         authorizationChanged()
     }
 
+    static func livePeriodTitle(_ period: Int) -> String {
+        switch period {
+        case Int(Int32.max): L10n.telegram("Map.LiveLocationIndefinite")
+        case ..<(60 * 60 - 1): L10n.telegramPlural("Map.LiveLocationForMinutes", count: period / 60)
+        default: L10n.telegramPlural("Map.LiveLocationForHours", count: (period + 1) / (60 * 60))
+        }
+    }
+
     private static func address(of item: MKMapItem) -> String? {
         if let address = item.addressRepresentations?.fullAddress(includingRegion: true, singleLine: true),
            !address.isEmpty
@@ -331,14 +341,6 @@ struct LocationPickerVenue {
                 coordinate: item.location.coordinate,
                 distance: item.location.distance(from: center),
             )
-        }
-    }
-
-    private static func livePeriodTitle(_ period: Int) -> String {
-        switch period {
-        case Int(Int32.max): L10n.telegram("Map.LiveLocationIndefinite")
-        case ..<(60 * 60 - 1): L10n.telegramPlural("Map.LiveLocationForMinutes", count: period / 60)
-        default: L10n.telegramPlural("Map.LiveLocationForHours", count: (period + 1) / (60 * 60))
         }
     }
 

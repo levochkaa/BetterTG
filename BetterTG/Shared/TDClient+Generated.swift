@@ -765,6 +765,10 @@ extension TDClient {
         ))
     }
 
+    func searchChatRecentLocationMessages(chatId: Int64, limit: Int) async throws -> TDNativeMessages {
+        try await send(TDNativeRequests.searchChatRecentLocationMessages(chatId: chatId, limit: limit))
+    }
+
     func searchChats(
         limit: Int,
         query: String,

@@ -1180,26 +1180,6 @@ private final class LocationMessageContentView: UIControl, MessageSupplementView
         liveTimer?.invalidate()
     }
 
-    /// Telegram's stringForRelativeLiveLocationTimestamp, with stringForFullDate for an update before today.
-    private static func updatedText(since updateDate: Foundation.Date) -> String {
-        let now = Foundation.Date()
-        let difference = Int(now.timeIntervalSince(updateDate))
-        if difference < 60 {
-            return L10n.telegram("LiveLocationUpdated.JustNow")
-        }
-        if difference < 60 * 60 {
-            return L10n.telegramPlural("LiveLocationUpdated.MinutesAgo", count: difference / 60)
-        }
-        let time = updateDate.formatted(date: .omitted, time: .shortened)
-        let calendar = Foundation.Calendar.current
-        if calendar.isDate(updateDate, inSameDayAs: now) {
-            return L10n.telegram("LiveLocationUpdated.TodayAt", time)
-        }
-        let components = calendar.dateComponents([.day, .month, .year], from: updateDate)
-        guard let day = components.day, let month = components.month, let year = components.year else { return time }
-        return L10n.telegram("Time.PreciseDate_m\(month)", "\(day)", "\(year)", time)
-    }
-
     func prepareForReuse() {
         generation = UUID()
         snapshotter?.cancel()
@@ -1322,7 +1302,7 @@ private final class LocationMessageContentView: UIControl, MessageSupplementView
         timerView.isHidden = !isActive
         if isActive, let liveUpdatedAt = content.liveUpdatedAt {
             timerView.setNeedsDisplay()
-            subtitleLabel.text = Self.updatedText(since: liveUpdatedAt)
+            subtitleLabel.text = LiveLocationUpdateText.string(since: liveUpdatedAt)
             accessibilityValue = remainingText
         } else if isActive {
             timerView.setNeedsDisplay()

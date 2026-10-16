@@ -153,6 +153,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var liveLocationPanelHeightConstraint: NSLayoutConstraint!
     /// The account's live location shared in this chat, shown in `liveLocationPanel`.
     private var liveLocationBroadcast: LiveLocationBroadcast?
+    private var liveLocationOpenTask: Task<Void, Never>?
     private var pinnedMessageBannerTransitionGeneration = UInt64.zero
     private let composerKeyboardEdgeView = ComposerKeyboardEdgeView()
     private lazy var composerView: ChatComposerView = {
@@ -1952,12 +1953,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// Telegram's live location panel in a chat (LocationBroadcastNavigationAccessoryPanel in peer mode) while the
-    /// account shares its live location here: tapping it shows the message, and close asks before stopping.
+    /// account shares its live location here: tapping it opens the location viewer, and close asks before stopping.
     private func configureLiveLocationPanel() {
         liveLocationPanel.configure(subtitle: L10n.telegram("Conversation.LiveLocationYou"), isAccent: true)
         liveLocationPanel.onOpen = { [weak self] in
             guard let self, let broadcast = liveLocationBroadcast else { return }
-            navigate(to: .message(chatID: broadcast.chatID, messageID: broadcast.messageID, quote: nil))
+            openLiveLocationMessage(broadcast)
         }
         liveLocationPanel.onClose = { [weak self] in self?.confirmStopLiveLocation() }
         LiveLocationManager.shared
@@ -1994,6 +1995,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         view.endEditing(true)
         present(sheet, animated: true)
+    }
+
+    /// LiveLocationHeaderPanelComponent's presentLiveLocationController: the account's live location message opens in
+    /// the location viewer, which shows every live location in the chat.
+    private func openLiveLocationMessage(_ broadcast: LiveLocationBroadcast) {
+        let client = chatVM.client
+        liveLocationOpenTask?.cancel()
+        liveLocationOpenTask = Task { [weak self] in
+            let message = try? await client.getMessage(chatId: broadcast.chatID, messageId: broadcast.messageID)
+            guard let self, !Task.isCancelled, let message, let subject = LocationViewSubject(message: message),
+                  liveLocationBroadcast?.messageID == broadcast.messageID else { return }
+            liveLocationOpenTask = nil
+            presentLocationViewer(subject, showsAllLiveLocations: true)
+        }
     }
 
     /// Telegram's voice playlist (`.voiceOrInstantVideo`, OpenChatMessage) continues with the chat's next voice
@@ -5105,10 +5120,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
-    private func presentLocationViewer(_ subject: LocationViewSubject) {
+    /// Telegram's LocationViewController for the chat: a live location shares the account's own from it where live
+    /// locations can be sent, except in a channel where the account isn't sharing one.
+    private func presentLocationViewer(_ subject: LocationViewSubject, showsAllLiveLocations: Bool = false) {
         guard !clientOwnerRetired, presentedViewController == nil else { return }
         view.endEditing(true)
-        present(LocationViewController(subject: subject).makeNavigationController(), animated: true)
+        let isChannel = chatVM.customChat.supergroup?.isChannel == true
+        let viewer = LocationViewController(
+            subject: subject,
+            client: chatVM.client,
+            source: navigationClientSource,
+            canShareLiveLocation: chatVM.canShareLiveLocation && chatVM.canSendLocationAndContact && !isChannel,
+            peerName: chatVM.liveLocationPeerName,
+            showsAllLiveLocations: showsAllLiveLocations,
+        ) { [weak chatVM] content in
+            Task { await chatVM?.sendAttachmentContents([content], kind: .text) }
+        }
+        present(viewer.makeNavigationController(), animated: true)
     }
 
     /// Telegram's openChatMessage opens a shared story or a mention on its own in the story viewer
