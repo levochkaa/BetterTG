@@ -434,6 +434,29 @@ From `codex/parity-groups` (cherry-picked; build fix `12f1b2ce`).
 Not ported: other admins' links and QR codes, the apply-to-existing-links prompt, Create New Group for discussion, collectible link ordering, Recent Actions filters and bubbles. Switches in these screens apply on tap, so the Simulator check stayed on list and detail screens.
 
 
+### Media sending and gallery audit — 2026-10-16
+
+From `codex/parity-gallery-audit` (cherry-picked; a ChatVM conflict with the bot slice kept both helpers).
+
+| ID | Sev | Finding | Status |
+|---|---|---|---|
+| MD-1 | P2 | Protected media offered Share, Save and Forward that failed after the tap | fixed `d98b305c` |
+| MD-2 | P2 | No Send as File(s) for picked photos and videos | fixed `097b4157` |
+| MD-3 | P2 | No Send Without Grouping | fixed `097b4157`: groups of up to 10, already-sent groups leave the composer on a later failure |
+| MD-4 | P2 | No spoilers (`hasSpoiler` always false) | fixed `097b4157`. Simulator: two attached photos, Send long press listed Set a Reminder, Send as Files, Send Without Grouping, Hide With Spoiler; spoiler blurred the thumbnails; removed, nothing sent |
+| MD-5 | P3 | No Move Caption Up | fixed `097b4157` (offered with a caption) |
+| MD-6 | P2 | Music from Files went out as a generic file | fixed `91931949`: mp3/m4a/flac as audio with tag title, performer and cover |
+| MD-7 | P2 | Music had no header, stopped with its chat, had no playlist | fixed `11f5ffff`: the media header for music, swipe for older/newer, continues over the chat list. Build only: no music message to play |
+| MD-8 | P3 | Gallery menu had no Reply | fixed `2b2d610f` |
+| MD-9 | — | Silent, scheduled and when-online for media and files | already correct |
+| MD-10 | — | Gallery seek, speed, PiP, captions, View in Chat, thumbnail strip, live photos | already correct |
+| MD-11 | P2 | No Location, Contact or Poll sending | open: separate feature |
+| MD-12 | P3 | System PHPicker instead of Telegram's attach sheet grid | open |
+| MD-13 | P3 | Picks over 10 are dropped | open |
+| MD-14 | P3 | No View Once timer, video quality, Send in HD or editor | open |
+| MD-15 | P3 | Music has no lock-screen next/previous or expanded player | open |
+
+
 ### Probe sweep — 2026-10-12
 
 Repeat on the merged build `e05d541` (localization merge): 86 of 91 probes report a pass; `draft-coding` passes in the app's tmp folder, and the four observation probes need live UI as above.
