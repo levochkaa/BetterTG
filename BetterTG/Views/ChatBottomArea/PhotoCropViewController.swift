@@ -11,30 +11,54 @@ struct PhotoCropEdit {
     let thumbnail: UIImage?
 }
 
+// MARK: - PhotoEditorTab
+
+/// The editor's tabs: TGPhotoCropController's crop and TGPhotoToolsController's tools.
+enum PhotoEditorTab {
+    case crop
+    case tools
+}
+
+// MARK: - PhotoToolsTab
+
+/// TGPhotoToolsController's `availableTabs` without Blur: the slider list, Tint and Curves.
+private enum PhotoToolsTab {
+    case list
+    case tint
+    case curves
+}
+
 // MARK: - PhotoCropViewController
 
-/// TGPhotoEditorController opened on its crop tab (TGPhotoCropController) for a picked photo: the crop view with its
-/// straightening dial, RESET above the toolbar, and the toolbar's Cancel, Rotate, Mirror, Aspect Ratio and Done. Done
-/// hands back the crop with a thumbnail of it, or nothing for the whole photo; Cancel asks before it drops changes.
+/// TGPhotoEditorController for a picked photo with its crop tab (TGPhotoCropController) and its tools tab
+/// (TGPhotoToolsController), switched at the top like the gallery's edit buttons. The crop tab has the crop view with
+/// its straightening dial, RESET above the toolbar, and Rotate, Mirror and Aspect Ratio. The tools tab shows the
+/// cropped photo with the tools over it as they change, the tools list, Tint and Curves; holding the photo shows the
+/// original and tapping it hides the controls. Done hands back the crop and tools with a thumbnail, or nothing for an
+/// untouched photo; Cancel asks before it drops changes.
 final class PhotoCropViewController: UIViewController {
     // MARK: Private
 
     /// `TGPhotoEditorToolbarSize`.
     private static let toolbarHeight: CGFloat = 49
-    /// `TGPhotoEditorPanelSize`: the straightening dial's room under the photo.
+    /// `TGPhotoEditorPanelSize`: the straightening dial's room under the photo, and Tint's and Curves' panels.
     private static let panelHeight: CGFloat = 115
+    /// `TGPhotoEditorToolsPanelSize`: the tools list's panel.
+    private static let toolsPanelHeight: CGFloat = 180
     /// `TGPhotoCropButtonsWrapperSize`: RESET's strip right above the toolbar.
     private static let buttonsWrapperHeight: CGFloat = 61
     /// `TGPhotoCropAreaInsetSize`.
     private static let areaInset: CGFloat = 9
+    /// The strip at the top with the Crop and Tools tabs.
+    private static let tabBarHeight: CGFloat = 44
     /// TGPhotoEditorButton's size; the touch area is larger.
     private static let tabSide: CGFloat = 33
     private static let tabTouchSide: CGFloat = 44
     private static let screenImageSide: CGFloat = 1280
     /// The grid's thumbnails are 256 px squares.
     private static let thumbnailSide: CGFloat = 256
-    /// The app's tint for Done and the active tabs, where Telegram's editor uses its accent.
-    private static let activeColor = UIColor.systemBlue
+    /// The app's tint for Done and the applied tabs, where Telegram's editor uses its accent.
+    private static let activeColor = PhotoEditorColors.accent
     /// TGPhotoCropController's ratios after Original and Square, the longer side first.
     private static let ratios: [(longer: CGFloat, shorter: CGFloat)] = [
         (3, 2),
@@ -51,7 +75,7 @@ final class PhotoCropViewController: UIViewController {
 
     // MARK: Internal
 
-    /// The finished crop with the grid's thumbnail of it; `nil` when the photo is left whole.
+    /// The finished edit with the grid's thumbnail of it; `nil` when the photo is left untouched.
     var onDone: ((PhotoCropEdit?) -> Void)?
 
     private let image: UIImage
@@ -59,27 +83,86 @@ final class PhotoCropViewController: UIViewController {
     private let initialAdjustments: PhotoCropAdjustments?
     private let cropView: PhotoCropView
     private let resetButton = UIButton(type: .system)
+    private let tabBarView = UIView()
+    private let cropTabButton = UIButton(type: .system)
+    private let toolsTabButton = UIButton(type: .system)
+    private let tabSelectionView = PhotoCropViewController.makeSelectionView()
     private let toolbarView = UIView()
+    private let toolbarSelectionView = PhotoCropViewController.makeSelectionView()
     private let cancelButton = UIButton(type: .system)
     private let rotateButton = UIButton(type: .system)
     private let mirrorButton = UIButton(type: .system)
     private let aspectRatioButton = UIButton(type: .system)
+    private let toolsListButton = UIButton(type: .system)
+    private let tintButton = UIButton(type: .system)
+    private let curvesButton = UIButton(type: .system)
     private let doneButton = UIButton(type: .system)
+    private let previewView = UIImageView()
+    private let curvesAreaView = PhotoCurvesAreaView()
+    private let toolsPanelView = UIView()
+    private let toolsPanelBackgroundView = UIView()
+    private let toolsListView: PhotoToolsListView
+    private let tintView = PhotoTintToolView()
+    private let curvesPanelView = PhotoCurvesPanelView()
+    private let hudView = PhotoEditorHUDView()
+    private let renderQueue = DispatchQueue(label: "BetterTG.PhotoToolsPreview", qos: .userInitiated)
 
-    /// TGPhotoEditorController's `dismissEditor` test: a new crop off the whole photo, or any change to an earlier one.
+    private var editorTab: PhotoEditorTab
+    private var toolsTab = PhotoToolsTab.list
+    private var toolValues: PhotoToolValues
+    private var curvesChannel = PhotoCurvesChannel.luminance
+    /// TGPhotoToolsController's `_preview`: the photo alone on the whole screen.
+    private var isPreviewing = false
+    /// The photo is held to compare (PGPhotoEditor's `disableAll`).
+    private var isShowingOriginal = false
+    /// The cropped photo the tools draw over, cut again when the crop changed since.
+    private var previewBaseImage: UIImage?
+    private var previewSource: PhotoToolsSource?
+    private var previewSourceCrop: PhotoCropAdjustments?
+    private var previewEditedImage: UIImage?
+    private var previewEditedTools: PhotoToolValues?
+    private var isRenderingPreview = false
+    private var needsPreviewRender = false
+
+    /// The crop view's crop with the tools, which the crop view doesn't keep across RESET.
+    private var currentAdjustments: PhotoCropAdjustments {
+        var adjustments = cropView.adjustments
+        adjustments.tools = toolValues
+        return adjustments
+    }
+
+    /// TGPhotoEditorController's `dismissEditor` test: a new edit of the untouched photo, or any change to an earlier
+    /// one.
     private var hasChanges: Bool {
-        let current = cropView.adjustments
-        guard let initialAdjustments else { return !current.hasDefaultCropping }
+        let current = currentAdjustments
+        guard let initialAdjustments else { return !current.hasDefaultCropping || !current.tools.isDefault }
         return current != initialAdjustments
     }
 
-    init(image: UIImage, adjustments: PhotoCropAdjustments?) {
+    private var isToolTracking: Bool {
+        toolsListView.isTracking || tintView.isTracking
+    }
+
+    // MARK: Tabs
+
+    private var selectedToolsButton: UIButton {
+        switch toolsTab {
+        case .list: toolsListButton
+        case .tint: tintButton
+        case .curves: curvesButton
+        }
+    }
+
+    init(image: UIImage, adjustments: PhotoCropAdjustments?, initialTab: PhotoEditorTab = .crop) {
         let pixelSize = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
         let initial = adjustments?.scaled(to: pixelSize) ?? PhotoCropAdjustments(originalSize: pixelSize)
         self.image = image
         self.imagePixelSize = pixelSize
         self.initialAdjustments = adjustments == nil ? nil : initial
         self.cropView = PhotoCropView(image: image, adjustments: initial)
+        self.toolValues = initial.tools
+        self.toolsListView = PhotoToolsListView(values: initial.tools)
+        self.editorTab = initialTab
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
         modalTransitionStyle = .crossDissolve
@@ -94,9 +177,15 @@ final class PhotoCropViewController: UIViewController {
         view.backgroundColor = .black
         cropView.onCroppingChanged = { [weak self] in self?.updateTabs() }
         view.addSubview(cropView)
+        configurePreview()
         configureResetButton()
+        configureToolsPanel()
+        view.addSubview(hudView)
+        configureTabBar()
         configureToolbar()
+        applyVisibility()
         updateTabs()
+        schedulePreviewRender()
     }
 
     override func viewDidLayoutSubviews() {
@@ -111,6 +200,8 @@ final class PhotoCropViewController: UIViewController {
             height: Self.toolbarHeight + safeArea.bottom,
         )
         layoutToolbar()
+        tabBarView.frame = CGRect(x: 0, y: safeArea.top, width: bounds.width, height: Self.tabBarHeight)
+        layoutTabBar()
         // RESET at 20 pt into its strip above the toolbar, reaching 10 pt further for touches.
         let resetWidth = ceil(resetButton.titleLabel?.intrinsicContentSize.width ?? 0)
         let resetFrame = CGRect(
@@ -120,14 +211,16 @@ final class PhotoCropViewController: UIViewController {
             height: 24,
         )
         resetButton.frame = resetFrame.insetBy(dx: -10, dy: -10)
-        // `photoContainerFrameForParentViewFrame` with the dial's panel, inset by `TGPhotoCropAreaInsetSize`.
+        // `photoContainerFrameForParentViewFrame` with the dial's panel under the tabs; the crop area is inset by
+        // `TGPhotoCropAreaInsetSize`.
         let container = CGRect(
             x: safeArea.left,
-            y: safeArea.top,
+            y: safeArea.top + Self.tabBarHeight,
             width: bounds.width - safeArea.left - safeArea.right,
-            height: toolbarTop - Self.panelHeight - safeArea.top,
+            height: toolbarTop - Self.panelHeight - safeArea.top - Self.tabBarHeight,
         )
         cropView.frame = container.insetBy(dx: Self.areaInset, dy: Self.areaInset)
+        layoutTools(container: container, toolbarTop: toolbarTop)
     }
 
     /// The photo for the editor as the library shows it, fitted to TGPhotoEditorController's screen image
@@ -151,6 +244,49 @@ final class PhotoCropViewController: UIViewController {
         }
     }
 
+    /// TGPhotoEditorButton's selection: a light rounded square behind the selected tab.
+    private static func makeSelectionView() -> UIView {
+        let selectionView = UIView(frame: CGRect(x: 0, y: 0, width: tabSide, height: tabSide))
+        selectionView.backgroundColor = PhotoEditorColors.selectionBackground
+        selectionView.layer.cornerRadius = 8
+        selectionView.layer.cornerCurve = .continuous
+        selectionView.isUserInteractionEnabled = false
+        return selectionView
+    }
+
+    /// TGPhotoEditorButton's states: the selected tab dark on its light square, an applied one in the accent color.
+    private static func style(_ button: UIButton, isSelected: Bool, isApplied: Bool) {
+        button.tintColor = isSelected ? PhotoEditorColors.selectedIcon : isApplied ? activeColor : .white
+        button.accessibilityTraits = isSelected ? [.button, .selected] : .button
+    }
+
+    private static func setVisible(_ view: UIView, _ isVisible: Bool) {
+        view.alpha = isVisible ? 1 : 0
+        view.isUserInteractionEnabled = isVisible
+    }
+
+    // MARK: Configuration
+
+    private func configurePreview() {
+        previewView.contentMode = .scaleToFill
+        previewView.isUserInteractionEnabled = true
+        previewView.accessibilityIgnoresInvertColors = true
+        // TGPhotoEditorPreviewView: holding shows the original, a tap hides the controls.
+        let press = UILongPressGestureRecognizer(target: self, action: #selector(previewPressed(_:)))
+        press.minimumPressDuration = 0.175
+        let tap = UITapGestureRecognizer(target: self, action: #selector(previewTapped))
+        tap.require(toFail: press)
+        previewView.addGestureRecognizer(press)
+        previewView.addGestureRecognizer(tap)
+        view.addSubview(previewView)
+        curvesAreaView.onValueChanged = { [weak self] curves in
+            guard let self else { return }
+            toolValues.curves = curves
+            toolValuesChanged()
+        }
+        view.addSubview(curvesAreaView)
+    }
+
     private func configureResetButton() {
         resetButton.setTitle(L10n.telegram("PhotoEditor.CropReset"), for: .normal)
         resetButton.titleLabel?.font = .systemFont(ofSize: 13)
@@ -159,8 +295,79 @@ final class PhotoCropViewController: UIViewController {
         view.addSubview(resetButton)
     }
 
+    /// TGPhotoToolsController's panel: the list, or Tint's and Curves' controls, on the toolbar's translucent black,
+    /// which clears while a slider is dragged so the photo shows.
+    private func configureToolsPanel() {
+        toolsPanelBackgroundView.backgroundColor = PhotoEditorColors.panelBackground
+        toolsPanelBackgroundView.isUserInteractionEnabled = false
+        toolsPanelView.addSubview(toolsPanelBackgroundView)
+        toolsListView.onValueChanged = { [weak self] tool, value, isReset in
+            guard let self else { return }
+            toolValues[tool] = value
+            toolValuesChanged()
+            // The change block: the HUD names the tool while it is dragged, and goes on a reset.
+            if isReset {
+                hudView.setText(nil)
+            } else {
+                hudView.setTitle(
+                    L10n.telegram(tool.titleKey),
+                    value: PhotoTool.stringValue(value, maximumValue: tool.maximumValue) ?? "0.00",
+                )
+            }
+        }
+        toolsListView.interactionBegan = { [weak self] in
+            self?.toolsPanelBackgroundView.alpha = 0
+        }
+        toolsListView.interactionEnded = { [weak self] in
+            guard let self else { return }
+            UIView.animate(withDuration: 0.15) { self.toolsPanelBackgroundView.alpha = 1 }
+            hudView.setText(nil)
+        }
+        tintView.backgroundColor = PhotoEditorColors.panelBackground
+        tintView.setValue(toolValues.tint)
+        tintView.onValueChanged = { [weak self] tint in
+            guard let self else { return }
+            toolValues.tint = tint
+            toolValuesChanged()
+        }
+        curvesPanelView.backgroundColor = PhotoEditorColors.panelBackground
+        curvesPanelView.onChannelChanged = { [weak self] channel in
+            guard let self else { return }
+            curvesChannel = channel
+            curvesAreaView.setValue(toolValues.curves, channel: channel)
+        }
+        curvesAreaView.setValue(toolValues.curves, channel: curvesChannel)
+        for panel in [toolsListView, tintView, curvesPanelView] as [UIView] {
+            toolsPanelView.addSubview(panel)
+        }
+        view.addSubview(toolsPanelView)
+    }
+
+    /// The gallery's edit buttons for the two tabs.
+    private func configureTabBar() {
+        tabBarView.addSubview(tabSelectionView)
+        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
+        let items: [(button: UIButton, symbol: String, label: String, action: Selector)] = [
+            (cropTabButton, "crop.rotate", L10n.betterTG("Accessibility.PhotoEditor.Crop"), #selector(cropTabPressed)),
+            (
+                toolsTabButton,
+                "slider.horizontal.3",
+                L10n.betterTG("Accessibility.PhotoEditor.Tools"),
+                #selector(toolsTabPressed),
+            ),
+        ]
+        for item in items {
+            item.button.setImage(UIImage(systemName: item.symbol, withConfiguration: symbolConfiguration), for: .normal)
+            item.button.accessibilityLabel = item.label
+            item.button.addTarget(self, action: item.action, for: .touchUpInside)
+            tabBarView.addSubview(item.button)
+        }
+        view.addSubview(tabBarView)
+    }
+
     private func configureToolbar() {
         toolbarView.backgroundColor = .black
+        toolbarView.addSubview(toolbarSelectionView)
         let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
         let items: [(button: UIButton, symbol: String, label: String, action: Selector)] = [
             (cancelButton, "xmark", L10n.telegram("Common.Cancel"), #selector(cancelPressed)),
@@ -177,6 +384,19 @@ final class PhotoCropViewController: UIViewController {
                 L10n.betterTG("Accessibility.PhotoEditor.AspectRatio"),
                 #selector(aspectRatioPressed),
             ),
+            (
+                toolsListButton,
+                "slider.horizontal.3",
+                L10n.betterTG("Accessibility.PhotoEditor.Adjustments"),
+                #selector(toolsListPressed),
+            ),
+            (tintButton, "drop.halffull", L10n.telegram("PhotoEditor.TintTool"), #selector(tintPressed)),
+            (
+                curvesButton,
+                "point.topleft.down.to.point.bottomright.curvepath",
+                L10n.telegram("PhotoEditor.CurvesTool"),
+                #selector(curvesPressed),
+            ),
             (doneButton, "checkmark", L10n.telegram("Common.Done"), #selector(donePressed)),
         ]
         for item in items {
@@ -190,8 +410,10 @@ final class PhotoCropViewController: UIViewController {
         view.addSubview(toolbarView)
     }
 
-    /// TGPhotoToolbarView's portrait layout: Cancel and Done in 49 pt squares at the ends, and the three tabs at a
-    /// quarter, half and three quarters of the width between them, the outer ones 5 pt further out.
+    // MARK: Layout
+
+    /// TGPhotoToolbarView's portrait layout: Cancel and Done in 49 pt squares at the ends, and the tab's three tools
+    /// at a quarter, half and three quarters of the width between them, the outer ones 5 pt further out.
     private func layoutToolbar() {
         let width = toolbarView.bounds.width
         let side = Self.toolbarHeight
@@ -205,20 +427,227 @@ final class PhotoCropViewController: UIViewController {
             side + available * 3 / 4 + sideOffset,
         ]
         let centerY = 8 + Self.tabSide / 2
-        for (button, centerX) in zip([rotateButton, mirrorButton, aspectRatioButton], centers) {
-            button.bounds = CGRect(x: 0, y: 0, width: Self.tabTouchSide, height: Self.tabTouchSide)
-            button.center = CGPoint(x: centerX, y: centerY)
+        let groups = [[rotateButton, mirrorButton, aspectRatioButton], [toolsListButton, tintButton, curvesButton]]
+        for group in groups {
+            for (button, centerX) in zip(group, centers) {
+                button.bounds = CGRect(x: 0, y: 0, width: Self.tabTouchSide, height: Self.tabTouchSide)
+                button.center = CGPoint(x: centerX, y: centerY)
+            }
         }
+        toolbarSelectionView.center = selectedToolsButton.center
     }
 
-    /// `highlightedTabs`: Mirror while mirrored and Aspect Ratio while a ratio is locked.
+    private func layoutTabBar() {
+        let width = tabBarView.bounds.width
+        let centerY = Self.tabBarHeight / 2
+        for (button, offset) in [(cropTabButton, -30), (toolsTabButton, 30)] as [(UIButton, CGFloat)] {
+            button.bounds = CGRect(x: 0, y: 0, width: Self.tabTouchSide, height: Self.tabTouchSide)
+            button.center = CGPoint(x: width / 2 + offset, y: centerY)
+        }
+        tabSelectionView.center = (editorTab == .crop ? cropTabButton : toolsTabButton).center
+    }
+
+    /// TGPhotoToolsController's `updateToolViews` and `updatePreviewView`: the panel over the bottom of the photo's
+    /// container, the photo fitted in the container or in the whole screen while previewing, and Curves over it.
+    private func layoutTools(container: CGRect, toolbarTop: CGFloat) {
+        let panelHeight = toolsTab == .list ? Self.toolsPanelHeight : Self.panelHeight
+        toolsPanelView.frame = CGRect(x: 0, y: toolbarTop - panelHeight, width: view.bounds.width, height: panelHeight)
+        for panel in [toolsPanelBackgroundView, toolsListView, tintView, curvesPanelView] as [UIView] {
+            panel.frame = toolsPanelView.bounds
+        }
+        hudView.frame = container
+        let previewContainer = isPreviewing ? view.bounds : container
+        let fitted = PhotoCropAdjustments.scaleToSize(cropView.adjustments.croppedSize, previewContainer.size)
+        previewView.frame = CGRect(
+            x: previewContainer.midX - fitted.width / 2,
+            y: previewContainer.midY - fitted.height / 2,
+            width: fitted.width,
+            height: fitted.height,
+        )
+        curvesAreaView.frame = previewContainer
+        curvesAreaView.actualArea = previewView.frame.offsetBy(dx: -previewContainer.minX, dy: -previewContainer.minY)
+    }
+
+    /// What each tab shows; previewing leaves only the photo.
+    private func applyVisibility() {
+        let isCrop = editorTab == .crop
+        let showsControls = !isPreviewing
+        Self.setVisible(cropView, isCrop)
+        Self.setVisible(resetButton, isCrop)
+        Self.setVisible(previewView, !isCrop)
+        Self.setVisible(curvesAreaView, !isCrop && toolsTab == .curves)
+        Self.setVisible(toolsPanelView, !isCrop && showsControls)
+        Self.setVisible(toolsListView, toolsTab == .list)
+        Self.setVisible(tintView, toolsTab == .tint)
+        Self.setVisible(curvesPanelView, toolsTab == .curves)
+        for button in [rotateButton, mirrorButton, aspectRatioButton] {
+            Self.setVisible(button, isCrop)
+        }
+        for button in [toolsListButton, tintButton, curvesButton] {
+            Self.setVisible(button, !isCrop)
+        }
+        toolbarSelectionView.alpha = isCrop ? 0 : 1
+        Self.setVisible(tabBarView, showsControls)
+        Self.setVisible(toolbarView, showsControls)
+    }
+
+    /// `highlightedTabs` and `activeTab`: Mirror while mirrored, Aspect Ratio while a ratio is locked, a tools tab
+    /// while its tools change the photo, and the top tabs while their edits apply.
     private func updateTabs() {
-        let isMirrored = cropView.adjustments.isMirrored
+        let adjustments = cropView.adjustments
+        let isMirrored = adjustments.isMirrored
         let isLocked = cropView.isAspectRatioLocked
         mirrorButton.tintColor = isMirrored ? Self.activeColor : .white
         mirrorButton.accessibilityTraits = isMirrored ? [.button, .selected] : .button
         aspectRatioButton.tintColor = isLocked ? Self.activeColor : .white
         aspectRatioButton.accessibilityTraits = isLocked ? [.button, .selected] : .button
+        let hasSliderValues = PhotoTool.allCases.contains { toolValues[$0] != 0 }
+        Self.style(toolsListButton, isSelected: toolsTab == .list, isApplied: hasSliderValues)
+        Self.style(tintButton, isSelected: toolsTab == .tint, isApplied: !toolValues.tint.isDefault)
+        Self.style(curvesButton, isSelected: toolsTab == .curves, isApplied: !toolValues.curves.isDefault)
+        toolbarSelectionView.center = selectedToolsButton.center
+        Self.style(cropTabButton, isSelected: editorTab == .crop, isApplied: !adjustments.hasDefaultCropping)
+        Self.style(toolsTabButton, isSelected: editorTab == .tools, isApplied: !toolValues.isDefault)
+        tabSelectionView.center = (editorTab == .crop ? cropTabButton : toolsTabButton).center
+    }
+
+    /// `presentTab`: the crop settles before the tools draw over it.
+    private func setTab(_ newTab: PhotoEditorTab) {
+        guard newTab != editorTab, !isToolTracking, !cropView.isTracking, !cropView.isAnimating else { return }
+        cropView.commitPendingChanges()
+        editorTab = newTab
+        isShowingOriginal = false
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        schedulePreviewRender()
+        updateTabs()
+        UIView.animate(withDuration: 0.2) { self.applyVisibility() }
+    }
+
+    /// `handleTabAction`.
+    private func setToolsTab(_ newTab: PhotoToolsTab) {
+        guard newTab != toolsTab, !isToolTracking else { return }
+        toolsTab = newTab
+        switch newTab {
+        case .list: break
+        case .tint: tintView.setValue(toolValues.tint)
+        case .curves: curvesAreaView.setValue(toolValues.curves, channel: curvesChannel)
+        }
+        updateTabs()
+        view.setNeedsLayout()
+        UIView.animate(withDuration: 0.25) {
+            self.view.layoutIfNeeded()
+            self.applyVisibility()
+        }
+    }
+
+    // MARK: Preview
+
+    private func toolValuesChanged() {
+        updateTabs()
+        schedulePreviewRender()
+    }
+
+    /// The photo cut as the crop says, at the editor's screen size, when the crop changed since it was cut.
+    private func preparePreviewSource() {
+        var crop = cropView.adjustments
+        crop.tools = PhotoToolValues()
+        guard crop != previewSourceCrop else { return }
+        previewSourceCrop = crop
+        previewBaseImage = crop.render(image, sourcePixelSize: imagePixelSize, maximumSide: Self.screenImageSide)
+        previewSource = previewBaseImage?.cgImage.flatMap { PhotoToolsSource(image: $0) }
+        previewEditedImage = nil
+        previewEditedTools = nil
+    }
+
+    /// PGPhotoEditor's `processAnimated`: the tools render off the main thread, one pass at a time, and a change
+    /// during a pass renders again once it ends.
+    private func schedulePreviewRender() {
+        guard editorTab == .tools else { return }
+        preparePreviewSource()
+        updatePreviewImage()
+        guard !toolValues.isDefault, previewEditedTools != toolValues,
+              let source = previewSource, let crop = previewSourceCrop
+        else { return }
+        guard !isRenderingPreview else {
+            needsPreviewRender = true
+            return
+        }
+        isRenderingPreview = true
+        let tools = toolValues
+        let grainSize = crop.toolsGrainSize(fullPixelSize: imagePixelSize)
+        renderQueue.async { [weak self] in
+            let rendered = PhotoToolsRenderer.shared
+                .render(source, tools: tools, grainSize: grainSize)
+                .map { UIImage(cgImage: $0) }
+            DispatchQueue.main.async {
+                self?.finishPreviewRender(rendered, tools: tools, source: source)
+            }
+        }
+    }
+
+    private func finishPreviewRender(_ rendered: UIImage?, tools: PhotoToolValues, source: PhotoToolsSource) {
+        isRenderingPreview = false
+        if source === previewSource {
+            previewEditedImage = rendered
+            previewEditedTools = rendered == nil ? nil : tools
+            updatePreviewImage()
+        }
+        if needsPreviewRender {
+            needsPreviewRender = false
+            schedulePreviewRender()
+        }
+    }
+
+    private func updatePreviewImage() {
+        let showsTools = !isShowingOriginal && !toolValues.isDefault
+        previewView.image = showsTools ? previewEditedImage ?? previewBaseImage : previewBaseImage
+    }
+
+    @objc private func cropTabPressed() {
+        setTab(.crop)
+    }
+
+    @objc private func toolsTabPressed() {
+        setTab(.tools)
+    }
+
+    @objc private func toolsListPressed() {
+        setToolsTab(.list)
+    }
+
+    @objc private func tintPressed() {
+        setToolsTab(.tint)
+    }
+
+    @objc private func curvesPressed() {
+        setToolsTab(.curves)
+    }
+
+    /// `touchedDown` and `touchedUp`: the original while held, named in the HUD.
+    @objc private func previewPressed(_ recognizer: UILongPressGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            isShowingOriginal = true
+            hudView.setText(L10n.telegram("PhotoEditor.Original"))
+        case .cancelled, .ended, .failed:
+            isShowingOriginal = false
+            hudView.setText(nil)
+        default:
+            return
+        }
+        updatePreviewImage()
+    }
+
+    /// `setPreview:`: the controls fade and the photo fills the screen, or back.
+    @objc private func previewTapped() {
+        guard !isToolTracking else { return }
+        isPreviewing.toggle()
+        view.setNeedsLayout()
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut]) {
+            self.view.layoutIfNeeded()
+            self.applyVisibility()
+        }
     }
 
     @objc private func resetPressed() {
@@ -279,7 +708,7 @@ final class PhotoCropViewController: UIViewController {
     /// `dismissEditor`: changes are dropped only after Discard Changes.
     @objc private func cancelPressed() {
         // TGPhotoCropController's `isDismissAllowed`.
-        guard !cropView.isTracking, !cropView.isAnimating else { return }
+        guard !cropView.isTracking, !cropView.isAnimating, !isToolTracking else { return }
         guard hasChanges else {
             dismiss(animated: true)
             return
@@ -297,26 +726,26 @@ final class PhotoCropViewController: UIViewController {
         present(sheet, animated: true)
     }
 
-    /// `doneButtonPressed`: a waiting change settles, and a crop of the whole photo without a locked ratio counts
-    /// as no edit (PGPhotoEditorValues' `isDefaultValues`).
+    /// `doneButtonPressed`: a waiting change settles, and the whole photo without a locked ratio or tools counts as
+    /// no edit (PGPhotoEditorValues' `isDefaultValues`).
     @objc private func donePressed() {
-        guard !cropView.isTracking else { return }
+        guard !cropView.isTracking, !isToolTracking else { return }
         cropView.commitPendingChanges()
-        let adjustments = cropView.adjustments
+        let adjustments = currentAdjustments
         var edit: PhotoCropEdit?
-        if !adjustments.hasDefaultCropping || cropView.isAspectRatioLocked {
+        if !adjustments.hasDefaultCropping || cropView.isAspectRatioLocked || !adjustments.tools.isDefault {
             edit = PhotoCropEdit(adjustments: adjustments, thumbnail: thumbnail(of: adjustments))
         }
         onDone?(edit)
         dismiss(animated: true)
     }
 
-    /// The crop's picture for the square grid cell, its shorter side at least the cell's.
+    /// The edited photo for the square grid cell, its shorter side at least the cell's.
     private func thumbnail(of adjustments: PhotoCropAdjustments) -> UIImage? {
         let size = adjustments.croppedSize
         let shorter = min(size.width, size.height)
         guard shorter > 0 else { return nil }
         let longest = Self.thumbnailSide * max(size.width, size.height) / shorter
-        return adjustments.render(image, sourcePixelSize: imagePixelSize, maximumSide: min(longest, 1024))
+        return adjustments.renderEdited(image, sourcePixelSize: imagePixelSize, maximumSide: min(longest, 1024))
     }
 }

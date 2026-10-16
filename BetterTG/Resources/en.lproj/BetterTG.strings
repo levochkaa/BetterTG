@@ -620,6 +620,9 @@
 "Accessibility.PhotoEditor.Mirror" = "Mirror";
 "Accessibility.PhotoEditor.AspectRatio" = "Aspect Ratio";
 "Accessibility.PhotoEditor.Straighten" = "Straighten";
+"Accessibility.PhotoEditor.Crop" = "Crop";
+"Accessibility.PhotoEditor.Tools" = "Tools";
+"Accessibility.PhotoEditor.Adjustments" = "Adjustments";
 "Accessibility.VideoEditor.TrimStart" = "Trim Start";
 "Accessibility.VideoEditor.TrimEnd" = "Trim End";
 "Accessibility.VideoEditor.Mute" = "Mute";

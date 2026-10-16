@@ -619,6 +619,9 @@
 "Accessibility.PhotoEditor.Mirror" = "Отразить";
 "Accessibility.PhotoEditor.AspectRatio" = "Пропорции";
 "Accessibility.PhotoEditor.Straighten" = "Выпрямить";
+"Accessibility.PhotoEditor.Crop" = "Обрезка";
+"Accessibility.PhotoEditor.Tools" = "Инструменты";
+"Accessibility.PhotoEditor.Adjustments" = "Настройки";
 "Accessibility.VideoEditor.TrimStart" = "Начало обрезки";
 "Accessibility.VideoEditor.TrimEnd" = "Конец обрезки";
 "Accessibility.VideoEditor.Mute" = "Без звука";
