@@ -145,6 +145,7 @@
 "Service.BotAllowed" = "Боту разрешено писать";
 "Service.WebAppSent" = "Данные веб-приложения отправлены";
 "Service.WebAppReceived" = "Данные веб-приложения получены";
+"WebApp.BiometryReason" = "Подтвердите, что это вы, для %@";
 "Service.PassportSent" = "Данные паспорта отправлены";
 "Service.PassportReceived" = "Данные паспорта получены";
 "Service.ProximityAlert" = "Оповещение о приближении";

@@ -2046,3 +2046,6 @@
 "Chat.HashtagSuggestion.UseLocal.Group.Text" = "searches only posts from this group";
 "Chat.HashtagSuggestion.UseLocal.Channel.Text" = "searches only posts from this channel";
 "AuthSessions.AddDevice.ScanTitle" = "Scan QR Code";
+"WebApp.AlertBiometryAccessText" = "Do you want to allow %@ to use Face ID?";
+"WebApp.AlertBiometryAccessTouchIDText" = "Do you want to allow %@ to use Touch ID?";
+"Settings.BotSettings.Biometry" = "Biometry";

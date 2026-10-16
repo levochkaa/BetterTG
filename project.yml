@@ -73,6 +73,7 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.social-networking
         INFOPLIST_KEY_NSCameraUsageDescription: We use the camera when you take photos or record video messages in chats.
         INFOPLIST_KEY_NSContactsUsageDescription: We use your contacts only when you choose to share one in a chat.
+        INFOPLIST_KEY_NSFaceIDUsageDescription: We use Face ID when a mini app asks you to confirm it's you.
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: We use your location only when you choose to share it in a chat.
         INFOPLIST_KEY_NSMicrophoneUsageDescription: We use the microphone when you record voice or video messages in chats.
         INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: We would like to access Photos to save images you request.

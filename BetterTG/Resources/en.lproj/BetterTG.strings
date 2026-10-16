@@ -145,6 +145,7 @@
 "Service.BotAllowed" = "Bot messaging allowed";
 "Service.WebAppSent" = "Web app data sent";
 "Service.WebAppReceived" = "Web app data received";
+"WebApp.BiometryReason" = "Confirm it's you for %@";
 "Service.PassportSent" = "Passport data sent";
 "Service.PassportReceived" = "Passport data received";
 "Service.ProximityAlert" = "Proximity alert";

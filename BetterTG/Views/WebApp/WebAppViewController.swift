@@ -111,6 +111,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         toastHost: { [weak self] in self?.webView },
     )
     private lazy var qrScanner = WebAppQRScanner(bridge: bridge)
+    private lazy var biometry = WebAppBiometry(bridge: bridge)
     private var bottomPanelHeight: NSLayoutConstraint!
     private var mainButtonState = ButtonState()
     private var secondaryButtonState = ButtonState()
@@ -741,6 +742,16 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
             qrScanner.open(json)
         case "web_app_close_scan_qr_popup":
             qrScanner.close()
+        case "web_app_biometry_get_info":
+            biometry.sendInfo()
+        case "web_app_biometry_request_access":
+            biometry.requestAccess(json)
+        case "web_app_biometry_request_auth":
+            biometry.requestAuth()
+        case "web_app_biometry_update_token":
+            biometry.updateToken(json)
+        case "web_app_biometry_open_settings":
+            if consumeRecentTouch() { biometry.openSettings() }
         default:
             break
         }
@@ -839,6 +850,13 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         else { return }
         touchRecorder.lastTouch = nil
         UIApplication.shared.open(url)
+    }
+
+    /// lastTouchTimestamp: settings open only within 10 s of a touch on the page, once per touch.
+    private func consumeRecentTouch() -> Bool {
+        guard let lastTouch = touchRecorder.lastTouch, CACurrentMediaTime() < lastTouch + 10 else { return false }
+        touchRecorder.lastTouch = nil
+        return true
     }
 
     private func switchInline(_ json: [String: Any]?) {
