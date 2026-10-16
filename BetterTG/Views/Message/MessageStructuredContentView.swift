@@ -26,6 +26,8 @@ enum MessageContentAction {
     /// Telegram's View Votes button and a public poll's result row (requestOpenMessagePollResults): the poll's
     /// voters, opened at the tapped answer.
     case openPollResults(messageID: Int64, optionID: Int?)
+    /// A poll's own media, an answer's or a quiz explanation's was tapped (ChatControllerInteraction.openPollMedia).
+    case openPollMedia(messageID: Int64, media: TDNativePollMedia)
     case richContentLayoutChanged
     /// The disc over an uploading photo or video was tapped: delete the sending message, as Telegram does.
     case cancelSending(messageID: Int64)
@@ -1375,11 +1377,14 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     private let client: TDLibClient
     private let interactionStore: MessagePollInteractionStore
     private let onAction: (MessageContentAction) -> Void
+    /// The poll's own media above the question (ChatMessageBubbleItemNode's `attachedMedia` bubble).
+    private var mediaView: (UIView & MessageSupplementView)?
     private var optionViews = [Int: PollOptionContentView]()
     private var currentSelection = Set<Int>()
     private var storeCancellable: AnyCancellable?
-    private var questionTopToView: NSLayoutConstraint!
-    private var questionTopToExplanation: NSLayoutConstraint!
+    /// The top of the poll's first block, its media or its question, under the bubble's edge or the explanation.
+    private var contentTopToView: NSLayoutConstraint!
+    private var contentTopToExplanation: NSLayoutConstraint!
     private var voteButtonHeight: NSLayoutConstraint!
     private var voteButtonCollapsed: NSLayoutConstraint!
 
@@ -1440,11 +1445,13 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         showsResults && canViewVoters && !canVote
     }
 
-    /// ChatMessagePollBubbleContentNode shows the lamp for a quiz's solution once the quiz is answered or closed.
-    private var quizExplanation: FormattedText? {
-        guard case .pollTypeQuiz(let quiz) = content.poll.type, !quiz.explanation.text.isEmpty,
+    /// ChatMessagePollBubbleContentNode shows the lamp for a quiz's solution, its text or media, once the quiz is
+    /// answered or closed.
+    private var quizExplanation: TDNativePollTypeQuiz? {
+        guard case .pollTypeQuiz(let quiz) = content.poll.type,
+              !quiz.explanation.text.isEmpty || quiz.explanationMedia != nil,
               content.poll.isClosed || !currentSelection.isEmpty else { return nil }
-        return quiz.explanation
+        return quiz
     }
 
     /// ChatMessagePollBubbleContentNode.updateSelection: a multiple-answer poll offers Vote until it is answered,
@@ -1524,7 +1531,20 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     func prepareForReuse() {
         storeCancellable?.cancel()
         storeCancellable = nil
+        mediaView?.prepareForReuse()
+        explanationView.prepareForReuse()
+        for view in optionViews.values {
+            view.prepareForReuse()
+        }
         optionViews.removeAll()
+    }
+
+    func setPlaybackVisible(_ isVisible: Bool) {
+        mediaView?.setPlaybackVisible(isVisible)
+        explanationView.setPlaybackVisible(isVisible)
+        for view in optionViews.values {
+            view.setPlaybackVisible(isVisible)
+        }
     }
 
     #if DEBUG
@@ -1541,8 +1561,21 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         explanationView.translatesAutoresizingMaskIntoConstraints = false
         explanationView.isHidden = true
         explanationView.closeButton.addTarget(self, action: #selector(closeExplanationTapped), for: .touchUpInside)
-        if let quizExplanation { explanationView.configure(text: quizExplanation, client: client) }
+        if let quizExplanation {
+            explanationView.configure(
+                text: quizExplanation.explanation,
+                // ChatMessageQuizAnswerBubbleContentNode's media opens with `openPollMedia(.solution)`.
+                mediaView: quizExplanation.explanationMedia.flatMap { makeMediaView($0) },
+                client: client,
+            )
+        }
         addSubview(explanationView)
+
+        if let media = content.media, let mediaView = makeMediaView(media) {
+            mediaView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(mediaView)
+            self.mediaView = mediaView
+        }
 
         // ChatMessagePollBubbleContentNode draws the question's custom emoji (TextNodeWithEntities).
         questionLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1576,12 +1609,15 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         optionsStack.spacing = 7
         addSubview(optionsStack)
 
+        // ChatMessagePollBubbleContentNode's hasAnyOptionMedia: every answer keeps the media's room at its end.
+        let hasAnyOptionMedia = content.poll.options.contains { $0.media != nil }
         for index in displayedOptionIndices {
             let optionView = PollOptionContentView()
             optionView.configure(
                 option: content.poll.options[index],
                 index: index,
                 client: client,
+                hasAnyMedia: hasAnyOptionMedia,
                 showsResults: showsResults,
                 correct: hasAuthoritativeQuizAnswer && correctOptionIndices.contains(index),
                 incorrect: hasAuthoritativeQuizAnswer
@@ -1590,6 +1626,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
                 enabled: canVote,
                 opensVoters: resultsOpenVoters,
                 relativeProgress: relativeProgress(for: content.poll.options[index]),
+                onMediaTap: { [weak self] media in self?.openMedia(media) },
             ) { [weak self] selectedIndex in self?.optionTapped(selectedIndex) }
             optionViews[index] = optionView
             optionsStack.addArrangedSubview(optionView)
@@ -1610,8 +1647,17 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         footerLabel.adjustsFontForContentSizeCategory = true
         addSubview(footerLabel)
 
-        questionTopToView = questionLabel.topAnchor.constraint(equalTo: topAnchor, constant: 3)
-        questionTopToExplanation = questionLabel.topAnchor.constraint(
+        // Telegram's order: the quiz's explanation, the poll's media, then the poll.
+        let firstContentView: UIView = mediaView ?? questionLabel
+        if let mediaView {
+            NSLayoutConstraint.activate([
+                mediaView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                mediaView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                questionLabel.topAnchor.constraint(equalTo: mediaView.bottomAnchor, constant: 8),
+            ])
+        }
+        contentTopToView = firstContentView.topAnchor.constraint(equalTo: topAnchor, constant: 3)
+        contentTopToExplanation = firstContentView.topAnchor.constraint(
             equalTo: explanationView.bottomAnchor,
             constant: 8,
         )
@@ -1619,7 +1665,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
             explanationView.topAnchor.constraint(equalTo: topAnchor, constant: 3),
             explanationView.leadingAnchor.constraint(equalTo: leadingAnchor),
             explanationView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            questionTopToView,
+            contentTopToView,
             questionLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             questionLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
             typeLabel.topAnchor.constraint(equalTo: questionLabel.bottomAnchor, constant: 2),
@@ -1641,6 +1687,54 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
             footerLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -2),
             widthAnchor.constraint(greaterThanOrEqualToConstant: 280),
         ])
+    }
+
+    /// Telegram's bubble for a poll's own media (ChatMessageBubbleItemNode): the media bubble for a photo, video or
+    /// GIF, the file bubble for a document or audio, and the map bubble for a place; a link gets none.
+    private func makeMediaView(_ media: TDNativePollMedia) -> (UIView & MessageSupplementView)? {
+        let onAction = onAction
+        let open: (TDNativePollMedia) -> Void = { [weak self] media in self?.openMedia(media) }
+        let mapAction: (MessageContentAction) -> Void = { action in
+            if case .openLocation = action { open(media) } else { onAction(action) }
+        }
+        switch media {
+        case .pollMediaDocument(let value):
+            return TelegramFileMessageView(document: value.document, client: client, onAction: onAction)
+        case .pollMediaAudio(let value):
+            return TelegramFileMessageView(audio: value.audio, client: client, onAction: onAction)
+        case .pollMediaLocation(let value):
+            return LocationMessageContentView(
+                content: MessageContentPresentation.LocationContent(
+                    liveDeadline: nil,
+                    liveIndefinite: false,
+                    location: value.location,
+                    subtitle: nil,
+                    title: L10n.telegram("Message.Location"),
+                ),
+                onAction: mapAction,
+            )
+        case .pollMediaVenue(let value):
+            let title = value.venue.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let address = value.venue.address.trimmingCharacters(in: .whitespacesAndNewlines)
+            return LocationMessageContentView(
+                content: MessageContentPresentation.LocationContent(
+                    liveDeadline: nil,
+                    liveIndefinite: false,
+                    location: value.venue.location,
+                    subtitle: address.isEmpty ? nil : address,
+                    title: title.isEmpty ? L10n.telegram("Message.Location") : title,
+                ),
+                onAction: mapAction,
+            )
+        case .pollMediaLink:
+            return nil
+        default:
+            return PollMediaPreviewView(media: media, client: client, onTap: open)
+        }
+    }
+
+    private func openMedia(_ media: TDNativePollMedia) {
+        onAction(.openPollMedia(messageID: messageID, media: media))
     }
 
     private func relativeProgress(for option: PollOption) -> CGFloat {
@@ -1727,11 +1821,11 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         guard shown == explanationView.isHidden else { return false }
         explanationView.isHidden = !shown
         if shown {
-            questionTopToView.isActive = false
-            questionTopToExplanation.isActive = true
+            contentTopToView.isActive = false
+            contentTopToExplanation.isActive = true
         } else {
-            questionTopToExplanation.isActive = false
-            questionTopToView.isActive = true
+            contentTopToExplanation.isActive = false
+            contentTopToView.isActive = true
         }
         return true
     }
@@ -1791,12 +1885,19 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
 // MARK: - PollOptionContentView
 
 private final class PollOptionContentView: UIControl {
+    /// ChatMessagePollOptionNode's media insets: 10 points to the answer's edge and 6 to the percentage before it.
+    private static let mediaTrailingInset: CGFloat = 10
+    private static let mediaSpacing: CGFloat = 6
+
     private let progressView = UIView()
     private let selectionView = UIImageView()
     private let textLabel = CustomEmojiTextView()
     private let percentageLabel = UILabel()
+    private let mediaView = PollMediaThumbnailView()
     private var index = 0
     private var onTap: ((Int) -> Void)?
+    private var percentageTrailing: NSLayoutConstraint!
+    private var minimumHeight: NSLayoutConstraint!
     private var relativeProgress = CGFloat.zero
     private var resultImage: UIImage?
     private var resultTint = UIColor.systemBlue
@@ -1834,6 +1935,12 @@ private final class PollOptionContentView: UIControl {
         percentageLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         addSubview(percentageLabel)
 
+        mediaView.translatesAutoresizingMaskIntoConstraints = false
+        mediaView.isHidden = true
+        addSubview(mediaView)
+
+        self.percentageTrailing = percentageLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8)
+        self.minimumHeight = heightAnchor.constraint(greaterThanOrEqualToConstant: 42)
         NSLayoutConstraint.activate([
             selectionView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             selectionView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -1843,10 +1950,14 @@ private final class PollOptionContentView: UIControl {
             textLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -9),
             textLabel.leadingAnchor.constraint(equalTo: selectionView.trailingAnchor, constant: 7),
             percentageLabel.leadingAnchor.constraint(equalTo: textLabel.trailingAnchor, constant: 5),
-            percentageLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            percentageTrailing,
             percentageLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             percentageLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 34),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 42),
+            mediaView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.mediaTrailingInset),
+            mediaView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            mediaView.widthAnchor.constraint(equalToConstant: PollMediaThumbnailView.size.width),
+            mediaView.heightAnchor.constraint(equalToConstant: PollMediaThumbnailView.size.height),
+            minimumHeight,
         ])
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
         isAccessibilityElement = true
@@ -1866,16 +1977,27 @@ private final class PollOptionContentView: UIControl {
         )
     }
 
+    /// ChatMessagePollBubbleContentNode opens an answer's media from a tap on it, whether or not the answer takes a
+    /// vote, so the thumbnail takes its touches even while the answer is disabled.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if isUserInteractionEnabled, !isHidden, alpha > 0.01, !mediaView.isHidden, mediaView.frame.contains(point) {
+            return mediaView
+        }
+        return super.hitTest(point, with: event)
+    }
+
     func configure(
         option: PollOption,
         index: Int,
         client: TDLibClient,
+        hasAnyMedia: Bool,
         showsResults: Bool,
         correct: Bool,
         incorrect: Bool,
         enabled: Bool,
         opensVoters: Bool,
         relativeProgress: CGFloat,
+        onMediaTap: @escaping (TDNativePollMedia) -> Void,
         onTap: @escaping (Int) -> Void,
     ) {
         self.index = index
@@ -1885,6 +2007,28 @@ private final class PollOptionContentView: UIControl {
         // ChatMessagePollOptionNode draws the answer's custom emoji (TextNodeWithEntities).
         textLabel.customEmojiClient = client
         textLabel.setFormattedText(option.text, font: .preferredFont(forTextStyle: .subheadline))
+        // ChatMessagePollOptionNode: once any answer has media, every answer keeps its room at the end, and an
+        // answer's media sits there, vertically centered.
+        percentageTrailing.constant = hasAnyMedia
+            ? -(Self.mediaTrailingInset + PollMediaThumbnailView.size.width + Self.mediaSpacing)
+            : -8
+        minimumHeight.constant = hasAnyMedia ? PollMediaThumbnailView.size.height + 14 : 42
+        if let media = option.media {
+            mediaView.isHidden = false
+            mediaView.configure(media: media, client: client)
+            mediaView.onTap = onMediaTap
+            accessibilityCustomActions = [
+                UIAccessibilityCustomAction(name: L10n.betterTG("Accessibility.OpenPollMedia")) { _ in
+                    onMediaTap(media)
+                    return true
+                },
+            ]
+        } else {
+            mediaView.isHidden = true
+            mediaView.prepareForReuse()
+            mediaView.onTap = nil
+            accessibilityCustomActions = nil
+        }
         percentageLabel.text = showsResults ? "\(option.votePercentage)%" : nil
         percentageLabel.accessibilityValue = String(showsResults ? option.votePercentage : 0)
         self.relativeProgress = showsResults ? min(1, max(0, relativeProgress)) : 0
@@ -1935,6 +2079,14 @@ private final class PollOptionContentView: UIControl {
         accessibilityTraits = selected ? [.button, .selected] : [.button]
     }
 
+    func prepareForReuse() {
+        mediaView.prepareForReuse()
+    }
+
+    func setPlaybackVisible(_ isVisible: Bool) {
+        mediaView.setPlaybackVisible(isVisible)
+    }
+
     @objc private func tapped() {
         onTap?(index)
     }
@@ -1950,6 +2102,9 @@ private final class PollExplanationView: UIView {
     private let accentView = UIView()
     private let titleLabel = UILabel()
     private let textLabel = CustomEmojiTextView()
+    private var textBottom: NSLayoutConstraint!
+    /// The solution's media under its text (ChatMessageQuizAnswerBubbleContentNode's attached media).
+    private var mediaView: (UIView & MessageSupplementView)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1987,6 +2142,7 @@ private final class PollExplanationView: UIView {
         closeButton.accessibilityLabel = L10n.telegram("Common.Close")
         addSubview(closeButton)
 
+        self.textBottom = textLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7)
         NSLayoutConstraint.activate([
             accentView.topAnchor.constraint(equalTo: topAnchor),
             accentView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -2002,7 +2158,7 @@ private final class PollExplanationView: UIView {
             textLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
             textLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             textLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            textLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
+            textBottom,
         ])
         accessibilityElements = [titleLabel, textLabel, closeButton]
     }
@@ -2011,10 +2167,33 @@ private final class PollExplanationView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// ChatMessageQuizAnswerBubbleContentNode draws the solution's custom emoji.
-    func configure(text: FormattedText, client: TDLibClient) {
+    /// ChatMessageQuizAnswerBubbleContentNode draws the solution's custom emoji, and its media under the text.
+    func configure(text: FormattedText, mediaView: (UIView & MessageSupplementView)?, client: TDLibClient) {
         textLabel.customEmojiClient = client
         textLabel.setFormattedText(text, font: .preferredFont(forTextStyle: .subheadline))
+        self.mediaView?.removeFromSuperview()
+        self.mediaView = nil
+        textBottom.isActive = true
+        guard let mediaView else { return }
+        mediaView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(mediaView)
+        textBottom.isActive = false
+        NSLayoutConstraint.activate([
+            mediaView.topAnchor.constraint(equalTo: textLabel.bottomAnchor, constant: 6),
+            mediaView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            mediaView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            mediaView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+        ])
+        self.mediaView = mediaView
+        accessibilityElements = [titleLabel, textLabel, mediaView, closeButton]
+    }
+
+    func prepareForReuse() {
+        mediaView?.prepareForReuse()
+    }
+
+    func setPlaybackVisible(_ isVisible: Bool) {
+        mediaView?.setPlaybackVisible(isVisible)
     }
 }
 
@@ -2773,6 +2952,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("poll:\(optionIDs.map(String.init).joined(separator: ","))")
                     case .openPollResults:
                         actions.append("poll-results")
+                    case .openPollMedia:
+                        actions.append("poll-media")
                     case .cancelSending:
                         actions.append("cancel")
                     case .pressInlineKeyboardButton:

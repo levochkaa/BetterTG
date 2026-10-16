@@ -337,6 +337,7 @@
 "Accessibility.RevealSpoiler" = "Показать скрытое";
 "Accessibility.PlayVideo" = "Воспроизвести видео";
 "Accessibility.OpenPhoto" = "Открыть фото";
+"Accessibility.OpenPollMedia" = "Открыть вложение";
 "Accessibility.OpenLivePhoto" = "Открыть Live Photo";
 "Accessibility.OpenAnimation" = "Открыть анимацию";
 "Accessibility.OpenVideo" = "Открыть видео";

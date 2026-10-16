@@ -4,7 +4,8 @@ import TDLibKit
 import UIKit
 
 final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureRecognizerDelegate {
-    private struct Thumbnail {
+    /// The still a link preview shows, which a poll's link media draws too.
+    struct Thumbnail {
         let file: File
         let placeholder: Data?
         let size: CGSize
@@ -109,7 +110,7 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private static func thumbnail(_ type: LinkPreviewType) -> Thumbnail? {
+    static func thumbnail(_ type: LinkPreviewType) -> Thumbnail? {
         func photo(_ photo: Photo?) -> Thumbnail? {
             guard let photo,
                   let size = photo.sizes.max(by: { $0.width * $0.height < $1.width * $1.height }) else { return nil }

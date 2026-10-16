@@ -237,6 +237,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// The account's favorite stickers by file ID, for the sticker message menu's Add/Remove from Favorites.
     private var favoriteStickerFileIDs = Set<Int>()
     private var stickerActionTask: Task<Void, Never>?
+    /// A poll's file being downloaded to open or play (openPollMedia).
+    private var pollMediaTask: Task<Void, Never>?
     /// The message menu's Save Image, Save Video or Save to Files in progress.
     private var mediaSaveTask: Task<Void, Never>?
     /// Keeps the Save to Files picker's delegate, which removes the temporary copy when the picker closes.
@@ -5159,6 +5161,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             chatVM.submitPollAnswer(messageID: messageID, optionIDs: optionIDs, submission: submission)
         case .openPollResults(let messageID, let optionID):
             openPollResults(messageID: messageID, optionID: optionID, in: message)
+        case .openPollMedia(let messageID, let media):
+            openPollMedia(media, messageID: messageID, in: message)
         case .cancelSending(let messageID):
             // ChatMessageInteractiveMediaNode.progressPressed deletes a sending message for everyone.
             chatVM.deleteMessages(ids: [messageID], deleteForBoth: true)
@@ -5387,6 +5391,196 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             accountID: accountID,
         )
         navigation.pushViewController(results, animated: true)
+    }
+
+    /// Telegram's openPollMedia (ChatControllerOpenPollOptionMedia): a sticker offers Add to Favorites and View
+    /// Sticker Set, a link opens behind the hidden link alert, and other media open as their own message would: a
+    /// photo, video or GIF alone in the gallery, a place in the location viewer, and a file as a file message's.
+    private func openPollMedia(_ media: TDNativePollMedia, messageID: Int64, in message: CustomMessage) {
+        guard presentationMode == .full, !clientOwnerRetired, chatVM.locationContextIsCurrent,
+              presentedViewController == nil else { return }
+        view.endEditing(true)
+        let noCaption = FormattedText(entities: [], text: "")
+        switch media {
+        case .pollMediaSticker(let value):
+            presentPollSticker(value.sticker)
+        case .pollMediaLink(let value):
+            openPollLink(value.url)
+        case .pollMediaLocation(let value):
+            presentLocationViewer(LocationViewSubject(location: value.location))
+        case .pollMediaVenue(let value):
+            presentLocationViewer(LocationViewSubject(venue: value.venue))
+        case .pollMediaDocument(let value):
+            openPollFile(value.document.document, audioDuration: nil, in: message)
+        case .pollMediaAudio(let value):
+            openPollFile(value.audio.audio, audioDuration: value.audio.duration, in: message)
+        case .pollMediaPhoto(let value):
+            presentPollMediaGallery(.messagePhoto(TDNativeMessagePhoto(
+                photo: value.photo,
+                video: value.video,
+                caption: noCaption,
+                showCaptionAboveMedia: false,
+                hasSpoiler: false,
+                isSecret: false,
+            )), messageID: messageID, in: message)
+        case .pollMediaVideo(let value):
+            presentPollMediaGallery(.messageVideo(TDNativeMessageVideo(
+                video: value.video,
+                alternativeVideos: value.alternativeVideos,
+                storyboards: value.storyboards,
+                cover: value.cover,
+                startTimestamp: value.startTimestamp,
+                caption: noCaption,
+                showCaptionAboveMedia: false,
+                hasSpoiler: false,
+                isSecret: false,
+            )), messageID: messageID, in: message)
+        case .pollMediaAnimation(let value):
+            presentPollMediaGallery(.messageAnimation(TDNativeMessageAnimation(
+                animation: value.animation,
+                caption: noCaption,
+                showCaptionAboveMedia: false,
+                hasSpoiler: false,
+                isSecret: false,
+            )), messageID: messageID, in: message)
+        }
+    }
+
+    /// Telegram opens a poll's photo, video or GIF alone in the gallery (openChatMessage with `standalone` and the
+    /// poll media subject). Here the gallery shows the poll's message carrying that media, without message actions.
+    private func presentPollMediaGallery(_ content: MessageContent, messageID: Int64, in message: CustomMessage) {
+        guard let galleryPlaybackContext, galleryPlaybackContext.isCurrent,
+              let source = message.sourceMessages.first(where: { $0.id == messageID }) else { return }
+        let standalone = Message(
+            id: source.id,
+            senderId: source.senderId,
+            receiverId: source.receiverId,
+            chatId: source.chatId,
+            sendingState: source.sendingState,
+            schedulingState: source.schedulingState,
+            isOutgoing: source.isOutgoing,
+            isPinned: source.isPinned,
+            isFromOffline: source.isFromOffline,
+            canBeSaved: source.canBeSaved,
+            hasTimestampedMedia: false,
+            isChannelPost: source.isChannelPost,
+            isPaidStarSuggestedPost: source.isPaidStarSuggestedPost,
+            isPaidGramSuggestedPost: source.isPaidGramSuggestedPost,
+            containsUnreadMention: false,
+            containsUnreadPollVotes: false,
+            date: source.date,
+            editDate: source.editDate,
+            forwardInfo: source.forwardInfo,
+            importInfo: source.importInfo,
+            interactionInfo: nil,
+            unreadReactions: [],
+            factCheck: nil,
+            suggestedPostInfo: nil,
+            replyTo: nil,
+            topicId: source.topicId,
+            selfDestructType: nil,
+            selfDestructIn: 0,
+            autoDeleteIn: 0,
+            viaBotUserId: source.viaBotUserId,
+            guestBotCallerId: nil,
+            senderBusinessBotUserId: source.senderBusinessBotUserId,
+            senderBoostCount: source.senderBoostCount,
+            senderTag: source.senderTag,
+            paidMessageStarCount: 0,
+            authorSignature: source.authorSignature,
+            mediaAlbumId: 0,
+            effectId: 0,
+            restrictionInfo: nil,
+            summaryLanguageCode: "",
+            content: content,
+            ephemeralContent: nil,
+            replyMarkup: nil,
+            ephemeralMessageId: 0,
+            chatInstance: source.chatInstance,
+        )
+        let gallery = MediaGalleryViewController(
+            messages: [standalone],
+            selection: standalone.id,
+            tdlib: tdlib,
+            playbackContext: galleryPlaybackContext,
+        )
+        gallery.contextIsCurrent = { [weak self] in
+            guard let self else { return false }
+            return TDLib.shared.activeAccountID == location.accountID && routeIsRetained
+        }
+        present(gallery, animated: true)
+    }
+
+    /// Telegram's poll sticker peek menu (openPollMedia): Add to or Remove from Favorites, and View Sticker Set.
+    private func presentPollSticker(_ sticker: Sticker) {
+        let fileID = sticker.sticker.id
+        let isFavorite = favoriteStickerFileIDs.contains(fileID)
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(
+            title: L10n.telegram(isFavorite ? "Stickers.RemoveFromFavorites" : "Stickers.AddToFavorites"),
+            style: .default,
+        ) { [weak self] _ in self?.setStickerFavorite(fileID: fileID, favorite: !isFavorite) })
+        if sticker.setId != 0 {
+            let setID = sticker.setId
+            sheet
+                .addAction(UIAlertAction(
+                    title: L10n.telegram("StickerPack.ViewPack"),
+                    style: .default,
+                ) { [weak self] _ in
+                    self?.presentStickerPack(setID: setID)
+                })
+        }
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        sheet.popoverPresentationController?.sourceView = view
+        sheet.popoverPresentationController?.sourceRect = CGRect(
+            x: view.bounds.midX,
+            y: view.bounds.midY,
+            width: 1,
+            height: 1,
+        )
+        present(sheet, animated: true)
+    }
+
+    /// Telegram opens a poll's link concealed (openUserGeneratedUrl with `forceConcealed`), so it always asks first.
+    private func openPollLink(_ string: String) {
+        guard let url = getUrl(from: string) else { return }
+        let displayURL = url.absoluteString.removingPercentEncoding ?? url.absoluteString
+        let alert = UIAlertController(
+            title: nil,
+            message: L10n.telegram("Generic.OpenHiddenLinkAlert", displayURL),
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.No"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Yes"), style: .default) { [weak self] _ in
+            guard let self, chatVM.locationContextIsCurrent else { return }
+            TelegramLinkRouter.shared.open(url, from: self)
+        })
+        present(alert, animated: true)
+    }
+
+    /// A poll's file opens as a file message's does: downloaded, then an audio file plays and a document goes to the
+    /// share sheet.
+    private func openPollFile(_ file: File, audioDuration: Int?, in message: CustomMessage) {
+        pollMediaTask?.cancel()
+        let client = chatVM.client
+        pollMediaTask = Task { [weak self] in
+            let downloaded = try? await client.downloadFile(
+                fileId: file.id,
+                limit: 0,
+                offset: 0,
+                priority: 32,
+                synchronous: true,
+            )
+            guard let self, !Task.isCancelled else { return }
+            pollMediaTask = nil
+            guard !clientOwnerRetired, chatVM.locationContextIsCurrent, let downloaded,
+                  downloaded.local.isDownloadingCompleted, !downloaded.local.path.isEmpty else { return }
+            if let audioDuration {
+                Media.shared.toggle(with: downloaded.local.path, duration: audioDuration, item: nil)
+            } else if presentedViewController == nil {
+                performContentAction(.openDocument(URL(fileURLWithPath: downloaded.local.path)), for: message)
+            }
+        }
     }
 
     /// Opens a user's profile on this chat's client (Telegram's `openPeer(.info)` for a shared contact or a user

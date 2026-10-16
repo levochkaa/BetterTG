@@ -337,6 +337,7 @@
 "Accessibility.RevealSpoiler" = "Reveal spoiler";
 "Accessibility.PlayVideo" = "Play video";
 "Accessibility.OpenPhoto" = "Open photo";
+"Accessibility.OpenPollMedia" = "Open attachment";
 "Accessibility.OpenLivePhoto" = "Open Live Photo";
 "Accessibility.OpenAnimation" = "Open animation";
 "Accessibility.OpenVideo" = "Open video";

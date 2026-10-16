@@ -55,6 +55,16 @@ struct LocationViewSubject {
         self.chatID = nil
         self.sender = nil
     }
+
+    /// A place outside a venue message, such as a poll's or an answer's.
+    init(venue: TDNativeVenue) {
+        let place = LocationPickerVenue(venue: venue)
+        self.coordinate = place.coordinate
+        self.venue = place
+        self.liveMessage = nil
+        self.chatID = nil
+        self.sender = nil
+    }
 }
 
 // MARK: - LocationDirections
