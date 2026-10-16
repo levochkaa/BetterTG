@@ -76,6 +76,8 @@ struct AttachmentMediaSendRequest {
     }
 
     let assets: [PHAsset]
+    /// TGMediaEditingContext's crops of the picked photos, by asset.
+    var cropAdjustments = [String: PhotoCropAdjustments]()
     let mode: ComposerMediaSendMode
     let timing: Timing
     let highQualityPhotos: Bool
@@ -149,6 +151,7 @@ struct AttachmentMediaSendRequest {
     private var captionIsAbove: Bool
     private var thumbnailSize = CGSize.zero
     private var didSettleInitialOffset = false
+    private var photoEdits = [String: PhotoCropEdit]()
     private var isClosing = false
 
     private var allowsMedia: Bool {
@@ -211,6 +214,7 @@ struct AttachmentMediaSendRequest {
         configureCollectionView()
         configurePlaceholder()
         configurePanel()
+        configurePhotoEditing()
         manageBanner.onManage = { [weak self] source in self?.showLimitedAccessOptions(from: source) }
         selectedButton.addTarget(self, action: #selector(showSelectedPressed), for: .touchUpInside)
         moreButton.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
@@ -559,6 +563,10 @@ struct AttachmentMediaSendRequest {
         let identifier = asset.localIdentifier
         guard cell.representedAssetIdentifier != identifier else { return }
         cell.representedAssetIdentifier = identifier
+        if let thumbnail = photoEdits[identifier]?.thumbnail {
+            cell.imageView.image = thumbnail
+            return
+        }
         cell.imageView.image = nil
         imageManager.requestImage(
             for: asset,
@@ -952,6 +960,7 @@ struct AttachmentMediaSendRequest {
         UserDefaults.standard.set(isHighQuality, forKey: PhotoSendPreset.highQualityDefaultsKey)
         let request = AttachmentMediaSendRequest(
             assets: selection,
+            cropAdjustments: photoEdits.mapValues(\.adjustments),
             mode: mode,
             timing: timing,
             highQualityPhotos: isHighQuality,
@@ -992,6 +1001,62 @@ struct AttachmentMediaSendRequest {
         presented.dismiss(animated: true) {
             onDismiss?()
             completion?()
+        }
+    }
+
+    // MARK: Photo editing
+
+    /// Telegram edits a picked photo in its preview's editor (LegacyMediaPickerGallery); holding a photo here offers
+    /// Edit, which opens the crop tool on it.
+    private func configurePhotoEditing() {
+        let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(photoLongPressed(_:)))
+        press.pressedViewProvider = { [weak self] gesture in
+            guard let self, let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
+                  asset(at: path.item)?.mediaType == .image
+            else { return nil }
+            return collectionView.cellForItem(at: path)
+        }
+        collectionView.addGestureRecognizer(press)
+    }
+
+    @objc private func photoLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard gesture.state == .began, !isClosing,
+              let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
+              let asset = asset(at: path.item), asset.mediaType == .image,
+              let cell = collectionView.cellForItem(at: path)
+        else { return }
+        let edit = TelegramContextMenuAction(
+            title: L10n.telegram("Common.Edit"),
+            image: UIImage(systemName: "crop"),
+        ) { [weak self] in
+            self?.editPhoto(asset)
+        }
+        presentTelegramContextMenu(sourceView: cell, actions: [edit], tracking: gesture, presentationStyle: .menuOnly)
+    }
+
+    private func editPhoto(_ asset: PHAsset) {
+        let adjustments = photoEdits[asset.localIdentifier]?.adjustments
+        PhotoCropViewController.loadImage(for: asset) { [weak self] image in
+            guard let self, let image, !isClosing, presentedViewController == nil else { return }
+            let editor = PhotoCropViewController(image: image, adjustments: adjustments)
+            editor.onDone = { [weak self] edit in self?.finishEditing(asset, edit: edit) }
+            present(editor, animated: true)
+        }
+    }
+
+    /// LegacyMediaPickerGallery's `willFinishEditingItem`: the crop stays with the photo and picks it; the grid shows
+    /// the cropped thumbnail (`didFinishEditingItem`).
+    private func finishEditing(_ asset: PHAsset, edit: PhotoCropEdit?) {
+        let identifier = asset.localIdentifier
+        photoEdits[identifier] = edit
+        if edit != nil, !selection.contains(where: { $0.localIdentifier == identifier }) {
+            toggleSelection(of: asset)
+        }
+        for cell in collectionView.visibleCells {
+            guard let gridCell = cell as? MediaPickerGridCell,
+                  gridCell.representedAssetIdentifier == identifier else { continue }
+            gridCell.representedAssetIdentifier = nil
+            loadThumbnail(asset, into: gridCell)
         }
     }
 }

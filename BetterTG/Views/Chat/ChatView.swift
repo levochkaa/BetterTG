@@ -6277,6 +6277,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let barrier = importBarrier
         PhotoAssetSelectionLoader.load(
             request.assets,
+            cropAdjustments: request.cropAdjustments,
             highQualityPhotos: request.highQualityPhotos,
             spoilerAssetIDs: request.spoilerAssetIDs,
             selfDestructTimer: request.selfDestructTimer,

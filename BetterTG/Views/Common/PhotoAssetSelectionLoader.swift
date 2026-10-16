@@ -16,6 +16,7 @@ enum PhotoAssetSelectionLoader {
 
     static func load(
         _ assets: [PHAsset],
+        cropAdjustments: [String: PhotoCropAdjustments] = [:],
         highQualityPhotos: Bool,
         spoilerAssetIDs: Set<String> = [],
         selfDestructTimer: MediaSelfDestructTimer? = nil,
@@ -35,7 +36,7 @@ enum PhotoAssetSelectionLoader {
                 slots.wait()
                 group.enter()
                 let hasSpoiler = spoilerAssetIDs.contains(asset.localIdentifier)
-                load(asset, maximumSide: maximumSide) { image in
+                load(asset, maximumSide: maximumSide, crop: cropAdjustments[asset.localIdentifier]) { image in
                     if var image {
                         image.hasSpoiler = hasSpoiler
                         image.selfDestructTimer = selfDestructTimer
@@ -59,11 +60,15 @@ enum PhotoAssetSelectionLoader {
     private static func load(
         _ asset: PHAsset,
         maximumSide: Int,
+        crop: PhotoCropAdjustments?,
         completion: @escaping (SelectedImage?) -> Void,
     ) {
         switch asset.mediaType {
         case .video:
             loadVideo(asset, completion: completion)
+        case .image where crop != nil:
+            // An edited photo goes as the crop editor left it (TGPhotoEditorCrop), a Live Photo as its still.
+            loadPhoto(asset, maximumSide: maximumSide, crop: crop, completion: completion)
         case .image:
             if asset.mediaSubtypes.contains(.photoLive) {
                 loadLivePhoto(asset, maximumSide: maximumSide, completion: completion)
@@ -79,6 +84,7 @@ enum PhotoAssetSelectionLoader {
     private static func loadPhoto(
         _ asset: PHAsset,
         maximumSide: Int,
+        crop: PhotoCropAdjustments? = nil,
         completion: @escaping (SelectedImage?) -> Void,
     ) {
         let options = PHImageRequestOptions()
@@ -93,7 +99,11 @@ enum PhotoAssetSelectionLoader {
             }
             // Photos answers on the main queue; the photo is scaled and written off it.
             DispatchQueue.global(qos: .userInitiated).async {
-                completion(writeImage(data: data, maximumSide: maximumSide))
+                if let crop {
+                    completion(writeImage(data: data, cropping: crop, maximumSide: maximumSide))
+                } else {
+                    completion(writeImage(data: data, maximumSide: maximumSide))
+                }
             }
         }
     }
