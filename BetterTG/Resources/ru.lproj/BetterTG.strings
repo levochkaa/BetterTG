@@ -614,3 +614,7 @@
 "Emoji.Category.Symbols" = "Символы";
 "Emoji.Category.Flags" = "Флаги";
 "MediaPicker.AlbumsTitle" = "Альбомы";
+"Accessibility.PhotoEditor.Rotate" = "Повернуть";
+"Accessibility.PhotoEditor.Mirror" = "Отразить";
+"Accessibility.PhotoEditor.AspectRatio" = "Пропорции";
+"Accessibility.PhotoEditor.Straighten" = "Выпрямить";

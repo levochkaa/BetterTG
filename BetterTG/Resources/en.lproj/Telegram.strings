@@ -1950,3 +1950,7 @@
 "Location.ProximityAlertSetText" = "We will notify you once %1$@ is within %2$@ from you.";
 "Location.ProximityAlertSetTextGroup" = "We will notify you once any other group member is within %@ from you.";
 "Location.ProximityAlertCancelled" = "Proximity alert cancelled";
+"PhotoEditor.CropReset" = "RESET";
+"PhotoEditor.CropAspectRatioOriginal" = "Original";
+"PhotoEditor.CropAspectRatioSquare" = "Square";
+"PhotoEditor.DiscardChanges" = "Discard Changes";

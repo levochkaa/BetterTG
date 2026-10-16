@@ -615,3 +615,7 @@
 "Emoji.Category.Symbols" = "Symbols";
 "Emoji.Category.Flags" = "Flags";
 "MediaPicker.AlbumsTitle" = "Albums";
+"Accessibility.PhotoEditor.Rotate" = "Rotate";
+"Accessibility.PhotoEditor.Mirror" = "Mirror";
+"Accessibility.PhotoEditor.AspectRatio" = "Aspect Ratio";
+"Accessibility.PhotoEditor.Straighten" = "Straighten";
