@@ -4,7 +4,7 @@ import AVFoundation
 import Combine
 import Contacts
 import ContactsUI
-import PhotosUI
+import Photos
 import TDLibKit
 import UIKit
 import UniformTypeIdentifiers
@@ -42,9 +42,8 @@ struct ChatClientRestorationViewport {
 // MARK: - ChatViewController
 
 final class ChatViewController: UIViewController, UICollectionViewDelegate, UICollectionViewDataSourcePrefetching,
-    PHPickerViewControllerDelegate, UIImagePickerControllerDelegate, UINavigationControllerDelegate,
-    UIDocumentPickerDelegate, UIGestureRecognizerDelegate, UIAdaptivePresentationControllerDelegate,
-    ClientRestorableNavigationEntry
+    UIImagePickerControllerDelegate, UINavigationControllerDelegate, UIDocumentPickerDelegate,
+    UIGestureRecognizerDelegate, UIAdaptivePresentationControllerDelegate, ClientRestorableNavigationEntry
 {
     // MARK: Internal
 
@@ -903,19 +902,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         acknowledgeCommittedVisibleMessages(requestHistory: true)
     }
 
-    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-        picker.dismiss(animated: true) { [weak self] in
-            self?.retryClientRestoration()
-            self?.acknowledgeCommittedVisibleMessages(requestHistory: true)
-        }
-        guard !results.isEmpty else { return }
-        guard let token = importBarrier.begin() else { return }
-        let barrier = importBarrier
-        PhotoPickerSelectionLoader.load(results) { [self] images in
-            finishImageImport(images, token: token, barrier: barrier)
-        }
-    }
-
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         picker.dismiss(animated: true) { [weak self] in
             self?.retryClientRestoration()
@@ -1461,7 +1447,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// The send menu's Schedule Message: Telegram's date picker, then the composer goes out at that time.
-    private func presentScheduleMessagePicker() {
+    private func presentScheduleMessagePicker(mediaMode: ComposerMediaSendMode = .grouped) {
         guard presentationMode == .full, chatVM.locationContextIsCurrent, chatVM.canScheduleMessages else { return }
         ScheduleMessagePickerViewController.present(
             from: self,
@@ -1469,7 +1455,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             showsSendWhenOnline: chatVM.canSendWhenOnline,
         ) { [weak self] state in
             guard let self, chatVM.locationContextIsCurrent else { return }
-            composerView.send(options: ChatVM.sendOptions(schedulingState: state))
+            composerView.send(options: ChatVM.sendOptions(schedulingState: state), mediaMode: mediaMode)
         }
     }
 
@@ -1661,11 +1647,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
-    private func finishImageImport(
+    /// True when the import reached the composer.
+    @discardableResult private func finishImageImport(
         _ images: [SelectedImage],
         token: ChatComposerImportBarrier.Token,
         barrier: ChatComposerImportBarrier,
-    ) {
+    ) -> Bool {
         let accepted = barrier
             .finish(token, currentAccountID: tdlib.activeAccountID, routeIsRetained: routeIsRetained) {
                 guard !images.isEmpty else { return }
@@ -1676,6 +1663,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             let urls = images.flatMap(\.fileURLs)
             Task.detached { SelectedDocumentFileStore.removeUnleased(urls) }
         }
+        return accepted
     }
 
     private func abandonRestoredViewport() {
@@ -2117,13 +2105,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         ]
         if showsComposer {
             view.keyboardLayoutGuide.usesBottomSafeArea = false
-            composerView.onPickPhotos = { [weak self] in self?.showPhotoPicker() }
-            composerView.onPickFiles = { [weak self] in self?.showDocumentPicker() }
-            composerView.onPickLocation = { [weak self] in self?.showLocationPicker() }
-            composerView.onPickContact = { [weak self] in self?.showContactPicker() }
-            composerView.onCreatePoll = { [weak self] in self?.showPollCreator() }
+            composerView.onOpenAttachments = { [weak self] in self?.showAttachmentSheet() }
             composerView.onPickEmojiMedia = { [weak self] in self?.showComposerMediaPicker() }
-            composerView.onTakePhoto = { [weak self] in self?.showCamera() }
             composerView.onPasteImages = { [weak self] in self?.importImages($0) }
             composerView.onInteractionSettled = { [weak self] in self?.retryClientRestoration() }
             composerView.onUserInteraction = { [weak self] in self?.abandonRestoredViewport() }
@@ -5998,22 +5981,86 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
     }
 
-    private func showPhotoPicker() {
-        // Telegram's gallery offers photos and videos, each when the chat allows it.
-        var filters = [PHPickerFilter]()
-        if chatVM.canAttachPhotos { filters.append(.images) }
-        if chatVM.canAttachVideos { filters.append(.videos) }
-        guard let first = filters.first else { return }
-        var configuration = PHPickerConfiguration(photoLibrary: .shared())
-        configuration.filter = filters.count == 1 ? first : .any(of: filters)
-        // MediaPickerScreen takes up to 100 items (`enableMultiselection ? 100 : 1`), sent in albums of ten.
-        configuration.selectionLimit = 100
-        configuration.selection = .ordered
-        configuration.preferredAssetRepresentationMode = .current
-        let picker = PHPickerViewController(configuration: configuration)
-        picker.delegate = self
-        picker.presentationController?.delegate = self
-        present(picker, animated: true)
+    /// Telegram's attach button: the attachment sheet with Gallery current and the chat's other attachments in its
+    /// panel, in ChatControllerOpenAttachmentMenu's order and under its rules. View Once is offered in a private chat
+    /// with someone other than the user (`hasTimer`), and Saved Messages sets reminders.
+    private func showAttachmentSheet() {
+        guard presentationMode == .full, chatVM.editCustomMessage == nil else { return }
+        var tabs: [AttachmentSheetTab] = [.gallery]
+        if chatVM.canAttachDocuments { tabs.append(.file) }
+        let canSendLocationAndContact = chatVM.canSendLocationAndContact
+        if canSendLocationAndContact { tabs.append(.location) }
+        if chatVM.canCreatePoll { tabs.append(.poll) }
+        if canSendLocationAndContact { tabs.append(.contact) }
+        if chatVM.canWriteBasicMessages || chatVM.canSendStickersAndAnimations { tabs.append(.sticker) }
+        let customChat = chatVM.customChat
+        var allowsViewOnce = false
+        if case .chatTypePrivate = customChat.chat.type, !customChat.isSavedMessages {
+            allowsViewOnce = true
+        }
+        let configuration = AttachmentSheetConfiguration(
+            allowsPhotos: chatVM.canAttachPhotos,
+            allowsVideos: chatVM.canAttachVideos,
+            allowsCamera: chatVM.canAttachPhotos,
+            tabs: tabs,
+            allowsSendAsFile: chatVM.canAttachDocuments,
+            allowsSpoiler: chatVM.canHideMediaWithSpoiler,
+            showsLivePhotos: chatVM.canSendLivePhotos,
+            allowsViewOnce: allowsViewOnce,
+            isReminders: customChat.isSavedMessages,
+            canSchedule: chatVM.canScheduleMessages,
+            canSendWhenOnline: chatVM.canSendWhenOnline,
+            caption: String(chatVM.text.characters).trimmingCharacters(in: .whitespacesAndNewlines),
+            captionIsAbove: chatVM.mediaCaptionIsAbove,
+        )
+        let sheet = AttachmentSheetViewController(configuration: configuration)
+        sheet.onSelectTab = { [weak self] tab in self?.openAttachmentTab(tab) }
+        sheet.onCamera = { [weak self] in self?.showCamera() }
+        sheet.onSend = { [weak self] request in self?.sendAttachmentMedia(request) }
+        sheet.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
+        present(sheet.makeNavigationController(), animated: true)
+    }
+
+    /// The attachment panel's other buttons, opened once the sheet has closed.
+    private func openAttachmentTab(_ tab: AttachmentSheetTab) {
+        switch tab {
+        case .gallery: break
+        case .file: showDocumentPicker()
+        case .location: showLocationPicker()
+        case .poll: showPollCreator()
+        case .contact: showContactPicker()
+        case .sticker: showComposerMediaPicker()
+        }
+    }
+
+    /// The sheet's picked items become the composer's media and go out with the sheet's send choice, so they take the
+    /// composer's text as the caption, its reply, and its albums of ten.
+    private func sendAttachmentMedia(_ request: AttachmentMediaSendRequest) {
+        guard let token = importBarrier.begin() else { return }
+        let barrier = importBarrier
+        PhotoAssetSelectionLoader.load(
+            request.assets,
+            highQualityPhotos: request.highQualityPhotos,
+            spoilerAssetIDs: request.spoilerAssetIDs,
+            isViewOnce: request.isViewOnce,
+        ) { [self] images in
+            guard finishImageImport(images, token: token, barrier: barrier), !images.isEmpty,
+                  chatVM.locationContextIsCurrent else { return }
+            chatVM.mediaCaptionIsAbove = request.captionIsAbove
+            switch request.timing {
+            case .now:
+                composerView.send(options: nil, mediaMode: request.mode)
+            case .silently:
+                composerView.send(options: ChatVM.sendOptions(silent: true), mediaMode: request.mode)
+            case .whenOnline:
+                composerView.send(
+                    options: ChatVM.sendOptions(schedulingState: .messageSchedulingStateSendWhenOnline),
+                    mediaMode: request.mode,
+                )
+            case .schedule:
+                presentScheduleMessagePicker(mediaMode: request.mode)
+            }
+        }
     }
 
     private func showDocumentPicker() {

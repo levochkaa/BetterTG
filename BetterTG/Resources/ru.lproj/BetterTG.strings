@@ -177,7 +177,6 @@
 "Composer.VideoReply" = "Ответ видео";
 "Composer.VoiceReply" = "Ответ голосом";
 "Composer.OriginalRepliedMessage" = "Исходное сообщение";
-"Composer.EmojiStickersGIFs" = "Эмодзи, стикеры и GIF";
 "Composer.LiveOn" = "◉ LIVE";
 "Composer.LiveOff" = "LIVE ВЫКЛ.";
 "Composer.RetryVoiceMessage" = "Повторить отправку голосового";

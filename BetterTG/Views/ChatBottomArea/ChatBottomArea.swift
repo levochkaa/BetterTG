@@ -37,13 +37,9 @@ final class ChatComposerView: UIView {
 
     // MARK: Internal
 
-    var onPickPhotos: (() -> Void)?
-    var onPickFiles: (() -> Void)?
-    var onPickLocation: (() -> Void)?
-    var onPickContact: (() -> Void)?
-    var onCreatePoll: (() -> Void)?
+    /// Telegram's attach button: the attachment sheet.
+    var onOpenAttachments: (() -> Void)?
     var onPickEmojiMedia: (() -> Void)?
-    var onTakePhoto: (() -> Void)?
     var onPasteImages: (([UIImage]) -> Void)?
     var onInteractionSettled: (() -> Void)?
     var onUserInteraction: (() -> Void)?
@@ -1109,7 +1105,7 @@ final class ChatComposerView: UIView {
         suggestionsView.onSelectMention = { [weak self] mention in self?.insertMention(mention) }
     }
 
-    /// The same custom menu as the rest of the app, morphing out of the button.
+    /// Telegram's attach button opens the attachment sheet. While editing, the custom menu morphs out of the button.
     @objc private func showAttachmentActions() {
         // Editing a message takes only text and emoji, as in Telegram: new media, stickers or GIFs would be sent as
         // new messages instead of changing the edited one.
@@ -1126,52 +1122,7 @@ final class ChatComposerView: UIView {
             )
             return
         }
-        var actions = [
-            TelegramContextMenuAction(
-                title: L10n.telegram("Attachment.SelectFromGallery"),
-                image: UIImage(systemName: "photo"),
-            ) { [weak self] in self?.onPickPhotos?() },
-            TelegramContextMenuAction(
-                title: L10n.telegram("Common.TakePhoto"),
-                image: UIImage(systemName: "camera.fill"),
-            ) { [weak self] in self?.onTakePhoto?() },
-            TelegramContextMenuAction(
-                title: L10n.telegram("Attachment.File"),
-                image: UIImage(systemName: "doc.fill"),
-            ) { [weak self] in
-                self?.onPickFiles?()
-            },
-        ]
-        // ChatControllerOpenAttachmentMenu's buttons after the gallery and file: Location and Contact where text may
-        // be sent (`banSendText == nil`), with Poll between them where the chat takes polls.
-        let canSendLocationAndContact = chatVM.canSendLocationAndContact
-        if canSendLocationAndContact {
-            actions.append(TelegramContextMenuAction(
-                title: L10n.telegram("Attachment.Location"),
-                image: UIImage(systemName: "location.fill"),
-            ) { [weak self] in self?.onPickLocation?() })
-        }
-        if chatVM.canCreatePoll {
-            actions.append(TelegramContextMenuAction(
-                title: L10n.telegram("Attachment.Poll"),
-                image: UIImage(systemName: "chart.bar.fill"),
-            ) { [weak self] in self?.onCreatePoll?() })
-        }
-        if canSendLocationAndContact {
-            actions.append(TelegramContextMenuAction(
-                title: L10n.telegram("Attachment.Contact"),
-                image: UIImage(systemName: "person.crop.circle.fill"),
-            ) { [weak self] in self?.onPickContact?() })
-        }
-        actions.append(TelegramContextMenuAction(
-            title: L10n.betterTG("Composer.EmojiStickersGIFs"),
-            image: UIImage(systemName: "face.smiling"),
-        ) { [weak self] in self?.onPickEmojiMedia?() })
-        nearestViewController?.presentTelegramContextMenu(
-            sourceView: attachmentButton,
-            actions: actions,
-            presentationStyle: .sourceMorph,
-        )
+        onOpenAttachments?()
     }
 
     /// Fills the panel with the chat's offered keyboard; false when it offers none.
