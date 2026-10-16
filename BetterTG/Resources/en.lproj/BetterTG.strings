@@ -51,6 +51,8 @@
 
 "Permissions.MicrophoneTitle" = "Microphone Access Required";
 "Permissions.MicrophoneMessage" = "Enable Microphone in Settings → BetterTG to record voice messages.";
+"Permissions.LocationTitle" = "Location Access Required";
+"Permissions.LocationMessage" = "Enable Location in Settings → BetterTG to send your location.";
 
 "Accessibility.CloseSearch" = "Close Search";
 "Accessibility.ScrollToLatest" = "Scroll to latest message";

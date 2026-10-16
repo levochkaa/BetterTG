@@ -1,4 +1,5 @@
 "NSCameraUsageDescription" = "Allow camera access to send photos in chats.";
+"NSLocationWhenInUseUsageDescription" = "Allow location access to share your location in chats.";
 "NSMicrophoneUsageDescription" = "Allow microphone access to send voice messages in chats.";
 "NSPhotoLibraryAddUsageDescription" = "Allow Photos access to save images you request.";
 "NSPhotoLibraryUsageDescription" = "Allow Photos access to send photos in chats.";

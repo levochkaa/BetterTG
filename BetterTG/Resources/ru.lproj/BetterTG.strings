@@ -51,6 +51,8 @@
 
 "Permissions.MicrophoneTitle" = "Нужен доступ к микрофону";
 "Permissions.MicrophoneMessage" = "Разрешите BetterTG доступ к микрофону в Настройках, чтобы записывать голосовые сообщения.";
+"Permissions.LocationTitle" = "Нужен доступ к геопозиции";
+"Permissions.LocationMessage" = "Разрешите BetterTG доступ к геопозиции в Настройках, чтобы отправлять своё местоположение.";
 
 "Accessibility.CloseSearch" = "Закрыть поиск";
 "Accessibility.ScrollToLatest" = "Перейти к последнему сообщению";
