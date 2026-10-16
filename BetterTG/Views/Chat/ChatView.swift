@@ -825,6 +825,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         chatVM.beginBotStart(parameter: parameter)
     }
 
+    /// ChatController's sendBotCommand for a "/command" tapped in a message: it's sent where the user can write.
+    func sendBotCommand(_ command: String) {
+        guard showsComposer, !clientOwnerRetired, chatVM.locationContextIsCurrent, chatVM.canWriteBasicMessages
+        else { return }
+        Task { [weak self] in await self?.chatVM.sendBotCommandText(command) }
+    }
+
     /// ChatControllerImpl.openPeer for the peer already on screen: a link to one of its messages scrolls there and a
     /// bot start link shows Start here, instead of a second copy of the chat. False when this isn't that chat.
     func openLinkInPlace(chatID: Int64, topic: MessageTopic?, messageID: Int64?, botStartParameter: String?) -> Bool {

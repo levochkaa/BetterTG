@@ -771,6 +771,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             case .openUser(let userID):
                 TelegramLinkRouter.shared.openUser(userID, from: self?.nearestViewController)
                 handled = true
+            case .botCommand(let command):
+                if let chat = self?.nearestViewController as? ChatViewController {
+                    chat.sendBotCommand(command)
+                    handled = true
+                }
             case .reveal:
                 handled = true
             case .none:
