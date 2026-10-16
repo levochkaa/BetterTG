@@ -80,6 +80,8 @@ final class PhotoCropViewController: UIViewController {
 
     private let image: UIImage
     private let imagePixelSize: CGSize
+    /// The full photo's upright pixel size, which PGPhotoEditor gives the grain's scale (`_cropRect.size`).
+    private let fullPixelSize: CGSize
     private let initialAdjustments: PhotoCropAdjustments?
     private let cropView: PhotoCropView
     private let resetButton = UIButton(type: .system)
@@ -153,11 +155,24 @@ final class PhotoCropViewController: UIViewController {
         }
     }
 
-    init(image: UIImage, adjustments: PhotoCropAdjustments?, initialTab: PhotoEditorTab = .crop) {
+    /// `fullPixelSize` is the library photo's size, so the grain matches the sent photo; the editor's image size
+    /// when unknown.
+    init(
+        image: UIImage,
+        adjustments: PhotoCropAdjustments?,
+        fullPixelSize: CGSize? = nil,
+        initialTab: PhotoEditorTab = .crop,
+    ) {
         let pixelSize = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
         let initial = adjustments?.scaled(to: pixelSize) ?? PhotoCropAdjustments(originalSize: pixelSize)
+        var fullSize = pixelSize
+        if let fullPixelSize, fullPixelSize.width > 0, fullPixelSize.height > 0 {
+            let isTurned = (fullPixelSize.width >= fullPixelSize.height) != (pixelSize.width >= pixelSize.height)
+            fullSize = isTurned ? CGSize(width: fullPixelSize.height, height: fullPixelSize.width) : fullPixelSize
+        }
         self.image = image
         self.imagePixelSize = pixelSize
+        self.fullPixelSize = fullSize
         self.initialAdjustments = adjustments == nil ? nil : initial
         self.cropView = PhotoCropView(image: image, adjustments: initial)
         self.toolValues = initial.tools
@@ -575,7 +590,7 @@ final class PhotoCropViewController: UIViewController {
         }
         isRenderingPreview = true
         let tools = toolValues
-        let grainSize = crop.toolsGrainSize(fullPixelSize: imagePixelSize)
+        let grainSize = crop.toolsGrainSize(fullPixelSize: fullPixelSize)
         renderQueue.async { [weak self] in
             let rendered = PhotoToolsRenderer.shared
                 .render(source, tools: tools, grainSize: grainSize)
@@ -746,6 +761,11 @@ final class PhotoCropViewController: UIViewController {
         let shorter = min(size.width, size.height)
         guard shorter > 0 else { return nil }
         let longest = Self.thumbnailSide * max(size.width, size.height) / shorter
-        return adjustments.renderEdited(image, sourcePixelSize: imagePixelSize, maximumSide: min(longest, 1024))
+        return adjustments.renderEdited(
+            image,
+            sourcePixelSize: imagePixelSize,
+            fullPixelSize: fullPixelSize,
+            maximumSide: min(longest, 1024),
+        )
     }
 }

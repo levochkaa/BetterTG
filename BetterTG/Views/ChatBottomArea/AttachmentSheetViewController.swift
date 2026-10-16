@@ -1048,7 +1048,11 @@ struct AttachmentMediaSendRequest {
         let adjustments = photoEdits[asset.localIdentifier]?.adjustments
         PhotoCropViewController.loadImage(for: asset) { [weak self] image in
             guard let self, let image, !isClosing, presentedViewController == nil else { return }
-            let editor = PhotoCropViewController(image: image, adjustments: adjustments)
+            let editor = PhotoCropViewController(
+                image: image,
+                adjustments: adjustments,
+                fullPixelSize: CGSize(width: asset.pixelWidth, height: asset.pixelHeight),
+            )
             editor.onDone = { [weak self] edit in self?.finishEditing(asset, edit: edit) }
             present(editor, animated: true)
         }
