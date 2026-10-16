@@ -2836,7 +2836,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     @objc private func share() {
-        guard presentedViewController == nil else { return }
+        guard presentedViewController == nil,
+              messages.indices.contains(selectedIndex), messages[selectedIndex].canBeSaved
+        else { return }
         exportSelectedMedia(.share)
     }
 
@@ -2846,7 +2848,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             && actionChatID != nil
             && actionClientID != nil
             && messages.indices.contains(selectedIndex)
-        shareButton.isHidden = !hasActionContext
+        let selectedMessage = messages.indices.contains(selectedIndex) ? messages[selectedIndex] : nil
+        // ChatItemGalleryFooterContentNode: protected media (TDLib's canBeSaved) offers no share, save or forward.
+        let canExport = selectedMessage?.canBeSaved == true
+        shareButton.isHidden = !hasActionContext || !canExport
         let selectedAsset = messages.indices.contains(selectedIndex)
             ? MediaGalleryExportAsset(messages[selectedIndex])
             : nil
@@ -2854,14 +2859,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             ? L10n.betterTG("Accessibility.ShareLivePhotoFiles")
             : L10n.telegram("Gallery.VoiceOver.Share")
         let canOpen = hasActionContext && onPrepareOpenMessageID != nil
-        let canForward = hasActionContext && actionSourceLocation != nil
-        let selectedMessage = messages.indices.contains(selectedIndex) ? messages[selectedIndex] : nil
+        let canForward = hasActionContext && actionSourceLocation != nil && canExport
         let canDelete = hasActionContext
             && actionSourceLocation != nil
             && selectedMessage?.selfDestructType == nil
             && selectedMessage?.selfDestructIn == 0
             && selectedAsset?.isSecretMedia == false
-        let saveAsset = hasActionContext ? MediaGalleryExportAsset(messages[selectedIndex]) : nil
+        let saveAsset = hasActionContext && canExport ? MediaGalleryExportAsset(messages[selectedIndex]) : nil
         let canSave = saveAsset?.photosKind != nil
         deleteButton.isHidden = !canDelete
         moreButton.isHidden = !canOpen && !canForward && !canSave && !canDelete
