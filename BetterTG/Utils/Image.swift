@@ -7,11 +7,15 @@ import UniformTypeIdentifiers
 // MARK: - PhotoSendPreset
 
 /// How Telegram sends a picked photo (`LegacyMediaPickers`, `fetchPhotoLibraryResource`): scaled to fit 1280 px
-/// (2560 px when the picker's HD option is on, which BetterTG does not offer) and compressed by `compressJPEGData`
-/// (mozjpeg at quality 72, progressive). ImageIO has no mozjpeg; its 0.72 is the nearest quality.
+/// (2560 px when the picker's Send in High Quality is on, `forceHd`) and compressed by `compressJPEGData` (mozjpeg
+/// at quality 72, progressive). ImageIO has no mozjpeg; its 0.72 is the nearest quality.
 enum PhotoSendPreset {
     static let maximumSide = 1280
+    static let highQualityMaximumSide = 2560
     static let jpegQuality: CGFloat = 0.72
+    /// MediaPickerScreen's saved quality choice: the last gallery send's high quality setting
+    /// (`TGMediaAssetsController` stores it, MediaPickerScreen restores it).
+    static let highQualityDefaultsKey = "TG_photoHighQuality_v0"
 }
 
 // MARK: - Selected photo files
@@ -24,6 +28,21 @@ func writeImage(contentsOf url: URL, maximumSide: Int = PhotoSendPreset.maximumS
         log("Error reading selected image: \(url.lastPathComponent)")
         return nil
     }
+    return writeImage(from: source, named: url.lastPathComponent, maximumSide: maximumSide)
+}
+
+/// Writes encoded photo data, such as a library photo's current version, as the JPEG Telegram sends. Call off the
+/// main thread.
+func writeImage(data: Data, maximumSide: Int = PhotoSendPreset.maximumSide) -> SelectedImage? {
+    let sourceOptions: [CFString: Any] = [kCGImageSourceShouldCache: false]
+    guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions as CFDictionary) else {
+        log("Error reading selected image data")
+        return nil
+    }
+    return writeImage(from: source, named: "image data", maximumSide: maximumSide)
+}
+
+private func writeImage(from source: CGImageSource, named name: String, maximumSide: Int) -> SelectedImage? {
     let thumbnailOptions: [CFString: Any] = [
         kCGImageSourceCreateThumbnailFromImageAlways: true,
         kCGImageSourceCreateThumbnailWithTransform: true,
@@ -31,7 +50,7 @@ func writeImage(contentsOf url: URL, maximumSide: Int = PhotoSendPreset.maximumS
         kCGImageSourceShouldCacheImmediately: true,
     ]
     guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else {
-        log("Error scaling selected image: \(url.lastPathComponent)")
+        log("Error scaling selected image: \(name)")
         return nil
     }
     let image = UIImage(cgImage: thumbnail)

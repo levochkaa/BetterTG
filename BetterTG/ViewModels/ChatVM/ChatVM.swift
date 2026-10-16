@@ -3932,7 +3932,8 @@ import UIKit
 
     /// Sends the composer's photos and videos as Telegram's media picker does: albums of up to ten that may mix both,
     /// one message each (Send Without Grouping) or the picked files themselves (Send as File). The caption goes with
-    /// the first item, above the media when it was moved up, and marked items are hidden with a spoiler.
+    /// the first item, above the media when it was moved up, marked items are hidden with a spoiler and a View Once
+    /// item self-destructs once opened.
     func sendMessageMedia() async throws -> (context: ResolvedSendContext, messages: [Message]) {
         let images = displayedImages
         let mode = composerMediaSendMode
@@ -3977,6 +3978,9 @@ import UIKit
                     messageContents.append(Self.makeInputMessageFile(image, caption: caption))
                     continue
                 }
+                let selfDestructType: TDNativeMessageSelfDestructType? = image.isViewOnce
+                    ? .messageSelfDestructTypeImmediately
+                    : nil
                 if let video = image.video {
                     messageContents.append(makeInputMessageVideo(
                         video,
@@ -3984,6 +3988,7 @@ import UIKit
                         caption: caption,
                         hasSpoiler: image.hasSpoiler,
                         showCaptionAboveMedia: showsCaptionAbove,
+                        selfDestructType: selfDestructType,
                     ))
                     continue
                 }
@@ -3996,6 +4001,7 @@ import UIKit
                         : nil,
                     hasSpoiler: image.hasSpoiler,
                     showCaptionAboveMedia: showsCaptionAbove,
+                    selfDestructType: selfDestructType,
                 ))
             }
             guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
@@ -4077,6 +4083,7 @@ import UIKit
         caption: FormattedText,
         hasSpoiler: Bool = false,
         showCaptionAboveMedia: Bool = false,
+        selfDestructType: TDNativeMessageSelfDestructType? = nil,
     ) -> InputMessageContent {
         let dimensions = VideoSendPreset.outputDimensions(for: video.presentationSize)
         return .inputMessageVideo(InputMessageVideo(
@@ -4101,7 +4108,7 @@ import UIKit
             ),
             caption: caption,
             showCaptionAboveMedia: showCaptionAboveMedia,
-            selfDestructType: nil,
+            selfDestructType: selfDestructType,
             hasSpoiler: hasSpoiler,
         ))
     }
@@ -4112,6 +4119,7 @@ import UIKit
         livePhotoVideoURL: URL? = nil,
         hasSpoiler: Bool = false,
         showCaptionAboveMedia: Bool = false,
+        selfDestructType: TDNativeMessageSelfDestructType? = nil,
     ) async -> InputMessageContent {
         let path = url.path(percentEncoded: false)
         let dimensions = await Task.detached(priority: .userInitiated) {
@@ -4140,7 +4148,7 @@ import UIKit
                 caption: caption,
                 hasSpoiler: hasSpoiler,
                 photo: photo,
-                selfDestructType: nil,
+                selfDestructType: selfDestructType,
                 showCaptionAboveMedia: showCaptionAboveMedia,
             ),
         )

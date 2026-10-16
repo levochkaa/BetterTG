@@ -37,6 +37,9 @@ struct SelectedImage: Identifiable, Equatable, @unchecked Sendable {
     var video: SelectedVideo?
     /// Telegram's Hide With Spoiler for this item (`hasSpoiler`).
     var hasSpoiler = false
+    /// MediaPickerScreen's View Once timer for a single photo or video in a private chat
+    /// (`messageSelfDestructTypeImmediately`).
+    var isViewOnce = false
 
     /// Every file the app keeps for this item in `SelectedDocumentFileStore`.
     var fileURLs: [URL] {
@@ -46,5 +49,6 @@ struct SelectedImage: Identifiable, Equatable, @unchecked Sendable {
     static func == (lhs: SelectedImage, rhs: SelectedImage) -> Bool {
         lhs.url == rhs.url && lhs.livePhotoVideoURL == rhs.livePhotoVideoURL && lhs.isLivePhotoEnabled == rhs
             .isLivePhotoEnabled && lhs.video == rhs.video && lhs.hasSpoiler == rhs.hasSpoiler
+            && lhs.isViewOnce == rhs.isViewOnce
     }
 }
