@@ -403,10 +403,10 @@ From `codex/parity-media-audit` (compose) and `codex/parity-msg-actions` (messag
 | B-5 | P3 | Tapping a /command in a message did nothing | fixed `22c14b1d` |
 | B-6 | P3 | Reply keyboard phone, location, poll and request buttons show "unsupported" | fixed `c1eb5be8`: phone and location ask Telegram's "Share Your Phone Number?" / "Share Your Location?" and reply to the keyboard message only after OK; users and chat requests open a picker of peers TDLib accepts (`shareUsersWithBot`, `shareChatWithBot`). Poll, managed bot and Web App buttons stay unsupported. Build only: pressing would send |
 | B-7 | P3 | A blocked bot has no Restart Bot | fixed `ef5d6b2b`: Restart Bot replaces the composer while the bot is on the block list; a tap unblocks and sends /start (or the link parameter). Build only: no blocked bot to open without blocking one |
-| B-8 | P3 | The inline placeholder is a hint row, not in the input | partly fixed `7ea12c36` |
+| B-8 | P3 | The inline placeholder is a hint row, not in the input | fixed `7dcf851e`: the bot's placeholder sits greyed in the input after "@bot " (ChatTextInputPanelNode `contextPlaceholderNode`) and leaves on the next character; the hint row is gone. Simulator: "@gif " in BetterTG test → UI test showed "@gif Search GIFs" in the field over the GIF strip, "c" hid it; cleared, nothing sent |
 | B-9 | P3 | No "@" member or recent inline bot suggestions | fixed `d4ab2e6f`: recent inline bots when "@" opens the input, group members from `searchChatMembers(mention)` sorted by name, also while editing. Simulator: in a group "@" listed members, a typed prefix narrowed them, picking a member put the member's @username in the input; cleared, nothing sent |
 | B-10 | P3 | No bot info card above the first message of a non-empty chat | fixed `c1e2ba61`: a timeline row above the first date once the history reaches its start. Simulator: Rose showed "what can this bot do?" above Jul 29 /start; another bot (no description) showed none |
-| B-11 | P3 | Inline bots needing location get no location or permission prompt | open |
+| B-11 | P3 | Inline bots needing location get no location or permission prompt | fixed `4706624e`: Telegram's ShareInlineBotLocationConfirmation alert (at most every 10 minutes per bot, the query waits), consent kept per bot, then one location fix with a 5 s timeout as `userLocation` for every page. Build only: no location bot was queried |
 | B-12 | — | Mini Apps (menu web app, web app buttons) | skipped: needs a WKWebView runtime with Telegram's WebApp bridge |
 
 
@@ -454,7 +454,7 @@ From `codex/parity-gallery-audit` (cherry-picked; a ChatVM conflict with the bot
 | MD-12 | P3 | System PHPicker instead of Telegram's attach sheet grid | open |
 | MD-13 | P3 | Picks over 10 are dropped | open |
 | MD-14 | P3 | No View Once timer, video quality, Send in HD or editor | open |
-| MD-15 | P3 | Music has no lock-screen next/previous or expanded player | open |
+| MD-15 | P3 | Music has no lock-screen next/previous or expanded player | partly fixed `14e2e6f8`: music enables lock-screen next/previous (previous restarts after 5 s, as SharedMediaPlayer does) with title, performer, duration, rate and album art (embedded cover, TDLib album covers, thumbnail). Build only: no music message to play. Open: the expanded player |
 
 
 ### Probe sweep — 2026-10-12
