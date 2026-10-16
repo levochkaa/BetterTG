@@ -121,6 +121,43 @@ struct LiveLocationBroadcast: Equatable {
         }
     }
 
+    /// Telegram's requestEditLiveLocation with a proximityNotificationRadius: the shared message keeps its location and
+    /// period with the new radius, 0 turning the alert off, and the following location edits carry it.
+    func setProximityAlertRadius(_ radius: Int, chatID: Int64, messageID: Int64, source: TdUpdateSource) async {
+        let key = LiveLocationBroadcast.Key(chatID: chatID, messageID: messageID)
+        guard source == self.source, let client = TDLib.shared.authorizationClient(for: source),
+              let index = broadcasts.firstIndex(where: { $0.key == key }) else { return }
+        let broadcast = broadcasts[index]
+        broadcasts[index] = LiveLocationBroadcast(
+            source: broadcast.source,
+            chatID: broadcast.chatID,
+            messageID: broadcast.messageID,
+            date: broadcast.date,
+            deadline: broadcast.deadline,
+            proximityAlertRadius: radius,
+        )
+        var location = deviceLiveLocation(proximityAlertRadius: radius)
+        if location == nil,
+           let message = try? await client.getMessage(chatId: chatID, messageId: messageID),
+           case .messageLiveLocation(let live) = message.content
+        {
+            // Before the first device location the message's own location stays.
+            location = LiveLocation(
+                location: live.location.location,
+                livePeriod: 0,
+                heading: live.location.heading,
+                proximityAlertRadius: radius,
+            )
+        }
+        guard let location else { return }
+        _ = try? await client.editMessageLiveLocation(
+            chatId: chatID,
+            messageId: messageID,
+            replyMarkup: nil,
+            location: location,
+        )
+    }
+
     // MARK: Location
 
     nonisolated func locationManagerDidChangeAuthorization(_: CLLocationManager) {
@@ -310,18 +347,10 @@ struct LiveLocationBroadcast: Equatable {
     /// Telegram's updateDeviceCoordinate: every shared message gets the location with its accuracy and the heading,
     /// or the course while moving faster than 1 m/s.
     private func sendLocation() {
-        guard let fix, let source, let client = TDLib.shared.authorizationClient(for: source) else { return }
-        var direction = heading ?? fix.course
-        if fix.speed > 1 { direction = fix.course }
-        let accuracy = Double(Int(min(max(fix.horizontalAccuracy, 0), Self.maximumAccuracy)))
-        let tdHeading = Self.tdHeading(direction)
+        guard fix != nil, let source, let client = TDLib.shared.authorizationClient(for: source) else { return }
         for broadcast in broadcasts where broadcast.source == source {
-            let location = LiveLocation(
-                location: Location(latitude: fix.latitude, longitude: fix.longitude, horizontalAccuracy: accuracy),
-                livePeriod: 0,
-                heading: tdHeading,
-                proximityAlertRadius: broadcast.proximityAlertRadius,
-            )
+            guard let location = deviceLiveLocation(proximityAlertRadius: broadcast.proximityAlertRadius)
+            else { return }
             let chatID = broadcast.chatID
             let messageID = broadcast.messageID
             Task {
@@ -333,6 +362,21 @@ struct LiveLocationBroadcast: Equatable {
                 )
             }
         }
+    }
+
+    /// The device location as an edit that keeps the period: its accuracy, and the heading or, while moving faster
+    /// than 1 m/s, the course.
+    private func deviceLiveLocation(proximityAlertRadius: Int) -> LiveLocation? {
+        guard let fix else { return nil }
+        var direction = heading ?? fix.course
+        if fix.speed > 1 { direction = fix.course }
+        let accuracy = Double(Int(min(max(fix.horizontalAccuracy, 0), Self.maximumAccuracy)))
+        return LiveLocation(
+            location: Location(latitude: fix.latitude, longitude: fix.longitude, horizontalAccuracy: accuracy),
+            livePeriod: 0,
+            heading: Self.tdHeading(direction),
+            proximityAlertRadius: proximityAlertRadius,
+        )
     }
 
     /// Telegram's requestEditLiveLocation with stop.

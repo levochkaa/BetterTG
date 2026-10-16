@@ -16,8 +16,13 @@ struct LocationViewSubject {
     let venue: LocationPickerVenue?
     /// A live location message, around which the viewer lists the chat's live locations.
     let liveMessage: Message?
+    /// The message's chat and sender, which the proximity alert depends on; nil for a location from rich content.
+    let chatID: Int64?
+    let sender: MessageSender?
 
     init?(message: Message) {
+        self.chatID = message.chatId
+        self.sender = message.senderId
         switch message.content {
         case .messageLocation(let content):
             self.coordinate = CLLocationCoordinate2D(
@@ -47,6 +52,8 @@ struct LocationViewSubject {
         self.coordinate = CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude)
         self.venue = nil
         self.liveMessage = nil
+        self.chatID = nil
+        self.sender = nil
     }
 }
 
@@ -633,6 +640,118 @@ private final class LocationLiveCell: UITableViewCell {
     }
 }
 
+// MARK: - ProximityCircleRenderer
+
+/// LocationMapNode.ProximityCircleRenderer: the proximity alert's dashed circle around the user, with a bell cut into
+/// its bottom edge.
+private final class ProximityCircleRenderer: MKCircleRenderer {
+    // MARK: Private
+
+    /// Telegram's Location/ProximityIcon, a 24-point bell.
+    private static let iconSize: CGFloat = 24
+
+    private let icon: CGImage?
+
+    init(circle: MKCircle, color: UIColor) {
+        let size = CGSize(width: ProximityCircleRenderer.iconSize, height: ProximityCircleRenderer.iconSize)
+        let symbol = UIImage(
+            systemName: "bell",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .regular),
+        )?.withTintColor(color, renderingMode: .alwaysOriginal)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        self.icon = symbol.flatMap { symbol in
+            UIGraphicsImageRenderer(size: size, format: format)
+                .image { _ in
+                    symbol.draw(in: CGRect(
+                        x: (size.width - symbol.size.width) / 2,
+                        y: (size.height - symbol.size.height) / 2,
+                        width: symbol.size.width,
+                        height: symbol.size.height,
+                    ))
+                }
+                .cgImage
+        }
+        super.init(circle: circle)
+        fillColor = .clear
+        strokeColor = color
+        lineWidth = 0.75
+        lineDashPattern = [5, 4]
+    }
+
+    // MARK: Internal
+
+    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
+        super.draw(mapRect, zoomScale: zoomScale, in: context)
+        guard let icon else { return }
+        context.saveGState()
+        let boundingRect = circle.boundingMapRect
+        let drawingPoint = point(for: MKMapPoint(x: boundingRect.midX, y: boundingRect.maxY))
+        let side = floor(Self.iconSize / zoomScale * contentScaleFactor * 0.75)
+        context.translateBy(x: drawingPoint.x, y: drawingPoint.y)
+        context.scaleBy(x: 1, y: -1)
+        context.translateBy(x: -drawingPoint.x, y: -drawingPoint.y)
+        let imageRect = CGRect(
+            x: floor(drawingPoint.x - side / 2),
+            y: floor(drawingPoint.y - side / 2),
+            width: side,
+            height: side,
+        )
+        context.clear(imageRect)
+        context.draw(icon, in: imageRect)
+        context.restoreGState()
+    }
+}
+
+// MARK: - LocationTipView
+
+/// Telegram's TooltipScreen by the proximity alert button: a dark bubble whose arrow points right at it.
+private final class LocationTipView: UIView {
+    // MARK: Private
+
+    private static let arrowSize = CGSize(width: 7, height: 14)
+
+    private let shapeLayer = CAShapeLayer()
+    private let label = UILabel()
+
+    init(text: String) {
+        super.init(frame: .zero)
+        isUserInteractionEnabled = false
+        shapeLayer.fillColor = UIColor(white: 0.1, alpha: 0.9).cgColor
+        layer.addSublayer(shapeLayer)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = text
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 14)
+        label.numberOfLines = 0
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -(12 + Self.arrowSize.width)),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: Internal
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let bubble = CGRect(x: 0, y: 0, width: max(0, bounds.width - Self.arrowSize.width), height: bounds.height)
+        let path = UIBezierPath(roundedRect: bubble, cornerRadius: 10)
+        path.move(to: CGPoint(x: bubble.maxX, y: bounds.midY - Self.arrowSize.height / 2))
+        path.addLine(to: CGPoint(x: bounds.maxX, y: bounds.midY))
+        path.addLine(to: CGPoint(x: bubble.maxX, y: bounds.midY + Self.arrowSize.height / 2))
+        path.close()
+        shapeLayer.frame = bounds
+        shapeLayer.path = path.cgPath
+    }
+}
+
 // MARK: - LocationViewController
 
 /// Telegram's LocationViewController. For a location or a venue: the map centered on the place's pin, and under it
@@ -640,7 +759,8 @@ private final class LocationLiveCell: UITableViewCell {
 /// opens the place in another app or shares a link to it. For a live location: every live location shared in the
 /// chat, as avatar pins and as rows with when each was updated, its distance, the time left and directions, with the
 /// actions that share, extend or stop the account's own, and Show All. The map buttons switch the map type and follow
-/// the user.
+/// the user, and where Telegram offers it the bell sets or cancels a proximity alert on the account's own live
+/// location.
 @MainActor final class LocationViewController: UIViewController, UITableViewDataSource, UITableViewDelegate,
     MKMapViewDelegate, CLLocationManagerDelegate
 {
@@ -688,12 +808,23 @@ private final class LocationLiveCell: UITableViewCell {
     /// The message's own pin, kept selected as Telegram's forcedSelection.
     private final class SubjectAnnotation: MKPointAnnotation {}
 
+    /// What Telegram's proximity alert button depends on about the chat.
+    private struct ProximityChat {
+        /// A private chat with a user, Telegram's CloudUser namespace.
+        let isUser: Bool
+        /// The message is a channel's post: its author is a broadcast channel.
+        let isBroadcastPost: Bool
+        let title: String
+    }
+
     private static let subjectAnnotationIdentifier = "LocationSubject"
     private static let liveAnnotationIdentifier = "LocationLive"
     private static let userAnnotationIdentifier = "LocationUser"
     private static let actionCellIdentifier = "LocationActionCell"
     /// Telegram's LocationMapNode.viewMapSpan.
     private static let viewSpan = MKCoordinateSpan(latitudeDelta: 0.008, longitudeDelta: 0.008)
+    /// Telegram's LocationMapNode.defaultMapSpan.
+    private static let defaultSpan = MKCoordinateSpan(latitudeDelta: 0.016, longitudeDelta: 0.016)
     /// The list never covers more of the screen than this.
     private static let maximumListFraction: CGFloat = 0.6
     /// Telegram redraws the live locations' times every 10 seconds.
@@ -705,6 +836,15 @@ private final class LocationLiveCell: UITableViewCell {
     /// LocationActionListItem's live location colors.
     private static let startColor = UIColor(rgb: 0x6CC138)
     private static let stopColor = UIColor(rgb: 0xFF6464)
+    /// LocationMapNode's proximity dim: a clear circle of 260 points.
+    private static let proximityHoleDiameter: CGFloat = 260
+    /// LocationMapNode's proximity circle.
+    private static let proximityCircleColor = UIColor(rgb: 0xC3BAAF)
+    /// ApplicationSpecificNotice's locationProximityAlertTip: the hint shows on three openings, and setting up an alert
+    /// retires it.
+    private static let proximityTipCountKey = "Location.ProximityAlertTipCount"
+    /// The live location period Telegram shares for an alert set without one.
+    private static let proximityLivePeriod = 30 * 60
 
     private let subject: LocationViewSubject
     private let client: TDLibClient
@@ -717,6 +857,8 @@ private final class LocationLiveCell: UITableViewCell {
     private let mapView = MKMapView()
     private let mapModeButton = UIButton(type: .system)
     private let trackingButton = UIButton(type: .system)
+    private let proximityButton = UIButton(type: .system)
+    private let proximityDimView = UIImageView()
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private let subjectAnnotation = SubjectAnnotation()
     private let distanceFormatter: MKDistanceFormatter = {
@@ -748,7 +890,7 @@ private final class LocationLiveCell: UITableViewCell {
     /// Telegram's live locations of the chat (topPeerActiveLiveLocationMessages), the opened message first.
     private var liveMessages = [Message]()
     /// The account's own live locations in the chat that LiveLocationManager is sharing.
-    private var ownBroadcastIDs = Set<Int64>()
+    private var ownBroadcasts = [LiveLocationBroadcast]()
     private var senders = [Int64: LocationSender]()
     private var loadingSenders = Set<Int64>()
     private var liveAnnotations = [Int64: LiveLocationAnnotation]()
@@ -761,18 +903,44 @@ private final class LocationLiveCell: UITableViewCell {
     /// Whether the user's location shows the account's avatar for its own live location.
     private var showsOwnAnnotation = false
     private var didShowAllLiveLocations = false
+    private var proximityChat: ProximityChat?
+    private var proximityChatTask: Task<Void, Never>?
+    /// Telegram's proximityNotification: nil hides the bell, false offers an alert, and true cancels the one set.
+    private var proximityNotification: Bool?
+    /// The own alert's radius drawn around the user, Telegram's activeProximityRadius.
+    private var activeProximityRadius: Int?
+    private var proximityCircle: MKCircle?
+    /// Telegram's updatingProximityRadius and cancellingProximityRadius: the alert as set while its edit is on the way.
+    private var updatingProximityRadius: Int?
+    private var cancellingProximityRadius = false
+    /// The radius being picked, Telegram's proximityIndicatorRadius.
+    private var proximityIndicatorRadius: Int?
+    private var proximityDimHole: CGRect?
+    private var displayedProximityTip = false
+    private weak var proximityTipView: LocationTipView?
+    private var proximityTipTask: Task<Void, Never>?
 
     private var isLiveView: Bool {
         subject.liveMessage != nil
     }
 
     private var chatID: Int64 {
-        subject.liveMessage?.chatId ?? 0
+        subject.chatID ?? 0
+    }
+
+    private var ownBroadcastIDs: Set<Int64> {
+        Set(ownBroadcasts.map(\.messageID))
     }
 
     /// Telegram's activeOwnLiveLocation: the account's own live location here while it is shared.
     private var ownLiveMessage: Message? {
         liveMessages.first { $0.isOutgoing && ownBroadcastIDs.contains($0.id) }
+    }
+
+    /// Telegram's ownMessageId for the proximity alert: the account's own live location shared in the chat, also
+    /// when the chat's live locations aren't listed.
+    private var ownProximityMessageID: Int64? {
+        ownLiveMessage?.id ?? ownBroadcasts.first?.messageID
     }
 
     /// - Parameters:
@@ -809,6 +977,8 @@ private final class LocationLiveCell: UITableViewCell {
         geocodeTask?.cancel()
         travelTimeTask?.cancel()
         liveLoadTask?.cancel()
+        proximityChatTask?.cancel()
+        proximityTipTask?.cancel()
         liveTimer?.invalidate()
         for task in liveTravelTasks.values {
             task.cancel()
@@ -843,11 +1013,18 @@ private final class LocationLiveCell: UITableViewCell {
         } else {
             loadAddress()
         }
+        if subject.chatID != nil {
+            observeOwnBroadcasts()
+            loadProximityChat()
+        }
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateTableHeight()
+        if proximityIndicatorRadius != nil {
+            updateProximityDim()
+        }
     }
 
     /// PeerLiveLocationsContext's filter: a live location whose period hasn't ended, or one shared until stopped.
@@ -973,6 +1150,7 @@ private final class LocationLiveCell: UITableViewCell {
                 calculateTravelTimes()
             }
         }
+        updateProximityCircle()
         reloadRows()
     }
 
@@ -1030,6 +1208,11 @@ private final class LocationLiveCell: UITableViewCell {
         updateTrackingButton()
     }
 
+    func mapView(_: MKMapView, rendererFor overlay: any MKOverlay) -> MKOverlayRenderer {
+        guard let circle = overlay as? MKCircle else { return MKOverlayRenderer(overlay: overlay) }
+        return ProximityCircleRenderer(circle: circle, color: Self.proximityCircleColor)
+    }
+
     // Location access
 
     nonisolated func locationManagerDidChangeAuthorization(_: CLLocationManager) {
@@ -1060,8 +1243,8 @@ private final class LocationLiveCell: UITableViewCell {
             mapView.addAnnotation(subjectAnnotation)
         }
 
-        // LocationMapHeaderNode's options: the map type, and following the user's location.
-        for button in [mapModeButton, trackingButton] {
+        // LocationMapHeaderNode's options: the map type, following the user's location, and the proximity alert.
+        for button in [mapModeButton, trackingButton, proximityButton] {
             var configuration = UIButton.Configuration.filled()
             configuration.baseBackgroundColor = .systemBackground
             configuration.baseForegroundColor = .systemBlue
@@ -1080,6 +1263,13 @@ private final class LocationLiveCell: UITableViewCell {
         trackingButton.addTarget(self, action: #selector(trackingPressed), for: .touchUpInside)
         trackingButton.accessibilityLabel = L10n.betterTG("Accessibility.ShowMyLocation")
         updateTrackingButton()
+        // LocationMapHeaderNode's notification button, with the mute icon while an alert is set.
+        proximityButton.configuration?.image = UIImage(systemName: "bell.and.waves.left.and.right")
+        proximityButton.addTarget(self, action: #selector(proximityPressed), for: .touchUpInside)
+        proximityButton.accessibilityLabel = L10n.telegram("Location.ProximityNotification.Title")
+        proximityButton.isHidden = true
+        proximityDimView.translatesAutoresizingMaskIntoConstraints = false
+        proximityDimView.isUserInteractionEnabled = false
     }
 
     private func configureTable() {
@@ -1096,8 +1286,10 @@ private final class LocationLiveCell: UITableViewCell {
 
     private func layoutViews() {
         view.addSubview(mapView)
+        view.addSubview(proximityDimView)
         view.addSubview(mapModeButton)
         view.addSubview(trackingButton)
+        view.addSubview(proximityButton)
         view.addSubview(tableView)
         let tableHeight = tableView.heightAnchor.constraint(equalToConstant: 0)
         tableHeightConstraint = tableHeight
@@ -1114,6 +1306,14 @@ private final class LocationLiveCell: UITableViewCell {
             trackingButton.trailingAnchor.constraint(equalTo: mapModeButton.trailingAnchor),
             trackingButton.widthAnchor.constraint(equalToConstant: 44),
             trackingButton.heightAnchor.constraint(equalToConstant: 44),
+            proximityButton.topAnchor.constraint(equalTo: trackingButton.bottomAnchor, constant: 8),
+            proximityButton.trailingAnchor.constraint(equalTo: mapModeButton.trailingAnchor),
+            proximityButton.widthAnchor.constraint(equalToConstant: 44),
+            proximityButton.heightAnchor.constraint(equalToConstant: 44),
+            proximityDimView.topAnchor.constraint(equalTo: mapView.topAnchor),
+            proximityDimView.leadingAnchor.constraint(equalTo: mapView.leadingAnchor),
+            proximityDimView.trailingAnchor.constraint(equalTo: mapView.trailingAnchor),
+            proximityDimView.bottomAnchor.constraint(equalTo: mapView.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -1121,12 +1321,16 @@ private final class LocationLiveCell: UITableViewCell {
         ])
     }
 
-    /// The list sits under the map at its content's height, and scrolls once it would cover most of the screen.
+    /// The list sits under the map at its content's height, and scrolls once it would cover most of the screen. It
+    /// makes room for the map while a proximity alert's radius is picked.
     private func updateTableHeight() {
         guard let tableHeightConstraint else { return }
         let insets = tableView.adjustedContentInset
         let maximumHeight = view.bounds.height * Self.maximumListFraction
-        let height = min(tableView.contentSize.height + insets.top + insets.bottom, maximumHeight)
+        let height =
+            proximityIndicatorRadius != nil
+                ? 0
+                : min(tableView.contentSize.height + insets.top + insets.bottom, maximumHeight)
         tableView.isScrollEnabled = height >= maximumHeight - 0.5
         guard abs(tableHeightConstraint.constant - height) > 0.5 else { return }
         tableHeightConstraint.constant = height
@@ -1372,11 +1576,6 @@ private final class LocationLiveCell: UITableViewCell {
         guard let message = subject.liveMessage else { return }
         liveMessages = [message]
         observeLiveLocations()
-        LiveLocationManager.shared
-            .$broadcasts
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] broadcasts in self?.broadcastsChanged(broadcasts) }
-            .store(in: &cancellables)
         let timer = Timer(timeInterval: Self.liveRefreshInterval, repeats: true) { [weak self] _ in
             // The timer runs on the main run loop.
             MainActor.assumeIsolated { self?.liveTimerFired() }
@@ -1427,11 +1626,28 @@ private final class LocationLiveCell: UITableViewCell {
         }
     }
 
-    /// LiveLocationManager's broadcasts tell which live location here is the account's own and still shared.
+    /// The account's own live locations here, for the actions and the proximity alert, whether or not the chat's live
+    /// locations are listed.
+    private func observeOwnBroadcasts() {
+        LiveLocationManager.shared
+            .$broadcasts
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] broadcasts in self?.broadcastsChanged(broadcasts) }
+            .store(in: &cancellables)
+    }
+
+    /// LiveLocationManager's broadcasts tell which live location here is the account's own and still shared, and its
+    /// proximity alert.
     private func broadcastsChanged(_ broadcasts: [LiveLocationBroadcast]) {
-        let ids = Set(broadcasts.filter { $0.source == source && $0.chatID == chatID }.map(\.messageID))
-        guard ids != ownBroadcastIDs else { return }
-        ownBroadcastIDs = ids
+        let own = broadcasts.filter { $0.source == source && $0.chatID == chatID }
+        guard own != ownBroadcasts else { return }
+        let previousIDs = ownBroadcastIDs
+        ownBroadcasts = own
+        let ids = ownBroadcastIDs
+        guard isLiveView, ids != previousIDs else {
+            updateProximityState()
+            return
+        }
         for id in ids where !liveMessages.contains(where: { $0.id == id }) {
             refreshMessage(id)
         }
@@ -1485,6 +1701,7 @@ private final class LocationLiveCell: UITableViewCell {
         updateLiveAnnotations()
         updateLiveTravelTimes()
         reloadRows()
+        updateProximityState()
     }
 
     /// Telegram redraws the times every 10 seconds; a live location whose period has ended leaves the list.
@@ -1677,9 +1894,16 @@ private final class LocationLiveCell: UITableViewCell {
         present(sheet, animated: true)
     }
 
-    /// The user's location as a live location for the period; the map then shows everyone.
-    private func shareLiveLocation(period: Int) {
-        guard let send = sendLiveLocation, let location = userLocation ?? mapView.userLocation.location else { return }
+    /// The user's location as a live location for the period, with a proximity alert's radius; the map then shows
+    /// everyone, except after an alert was set.
+    @discardableResult private func shareLiveLocation(
+        period: Int,
+        proximityAlertRadius: Int = 0,
+        showsAll: Bool = true,
+    ) -> Bool {
+        guard let send = sendLiveLocation, let location = userLocation ?? mapView.userLocation.location else {
+            return false
+        }
         let accuracy = location.horizontalAccuracy > 0 ? min(location.horizontalAccuracy, Self.maximumAccuracy) : 0
         send(.inputMessageLiveLocation(TDNativeInputMessageLiveLocation(location: TDNativeLiveLocation(
             location: TDNativeLocation(
@@ -1689,9 +1913,12 @@ private final class LocationLiveCell: UITableViewCell {
             ),
             livePeriod: period,
             heading: 0,
-            proximityAlertRadius: 0,
+            proximityAlertRadius: proximityAlertRadius,
         ))))
-        showAllLiveLocations()
+        if showsAll {
+            showAllLiveLocations()
+        }
+        return true
     }
 
     /// RequestEditMessage's extendPeriod: the period grows by the chosen one, or becomes indefinite.
@@ -1726,6 +1953,391 @@ private final class LocationLiveCell: UITableViewCell {
         guard let source else { return }
         LiveLocationManager.shared.stop(chatID: chatID, source: source)
         dismiss(animated: true)
+    }
+
+    // Proximity alert
+
+    /// The chat's kind for the bell: Telegram's peer namespace, and the message's author.
+    private func loadProximityChat() {
+        guard let chatID = subject.chatID else { return }
+        let client = client
+        let sender = subject.sender
+        proximityChatTask = Task { [weak self] in
+            guard let chat = try? await client.getChat(chatId: chatID) else { return }
+            var isBroadcastPost = false
+            if case .messageSenderChat(let value)? = sender {
+                var senderChat: Chat? = chat
+                if value.chatId != chatID {
+                    senderChat = try? await client.getChat(chatId: value.chatId)
+                }
+                if case .chatTypeSupergroup(let supergroup)? = senderChat?.type {
+                    isBroadcastPost = supergroup.isChannel
+                }
+            }
+            var isUser = false
+            if case .chatTypePrivate = chat.type {
+                isUser = true
+            }
+            guard let self, !Task.isCancelled else { return }
+            proximityChatTask = nil
+            proximityChat = ProximityChat(isUser: isUser, isBroadcastPost: isBroadcastPost, title: chat.title)
+            updateProximityState()
+        }
+    }
+
+    /// LocationViewControllerNode's proximityNotification: on with the radius of the account's own live location,
+    /// else off while someone else shares theirs, and off in a group or a secret chat anyway; a channel's post has
+    /// none. An alert being set or cancelled shows as done. BetterTG also hides the bell where no alert can be set:
+    /// without an own live location in a chat where one can't be shared.
+    private func proximityState() -> (notification: Bool?, radius: Int?) {
+        guard let proximityChat else { return (nil, nil) }
+        var notification: Bool?
+        var radius: Int?
+        if isLiveView {
+            if let own = ownLiveMessage, case .messageLiveLocation(let live) = own.content,
+               live.location.proximityAlertRadius > 0
+            {
+                notification = true
+                radius = live.location.proximityAlertRadius
+            }
+            if notification == nil, liveMessages.contains(where: { !$0.isOutgoing && Self.isActive($0) }) {
+                notification = false
+            }
+        }
+        if notification == true, cancellingProximityRadius {
+            notification = false
+            radius = nil
+        } else if let updatingProximityRadius {
+            notification = true
+            radius = updatingProximityRadius
+        }
+        if !proximityChat.isUser, notification == nil {
+            notification = false
+        }
+        if proximityChat.isBroadcastPost {
+            notification = nil
+        }
+        if ownProximityMessageID == nil, !canShareLiveLocation || sendLiveLocation == nil {
+            notification = nil
+        }
+        return (notification, radius)
+    }
+
+    /// LocationMapHeaderNode's notification button and LocationMapNode's circle of the alert set; the first time the
+    /// bell offers an alert, its hint shows.
+    private func updateProximityState() {
+        guard isViewLoaded else { return }
+        let state = proximityState()
+        proximityNotification = state.notification
+        proximityButton.isHidden = state.notification == nil
+        proximityButton.configuration?.image = UIImage(
+            systemName: state.notification == true ? "bell.slash" : "bell.and.waves.left.and.right",
+        )
+        proximityButton.accessibilityTraits = state.notification == true ? [.button, .selected] : .button
+        activeProximityRadius = state.notification == nil ? nil : state.radius
+        updateProximityCircle()
+        if state.notification == false, !displayedProximityTip {
+            displayedProximityTip = true
+            showProximityTipIfNeeded()
+        }
+    }
+
+    /// LocationMapNode.activeProximityRadius: the alert's circle around the user's location.
+    private func updateProximityCircle() {
+        guard let radius = activeProximityRadius, radius > 0,
+              let center = mapView.userLocation.location?.coordinate
+        else {
+            if let proximityCircle {
+                mapView.removeOverlay(proximityCircle)
+                self.proximityCircle = nil
+            }
+            return
+        }
+        if let proximityCircle {
+            let moved = CLLocation(
+                latitude: proximityCircle.coordinate.latitude,
+                longitude: proximityCircle.coordinate.longitude,
+            ).distance(from: CLLocation(latitude: center.latitude, longitude: center.longitude))
+            guard proximityCircle.radius != CLLocationDistance(radius) || moved >= 1 else { return }
+            mapView.removeOverlay(proximityCircle)
+        }
+        let circle = MKCircle(center: center, radius: CLLocationDistance(radius))
+        proximityCircle = circle
+        mapView.addOverlay(circle)
+    }
+
+    /// The bell cancels the alert set, or picks a distance for one; using it retires the hint.
+    @objc private func proximityPressed() {
+        guard let proximityNotification else { return }
+        hideProximityTip()
+        let defaults = UserDefaults.standard
+        defaults.set(defaults.integer(forKey: Self.proximityTipCountKey) + 4, forKey: Self.proximityTipCountKey)
+        setupProximityNotification(reset: proximityNotification)
+    }
+
+    /// Telegram's setupProximityNotification: a reset sets the own live location's radius to 0; otherwise, with
+    /// location access, LocationDistancePickerScreen picks the distance while the map shows it around the user.
+    private func setupProximityNotification(reset: Bool) {
+        let messageID = ownProximityMessageID
+        if reset {
+            guard let messageID else { return }
+            cancellingProximityRadius = true
+            updateProximityState()
+            editOwnProximityRadius(0, messageID: messageID)
+            showProximityToast(title: L10n.telegram("Location.ProximityAlertCancelled"), text: "")
+            return
+        }
+        guard !accessDenied else {
+            presentAccessDenied()
+            return
+        }
+        guard locationManager.authorizationStatus != .notDetermined else {
+            locationManager.requestWhenInUseAuthorization()
+            return
+        }
+        guard presentedViewController == nil else { return }
+        setProximityIndicator(radius: 0)
+        let compactDisplayTitle = proximityChat?.isUser == true ? peerName ?? proximityChat?.title : nil
+        let picker = LocationDistancePickerViewController(
+            compactDisplayTitle: compactDisplayTitle,
+            distances: { [weak self] in self?.distancesToAllAnnotations() ?? [] },
+            updated: { [weak self] distance in self?.setProximityIndicator(radius: distance) },
+            completion: { [weak self] distance, picker in
+                self?.proximityDistancePicked(
+                    distance,
+                    messageID: messageID,
+                    compactDisplayTitle: compactDisplayTitle,
+                    picker: picker,
+                )
+            },
+            willDismiss: { [weak self] in self?.setProximityIndicator(radius: nil) },
+        )
+        present(picker, animated: true)
+    }
+
+    /// The distance goes to the account's own live location; without one Telegram asks to share it first.
+    private func proximityDistancePicked(
+        _ distance: Int,
+        messageID: Int64?,
+        compactDisplayTitle: String?,
+        picker: UIViewController,
+    ) {
+        guard let messageID else {
+            picker.dismiss(animated: true) { [weak self] in
+                self?.presentLiveLocationRequired(distance: distance, compactDisplayTitle: compactDisplayTitle)
+            }
+            return
+        }
+        updatingProximityRadius = distance
+        updateProximityState()
+        editOwnProximityRadius(distance, messageID: messageID)
+        showProximityToast(
+            title: L10n.telegram("Location.ProximityAlertSetTitle"),
+            text: proximityAlertSetText(distance, compactDisplayTitle: compactDisplayTitle),
+        )
+        picker.dismiss(animated: true)
+    }
+
+    /// Location.LiveLocationRequired: the alert works with the account's live location here, which Share Location
+    /// sends for 30 minutes with the radius.
+    private func presentLiveLocationRequired(distance: Int, compactDisplayTitle: String?) {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: L10n.telegram("Location.LiveLocationRequired.Title"),
+            message: L10n.telegram("Location.LiveLocationRequired.Description"),
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(
+            title: L10n.telegram("Location.LiveLocationRequired.ShareLocation"),
+            style: .default,
+        ) { [weak self] _ in
+            guard let self else { return }
+            let period = Self.proximityLivePeriod
+            guard shareLiveLocation(period: period, proximityAlertRadius: distance, showsAll: false) else { return }
+            showProximityToast(
+                title: L10n.telegram("Location.ProximityAlertSetTitle"),
+                text: proximityAlertSetText(distance, compactDisplayTitle: compactDisplayTitle),
+            )
+        })
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        present(alert, animated: true)
+    }
+
+    /// LiveLocationManager edits the message, so its next locations keep the radius; the change shows as done until
+    /// half a second after the edit.
+    private func editOwnProximityRadius(_ radius: Int, messageID: Int64) {
+        let chatID = chatID
+        let source = source
+        Task { [weak self] in
+            if let source {
+                await LiveLocationManager.shared.setProximityAlertRadius(
+                    radius,
+                    chatID: chatID,
+                    messageID: messageID,
+                    source: source,
+                )
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            guard let self else { return }
+            if radius == 0 {
+                cancellingProximityRadius = false
+            } else {
+                updatingProximityRadius = nil
+            }
+            updateProximityState()
+        }
+    }
+
+    /// LocationViewControllerNode.setProximityIndicator: while a distance is picked the map buttons hide, the list
+    /// makes room, the map dims around a clear circle and fits the radius around the user into it; afterwards the map
+    /// returns to the user.
+    private func setProximityIndicator(radius: Int?) {
+        guard isViewLoaded else { return }
+        let wasShown = proximityIndicatorRadius != nil
+        proximityIndicatorRadius = radius
+        if (radius != nil) != wasShown {
+            setMapButtonsHidden(radius != nil)
+            updateTableHeight()
+            UIView.animate(withDuration: 0.3) { self.view.layoutIfNeeded() }
+        }
+        updateProximityDim()
+        guard let location = mapView.userLocation.location ?? userLocation else { return }
+        mapView.setUserTrackingMode(.none, animated: false)
+        guard let radius else {
+            mapView.setRegion(MKCoordinateRegion(center: location.coordinate, span: Self.defaultSpan), animated: true)
+            return
+        }
+        guard radius > 0, let hole = proximityDimHole else { return }
+        let side = MKMapPointsPerMeterAtLatitude(location.coordinate.latitude) * Double(radius) * 2
+        let center = MKMapPoint(location.coordinate)
+        mapView.setVisibleMapRect(
+            MKMapRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side),
+            edgePadding: UIEdgeInsets(
+                top: hole.minY,
+                left: hole.minX,
+                bottom: mapView.bounds.height - hole.maxY,
+                right: mapView.bounds.width - hole.maxX,
+            ),
+            animated: true,
+        )
+    }
+
+    /// LocationMapNode's proximityDimView: the clear circle sits in the middle of the map left above the picker.
+    private func updateProximityDim() {
+        guard proximityIndicatorRadius != nil else {
+            proximityDimHole = nil
+            guard proximityDimView.image != nil else { return }
+            UIView.transition(with: proximityDimView, duration: 0.3, options: .transitionCrossDissolve) {
+                self.proximityDimView.image = nil
+            }
+            return
+        }
+        let size = mapView.bounds.size
+        guard size.width > 0, size.height > 0 else { return }
+        let panelTop = view.bounds.height - LocationDistancePickerViewController.contentHeight
+            - view.safeAreaInsets.bottom
+        let visibleHeight = max(0, min(mapView.frame.maxY, panelTop) - mapView.frame.minY)
+        let diameter = max(0, min(Self.proximityHoleDiameter, size.width - 32, visibleHeight - 16))
+        let hole = CGRect(
+            x: floor((size.width - diameter) / 2),
+            y: floor((visibleHeight - diameter) / 2),
+            width: diameter,
+            height: diameter,
+        )
+        guard hole != proximityDimHole || proximityDimView.image?.size != size else { return }
+        let isFirst = proximityDimView.image == nil
+        proximityDimHole = hole
+        proximityDimView.image = UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.black.withAlphaComponent(0.4).setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            context.cgContext.setBlendMode(.clear)
+            context.cgContext.fillEllipse(in: hole)
+        }
+        guard isFirst else { return }
+        proximityDimView.alpha = 0
+        UIView.animate(withDuration: 0.2) { self.proximityDimView.alpha = 1 }
+    }
+
+    /// LocationMapHeaderNode.forceIsHidden.
+    private func setMapButtonsHidden(_ hidden: Bool) {
+        hideProximityTip()
+        let buttons = [mapModeButton, trackingButton, proximityButton]
+        for button in buttons {
+            button.isUserInteractionEnabled = !hidden
+        }
+        UIView.animate(withDuration: 0.2) {
+            for button in buttons {
+                button.alpha = hidden ? 0 : 1
+            }
+        }
+    }
+
+    /// LocationMapNode.distancesToAllAnnotations: how far the user is from every pin but their own, nearest first.
+    private func distancesToAllAnnotations() -> [Double] {
+        guard let location = mapView.userLocation.location ?? userLocation else { return [] }
+        let coordinates = isLiveView ? liveAnnotations.values.map(\.coordinate) : [subject.coordinate]
+        return coordinates
+            .map { location.distance(from: CLLocation(latitude: $0.latitude, longitude: $0.longitude)) }
+            .sorted()
+    }
+
+    /// Location.ProximityAlertSetText with the other user's name, or the group text.
+    private func proximityAlertSetText(_ distance: Int, compactDisplayTitle: String?) -> String {
+        let distanceText = shortDistance(CLLocationDistance(distance))
+        guard let compactDisplayTitle else {
+            return L10n.telegram("Location.ProximityAlertSetTextGroup", distanceText)
+        }
+        return L10n.telegram("Location.ProximityAlertSetText", compactDisplayTitle, distanceText)
+    }
+
+    /// UndoOverlayController's setProximityAlert.
+    private func showProximityToast(title: String, text: String) {
+        TelegramUndoToast.show(title: title, text: text, in: view, bottomInset: 8, undo: nil)
+    }
+
+    /// Telegram's displayProximityAlertTooltip: Alert when ... is close, or when any group member is, by the bell for
+    /// three seconds, on at most three openings.
+    private func showProximityTipIfNeeded() {
+        let defaults = UserDefaults.standard
+        let count = defaults.integer(forKey: Self.proximityTipCountKey)
+        guard count < 3, let proximityChat, proximityIndicatorRadius == nil else { return }
+        defaults.set(count + 1, forKey: Self.proximityTipCountKey)
+        let text =
+            if proximityChat.isUser {
+                L10n.telegram("Location.ProximityTip", peerName ?? proximityChat.title)
+            } else {
+                L10n.telegram("Location.ProximityGroupTip")
+            }
+        hideProximityTip()
+        let tip = LocationTipView(text: text)
+        tip.translatesAutoresizingMaskIntoConstraints = false
+        tip.alpha = 0
+        view.addSubview(tip)
+        NSLayoutConstraint.activate([
+            tip.trailingAnchor.constraint(equalTo: proximityButton.leadingAnchor, constant: -4),
+            tip.centerYAnchor.constraint(equalTo: proximityButton.centerYAnchor),
+            tip.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+        ])
+        proximityTipView = tip
+        UIView.animate(withDuration: 0.2) { tip.alpha = 1 }
+        UIAccessibility.post(notification: .announcement, argument: text)
+        proximityTipTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            self?.hideProximityTip()
+        }
+    }
+
+    private func hideProximityTip() {
+        proximityTipTask?.cancel()
+        proximityTipTask = nil
+        guard let tip = proximityTipView else { return }
+        proximityTipView = nil
+        UIView.animate(withDuration: 0.2) {
+            tip.alpha = 0
+        } completion: { _ in
+            tip.removeFromSuperview()
+        }
     }
 
     /// Telegram's requestDirections: Apple Maps at once when no other app can open the place, else the apps to choose

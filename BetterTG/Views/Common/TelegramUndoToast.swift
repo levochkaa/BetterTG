@@ -2,8 +2,9 @@
 
 import UIKit
 
-/// Telegram's bottom undo overlay (UndoOverlayController), in BetterTG's dark-glass style: a message with an
-/// optional action (Undo by default) that dismisses itself after five seconds. A new toast replaces the visible one.
+/// Telegram's bottom undo overlay (UndoOverlayController), in BetterTG's dark-glass style: a message, with a bold title
+/// above it for content such as setProximityAlert, and an optional action (Undo by default) that dismisses itself
+/// after five seconds. A new toast replaces the visible one.
 @MainActor final class TelegramUndoToast: UIView {
     // MARK: Private
 
@@ -20,7 +21,7 @@ import UIKit
         fatalError("init(coder:) has not been implemented")
     }
 
-    private init(text: String, actionTitle: String?, undo: (() -> Void)?) {
+    private init(title: String?, text: String, actionTitle: String?, undo: (() -> Void)?) {
         self.undo = undo
         super.init(frame: .zero)
         overrideUserInterfaceStyle = .dark
@@ -31,13 +32,33 @@ import UIKit
         addSubview(effectView)
 
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.text = text
         label.textColor = .white
-        label.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
+        let bodyFont = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
             for: .systemFont(ofSize: 15, weight: .regular),
             maximumPointSize: 19,
         )
-        label.numberOfLines = 2
+        label.font = bodyFont
+        if let title {
+            let titleFont = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
+                for: .systemFont(ofSize: 15, weight: .semibold),
+                maximumPointSize: 19,
+            )
+            let attributed = NSMutableAttributedString(
+                string: title,
+                attributes: [.font: titleFont, .foregroundColor: UIColor.white],
+            )
+            if !text.isEmpty {
+                attributed.append(NSAttributedString(
+                    string: "\n" + text,
+                    attributes: [.font: bodyFont, .foregroundColor: UIColor.white],
+                ))
+            }
+            label.attributedText = attributed
+            label.numberOfLines = 0
+        } else {
+            label.text = text
+            label.numberOfLines = 2
+        }
         label.adjustsFontForContentSizeCategory = true
         effectView.contentView.addSubview(label)
 
@@ -84,6 +105,7 @@ import UIKit
     }
 
     static func show(
+        title: String? = nil,
         text: String,
         in host: UIView,
         bottomInset: CGFloat,
@@ -91,7 +113,7 @@ import UIKit
         undo: (() -> Void)?,
     ) {
         current?.dismiss(animated: false)
-        let toast = TelegramUndoToast(text: text, actionTitle: actionTitle, undo: undo)
+        let toast = TelegramUndoToast(title: title, text: text, actionTitle: actionTitle, undo: undo)
         toast.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(toast)
         NSLayoutConstraint.activate([
