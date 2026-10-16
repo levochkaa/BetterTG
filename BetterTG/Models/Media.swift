@@ -12,6 +12,8 @@ final class Media: ObservableObject {
         let accountID: UUID?
         let chatID: Int64
         let messageID: Int64
+        /// A music track, which plays on through its chat's tracks (PeerMessagesMediaPlaylist's `.music`).
+        var isMusic = false
     }
 
     /// The header text the note's chat gave it, so the header can name it over the chat list and in other chats.
@@ -19,6 +21,8 @@ final class Media: ObservableObject {
         let item: NowPlaying
         let title: String
         let subtitle: String
+        /// Telegram shows the rate button for voice notes and for music over ten minutes.
+        var showsRate = true
     }
 
     static let shared = Media()

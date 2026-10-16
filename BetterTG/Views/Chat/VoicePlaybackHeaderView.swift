@@ -13,6 +13,10 @@ final class VoicePlaybackHeaderView: UIView {
         let isPlaying: Bool
         let progress: CGFloat
         let rate: Float
+        /// Hidden for music under ten minutes, as Telegram does.
+        var showsRate = true
+        /// Music swipes between the chat's tracks.
+        var isMusic = false
     }
 
     static let contentHeight = CGFloat(37)
@@ -21,6 +25,9 @@ final class VoicePlaybackHeaderView: UIView {
     var onCycleRate: (() -> Void)?
     var onClose: (() -> Void)?
     var onOpen: (() -> Void)?
+    /// MediaNavigationAccessoryHeaderNode's horizontal swipe: left to the next track, right to the previous one.
+    var onPlayNext: (() -> Void)?
+    var onPlayPrevious: (() -> Void)?
 
     private let playButton = UIButton(type: .system)
     private let openControl = UIControl()
@@ -51,6 +58,11 @@ final class VoicePlaybackHeaderView: UIView {
         openControl.isAccessibilityElement = true
         openControl.accessibilityTraits = .button
         addSubview(openControl)
+        for direction in [UISwipeGestureRecognizer.Direction.left, .right] {
+            let swipe = UISwipeGestureRecognizer(target: self, action: #selector(trackSwiped(_:)))
+            swipe.direction = direction
+            openControl.addGestureRecognizer(swipe)
+        }
 
         for (label, color) in [(titleLabel, UIColor.label), (subtitleLabel, UIColor.secondaryLabel)] {
             label.translatesAutoresizingMaskIntoConstraints = false
@@ -164,6 +176,7 @@ final class VoicePlaybackHeaderView: UIView {
         let rateTitle = Self.rateTitle(content.rate)
         rateButton.setTitle(rateTitle, for: .normal)
         rateButton.accessibilityValue = rateTitle
+        rateButton.isHidden = !content.showsRate
         progress = max(0, min(1, content.progress))
         setNeedsLayout()
     }
@@ -182,6 +195,15 @@ final class VoicePlaybackHeaderView: UIView {
 
     @objc private func closeTapped() {
         onClose?()
+    }
+
+    @objc private func trackSwiped(_ gesture: UISwipeGestureRecognizer) {
+        guard content?.isMusic == true else { return }
+        if gesture.direction == .left {
+            onPlayNext?()
+        } else {
+            onPlayPrevious?()
+        }
     }
 }
 

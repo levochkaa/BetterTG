@@ -1787,6 +1787,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         voicePlaybackHeader.onTogglePlayback = { Media.shared.togglePlayback() }
         voicePlaybackHeader.onCycleRate = { Media.shared.cyclePlaybackRate() }
         voicePlaybackHeader.onClose = { Media.shared.close() }
+        voicePlaybackHeader.onPlayNext = { VoicePlaylistContinuation.shared.skipMusic(toOlder: true) }
+        voicePlaybackHeader.onPlayPrevious = { VoicePlaylistContinuation.shared.skipMusic(toOlder: false) }
         voicePlaybackHeader.onOpen = { [weak self] in
             guard let self, let item = Media.shared.nowPlaying, item.accountID == location.accountID else { return }
             navigate(to: .message(chatID: item.chatID, messageID: item.messageID, quote: nil))
@@ -1818,7 +1820,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .playbackFinished
             .receive(on: DispatchQueue.main)
             .sink { [weak self] finished in
-                guard let self, finished.chatID == chatVM.chatID,
+                // Music plays on through VoicePlaylistContinuation, open chat or not.
+                guard let self, !finished.isMusic, finished.chatID == chatVM.chatID,
                       finished.accountID == location.accountID else { return }
                 playNextPlaylistItem(after: finished.messageID)
             }
@@ -1899,11 +1902,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
             // Another route of this chat (a thread, a topic) that hasn't loaded the note keeps the recorded text.
             if message == nil, let recorded { return recorded }
-            let local = Media.NowPlayingDisplay(
-                item: item,
-                title: voicePlaybackTitle(message),
-                subtitle: voicePlaybackSubtitle(),
-            )
+            let played = message?.album.first { $0.id == item.messageID } ?? message?.message
+            let local: Media.NowPlayingDisplay =
+                if case .messageAudio(let content) = played?.content {
+                    .music(content.audio, item: item)
+                } else {
+                    Media.NowPlayingDisplay(
+                        item: item,
+                        title: voicePlaybackTitle(message),
+                        subtitle: voicePlaybackSubtitle(),
+                    )
+                }
             if message != nil { Media.shared.setDisplay(local) }
             return local
         }
@@ -1915,6 +1924,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 isPlaying: isPlaying,
                 progress: duration > 0 ? CGFloat(position / duration) : 0,
                 rate: rate,
+                showsRate: text.showsRate,
+                isMusic: text.item.isMusic,
             ))
         }
         let desiredHeight = text == nil ? 0 : VoicePlaybackHeaderView.contentHeight

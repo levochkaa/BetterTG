@@ -1745,3 +1745,5 @@
 "Chat.SendMessageMenu.MoveCaptionUp" = "Move Caption Up";
 "MediaPicker.InvertCaption.Updated.Down.Title" = "Caption moved down";
 "MediaPicker.InvertCaption.Updated.Up.Title" = "Caption moved up";
+"MediaPlayer.UnknownArtist" = "Unknown Artist";
+"MediaPlayer.UnknownTrack" = "Unknown Track";

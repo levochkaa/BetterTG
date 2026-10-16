@@ -634,6 +634,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         voicePlaybackHeader.onTogglePlayback = { Media.shared.togglePlayback() }
         voicePlaybackHeader.onCycleRate = { Media.shared.cyclePlaybackRate() }
         voicePlaybackHeader.onClose = { Media.shared.close() }
+        voicePlaybackHeader.onPlayNext = { VoicePlaylistContinuation.shared.skipMusic(toOlder: true) }
+        voicePlaybackHeader.onPlayPrevious = { VoicePlaylistContinuation.shared.skipMusic(toOlder: false) }
         voicePlaybackHeader.onOpen = { [weak self] in self?.openVoicePlaybackMessage() }
         Publishers.CombineLatest4(
             Media.shared.$nowPlaying,
@@ -664,6 +666,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 isPlaying: media.isPlaying,
                 progress: duration > 0 ? CGFloat(media.playbackPosition / duration) : 0,
                 rate: media.playbackRate,
+                showsRate: display.showsRate,
+                isMusic: display.item.isMusic,
             ))
         }
         let searching = searchActive ?? customNavigationBar.isSearchActive

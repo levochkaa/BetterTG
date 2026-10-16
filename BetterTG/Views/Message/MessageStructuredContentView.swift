@@ -385,7 +385,12 @@ final class MessageStructuredContentView: UIView {
             case .animatedEmoji(let emoji, let content):
                 StickerGlyphContentView(emoji: emoji, sticker: content.sticker, client: client)
             case .audio(let audio):
-                TelegramFileMessageView(audio: audio, client: client, onAction: onAction)
+                TelegramFileMessageView(
+                    audio: audio,
+                    client: client,
+                    onAction: onAction,
+                    nowPlayingItem: chatID == 0 ? nil : .music(chatID: chatID, messageID: messageID),
+                )
             case .checklist(let checklist):
                 ChecklistMessageContentView(
                     messageID: messageID,
@@ -485,6 +490,7 @@ private final class AttachmentAlbumMessageView: UIView, MessageSupplementView {
                 itemViews.append(AttachmentAlbumItemView(
                     messageID: message.id,
                     audio: audio,
+                    chatID: message.chatId,
                     client: client,
                     spoilerState: textSpoilers?.states[message.id],
                     onAction: onAction,
@@ -540,12 +546,18 @@ private final class AttachmentAlbumItemView: UIView {
     init(
         messageID: Int64,
         audio: MessageAudio,
+        chatID: Int64,
         client: TDLibClient,
         spoilerState: MessageTextSpoilerState?,
         onAction: @escaping (MessageContentAction) -> Void,
     ) {
         self.messageID = messageID
-        self.fileView = TelegramFileMessageView(audio: audio.audio, client: client, onAction: onAction)
+        self.fileView = TelegramFileMessageView(
+            audio: audio.audio,
+            client: client,
+            onAction: onAction,
+            nowPlayingItem: .music(chatID: chatID, messageID: messageID),
+        )
         super.init(frame: .zero)
         configure(fileView: fileView, caption: audio.caption, client: client, spoilerState: spoilerState)
     }
@@ -669,6 +681,8 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
     private let client: TDLibClient
     private let content: Content
     private let onAction: (MessageContentAction) -> Void
+    /// The track's message, so its playback gets Telegram's media header and plays on through the chat's music.
+    private let nowPlayingItem: Media.NowPlaying?
     private var representedFile: File
     private var downloadTask: Task<Void, Never>?
     private var fileCancellable: AnyCancellable?
@@ -703,10 +717,12 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
         audio: Audio,
         client: TDLibClient,
         onAction: @escaping (MessageContentAction) -> Void,
+        nowPlayingItem: Media.NowPlaying? = nil,
     ) {
         self.client = client
         self.content = .audio(audio)
         self.onAction = onAction
+        self.nowPlayingItem = nowPlayingItem
         self.representedFile = audio.audio
         super.init(frame: .zero)
         configureViews()
@@ -723,6 +739,7 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
         self.client = client
         self.content = .document(document)
         self.onAction = onAction
+        self.nowPlayingItem = nil
         self.representedFile = document.document
         super.init(frame: .zero)
         configureViews()
@@ -878,8 +895,9 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
 
     @objc private func performPrimaryAction() {
         if let path = completedLocalPath {
-            if content.isAudio {
-                Media.shared.toggle(with: path, duration: content.duration)
+            if case .audio(let audio) = content {
+                Media.shared.toggle(with: path, duration: content.duration, item: nowPlayingItem)
+                if let nowPlayingItem { Media.shared.setDisplay(.music(audio, item: nowPlayingItem)) }
             } else {
                 onAction(.openDocument(URL(fileURLWithPath: path)))
             }
