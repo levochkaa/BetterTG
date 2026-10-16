@@ -5,8 +5,9 @@
 
     /// Launch with `-ui-probe-web-app`. Once an account is active it opens the Web App sheet on a local page whose
     /// buttons post TelegramWebviewProxy events (main and secondary buttons, back button, expansion, header colour,
-    /// popup, closing confirmation, haptics, theme, close) and which lists the events it gets back. No bot is
-    /// involved and nothing is sent.
+    /// popup, closing confirmation, haptics, theme, DeviceStorage and SecureStorage, swipe behaviour, keyboard, the
+    /// write access and phone alerts, close) and which lists the events it gets back. No bot is involved and nothing
+    /// is sent: the probe bot has ID 0, so the alerts' OK buttons fail without a request reaching Telegram.
     @MainActor enum WebAppProbe {
         private static let page = """
         <!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -27,6 +28,18 @@
         <button onclick="post('web_app_setup_closing_behavior', {need_confirmation: true})">confirm close</button>
         <button onclick="post('web_app_trigger_haptic_feedback', {type: 'impact', impact_style: 'medium'})">haptic</button>
         <button onclick="post('web_app_request_theme')">theme</button>
+        <button onclick="post('web_app_device_storage_save_key', {req_id: 'd1', key: 'probe', value: 'stored ' + Date.now()})">dev save</button>
+        <button onclick="post('web_app_device_storage_get_key', {req_id: 'd2', key: 'probe'})">dev get</button>
+        <button onclick="post('web_app_device_storage_save_key', {req_id: 'd3', key: 'probe', value: 5})">dev bad</button>
+        <button onclick="post('web_app_device_storage_clear', {req_id: 'd4'})">dev clear</button>
+        <button onclick="post('web_app_secure_storage_save_key', {req_id: 's1', key: 'probe', value: 'secret'})">sec save</button>
+        <button onclick="post('web_app_secure_storage_get_key', {req_id: 's2', key: 'probe'})">sec get</button>
+        <button onclick="post('web_app_secure_storage_restore_key', {req_id: 's3', key: 'probe'})">sec restore</button>
+        <button onclick="post('web_app_secure_storage_clear', {req_id: 's4'})">sec clear</button>
+        <button onclick="post('web_app_setup_swipe_behavior', {allow_vertical_swipe: false})">no swipe</button>
+        <input id="field" placeholder="type" size="6"><button onclick="post('web_app_hide_keyboard')">hide kb</button>
+        <button onclick="post('web_app_request_write_access')">write</button>
+        <button onclick="post('web_app_request_phone')">phone</button>
         <button onclick="post('web_app_close')">close</button>
         </div>
         <div id="log"></div>
@@ -49,6 +62,7 @@
         """
 
         static func runIfRequested(in window: UIWindow) {
+            runTransferIfRequested(in: window)
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-web-app") else { return }
             Task { @MainActor in
                 for _ in 0..<60 where TDLib.shared.activeAccountID == nil {
@@ -69,6 +83,7 @@
                         botUserID: 0,
                         botName: "Probe Bot",
                         botUsername: "probe_bot",
+                        accountID: TDLib.shared.activeAccountID,
                         client: TDLib.shared.activeClient,
                     ),
                     actions: .init(
@@ -77,6 +92,37 @@
                     ),
                 )
                 presenter.present(controller, animated: true)
+            }
+        }
+
+        /// `-ui-probe-secure-transfer`: the SecureStorage import sheet for two accounts that are gone, with the active
+        /// account's avatar in place of a bot's. Import and Close only log the choice; no Keychain item moves.
+        private static func runTransferIfRequested(in window: UIWindow) {
+            guard ProcessInfo.processInfo.arguments.contains("-ui-probe-secure-transfer") else { return }
+            Task { @MainActor in
+                for _ in 0..<60 where TDLib.shared.activeAccount?.userID == nil {
+                    try? await Task.sleep(for: .milliseconds(500))
+                }
+                guard let account = TDLib.shared.activeAccount, let userID = account.userID else { return }
+                try? await Task.sleep(for: .seconds(2))
+                var presenter = window.rootViewController
+                while let presented = presenter?.presentedViewController {
+                    presenter = presented
+                }
+                let now = Int32(Date().timeIntervalSince1970)
+                let controller = WebAppSecureStorageTransferViewController(
+                    keys: [
+                        .init(uuid: "probe-a", accountName: "Old Account", timestamp: now - 86400 * 40),
+                        .init(uuid: "probe-b", accountName: "Work Account", timestamp: now - 86400 * 3),
+                    ],
+                    botUserID: userID,
+                    botName: "Probe Bot",
+                    accountID: account.id,
+                    client: TDLib.shared.activeClient,
+                ) { uuid in
+                    print("[secure-transfer-probe] chose \(uuid ?? "nil")")
+                }
+                presenter?.present(controller, animated: true)
             }
         }
     }

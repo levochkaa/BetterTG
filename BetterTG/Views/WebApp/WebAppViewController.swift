@@ -26,6 +26,8 @@ struct WebAppLaunch {
     let botUserID: Int64
     let botName: String
     let botUsername: String?
+    /// The account whose client opened the page; DeviceStorage and SecureStorage keep its keys apart.
+    let accountID: UUID?
     let client: TDLibClient
 }
 
@@ -103,6 +105,8 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     private var hasBackButton = false
     private var hasSettingsButton = false
     private var needsCloseConfirmation = false
+    /// `web_app_setup_swipe_behavior`: Telegram's `isPanGestureEnabled` for the sheet.
+    private var allowsVerticalSwipe = true
     private var headerColor: UIColor?
     private var headerColorKey: String?
     private var backgroundColor: UIColor?
@@ -256,6 +260,13 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         )
     }
 
+    /// A stored value: a string, or null to remove the key; anything else is invalid.
+    private static func storageValue(_ value: Any?) -> String?? {
+        if let string = value as? String { return .some(string) }
+        if value is NSNull { return .some(nil) }
+        return nil
+    }
+
     // MARK: Sheet
 
     func sheetPresentationControllerDidChangeSelectedDetentIdentifier(_: UISheetPresentationController) {
@@ -263,11 +274,11 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     }
 
     func presentationControllerShouldDismiss(_: UIPresentationController) -> Bool {
-        !needsCloseConfirmation
+        !needsCloseConfirmation && allowsVerticalSwipe
     }
 
     func presentationControllerDidAttemptToDismiss(_: UIPresentationController) {
-        confirmClose()
+        if allowsVerticalSwipe { confirmClose() }
     }
 
     func presentationControllerDidDismiss(_: UIPresentationController) {
@@ -598,6 +609,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
             guard lastExpansion.map({ now >= $0 + 1 }) ?? true else { return }
             lastExpansion = now
             sheetPresentationController?.animateChanges {
+                if !allowsVerticalSwipe { sheetPresentationController?.detents = [.large()] }
                 sheetPresentationController?.selectedDetentIdentifier = .large
             }
             sendViewport(force: true)
@@ -624,7 +636,12 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         case "web_app_setup_closing_behavior":
             if let needsConfirmation = json?["need_confirmation"] as? Bool {
                 needsCloseConfirmation = needsConfirmation
-                isModalInPresentation = needsConfirmation
+                updateSwipeBehavior()
+            }
+        case "web_app_setup_swipe_behavior":
+            if let allows = json?["allow_vertical_swipe"] as? Bool {
+                allowsVerticalSwipe = allows
+                updateSwipeBehavior()
             }
         case "web_app_set_header_color":
             if let key = json?["color_key"] as? String, ["bg_color", "secondary_bg_color"].contains(key) {
@@ -662,9 +679,33 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
             switchInline(json)
         case "web_app_data_send":
             sendKeyboardData(rawData)
+        case "web_app_hide_keyboard":
+            view.window?.endEditing(true)
+        case "web_app_request_write_access":
+            requestWriteAccess()
+        case "web_app_request_phone":
+            shareAccountContact()
+        case "web_app_invoke_custom_method":
+            invokeCustomMethod(json)
+        case "web_app_device_storage_clear", "web_app_device_storage_get_key", "web_app_device_storage_save_key":
+            handleDeviceStorage(eventName, json: json)
+        case "web_app_secure_storage_clear", "web_app_secure_storage_get_key", "web_app_secure_storage_restore_key",
+             "web_app_secure_storage_save_key":
+            handleSecureStorage(eventName, json: json)
         default:
             break
         }
+    }
+
+    /// Without the vertical swipe the sheet neither resizes nor closes by dragging, as Telegram's disabled pan.
+    private func updateSwipeBehavior() {
+        isModalInPresentation = needsCloseConfirmation || !allowsVerticalSwipe
+        guard let sheet = sheetPresentationController else { return }
+        let current = sheet.selectedDetentIdentifier ?? .large
+        sheet.detents = allowsVerticalSwipe
+            ? [.medium(), .large()]
+            : [current == .medium ? .medium() : .large()]
+        sheet.prefersGrabberVisible = allowsVerticalSwipe
     }
 
     private func buttonState(_ json: [String: Any]?, current: ButtonState) -> ButtonState? {
@@ -793,6 +834,261 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     private func sendThemeChanged() {
         let colors = Self.themeColors(for: traitCollection).map { ($0.key, $0.color.webAppHex) }
         sendEvent("theme_changed", data: ["theme_params": Dictionary(uniqueKeysWithValues: colors)])
+    }
+
+    // MARK: Access and storage
+
+    /// requestWriteAccess: "allowed" at once when the bot may already message the user, otherwise after the user
+    /// agrees in WebApp.AllowWriteTitle's alert.
+    private func requestWriteAccess() {
+        let launch = launch
+        Task { [weak self] in
+            let canSend = await (try? launch.client.send(
+                TDNativeRequests.canBotSendMessages(botUserId: launch.botUserID),
+            )) != nil
+            guard let self, !didClose else { return }
+            guard !canSend else { return sendWriteAccess(allowed: true) }
+            guard presentedViewController == nil else { return sendWriteAccess(allowed: false) }
+            let alert = UIAlertController(
+                title: L10n.telegram("WebApp.AllowWriteTitle"),
+                message: L10n.telegram("WebApp.AllowWriteConfirmation", launch.botName)
+                    .replacingOccurrences(of: "**", with: ""),
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel) { [weak self] _ in
+                self?.sendWriteAccess(allowed: false)
+            })
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
+                Task { [weak self] in
+                    let allowed = await (try? launch.client.send(
+                        TDNativeRequests.allowBotToSendMessages(botUserId: launch.botUserID),
+                    )) != nil
+                    self?.sendWriteAccess(allowed: allowed)
+                }
+            })
+            present(alert, animated: true)
+        }
+    }
+
+    private func sendWriteAccess(allowed: Bool) {
+        sendEvent("write_access_requested", data: ["status": allowed ? "allowed" : "cancelled"])
+    }
+
+    /// shareAccountContact: after the user agrees, the account's own contact goes to the bot's chat, unblocking the
+    /// bot first when needed.
+    private func shareAccountContact() {
+        let launch = launch
+        Task { [weak self] in
+            let isBlocked = await (try? launch.client.getUserFullInfo(userId: launch.botUserID))?.blockList != nil
+            guard let self, !didClose else { return }
+            guard presentedViewController == nil else { return sendPhoneRequested(sent: false) }
+            let key = isBlocked ? "WebApp.SharePhoneConfirmationUnblock" : "WebApp.SharePhoneConfirmation"
+            let alert = UIAlertController(
+                title: L10n.telegram("WebApp.SharePhoneTitle"),
+                message: L10n.telegram(key, launch.botName).replacingOccurrences(of: "**", with: ""),
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel) { [weak self] _ in
+                self?.sendPhoneRequested(sent: false)
+            })
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
+                self?.sendAccountContact(unblocking: isBlocked)
+            })
+            present(alert, animated: true)
+        }
+    }
+
+    private func sendAccountContact(unblocking: Bool) {
+        let launch = launch
+        Task { [weak self] in
+            do {
+                let client = launch.client
+                let me = try await client.getMe()
+                guard !me.phoneNumber.isEmpty else { return }
+                if unblocking {
+                    _ = try await client.send(TDNativeRequests.setMessageSenderBlockList(
+                        senderId: .messageSenderUser(.init(userId: launch.botUserID)),
+                        blockList: nil,
+                    ))
+                }
+                let chat = try await client.createPrivateChat(force: false, userId: launch.botUserID)
+                _ = try await client.sendMessage(
+                    chatId: chat.id,
+                    inputMessageContent: .inputMessageContact(TDNativeInputMessageContact(contact: TDNativeContact(
+                        phoneNumber: me.phoneNumber,
+                        firstName: me.firstName,
+                        lastName: me.lastName,
+                        vcard: "",
+                        userId: me.id,
+                    ))),
+                    options: nil,
+                    replyMarkup: nil,
+                    replyTo: nil,
+                    topicId: nil,
+                )
+                self?.sendPhoneRequested(sent: true)
+            } catch {
+                self?.sendPhoneRequested(sent: false)
+            }
+        }
+    }
+
+    private func sendPhoneRequested(sent: Bool) {
+        sendEvent("phone_requested", data: ["status": sent ? "sent" : "cancelled"])
+    }
+
+    /// invokeCustomMethod: the bot's answer goes back as JSON, or an empty object when it is not JSON.
+    private func invokeCustomMethod(_ json: [String: Any]?) {
+        guard let json, let requestID = json["req_id"] as? String, let method = json["method"] as? String,
+              let params = json["params"] else { return }
+        let parameters: String =
+            if let string = params as? String {
+                string
+            } else if let data = try? JSONSerialization.data(withJSONObject: params, options: .fragmentsAllowed),
+                      let string = String(data: data, encoding: .utf8)
+            {
+                string
+            } else {
+                "{}"
+            }
+        let launch = launch
+        Task { [weak self] in
+            guard let response = try? await launch.client.send(TDNativeRequests.sendWebAppCustomRequest(
+                botUserId: launch.botUserID,
+                method: method,
+                parameters: parameters,
+            )) else { return }
+            let result = response.result
+                .data(using: .utf8)
+                .flatMap { try? JSONSerialization.jsonObject(with: $0, options: .fragmentsAllowed) }
+                ?? [String: Any]()
+            self?.sendEvent("custom_method_invoked", data: ["req_id": requestID, "result": result])
+        }
+    }
+
+    /// DeviceStorage: `device_storage_key_saved`, `device_storage_key_received`, `device_storage_cleared` or
+    /// `device_storage_failed` with Telegram's error codes.
+    private func handleDeviceStorage(_ eventName: String, json: [String: Any]?) {
+        guard let requestID = json?["req_id"] as? String else { return }
+        let fail = { (error: String) in
+            self.sendEvent("device_storage_failed", data: ["req_id": requestID, "error": error])
+        }
+        guard let accountID = launch.accountID else { return fail("UNKNOWN_ERROR") }
+        let botUserID = launch.botUserID
+        if eventName == "web_app_device_storage_clear" {
+            try? WebAppDeviceStorage.clear(accountID: accountID, botUserID: botUserID)
+            return sendEvent("device_storage_cleared", data: ["req_id": requestID])
+        }
+        guard let key = json?["key"] as? String else { return fail("KEY_INVALID") }
+        if eventName == "web_app_device_storage_get_key" {
+            let value = WebAppDeviceStorage.value(accountID: accountID, botUserID: botUserID, key: key)
+            return sendEvent("device_storage_key_received", data: ["req_id": requestID, "value": value ?? NSNull()])
+        }
+        guard let value = Self.storageValue(json?["value"]) else { return fail("VALUE_INVALID") }
+        do {
+            try WebAppDeviceStorage.setValue(value, accountID: accountID, botUserID: botUserID, key: key)
+            sendEvent("device_storage_key_saved", data: ["req_id": requestID])
+        } catch {
+            fail(error == .quotaExceeded ? "QUOTA_EXCEEDED" : "UNKNOWN_ERROR")
+        }
+    }
+
+    /// SecureStorage: as DeviceStorage in the Keychain, plus restoring keys an account that is gone left behind.
+    private func handleSecureStorage(_ eventName: String, json: [String: Any]?) {
+        guard let requestID = json?["req_id"] as? String else { return }
+        let fail = { (error: String) in
+            self.sendEvent("secure_storage_failed", data: ["req_id": requestID, "error": error])
+        }
+        guard let accountID = launch.accountID else { return fail("UNKNOWN_ERROR") }
+        let botUserID = launch.botUserID
+        let activeAccountIDs = TDLib.shared.accounts.map(\.id)
+        if eventName == "web_app_secure_storage_clear" {
+            WebAppSecureStorage.clear(accountID: accountID, botUserID: botUserID)
+            return sendEvent("secure_storage_cleared", data: ["req_id": requestID])
+        }
+        guard let key = json?["key"] as? String else {
+            // Telegram ignores a restore without a key.
+            if eventName != "web_app_secure_storage_restore_key" { fail("KEY_INVALID") }
+            return
+        }
+        switch eventName {
+        case "web_app_secure_storage_get_key":
+            var data: [String: Any] = ["req_id": requestID, "value": NSNull()]
+            do {
+                let value = try WebAppSecureStorage.value(
+                    accountID: accountID,
+                    activeAccountIDs: activeAccountIDs,
+                    botUserID: botUserID,
+                    key: key,
+                )
+                if let value { data["value"] = value }
+            } catch {
+                if error == .canRestore { data["canRestore"] = true }
+            }
+            sendEvent("secure_storage_key_received", data: data)
+        case "web_app_secure_storage_restore_key":
+            do {
+                let keys = try WebAppSecureStorage.restorableKeys(
+                    accountID: accountID,
+                    activeAccountIDs: activeAccountIDs,
+                    botUserID: botUserID,
+                    key: key,
+                )
+                guard !keys.isEmpty else { return fail("RESTORE_UNAVAILABLE") }
+                openSecureStorageTransfer(requestID: requestID, key: key, keys: keys, accountID: accountID)
+            } catch {
+                fail(error == .storageNotEmpty ? "STORAGE_NOT_EMPTY" : "UNKNOWN_ERROR")
+            }
+        default:
+            guard let value = Self.storageValue(json?["value"]) else { return fail("VALUE_INVALID") }
+            do {
+                try WebAppSecureStorage.setValue(
+                    value,
+                    accountID: accountID,
+                    accountName: TDLib.shared.accounts.first { $0.id == accountID }?.title ?? "",
+                    botUserID: botUserID,
+                    key: key,
+                )
+                sendEvent("secure_storage_key_saved", data: ["req_id": requestID])
+            } catch {
+                fail(error == .quotaExceeded ? "QUOTA_EXCEEDED" : "UNKNOWN_ERROR")
+            }
+        }
+    }
+
+    /// openSecureBotStorageTransfer: Import moves the chosen account's keys into this one and gives the page the
+    /// restored value; closing fails with RESTORE_CANCELLED.
+    private func openSecureStorageTransfer(
+        requestID: String,
+        key: String,
+        keys: [WebAppSecureStorage.ExistingKey],
+        accountID: UUID,
+    ) {
+        guard presentedViewController == nil else {
+            return sendEvent("secure_storage_failed", data: ["req_id": requestID, "error": "RESTORE_CANCELLED"])
+        }
+        let botUserID = launch.botUserID
+        let transfer = WebAppSecureStorageTransferViewController(
+            keys: keys,
+            botUserID: botUserID,
+            botName: launch.botName,
+            accountID: accountID,
+            client: launch.client,
+        ) { [weak self] uuid in
+            guard let self else { return }
+            guard let uuid else {
+                return sendEvent("secure_storage_failed", data: ["req_id": requestID, "error": "RESTORE_CANCELLED"])
+            }
+            WebAppSecureStorage.transferAllValues(fromUUID: uuid, accountID: accountID, botUserID: botUserID)
+            let value = try? WebAppSecureStorage.value(
+                accountID: accountID,
+                activeAccountIDs: TDLib.shared.accounts.map(\.id),
+                botUserID: botUserID,
+                key: key,
+            )
+            sendEvent("secure_storage_key_restored", data: ["req_id": requestID, "value": value ?? NSNull()])
+        }
+        present(transfer, animated: true)
     }
 
     private func sendViewport(force: Bool) {

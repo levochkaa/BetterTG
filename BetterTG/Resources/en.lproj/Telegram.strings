@@ -2012,3 +2012,13 @@
 "PhotoEditor.CurvesGreen" = "Green";
 "PhotoEditor.CurvesBlue" = "Blue";
 "PhotoEditor.Original" = "Original";
+"WebApp.ImportData.Title" = "Import Data";
+"WebApp.ImportData.Description" = "**%@** is requesting permission to import data from a previous Telegram account used on this device.";
+"WebApp.ImportData.AccountHeader" = "ACCOUNT TO IMPORT DATA FROM";
+"WebApp.ImportData.CreatedOn" = "created on %@";
+"WebApp.ImportData.Import" = "Import";
+"WebApp.AllowWriteTitle" = "Allow Sending Messages?";
+"WebApp.AllowWriteConfirmation" = "This will allow the bot **%@** to message you on Telegram.";
+"WebApp.SharePhoneTitle" = "Share Phone Number?";
+"WebApp.SharePhoneConfirmation" = "**%@** will know your phone number. This can be useful for integration with other services.";
+"WebApp.SharePhoneConfirmationUnblock" = "**%@** will know your phone number. This can be useful for integration with other services.\n\nThis will also unblock the bot.";

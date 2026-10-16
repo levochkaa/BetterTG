@@ -559,6 +559,7 @@ struct InlineTargetChatTypes: Equatable {
                 botUserID: bot.id,
                 botName: bot.name,
                 botUsername: bot.username,
+                accountID: TDLib.shared.activeAccountID,
                 client: client,
             ), messageID: messageID)
         }
