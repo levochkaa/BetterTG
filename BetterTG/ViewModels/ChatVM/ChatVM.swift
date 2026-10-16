@@ -457,6 +457,14 @@ import UIKit
         return customChat.canManageForumTopics || info.isOutgoing
     }
 
+    /// Telegram's Close/Reopen in a topic's avatar menu: the forum's creator, topic managers and the topic's creator,
+    /// never for General (ChatController, `canOpenClose` for `.replyThread`).
+    var canToggleTopicClosed: Bool {
+        guard !previewing, location.forumTopicID != nil, let info = forumTopicInfo,
+              !info.isGeneral else { return false }
+        return customChat.canManageForumTopics || info.isOutgoing
+    }
+
     /// Telegram's `ChatReplyThreadMessage.isChannelPost`: the thread starts at a channel post that the channel
     /// forwarded to its discussion group (`SourceReferenceMessageAttribute`, TDLib's `forwardInfo.source`). Nil
     /// until the thread is read.

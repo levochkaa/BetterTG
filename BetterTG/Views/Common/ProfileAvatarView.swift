@@ -10,6 +10,9 @@ import UIKit
 final class ProfileAvatarView: TelegramContextMenuExtractableView {
     var onOpenProfile: (() -> Void)?
     var onSearch: (() -> Void)?
+    /// Replaces the Open Profile / Search / Save Image items, as Telegram's avatar inside a forum topic lists Search
+    /// and Close/Reopen instead (ChatController, `avatarNode.contextAction` for `.replyThread`).
+    var contextMenuActions: (() -> [TelegramContextMenuAction])?
     /// The avatar's Open Profile / Search menu. A profile's own header avatar turns it off: its items would push a
     /// second copy of the profile or the chat.
     var showsContextMenu = true {
@@ -127,6 +130,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         highResolutionFile = nil
         onOpenProfile = nil
         onSearch = nil
+        contextMenuActions = nil
         imageView.cancel()
         sourceFile = nil
         sourceMinithumbnailData = nil
@@ -249,6 +253,14 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
     @objc private func longPressed(_ gesture: ContextMenuPressGestureRecognizer) {
         guard gesture.state == .began, let hostController = nearestViewController else { return }
         loadHighResolutionPreview()
+        if let contextMenuActions {
+            let actions = contextMenuActions()
+            guard !actions.isEmpty else { return }
+            hostController.presentTelegramContextMenu(
+                sourceView: self, actions: actions, tracking: gesture, presentationStyle: .avatar,
+            )
+            return
+        }
         hostController.presentTelegramContextMenu(sourceView: self, actions: [
             TelegramContextMenuAction(
                 title: L10n.telegram("Conversation.ContextMenuOpenProfile"),

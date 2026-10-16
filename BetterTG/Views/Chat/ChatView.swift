@@ -1770,6 +1770,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             customNavigationBar.setShowsMoreButton(true)
             customNavigationBar.onMore = { [weak self] source in self?.showForumMoreMenu(from: source) }
         }
+        if presentationMode == .full, location.forumTopicID != nil {
+            customNavigationBar.setAvatarMenuActions { [weak self] in self?.topicAvatarMenuActions() ?? [] }
+        }
         customNavigationBar.onSelectionCancel = { [weak self] in
             self?.endMessageSelection()
         }
@@ -3238,6 +3241,35 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             // A failed request leaves the bar tappable again; Telegram's panel sends and forgets.
             if !reopened { self?.topicReopenBar.isBusy = false }
         }
+    }
+
+    /// Telegram's avatar menu inside a forum topic (ChatController, `avatarNode.contextAction` for `.replyThread`):
+    /// Search, then Close or Reopen for whoever may toggle the topic. Its mute items are disabled upstream.
+    private func topicAvatarMenuActions() -> [TelegramContextMenuAction] {
+        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
+              let topicID = location.forumTopicID else { return [] }
+        var actions = [TelegramContextMenuAction(
+            title: L10n.telegram("Conversation.Search"),
+            image: UIImage(systemName: "magnifyingglass"),
+        ) { [weak self] in self?.beginMessageSearch() }]
+        if chatVM.canToggleTopicClosed, let info = chatVM.forumTopicInfo {
+            let isClosed = info.isClosed
+            let client = chatVM.client
+            let chatID = location.chatID
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(isClosed ? "ChatList.Context.ReopenTopic" : "ChatList.Context.CloseTopic"),
+                image: UIImage(systemName: isClosed ? "play" : "pause"),
+            ) { [weak self] in
+                guard let self, routeIsRetained, chatVM.locationContextIsCurrent else { return }
+                // TDLib's updateForumTopicInfo then shows or hides the Restart Topic bar and the closed composer.
+                Task {
+                    _ = try? await client.send(TDNativeRequests.toggleForumTopicIsClosed(
+                        chatId: chatID, forumTopicId: topicID, isClosed: !isClosed,
+                    ))
+                }
+            })
+        }
+        return actions
     }
 
     private func updatePinnedMessageBanner(animated: Bool) {

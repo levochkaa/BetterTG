@@ -396,6 +396,11 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         avatarView.onSearch = { [weak self] in self?.beginSearch() }
     }
 
+    /// The avatar's menu items in place of Open Profile / Search / Save Image; nil restores those.
+    func setAvatarMenuActions(_ actions: (() -> [TelegramContextMenuAction])?) {
+        avatarView.contextMenuActions = actions
+    }
+
     func setSearchResultFound(_ found: Bool?) {
         searchField.textColor = found == false ? .systemRed : .label
     }
