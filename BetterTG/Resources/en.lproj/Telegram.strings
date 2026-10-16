@@ -1404,3 +1404,11 @@
 "PrivacyInfo.ShowReadTime.Text" = "To see when **%@** read the message, either start showing your own read time:";
 "PrivacyInfo.ShowReadTime.ButtonTitle" = "Show My Read Time";
 "Conversation.SaveToFiles" = "Save to Files";
+"Conversation.ContextMenuTranslate" = "Translate";
+"Translate.Title" = "Translate";
+"Translate.CopyTranslation" = "Copy Translation";
+"Translate.Languages.Original" = "Original";
+"Translate.Languages.Translation" = "Translation";
+"Localization.TranslateMessages" = "Translate Messages";
+"Localization.ShowTranslate" = "Show Translate Button";
+"Localization.ShowTranslateInfoExtended" = "Show a 'Translate' button in the message context menu.\n\nGoogle may have access to message text you translate.";

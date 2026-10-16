@@ -23,6 +23,11 @@ TelegramNavigationSearchProvider {
         }
     }
 
+    /// Telegram's Translate Messages section sits above the languages and hides while searching.
+    private var showsTranslateSection: Bool {
+        query.isEmpty
+    }
+
     init() {
         super.init(style: .insetGrouped)
     }
@@ -50,22 +55,36 @@ TelegramNavigationSearchProvider {
         Task { await AppLocalization.shared.refreshAvailableLanguages() }
     }
 
-    override func numberOfSections(in _: UITableView) -> Int { 1 }
+    override func numberOfSections(in _: UITableView) -> Int { showsTranslateSection ? 2 : 1 }
 
-    override func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
-        visibleLanguages.count
+    override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
+        isTranslateSection(section) ? 1 : visibleLanguages.count
     }
 
-    override func tableView(_: UITableView, titleForHeaderInSection _: Int) -> String? {
-        L10n.telegram("Localization.InterfaceLanguage")
+    override func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
+        L10n.telegram(isTranslateSection(section) ? "Localization.TranslateMessages" : "Localization.InterfaceLanguage")
     }
 
-    override func tableView(_: UITableView, titleForFooterInSection _: Int) -> String? {
-        L10n.betterTG("Localization.LanguagePacksInfo")
+    override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
+        isTranslateSection(section)
+            ? L10n.telegram("Localization.ShowTranslateInfoExtended")
+            : L10n.betterTG("Localization.LanguagePacksInfo")
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "LanguageCell", for: indexPath)
+        if isTranslateSection(indexPath.section) {
+            var configuration = cell.defaultContentConfiguration()
+            configuration.text = L10n.telegram("Localization.ShowTranslate")
+            cell.contentConfiguration = configuration
+            cell.accessoryType = .none
+            cell.selectionStyle = .none
+            let toggle = UISwitch()
+            toggle.isOn = MessageTranslation.showsTranslateButton
+            toggle.addTarget(self, action: #selector(showTranslateChanged(_:)), for: .valueChanged)
+            cell.accessoryView = toggle
+            return cell
+        }
         guard let language = visibleLanguages[safe: indexPath.row] else { return cell }
 
         var configuration = cell.defaultContentConfiguration()
@@ -98,7 +117,8 @@ TelegramNavigationSearchProvider {
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard applyingLanguageID == nil,
+        guard !isTranslateSection(indexPath.section),
+              applyingLanguageID == nil,
               let language = visibleLanguages[safe: indexPath.row],
               language.id != AppLocalization.shared.selectedLanguagePackID
         else { return }
@@ -122,6 +142,14 @@ TelegramNavigationSearchProvider {
     }
 
     // MARK: Private
+
+    private func isTranslateSection(_ section: Int) -> Bool {
+        showsTranslateSection && section == 0
+    }
+
+    @objc private func showTranslateChanged(_ sender: UISwitch) {
+        MessageTranslation.showsTranslateButton = sender.isOn
+    }
 
     private func configureLocalizedContent() {
         title = L10n.telegram("Settings.AppLanguage")

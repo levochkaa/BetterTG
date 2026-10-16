@@ -5544,6 +5544,35 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    /// Telegram's Translate message item (canTranslateText): with Show Translate Button on, for text in a language the
+    /// user doesn't read. Secret chats never offer it; a protected chat's translation can't be copied.
+    private func translateAction(for message: CustomMessage) -> TelegramContextMenuAction? {
+        if case .chatTypeSecret = chatVM.customChat.chat.type { return nil }
+        guard MessageTranslation.showsTranslateButton else { return nil }
+        var foundText = copyableText(from: message.message.content)
+        for source in message.sourceMessages where foundText == nil {
+            foundText = copyableText(from: source.content)
+        }
+        guard let messageText = foundText,
+              let language = MessageTranslation.translatableLanguage(of: messageText.text)
+        else {
+            return nil
+        }
+        let canCopy = message.properties.canBeCopied
+        return TelegramContextMenuAction(
+            title: L10n.telegram("Conversation.ContextMenuTranslate"),
+            image: UIImage(systemName: "translate"),
+        ) { [weak self] in
+            guard let self else { return }
+            MessageTranslationViewController.present(
+                text: messageText,
+                sourceLanguage: language,
+                canCopy: canCopy,
+                from: self,
+            ) { [weak self] in self?.showChatToast(L10n.telegram("Conversation.TextCopied")) }
+        }
+    }
+
     /// Telegram's Save Image / Save Video (saveToCameraRoll) and Save to Files (saveMediaToFiles) message items for a
     /// single media message the chat lets save, following the gallery's export rules.
     private func mediaSaveActions(for message: CustomMessage) -> [TelegramContextMenuAction] {
@@ -6198,6 +6227,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
                 ) { UIPasteboard.setFormattedText(text) })
             }
+            if let translateAction = translateAction(for: message) {
+                readOnlyActions.append(translateAction)
+            }
             readOnlyActions.append(contentsOf: mediaSaveActions(for: message))
             return readOnlyActions
         }
@@ -6282,6 +6314,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 title: L10n.telegram("Conversation.ContextMenuCopy"),
                 image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
             ) { UIPasteboard.setFormattedText(text) })
+        }
+        if let translateAction = translateAction(for: message) {
+            elements.append(translateAction)
         }
         if message.properties.canGetLink {
             elements.append(TelegramContextMenuAction(
