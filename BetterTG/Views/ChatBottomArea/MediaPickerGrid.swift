@@ -431,7 +431,8 @@ struct MediaPickerAlbum {
     /// Recents and Favorites show their newest item, other albums their first.
     private init?(collection: PHAssetCollection) {
         let assets = PHAsset.fetchAssets(in: collection, options: nil)
-        guard !assets.isEmpty else { return nil }
+        // PHFetchResult has no isEmpty.
+        guard assets.firstObject != nil else { return nil }
         self.collection = collection
         self.count = assets.count
         let subtype = collection.assetCollectionSubtype
