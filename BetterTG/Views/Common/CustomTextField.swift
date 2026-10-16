@@ -200,7 +200,7 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         insertTelegramText(value)
     }
 
-    func receivePastedImages(_ images: [UIImage]) { onPasteImages?(Array(images.prefix(10))) }
+    func receivePastedImages(_ images: [UIImage]) { onPasteImages?(images) }
 
     func setAttributedText(_ value: AttributedString) {
         let value = ComposerText.uiKit(value)

@@ -1651,13 +1651,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    /// Pasted and camera images join the composer as the media picker's picks do: up to MediaPickerScreen's 100, sent
+    /// in albums of ten.
     private func importImages(_ images: [UIImage]) {
         guard let token = importBarrier.begin() else { return }
         let barrier = importBarrier
         Task { [self] in
             let selected = await Task.detached(priority: .userInitiated) {
                 SelectedDocumentFileStore.removeExpiredFiles()
-                return images.prefix(10).compactMap { writeImage($0) }
+                return images.prefix(100).compactMap { writeImage($0) }
             }.value
             finishImageImport(selected, token: token, barrier: barrier)
         }
