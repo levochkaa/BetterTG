@@ -6908,9 +6908,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         // A file or music album quotes the caption of the file under the finger, replying to that file.
         let quoteTarget = cell.contextQuoteTarget(at: gesture.location(in: cell))
         let albumItemID = cell.contextAlbumItemID(at: gesture.location(in: cell))
+        let messageActions = menu(for: message, albumItemID: albumItemID)
+        // ChatControllerOpenTodoContextMenu: a checklist task under the finger opens its own actions first.
+        let taskSources = cell.contextChecklistTaskID(at: gesture.location(in: cell))
+            .flatMap { checklistTaskMenu(for: message, taskID: $0) }?
+            .sources(messageActions: messageActions) ?? []
         presentTelegramContextMenu(
             sourceView: cell.contextPreviewView,
-            actions: menu(for: message, albumItemID: albumItemID),
+            actions: messageActions,
             tracking: gesture,
             reactionsProvider: contextReactionsProvider(for: message),
             quoteSelection: quoteTarget.flatMap { target -> TelegramContextQuoteSelection? in
@@ -6930,8 +6935,95 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 selection.translate = selectionTranslateAction(canCopy: message.properties.canBeCopied)
                 return selection
             },
+            sources: taskSources,
             onDismiss: { [weak self] in self?.retryClientRestoration() },
         )
+    }
+
+    /// ChatControllerOpenTodoContextMenu for a task of a checklist, or nil where the message's menu shows alone.
+    private func checklistTaskMenu(for message: CustomMessage, taskID: Int) -> ChecklistTaskMenu? {
+        guard !chatVM.isReadOnlyTopic, case .messageChecklist(let content) = message.message.content,
+              let task = content.list.tasks.first(where: { $0.id == taskID })
+        else { return nil }
+        return ChecklistTaskMenu(
+            task: task,
+            isDone: chatVM.pollInteractionStore.checklistTaskIsDone(
+                messageID: message.id,
+                taskID: taskID,
+                sourceIsDone: task.completedBy != nil,
+            ),
+            taskCount: content.list.tasks.count,
+            permissions: .init(
+                canMark: chatVM.canMarkChecklistTasks(message),
+                canReply: message.properties.canBeReplied,
+                canCopy: message.properties.canBeCopied,
+                canCopyLink: message.properties.canGetLink,
+                canEdit: chatVM.canEditChecklist(message),
+            ),
+            handlers: .init(
+                toggle: { [weak self, weak message] in
+                    guard let self, let message else { return }
+                    toggleChecklistTask(taskID, in: message)
+                },
+                reply: { [weak self, weak message] in
+                    guard let self, let message else { return }
+                    chatVM.beginChecklistTaskReply(to: message, taskID: taskID)
+                },
+                copy: { [weak self] in
+                    UIPasteboard.setFormattedText(task.text)
+                    self?.showChatToast(L10n.telegram("Conversation.TextCopied"))
+                },
+                copyLink: { [weak self, weak message] in
+                    guard let self, let message else { return }
+                    copyMessageLink(message, checklistTaskID: taskID)
+                },
+                edit: { [weak self, weak message] in
+                    guard let self, let message else { return }
+                    presentEditChecklistTask(message, task: task)
+                },
+                delete: { [weak self, weak message] in
+                    guard let self, let message else { return }
+                    chatVM.deleteChecklistTask(message, taskID: taskID)
+                },
+            ),
+        )
+    }
+
+    /// The task menu's Check and Uncheck toggle the task as a tap on its circle does.
+    private func toggleChecklistTask(_ taskID: Int, in message: CustomMessage) {
+        guard case .messageChecklist(let content) = message.message.content,
+              let task = content.list.tasks.first(where: { $0.id == taskID }),
+              let toggle = chatVM.pollInteractionStore.beginChecklistToggle(
+                  messageID: message.id,
+                  taskID: taskID,
+                  sourceIsDone: task.completedBy != nil,
+              )
+        else { return }
+        chatVM.toggleChecklistTask(toggle) { [weak self] in
+            self?.showChatToast(ChatVM.checklistPremiumRequiredText)
+        }
+    }
+
+    /// Telegram's Edit Item opens the checklist editor on the task; BetterTG edits the task's text in place.
+    private func presentEditChecklistTask(_ message: CustomMessage, task: ChecklistTask) {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: L10n.telegram("Chat.Todo.ContextMenu.EditTask"),
+            message: nil,
+            preferredStyle: .alert,
+        )
+        alert.addTextField { field in
+            field.text = task.text.text
+            field.placeholder = L10n.telegram("CreateTodo.TaskPlaceholder")
+            field.autocapitalizationType = .sentences
+        }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("CreateTodo.Save"), style: .default) {
+            [weak self, weak message, weak alert] _ in
+            guard let self, let message, let text = alert?.textFields?.first?.text else { return }
+            chatVM.renameChecklistTask(message, taskID: task.id, text: text)
+        })
+        present(alert, animated: true)
     }
 
     /// ChatMessageActionOptions' reply options, opened from the composer's reply panel.
@@ -7510,8 +7602,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// Telegram's Copy Link (getMessageLink): an album's link, or a thread's or topic's in one, and the toast that
-    /// says a private link works only for members.
-    private func copyMessageLink(_ message: CustomMessage) {
+    /// says a private link works only for members. A checklist task's link opens that task.
+    private func copyMessageLink(_ message: CustomMessage, checklistTaskID: Int = 0) {
         let client = chatVM.client
         let currentLocation = location
         let isAlbum =
@@ -7526,7 +7618,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 chatId: currentLocation.chatID,
                 messageId: messageID,
                 mediaTimestamp: 0,
-                checklistTaskId: 0,
+                checklistTaskId: checklistTaskID,
                 pollOptionId: "",
                 forAlbum: isAlbum,
                 inMessageThread: currentLocation.isTopicScoped,

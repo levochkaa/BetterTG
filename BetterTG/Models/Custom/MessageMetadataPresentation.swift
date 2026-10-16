@@ -284,6 +284,8 @@ struct MessageReplyPresentation: Equatable {
     let targetMessageID: Int64?
     let thumbnail: MessageReplyThumbnail?
     let title: String
+    /// A reply to a checklist task shows the task's text after its check, done or not (ChatMessageReplyInfoNode).
+    var checklistTaskIsDone: Bool?
 
     var isManualQuote: Bool { quote?.isManual == true }
 
@@ -515,9 +517,17 @@ struct MessageForwardPresentation: Equatable {
             } else {
                 authorTitle
             }
+        let checklistTask: ChecklistTask? =
+            if reply.checklistTaskId != 0, case .messageChecklist(let checklist)? = content {
+                checklist.list.tasks.first { $0.id == reply.checklistTaskId }
+            } else {
+                nil
+            }
         let body =
             if let quote = reply.quote, !quote.text.text.isEmpty {
                 quote.text
+            } else if let checklistTask {
+                checklistTask.text
             } else if let content {
                 previewText(for: content)
             } else {
@@ -544,6 +554,7 @@ struct MessageForwardPresentation: Equatable {
             targetMessageID: targetMessageID,
             thumbnail: content.flatMap(MessageReplyThumbnail.make(for:)),
             title: title,
+            checklistTaskIsDone: checklistTask.map { $0.completedBy != nil },
         )
     }
 

@@ -614,6 +614,13 @@ final class ChatComposerView: UIView {
             }
             if let quote = chatVM.replyQuote {
                 replySnippet.configure(title: title, quote: quote, onTap: openReplyOptions)
+            } else if let task = chatVM.replyChecklistTask {
+                replySnippet.configure(
+                    title: L10n.telegram("Chat.ReplyPanel.ReplyToTodoItem"),
+                    checklistTask: task.text,
+                    isDone: task.completedBy != nil,
+                    onTap: openReplyOptions,
+                )
             } else {
                 replySnippet.configure(title: title, message: reply.message, onTap: openReplyOptions)
             }

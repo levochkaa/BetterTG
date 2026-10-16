@@ -375,6 +375,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             .messageID
     }
 
+    /// The checklist task a long press at `point` (in the cell's coordinates) is on; Telegram opens that task's
+    /// own menu.
+    func contextChecklistTaskID(at point: CGPoint) -> Int? {
+        structuredContentView.checklistTaskID(at: point, in: self)
+    }
+
     /// Collection layout attributes own the cell's alpha/transform. Keep deletion
     /// inside that boundary while retaining the inverted timeline's content flip.
     func setDeletionPresentation(alpha: CGFloat, transform: CGAffineTransform) {

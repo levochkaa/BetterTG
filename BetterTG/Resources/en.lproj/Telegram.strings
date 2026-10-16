@@ -1980,3 +1980,15 @@
 "WebApp.LaunchOpenApp" = "Open App";
 "WebApp.PrivacyPolicy" = "Privacy Policy";
 "WebApp.PrivacyPolicy_URL" = "https://telegram.org/privacy-tpa";
+"Chat.TodoItemCompletionTimestamp.Date" = "completed %@";
+"Chat.TodoItemCompletionTimestamp.TodayAt" = "completed today at %@";
+"Chat.TodoItemCompletionTimestamp.YesterdayAt" = "completed yesterday at %@";
+"Chat.Todo.ContextMenu.EditTask" = "Edit Item";
+"Chat.Todo.ContextMenu.DeleteTask" = "Delete Item";
+"Chat.Todo.ContextMenu.CheckTask" = "Check";
+"Chat.Todo.ContextMenu.UncheckTask" = "Uncheck";
+"Chat.Todo.ContextMenu.SectionTask" = "Task";
+"Chat.Todo.ContextMenu.SectionList" = "List";
+"Chat.Todo.ContextMenu.SectionsInfo" = "You're viewing actions for one task.\nYou can switch to actions for the list.";
+"Chat.Todo.ReplyToItem" = "Reply to Item";
+"Chat.ReplyPanel.ReplyToTodoItem" = "Reply to Checklist Item";

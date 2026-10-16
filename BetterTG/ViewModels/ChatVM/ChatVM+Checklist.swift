@@ -77,6 +77,89 @@ extension ChatVM {
         return content.list.canAddTasks
     }
 
+    /// ChatControllerOpenTodoContextMenu's `canMark`, which TDLib reports as `canMarkTasksAsDone`, for a published
+    /// checklist.
+    func canMarkChecklistTasks(_ message: CustomMessage) -> Bool {
+        guard !isReadOnlyTopic, locationContextIsCurrent, location.matches(message: message.message),
+              message.message.sendingState == nil, message.message.schedulingState == nil,
+              case .messageChecklist(let content) = message.message.content
+        else { return false }
+        return content.list.canMarkTasksAsDone
+    }
+
+    /// Telegram's Edit Item and Delete Item, where TDLib lets the checklist be edited.
+    func canEditChecklist(_ message: CustomMessage) -> Bool {
+        guard !isReadOnlyTopic, locationContextIsCurrent, location.matches(message: message.message),
+              message.message.sendingState == nil, message.properties.canBeEdited,
+              case .messageChecklist = message.message.content
+        else { return false }
+        return true
+    }
+
+    /// The checklist task the composer's reply is to, for the reply panel's "Reply to Checklist Item".
+    var replyChecklistTask: ChecklistTask? {
+        guard case .inputMessageReplyToMessage(let reply)? = replyInputOverride, reply.checklistTaskId != 0,
+              let message = replyMessage, case .messageChecklist(let content) = message.message.content
+        else { return nil }
+        return content.list.tasks.first { $0.id == reply.checklistTaskId }
+    }
+
+    /// Edit Item: the task takes the new text, keeping its formatting while the text is unchanged.
+    func renameChecklistTask(_ message: CustomMessage, taskID: Int, text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        editChecklist(message) { tasks in
+            tasks.map { task in
+                guard task.id == taskID, task.text.text != text else { return task }
+                return InputChecklistTask(id: task.id, text: FormattedText(entities: [], text: text))
+            }
+        }
+    }
+
+    /// Delete Item: the checklist goes back without the task, as long as another task remains.
+    func deleteChecklistTask(_ message: CustomMessage, taskID: Int) {
+        editChecklist(message) { tasks in
+            tasks.count > 1 ? tasks.filter { $0.id != taskID } : tasks
+        }
+    }
+
+    /// requestEditMessage with the updated TelegramMediaTodo: editMessageChecklist with the checklist's title and
+    /// settings and the changed tasks. The edited list arrives through updateMessageContent.
+    private func editChecklist(
+        _ message: CustomMessage,
+        transform: ([InputChecklistTask]) -> [InputChecklistTask],
+    ) {
+        guard canEditChecklist(message), messages.contains(where: { $0 === message }),
+              case .messageChecklist(let content) = message.message.content
+        else { return }
+        let list = content.list
+        let tasks = list.tasks.map { InputChecklistTask(id: $0.id, text: $0.text) }
+        let updated = transform(tasks)
+        guard updated != tasks, !updated.isEmpty else { return }
+        let checklist = TDNativeInputChecklist(
+            title: list.title,
+            tasks: updated,
+            othersCanAddTasks: list.othersCanAddTasks,
+            othersCanMarkTasksAsDone: list.othersCanMarkTasksAsDone,
+        )
+        let client = client
+        let chatID = message.message.chatId
+        let messageID = message.id
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.editMessageChecklist(
+                    chatId: chatID,
+                    messageId: messageID,
+                    replyMarkup: nil,
+                    checklist: checklist,
+                ))
+            } catch {
+                guard let self, locationContextIsCurrent, TDLib.shared.activeClient.id == client.id else { return }
+                messageActionErrorMessage = (error as? TDLibError)?.message ?? error.localizedDescription
+            }
+        }
+    }
+
     /// Appends one task after the checklist's highest task ID; the longer list arrives through updateMessageContent.
     func addChecklistTask(_ message: CustomMessage, text: String) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)

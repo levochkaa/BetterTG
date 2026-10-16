@@ -221,6 +221,9 @@ final class ReplySnippetView: UIControl {
         titleLabel.text = presentation.title
         titleLabel.numberOfLines = presentation.isManualQuote ? 2 : 1
         bodyLabel.attributedText = MessageTextSpoilerPresentation(presentation.body).attributedText()
+        if let isDone = presentation.checklistTaskIsDone {
+            bodyLabel.attributedText = checklistTaskBody(bodyLabel.attributedText, isDone: isDone)
+        }
         bodyLabel.numberOfLines = presentation.isManualQuote ? (expanded ? 50 : 5) : 1
         quoteIconView.setHiddenIfChanged(!presentation.isManualQuote)
         if let thumbnail = presentation.thumbnail {
@@ -254,6 +257,15 @@ final class ReplySnippetView: UIControl {
 
     func configure(title: String, message: Message, onTap: @escaping () -> Void) {
         configure(title: title, text: ChatSummary.summary(for: message), onTap: onTap)
+    }
+
+    /// ReplyAccessoryPanelNode for a checklist task: Telegram's title, and the task's text after its check.
+    func configure(title: String, checklistTask text: FormattedText, isDone: Bool, onTap: @escaping () -> Void) {
+        configure(title: title, text: text.text, onTap: onTap)
+        bodyLabel.attributedText = checklistTaskBody(
+            MessageTextSpoilerPresentation(text).attributedText(),
+            isDone: isDone,
+        )
     }
 
     func configure(title: String, quote: InputTextQuote, onTap: @escaping () -> Void) {
@@ -311,6 +323,22 @@ final class ReplySnippetView: UIControl {
         expanded = false
         accessibilityLabel = nil
         accessibilityHint = nil
+    }
+
+    /// ChatMessageReplyInfoNode's check before a checklist task's text, in the reply's accent colour.
+    private func checklistTaskBody(_ text: NSAttributedString?, isDone: Bool) -> NSAttributedString? {
+        let configuration = UIImage.SymbolConfiguration(font: bodyLabel.font, scale: .small)
+        guard let text,
+              let image = UIImage(
+                  systemName: isDone ? "checkmark.circle.fill" : "circle",
+                  withConfiguration: configuration,
+              )?
+                  .withTintColor(titleLabel.textColor, renderingMode: .alwaysOriginal)
+        else { return text }
+        let body = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
+        body.append(NSAttributedString(string: " "))
+        body.append(text)
+        return body
     }
 
     @objc private func tapped() {

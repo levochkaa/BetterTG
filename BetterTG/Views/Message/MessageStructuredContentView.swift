@@ -361,6 +361,11 @@ final class MessageStructuredContentView: UIView {
         }
     #endif
 
+    /// The checklist task under `point` (in `sourceView`'s coordinates).
+    func checklistTaskID(at point: CGPoint, in sourceView: UIView) -> Int? {
+        (supplementView as? ChecklistMessageContentView)?.taskID(at: point, in: sourceView)
+    }
+
     @discardableResult func configure(
         presentation: MessageContentPresentation,
         messageID: Int64,

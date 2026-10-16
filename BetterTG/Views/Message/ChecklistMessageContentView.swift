@@ -91,6 +91,16 @@ final class ChecklistMessageContentView: UIView, MessageSupplementView {
         }
     #endif
 
+    /// The task whose row contains `point` (in `sourceView`'s coordinates), for Telegram's task menu
+    /// (ChatControllerOpenTodoContextMenu).
+    func taskID(at point: CGPoint, in sourceView: UIView) -> Int? {
+        zip(checklist.tasks, rows)
+            .first { _, row in
+                row.convert(row.bounds, to: sourceView).contains(point)
+            }?.0
+            .id
+    }
+
     private func configureViews() {
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.attributedText = NSAttributedString(getAttributedString(from: checklist.title))

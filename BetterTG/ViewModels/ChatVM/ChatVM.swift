@@ -2869,6 +2869,18 @@ import UIKit
         reconcileActiveChatActionAfterReplyChange()
     }
 
+    /// Telegram's Reply to Item (ChatControllerOpenTodoContextMenu): a reply to one task of a checklist.
+    func beginChecklistTaskReply(to message: CustomMessage, taskID: Int) {
+        beginReply(to: message)
+        guard replyMessage === message else { return }
+        replyInputOverride = .inputMessageReplyToMessage(InputMessageReplyToMessage(
+            checklistTaskId: taskID,
+            messageId: message.id,
+            pollOptionId: "",
+            quote: nil,
+        ))
+    }
+
     /// A quote from a file or music album's caption replies to the item it is in (`sourceMessageID`), as Telegram
     /// replies to the file whose caption is quoted.
     func beginQuoteReply(to message: CustomMessage, range: NSRange, sourceMessageID: Int64? = nil) {
