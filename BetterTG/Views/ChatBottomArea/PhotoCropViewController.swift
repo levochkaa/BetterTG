@@ -22,7 +22,7 @@ enum PhotoEditorTab {
 // MARK: - PhotoToolsTab
 
 /// TGPhotoToolsController's `availableTabs`: the slider list, Tint, Blur and Curves.
-private enum PhotoToolsTab {
+enum PhotoToolsTab {
     case list
     case tint
     case blur
@@ -166,12 +166,13 @@ final class PhotoCropViewController: UIViewController {
     }
 
     /// `fullPixelSize` is the library photo's size, so the grain matches the sent photo; the editor's image size
-    /// when unknown.
+    /// when unknown. `initialToolsTab` is the tools tab's panel when it opens.
     init(
         image: UIImage,
         adjustments: PhotoCropAdjustments?,
         fullPixelSize: CGSize? = nil,
         initialTab: PhotoEditorTab = .crop,
+        initialToolsTab: PhotoToolsTab = .list,
     ) {
         let pixelSize = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
         let initial = adjustments?.scaled(to: pixelSize) ?? PhotoCropAdjustments(originalSize: pixelSize)
@@ -188,6 +189,7 @@ final class PhotoCropViewController: UIViewController {
         self.toolValues = initial.tools
         self.toolsListView = PhotoToolsListView(values: initial.tools)
         self.editorTab = initialTab
+        self.toolsTab = initialToolsTab
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
         modalTransitionStyle = .crossDissolve

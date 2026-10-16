@@ -6,8 +6,9 @@
     /// Launch with `-ui-probe-photo-crop`, or `-ui-probe-photo-tools` for the Tools tab. Once an account is active it
     /// opens the attachment sheet's photo editor on a drawn 1600×1200 test photo, so the editor is checked without
     /// photo library access; the tools' photo adds a black-to-white strip for Highlights, Shadows, Fade and Curves.
-    /// Done shows the photo as it would be sent, with its crop and tools rendered at the standard 1280 px; nothing is
-    /// sent.
+    /// After `-ui-probe-photo-tools`, `blur` opens Blur with a radial blur already on, `linear` with a turned linear
+    /// one, and `curves` opens Curves with the photo's histogram. Done shows the photo as it would be sent, with its
+    /// crop and tools rendered at the standard 1280 px; nothing is sent.
     @MainActor enum PhotoCropProbe {
         /// The rendered photo with its pixel size, closed by Close.
         private final class ResultViewController: UIViewController {
@@ -57,8 +58,10 @@
 
         static func runIfRequested(in window: UIWindow) {
             let arguments = ProcessInfo.processInfo.arguments
-            let opensTools = arguments.contains("-ui-probe-photo-tools")
+            let toolsIndex = arguments.firstIndex(of: "-ui-probe-photo-tools")
+            let opensTools = toolsIndex != nil
             guard opensTools || arguments.contains("-ui-probe-photo-crop") else { return }
+            let toolsOption = toolsIndex.flatMap { arguments[safe: $0 + 1] }
             Task { @MainActor in
                 for _ in 0..<60 where TDLib.shared.activeAccountID == nil {
                     try? await Task.sleep(for: .milliseconds(500))
@@ -71,10 +74,12 @@
                 }
                 guard let presenter else { return }
                 let photo = makePhoto(withStrip: opensTools)
+                let preset = toolsPreset(for: toolsOption)
                 let editor = PhotoCropViewController(
                     image: photo,
-                    adjustments: nil,
+                    adjustments: preset.adjustments,
                     initialTab: opensTools ? .tools : .crop,
+                    initialToolsTab: preset.tab,
                 )
                 editor.onDone = { [weak presenter] edit in
                     let result = edit?.adjustments.renderEdited(photo, sourcePixelSize: photoSize, maximumSide: 1280)
@@ -88,6 +93,27 @@
                     }
                 }
                 presenter.present(editor, animated: true)
+            }
+        }
+
+        /// The tools panel and the edit the editor opens with for the option after `-ui-probe-photo-tools`.
+        private static func toolsPreset(for option: String?)
+            -> (tab: PhotoToolsTab, adjustments: PhotoCropAdjustments?)
+        {
+            var adjustments = PhotoCropAdjustments(originalSize: photoSize)
+            switch option {
+            case "blur":
+                adjustments.tools.blur.type = .radial
+                adjustments.tools.blur.point = CGPoint(x: 0.4, y: 0.45)
+                return (.blur, adjustments)
+            case "linear":
+                adjustments.tools.blur.type = .linear
+                adjustments.tools.blur.angle = -.pi / 6
+                return (.blur, adjustments)
+            case "curves":
+                return (.curves, nil)
+            default:
+                return (.list, nil)
             }
         }
 
