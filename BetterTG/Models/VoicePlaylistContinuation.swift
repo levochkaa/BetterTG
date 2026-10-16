@@ -183,7 +183,7 @@ extension Media.NowPlaying {
 extension Media.NowPlayingDisplay {
     /// MediaNavigationAccessoryHeaderNode's music text: the track's title over its performer, the file name when both
     /// tags are missing (PeerMessagesMediaPlaylist), Unknown Track and Unknown Artist otherwise; the rate button only
-    /// for tracks over ten minutes.
+    /// for tracks over ten minutes. The album art is none for an .ogg file, as PeerMessagesMediaPlaylist has it.
     static func music(_ audio: Audio, item: Media.NowPlaying) -> Self {
         let title = audio.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let performer = audio.performer.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -196,11 +196,19 @@ extension Media.NowPlayingDisplay {
             } else {
                 L10n.telegram("MediaPlayer.UnknownTrack")
             }
+        // playerAlbumArt falls back from the file's own cover to the external covers, largest first, then the
+        // sender's thumbnail.
+        var covers: [Thumbnail] = audio.externalAlbumCovers.sorted { $0.width * $0.height > $1.width * $1.height }
+        if let thumbnail = audio.albumCoverThumbnail { covers.append(thumbnail) }
+        let artwork: Media.Artwork? = fileName.lowercased().hasSuffix(".ogg")
+            ? nil
+            : Media.Artwork(mimeType: audio.mimeType, coverFileIDs: covers.map(\.file.id))
         return Self(
             item: item,
             title: shownTitle,
             subtitle: performer.isEmpty ? L10n.telegram("MediaPlayer.UnknownArtist") : performer,
             showsRate: audio.duration > 10 * 60,
+            artwork: artwork,
         )
     }
 }

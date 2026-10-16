@@ -3,6 +3,8 @@
 import AVFoundation
 import Combine
 import MediaPlayer
+import TDLibKit
+import UIKit
 
 final class Media: ObservableObject {
     // MARK: Internal
@@ -23,6 +25,15 @@ final class Media: ObservableObject {
         let subtitle: String
         /// Telegram shows the rate button for voice notes and for music over ten minutes.
         var showsRate = true
+        /// A music track's lock-screen cover (SharedMediaPlaybackAlbumArt).
+        var artwork: Artwork?
+    }
+
+    /// Where a track's lock-screen cover comes from, in playerAlbumArt's order: the cover embedded in the downloaded
+    /// file, read with the track's MIME type, then TDLib's covers in `coverFileIDs`.
+    struct Artwork: Equatable {
+        let mimeType: String
+        let coverFileIDs: [Int]
     }
 
     static let shared = Media()
@@ -53,6 +64,9 @@ final class Media: ObservableObject {
     private var loadedTitle = ""
     /// The loaded audio played at least once; a note only positioned by scrubbing has not.
     private var hasPlayedLoadedItem = false
+    /// The loaded track's album art for the lock screen (MediaManager's globalControlsArtwork).
+    private var albumArtwork: MPMediaItemArtwork?
+    private var albumArtworkTask: Task<Void, Never>?
 
     private let player = LocalMediaPlayer()
     private let audioSession = AVAudioSession.sharedInstance()
@@ -80,6 +94,38 @@ final class Media: ObservableObject {
             .store(in: &cancellables)
     }
 
+    /// playerAlbumArt's full size: the cover embedded in the downloaded file, then TDLib's external album covers
+    /// (ExternalMusicAlbumArtResource) and the sender's cover thumbnail.
+    private static func albumArt(path: String, sources: Artwork, client: TDLibClient) async -> UIImage? {
+        if !path.isEmpty {
+            let asset = AVURLAsset(
+                url: URL(fileURLWithPath: path),
+                options: sources.mimeType.isEmpty ? nil : [AVURLAssetOverrideMIMETypeKey: sources.mimeType],
+            )
+            for item in await (try? asset.load(.metadata)) ?? [] where item.commonKey == .commonKeyArtwork {
+                if let data = try? await item.load(.dataValue), let image = UIImage(data: data) { return image }
+            }
+        }
+        for fileID in sources.coverFileIDs {
+            guard !Task.isCancelled else { return nil }
+            guard let file = try? await client.downloadFile(
+                fileId: fileID,
+                limit: 0,
+                offset: 0,
+                priority: 1,
+                synchronous: true,
+            ), file.local.isDownloadingCompleted,
+            let image = UIImage(contentsOfFile: file.local.path) else { continue }
+            return image
+        }
+        return nil
+    }
+
+    /// The system may ask for the artwork off the main thread, so the handler only returns the loaded image.
+    private static func mediaArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+        MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+    }
+
     func stop() {
         isPlaying = false
         currentTime = 0
@@ -88,6 +134,9 @@ final class Media: ObservableObject {
         nowPlaying = nil
         nowPlayingDisplay = nil
         hasPlayedLoadedItem = false
+        albumArtworkTask?.cancel()
+        albumArtworkTask = nil
+        albumArtwork = nil
         player.stop()
         nowPlayingCenter.nowPlayingInfo = nil
     }
@@ -133,6 +182,27 @@ final class Media: ObservableObject {
     func setDisplay(_ display: NowPlayingDisplay) {
         guard display.item == nowPlaying, nowPlayingDisplay?.item != display.item else { return }
         nowPlayingDisplay = display
+        guard display.item.isMusic else { return }
+        // MediaManager names music on the lock screen by its title and performer, then adds the album art.
+        if nowPlayingCenter.nowPlayingInfo != nil { setNowPlaying() }
+        loadAlbumArtwork(for: display)
+    }
+
+    /// The lock screen's next track: the chat's older track, as the header's swipe plays it.
+    func playNextTrack() {
+        guard nowPlaying?.isMusic == true else { return }
+        Task { @MainActor in VoicePlaylistContinuation.shared.skipMusic(toOlder: true) }
+    }
+
+    /// SharedMediaPlayer.control(.previous): past 5 s into a track longer than 5 s it starts the track again;
+    /// otherwise the chat's newer track plays.
+    func playPreviousTrack() {
+        guard nowPlaying?.isMusic == true else { return }
+        if duration > 5, playbackPosition > 5 {
+            seekTo(0)
+        } else {
+            Task { @MainActor in VoicePlaylistContinuation.shared.skipMusic(toOlder: false) }
+        }
     }
 
     func seekForward() {
@@ -208,6 +278,12 @@ final class Media: ObservableObject {
     }
 
     private func setPublishers() {
+        $nowPlaying
+            .map { $0?.isMusic == true }
+            .removeDuplicates()
+            .sink { [weak self] isMusic in self?.updateTrackCommands(isMusic: isMusic) }
+            .store(in: &cancellables)
+
         player.timePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] time in
@@ -297,6 +373,27 @@ final class Media: ObservableObject {
             }
             return .commandFailed
         }
+
+        commandCenter.nextTrackCommand.addTarget { [weak self] _ in
+            guard let self, nowPlaying?.isMusic == true else { return .commandFailed }
+            DispatchQueue.main.async { self.playNextTrack() }
+            return .success
+        }
+
+        commandCenter.previousTrackCommand.addTarget { [weak self] _ in
+            guard let self, nowPlaying?.isMusic == true else { return .commandFailed }
+            DispatchQueue.main.async { self.playPreviousTrack() }
+            return .success
+        }
+    }
+
+    /// MediaManager's global controls: music gets the previous and next track, which the lock screen shows in place
+    /// of the 5-second skips a voice note keeps.
+    private func updateTrackCommands(isMusic: Bool) {
+        commandCenter.nextTrackCommand.isEnabled = isMusic
+        commandCenter.previousTrackCommand.isEnabled = isMusic
+        commandCenter.skipForwardCommand.isEnabled = !isMusic
+        commandCenter.skipBackwardCommand.isEnabled = !isMusic
     }
 
     private func toggle() {
@@ -310,6 +407,8 @@ final class Media: ObservableObject {
     private func pause() {
         player.pause()
         isPlaying = false
+        nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] = Double(currentTime)
+        nowPlayingCenter.nowPlayingInfo?[MPNowPlayingInfoPropertyPlaybackRate] = 0.0
     }
 
     private func setAudioSessionPlayback() {
@@ -353,9 +452,35 @@ final class Media: ObservableObject {
 
     private func setNowPlaying() {
         var info = [String: Any]()
-        info[MPMediaItemPropertyTitle] = loadedTitle
+        if let display = nowPlayingDisplay, display.item == nowPlaying, display.item.isMusic {
+            // MediaManager's music info: the track's title and performer with its album art.
+            info[MPMediaItemPropertyTitle] = display.title
+            info[MPMediaItemPropertyArtist] = display.subtitle
+            if let albumArtwork { info[MPMediaItemPropertyArtwork] = albumArtwork }
+        } else {
+            info[MPMediaItemPropertyTitle] = loadedTitle
+        }
         info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = Double(currentTime)
         info[MPMediaItemPropertyPlaybackDuration] = Double(duration)
+        info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(playbackRate) : 0
         nowPlayingCenter.nowPlayingInfo = info
+    }
+
+    /// MediaManager's globalControlsArtwork: the track's album art joins the lock screen once it's loaded.
+    private func loadAlbumArtwork(for display: NowPlayingDisplay) {
+        albumArtworkTask?.cancel()
+        albumArtworkTask = nil
+        guard let sources = display.artwork, let accountID = display.item.accountID,
+              TDLib.shared.activeAccountID == accountID else { return }
+        let client = TDLib.shared.activeClient
+        let path = savedMediaPath
+        let item = display.item
+        albumArtworkTask = Task { @MainActor [weak self] in
+            let image = await Self.albumArt(path: path, sources: sources, client: client)
+            guard !Task.isCancelled, let self, nowPlaying == item, let image else { return }
+            let artwork = Self.mediaArtwork(image)
+            albumArtwork = artwork
+            nowPlayingCenter.nowPlayingInfo?[MPMediaItemPropertyArtwork] = artwork
+        }
     }
 }
