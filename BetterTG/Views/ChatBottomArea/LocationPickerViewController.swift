@@ -180,6 +180,9 @@ struct LocationPickerVenue {
     let telegramNavigationSearch = UISearchController(searchResultsController: nil)
     /// Called once the picker has gone after Cancel or a send; a swipe down reaches the presenter's delegate.
     var onDismiss: (() -> Void)?
+    /// LocationPickerController's `.poll` source: the subtitle under the title, such as "Add location to this
+    /// option", and Add This Location for the user's location.
+    var pollSubtitle: String?
 
     private let peerName: String?
     private let allowsLiveLocation: Bool
@@ -288,6 +291,7 @@ struct LocationPickerVenue {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("Map.ChooseLocationTitle")
+        navigationItem.subtitle = pollSubtitle
         view.backgroundColor = .systemGroupedBackground
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: L10n.telegram("Common.Cancel"),
@@ -876,7 +880,8 @@ struct LocationPickerVenue {
             let subtitle = userLocation.map {
                 L10n.telegram("Map.AccurateTo", distanceFormatter.string(fromDistance: $0.horizontalAccuracy))
             } ?? L10n.telegram("Map.Locating")
-            return (L10n.telegram("Map.SendMyCurrentLocation"), subtitle)
+            let title = pollSubtitle == nil ? "Map.SendMyCurrentLocation" : "Location.AddThisLocation"
+            return (L10n.telegram(title), subtitle)
         case .selecting:
             return (L10n.telegram("Map.SendThisLocation"), L10n.telegram("Map.Locating"))
         case .location(_, let address):

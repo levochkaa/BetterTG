@@ -2026,3 +2026,17 @@
 "PhotoEditor.BlurToolOff" = "Off";
 "PhotoEditor.BlurToolRadial" = "Radial";
 "PhotoEditor.BlurToolLinear" = "Linear";
+"Attachment.Link" = "Link";
+"Location.AddThisLocation" = "Add This Location";
+"MediaPicker.PollSubtitle.Description" = "Add media to the poll description";
+"MediaPicker.PollSubtitle.Explanation" = "Add media to the quiz explanation";
+"MediaPicker.PollSubtitle.PollOption" = "Add media to this option";
+"Location.PollSubtitle.Description" = "Add location to the poll description";
+"Location.PollSubtitle.Explanation" = "Add location to the quiz explanation";
+"Location.PollSubtitle.PollOption" = "Add location to this option";
+"StickerPicker.Title" = "Sticker";
+"StickerPicker.PollSubtitle.PollOption" = "Add sticker to this option";
+"CreatePoll.Media.Replace" = "Replace";
+"CreatePoll.Media.Delete" = "Delete";
+"CreatePoll.Link.Description" = "Attach a link to this option.";
+"TextFormat.EditLinkTitle" = "Edit Link";

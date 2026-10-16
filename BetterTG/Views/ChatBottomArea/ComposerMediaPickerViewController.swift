@@ -62,6 +62,10 @@ UISearchBarDelegate {
     /// Off while a message is edited (Telegram offers only emoji input then, `ChatInterfaceInputContexts`) or when the
     /// chat doesn't take stickers and GIFs: the picker keeps only its emoji tabs.
     var allowsStickersAndGIFs = true
+    /// StickerAttachmentScreen's `.stickers` mode, which a poll option's Sticker button opens: the sticker tab alone,
+    /// titled Sticker, with `stickersSubtitle` under the title.
+    var showsStickersOnly = false
+    var stickersSubtitle: String?
 
     private let accountID: UUID
     private let chatID: Int64
@@ -144,6 +148,14 @@ UISearchBarDelegate {
         searchBar.isHidden = true
         searchBarHeightConstraint.constant = Self.emojiCategoryBarHeight
         applyEmojiSnapshot()
+        if showsStickersOnly, allowsStickersAndGIFs {
+            title = L10n.telegram("StickerPicker.Title")
+            navigationItem.subtitle = stickersSubtitle
+            segmentedControl.isHidden = true
+            segmentedControl.heightAnchor.constraint(equalToConstant: 0).isActive = true
+            segmentedControl.selectedSegmentIndex = Mode.stickers.rawValue
+            modeChanged()
+        }
         // Its stickers and GIFs are the presenting client's files. A renewed client (the app returning from the
         // background) closes the sheet so the chat can move to the new client, instead of losing the next tap.
         clientChangeCancellable = TDLib.shared

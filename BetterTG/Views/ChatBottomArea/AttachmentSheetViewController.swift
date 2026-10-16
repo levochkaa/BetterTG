@@ -8,7 +8,8 @@ import UIKit
 
 /// AttachmentPanel's buttons in ChatControllerOpenAttachmentMenu's order: Gallery, File, Location, Poll and
 /// Contact, each where the chat allows it. Sticker (AttachmentButtonType.sticker) opens BetterTG's emoji, sticker and
-/// GIF picker, which the attach button used to offer.
+/// GIF picker, which the attach button used to offer. Link (AttachmentButtonType.link) is a poll option's
+/// (presentPollAttachmentScreen).
 enum AttachmentSheetTab {
     case gallery
     case file
@@ -16,6 +17,7 @@ enum AttachmentSheetTab {
     case poll
     case contact
     case sticker
+    case link
 
     var title: String {
         switch self {
@@ -25,6 +27,7 @@ enum AttachmentSheetTab {
         case .poll: L10n.telegram("Attachment.Poll")
         case .contact: L10n.telegram("Attachment.Contact")
         case .sticker: L10n.telegram("Attachment.Sticker")
+        case .link: L10n.telegram("Attachment.Link")
         }
     }
 
@@ -36,6 +39,7 @@ enum AttachmentSheetTab {
         case .poll: "chart.bar.fill"
         case .contact: "person.crop.circle.fill"
         case .sticker: "face.smiling"
+        case .link: "link"
         }
     }
 }
@@ -62,6 +66,11 @@ struct AttachmentSheetConfiguration {
     /// The composer's text, which goes as the caption.
     var caption = ""
     var captionIsAbove = false
+    /// MediaPickerScreen's selection limit (`enableMultiselection ? 100 : 1`). With one item a tap picks it, as
+    /// Done in Telegram's single item preview does.
+    var selectionLimit = 100
+    /// MediaPickerTitleView's subtitle under Recents, such as a poll's "Add media to this option".
+    var subtitle: String?
 }
 
 // MARK: - AttachmentMediaSendRequest
@@ -106,9 +115,6 @@ struct AttachmentMediaSendRequest {
         case all
         case selected
     }
-
-    /// MediaPickerScreen's selection limit (`enableMultiselection ? 100 : 1`).
-    private static let selectionLimit = 100
 
     // MARK: Internal
 
@@ -590,7 +596,7 @@ struct AttachmentMediaSendRequest {
             selection.remove(at: index)
             spoilerAssetIDs.remove(identifier)
         } else {
-            guard selection.count < Self.selectionLimit else {
+            guard selection.count < configuration.selectionLimit else {
                 // MediaPickerScreen's `selectionLimitExceeded`.
                 UINotificationFeedbackGenerator().notificationOccurred(.error)
                 return
@@ -607,6 +613,8 @@ struct AttachmentMediaSendRequest {
             updateVisibleSelection()
         }
         selectionChanged()
+        // A single item picker hands the item over at once.
+        if configuration.selectionLimit == 1, !selection.isEmpty { send() }
     }
 
     private func configureSelection(of cell: MediaPickerGridCell, assetID: String) {
@@ -685,6 +693,15 @@ struct AttachmentMediaSendRequest {
         var attributes = AttributeContainer()
         attributes.font = UIFont.preferredFont(forTextStyle: .headline)
         titleConfiguration.attributedTitle = AttributedString(text, attributes: attributes)
+        if let subtitle = configuration.subtitle, hasLibraryAccess, displayMode == .all {
+            var subtitleAttributes = AttributeContainer()
+            subtitleAttributes.font = UIFont.preferredFont(forTextStyle: .caption1)
+            subtitleAttributes.foregroundColor = UIColor.secondaryLabel
+            titleConfiguration.attributedSubtitle = AttributedString(subtitle, attributes: subtitleAttributes)
+            titleConfiguration.titleAlignment = .center
+        } else {
+            titleConfiguration.attributedSubtitle = nil
+        }
         titleConfiguration.image = switchesAlbums ? UIImage(systemName: "chevron.down") : nil
         titleButton.configuration = titleConfiguration
         titleButton.isUserInteractionEnabled = switchesAlbums

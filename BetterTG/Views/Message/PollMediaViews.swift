@@ -203,33 +203,13 @@ final class PollMediaThumbnailView: UIControl {
         self.media = media
         switch media {
         case .pollMediaSticker(let value):
-            backgroundColor = .clear
-            clipsToBounds = false
-            let stickerView = CustomEmojiInlineView()
-            stickerView.translatesAutoresizingMaskIntoConstraints = false
-            stickerView.isUserInteractionEnabled = false
-            addSubview(stickerView)
-            let fitted = Self.fittedSize(width: value.sticker.width, height: value.sticker.height)
-            NSLayoutConstraint.activate([
-                stickerView.centerXAnchor.constraint(equalTo: centerXAnchor),
-                stickerView.centerYAnchor.constraint(equalTo: centerYAnchor),
-                stickerView.widthAnchor.constraint(equalToConstant: fitted.width),
-                stickerView.heightAnchor.constraint(equalToConstant: fitted.height),
-            ])
-            stickerView.configure(sticker: value.sticker, client: client)
-            stickerView.setPlaybackVisible(playbackVisible)
-            self.stickerView = stickerView
+            configureSticker(value.sticker, client: client)
         case .pollMediaLocation(let value):
             mapView.load(value.location, size: Self.size, meters: 500)
         case .pollMediaVenue(let value):
             mapView.load(value.venue.location, size: Self.size, meters: 500)
         case .pollMediaLink:
-            let link = UIImage(
-                systemName: "link",
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold),
-            )
-            iconView.image = link
-            iconView.isHidden = false
+            showIcon("link")
             if let still = PollMediaStill(media) {
                 still.load(into: imageView, maximumPixelSize: 160, client: client)
                 overlayView.isHidden = false
@@ -241,13 +221,33 @@ final class PollMediaThumbnailView: UIControl {
         default:
             PollMediaStill(media)?.load(into: imageView, maximumPixelSize: 160, client: client)
             if case .pollMediaVideo = media {
-                iconView.image = UIImage(
-                    systemName: "play.fill",
-                    withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .bold),
-                )
-                iconView.tintColor = .white
-                iconView.isHidden = false
+                showPlayIcon()
             }
+        }
+    }
+
+    /// ListComposePollOptionComponent's thumbnail for media being composed: the picked photo or a video's first
+    /// frame, a sticker, a place's map, a link's icon on the accent color, or a file's icon (extensionImage).
+    func configure(draft preview: PollDraftMediaPreview, client: TDLibClient) {
+        prepareForReuse()
+        switch preview {
+        case .image(let image, let isVideo):
+            imageView.image = image
+            if isVideo { showPlayIcon() }
+        case .sticker(let sticker):
+            configureSticker(sticker, client: client)
+        case .location(let location):
+            mapView.load(location, size: Self.size, meters: 500)
+        case .link:
+            showIcon("link")
+            backgroundColor = UIColor.systemBlue.withAlphaComponent(0.1)
+            iconView.tintColor = .systemBlue
+        case .file:
+            showIcon("doc.fill")
+            iconView.tintColor = .secondaryLabel
+        case .audio:
+            showIcon("music.note")
+            iconView.tintColor = .secondaryLabel
         }
     }
 
@@ -274,6 +274,43 @@ final class PollMediaThumbnailView: UIControl {
     @objc private func tapped() {
         guard let media else { return }
         onTap?(media)
+    }
+
+    /// A sticker drawn whole and fitted, without the thumbnail's background.
+    private func configureSticker(_ sticker: Sticker, client: TDLibClient) {
+        backgroundColor = .clear
+        clipsToBounds = false
+        let stickerView = CustomEmojiInlineView()
+        stickerView.translatesAutoresizingMaskIntoConstraints = false
+        stickerView.isUserInteractionEnabled = false
+        addSubview(stickerView)
+        let fitted = Self.fittedSize(width: sticker.width, height: sticker.height)
+        NSLayoutConstraint.activate([
+            stickerView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            stickerView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stickerView.widthAnchor.constraint(equalToConstant: fitted.width),
+            stickerView.heightAnchor.constraint(equalToConstant: fitted.height),
+        ])
+        stickerView.configure(sticker: sticker, client: client)
+        stickerView.setPlaybackVisible(playbackVisible)
+        self.stickerView = stickerView
+    }
+
+    private func showIcon(_ systemName: String) {
+        iconView.image = UIImage(
+            systemName: systemName,
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold),
+        )
+        iconView.isHidden = false
+    }
+
+    private func showPlayIcon() {
+        iconView.image = UIImage(
+            systemName: "play.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .bold),
+        )
+        iconView.tintColor = .white
+        iconView.isHidden = false
     }
 }
 

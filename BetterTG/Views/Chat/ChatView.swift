@@ -6518,7 +6518,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// The attachment panel's other buttons, opened once the sheet has closed.
     private func openAttachmentTab(_ tab: AttachmentSheetTab) {
         switch tab {
-        case .gallery: break
+        case .gallery, .link: break
         case .file: showDocumentPicker()
         case .location: showLocationPicker()
         case .poll: showPollCreator()
