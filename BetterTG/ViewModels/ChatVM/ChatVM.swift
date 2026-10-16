@@ -562,9 +562,54 @@ import UIKit
         )) != nil
     }
 
+    /// Telegram's attachment menu offers Location and Contact where text can be sent (`banSendText`); TDLib sends
+    /// both under `canSendBasicMessages`.
+    var canSendLocationAndContact: Bool {
+        editCustomMessage == nil && canWriteBasicMessages
+    }
+
+    /// Telegram's attachment menu `canSendPolls`: no polls in secret chats or channel direct messages, in a private
+    /// chat only with a bot or in Saved Messages, and only where the chat allows them.
+    var canCreatePoll: Bool {
+        guard editCustomMessage == nil, customChat.secretChatID == nil else { return false }
+        switch customChat.type {
+        case .user:
+            guard customChat.isSavedMessages else { return false }
+        case .supergroup(let group):
+            guard !group.isDirectMessagesGroup else { return false }
+        case .bot, .group:
+            break
+        }
+        return (try? resolveSendContext(
+            for: .poll,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )) != nil
+    }
+
+    /// Telegram's location picker `hasLiveLocation`: live locations aren't shared in secret chats or Saved Messages.
+    var canShareLiveLocation: Bool {
+        customChat.secretChatID == nil && !customChat.isSavedMessages
+    }
+
+    /// The other user's name for the live location description, Telegram's `compactDisplayTitle` of a private chat's
+    /// peer; nil in groups and channels.
+    var liveLocationPeerName: String? {
+        guard let user = customChat.user, !customChat.isSavedMessages else { return nil }
+        let firstName = user.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !firstName.isEmpty { return firstName }
+        let lastName = user.lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return lastName.isEmpty ? customChat.displayTitle : lastName
+    }
+
+    /// A channel's polls are anonymous and offer neither Show Who Voted nor adding options (ComposePollScreen).
+    var createsChannelPoll: Bool {
+        customChat.supergroup?.isChannel == true
+    }
+
     var canWriteAnyMessage: Bool {
         canWriteBasicMessages || canAttachPhotos || canAttachVideos || canAttachDocuments
-            || canSendStickersAndAnimations || canRecordVoiceNote || canRecordVideoNote
+            || canSendStickersAndAnimations || canRecordVoiceNote || canRecordVideoNote || canCreatePoll
     }
 
     var canShowComposer: Bool {
@@ -3455,6 +3500,55 @@ import UIKit
         }
     }
 
+    /// Sends a location, venue, contact or poll from the attachment menu. Each message replies to the composer's
+    /// reply, which is then cleared, as Telegram's attachment sends do (`withUpdatedReplyMessageSubject(nil)` in
+    /// ChatControllerOpenAttachmentMenu). Several contacts go out as separate messages.
+    func sendAttachmentContents(_ contents: [InputMessageContent], kind: ChatSendContentKind) async {
+        guard !contents.isEmpty else { return }
+        await waitForComposerSend()
+        guard !sendingComposerMessage else { return }
+        if let wait = slowModeWaitMessage() {
+            sendErrorMessage = wait
+            return
+        }
+        sendingComposerMessage = true
+        let sentReplyID = replyMessage?.id
+        defer { sendingComposerMessage = false }
+        do {
+            let context = try resolveSendContext(
+                for: kind,
+                replyingTo: replyMessage,
+                useCurrentReplyOverride: true,
+            )
+            for content in contents {
+                let message = try await client.sendMessage(
+                    chatId: context.chatID,
+                    inputMessageContent: content,
+                    options: nil,
+                    replyMarkup: nil,
+                    replyTo: context.replyTo,
+                    topicId: context.destinationTopic,
+                )
+                guard locationContextIsCurrent,
+                      context.matches(message: message)
+                else { throw ChatSendContextError.unexpectedDestination }
+            }
+            if replyMessage?.id == sentReplyID {
+                cancelReply(markDirty: false)
+                do {
+                    try await updateDraft(in: context, replyTo: nil)
+                    draftErrorMessage = nil
+                } catch {
+                    composerIsDirty = true
+                    scheduleDraftUpdateRetry(context, replyTo: nil)
+                }
+            }
+            sendErrorMessage = nil
+        } catch {
+            sendErrorMessage = error.localizedDescription
+        }
+    }
+
     func sendAnimation(_ animation: Animation) async {
         let client = client
         await sendPanelAnimation { context in
@@ -6314,6 +6408,8 @@ import UIKit
                 \.canSendDocuments
             case .photo:
                 \.canSendPhotos
+            case .poll:
+                \.canSendPolls
             case .text:
                 \.canSendBasicMessages
             case .video:

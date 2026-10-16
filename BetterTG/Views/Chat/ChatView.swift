@@ -2,6 +2,8 @@
 
 import AVFoundation
 import Combine
+import Contacts
+import ContactsUI
 import PhotosUI
 import TDLibKit
 import UIKit
@@ -2112,6 +2114,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             view.keyboardLayoutGuide.usesBottomSafeArea = false
             composerView.onPickPhotos = { [weak self] in self?.showPhotoPicker() }
             composerView.onPickFiles = { [weak self] in self?.showDocumentPicker() }
+            composerView.onPickLocation = { [weak self] in self?.showLocationPicker() }
+            composerView.onPickContact = { [weak self] in self?.showContactPicker() }
+            composerView.onCreatePoll = { [weak self] in self?.showPollCreator() }
             composerView.onPickEmojiMedia = { [weak self] in self?.showComposerMediaPicker() }
             composerView.onTakePhoto = { [weak self] in self?.showCamera() }
             composerView.onPasteImages = { [weak self] in self?.importImages($0) }
@@ -6014,6 +6019,52 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(picker, animated: true)
     }
 
+    /// Telegram's attachment menu Location: the location picker in a sheet. What it sends replies to the composer's
+    /// reply as other attachments do; TDLib takes locations and venues under `canSendBasicMessages`.
+    private func showLocationPicker() {
+        guard chatVM.canSendLocationAndContact else { return }
+        let picker = LocationPickerViewController(
+            peerName: chatVM.liveLocationPeerName,
+            allowsLiveLocation: chatVM.canShareLiveLocation,
+        ) { [weak chatVM] content in
+            Task { await chatVM?.sendAttachmentContents([content], kind: .text) }
+        }
+        picker.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
+        let navigation = TelegramNavigationController(rootViewController: picker)
+        navigation.modalPresentationStyle = .pageSheet
+        navigation.presentationController?.delegate = self
+        present(navigation, animated: true)
+    }
+
+    /// Telegram's attachment menu Contact: device contacts with a phone number, several at once
+    /// (ContactSelectionController's `multipleSelection: .always`, `requirePhoneNumbers`).
+    private func showContactPicker() {
+        guard chatVM.canSendLocationAndContact else { return }
+        let picker = CNContactPickerViewController()
+        picker.predicateForEnablingContact = NSPredicate(format: "phoneNumbers.@count > 0")
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    /// Telegram's attachment menu Poll: the poll creator, with a channel's defaults in channels.
+    private func showPollCreator() {
+        guard chatVM.canCreatePoll else { return }
+        let poll = CreatePollViewController(
+            isChannel: chatVM.createsChannelPoll,
+            client: chatVM.client,
+        ) { [weak chatVM] content in
+            Task { await chatVM?.sendAttachmentContents([content], kind: .poll) }
+        }
+        poll.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
+        present(poll.makeNavigationController(), animated: true)
+    }
+
+    /// The same upkeep as a swiped-away sheet once an attachment screen closes itself.
+    private func attachmentSheetDidDismiss() {
+        retryClientRestoration()
+        acknowledgeCommittedVisibleMessages(requestHistory: true)
+    }
+
     private func showComposerMediaPicker() {
         guard chatVM.canWriteBasicMessages || chatVM.canSendStickersAndAnimations,
               let accountID = chatVM.accountID
@@ -7560,6 +7611,23 @@ private extension User {
         if !first.isEmpty { return first }
         let last = lastName.trimmingCharacters(in: .whitespacesAndNewlines)
         return last.isEmpty ? L10n.telegram("User.DeletedAccount") : last
+    }
+}
+
+// MARK: - ChatViewController + CNContactPickerDelegate
+
+extension ChatViewController: CNContactPickerDelegate {
+    func contactPickerDidCancel(_: CNContactPickerViewController) {
+        attachmentSheetDidDismiss()
+    }
+
+    /// The picker closes itself; the picked contacts go out as Telegram's attachment menu sends them.
+    func contactPicker(_: CNContactPickerViewController, didSelect contacts: [CNContact]) {
+        attachmentSheetDidDismiss()
+        let contents = DeviceContactMessage.contents(for: contacts)
+        guard !contents.isEmpty else { return }
+        let chatVM = chatVM
+        Task { await chatVM.sendAttachmentContents(contents, kind: .text) }
     }
 }
 

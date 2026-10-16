@@ -10,6 +10,7 @@ enum ChatSendContentKind {
     case audio
     case document
     case photo
+    case poll
     case sticker
     case text
     case video

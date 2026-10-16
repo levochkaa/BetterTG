@@ -194,6 +194,8 @@ struct LocationPickerVenue {
     // MARK: Internal
 
     let telegramNavigationSearch = UISearchController(searchResultsController: nil)
+    /// Called once the picker has gone after Cancel or a send; a swipe down reaches the presenter's delegate.
+    var onDismiss: (() -> Void)?
 
     private let peerName: String?
     private let allowsLiveLocation: Bool
@@ -623,7 +625,8 @@ struct LocationPickerVenue {
     }
 
     @objc private func cancelPressed() {
-        dismiss(animated: true)
+        let onDismiss = onDismiss
+        dismiss(animated: true) { onDismiss?() }
     }
 
     @objc private func mapPanned(_ gesture: UIPanGestureRecognizer) {
@@ -858,7 +861,11 @@ struct LocationPickerVenue {
         guard !didSend else { return }
         didSend = true
         let send = send
-        dismiss(animated: true) { send(content) }
+        let onDismiss = onDismiss
+        dismiss(animated: true) {
+            onDismiss?()
+            send(content)
+        }
     }
 
     private func presentAccessDenied() {

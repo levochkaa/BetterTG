@@ -39,6 +39,9 @@ final class ChatComposerView: UIView {
 
     var onPickPhotos: (() -> Void)?
     var onPickFiles: (() -> Void)?
+    var onPickLocation: (() -> Void)?
+    var onPickContact: (() -> Void)?
+    var onCreatePoll: (() -> Void)?
     var onPickEmojiMedia: (() -> Void)?
     var onTakePhoto: (() -> Void)?
     var onPasteImages: (([UIImage]) -> Void)?
@@ -468,6 +471,7 @@ final class ChatComposerView: UIView {
             || chatVM.canAttachDocuments
             || chatVM.canSendStickersAndAnimations
             || chatVM.canWriteBasicMessages
+            || chatVM.canCreatePoll
         attachmentButton.isHidden = !canAttach
         attachmentButton.isEnabled = canAttach
         if selectedMediaRecordingMode == .voice,
@@ -1122,28 +1126,50 @@ final class ChatComposerView: UIView {
             )
             return
         }
+        var actions = [
+            TelegramContextMenuAction(
+                title: L10n.telegram("Attachment.SelectFromGallery"),
+                image: UIImage(systemName: "photo"),
+            ) { [weak self] in self?.onPickPhotos?() },
+            TelegramContextMenuAction(
+                title: L10n.telegram("Common.TakePhoto"),
+                image: UIImage(systemName: "camera.fill"),
+            ) { [weak self] in self?.onTakePhoto?() },
+            TelegramContextMenuAction(
+                title: L10n.telegram("Attachment.File"),
+                image: UIImage(systemName: "doc.fill"),
+            ) { [weak self] in
+                self?.onPickFiles?()
+            },
+        ]
+        // ChatControllerOpenAttachmentMenu's buttons after the gallery and file: Location and Contact where text may
+        // be sent (`banSendText == nil`), with Poll between them where the chat takes polls.
+        let canSendLocationAndContact = chatVM.canSendLocationAndContact
+        if canSendLocationAndContact {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Attachment.Location"),
+                image: UIImage(systemName: "location.fill"),
+            ) { [weak self] in self?.onPickLocation?() })
+        }
+        if chatVM.canCreatePoll {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Attachment.Poll"),
+                image: UIImage(systemName: "chart.bar.fill"),
+            ) { [weak self] in self?.onCreatePoll?() })
+        }
+        if canSendLocationAndContact {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Attachment.Contact"),
+                image: UIImage(systemName: "person.crop.circle.fill"),
+            ) { [weak self] in self?.onPickContact?() })
+        }
+        actions.append(TelegramContextMenuAction(
+            title: L10n.betterTG("Composer.EmojiStickersGIFs"),
+            image: UIImage(systemName: "face.smiling"),
+        ) { [weak self] in self?.onPickEmojiMedia?() })
         nearestViewController?.presentTelegramContextMenu(
             sourceView: attachmentButton,
-            actions: [
-                TelegramContextMenuAction(
-                    title: L10n.telegram("Attachment.SelectFromGallery"),
-                    image: UIImage(systemName: "photo"),
-                ) { [weak self] in self?.onPickPhotos?() },
-                TelegramContextMenuAction(
-                    title: L10n.telegram("Common.TakePhoto"),
-                    image: UIImage(systemName: "camera.fill"),
-                ) { [weak self] in self?.onTakePhoto?() },
-                TelegramContextMenuAction(
-                    title: L10n.telegram("Attachment.File"),
-                    image: UIImage(systemName: "doc.fill"),
-                ) { [weak self] in
-                    self?.onPickFiles?()
-                },
-                TelegramContextMenuAction(
-                    title: L10n.betterTG("Composer.EmojiStickersGIFs"),
-                    image: UIImage(systemName: "face.smiling"),
-                ) { [weak self] in self?.onPickEmojiMedia?() },
-            ],
+            actions: actions,
             presentationStyle: .sourceMorph,
         )
     }
