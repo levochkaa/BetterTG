@@ -6,10 +6,12 @@ import UIKit
 // MARK: - WebAppLauncher
 
 /// ChatControllerOpenWebApp's `openWebAppImpl` for a bot's main Web App (`simple` with an empty URL:
-/// `requestMainWebView`, WebAppParameters.Source.generic). Before the page opens, a bot that can be added to the
-/// attachment menu but isn't (`isAttachMenuBotInstalled == false`) gets webAppTermsAlertController and
-/// `addBotToAttachMenu` with the check as its write access; any other bot gets webAppLaunchConfirmationController
-/// the first time (`getBotGameNotice`) unless the caller skips the terms, as the profile's Open App does.
+/// `requestMainWebView`, WebAppParameters.Source.generic) and ChatControllerOpenAttachmentMenu's `.app` button
+/// (WebAppController with source .attachMenu). Before the page opens, a bot that can be added to the attachment menu
+/// but isn't (`isAttachMenuBotInstalled == false`, `.notActivated`) gets webAppTermsAlertController and
+/// `addBotToAttachMenu` with the check as its write access; any other main Web App gets
+/// webAppLaunchConfirmationController the first time (`getBotGameNotice`) unless the caller skips the terms, as the
+/// profile's Open App does.
 @MainActor final class WebAppLauncher {
     struct Host {
         let accountID: UUID
@@ -97,6 +99,31 @@ import UIKit
         presenter.present(alert, animated: true)
     }
 
+    /// ChatControllerOpenAttachmentMenu's `.app` button: the terms for a bot that isn't added, then `openWebApp`
+    /// without a URL in the chat, its topic and the composer's reply. The sheet opens at half height, as Telegram's
+    /// attachment container does (`fullSize: false`).
+    func openAttachmentMenuBot(
+        botUserID: Int64,
+        name: String,
+        isAdded: Bool,
+        chatID: Int64,
+        topic: MessageTopic?,
+        replyTo: InputMessageReplyTo?,
+    ) {
+        guard task == nil else { return }
+        let open: () -> Void = { [weak self] in
+            self?.requestAttachmentMenuWebApp(
+                botUserID: botUserID,
+                name: name,
+                chatID: chatID,
+                topic: topic,
+                replyTo: replyTo,
+            )
+        }
+        guard isAdded else { return addAttachmentMenuBot(botUserID: botUserID, added: open) }
+        open()
+    }
+
     /// The checks before the page opens, in ChatControllerOpenWebApp's order.
     private func confirm(
         botUserID: Int64,
@@ -155,6 +182,55 @@ import UIKit
                 accountID: accountID,
                 client: client,
                 presentation: WebAppLaunch.Presentation(result.mode),
+            ))
+        }
+    }
+
+    private func requestAttachmentMenuWebApp(
+        botUserID: Int64,
+        name: String,
+        chatID: Int64,
+        topic: MessageTopic?,
+        replyTo: InputMessageReplyTo?,
+    ) {
+        guard task == nil, let presenter = host.presenter() else { return }
+        let client = host.client
+        let accountID = host.accountID
+        let parameters = TDNativeWebAppOpenParameters(
+            theme: WebAppViewController.themeParameters(for: presenter.traitCollection),
+            applicationName: "BetterTG",
+            mode: nil,
+        )
+        task = Task { [weak self] in
+            let bot = try? await client.getUser(userId: botUserID)
+            let info = try? await client.openWebApp(
+                chatId: chatID,
+                botUserId: botUserID,
+                url: "",
+                topicId: topic,
+                replyTo: replyTo,
+                parameters: parameters,
+            )
+            guard let self else {
+                if let info { _ = try? await client.closeWebApp(webAppLaunchId: info.launchId) }
+                return
+            }
+            task = nil
+            guard !Task.isCancelled, host.isCurrent() else {
+                if let info { _ = try? await client.closeWebApp(webAppLaunchId: info.launchId) }
+                return
+            }
+            guard let info, let url = URL(string: info.url.url) else { return showError() }
+            present(WebAppLaunch(
+                source: .attachMenu(launchID: info.launchId),
+                url: url,
+                requiresSameOrigin: info.url.requireSameOrigin,
+                botUserID: botUserID,
+                botName: name,
+                botUsername: bot?.usernames?.activeUsernames.first,
+                accountID: accountID,
+                client: client,
+                presentation: .compact,
             ))
         }
     }

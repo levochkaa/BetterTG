@@ -1,5 +1,6 @@
 // WebAppViewController.swift
 
+import Combine
 import TDLibKit
 import UIKit
 import WebKit
@@ -81,6 +82,9 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         let openTelegramLink: (URL) -> Void
         /// "@bot query" for this chat, or for a chat of the given kinds (`web_app_switch_inline_query`).
         let switchInline: (_ text: String, _ types: InlineTargetChatTypes?) -> Void
+        /// The launch sent its message (`updateWebAppMessageSent`, Telegram's keepAliveSignal completing): the
+        /// chat leaves the reply and scrolls down as the sheet closes.
+        var messageSent: (() -> Void)?
     }
 
     /// The button's state from `web_app_setup_main_button` or `web_app_setup_secondary_button`.
@@ -170,6 +174,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     /// A fullscreen launch (`WebAppParameters.isFullscreen`) enters fullscreen once the sheet is up.
     private var didApplyPresentation = false
     private var dataTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
 
     private var sensors: WebAppSensors {
         if let motionSensors { return motionSensors }
@@ -180,6 +185,18 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
 
     private var trustedOrigin: String? {
         launch.url.host.map { "\(launch.url.scheme ?? "https")://\($0)" }
+    }
+
+    /// WebAppController's Remove Bot: an activated attachment menu bot opened from the attachment menu or as a main
+    /// Web App (`[.attachMenu, .settings, .generic].contains(source)`).
+    private var canRemoveBot: Bool {
+        guard let source = launch.updateSource else { return false }
+        switch launch.source {
+        case .attachMenu, .main:
+            return AttachmentMenuBotStore.shared.isAdded(botUserID: launch.botUserID, source: source)
+        default:
+            return false
+        }
     }
 
     init(launch: WebAppLaunch, actions: Actions) {
@@ -277,6 +294,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         updateColors()
         updateHeaderButtons()
         load()
+        observeMessageSent()
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
             self.updateColors()
             self.sendThemeChanged()
@@ -627,7 +645,53 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         ) { [weak self] _ in
             self?.openPrivacyPolicy()
         })
+        if canRemoveBot {
+            items.append(UIAction(
+                title: L10n.telegram("WebApp.RemoveBot"),
+                image: UIImage(systemName: "trash"),
+                attributes: .destructive,
+            ) { [weak self] _ in
+                self?.confirmRemoveBot()
+            })
+        }
         return items
+    }
+
+    /// `removeAttachBot`: the confirmation, then `removeBotFromAttachMenu` and the sheet closes.
+    private func confirmRemoveBot() {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: L10n.telegram("WebApp.RemoveConfirmationTitle"),
+            message: String(format: L10n.telegram("WebApp.RemoveAllConfirmationText"), launch.botName)
+                .replacingOccurrences(of: "**", with: ""),
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
+            guard let self else { return }
+            let client = launch.client
+            let botUserID = launch.botUserID
+            Task {
+                _ = try? await client.send(TDNativeRequests.toggleBotIsAddedToAttachmentMenu(
+                    botUserId: botUserID,
+                    isAdded: false,
+                    allowWriteAccess: false,
+                ))
+            }
+            close(completion: nil)
+        })
+        present(alert, animated: true)
+    }
+
+    /// WebAppController's keepAliveSignal: once the launch's message is sent, the sheet closes and the chat
+    /// follows (`completion`).
+    private func observeMessageSent() {
+        guard let launchID = launch.launchID, let source = launch.updateSource else { return }
+        nc.scopedPublisher(&cancellables, for: .updateWebAppMessageSent) { [weak self] update in
+            guard let self, !didClose, update.source == source, update.value.webAppLaunchId == launchID else { return }
+            actions.messageSent?()
+            close(completion: nil)
+        }
     }
 
     /// The bot's own privacy policy when it has one, Telegram's mini app policy otherwise.

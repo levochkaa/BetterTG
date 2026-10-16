@@ -419,7 +419,7 @@ enum PollLinkEditor {
         case .location: presentLocationPicker()
         case .sticker: presentStickerPicker()
         case .link: presentLinkEditor()
-        case .contact, .gallery, .poll: finish(nil)
+        case .app, .contact, .gallery, .poll: finish(nil)
         }
     }
 

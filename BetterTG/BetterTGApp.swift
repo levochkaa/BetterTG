@@ -76,6 +76,7 @@ import UIKit
         PushRelayCoordinator.shared.start()
         RichNotificationCacheCoordinator.shared.start()
         LiveLocationManager.shared.start()
+        AttachmentMenuBotStore.shared.start()
         TDLib.shared.startTdLibUpdateHandler()
         logPendingRichNotificationDiagnostics()
         configureAppearance()

@@ -175,6 +175,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             self?.presentSwitchInlinePicker(text: text, types: types, messageID: messageID)
         },
     ))
+    /// The attachment menu bots' Web Apps, made with the chat's account on the first launch.
+    private var webAppLauncher: WebAppLauncher?
 
     private let messageSelectionToolbar = MessageSelectionToolbar()
     private var messageSelectionToolbarHeightConstraint: NSLayoutConstraint!
@@ -6545,6 +6547,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if chatVM.canCreatePoll { tabs.append(.poll) }
         if canSendLocationAndContact { tabs.append(.contact) }
         if chatVM.canWriteBasicMessages || chatVM.canSendStickersAndAnimations { tabs.append(.sticker) }
+        tabs.insert(contentsOf: attachmentMenuBotTabs(), at: 1)
         let customChat = chatVM.customChat
         var allowsViewOnce = false
         if case .chatTypePrivate = customChat.chat.type, !customChat.isSavedMessages {
@@ -6592,7 +6595,101 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .contact: showContactPicker()
         case .sticker:
             if !composerView.showMediaInput(mode: .stickers) { showComposerMediaPicker(mode: .stickers) }
+        case .app(let bot): openAttachmentMenuBot(bot)
         }
+    }
+
+    /// ChatControllerOpenAttachmentMenu's `.app` buttons: the account's attachment menu bots whose peer types meet
+    /// this chat's (`sameBot` in the bot's own chat), in the list's order. A secret chat has none.
+    private func attachmentMenuBotTabs() -> [AttachmentSheetTab] {
+        guard chatVM.canWriteBasicMessages, let accountID = chatVM.accountID else { return [] }
+        let source = TdUpdateSource(accountID: accountID, clientID: chatVM.client.id)
+        let customChat = chatVM.customChat
+        let supports: (TDNativeAttachmentMenuBot) -> Bool
+        switch customChat.chat.type {
+        case .chatTypePrivate(let type):
+            if customChat.bot != nil {
+                supports = { $0.botUserId == type.userId ? $0.supportsSelfChat : $0.supportsBotChats }
+            } else {
+                supports = { $0.supportsUserChats }
+            }
+        case .chatTypeBasicGroup:
+            supports = { $0.supportsGroupChats }
+        case .chatTypeSupergroup(let type):
+            if type.isChannel {
+                supports = { $0.supportsChannelChats }
+            } else {
+                supports = { $0.supportsGroupChats }
+            }
+        case .chatTypeSecret:
+            return []
+        }
+        return AttachmentMenuBotStore.shared
+            .entries(for: source)
+            .filter { $0.bot.showInAttachmentMenu && supports($0.bot) }
+            .map { entry in
+                AttachmentSheetTab.app(AttachmentMenuBotButton(
+                    botUserID: entry.bot.botUserId,
+                    name: entry.bot.name,
+                    animatedIconPath: entry.animatedIconPath,
+                    imageIconPath: entry.imageIconPath,
+                ))
+            }
+    }
+
+    /// ChatControllerOpenAttachmentMenu's `.app` button: the bot's Web App for this chat with the composer's topic
+    /// and reply (`replyToMessageId`, `threadId`), after webAppTermsAlertController when the bot isn't added.
+    private func openAttachmentMenuBot(_ button: AttachmentMenuBotButton) {
+        guard chatVM.locationContextIsCurrent, let accountID = chatVM.accountID,
+              let entry = AttachmentMenuBotStore.shared.entry(
+                  botUserID: button.botUserID,
+                  source: TdUpdateSource(accountID: accountID, clientID: chatVM.client.id),
+              ),
+              let context = try? chatVM.resolveSendContext(
+                  for: .text,
+                  replyingTo: chatVM.replyMessage,
+                  useCurrentReplyOverride: true,
+              )
+        else { return }
+        attachmentWebAppLauncher(accountID: accountID).openAttachmentMenuBot(
+            botUserID: entry.bot.botUserId,
+            name: entry.bot.name,
+            isAdded: entry.bot.isAdded,
+            chatID: chatVM.chatID,
+            topic: context.destinationTopic,
+            replyTo: context.replyTo,
+        )
+    }
+
+    private func attachmentWebAppLauncher(accountID: UUID) -> WebAppLauncher {
+        if let webAppLauncher { return webAppLauncher }
+        let launcher = WebAppLauncher(host: .init(
+            accountID: accountID,
+            client: chatVM.client,
+            presenter: { [weak self] in self },
+            isCurrent: { [weak self] in
+                guard let self else { return false }
+                return routeIsRetained && chatVM.locationContextIsCurrent
+            },
+            actions: .init(
+                openTelegramLink: { [weak self] url in TelegramLinkRouter.shared.open(url, from: self) },
+                switchInline: { [weak self] text, types in
+                    // The chat picker forwards from a message, which a menu launch doesn't have.
+                    if types == nil { self?.insertInlineQuery(text) }
+                },
+                messageSent: { [weak self] in self?.attachmentWebAppSentMessage() },
+            ),
+        ))
+        webAppLauncher = launcher
+        return launcher
+    }
+
+    /// WebAppController's `completion` for an attachment menu launch: the sent message drops the reply and the chat
+    /// scrolls to its end.
+    private func attachmentWebAppSentMessage() {
+        guard chatVM.locationContextIsCurrent else { return }
+        chatVM.cancelReply()
+        scrollToLatestMessage(animated: true)
     }
 
     /// The sheet's picked items become the composer's media and go out with the sheet's send choice, so they take the

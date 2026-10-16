@@ -2067,3 +2067,6 @@
 "WebApp.Disclaimer_URL" = "https://telegram.org/tos/mini-apps";
 "WebApp.DisclaimerContinue" = "Continue";
 "WebApp.DisclaimerText" = "You are about to use a mini app operated by an independent party not affiliated with Telegram. You must agree to the Terms of Use of mini apps to continue.";
+"WebApp.RemoveBot" = "Remove Bot";
+"WebApp.RemoveConfirmationTitle" = "Remove Bot";
+"WebApp.RemoveAllConfirmationText" = "This will remove **%@** shortcuts from all menus.";

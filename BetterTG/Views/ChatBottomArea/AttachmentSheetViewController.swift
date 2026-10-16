@@ -1,6 +1,7 @@
 // AttachmentSheetViewController.swift
 
 import AVFoundation
+import Lottie
 import Photos
 import PhotosUI
 import UIKit
@@ -10,8 +11,8 @@ import UIKit
 /// AttachmentPanel's buttons in ChatControllerOpenAttachmentMenu's order: Gallery, File, Location, Poll and
 /// Contact, each where the chat allows it. Sticker (AttachmentButtonType.sticker) opens BetterTG's emoji, sticker and
 /// GIF picker, which the attach button used to offer. Link (AttachmentButtonType.link) is a poll option's
-/// (presentPollAttachmentScreen).
-enum AttachmentSheetTab {
+/// (presentPollAttachmentScreen). App (AttachmentButtonType.app) is an attachment menu bot, after Gallery.
+enum AttachmentSheetTab: Equatable {
     case gallery
     case file
     case location
@@ -19,6 +20,7 @@ enum AttachmentSheetTab {
     case contact
     case sticker
     case link
+    case app(AttachmentMenuBotButton)
 
     var title: String {
         switch self {
@@ -29,6 +31,7 @@ enum AttachmentSheetTab {
         case .contact: L10n.telegram("Attachment.Contact")
         case .sticker: L10n.telegram("Attachment.Sticker")
         case .link: L10n.telegram("Attachment.Link")
+        case .app(let bot): bot.name
         }
     }
 
@@ -41,8 +44,20 @@ enum AttachmentSheetTab {
         case .contact: "person.crop.circle.fill"
         case .sticker: "face.smiling"
         case .link: "link"
+        case .app: "app.fill"
         }
     }
+}
+
+// MARK: - AttachmentMenuBotButton
+
+/// AttachmentPanel's `.app(bot)` button: the bot's short name over its iOS icon, the animated TGS or the side menu
+/// PNG once downloaded.
+struct AttachmentMenuBotButton: Equatable {
+    let botUserID: Int64
+    let name: String
+    let animatedIconPath: String?
+    let imageIconPath: String?
 }
 
 // MARK: - AttachmentSheetConfiguration
@@ -1256,6 +1271,9 @@ enum MediaPickerQualityIcon {
 
     private let background = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let separator = UIView()
+    /// AttachmentPanel scrolls its buttons sideways once more than fit, 60 pt apart, as attachment menu bots add
+    /// theirs.
+    private let tabsScroll = UIScrollView()
     private let tabsStack = UIStackView()
     private let sendRow = UIView()
     private let qualityButton = UIButton(type: .system)
@@ -1267,6 +1285,9 @@ enum MediaPickerQualityIcon {
     override init(frame: CGRect) {
         super.init(frame: frame)
         separator.backgroundColor = .separator
+        tabsScroll.showsHorizontalScrollIndicator = false
+        tabsScroll.scrollsToTop = false
+        tabsScroll.alwaysBounceHorizontal = false
         tabsStack.axis = .horizontal
         tabsStack.distribution = .fillEqually
         captionLabel.font = .preferredFont(forTextStyle: .subheadline)
@@ -1305,11 +1326,18 @@ enum MediaPickerQualityIcon {
             subview.translatesAutoresizingMaskIntoConstraints = false
             sendRow.addSubview(subview)
         }
-        for subview in [background, separator, tabsStack, sendRow] as [UIView] {
+        tabsStack.translatesAutoresizingMaskIntoConstraints = false
+        tabsScroll.addSubview(tabsStack)
+        for subview in [background, separator, tabsScroll, sendRow] as [UIView] {
             subview.translatesAutoresizingMaskIntoConstraints = false
             addSubview(subview)
         }
         let pixel = 1 / max(1, traitCollection.displayScale)
+        let fittingWidth = tabsStack.widthAnchor.constraint(
+            equalTo: tabsScroll.frameLayoutGuide.widthAnchor,
+            constant: -16,
+        )
+        fittingWidth.priority = .defaultLow
         NSLayoutConstraint.activate([
             background.topAnchor.constraint(equalTo: topAnchor),
             background.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1319,10 +1347,20 @@ enum MediaPickerQualityIcon {
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
             separator.heightAnchor.constraint(equalToConstant: pixel),
-            tabsStack.topAnchor.constraint(equalTo: topAnchor),
-            tabsStack.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 8),
-            tabsStack.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -8),
-            tabsStack.heightAnchor.constraint(equalToConstant: Self.barHeight),
+            tabsScroll.topAnchor.constraint(equalTo: topAnchor),
+            tabsScroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
+            tabsScroll.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+            tabsScroll.heightAnchor.constraint(equalToConstant: Self.barHeight),
+            tabsStack.topAnchor.constraint(equalTo: tabsScroll.contentLayoutGuide.topAnchor),
+            tabsStack.bottomAnchor.constraint(equalTo: tabsScroll.contentLayoutGuide.bottomAnchor),
+            tabsStack.leadingAnchor.constraint(equalTo: tabsScroll.contentLayoutGuide.leadingAnchor, constant: 8),
+            tabsStack.trailingAnchor.constraint(equalTo: tabsScroll.contentLayoutGuide.trailingAnchor, constant: -8),
+            tabsStack.heightAnchor.constraint(equalTo: tabsScroll.frameLayoutGuide.heightAnchor),
+            tabsStack.widthAnchor.constraint(
+                greaterThanOrEqualTo: tabsScroll.frameLayoutGuide.widthAnchor,
+                constant: -16,
+            ),
+            fittingWidth,
             sendRow.topAnchor.constraint(equalTo: topAnchor),
             sendRow.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
             sendRow.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
@@ -1359,6 +1397,7 @@ enum MediaPickerQualityIcon {
         for tab in tabs {
             let button = AttachmentTabButton(tab: tab, current: tab == .gallery)
             button.addAction(UIAction { [weak self] _ in self?.onSelectTab?(tab) }, for: .touchUpInside)
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 60).isActive = true
             tabsStack.addArrangedSubview(button)
         }
     }
@@ -1373,14 +1412,14 @@ enum MediaPickerQualityIcon {
         let selecting = selectionCount > 0
         guard selecting != isSelecting else { return }
         isSelecting = selecting
-        tabsStack.isHidden = false
+        tabsScroll.isHidden = false
         sendRow.isHidden = false
         UIView.animate(withDuration: 0.2) {
-            self.tabsStack.alpha = selecting ? 0 : 1
+            self.tabsScroll.alpha = selecting ? 0 : 1
             self.sendRow.alpha = selecting ? 1 : 0
         } completion: { _ in
             guard self.isSelecting == selecting else { return }
-            self.tabsStack.isHidden = selecting
+            self.tabsScroll.isHidden = selecting
             self.sendRow.isHidden = !selecting
         }
     }
@@ -1410,10 +1449,17 @@ private final class AttachmentTabButton: UIControl {
     init(tab: AttachmentSheetTab, current: Bool) {
         super.init(frame: .zero)
         let color: UIColor = current ? .tintColor : .secondaryLabel
-        let iconView = UIImageView(image: UIImage(systemName: tab.symbolName))
-        iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
-        iconView.tintColor = color
-        iconView.contentMode = .center
+        let iconView: UIView
+        if case .app(let bot) = tab {
+            iconView = AttachmentBotIconView(bot: bot, symbolName: tab.symbolName, color: color)
+            iconView.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        } else {
+            let imageView = UIImageView(image: UIImage(systemName: tab.symbolName))
+            imageView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
+            imageView.tintColor = color
+            imageView.contentMode = .center
+            iconView = imageView
+        }
         let titleLabel = UILabel()
         titleLabel.text = tab.title
         titleLabel.font = .systemFont(ofSize: 10, weight: current ? .medium : .regular)
@@ -1441,4 +1487,60 @@ private final class AttachmentTabButton: UIControl {
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+}
+
+// MARK: - AttachmentBotIconView
+
+/// AttachmentPanel's app icon in the panel's tint: the bot's `iOSAnimated` TGS held at its first frame
+/// (AnimatedStickerComponent with `isAnimating` only while selected), or its side menu PNG; a generic glyph until
+/// either is on disk.
+private final class AttachmentBotIconView: UIView {
+    private let imageView = UIImageView()
+    private let color: UIColor
+
+    init(bot: AttachmentMenuBotButton, symbolName: String, color: UIColor) {
+        self.color = color
+        super.init(frame: .zero)
+        isUserInteractionEnabled = false
+        imageView.tintColor = color
+        if let path = bot.imageIconPath, let image = UIImage(contentsOfFile: path) {
+            imageView.image = image.withRenderingMode(.alwaysTemplate)
+            imageView.contentMode = .scaleAspectFit
+        } else {
+            imageView.image = UIImage(systemName: symbolName)
+            imageView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
+            imageView.contentMode = .center
+        }
+        imageView.frame = bounds
+        imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(imageView)
+        guard let path = bot.animatedIconPath else { return }
+        Task { [weak self] in
+            let animation = await TGSAnimationRepository.animation(at: path)
+            guard let self, let animation else { return }
+            show(animation)
+        }
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    private func show(_ animation: LottieAnimation) {
+        let animationView = LottieAnimationView(configuration: LottieConfiguration(
+            renderingEngine: .automatic,
+            decodingStrategy: .legacyCodable,
+        ))
+        animationView.contentMode = .scaleAspectFit
+        animationView.isUserInteractionEnabled = false
+        animationView.animation = animation
+        animationView.setValueProvider(
+            ColorValueProvider(color.resolvedColor(with: traitCollection).lottieColorValue),
+            keypath: AnimationKeypath(keypath: "**.Color"),
+        )
+        animationView.currentProgress = 0
+        animationView.forceDisplayUpdate()
+        animationView.frame = bounds
+        animationView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(animationView)
+        imageView.isHidden = true
+    }
 }
