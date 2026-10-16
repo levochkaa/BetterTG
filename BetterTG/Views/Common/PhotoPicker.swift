@@ -19,7 +19,7 @@ enum PhotoPickerSelectionLoader {
         let group = DispatchGroup()
         var selected = [Int: SelectedImage]()
 
-        for (index, result) in results.prefix(10).enumerated() {
+        for (index, result) in results.prefix(100).enumerated() {
             let provider = result.itemProvider
             let isVideo = !provider.canLoadObject(ofClass: PHLivePhoto.self)
                 && provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier)

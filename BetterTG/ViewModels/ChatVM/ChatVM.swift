@@ -3248,7 +3248,7 @@ import UIKit
     }
 
     func sendMessageDocuments() async throws -> (context: ResolvedSendContext, messages: [Message]) {
-        let documents = Array(displayedDocuments.prefix(10))
+        let documents = displayedDocuments
         // Telegram's file picker sends an mp3, m4a or flac file as music with its tags (iCloudFileDescription);
         // music and other files need their own permissions.
         var musicMetadata = [UUID: ComposerAudioMetadata]()
@@ -3329,16 +3329,44 @@ import UIKit
             guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
             let messages: [Message]
             if contents.count > 1, !(sendsMusic && sendsOtherFiles) {
-                let hold = beginOutgoingAlbum(count: contents.count)
-                defer { endOutgoingAlbum(hold) }
-                let result = try await client.sendMessageAlbum(
-                    chatId: context.chatID,
-                    inputMessageContents: contents,
-                    options: composerSendOptions,
-                    replyTo: context.replyTo,
-                    topicId: context.destinationTopic,
-                )
-                messages = result.messages
+                // Telegram starts a new group every ten files (`messages.count % 10 == 0`). A failure after the
+                // first group keeps what went out, which the partial check below reports.
+                var sent = [Message]()
+                var start = 0
+                groups: while start < contents.count {
+                    let end = min(start + 10, contents.count)
+                    let group = Array(contents[start..<end])
+                    do {
+                        if group.count == 1, let content = group.first {
+                            try await sent.append(client.sendMessage(
+                                chatId: context.chatID,
+                                inputMessageContent: content,
+                                options: composerSendOptions,
+                                replyMarkup: nil,
+                                replyTo: context.replyTo,
+                                topicId: context.destinationTopic,
+                            ))
+                        } else {
+                            let hold = beginOutgoingAlbum(count: group.count)
+                            defer { endOutgoingAlbum(hold) }
+                            let groupMessages = try await client.sendMessageAlbum(
+                                chatId: context.chatID,
+                                inputMessageContents: group,
+                                options: composerSendOptions,
+                                replyTo: context.replyTo,
+                                topicId: context.destinationTopic,
+                            )
+                            .messages
+                            sent += groupMessages
+                            guard groupMessages.count == group.count else { break groups }
+                        }
+                    } catch {
+                        if sent.isEmpty { throw error }
+                        break
+                    }
+                    start = end
+                }
+                messages = sent
             } else {
                 // Telegram groups files only when all are music or none are; a mix goes one message each. A failure
                 // after the first keeps what went out, which the partial check below reports.

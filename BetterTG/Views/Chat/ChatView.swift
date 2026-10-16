@@ -945,7 +945,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let barrier = importBarrier
         Task { [weak self] in
             let documents = await Task.detached(priority: .userInitiated) {
-                SelectedDocumentFileStore.copy(Array(urls.prefix(10)))
+                SelectedDocumentFileStore.copy(urls)
             }.value
             let accepted = barrier.finish(
                 token, currentAccountID: self?.tdlib.activeAccountID,
@@ -6001,7 +6001,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard let first = filters.first else { return }
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
         configuration.filter = filters.count == 1 ? first : .any(of: filters)
-        configuration.selectionLimit = 10
+        // MediaPickerScreen takes up to 100 items (`enableMultiselection ? 100 : 1`), sent in albums of ten.
+        configuration.selectionLimit = 100
         configuration.selection = .ordered
         configuration.preferredAssetRepresentationMode = .current
         let picker = PHPickerViewController(configuration: configuration)
