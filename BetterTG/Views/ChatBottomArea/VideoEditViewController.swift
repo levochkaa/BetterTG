@@ -554,6 +554,7 @@ final class VideoEditViewController: UIViewController {
         }
         cropView.commitPendingChanges()
         editorTab = newTab
+        updatePlayerMuting()
         switch newTab {
         case .video:
             scrubber.setCrop(currentCrop)
@@ -619,7 +620,7 @@ final class VideoEditViewController: UIViewController {
         let item = AVPlayerItem(asset: asset)
         player.actionAtItemEnd = .none
         player.replaceCurrentItem(with: item)
-        player.isMuted = sendsAsGIF
+        updatePlayerMuting()
         NotificationCenter.default
             .publisher(for: AVPlayerItem.didPlayToEndTimeNotification, object: item)
             .receive(on: DispatchQueue.main)
@@ -636,8 +637,9 @@ final class VideoEditViewController: UIViewController {
         applyVisibility()
         updateTabs()
         view.setNeedsLayout()
-        // A muted video plays at once, as Telegram's gallery loops a GIF.
-        if sendsAsGIF {
+        // A muted video plays at once, as Telegram's gallery loops a GIF, and so does the crop the editor opens in
+        // (the crop's `finishedTransitionIn` starts playback on the initial appearance).
+        if sendsAsGIF || editorTab == .crop {
             play()
         } else {
             setPlayButtonHidden(false, animated: false)
@@ -765,6 +767,12 @@ final class VideoEditViewController: UIViewController {
         muteButton.accessibilityTraits = sendsAsGIF ? [.button, .selected] : .button
     }
 
+    /// The sound plays in the Video tab unless the video goes as a GIF; the crop plays without it, as
+    /// TGPhotoEditorController's muted player does.
+    private func updatePlayerMuting() {
+        player.isMuted = sendsAsGIF || editorTab == .crop
+    }
+
     @objc private func videoTapped() {
         guard player.currentItem != nil else { return }
         if isPlaying {
@@ -784,7 +792,7 @@ final class VideoEditViewController: UIViewController {
         sendsAsGIF.toggle()
         updateMuteButton()
         updateTabs()
-        player.isMuted = sendsAsGIF
+        updatePlayerMuting()
         guard sendsAsGIF else { return }
         TelegramUndoToast.show(
             text: L10n.telegram("MediaPicker.VideoMuteDescription"),
