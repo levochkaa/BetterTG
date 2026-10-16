@@ -1266,7 +1266,8 @@ final class ChatComposerView: UIView {
             }
             container.addSubview(removeButton)
             if let video = selectedImage.video {
-                // Telegram's gallery marks a video with its duration in the bottom corner.
+                // Telegram's gallery marks a video with its duration in the bottom corner, a trimmed one with the
+                // trim's.
                 let durationBadge = UIView()
                 durationBadge.translatesAutoresizingMaskIntoConstraints = false
                 durationBadge.backgroundColor = UIColor.black.withAlphaComponent(0.5)
@@ -1275,7 +1276,7 @@ final class ChatComposerView: UIView {
                 durationLabel.translatesAutoresizingMaskIntoConstraints = false
                 durationLabel.textColor = .white
                 durationLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
-                durationLabel.text = formatVideoDuration(video.duration)
+                durationLabel.text = formatVideoDuration(video.sentDuration)
                 durationBadge.addSubview(durationLabel)
                 container.addSubview(durationBadge)
                 NSLayoutConstraint.activate([

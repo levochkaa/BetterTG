@@ -1458,6 +1458,14 @@ import UIKit
         coordinate.map { TDNativeLocation(latitude: $0.latitude, longitude: $0.longitude, horizontalAccuracy: 0) }
     }
 
+    /// A muted video goes as a GIF (`LegacyMediaPickers` adds `.Animated` for `sendAsGif`). TDLib's animations
+    /// can't self-destruct, so a video with a timer stays a video, and TDLib takes an animation's MIME type from the
+    /// original's extension, which `PhotoAssetSelectionLoader` makes `mp4` for a GIF.
+    private nonisolated static func sendsAsAnimation(_ image: SelectedImage) -> Bool {
+        guard let video = image.video, video.sendsAsGIF, image.selfDestructTimer == nil else { return false }
+        return video.url.pathExtension.lowercased() == "mp4"
+    }
+
     /// An album this chat is still announcing: show it once every member arrived, or a moment after the send call.
     func holdsIncompleteOutgoingAlbum(_ message: CustomMessage) -> Bool {
         guard let outgoingAlbumHold, message.message.mediaAlbumId != 0, message.message.isOutgoing else {
@@ -3933,13 +3941,18 @@ import UIKit
     /// Sends the composer's photos and videos as Telegram's media picker does: albums of up to ten that may mix both,
     /// one message each (Send Without Grouping) or the picked files themselves (Send as File). The caption goes with
     /// the first item, above the media when it was moved up, marked items are hidden with a spoiler and a View Once
-    /// item self-destructs once opened.
+    /// item self-destructs once opened. A muted video goes as a GIF, and then nothing is grouped
+    /// (`TGMediaAssetsController`'s `sendAsGif`).
     func sendMessageMedia() async throws -> (context: ResolvedSendContext, messages: [Message]) {
         let images = displayedImages
         let mode = composerMediaSendMode
         let sendsVideos = images.contains { $0.video != nil }
+        let sendsGIFs = mode != .files && images.contains(where: Self.sendsAsAnimation)
         if mode != .files, sendsVideos, images.contains(where: { $0.video == nil }) {
             _ = try resolveSendContext(for: .photo, replyingTo: replyMessage, useCurrentReplyOverride: true)
+        }
+        if sendsGIFs {
+            _ = try resolveSendContext(for: .animation, replyingTo: replyMessage, useCurrentReplyOverride: true)
         }
         let kind: ChatSendContentKind = mode == .files ? .document : sendsVideos ? .video : .photo
         let context = try resolveSendContext(for: kind, replyingTo: replyMessage, useCurrentReplyOverride: true)
@@ -3984,6 +3997,16 @@ import UIKit
                     case .seconds(let seconds): .messageSelfDestructTypeTimer(.init(selfDestructTime: seconds))
                     case nil: nil
                     }
+                if let video = image.video, Self.sendsAsAnimation(image) {
+                    messageContents.append(makeInputMessageAnimation(
+                        video,
+                        thumbnail: image.url,
+                        caption: caption,
+                        hasSpoiler: image.hasSpoiler,
+                        showCaptionAboveMedia: showsCaptionAbove,
+                    ))
+                    continue
+                }
                 if let video = image.video {
                     messageContents.append(makeInputMessageVideo(
                         video,
@@ -4009,8 +4032,8 @@ import UIKit
             }
             guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
             // Telegram groups up to ten items a message (`legacyAssetPickerEnqueueMessages`); without grouping
-            // every item is its own message.
-            let groupSize = mode == .separately ? 1 : 10
+            // every item is its own message, and a GIF among them turns grouping off.
+            let groupSize = mode == .separately || sendsGIFs ? 1 : 10
             var start = 0
             while start < messageContents.count {
                 let end = min(start + groupSize, messageContents.count)
@@ -4055,15 +4078,24 @@ import UIKit
                 start = end
             }
             for (image, message) in zip(images, sentMessages) {
-                guard let video = image.video, case .messageVideo(let content) = message.content else { continue }
+                guard let video = image.video else { continue }
+                let fileID: Int
+                switch message.content {
+                case .messageVideo(let content):
+                    fileID = content.video.video.id
+                    MediaUploadProgressRegistry.rememberSentVideoPoster(
+                        image.image,
+                        for: MediaUploadProgressRegistry.Key(chatID: message.chatId, messageID: message.id),
+                    )
+                case .messageAnimation(let content):
+                    fileID = content.animation.animation.id
+                default:
+                    continue
+                }
                 VideoSendConversionProgress.register(
-                    fileID: content.video.video.id,
+                    fileID: fileID,
                     clientID: client.id,
                     originalPath: video.url.path(percentEncoded: false),
-                )
-                MediaUploadProgressRegistry.rememberSentVideoPoster(
-                    image.image,
-                    for: MediaUploadProgressRegistry.Key(chatID: message.chatId, messageID: message.id),
                 )
             }
             try? await cancelChatAction(in: context)
@@ -4079,7 +4111,8 @@ import UIKit
     }
 
     /// A picked video as Telegram sends it from the gallery: converted to its preset when TDLib generates the file
-    /// (`VideoSendGenerationCoordinator`), with the converted size, a 320 pt thumbnail and streaming.
+    /// (`VideoSendGenerationCoordinator`), with the converted size, a 320 pt thumbnail and streaming. A trimmed
+    /// video has the trim's length.
     func makeInputMessageVideo(
         _ video: SelectedVideo,
         thumbnail: URL,
@@ -4088,13 +4121,13 @@ import UIKit
         showCaptionAboveMedia: Bool = false,
         selfDestructType: TDNativeMessageSelfDestructType? = nil,
     ) -> InputMessageContent {
-        let dimensions = video.preset.outputDimensions(for: video.presentationSize)
+        let dimensions = video.sentDimensions
         return .inputMessageVideo(InputMessageVideo(
             video: InputVideo(
                 video: .inputFileGenerated(InputFileGenerated(
                     originalPath: video.url.path(percentEncoded: false),
-                    conversion: video.preset.conversion,
-                    expectedSize: video.preset.estimatedSize(duration: video.duration, hasAudio: video.hasAudio),
+                    conversion: video.conversion,
+                    expectedSize: video.estimatedSize,
                 )),
                 thumbnail: InputThumbnail(
                     thumbnail: .inputFileLocal(InputFileLocal(path: thumbnail.path(percentEncoded: false))),
@@ -4104,7 +4137,7 @@ import UIKit
                 cover: nil,
                 startTimestamp: 0,
                 addedStickerFileIds: [],
-                duration: Int(video.duration.rounded()),
+                duration: Int(video.sentDuration.rounded()),
                 width: Int(dimensions.width),
                 height: Int(dimensions.height),
                 supportsStreaming: true,
@@ -4112,6 +4145,38 @@ import UIKit
             caption: caption,
             showCaptionAboveMedia: showCaptionAboveMedia,
             selfDestructType: selfDestructType,
+            hasSpoiler: hasSpoiler,
+        ))
+    }
+
+    /// A muted video as a GIF: converted without sound at the Animation preset, with its thumbnail.
+    func makeInputMessageAnimation(
+        _ video: SelectedVideo,
+        thumbnail: URL,
+        caption: FormattedText,
+        hasSpoiler: Bool = false,
+        showCaptionAboveMedia: Bool = false,
+    ) -> InputMessageContent {
+        let dimensions = video.sentDimensions
+        return .inputMessageAnimation(InputMessageAnimation(
+            animation: InputAnimation(
+                animation: .inputFileGenerated(InputFileGenerated(
+                    originalPath: video.url.path(percentEncoded: false),
+                    conversion: video.conversion,
+                    expectedSize: video.estimatedSize,
+                )),
+                thumbnail: InputThumbnail(
+                    thumbnail: .inputFileLocal(InputFileLocal(path: thumbnail.path(percentEncoded: false))),
+                    width: Int(video.thumbnailSize.width),
+                    height: Int(video.thumbnailSize.height),
+                ),
+                addedStickerFileIds: [],
+                duration: Int(video.sentDuration.rounded()),
+                width: Int(dimensions.width),
+                height: Int(dimensions.height),
+            ),
+            caption: caption,
+            showCaptionAboveMedia: showCaptionAboveMedia,
             hasSpoiler: hasSpoiler,
         ))
     }

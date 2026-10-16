@@ -195,7 +195,8 @@ enum SelectedVideoLoader {
         }
     }
 
-    static func selection(forMovieAt url: URL) async -> SelectedImage? {
+    /// A trimmed video's first frame and thumbnail come from the trim's start.
+    static func selection(forMovieAt url: URL, edit: VideoEditAdjustments? = nil) async -> SelectedImage? {
         let asset = AVURLAsset(url: url)
         do {
             guard let track = try await asset.loadTracks(withMediaType: .video).first else {
@@ -212,7 +213,14 @@ enum SelectedVideoLoader {
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
             generator.maximumSize = CGSize(width: 960, height: 960)
-            let preview = try await UIImage(cgImage: generator.image(at: .zero).image)
+            let start = min(edit?.trimRange?.lowerBound ?? 0, max(0, duration - 0.1))
+            if start > 0 {
+                generator.requestedTimeToleranceBefore = .zero
+                generator.requestedTimeToleranceAfter = .zero
+            }
+            let preview = try await UIImage(
+                cgImage: generator.image(at: CMTime(seconds: start, preferredTimescale: 600)).image,
+            )
             // The thumbnail fits the sent dimensions into 320 x 320 (`aspectFitted`), JPEG quality 0.4.
             // The thumbnail's shape follows the sent video's, which the presets share up to rounding.
             let sent = VideoSendPreset.medium.outputDimensions(for: presented)
@@ -240,6 +248,7 @@ enum SelectedVideoLoader {
                     presentationSize: presented,
                     thumbnailSize: thumbnailSize,
                     hasAudio: hasAudio,
+                    edit: edit,
                 ),
             )
         } catch {
@@ -255,6 +264,7 @@ enum SelectedVideoLoader {
 /// Converts a picked video as `TGMediaVideoConverter` does for its preset: H.264 High profile with CABAC at the
 /// preset's bitrate and 30 fps (the source's rate for 1080p), AAC at 44.1 kHz with the preset's bitrate and
 /// channels, in an MP4. The `moov` box goes first so the video streams before it downloads (`supportsStreaming`).
+/// A trim reads only its range, and a muted video renders at `TGMediaVideoConversionPresetAnimation` without sound.
 final class VideoSendTranscoder: @unchecked Sendable {
     enum Failure: Error {
         case noVideoTrack
@@ -264,10 +274,26 @@ final class VideoSendTranscoder: @unchecked Sendable {
     }
 
     let preset: VideoSendPreset
+    /// The gallery editor's trim and mute.
+    let edit: VideoEditAdjustments?
 
     private let lock = NSLock()
     private var reader: AVAssetReader?
     private var cancelled = false
+
+    /// `sendAsGif` converts with `TGMediaVideoConversionPresetAnimation` (`keepAudioForPreset:` is false for it).
+    private var sendsAsGIF: Bool {
+        edit?.sendsAsGIF == true
+    }
+
+    /// The size and frame rate: a GIF takes the Animation preset's 848 px and 30 fps, which Medium shares.
+    private var outputPreset: VideoSendPreset {
+        sendsAsGIF ? .medium : preset
+    }
+
+    private var videoBitrateKbps: Int {
+        sendsAsGIF ? VideoEditAdjustments.animationVideoBitrateKbps : preset.videoBitrateKbps
+    }
 
     private var channelLayout: Data {
         var layout = AudioChannelLayout()
@@ -307,8 +333,9 @@ final class VideoSendTranscoder: @unchecked Sendable {
         return cancelled
     }
 
-    init(preset: VideoSendPreset) {
+    init(preset: VideoSendPreset, edit: VideoEditAdjustments? = nil) {
         self.preset = preset
+        self.edit = edit
     }
 
     /// Stops reading; the writer is cancelled on the pump queue once both inputs have stopped appending.
@@ -326,20 +353,30 @@ final class VideoSendTranscoder: @unchecked Sendable {
         progress: @escaping @Sendable (Double) -> Void,
     ) async throws {
         try? FileManager.default.removeItem(at: destination)
-        let asset = AVURLAsset(url: source)
-        guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
+        let sourceAsset = AVURLAsset(url: source)
+        guard let sourceVideoTrack = try await sourceAsset.loadTracks(withMediaType: .video).first else {
             throw Failure.noVideoTrack
         }
-        let audioTrack = try await preferredAudioTrack(of: asset)
-        let duration = try await asset.load(.duration)
-        let naturalSize = try await videoTrack.load(.naturalSize)
-        let preferredTransform = try await videoTrack.load(.preferredTransform)
+        let sourceAudioTrack = try await sendsAsGIF ? nil : preferredAudioTrack(of: sourceAsset)
+        let sourceDuration = try await sourceAsset.load(.duration)
+        let naturalSize = try await sourceVideoTrack.load(.naturalSize)
+        let preferredTransform = try await sourceVideoTrack.load(.preferredTransform)
         let presented = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
         guard presented.width > 0, presented.height > 0 else { throw Failure.noVideoTrack }
-        let dimensions = preset.outputDimensions(for: presented.size)
-        let frameRate = try await frameRate(of: videoTrack)
+        let dimensions = outputPreset.outputDimensions(for: presented.size)
+        let frameRate = try await frameRate(of: sourceVideoTrack)
+        let readable = try await readableSource(
+            sourceAsset,
+            video: sourceVideoTrack,
+            audio: sourceAudioTrack,
+            duration: sourceDuration,
+            transform: preferredTransform,
+        )
+        let videoTrack = readable.video
+        let audioTrack = readable.audio
+        let duration = readable.duration
 
-        let reader = try AVAssetReader(asset: asset)
+        let reader = try AVAssetReader(asset: readable.asset)
         let videoOutput = AVAssetReaderVideoCompositionOutput(
             videoTracks: [videoTrack],
             videoSettings: [
@@ -470,6 +507,41 @@ final class VideoSendTranscoder: @unchecked Sendable {
         return tracks.first
     }
 
+    /// TGMediaVideoConverter's composition for a trim: the kept range of the video, and of the sound when it goes,
+    /// placed at zero. An untrimmed video is read as it is.
+    private func readableSource(
+        _ asset: AVAsset,
+        video: AVAssetTrack,
+        audio: AVAssetTrack?,
+        duration: CMTime,
+        transform: CGAffineTransform,
+    ) async throws -> (asset: AVAsset, video: AVAssetTrack, audio: AVAssetTrack?, duration: CMTime) {
+        guard let edit, edit.trimRange != nil else { return (asset, video, audio, duration) }
+        let range = edit.timeRange(in: duration)
+        let composition = AVMutableComposition()
+        guard let compositionVideo = composition.addMutableTrack(
+            withMediaType: .video,
+            preferredTrackID: kCMPersistentTrackID_Invalid,
+        ) else { throw Failure.unreadable }
+        try compositionVideo.insertTimeRange(range, of: video, at: .zero)
+        compositionVideo.preferredTransform = transform
+        var compositionAudio: AVAssetTrack?
+        if let audio {
+            // The sound may start later or end sooner than the picture.
+            let audioRange = try await range.intersection(audio.load(.timeRange))
+            if audioRange.duration > .zero,
+               let track = composition.addMutableTrack(
+                   withMediaType: .audio,
+                   preferredTrackID: kCMPersistentTrackID_Invalid,
+               )
+            {
+                try track.insertTimeRange(audioRange, of: audio, at: audioRange.start - range.start)
+                compositionAudio = track
+            }
+        }
+        return (composition, compositionVideo, compositionAudio, range.duration)
+    }
+
     /// The track's display orientation scaled into the output, as `TGVideoTransformForOrientation` places it.
     private func composition(
         for track: AVAssetTrack,
@@ -507,7 +579,7 @@ final class VideoSendTranscoder: @unchecked Sendable {
     /// `_setupVideoComposition`: 30 fps, except that 1080p keeps the source's rate, rounded up from its nominal
     /// rate or taken from its shortest frame.
     private func frameRate(of track: AVAssetTrack) async throws -> Int32 {
-        guard preset.keepsSourceFrameRate else { return VideoSendPreset.frameRate }
+        guard outputPreset.keepsSourceFrameRate else { return VideoSendPreset.frameRate }
         let nominal = try await track.load(.nominalFrameRate)
         if nominal > 0 { return Int32(nominal.rounded(.up)) }
         let minimumDuration = try await track.load(.minFrameDuration)
@@ -521,7 +593,7 @@ final class VideoSendTranscoder: @unchecked Sendable {
             AVVideoWidthKey: Int(dimensions.width),
             AVVideoHeightKey: Int(dimensions.height),
             AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: preset.videoBitrateKbps * 1000,
+                AVVideoAverageBitRateKey: videoBitrateKbps * 1000,
                 AVVideoExpectedSourceFrameRateKey: Int(frameRate),
                 AVVideoProfileLevelKey: AVVideoProfileLevelH264HighAutoLevel,
                 AVVideoH264EntropyModeKey: AVVideoH264EntropyModeCABAC,

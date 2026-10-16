@@ -7,8 +7,8 @@ import UIKit
 /// `legacyAssetPickerItemGenerator` reads Telegram's `TGMediaAsset`s: a photo's current version scaled to 1280 px, or
 /// 2560 px when sent in high quality (`LegacyMediaPickers`' `forceHd`), a Live Photo with its paired motion, and a
 /// video as the app's copy of its current file. Items keep the picker's spoiler, timer and video quality, the
-/// quality capped at each video's own size. Items that can't be read, such as an iCloud original while offline,
-/// are left out.
+/// quality capped at each video's own size, and the editor's crop or trim and mute. Items that can't be read, such
+/// as an iCloud original while offline, are left out.
 enum PhotoAssetSelectionLoader {
     /// Library reads running at once, so a pick of a hundred items doesn't decode them all together.
     private static let concurrentLoads = 4
@@ -17,6 +17,7 @@ enum PhotoAssetSelectionLoader {
     static func load(
         _ assets: [PHAsset],
         cropAdjustments: [String: PhotoCropAdjustments] = [:],
+        videoEdits: [String: VideoEditAdjustments] = [:],
         highQualityPhotos: Bool,
         spoilerAssetIDs: Set<String> = [],
         selfDestructTimer: MediaSelfDestructTimer? = nil,
@@ -36,7 +37,12 @@ enum PhotoAssetSelectionLoader {
                 slots.wait()
                 group.enter()
                 let hasSpoiler = spoilerAssetIDs.contains(asset.localIdentifier)
-                load(asset, maximumSide: maximumSide, crop: cropAdjustments[asset.localIdentifier]) { image in
+                load(
+                    asset,
+                    maximumSide: maximumSide,
+                    crop: cropAdjustments[asset.localIdentifier],
+                    videoEdit: videoEdits[asset.localIdentifier],
+                ) { image in
                     if var image {
                         image.hasSpoiler = hasSpoiler
                         image.selfDestructTimer = selfDestructTimer
@@ -61,11 +67,12 @@ enum PhotoAssetSelectionLoader {
         _ asset: PHAsset,
         maximumSide: Int,
         crop: PhotoCropAdjustments?,
+        videoEdit: VideoEditAdjustments?,
         completion: @escaping (SelectedImage?) -> Void,
     ) {
         switch asset.mediaType {
         case .video:
-            loadVideo(asset, completion: completion)
+            loadVideo(asset, edit: videoEdit, completion: completion)
         case .image where crop != nil:
             // An edited photo goes as the crop editor left it (TGPhotoEditorCrop), a Live Photo as its still.
             loadPhoto(asset, maximumSide: maximumSide, crop: crop, completion: completion)
@@ -143,8 +150,13 @@ enum PhotoAssetSelectionLoader {
     }
 
     /// Telegram sends a picked video converted, with its first frame as the thumbnail (`LegacyMediaPickers`). The
-    /// edited render is preferred to the original, as the library shows it.
-    private static func loadVideo(_ asset: PHAsset, completion: @escaping (SelectedImage?) -> Void) {
+    /// edited render is preferred to the original, as the library shows it. A GIF's copy is named `mp4`, the type
+    /// it converts to, because TDLib takes an animation's MIME type from the original's extension.
+    private static func loadVideo(
+        _ asset: PHAsset,
+        edit: VideoEditAdjustments?,
+        completion: @escaping (SelectedImage?) -> Void,
+    ) {
         let resources = PHAssetResource.assetResources(for: asset)
         guard let resource = resources.first(where: { $0.type == .fullSizeVideo })
             ?? resources.first(where: { $0.type == .video })
@@ -152,10 +164,13 @@ enum PhotoAssetSelectionLoader {
             completion(nil)
             return
         }
-        let pathExtension = URL(fileURLWithPath: resource.originalFilename).pathExtension
-        guard let url = try? SelectedDocumentFileStore.makeFileURL(
-            named: "video.\(pathExtension.isEmpty ? "mov" : pathExtension)",
-        ) else {
+        var pathExtension = URL(fileURLWithPath: resource.originalFilename).pathExtension
+        if edit?.sendsAsGIF == true {
+            pathExtension = "mp4"
+        } else if pathExtension.isEmpty {
+            pathExtension = "mov"
+        }
+        guard let url = try? SelectedDocumentFileStore.makeFileURL(named: "video.\(pathExtension)") else {
             completion(nil)
             return
         }
@@ -169,7 +184,7 @@ enum PhotoAssetSelectionLoader {
                 return
             }
             Task.detached(priority: .userInitiated) {
-                await completion(SelectedVideoLoader.selection(forMovieAt: url))
+                await completion(SelectedVideoLoader.selection(forMovieAt: url, edit: edit))
             }
         }
     }

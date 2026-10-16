@@ -78,6 +78,8 @@ struct AttachmentMediaSendRequest {
     let assets: [PHAsset]
     /// TGMediaEditingContext's crops of the picked photos, by asset.
     var cropAdjustments = [String: PhotoCropAdjustments]()
+    /// TGMediaEditingContext's trims and mutes of the picked videos, by asset.
+    var videoEdits = [String: VideoEditAdjustments]()
     let mode: ComposerMediaSendMode
     let timing: Timing
     let highQualityPhotos: Bool
@@ -152,6 +154,7 @@ struct AttachmentMediaSendRequest {
     private var thumbnailSize = CGSize.zero
     private var didSettleInitialOffset = false
     private var photoEdits = [String: PhotoCropEdit]()
+    private var videoEdits = [String: VideoEditAdjustments]()
     private var isClosing = false
 
     private var allowsMedia: Bool {
@@ -961,6 +964,8 @@ struct AttachmentMediaSendRequest {
         let request = AttachmentMediaSendRequest(
             assets: selection,
             cropAdjustments: photoEdits.mapValues(\.adjustments),
+            // A video sent as a file goes as it is (`LegacyMediaPickers`' `.passthrough`).
+            videoEdits: mode == .files ? [:] : videoEdits,
             mode: mode,
             timing: timing,
             highQualityPhotos: isHighQuality,
@@ -1006,13 +1011,13 @@ struct AttachmentMediaSendRequest {
 
     // MARK: Photo editing
 
-    /// Telegram edits a picked photo in its preview's editor (LegacyMediaPickerGallery); holding a photo here offers
-    /// Edit, which opens the crop tool on it.
+    /// Telegram edits a picked photo or video in its preview's editor (LegacyMediaPickerGallery); holding one here
+    /// offers Edit, which opens the crop tool on a photo and the trim and mute on a video.
     private func configurePhotoEditing() {
         let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(photoLongPressed(_:)))
         press.pressedViewProvider = { [weak self] gesture in
             guard let self, let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
-                  asset(at: path.item)?.mediaType == .image
+                  let mediaType = asset(at: path.item)?.mediaType, mediaType == .image || mediaType == .video
             else { return nil }
             return collectionView.cellForItem(at: path)
         }
@@ -1022,14 +1027,19 @@ struct AttachmentMediaSendRequest {
     @objc private func photoLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
         guard gesture.state == .began, !isClosing,
               let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
-              let asset = asset(at: path.item), asset.mediaType == .image,
+              let asset = asset(at: path.item), asset.mediaType == .image || asset.mediaType == .video,
               let cell = collectionView.cellForItem(at: path)
         else { return }
+        let isVideo = asset.mediaType == .video
         let edit = TelegramContextMenuAction(
             title: L10n.telegram("Common.Edit"),
-            image: UIImage(systemName: "crop"),
+            image: UIImage(systemName: isVideo ? "scissors" : "crop"),
         ) { [weak self] in
-            self?.editPhoto(asset)
+            if isVideo {
+                self?.editVideo(asset)
+            } else {
+                self?.editPhoto(asset)
+            }
         }
         presentTelegramContextMenu(sourceView: cell, actions: [edit], tracking: gesture, presentationStyle: .menuOnly)
     }
@@ -1057,6 +1067,31 @@ struct AttachmentMediaSendRequest {
                   gridCell.representedAssetIdentifier == identifier else { continue }
             gridCell.representedAssetIdentifier = nil
             loadThumbnail(asset, into: gridCell)
+        }
+    }
+
+    /// TGMediaPickerGalleryVideoItemView's editing, which doesn't trim slow-motion videos
+    /// (`itemIsHighFramerateVideo`).
+    private func editVideo(_ asset: PHAsset) {
+        let adjustments = videoEdits[asset.localIdentifier]
+        VideoEditViewController.loadAsset(for: asset) { [weak self] video in
+            guard let self, let video, !isClosing, presentedViewController == nil else { return }
+            let editor = VideoEditViewController(
+                asset: video,
+                adjustments: adjustments,
+                allowsTrimming: !asset.mediaSubtypes.contains(.videoHighFrameRate),
+            )
+            editor.onDone = { [weak self] edit in self?.finishEditing(asset, videoEdit: edit) }
+            present(editor, animated: true)
+        }
+    }
+
+    /// The trim and mute stay with the video while the sheet is open, and an edit picks it.
+    private func finishEditing(_ asset: PHAsset, videoEdit: VideoEditAdjustments?) {
+        let identifier = asset.localIdentifier
+        videoEdits[identifier] = videoEdit
+        if videoEdit != nil, !selection.contains(where: { $0.localIdentifier == identifier }) {
+            toggleSelection(of: asset)
         }
     }
 }

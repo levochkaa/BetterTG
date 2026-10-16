@@ -6331,6 +6331,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         PhotoAssetSelectionLoader.load(
             request.assets,
             cropAdjustments: request.cropAdjustments,
+            videoEdits: request.videoEdits,
             highQualityPhotos: request.highQualityPhotos,
             spoilerAssetIDs: request.spoilerAssetIDs,
             selfDestructTimer: request.selfDestructTimer,

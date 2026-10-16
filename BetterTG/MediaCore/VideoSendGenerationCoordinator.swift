@@ -100,15 +100,15 @@ import TDLibKit
     }
 
     private func begin(_ update: UpdateFileGenerationStart, source: TdUpdateSource) {
-        // The conversion names the preset and stays the same across launches: TDLib restarts an unfinished
-        // generation with the original path and conversion.
-        guard let preset = VideoSendPreset(conversion: update.conversion) else { return }
+        // The conversion names the preset and the editor's trim and mute, and stays the same across launches: TDLib
+        // restarts an unfinished generation with the original path and conversion.
+        guard let conversion = VideoEditAdjustments.parse(conversion: update.conversion) else { return }
         let generationID = update.generationId
         stop(generationID: generationID)
         let original = URL(fileURLWithPath: update.originalPath)
         let originalPath = update.originalPath
         let destination = URL(fileURLWithPath: update.destinationPath)
-        let transcoder = VideoSendTranscoder(preset: preset)
+        let transcoder = VideoSendTranscoder(preset: conversion.preset, edit: conversion.edit)
         let task = Task { [weak self] in
             let result = await Task.detached(priority: .userInitiated) { () -> Error? in
                 let work = SelectedVideoLoader.directory.appendingPathComponent("\(UUID().uuidString).mp4")
