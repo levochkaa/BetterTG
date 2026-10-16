@@ -112,6 +112,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     )
     private lazy var qrScanner = WebAppQRScanner(bridge: bridge)
     private lazy var biometry = WebAppBiometry(bridge: bridge)
+    private lazy var location = WebAppLocation(bridge: bridge)
     private var bottomPanelHeight: NSLayoutConstraint!
     private var mainButtonState = ButtonState()
     private var secondaryButtonState = ButtonState()
@@ -752,6 +753,12 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
             biometry.updateToken(json)
         case "web_app_biometry_open_settings":
             if consumeRecentTouch() { biometry.openSettings() }
+        case "web_app_request_location":
+            location.request()
+        case "web_app_check_location":
+            location.check()
+        case "web_app_open_location_settings":
+            if consumeRecentTouch() { location.openSettings() }
         default:
             break
         }

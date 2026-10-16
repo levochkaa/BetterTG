@@ -53,6 +53,7 @@
 "Permissions.MicrophoneMessage" = "Enable Microphone in Settings → BetterTG to record voice messages.";
 "Permissions.LocationTitle" = "Location Access Required";
 "Permissions.LocationMessage" = "Enable Location in Settings → BetterTG to send your location.";
+"Permissions.WebAppLocationMessage" = "Enable Location in Settings → BetterTG to share it with mini apps.";
 "Permissions.CameraTitle" = "Camera Access Required";
 "Permissions.CameraMessage" = "Enable Camera in Settings → BetterTG to scan QR codes.";
 

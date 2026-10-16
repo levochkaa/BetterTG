@@ -11,18 +11,24 @@ import CoreLocation
     private static var active = Set<OneShotLocation>()
 
     private let manager = CLLocationManager()
-    private var continuation: CheckedContinuation<CLLocationCoordinate2D?, Never>?
+    private var continuation: CheckedContinuation<CLLocation?, Never>?
     private var timeoutTask: Task<Void, Never>?
     private var requestedLocation = false
 
     static func current(timeout: Duration = .seconds(10)) async -> (latitude: Double, longitude: Double)? {
+        let location = await fix(desiredAccuracy: kCLLocationAccuracyHundredMeters, timeout: timeout)
+        return location.map { ($0.coordinate.latitude, $0.coordinate.longitude) }
+    }
+
+    /// One fix at `desiredAccuracy` with its altitude, course, speed and accuracies; Telegram's preciseForeground mode
+    /// uses kCLLocationAccuracyBest.
+    static func fix(desiredAccuracy: CLLocationAccuracy, timeout: Duration = .seconds(10)) async -> CLLocation? {
         let request = OneShotLocation()
         active.insert(request)
         defer { active.remove(request) }
-        let coordinate = await withCheckedContinuation { continuation in
-            request.start(continuation, timeout: timeout)
+        return await withCheckedContinuation { continuation in
+            request.start(continuation, desiredAccuracy: desiredAccuracy, timeout: timeout)
         }
-        return coordinate.map { ($0.latitude, $0.longitude) }
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_: CLLocationManager) {
@@ -30,17 +36,21 @@ import CoreLocation
     }
 
     nonisolated func locationManager(_: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        let coordinate = locations.last?.coordinate
-        Task { @MainActor [weak self] in self?.finish(coordinate) }
+        let location = locations.last
+        Task { @MainActor [weak self] in self?.finish(location) }
     }
 
     nonisolated func locationManager(_: CLLocationManager, didFailWithError _: Error) {
         Task { @MainActor [weak self] in self?.finish(nil) }
     }
 
-    private func start(_ continuation: CheckedContinuation<CLLocationCoordinate2D?, Never>, timeout: Duration) {
+    private func start(
+        _ continuation: CheckedContinuation<CLLocation?, Never>,
+        desiredAccuracy: CLLocationAccuracy,
+        timeout: Duration,
+    ) {
         self.continuation = continuation
-        manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+        manager.desiredAccuracy = desiredAccuracy
         manager.delegate = self
         timeoutTask = Task { [weak self] in
             try? await Task.sleep(for: timeout)
@@ -64,12 +74,12 @@ import CoreLocation
         }
     }
 
-    private func finish(_ coordinate: CLLocationCoordinate2D?) {
+    private func finish(_ location: CLLocation?) {
         timeoutTask?.cancel()
         timeoutTask = nil
         guard let continuation else { return }
         self.continuation = nil
         manager.delegate = nil
-        continuation.resume(returning: coordinate)
+        continuation.resume(returning: location)
     }
 }

@@ -5,8 +5,8 @@ import UIKit
 
 // MARK: - WebAppBotPermissions
 
-/// What a bot's Web Apps may do on one account: Telegram's TelegramBotBiometricsState, kept per account and bot in
-/// the user defaults.
+/// What a bot's Web Apps may do on one account: Telegram's TelegramBotBiometricsState and WebAppPermissionsState,
+/// kept per account and bot in the user defaults.
 struct WebAppBotPermissions: Codable {
     /// TelegramBotBiometricsState.
     struct Biometry: Codable {
@@ -31,7 +31,14 @@ struct WebAppBotPermissions: Codable {
         }
     }
 
+    /// WebAppPermissionsState.Location: whether the bot asked for the location and the user's answer.
+    struct Location: Codable {
+        var isRequested: Bool
+        var isAllowed: Bool
+    }
+
     var biometry: Biometry?
+    var location: Location?
 
     @MainActor static func load(accountKey: String, botUserID: Int64) -> WebAppBotPermissions {
         guard let data = UserDefaults.standard.data(forKey: storageKey(accountKey: accountKey, botUserID: botUserID)),
@@ -60,11 +67,12 @@ struct WebAppBotPermissions: Codable {
 
 // MARK: - WebAppBotSettingsViewController
 
-/// botSettingsScreen for `web_app_biometry_open_settings`: the bot's name over its Biometry switch, which turns the Web
-/// App's biometric access on and off.
+/// botSettingsScreen for `web_app_biometry_open_settings` (the Biometry switch) and the bot info's "Allow access to"
+/// section for `web_app_open_location_settings` (the Geolocation switch), under the bot's name.
 @MainActor final class WebAppBotSettingsViewController: UITableViewController {
     enum Kind {
         case biometry
+        case location
     }
 
     private struct Row {
@@ -104,6 +112,13 @@ struct WebAppBotPermissions: Codable {
 
     override func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
         rows.count
+    }
+
+    override func tableView(_: UITableView, titleForHeaderInSection _: Int) -> String? {
+        switch kind {
+        case .biometry: nil
+        case .location: rows.isEmpty ? nil : L10n.telegram("PeerInfo.Permissions.Title")
+        }
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -149,6 +164,15 @@ struct WebAppBotPermissions: Codable {
                     var biometry = $0.biometry ?? .create()
                     biometry.accessGranted = $1
                     $0.biometry = biometry
+                })
+            }
+        case .location:
+            if let location = permissions.location, location.isRequested || location.isAllowed {
+                rows.append(Row(
+                    title: L10n.telegram("PeerInfo.Permissions.Geolocation"),
+                    isOn: location.isAllowed,
+                ) {
+                    $0.location = WebAppBotPermissions.Location(isRequested: true, isAllowed: $1)
                 })
             }
         }
