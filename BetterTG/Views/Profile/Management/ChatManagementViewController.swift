@@ -168,6 +168,15 @@ final class ChatManagementViewController: SettingsListViewController {
                 value: count > 0 ? count.formatted(.number) : nil,
             ) { [weak self] in self?.push(ChatAdministratorsViewController(target: target)) })
         }
+        // Shown while requests wait, to admins who may add people.
+        let requestCount = target.chat.pendingJoinRequests?.totalCount ?? 0
+        if requestCount > 0, target.rights?.canInviteUsers == true {
+            rows.append(disclosure(
+                L10n.telegram("GroupInfo.MemberRequests"),
+                symbol: "person.crop.circle.badge.questionmark",
+                value: requestCount.formatted(.number),
+            ) { [weak self] in self?.push(ChatJoinRequestsViewController(target: target)) })
+        }
         if target.supergroupID != nil, target.rights?.canRestrictMembers == true {
             let count = target.supergroupInfo?.bannedCount ?? 0
             rows.append(disclosure(
