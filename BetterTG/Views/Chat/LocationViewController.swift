@@ -1377,7 +1377,8 @@ private final class LocationLiveCell: UITableViewCell {
             .sink { [weak self] broadcasts in self?.broadcastsChanged(broadcasts) }
             .store(in: &cancellables)
         let timer = Timer(timeInterval: Self.liveRefreshInterval, repeats: true) { [weak self] _ in
-            self?.liveTimerFired()
+            // The timer runs on the main run loop.
+            MainActor.assumeIsolated { self?.liveTimerFired() }
         }
         RunLoop.main.add(timer, forMode: .common)
         liveTimer = timer
