@@ -391,11 +391,23 @@ From `codex/parity-media-audit` (compose) and `codex/parity-msg-actions` (messag
 | M-10 | P3 | No link preview panel or remove-preview | fixed `a7bed387`: debounced `getLinkPreview` panel in the reply slot, × disables, a tap opens Move Up/Down, Enlarge/Shrink and Do Not Preview, kept in drafts. Simulator: typing https://telegram.org in Saved Messages showed "Telegram — a new era of messaging" and the options menu; text cleared, nothing sent |
 | M-11 | P3 | No admin delete options (delete all from user, report spam, ban) | fixed `d7c453fb`: Telegram's admin sheet with Report Spam, Delete All From and Ban, run only on Proceed. Build only |
 | M-12 | P3 | No read date in private chats | fixed `7549082a`: "read today at HH:MM" from `getMessageReadDate`, and the show-read-time alert. Build only |
-| M-13 | P3 | Deleting several selected messages uses the plain delete, not the admin sheet | open |
-| M-14 | P3 | The admin sheet bans but has no partial restriction options | open |
-| M-15 | P3 | Edits and media captions show no link preview panel | open |
-| M-16 | P3 | Save items only for single messages, not per album item | open |
-| M-17 | P3 | Translate lacks Do Not Translate languages, Change Language and the selection menu item | open |
+| M-13 | P3 | Deleting several selected messages uses the plain delete, not the admin sheet | fixed `911d5161`: the admin sheet for multi-message selections, covering all senders. Build only |
+| M-14 | P3 | The admin sheet bans but has no partial restriction options | fixed `911d5161`: Partially restrict with Telegram's rights list, applied with `setChatMemberStatus(restricted)` on Proceed. Build only |
+| M-15 | P3 | Edits and media captions show no link preview panel | fixed `af1ba506` for text edits (Telegram has no caption preview); options change only the edit. Build only |
+| M-16 | P3 | Save items only for single messages, not per album item | fixed `e09cd4f9`: the pressed album tile or file row is saved. Build only |
+| M-17 | P3 | Translate lacks Do Not Translate languages, Change Language and the selection menu item | fixed `712772cb`: Do Not Translate languages, Change Language and the selection Translate. Build only |
+| B-1 | P2 | An empty bot chat showed "No messages here yet" instead of the bot description | fixed `7ea12c36` |
+| B-2 | P2 | A bot chat without history had no Start button | fixed `7ea12c36` |
+| B-3 | P2 | No "/" command suggestions or Menu button | fixed `7ea12c36` |
+| B-4 | P2 | No inline bot mode ("@bot query") | fixed `7ea12c36`: list or strip results, paging, `sendInlineQueryResultMessage` on tap. Simulator: "@gif cats" in Saved Messages showed the GIF strip; cleared, nothing sent |
+| B-5 | P3 | Tapping a /command in a message did nothing | fixed `22c14b1d` |
+| B-6 | P3 | Reply keyboard phone, location, poll and request buttons show "unsupported" | open |
+| B-7 | P3 | A blocked bot has no Restart Bot | open |
+| B-8 | P3 | The inline placeholder is a hint row, not in the input | partly fixed `7ea12c36` |
+| B-9 | P3 | No "@" member or recent inline bot suggestions | open |
+| B-10 | P3 | No bot info card above the first message of a non-empty chat | open |
+| B-11 | P3 | Inline bots needing location get no location or permission prompt | open |
+| B-12 | — | Mini Apps (menu web app, web app buttons) | skipped: needs a WKWebView runtime with Telegram's WebApp bridge |
 
 
 ### Group and channel management — 2026-10-16
