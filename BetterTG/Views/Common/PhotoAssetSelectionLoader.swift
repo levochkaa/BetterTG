@@ -6,8 +6,8 @@ import UIKit
 /// Reads the attachment sheet's picked library items into composer items in pick order, as
 /// `legacyAssetPickerItemGenerator` reads Telegram's `TGMediaAsset`s: a photo's current version scaled to 1280 px, or
 /// 2560 px when sent in high quality (`LegacyMediaPickers`' `forceHd`), a Live Photo with its paired motion, and a
-/// video as the app's copy of its current file. Items that can't be read, such as an iCloud original while offline,
-/// are left out.
+/// video as the app's copy of its current file. Items keep the picker's spoiler and View Once choices. Items that
+/// can't be read, such as an iCloud original while offline, are left out.
 enum PhotoAssetSelectionLoader {
     /// Library reads running at once, so a pick of a hundred items doesn't decode them all together.
     private static let concurrentLoads = 4
@@ -16,6 +16,8 @@ enum PhotoAssetSelectionLoader {
     static func load(
         _ assets: [PHAsset],
         highQualityPhotos: Bool,
+        spoilerAssetIDs: Set<String> = [],
+        isViewOnce: Bool = false,
         completion: @escaping ([SelectedImage]) -> Void,
     ) {
         guard !assets.isEmpty else { return completion([]) }
@@ -30,8 +32,11 @@ enum PhotoAssetSelectionLoader {
             for (index, asset) in assets.enumerated() {
                 slots.wait()
                 group.enter()
+                let hasSpoiler = spoilerAssetIDs.contains(asset.localIdentifier)
                 load(asset, maximumSide: maximumSide) { image in
-                    if let image {
+                    if var image {
+                        image.hasSpoiler = hasSpoiler
+                        image.isViewOnce = isViewOnce
                         lock.lock()
                         selected[index] = image
                         lock.unlock()
