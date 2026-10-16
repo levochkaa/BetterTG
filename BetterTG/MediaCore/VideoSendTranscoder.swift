@@ -118,8 +118,9 @@ enum VideoSendPreset: Int, CaseIterable, Comparable {
         min(self, Self.bestAvailable(for: size))
     }
 
-    /// `dimensionsFor:adjustments:preset:` for an uncropped video: `TGFitSizeF` into the preset's square, round
-    /// up, then `_renderSizeWithCropSize:` takes the width down to a multiple of 16 and the height with it.
+    /// `dimensionsFor:adjustments:preset:` for an uncropped video, or a crop's size: `TGFitSizeF` into the preset's
+    /// square, round up, then `_renderSizeWithCropSize:` takes the width down to a multiple of 16 and the height
+    /// with it.
     func outputDimensions(for size: CGSize) -> CGSize {
         var fitted = CGSize(width: max(1, size.width), height: max(1, size.height))
         if fitted.width > maximumSide {
@@ -195,7 +196,8 @@ enum SelectedVideoLoader {
         }
     }
 
-    /// A trimmed video's first frame and thumbnail come from the trim's start.
+    /// A trimmed video's first frame and thumbnail come from the trim's start, and a cropped one's are cut as the
+    /// video will be.
     static func selection(forMovieAt url: URL, edit: VideoEditAdjustments? = nil) async -> SelectedImage? {
         let asset = AVURLAsset(url: url)
         do {
@@ -210,20 +212,34 @@ enum SelectedVideoLoader {
             guard presented.width > 0, presented.height > 0, duration.isFinite else {
                 throw VideoSendTranscoder.Failure.noVideoTrack
             }
+            let crop = edit?.crop(inFrameOf: presented)
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 960, height: 960)
+            // A crop is read from a larger frame so the cut part keeps its detail.
+            var previewSide: CGFloat = 960
+            if let crop {
+                let cropSide = max(1, max(crop.videoCropRect.width, crop.videoCropRect.height))
+                previewSide = min(previewSide * 4, previewSide * max(presented.width, presented.height) / cropSide)
+            }
+            generator.maximumSize = CGSize(width: previewSide, height: previewSide)
             let start = min(edit?.trimRange?.lowerBound ?? 0, max(0, duration - 0.1))
             if start > 0 {
                 generator.requestedTimeToleranceBefore = .zero
                 generator.requestedTimeToleranceAfter = .zero
             }
-            let preview = try await UIImage(
+            var preview = try await UIImage(
                 cgImage: generator.image(at: CMTime(seconds: start, preferredTimescale: 600)).image,
             )
+            if let crop {
+                let pixelSize = CGSize(
+                    width: preview.size.width * preview.scale,
+                    height: preview.size.height * preview.scale,
+                )
+                preview = crop.render(preview, sourcePixelSize: pixelSize, maximumSide: 960) ?? preview
+            }
             // The thumbnail fits the sent dimensions into 320 x 320 (`aspectFitted`), JPEG quality 0.4.
             // The thumbnail's shape follows the sent video's, which the presets share up to rounding.
-            let sent = VideoSendPreset.medium.outputDimensions(for: presented)
+            let sent = VideoSendPreset.medium.outputDimensions(for: presented, crop: crop)
             let scale = min(VideoSendPreset.thumbnailSide / sent.width, VideoSendPreset.thumbnailSide / sent.height)
             let thumbnailSize = CGSize(
                 width: max(1, (sent.width * scale).rounded(.down)),
@@ -264,7 +280,8 @@ enum SelectedVideoLoader {
 /// Converts a picked video as `TGMediaVideoConverter` does for its preset: H.264 High profile with CABAC at the
 /// preset's bitrate and 30 fps (the source's rate for 1080p), AAC at 44.1 kHz with the preset's bitrate and
 /// channels, in an MP4. The `moov` box goes first so the video streams before it downloads (`supportsStreaming`).
-/// A trim reads only its range, and a muted video renders at `TGMediaVideoConversionPresetAnimation` without sound.
+/// A trim reads only its range, a crop is cut, turned and mirrored as it renders, and a muted video renders at
+/// `TGMediaVideoConversionPresetAnimation` without sound.
 final class VideoSendTranscoder: @unchecked Sendable {
     enum Failure: Error {
         case noVideoTrack
@@ -274,7 +291,7 @@ final class VideoSendTranscoder: @unchecked Sendable {
     }
 
     let preset: VideoSendPreset
-    /// The gallery editor's trim and mute.
+    /// The gallery editor's trim, mute and crop.
     let edit: VideoEditAdjustments?
 
     private let lock = NSLock()
@@ -363,7 +380,8 @@ final class VideoSendTranscoder: @unchecked Sendable {
         let preferredTransform = try await sourceVideoTrack.load(.preferredTransform)
         let presented = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
         guard presented.width > 0, presented.height > 0 else { throw Failure.noVideoTrack }
-        let dimensions = outputPreset.outputDimensions(for: presented.size)
+        let crop = edit?.crop(inFrameOf: presented.size)
+        let dimensions = outputPreset.outputDimensions(for: presented.size, crop: crop)
         let frameRate = try await frameRate(of: sourceVideoTrack)
         let readable = try await readableSource(
             sourceAsset,
@@ -387,6 +405,7 @@ final class VideoSendTranscoder: @unchecked Sendable {
             for: videoTrack,
             transform: preferredTransform,
             presented: presented,
+            crop: crop,
             dimensions: dimensions,
             frameRate: frameRate,
             duration: duration,
@@ -542,23 +561,26 @@ final class VideoSendTranscoder: @unchecked Sendable {
         return (composition, compositionVideo, compositionAudio, range.duration)
     }
 
-    /// The track's display orientation scaled into the output, as `TGVideoTransformForOrientation` places it.
+    /// The track's display orientation scaled into the output, as `TGVideoTransformForOrientation` places it, with
+    /// the crop cut, turned and mirrored (`TGVideoTransformForCrop`).
     private func composition(
         for track: AVAssetTrack,
         transform: CGAffineTransform,
         presented: CGRect,
+        crop: PhotoCropAdjustments?,
         dimensions: CGSize,
         frameRate: Int32,
         duration: CMTime,
     ) -> AVVideoComposition {
         var layer = AVVideoCompositionLayerInstruction.Configuration(assetTrack: track)
+        let placement = crop?.videoTransform(renderSize: dimensions) ?? CGAffineTransform(
+            scaleX: dimensions.width / presented.width,
+            y: dimensions.height / presented.height,
+        )
         layer.setTransform(
             transform
                 .concatenating(CGAffineTransform(translationX: -presented.minX, y: -presented.minY))
-                .concatenating(CGAffineTransform(
-                    scaleX: dimensions.width / presented.width,
-                    y: dimensions.height / presented.height,
-                )),
+                .concatenating(placement),
             at: .zero,
         )
         let instruction = AVVideoCompositionInstruction(configuration: .init(
