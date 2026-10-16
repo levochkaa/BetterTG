@@ -1742,3 +1742,9 @@
 "Channel.BanUser.PermissionAddMembers" = "Add Members";
 "Channel.EditAdmin.PermissionPinMessages" = "Pin Messages";
 "Channel.BanUser.PermissionChangeGroupInfo" = "Change Group Info";
+"Localization.DoNotTranslate" = "Do Not Translate";
+"Localization.DoNotTranslateInfo" = "Do not show the 'Translate' button in the message action menu for this language.";
+"Localization.DoNotTranslateManyInfo" = "Do not show the 'Translate' button in the message action menu for these languages.";
+"DoNotTranslate.Title" = "Do Not Translate";
+"Translate.ChangeLanguage" = "Change Language";
+"Translate.Languages.Title" = "Languages";

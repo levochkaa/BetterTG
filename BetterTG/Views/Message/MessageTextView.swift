@@ -57,6 +57,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     private var contextQuoteAllowsCopy = true
     /// Read-only chats select text to copy it without offering Quote (ChatController's text selection actions).
     private var contextQuoteAllowsQuote = true
+    /// TextSelectionNode's Translate for the selected text, when the chat offers Telegram's translation.
+    private var contextTranslateAction: ((String) -> Void)?
     private lazy var quoteMenuInteraction = UIEditMenuInteraction(delegate: self)
     private var quoteMenuTask: Task<Void, Never>?
     private lazy var entityTapDelegate = QuoteTapDelegate(owner: self)
@@ -144,6 +146,25 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         if !contextQuoteAllowsCopy, action == #selector(copy(_:)) || action == #selector(cut(_:)) { return false }
         return super.canPerformAction(action, withSender: sender)
+    }
+
+    private static func removingSystemTranslate(from elements: [UIMenuElement]) -> [UIMenuElement] {
+        elements.compactMap { element -> UIMenuElement? in
+            if let menu = element as? UIMenu {
+                return menu.replacingChildren(removingSystemTranslate(from: menu.children))
+            }
+            if let command = element as? UICommand,
+               NSStringFromSelector(command.action).localizedCaseInsensitiveContains("translate")
+            {
+                return nil
+            }
+            if let action = element as? UIAction,
+               action.identifier.rawValue.localizedCaseInsensitiveContains("translate")
+            {
+                return nil
+            }
+            return element
+        }
     }
 
     func configure(
@@ -299,10 +320,16 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         }
     }
 
-    func setContextQuoteAction(_ action: ((NSRange) -> Void)?, allowsCopy: Bool = true, allowsQuote: Bool = true) {
+    func setContextQuoteAction(
+        _ action: ((NSRange) -> Void)?,
+        allowsCopy: Bool = true,
+        allowsQuote: Bool = true,
+        translate: ((String) -> Void)? = nil,
+    ) {
         contextQuoteAction = action
         contextQuoteAllowsCopy = action == nil || allowsCopy
         contextQuoteAllowsQuote = action == nil || allowsQuote
+        contextTranslateAction = action == nil ? nil : translate
         if action != nil { lastQuoteSelection = nil }
         entityTapGesture.cancelsTouchesInView = action == nil
         isSelectable = action != nil && formattedText != nil
@@ -479,8 +506,17 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         guard !hidden else { return UIMenu(children: []) }
         let quote = UIAction(title: L10n.telegram("Conversation.ContextMenuQuote")) { _ in contextQuoteAction(range) }
         // TextSelectionNode drops Copy and Share for protected content and keeps Quote.
-        let quoteActions: [UIMenuElement] = contextQuoteAllowsQuote ? [quote] : []
-        return UIMenu(children: quoteActions + (contextQuoteAllowsCopy ? suggestedActions : []))
+        var quoteActions: [UIMenuElement] = contextQuoteAllowsQuote ? [quote] : []
+        var systemActions = contextQuoteAllowsCopy ? suggestedActions : []
+        if let contextTranslateAction, let formattedText, NSMaxRange(range) <= (formattedText.text as NSString).length {
+            // Telegram's own Translate takes the system one's place.
+            let selected = (formattedText.text as NSString).substring(with: range)
+            quoteActions.append(UIAction(title: L10n.telegram("Conversation.ContextMenuTranslate")) { _ in
+                contextTranslateAction(selected)
+            })
+            systemActions = Self.removingSystemTranslate(from: systemActions)
+        }
+        return UIMenu(children: quoteActions + systemActions)
     }
 
     private func renderText() {

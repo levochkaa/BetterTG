@@ -10,9 +10,10 @@ import UIKit
 /// the message menu offers Translate for text in a supported language the user doesn't read.
 enum MessageTranslation {
     private static let showButtonKey = "BetterTG.showTranslateButton"
+    private static let ignoredLanguagesKey = "BetterTG.doNotTranslateLanguages"
 
-    /// Telegram's supportedTranslationLanguages.
-    private static let supportedLanguages: Set = [
+    /// Telegram's supportedTranslationLanguages, in its order.
+    private static let supportedLanguageList = [
         "af", "sq", "am", "ar", "hy", "az", "eu", "be", "bn", "bs", "bg", "ca", "ceb", "zh", "co", "hr", "cs", "da",
         "nl", "en", "eo", "et", "fi", "fr", "fy", "gl", "ka", "de", "el", "gu", "ht", "ha", "haw", "he", "hi", "hmn",
         "hu", "is", "ig", "id", "ga", "it", "ja", "jv", "kn", "kk", "km", "rw", "ko", "ku", "ky", "lo", "lv", "lt",
@@ -20,6 +21,9 @@ enum MessageTranslation {
         "pt-BR", "pa", "ro", "ru", "sm", "gd", "sr", "st", "sn", "sd", "si", "sk", "sl", "so", "es", "su", "sw", "sv",
         "tl", "tg", "ta", "tt", "te", "th", "tr", "tk", "uk", "ur", "ug", "uz", "vi", "cy", "xh", "yi", "yo", "zu",
     ]
+    private static let supportedLanguages = Set(supportedLanguageList)
+    /// Telegram's popularTranslationLanguages, listed first.
+    private static let popularLanguages = ["en", "ar", "zh", "fr", "de", "it", "ja", "ko", "pt-BR", "ru", "es", "uk"]
 
     /// Settings > Language > Show Translate Button, off by default as in Telegram.
     static var showsTranslateButton: Bool {
@@ -37,19 +41,62 @@ enum MessageTranslation {
         return normalized(code)
     }
 
-    /// Telegram's effectiveIgnoredTranslationLanguages without a Do Not Translate list: the app language and the
-    /// system's first languages.
-    private static var ignoredLanguages: Set<String> {
-        var systemLanguages = Locale.preferredLanguages.prefix(2).map { $0.components(separatedBy: "-").first ?? $0 }
-        if systemLanguages.count == 2, systemLanguages != ["en", "ru"] {
-            systemLanguages = Array(systemLanguages.prefix(1))
-        }
-        return Set(systemLanguages).union([appLanguageCode])
+    /// The Do Not Translate list in order: the user's own once edited, else Telegram's default of the app language
+    /// and the system's first languages (effectiveIgnoredTranslationLanguages).
+    static var ignoredLanguageList: [String] {
+        if let custom = UserDefaults.standard.stringArray(forKey: ignoredLanguagesKey) { return custom }
+        return [appLanguageCode] + systemLanguageCodes.filter { $0 != appLanguageCode }
     }
 
-    /// canTranslateText: the language of the text's first 64 characters when Translate should be offered for it.
-    static func translatableLanguage(of text: String) -> String? {
-        guard showsTranslateButton, !text.isEmpty else { return nil }
+    static var ignoredLanguages: Set<String> {
+        Set(ignoredLanguageList)
+    }
+
+    /// translationSettingsController's languages: the popular ones with the app language on top, then the rest, each
+    /// with its English name and its own name.
+    static var languageList: [(code: String, title: String, subtitle: String)] {
+        let english = Locale(identifier: "en")
+        let appLanguage = appLanguageCode
+        var result = [(code: String, title: String, subtitle: String)]()
+        var added = Set<String>()
+        for code in popularLanguages + supportedLanguageList where !added.contains(code) {
+            guard let title = english.localizedString(forLanguageCode: code) else { continue }
+            added.insert(code)
+            let subtitle = Locale(identifier: code).localizedString(forLanguageCode: code) ?? title
+            let entry = (code: code, title: title.capitalized, subtitle: subtitle.capitalized)
+            if code == appLanguage {
+                result.insert(entry, at: 0)
+            } else {
+                result.append(entry)
+            }
+        }
+        return result
+    }
+
+    /// Telegram's systemLanguageCodes: the first preferred language, or the first two when they are English and
+    /// Russian.
+    private static var systemLanguageCodes: [String] {
+        var languages = Locale.preferredLanguages.prefix(2).map { $0.components(separatedBy: "-").first ?? $0 }
+        if languages.count == 2, languages != ["en", "ru"] {
+            languages = Array(languages.prefix(1))
+        }
+        return languages
+    }
+
+    /// translationSettingsController's update: the first change starts from the default list.
+    static func setIgnored(_ code: String, _ ignored: Bool) {
+        var list = ignoredLanguageList
+        if ignored {
+            if !list.contains(code) { list.append(code) }
+        } else {
+            list.removeAll { $0 == code }
+        }
+        UserDefaults.standard.set(list, forKey: ignoredLanguagesKey)
+    }
+
+    /// The supported language of the text's first 64 characters, if recognised.
+    static func detectedLanguage(of text: String) -> String? {
+        guard !text.isEmpty else { return nil }
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(String(text.prefix(64)))
         let hypotheses = recognizer.languageHypotheses(withMaximum: 3)
@@ -57,8 +104,24 @@ enum MessageTranslation {
             .filter({ supportedLanguages.contains(normalized($0.key.rawValue)) })
             .max(by: { $0.value < $1.value })
         else { return nil }
-        let language = normalized(best.key.rawValue)
+        return normalized(best.key.rawValue)
+    }
+
+    /// canTranslateText: the text's language when the message menu should offer Translate for it.
+    static func translatableLanguage(of text: String) -> String? {
+        guard showsTranslateButton, let language = detectedLanguage(of: text) else { return nil }
         return ignoredLanguages.contains(language) ? nil : language
+    }
+
+    /// TextProcessingTranslateContentComponent: the app language, unless the text is already in it; then English,
+    /// or for English text another language the user reads.
+    static func targetLanguage(from source: String?) -> String {
+        let appLanguage = appLanguageCode
+        guard let source, source == appLanguage else { return appLanguage }
+        guard source == "en" else { return "en" }
+        if let other = ignoredLanguageList.first(where: { $0 != "en" }) { return other }
+        let preferred = Locale.preferredLanguages.first { !$0.hasPrefix("en") }
+        return preferred.map { normalized($0) } ?? "en"
     }
 
     /// The language's name in the app language, capitalised as a header.
@@ -84,9 +147,10 @@ final class MessageTranslationViewController: SettingsListViewController {
     private let sourceLanguage: String?
     private let canCopy: Bool
     private let onCopied: () -> Void
-    private let targetLanguage = MessageTranslation.appLanguageCode
+    private var targetLanguage: String
     private var translation: FormattedText?
     private var failed = false
+    private var requestGeneration = 0
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -97,6 +161,7 @@ final class MessageTranslationViewController: SettingsListViewController {
         self.sourceLanguage = sourceLanguage
         self.canCopy = canCopy
         self.onCopied = onCopied
+        self.targetLanguage = MessageTranslation.targetLanguage(from: sourceLanguage)
         super.init()
     }
 
@@ -131,12 +196,18 @@ final class MessageTranslationViewController: SettingsListViewController {
                 rows: [translationRow],
             ),
         ]
+        var actions = [SettingsRow]()
         if canCopy, let translation {
-            sections.append(SettingsSection(rows: [SettingsRow(
+            actions.append(SettingsRow(
                 title: L10n.telegram("Translate.CopyTranslation"),
                 style: .action(destructive: false),
-            ) { [weak self] in self?.copyTranslation(translation) }]))
+            ) { [weak self] in self?.copyTranslation(translation) })
         }
+        actions.append(SettingsRow(
+            title: L10n.telegram("Translate.ChangeLanguage"),
+            style: .action(destructive: false),
+        ) { [weak self] in self?.changeLanguage() })
+        sections.append(SettingsSection(rows: actions))
         return sections
     }
 
@@ -163,6 +234,8 @@ final class MessageTranslationViewController: SettingsListViewController {
 
     private func loadTranslation() {
         guard contextIsCurrent else { return }
+        requestGeneration += 1
+        let generation = requestGeneration
         let client = client
         let text = text
         let targetLanguage = targetLanguage
@@ -172,7 +245,7 @@ final class MessageTranslationViewController: SettingsListViewController {
                 toLanguageCode: targetLanguage,
                 tone: "",
             ))
-            guard let self, contextIsCurrent else { return }
+            guard let self, contextIsCurrent, requestGeneration == generation else { return }
             if let result, !result.text.isEmpty {
                 translation = result
             } else {
@@ -180,6 +253,21 @@ final class MessageTranslationViewController: SettingsListViewController {
             }
             reload()
         }
+    }
+
+    /// Telegram's language choice for the translation: the result switches to the picked language.
+    private func changeLanguage() {
+        let picker = TranslationLanguagesViewController(mode: .target(selected: targetLanguage) { [weak self] code in
+            guard let self else { return }
+            navigationController?.popViewController(animated: true)
+            guard code != targetLanguage else { return }
+            targetLanguage = code
+            translation = nil
+            failed = false
+            reload()
+            loadTranslation()
+        })
+        navigationController?.pushViewController(picker, animated: true)
     }
 
     private func copyTranslation(_ result: FormattedText) {

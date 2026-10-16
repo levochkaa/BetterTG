@@ -65,6 +65,8 @@ struct TelegramContextQuoteSelection {
     /// Whether the selection offers Quote; text that can't be replied to is still selected to copy it.
     var allowsQuote = true
     let handler: (NSRange) -> Void
+    /// Telegram's Translate for the selected text; nil where the chat doesn't offer it.
+    var translate: ((String) -> Void)?
 }
 
 // MARK: - TelegramContextMenuPresentationStyle
@@ -611,9 +613,15 @@ private final class TelegramContextMenuController: UIViewController {
         if let quoteSelection, presentationStyle == .message {
             let textView = quoteSelection.textView
             let handler = quoteSelection.handler
-            textView.setContextQuoteAction({ [weak self] range in
-                self?.dismissMenu { handler(range) }
-            }, allowsCopy: quoteSelection.allowsCopy, allowsQuote: quoteSelection.allowsQuote)
+            let translate: ((String) -> Void)? = quoteSelection.translate.map { translate in
+                { [weak self] text in self?.dismissMenu { translate(text) } }
+            }
+            textView.setContextQuoteAction(
+                { [weak self] range in self?.dismissMenu { handler(range) } },
+                allowsCopy: quoteSelection.allowsCopy,
+                allowsQuote: quoteSelection.allowsQuote,
+                translate: translate,
+            )
             selectableTextViews = [textView]
         }
 

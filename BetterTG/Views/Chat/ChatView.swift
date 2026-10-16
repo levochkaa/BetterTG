@@ -5563,14 +5563,31 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             title: L10n.telegram("Conversation.ContextMenuTranslate"),
             image: UIImage(systemName: "translate"),
         ) { [weak self] in
-            guard let self else { return }
-            MessageTranslationViewController.present(
-                text: messageText,
-                sourceLanguage: language,
-                canCopy: canCopy,
-                from: self,
-            ) { [weak self] in self?.showChatToast(L10n.telegram("Conversation.TextCopied")) }
+            self?.presentTranslation(of: messageText, sourceLanguage: language, canCopy: canCopy)
         }
+    }
+
+    /// TextSelectionNode's Translate for the selected part of a message, where the chat offers Telegram's
+    /// translation.
+    private func selectionTranslateAction(canCopy: Bool) -> ((String) -> Void)? {
+        if case .chatTypeSecret = chatVM.customChat.chat.type { return nil }
+        guard MessageTranslation.showsTranslateButton else { return nil }
+        return { [weak self] selected in
+            self?.presentTranslation(
+                of: FormattedText(entities: [], text: selected),
+                sourceLanguage: MessageTranslation.detectedLanguage(of: selected),
+                canCopy: canCopy,
+            )
+        }
+    }
+
+    private func presentTranslation(of messageText: FormattedText, sourceLanguage: String?, canCopy: Bool) {
+        MessageTranslationViewController.present(
+            text: messageText,
+            sourceLanguage: sourceLanguage,
+            canCopy: canCopy,
+            from: self,
+        ) { [weak self] in self?.showChatToast(L10n.telegram("Conversation.TextCopied")) }
     }
 
     /// Telegram's Save Image / Save Video (saveToCameraRoll) and Save to Files (saveMediaToFiles) message items for a
@@ -6027,7 +6044,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 let canQuote = allowsQuoteSelection(in: message, sourceMessageID: target.sourceMessageID)
                 guard canQuote || allowsCopySelection(in: message, sourceMessageID: target.sourceMessageID)
                 else { return nil }
-                return TelegramContextQuoteSelection(
+                var selection = TelegramContextQuoteSelection(
                     textView: target.textView,
                     allowsCopy: message.properties.canBeCopied,
                     allowsQuote: canQuote,
@@ -6035,6 +6052,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     guard let self, let message else { return }
                     chatVM.beginQuoteReply(to: message, range: range, sourceMessageID: target.sourceMessageID)
                 }
+                selection.translate = selectionTranslateAction(canCopy: message.properties.canBeCopied)
+                return selection
             },
             onDismiss: { [weak self] in self?.retryClientRestoration() },
         )
