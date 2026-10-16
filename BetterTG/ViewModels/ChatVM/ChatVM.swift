@@ -900,6 +900,15 @@ import UIKit
         return botCommands.filter { $0.command.lowercased().hasPrefix(normalized) }
     }
 
+    /// inputTextPanelStateForChatPresentationInterfaceState's contextPlaceholder: the resolved inline bot's
+    /// placeholder while the input is "@bot " with an empty query.
+    var inlineBotPlaceholder: String? {
+        guard editCustomMessage == nil, let state = inlineBotQuery, !state.placeholder.isEmpty,
+              case .inlineBot(let username, let query) = ChatInputQuery.parse(text.string), query.isEmpty,
+              username.lowercased() == state.username.lowercased() else { return nil }
+        return state.placeholder
+    }
+
     /// ChatTextInputPanelNode's menu button: a bot chat with commands. A Mini App menu button isn't offered.
     var showsBotMenuButton: Bool {
         guard case .bot = customChat.type else { return false }

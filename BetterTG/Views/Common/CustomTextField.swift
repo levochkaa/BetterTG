@@ -28,6 +28,10 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
 
     private var placeholder: String
     private let placeholderLabel = UILabel()
+    /// ChatTextInputPanelNode's contextPlaceholderNode: an inline bot's placeholder after the typed "@bot ", shown
+    /// while the input still holds exactly that text.
+    private var contextPlaceholder: (text: String, placeholder: String)?
+    private let contextPlaceholderLabel = UILabel()
     private var lastWidth = CGFloat.zero
     private var isApplyingValue = false
     private lazy var emojiRenderer = ComposerCustomEmojiRenderer(textView: self)
@@ -73,6 +77,17 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
             placeholderLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             placeholderLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 5),
             placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -5),
+        ])
+        contextPlaceholderLabel.translatesAutoresizingMaskIntoConstraints = false
+        contextPlaceholderLabel.numberOfLines = 1
+        contextPlaceholderLabel.lineBreakMode = .byTruncatingTail
+        contextPlaceholderLabel.isUserInteractionEnabled = false
+        contextPlaceholderLabel.isHidden = true
+        addSubview(contextPlaceholderLabel)
+        NSLayoutConstraint.activate([
+            contextPlaceholderLabel.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            contextPlaceholderLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 5),
+            contextPlaceholderLabel.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -10),
         ])
         updatePlaceholder()
     }
@@ -212,6 +227,15 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     func setPlaceholder(_ value: String) {
         guard placeholder != value else { return }
         placeholder = value
+        updatePlaceholder()
+    }
+
+    /// The inline bot placeholder for the input `typedText`, or nil to remove it.
+    func setContextPlaceholder(_ value: String?, after typedText: String) {
+        let updated = value.map { (text: typedText, placeholder: $0) }
+        guard updated?.text != contextPlaceholder?.text || updated?.placeholder != contextPlaceholder?.placeholder
+        else { return }
+        contextPlaceholder = updated
         updatePlaceholder()
     }
 
@@ -388,5 +412,32 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     private func updatePlaceholder() {
         placeholderLabel.text = placeholder
         placeholderLabel.isHidden = !text.isEmpty
+        updateContextPlaceholder()
+    }
+
+    /// Telegram lays the typed "@bot" out invisibly in front of the placeholder, so the placeholder starts where the
+    /// text ends, on one line truncated at the end. Typing anything else hides it at once.
+    private func updateContextPlaceholder() {
+        guard let contextPlaceholder, markedTextRange == nil, text == contextPlaceholder.text,
+              let typed = attributedText, typed.length > 0
+        else {
+            contextPlaceholderLabel.isHidden = true
+            contextPlaceholderLabel.attributedText = nil
+            return
+        }
+        let value = NSMutableAttributedString(attributedString: typed)
+        let typedRange = NSRange(location: 0, length: value.length)
+        for key: NSAttributedString.Key in [.backgroundColor, .underlineStyle, .strikethroughStyle, .link] {
+            value.removeAttribute(key, range: typedRange)
+        }
+        value.addAttribute(.foregroundColor, value: UIColor.clear, range: typedRange)
+        let placeholderFont = typed.attribute(.font, at: typed.length - 1, effectiveRange: nil) as? UIFont
+            ?? font ?? .body
+        value.append(NSAttributedString(
+            string: contextPlaceholder.placeholder,
+            attributes: [.font: placeholderFont, .foregroundColor: UIColor.placeholderText],
+        ))
+        contextPlaceholderLabel.attributedText = value
+        contextPlaceholderLabel.isHidden = false
     }
 }

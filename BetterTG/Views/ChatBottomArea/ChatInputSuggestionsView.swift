@@ -64,11 +64,6 @@ UICollectionViewDelegateFlowLayout {
         return (button.text, start.parameter)
     }
 
-    private var showsInlineHint: Bool {
-        guard let state = inlineState else { return false }
-        return state.results.isEmpty && state.query.isEmpty && !state.placeholder.isEmpty
-    }
-
     override init(frame: CGRect) {
         let layout = UICollectionViewFlowLayout()
         layout.scrollDirection = .horizontal
@@ -163,7 +158,7 @@ UICollectionViewDelegateFlowLayout {
         case .commands(let commands, _): commands.count
         case .mentions(let mentions): mentions.count
         case .inline(let state):
-            showsInlineHint ? 1 : state.results.count + (inlineButton == nil ? 0 : 1)
+            state.results.count + (inlineButton == nil ? 0 : 1)
         }
     }
 
@@ -190,9 +185,7 @@ UICollectionViewDelegateFlowLayout {
             if let client,
                let mention = mentions[safe: indexPath.row] { cell.configureMention(mention, client: client) }
         case .inline(let state):
-            if showsInlineHint {
-                cell.configureHint(state.placeholder)
-            } else if let button = inlineButton, indexPath.row == 0 {
+            if let button = inlineButton, indexPath.row == 0 {
                 cell.configureButton(button.text)
             } else if let client,
                       let item = state.results[safe: indexPath.row - (inlineButton == nil ? 0 : 1)]
@@ -213,7 +206,6 @@ UICollectionViewDelegateFlowLayout {
         case .mentions(let mentions):
             if let mention = mentions[safe: indexPath.row] { onSelectMention?(mention) }
         case .inline(let state):
-            guard !showsInlineHint else { return }
             if let button = inlineButton, indexPath.row == 0 {
                 onInlineButton?(state.username, button.parameter)
             } else if let item = state.results[safe: indexPath.row - (inlineButton == nil ? 0 : 1)] {
@@ -484,14 +476,6 @@ private final class ChatInputSuggestionCell: UITableViewCell {
         titleLabel.textColor = tintColor
         detailLabel.text = nil
         selectionStyle = .default
-    }
-
-    func configureHint(_ hint: String) {
-        layout(thumbnail: false, insert: false)
-        titleLabel.text = hint
-        titleLabel.textColor = .secondaryLabel
-        detailLabel.text = nil
-        selectionStyle = .none
     }
 
     private func layout(thumbnail: Bool, insert: Bool, avatar: Bool = false) {

@@ -484,6 +484,11 @@ final class ChatComposerView: UIView {
         textView.setPlaceholder(chatVM.composerPlaceholder)
         textView.customEmojiClient = chatVM.client
         textView.setAttributedText(targetText)
+        // ChatTextInputPanelNode's contextPlaceholder: an inline bot's placeholder follows "@bot " inside the input.
+        textView.setContextPlaceholder(
+            canWrite && canWriteText ? chatVM.inlineBotPlaceholder : nil,
+            after: targetText.string,
+        )
         // Telegram builds the edit state with ChatTextInputState(inputText:), whose selection is after the text.
         if beginsEditing { textView.moveCaretToEnd() }
 
