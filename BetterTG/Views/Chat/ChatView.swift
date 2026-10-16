@@ -6186,7 +6186,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// InlineReactionSearchPanel's peek menu for a sticker suggested by the typed emoji: Send Silently outside Saved
-    /// Messages and secret chats, Add to or Remove from Favorites, and View Pack.
+    /// Messages and secret chats, Schedule Message where scheduling is allowed, Add to or Remove from Favorites, and
+    /// View Pack.
     private func presentSuggestedStickerMenu(
         _ sticker: Sticker,
         from cell: UIView,
@@ -6209,6 +6210,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 self?.composerView.sendSuggestedSticker(sticker, options: ChatVM.sendOptions(silent: true))
             })
         }
+        if chatVM.canScheduleMessages {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.SendMessage.ScheduleMessage"),
+                image: UIImage(systemName: "calendar.badge.clock"),
+            ) { [weak self] in self?.presentSuggestedStickerSchedulePicker(sticker) })
+        }
         let fileID = sticker.sticker.id
         let isFavorite = favoriteStickerFileIDs.contains(fileID)
         actions.append(TelegramContextMenuAction(
@@ -6223,6 +6230,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ) { [weak self] in self?.presentStickerPack(setID: setID) })
         }
         presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture, presentationStyle: .menuOnly)
+    }
+
+    /// InlineReactionSearchPanel's Schedule Message: `sendSticker` with `schedule` opens the date picker, and the
+    /// sticker goes out at the picked time.
+    private func presentSuggestedStickerSchedulePicker(_ sticker: Sticker) {
+        guard presentationMode == .full, chatVM.locationContextIsCurrent, chatVM.canScheduleMessages else { return }
+        ScheduleMessagePickerViewController.present(
+            from: self,
+            isReminder: chatVM.customChat.isSavedMessages,
+            showsSendWhenOnline: chatVM.canSendWhenOnline,
+        ) { [weak self] state in
+            guard let self, chatVM.locationContextIsCurrent else { return }
+            composerView.sendSuggestedSticker(sticker, options: ChatVM.sendOptions(schedulingState: state))
+        }
     }
 
     /// Telegram's sticker and GIF message items (ChatInterfaceStateContextMenus): Add to or Remove from Favorites and
