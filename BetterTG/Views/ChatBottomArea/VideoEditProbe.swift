@@ -9,12 +9,15 @@
     /// trim, mute, crop and the scrubber's zoom are checked without photo library access. Done shows the edit, with
     /// the crop in the frame's pixels, and the grid's thumbnail of a cropped or trimmed video in a square cell
     /// (VideoEditThumbnail). It converts the video as it would be sent, with `VideoSendTranscoder` at Medium, then
-    /// shows the converted file's length, size and sound; nothing is sent.
+    /// shows the converted file's length, size and sound; nothing is sent. `-ui-probe-video-edit cover` opens a
+    /// 64-second video as a broadcast channel or Saved Messages would, with Edit Cover; Done also writes the cover as
+    /// the send path does (`SelectedVideoLoader`) and shows the file with its time and size.
     @MainActor enum VideoEditProbe {
-        /// The edit, its grid thumbnail and the converted file, closed by Close.
+        /// The edit, its grid thumbnail, the cover file and the converted file, closed by Close.
         private final class ResultViewController: UIViewController {
             private let label = UILabel()
             private let thumbnailView = UIImageView()
+            private let coverView = UIImageView()
 
             var text: String {
                 get { label.text ?? "" }
@@ -25,6 +28,12 @@
             var thumbnail: UIImage? {
                 get { thumbnailView.image }
                 set { thumbnailView.image = newValue }
+            }
+
+            /// The cover file as it would be sent, fitted into its box.
+            var cover: UIImage? {
+                get { coverView.image }
+                set { coverView.image = newValue }
             }
 
             init(text: String) {
@@ -44,10 +53,11 @@
                 label.font = .monospacedSystemFont(ofSize: 15, weight: .regular)
                 thumbnailView.contentMode = .scaleAspectFill
                 thumbnailView.clipsToBounds = true
+                coverView.contentMode = .scaleAspectFit
                 let close = UIButton(type: .system, primaryAction: UIAction(title: "Close") { [weak self] _ in
                     self?.dismiss(animated: true)
                 })
-                for subview in [thumbnailView, label, close] as [UIView] {
+                for subview in [coverView, thumbnailView, label, close] as [UIView] {
                     subview.translatesAutoresizingMaskIntoConstraints = false
                     view.addSubview(subview)
                 }
@@ -62,6 +72,10 @@
                     thumbnailView.centerXAnchor.constraint(equalTo: guide.centerXAnchor),
                     thumbnailView.widthAnchor.constraint(equalToConstant: 128),
                     thumbnailView.heightAnchor.constraint(equalToConstant: 128),
+                    coverView.bottomAnchor.constraint(equalTo: thumbnailView.topAnchor, constant: -12),
+                    coverView.centerXAnchor.constraint(equalTo: guide.centerXAnchor),
+                    coverView.widthAnchor.constraint(equalToConstant: 240),
+                    coverView.heightAnchor.constraint(equalToConstant: 135),
                 ])
             }
         }
@@ -69,7 +83,9 @@
         static func runIfRequested(in window: UIWindow) {
             let arguments = ProcessInfo.processInfo.arguments
             guard let flagIndex = arguments.firstIndex(of: "-ui-probe-video-edit") else { return }
-            let initialTab: VideoEditorTab = arguments[safe: flagIndex + 1] == "crop" ? .crop : .video
+            let mode = arguments[safe: flagIndex + 1]
+            let initialTab: VideoEditorTab = mode == "crop" ? .crop : .video
+            let picksCover = mode == "cover"
             Task { @MainActor in
                 for _ in 0..<60 where TDLib.shared.activeAccountID == nil {
                     try? await Task.sleep(for: .milliseconds(500))
@@ -77,7 +93,14 @@
                 guard TDLib.shared.activeAccountID != nil else { return }
                 let url: URL
                 do {
-                    url = try await Task.detached(priority: .userInitiated) { try await ProbeVideo.make() }.value
+                    url = try await Task.detached(priority: .userInitiated) { () async throws -> URL in
+                        guard picksCover else { return try await ProbeVideo.make() }
+                        return try await ProbeVideo.make(
+                            seconds: ProbeVideo.coverSeconds,
+                            frameRate: ProbeVideo.coverFrameRate,
+                            named: "bettertg-video-cover-probe.mov",
+                        )
+                    }.value
                 } catch {
                     log("Video edit probe could not write its video: \(error)")
                     return
@@ -91,6 +114,7 @@
                 let editor = VideoEditViewController(
                     asset: AVURLAsset(url: url),
                     adjustments: nil,
+                    allowsCover: picksCover,
                     initialTab: initialTab,
                 )
                 editor.onDone = { [weak presenter] edit in
@@ -106,6 +130,12 @@
                             result.thumbnail = thumbnail
                             text += thumbnail.map { "\ngrid thumbnail \(Int($0.size.width))×\(Int($0.size.height))" }
                                 ?? "\nno grid thumbnail"
+                        }
+                        if edit?.coverTime != nil {
+                            result.text = text + "\n\nwriting the cover…"
+                            let cover = await writeCover(of: url, edit: edit)
+                            result.cover = cover.image
+                            text += "\n" + cover.summary
                         }
                         result.text = text + "\n\nconverting…"
                         let converted = await convert(url, edit: edit)
@@ -130,8 +160,29 @@
                     + ", turned \(crop.orientation)" + (crop.isMirrored ? ", mirrored" : "")
                 lines.append(line)
             }
+            if let coverTime = edit.coverTime {
+                lines.append(String(format: "cover at %.2f s", coverTime))
+            }
             lines.append(edit.conversion(for: .medium))
             return lines.joined(separator: "\n")
+        }
+
+        /// The cover as the send path writes it: the loader's copy of the video read with the edit, its cover file
+        /// read back, then the copy's files removed.
+        private static func writeCover(
+            of source: URL,
+            edit: VideoEditAdjustments?,
+        ) async -> (image: UIImage?, summary: String) {
+            guard let copy = SelectedVideoLoader.copy(source),
+                  let selection = await SelectedVideoLoader.selection(forMovieAt: copy, edit: edit)
+            else { return (nil, "the video could not be read") }
+            defer { SelectedDocumentFileStore.remove(selection.fileURLs) }
+            guard let coverURL = selection.video?.coverURL,
+                  let data = try? Data(contentsOf: coverURL),
+                  let image = UIImage(data: data)
+            else { return (nil, "no cover file") }
+            let pixels = "\(Int(image.size.width * image.scale))×\(Int(image.size.height * image.scale))"
+            return (image, "cover file \(coverURL.lastPathComponent) \(pixels), \(data.count / 1024) KB")
         }
 
         /// The video as `VideoSendGenerationCoordinator` would hand it to TDLib.
@@ -156,7 +207,8 @@
     // MARK: - ProbeVideo
 
     /// A 1280×720 H.264 movie at 30 fps: each second a colour with its number, a white bar along the bottom that
-    /// grows over the whole video, and a 440 Hz tone. The message content probe plays it as a game's animation.
+    /// grows over the whole video, and a 440 Hz tone. The message content probe plays it as a game's animation. The
+    /// cover probe's movie runs past a minute at 10 fps.
     enum ProbeVideo {
         enum Failure: Error {
             case unwritable
@@ -166,9 +218,17 @@
         static let seconds = 6
         static let frameRate = 30
         static let sampleRate = 44100
+        /// Past TGMediaPickerGalleryInterfaceView's minute for a cover, at a frame rate that writes quickly.
+        static let coverSeconds = 64
+        static let coverFrameRate = 10
 
         static func make() async throws -> URL {
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("bettertg-video-edit-probe.mov")
+            try await make(seconds: seconds, frameRate: frameRate, named: "bettertg-video-edit-probe.mov")
+        }
+
+        /// The movie `seconds` long at `frameRate`, written to `name` in the temporary directory.
+        static func make(seconds: Int, frameRate: Int, named name: String) async throws -> URL {
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
             try? FileManager.default.removeItem(at: url)
             let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
             let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
@@ -197,10 +257,12 @@
             writer.add(audioInput)
             guard writer.startWriting() else { throw writer.error ?? Failure.unwritable }
             writer.startSession(atSourceTime: .zero)
-            let stills = (0..<seconds).map(still)
             let audioFormat = try audioFormatDescription()
             let samplesPerFrame = sampleRate / frameRate
             let frameCount = seconds * frameRate
+            // Each second's still is drawn as its frames come, so a long movie holds one at a time.
+            var stillSecond = -1
+            var currentStill: CGImage?
             // The writer interleaves the tracks and holds one back until the other catches up, so each track is
             // fed whenever it is ready instead of in lockstep.
             var videoFrame = 0
@@ -209,10 +271,15 @@
                 guard writer.status == .writing else { throw writer.error ?? Failure.unwritable }
                 var appended = false
                 if videoFrame < frameCount, videoInput.isReadyForMoreMediaData {
+                    let second = videoFrame / frameRate
+                    if second != stillSecond {
+                        currentStill = still(second, of: seconds)
+                        stillSecond = second
+                    }
                     guard let buffer = pixelBuffer(
                         frame: videoFrame,
                         of: frameCount,
-                        still: stills[videoFrame / frameRate],
+                        still: currentStill,
                         pool: adaptor.pixelBufferPool,
                     ),
                         adaptor.append(buffer, withPresentationTime: CMTime(
@@ -241,11 +308,11 @@
             return url
         }
 
-        private static func still(_ second: Int) -> CGImage? {
+        private static func still(_ second: Int, of total: Int) -> CGImage? {
             let format = UIGraphicsImageRendererFormat()
             format.scale = 1
             let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
-                UIColor(hue: CGFloat(second) / CGFloat(seconds), saturation: 0.75, brightness: 0.85, alpha: 1).setFill()
+                UIColor(hue: CGFloat(second) / CGFloat(total), saturation: 0.75, brightness: 0.85, alpha: 1).setFill()
                 context.fill(CGRect(origin: .zero, size: size))
                 let text = "\(second + 1)" as NSString
                 let attributes: [NSAttributedString.Key: Any] = [
