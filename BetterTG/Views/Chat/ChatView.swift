@@ -193,6 +193,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var didPresentReactionError = false
     private var didPresentPinError = false
     private var didPresentMessageActionError = false
+    private var didPresentInlineBotLocationRequest = false
     private var didPresentSendError = false
     private var didPresentDraftError = false
     private var lastHighlightedMessageID: Int64?
@@ -3054,6 +3055,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     presentReactionErrorIfNeeded()
                     presentPinErrorIfNeeded()
                     presentMessageActionErrorIfNeeded()
+                    presentInlineBotLocationRequestIfNeeded()
                     restoreVideoRecordingIfNeeded()
                 }
             }
@@ -6234,6 +6236,30 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
             self?.didPresentMessageActionError = false
+        })
+        present(alert, animated: true)
+    }
+
+    /// requestBotLocationStatus: an inline bot that needs the location asks once before its first query, with
+    /// Telegram's text, Cancel and OK. OK shares the location with the bot from then on.
+    private func presentInlineBotLocationRequestIfNeeded() {
+        guard chatVM.inlineBotLocationRequest != nil,
+              !didPresentInlineBotLocationRequest,
+              presentedViewController == nil
+        else { return }
+        didPresentInlineBotLocationRequest = true
+        let alert = UIAlertController(
+            title: nil,
+            message: L10n.telegram("Conversation.ShareInlineBotLocationConfirmation"),
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel) { [weak self] _ in
+            self?.didPresentInlineBotLocationRequest = false
+            self?.chatVM.answerInlineBotLocationRequest(allowed: false)
+        })
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
+            self?.didPresentInlineBotLocationRequest = false
+            self?.chatVM.answerInlineBotLocationRequest(allowed: true)
         })
         present(alert, animated: true)
     }

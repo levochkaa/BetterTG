@@ -1768,3 +1768,4 @@
 "RequestPeer.SelectionConfirmationSend" = "Send";
 "RequestPeer.ReachedMaximum_1" = "You can select up to %@ user.";
 "RequestPeer.ReachedMaximum_any" = "You can select up to %@ users.";
+"Conversation.ShareInlineBotLocationConfirmation" = "This bot would like to know your location each time you send it a request. This can be used to provide location-specific results.";

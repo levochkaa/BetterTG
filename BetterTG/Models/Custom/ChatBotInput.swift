@@ -95,11 +95,15 @@ struct InlineBotQueryState {
     let botUserID: Int64
     let username: String
     let placeholder: String
+    /// The bot's needLocation (requiresGeolocationForInlineRequests): its queries carry the user's location.
+    let needsLocation: Bool
     var query: String
     var results = [InlineBotResult]()
     var nextOffset = ""
     var button: TDNativeInlineQueryResultsButton?
     var isLoading = true
+    /// The location the first page was asked with; the next pages repeat it (ChatContextResultCollection.geoPoint).
+    var userLocation: (latitude: Double, longitude: Double)?
 
     /// HorizontalListContextResultsChatInputContextPanelNode shows media results in a strip; anything else is a list.
     var isMediaGallery: Bool {
@@ -109,6 +113,41 @@ struct InlineBotQueryState {
             default: false
             }
         }
+    }
+}
+
+// MARK: - InlineBotLocationConsent
+
+/// Telegram's inlineBotLocationRequestNotice (ApplicationSpecificNotice), kept per bot: 0 once the user agreed to
+/// share the location with the bot, otherwise the time until which the bot isn't asked about again.
+enum InlineBotLocationConsent {
+    private static let cooldown = 10 * 60
+
+    /// inlineBotLocationRequestStatus: the user agreed.
+    static func isGranted(botUserID: Int64) -> Bool {
+        (UserDefaults.standard.object(forKey: key(botUserID)) as? Int) == 0
+    }
+
+    /// updateInlineBotLocationRequestState: true when the user should be asked now, which happens unless they agreed
+    /// or were asked in the last 10 minutes; the request is noted.
+    static func beginRequest(botUserID: Int64) -> Bool {
+        let timestamp = Int(Foundation.Date().timeIntervalSince1970) + cooldown
+        if let value = UserDefaults.standard.object(forKey: key(botUserID)) as? Int,
+           value == 0 || timestamp <= value + cooldown
+        {
+            return false
+        }
+        UserDefaults.standard.set(timestamp, forKey: key(botUserID))
+        return true
+    }
+
+    /// setInlineBotLocationRequest(value: 0): the bot gets the location from now on.
+    static func grant(botUserID: Int64) {
+        UserDefaults.standard.set(0, forKey: key(botUserID))
+    }
+
+    private static func key(_ botUserID: Int64) -> String {
+        "inlineBotLocationRequest.\(botUserID)"
     }
 }
 

@@ -115,6 +115,9 @@ import UIKit
     @Published var showsBotCommandMenu = false
     /// The inline bot the input addresses and its results (contextRequestResult).
     @Published private(set) var inlineBotQuery: InlineBotQueryState?
+    /// An inline bot that needs the location and hasn't been answered yet: the chat screen asks
+    /// Conversation.ShareInlineBotLocationConfirmation (requestBotLocationStatus).
+    @Published private(set) var inlineBotLocationRequest: Int64?
     /// The history was read to its start without a message (`chatHistoryState == .loaded(isEmpty: true)`).
     @Published private(set) var historyLoadedEmpty = false
     /// The history is read back to the chat's first message, where Telegram puts a bot's info.
@@ -1372,13 +1375,16 @@ import UIKit
     }
 
     /// The inline bot behind a username (`searchPublicChat`) with its query placeholder; nil for anything else.
-    private static func inlineBot(username: String, client: TDLibClient) async -> (id: Int64, placeholder: String)? {
+    private static func inlineBot(
+        username: String,
+        client: TDLibClient,
+    ) async -> (id: Int64, placeholder: String, needsLocation: Bool)? {
         guard let chat = try? await client.send(TDNativeRequests.searchPublicChat(username: username)),
               case .chatTypePrivate(let privateChat) = chat.type,
               let user = try? await client.getUser(userId: privateChat.userId),
               case .userTypeBot(let bot) = user.type, bot.isInline
         else { return nil }
-        return (user.id, bot.inlineQueryPlaceholder)
+        return (user.id, bot.inlineQueryPlaceholder, bot.needLocation)
     }
 
     /// MediaPickerScreen's Send as File: the picked photo, or the original video with its first frame as the
@@ -1400,6 +1406,11 @@ import UIKit
             ),
             caption: caption.text.isEmpty ? nil : caption,
         ))
+    }
+
+    /// The coordinate an inline query carries (`getInlineQueryResults`' userLocation).
+    private static func tdLocation(_ coordinate: (latitude: Double, longitude: Double)?) -> TDNativeLocation? {
+        coordinate.map { TDNativeLocation(latitude: $0.latitude, longitude: $0.longitude, horizontalAccuracy: 0) }
     }
 
     /// An album this chat is still announcing: show it once every member arrived, or a moment after the send call.
@@ -3607,8 +3618,8 @@ import UIKit
         let chatID = chatID
         inlineBotMoreTask = Task { [weak self] in
             let page = try? await client.send(TDNativeRequests.getInlineQueryResults(
-                botUserId: state.botUserID, chatId: chatID, userLocation: nil, query: state.query,
-                offset: state.nextOffset,
+                botUserId: state.botUserID, chatId: chatID, userLocation: Self.tdLocation(state.userLocation),
+                query: state.query, offset: state.nextOffset,
             ))
             guard let self else { return }
             inlineBotMoreTask = nil
@@ -3619,6 +3630,18 @@ import UIKit
             current.nextOffset = page.nextOffset
             inlineBotQuery = current
         }
+    }
+
+    /// Conversation.ShareInlineBotLocationConfirmation was answered. OK lets the bot have the location from now on
+    /// (setInlineBotLocationRequest(value: 0)) and its waiting query goes; Cancel keeps it waiting, and the bot is
+    /// asked again after 10 minutes.
+    func answerInlineBotLocationRequest(allowed: Bool) {
+        guard let botUserID = inlineBotLocationRequest else { return }
+        inlineBotLocationRequest = nil
+        guard allowed else { return }
+        InlineBotLocationConsent.grant(botUserID: botUserID)
+        guard locationContextIsCurrent, inlineBotQuery?.botUserID == botUserID else { return }
+        updateInlineBotQuery(retry: true)
     }
 
     /// A bot's updated full info (`updateUserFullInfo`) refreshes its description and commands.
@@ -5000,7 +5023,9 @@ import UIKit
 
     /// ChatInterfaceStateContextQueries' contextRequest: "@bot query" at the start of the input asks the inline bot
     /// once the query has stopped changing for 0.4 s; the previous results stay until the new ones arrive.
-    private func updateInlineBotQuery() {
+    /// A bot that needs the location gets it once the user agreed (requestChatContextResults' location); until then
+    /// its query waits, as Telegram's does for inlineBotLocationRequestStatus. `retry` repeats the current query.
+    private func updateInlineBotQuery(retry: Bool = false) {
         guard editCustomMessage == nil, !previewing,
               case .inlineBot(let username, let query) = ChatInputQuery.parse(text.string)
         else {
@@ -5009,7 +5034,7 @@ import UIKit
             if inlineBotQuery != nil { inlineBotQuery = nil }
             return
         }
-        if let current = inlineBotQuery, current.username.lowercased() == username.lowercased(),
+        if !retry, let current = inlineBotQuery, current.username.lowercased() == username.lowercased(),
            current.query == query { return }
         inlineBotQueryTask?.cancel()
         inlineBotMoreTask?.cancel()
@@ -5037,17 +5062,34 @@ import UIKit
                     botUserID: bot.id,
                     username: username,
                     placeholder: bot.placeholder,
+                    needsLocation: bot.needsLocation,
                     query: query,
                 )
                 inlineBotQuery = state
             }
-            try? await Task.sleep(for: .milliseconds(400))
+            if !retry { try? await Task.sleep(for: .milliseconds(400)) }
             guard !Task.isCancelled else { return }
+            var userLocation: (latitude: Double, longitude: Double)?
+            if state.needsLocation {
+                guard InlineBotLocationConsent.isGranted(botUserID: state.botUserID) else {
+                    // requestBotLocationStatus asks at most once in 10 minutes; the query waits for the consent.
+                    guard let self, locationContextIsCurrent else { return }
+                    if InlineBotLocationConsent.beginRequest(botUserID: state.botUserID) {
+                        inlineBotLocationRequest = state.botUserID
+                    }
+                    return
+                }
+                // currentLocationManagerCoordinate(timeout: 5): without a fix the query goes without the location.
+                userLocation = await OneShotLocation.current(timeout: .seconds(5))
+                guard !Task.isCancelled else { return }
+            }
             let page = try? await client.send(TDNativeRequests.getInlineQueryResults(
-                botUserId: state.botUserID, chatId: chatID, userLocation: nil, query: query, offset: "",
+                botUserId: state.botUserID, chatId: chatID, userLocation: Self.tdLocation(userLocation), query: query,
+                offset: "",
             ))
             guard !Task.isCancelled, let self, locationContextIsCurrent else { return }
             state.isLoading = false
+            state.userLocation = userLocation
             state.results = page.map { found in
                 found.results.map { InlineBotResult(queryID: found.inlineQueryId, result: $0) }
             } ?? []
