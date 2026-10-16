@@ -101,6 +101,11 @@ ClientRestorableNavigationEntry {
         let publicID: Int64?
     }
 
+    #if DEBUG
+        /// `-ui-probe-main-web-app`: Open App shows on every other profile and opens the probe page after the terms.
+        static var probeShowsOpenApp = false
+    #endif
+
     var onOpenMessage: ((Int64) -> Void)?
     var onPrepareGalleryReturn: ((Int64) async -> Bool)?
     var onGalleryReturnCompleted: ((Int64) -> Void)?
@@ -1959,6 +1964,9 @@ ClientRestorableNavigationEntry {
         let verification = customChat.user?.verificationStatus
         openAppButton.isHidden = isSelfProfile || customChat.bot?.hasMainWebApp != true
             || verification?.isFake == true || verification?.isScam == true
+        #if DEBUG
+            if Self.probeShowsOpenApp, !isSelfProfile { openAppButton.isHidden = false }
+        #endif
         // Telegram's Mute and More act on the whole chat; a topic's profile and Saved Messages have their own.
         moreActionButton.isHidden = isSelfProfile || topic != nil
         membersActionButton.isHidden =
@@ -2821,7 +2829,11 @@ ClientRestorableNavigationEntry {
     /// PeerInfoProfileItems' Open App: `openWebApp(… url: "", simple: true, source: .generic,
     /// skipTermsOfService: true)`, the bot's main Web App for its own chat.
     @objc private func openAppPressed() {
-        guard contextIsCurrent, let user = customChat.user else { return }
+        guard contextIsCurrent else { return }
+        #if DEBUG
+            if Self.probeShowsOpenApp { return webAppLauncher.openProbeMainWebApp(name: customChat.displayTitle) }
+        #endif
+        guard let user = customChat.user else { return }
         webAppLauncher.openMainWebApp(bot: user, chatID: customChat.id, skipsTerms: true)
     }
 

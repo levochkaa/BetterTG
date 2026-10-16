@@ -9,9 +9,9 @@
     /// write access and phone alerts, close, fullscreen and orientation lock, QR scanner, biometry, location, motion
     /// sensors, home screen) and which lists the events it gets back, the sensors' latest values on one line each.
     /// No bot is involved and nothing is sent: the probe bot has ID 0, so the alerts' OK buttons fail without a
-    /// request reaching Telegram.
+    /// request reaching Telegram. WebAppLaunchProbe opens the same page for its attachment menu and Open App launches.
     @MainActor enum WebAppProbe {
-        private static let page = """
+        static let page = """
         <!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
         body { font: 15px -apple-system; margin: 12px; background: var(--bg, #fff); color: var(--fg, #000); }

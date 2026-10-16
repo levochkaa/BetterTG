@@ -21,6 +21,12 @@ import UIKit
         let actions: WebAppViewController.Actions
     }
 
+    #if DEBUG
+        /// `-ui-probe-attach-bots` and `-ui-probe-main-web-app`: this page opens in place of every launch and adding
+        /// a bot only closes the terms, so no openWebApp, getMainWebApp or toggleBotIsAddedToAttachmentMenu is sent.
+        static var probeHTML: String?
+    #endif
+
     private let host: Host
     private var task: Task<Void, Never>?
 
@@ -82,6 +88,9 @@ import UIKit
         let noticeKey = Self.noticeKey(accountID: host.accountID, botUserID: botUserID)
         let alert = WebAppTermsAlert.make(cancel: cancelled) { [weak self] allowWriteAccess in
             guard let self, task == nil else { return }
+            #if DEBUG
+                if Self.probeHTML != nil { return added() }
+            #endif
             UserDefaults.standard.set(true, forKey: noticeKey)
             task = Task { [weak self] in
                 let result = try? await client.send(TDNativeRequests.toggleBotIsAddedToAttachmentMenu(
@@ -124,6 +133,37 @@ import UIKit
         open()
     }
 
+    #if DEBUG
+        /// `-ui-probe-main-web-app`: Open App as for a bot that can join the attachment menu but hasn't, so the
+        /// terms come first and then the probe page at full size.
+        func openProbeMainWebApp(name: String) {
+            addAttachmentMenuBot(botUserID: 0, added: { [weak self] in
+                guard let self, let html = Self.probeHTML else { return }
+                presentProbe(html: html, botUserID: 0, name: name, presentation: .fullSize)
+            })
+        }
+
+        private func presentProbe(
+            html: String,
+            botUserID: Int64,
+            name: String,
+            presentation: WebAppLaunch.Presentation,
+        ) {
+            guard let url = URL(string: "https://bettertg.probe/") else { return }
+            present(WebAppLaunch(
+                source: .probe(html: html),
+                url: url,
+                requiresSameOrigin: false,
+                botUserID: botUserID,
+                botName: name,
+                botUsername: nil,
+                accountID: host.accountID,
+                client: host.client,
+                presentation: presentation,
+            ))
+        }
+    #endif
+
     /// The checks before the page opens, in ChatControllerOpenWebApp's order.
     private func confirm(
         botUserID: Int64,
@@ -154,6 +194,16 @@ import UIKit
     /// fullscreen over the screen.
     private func requestMainWebApp(bot: User, chatID: Int64, startParameter: String, mode: TDNativeWebAppOpenMode?) {
         guard task == nil, let presenter = host.presenter() else { return }
+        #if DEBUG
+            if let html = Self.probeHTML {
+                return presentProbe(
+                    html: html,
+                    botUserID: bot.id,
+                    name: Self.displayName(of: bot),
+                    presentation: .fullSize,
+                )
+            }
+        #endif
         let client = host.client
         let accountID = host.accountID
         let parameters = TDNativeWebAppOpenParameters(
@@ -194,6 +244,11 @@ import UIKit
         replyTo: InputMessageReplyTo?,
     ) {
         guard task == nil, let presenter = host.presenter() else { return }
+        #if DEBUG
+            if let html = Self.probeHTML {
+                return presentProbe(html: html, botUserID: botUserID, name: name, presentation: .compact)
+            }
+        #endif
         let client = host.client
         let accountID = host.accountID
         let parameters = TDNativeWebAppOpenParameters(

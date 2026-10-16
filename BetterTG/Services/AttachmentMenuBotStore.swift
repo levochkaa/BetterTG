@@ -75,8 +75,8 @@ import TDLibKit
     }
 
     #if DEBUG
-        func setProbeBots(_ bots: [TDNativeAttachmentMenuBot]) {
-            probeEntries = bots.map { Entry(bot: $0) }
+        func setProbeEntries(_ entries: [Entry]) {
+            probeEntries = entries
         }
     #endif
 
