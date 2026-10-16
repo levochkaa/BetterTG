@@ -4459,6 +4459,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         cell.highlightQuote(destination.quote, messageID: destination.targetMessageID)
     }
 
+    /// Telegram opens self-destructing media alone in SecretMediaPreviewController, which consumes it on the
+    /// message's own client (ChatControllerImpl openMessage with `isSecretMedia`).
+    private func presentSecretMedia(_ message: Message) {
+        guard presentedViewController == nil, let permit = mediaRevealSession?.permit(for: message),
+              permit.matches(message),
+              let backend = VideoNotePlaybackBackend.captured(client: chatVM.client, context: galleryPlaybackContext),
+              let controller = SecretMediaPreviewViewController(
+                  message: message,
+                  backend: backend,
+                  permit: permit,
+                  peerTitle: chatVM.customChat.user?.compactDisplayTitle ?? chatVM.customChat.displayTitle,
+              )
+        else { return }
+        view.endEditing(true)
+        present(controller, animated: true)
+    }
+
     private func showMedia(_ messages: [Message], selection: Int64) {
         guard let galleryPlaybackContext, galleryPlaybackContext.isCurrent else { return }
         guard let captured = messages.first(where: { $0.id == selection }),
@@ -4471,6 +4488,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .revealed:
             reconfigureMessage(id: selection)
             DispatchQueue.main.async { [weak self] in self?.updateInlineVideoPlaybackVisibility() }
+            return
+        case .openSecret:
+            presentSecretMedia(current)
             return
         case .open:
             break

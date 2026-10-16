@@ -55,7 +55,8 @@ import UIKit
         }
     }
 
-    enum TapResult { case rejected, revealed, open }
+    /// `openSecret`: self-destructing media opens only in the secret preview, which consumes it.
+    enum TapResult { case rejected, revealed, open, openSecret }
 
     struct RevisionChange {
         let messages: [Message]
@@ -88,6 +89,8 @@ import UIKit
               Key(message: captured) == Key(message: current) else { return .rejected }
         reconcile([current])
         if MediaRevealPermit.allows(current, permit: permit(for: current), requiresPermit: true) { return .open }
+        if let key = Key(message: current), key.isSecret, key.kind != .voiceNote,
+           self.current(key) { return .openSecret }
         return reveal(current) ? .revealed : .rejected
     }
 
@@ -187,26 +190,36 @@ import UIKit
 
 // MARK: - MediaConcealmentView
 
-/// No hidden source image or player exists underneath this cover.
+/// No hidden source image or player exists underneath this cover. Self-destructing media shows only its blurred inline
+/// thumbnail, as Telegram does.
 final class MediaConcealmentView: UIControl, ReusableMediaView, GalleryMediaView {
     private var onTap: (() -> Void)?
+    private var selfDestructing: (message: Message, clientID: Int32?)?
+    private var timerView: SecretMediaTimerView?
+    private var badgeView: SecretMediaBadgeView?
+    private var ticker: Timer?
+    private var deadlineChanges: AnyCancellable?
 
-    init(message: Message, size: CGSize? = nil, onTap: (() -> Void)? = nil) {
+    init(message: Message, size: CGSize? = nil, clientID: Int32? = nil, onTap: (() -> Void)? = nil) {
         super.init(frame: .zero)
         self.onTap = onTap
         backgroundColor = .secondarySystemBackground
         clipsToBounds = true
         let secret = MediaRevealSession.Key(message: message)?.isSecret == true
-        let symbol = UIImageView(image: UIImage(systemName: secret ? "lock.fill" : "eye.slash.fill"))
-        symbol.tintColor = .secondaryLabel
-        symbol.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(symbol)
-        NSLayoutConstraint.activate([
-            symbol.centerXAnchor.constraint(equalTo: centerXAnchor),
-            symbol.centerYAnchor.constraint(equalTo: centerYAnchor),
-            symbol.widthAnchor.constraint(equalToConstant: 28),
-            symbol.heightAnchor.constraint(equalToConstant: 24),
-        ])
+        if secret, message.selfDestructType != nil {
+            configureSelfDestructing(message: message, clientID: clientID)
+        } else {
+            let symbol = UIImageView(image: UIImage(systemName: secret ? "lock.fill" : "eye.slash.fill"))
+            symbol.tintColor = .secondaryLabel
+            symbol.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(symbol)
+            NSLayoutConstraint.activate([
+                symbol.centerXAnchor.constraint(equalTo: centerXAnchor),
+                symbol.centerYAnchor.constraint(equalTo: centerYAnchor),
+                symbol.widthAnchor.constraint(equalToConstant: 28),
+                symbol.heightAnchor.constraint(equalToConstant: 24),
+            ])
+        }
         if let size {
             NSLayoutConstraint.activate([
                 widthAnchor.constraint(equalToConstant: size.width),
@@ -214,9 +227,14 @@ final class MediaConcealmentView: UIControl, ReusableMediaView, GalleryMediaView
             ])
         }
         isAccessibilityElement = true
-        accessibilityLabel = secret
-            ? L10n.betterTG("Accessibility.ProtectedMedia")
-            : L10n.betterTG("Accessibility.MediaSpoiler")
+        accessibilityLabel =
+            if selfDestructing != nil {
+                SecretMediaPreviewViewController.title(for: message)
+            } else {
+                secret
+                    ? L10n.betterTG("Accessibility.ProtectedMedia")
+                    : L10n.betterTG("Accessibility.MediaSpoiler")
+            }
         accessibilityHint = secret ? nil : L10n.betterTG("Accessibility.RevealMediaSpoiler")
         accessibilityTraits = .button
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
@@ -230,8 +248,102 @@ final class MediaConcealmentView: UIControl, ReusableMediaView, GalleryMediaView
         return true
     }
 
-    func prepareForReuse() { onTap = nil }
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateSelfDestructState()
+    }
+
+    private static func minithumbnail(of message: Message) -> Data? {
+        switch message.content {
+        case .messagePhoto(let value): value.photo.minithumbnail?.data
+        case .messageVideo(let value): value.video.minithumbnail?.data
+        case .messageAnimation(let value): value.animation.minithumbnail?.data
+        default: nil
+        }
+    }
+
+    func prepareForReuse() {
+        onTap = nil
+        ticker?.invalidate()
+        ticker = nil
+        deadlineChanges = nil
+    }
+
     func setPlaybackVisible(_: Bool) {}
 
     @objc private func tapped() { onTap?() }
+
+    // MARK: Self-destructing media
+
+    /// Telegram's secret media bubble (ChatMessageInteractiveMediaNode with `containsSecretMedia`): the blurred
+    /// thumbnail, a 48 pt flame in the middle that turns into the countdown ring once the media is opened, and a
+    /// badge with "1" for view-once media or the seconds left.
+    private func configureSelfDestructing(message: Message, clientID: Int32?) {
+        selfDestructing = (message, clientID)
+        if let data = Self.minithumbnail(of: message), let image = UIImage(data: data) {
+            let imageView = UIImageView(image: image)
+            imageView.contentMode = .scaleAspectFill
+            imageView.frame = bounds
+            imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            addSubview(imageView)
+            let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+            blur.frame = bounds
+            blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            blur.isUserInteractionEnabled = false
+            addSubview(blur)
+        }
+        let timerView = SecretMediaTimerView(diameter: 48)
+        timerView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(timerView)
+        let badgeView = SecretMediaBadgeView()
+        badgeView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(badgeView)
+        NSLayoutConstraint.activate([
+            timerView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            timerView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            timerView.widthAnchor.constraint(equalToConstant: 48),
+            timerView.heightAnchor.constraint(equalToConstant: 48),
+            badgeView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            badgeView.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+        ])
+        self.timerView = timerView
+        self.badgeView = badgeView
+        if let clientID {
+            let key = SelfDestructDeadlines.Key(clientID: clientID, message: message)
+            deadlineChanges = SelfDestructDeadlines.changed
+                .filter { $0 == key }
+                .sink { [weak self] _ in self?.updateSelfDestructState() }
+        }
+        updateSelfDestructState()
+    }
+
+    private func updateSelfDestructState() {
+        guard let (message, clientID) = selfDestructing, let timerView, let badgeView else { return }
+        switch message.selfDestructType {
+        case .messageSelfDestructTypeTimer(let timer):
+            let timeout = TimeInterval(timer.selfDestructTime)
+            let deadline = clientID.flatMap { SelfDestructDeadlines.deadline(clientID: $0, message: message) }
+            let remaining = deadline.map { max(0, $0 - SelfDestructDeadlines.now) } ?? timeout
+            timerView.configure(icon: .flame, countdown: deadline.map { .init(deadline: $0, timeout: timeout) })
+            let seconds = Int(remaining.rounded(.up))
+            let text = L10n.telegramPlural("MessageTimer.ShortSeconds", count: seconds, formattedCount: "\(seconds)")
+            badgeView.configure(isViewOnce: false, text: text)
+            accessibilityValue = text
+            // The badge counts the seconds down while the bubble is on screen.
+            if deadline != nil, remaining > 0, window != nil {
+                if ticker == nil {
+                    ticker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                        MainActor.assumeIsolated { self?.updateSelfDestructState() }
+                    }
+                }
+            } else {
+                ticker?.invalidate()
+                ticker = nil
+            }
+        default:
+            timerView.configure(icon: .flame, countdown: nil)
+            badgeView.configure(isViewOnce: true, text: "1")
+            accessibilityValue = nil
+        }
+    }
 }

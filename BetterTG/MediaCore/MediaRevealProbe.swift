@@ -154,7 +154,8 @@ import UIKit
                 "kind reveal",
             )
             try require(
-                !f.session.reveal(secret) && f.session.timelineTap(captured: secret, current: secret) == .rejected,
+                !f.session.reveal(secret) && f.session.timelineTap(captured: secret, current: secret) == .openSecret
+                    && f.session.permit(for: secret)?.allowsPixels == false,
                 "secret reveal",
             )
         }

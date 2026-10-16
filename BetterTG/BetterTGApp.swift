@@ -178,6 +178,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             MessageContentDebugProbe.runIfRequested(in: window)
             ServiceMessageTextProbe.runIfRequested()
             VoicePlaybackHeaderProbe.runIfRequested(in: window)
+            SecretMediaPreviewProbe.runIfRequested(in: window)
             MessageMetadataDebugProbe.runIfRequested(in: window)
             MessageForwardingDebugProbe.runIfRequested(in: window)
             MessageReactionDebugProbe.runIfRequested(in: window)

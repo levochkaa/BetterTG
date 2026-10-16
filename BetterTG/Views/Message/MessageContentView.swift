@@ -94,6 +94,7 @@ final class MessageMediaView: UIView {
             view = MediaConcealmentView(
                 message: item,
                 size: displaySize,
+                clientID: client.id,
                 onTap: { onTap([item], item.id) },
             )
         } else {
