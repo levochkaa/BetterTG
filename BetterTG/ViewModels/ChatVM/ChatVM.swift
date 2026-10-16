@@ -3834,8 +3834,8 @@ import UIKit
         guard supportsReplyKeyboard, locationContextIsCurrent,
               replyKeyboard.offeredKeyboard?.messageID == keyboardMessageID else { return }
         guard case .keyboardButtonTypeText = button.type else {
-            // Creating a poll, creating a managed bot and Web Apps need screens BetterTG doesn't have yet; the phone,
-            // location, users and chat requests are answered by the chat screen.
+            // Creating a managed bot and Web Apps need screens BetterTG doesn't have yet; the phone, location, poll,
+            // users and chat requests are answered by the chat screen.
             messageActionErrorMessage = L10n.betterTG("Chat.UnsupportedButtonBetterTG")
             return
         }

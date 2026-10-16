@@ -88,6 +88,9 @@ import UIKit
     private var canRevote = true
     private var shuffleOptions = false
     private var isQuiz = false
+    /// A bot's poll request button fixes the kind (`keyboardButtonTypeRequestPoll`'s force_quiz or force_regular),
+    /// which locks the quiz toggle; nil lets the user choose.
+    private let forcedQuiz: Bool?
     private var correctOptionIDs = Set<Int>()
     private var limitsDuration = false
     private var timeLimit = TimeLimit.duration(24 * 60 * 60)
@@ -131,19 +134,32 @@ import UIKit
     /// - Parameters:
     ///   - isChannel: A channel's polls are anonymous and shuffled by default, and offer Restrict to Subscribers in
     ///     place of Show Who Voted and Allow Adding Options.
+    ///   - forcedQuiz: A bot's poll request (`setupPoll(isQuiz:)`): true for a quiz, false for a regular poll.
     ///   - send: Called with the poll once the screen has been dismissed.
-    init(isChannel: Bool, client: TDLibClient, send: @escaping (InputMessageContent) -> Void) {
+    init(
+        isChannel: Bool,
+        client: TDLibClient,
+        forcedQuiz: Bool? = nil,
+        send: @escaping (InputMessageContent) -> Void,
+    ) {
         self.isChannel = isChannel
         self.client = client
+        self.forcedQuiz = forcedQuiz
         self.send = send
         super.init(style: .insetGrouped)
         // ComposePollScreen's initial state: two empty options, multiple answers and revoting allowed, and outside
-        // channels public votes that may add options.
+        // channels public votes that may add options; a quiz starts with one answer, no added options or revotes.
+        let startsAsQuiz = forcedQuiz == true
+        self.isQuiz = startsAsQuiz
+        if startsAsQuiz {
+            self.allowsMultipleAnswers = false
+            self.canRevote = false
+        }
         if isChannel {
             self.shuffleOptions = true
         } else {
             self.isAnonymous = false
-            self.canAddOptions = true
+            self.canAddOptions = !startsAsQuiz
         }
         self.options = [DraftOption(id: 0), DraftOption(id: 1)]
         self.nextOptionID = 2
@@ -611,6 +627,7 @@ import UIKit
             (symbol, tint, titleKey) = ("checkmark.square.fill", UIColor(rgb: 0x34C759), "CreatePoll.EnableQuiz")
             subtitleKey = allowsMultipleAnswers ? "CreatePoll.EnableQuizMultiInfo" : "CreatePoll.EnableQuizInfo"
             isOn = isQuiz
+            isEnabled = forcedQuiz == nil
         case .limitDuration:
             (symbol, tint, titleKey, subtitleKey) = (
                 "timer",
@@ -700,7 +717,7 @@ import UIKit
         case .shuffle:
             shuffleOptions = isOn
         case .quiz:
-            setQuiz(isOn)
+            if forcedQuiz == nil { setQuiz(isOn) }
             return
         case .limitDuration:
             setLimitsDuration(isOn)

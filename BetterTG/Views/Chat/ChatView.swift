@@ -1407,6 +1407,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             presentBotPeerRequest(.users(users), keyboardMessageID: keyboardMessageID)
         case .keyboardButtonTypeRequestChat(let chat):
             presentBotPeerRequest(.chat(chat), keyboardMessageID: keyboardMessageID)
+        case .keyboardButtonTypeRequestPoll(let poll):
+            presentRequestedPoll(
+                forcedQuiz: poll.forceQuiz ? true : poll.forceRegular ? false : nil,
+                keyboardMessageID: keyboardMessageID,
+            )
         default:
             Task { await chatVM.pressReplyKeyboardButton(button, keyboardMessageID: keyboardMessageID) }
         }
@@ -1422,6 +1427,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { _ in perform() })
         present(alert, animated: true)
+    }
+
+    /// ChatButtonKeyboardInputNode's `setupPoll`: the poll creator in the kind the bot asks for, sent like the
+    /// attachment menu's poll (`openPollCreation(nil, isQuiz)`).
+    private func presentRequestedPoll(forcedQuiz: Bool?, keyboardMessageID: Int64) {
+        guard presentedViewController == nil, chatVM.canCreatePoll,
+              chatVM.replyKeyboard.offeredKeyboard?.messageID == keyboardMessageID else { return }
+        let poll = CreatePollViewController(
+            isChannel: chatVM.createsChannelPoll,
+            client: chatVM.client,
+            forcedQuiz: forcedQuiz,
+        ) { [weak chatVM] content in
+            Task { await chatVM?.sendAttachmentContents([content], kind: .poll) }
+        }
+        poll.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
+        present(poll.makeNavigationController(), animated: true)
     }
 
     private func presentKeyboardRequestFailure() {

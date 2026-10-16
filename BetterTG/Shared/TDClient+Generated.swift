@@ -52,6 +52,10 @@ extension TDClient {
         try await send(TDNativeRequests.canSendMessageToUser(userId: userId, onlyLocal: onlyLocal))
     }
 
+    func canTransferOwnership() async throws -> TDNativeCanTransferOwnershipResult {
+        try await send(TDNativeRequests.canTransferOwnership())
+    }
+
     func cancelDownloadFile(fileId: Int, onlyIfPending: Bool) async throws -> TDNativeOk {
         try await send(TDNativeRequests.cancelDownloadFile(fileId: fileId, onlyIfPending: onlyIfPending))
     }
@@ -454,6 +458,24 @@ extension TDClient {
 
     func getLocalizationTargetInfo(onlyLocal: Bool) async throws -> TDNativeLocalizationTargetInfo {
         try await send(TDNativeRequests.getLocalizationTargetInfo(onlyLocal: onlyLocal))
+    }
+
+    func getLoginUrl(
+        chatId: Int64,
+        messageId: Int64,
+        buttonId: Int64,
+        allowWriteAccess: Bool,
+    ) async throws -> TDNativeHttpUrl {
+        try await send(TDNativeRequests.getLoginUrl(
+            chatId: chatId,
+            messageId: messageId,
+            buttonId: buttonId,
+            allowWriteAccess: allowWriteAccess,
+        ))
+    }
+
+    func getLoginUrlInfo(chatId: Int64, messageId: Int64, buttonId: Int64) async throws -> TDNativeLoginUrlInfo {
+        try await send(TDNativeRequests.getLoginUrlInfo(chatId: chatId, messageId: messageId, buttonId: buttonId))
     }
 
     func getMe() async throws -> TDNativeUser {
