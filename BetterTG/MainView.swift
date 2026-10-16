@@ -178,6 +178,16 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         updateNavigationBarHeight(contentHeight: currentNavigationContentHeight)
     }
 
+    /// Telegram's compactDisplayTitle of a private chat's user, for the live location description; nil elsewhere.
+    private static func liveLocationPeerName(chatID: Int64, client: TDLibClient) async -> String? {
+        guard let chat = try? await client.getChat(chatId: chatID), case .chatTypePrivate(let info) = chat.type,
+              let user = try? await client.getUser(userId: info.userId) else { return nil }
+        let firstName = user.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !firstName.isEmpty { return firstName }
+        let lastName = user.lastName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return lastName.isEmpty ? chat.title : lastName
+    }
+
     func prepareReplacementForReadyClient(_ source: TdUpdateSource) -> PreparedClientNavigationReplacement? {
         guard canRestoreClient(source) else { return nil }
         let state = ClientRestorationState(
@@ -793,7 +803,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
     }
 
-    /// LiveLocationHeaderPanelComponent's tap in the chat list: one live location opens its chat at the message, and
+    /// LiveLocationHeaderPanelComponent's tap in the chat list: one live location opens in the location viewer, and
     /// several are listed with Stop All.
     private func openLiveLocation() {
         if liveLocationBroadcasts.count == 1, let broadcast = liveLocationBroadcasts.first {
@@ -849,19 +859,42 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         present(sheet, animated: true)
     }
 
-    /// Telegram opens the live location's map; BetterTG opens its chat at the message.
+    /// LiveLocationHeaderPanelComponent's presentLiveLocationController: the live location message opens in the
+    /// location viewer with every live location in its chat shown, and a new live location goes to that chat.
     private func openLiveLocationChat(_ broadcast: LiveLocationBroadcast) {
         let scope = actionAuthority.scope(owner: self)
         guard scope.isCurrent, navigationController?.topViewController === self,
               broadcast.source == scope.source else { return }
         let client = actionAuthority.client
-        let rootVM = rootVM
         liveLocationOpenTask?.cancel()
         liveLocationOpenTask = Task { [weak self] in
-            let chat = await rootVM.getCustomChatForNavigation(from: broadcast.chatID, client: client)
-            guard let self, let chat, scope.isCurrent, navigationController?.topViewController === self else { return }
+            let message = try? await client.getMessage(chatId: broadcast.chatID, messageId: broadcast.messageID)
+            let peerName = await Self.liveLocationPeerName(chatID: broadcast.chatID, client: client)
+            guard let self, !Task.isCancelled, let message, let subject = LocationViewSubject(message: message),
+                  scope.isCurrent, navigationController?.topViewController === self,
+                  presentedViewController == nil else { return }
             liveLocationOpenTask = nil
-            NavigationStorage.shared.push(.customChat(chat, targetMessageID: broadcast.messageID))
+            view.endEditing(true)
+            let viewer = LocationViewController(
+                subject: subject,
+                client: client,
+                source: broadcast.source,
+                canShareLiveLocation: true,
+                peerName: peerName,
+                showsAllLiveLocations: true,
+            ) { content in
+                Task {
+                    _ = try? await client.sendMessage(
+                        chatId: broadcast.chatID,
+                        inputMessageContent: content,
+                        options: nil,
+                        replyMarkup: nil,
+                        replyTo: nil,
+                        topicId: nil,
+                    )
+                }
+            }
+            present(viewer.makeNavigationController(), animated: true)
         }
     }
 
