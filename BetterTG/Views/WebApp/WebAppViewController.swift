@@ -781,6 +781,10 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
             sensors.startDeviceOrientation(json)
         case "web_app_stop_device_orientation":
             sensors.stopDeviceOrientation()
+        case "web_app_check_home_screen":
+            WebAppHomeScreen.check(bridge)
+        case "web_app_add_to_home_screen":
+            WebAppHomeScreen.add(bridge)
         default:
             break
         }

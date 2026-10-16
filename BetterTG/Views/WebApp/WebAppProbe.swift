@@ -6,8 +6,10 @@
     /// Launch with `-ui-probe-web-app`. Once an account is active it opens the Web App sheet on a local page whose
     /// buttons post TelegramWebviewProxy events (main and secondary buttons, back button, expansion, header colour,
     /// popup, closing confirmation, haptics, theme, DeviceStorage and SecureStorage, swipe behaviour, keyboard, the
-    /// write access and phone alerts, close) and which lists the events it gets back. No bot is involved and nothing
-    /// is sent: the probe bot has ID 0, so the alerts' OK buttons fail without a request reaching Telegram.
+    /// write access and phone alerts, close, fullscreen and orientation lock, QR scanner, biometry, location, motion
+    /// sensors, home screen) and which lists the events it gets back, the sensors' latest values on one line each.
+    /// No bot is involved and nothing is sent: the probe bot has ID 0, so the alerts' OK buttons fail without a
+    /// request reaching Telegram.
     @MainActor enum WebAppProbe {
         private static let page = """
         <!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -16,6 +18,7 @@
         button { font: 15px -apple-system; margin: 3px; padding: 8px 10px; border-radius: 8px; border: 0;
           background: #3478f6; color: #fff; }
         #log { font: 12px ui-monospace; white-space: pre-wrap; margin-top: 8px; }
+        #sensors { font: 12px ui-monospace; white-space: pre-wrap; margin-top: 8px; color: #2ea043; }
         </style></head><body>
         <div>
         <button onclick="post('web_app_setup_main_button', {is_visible: true, text: 'Probe Main', color: '#2ea043', text_color: '#ffffff'})">main</button>
@@ -42,10 +45,51 @@
         <button onclick="post('web_app_request_phone')">phone</button>
         <button onclick="post('web_app_close')">close</button>
         </div>
+        <div>
+        <button onclick="post('web_app_request_fullscreen')">fullscreen</button>
+        <button onclick="post('web_app_exit_fullscreen')">exit fullscreen</button>
+        <button onclick="post('web_app_toggle_orientation_lock', {locked: true})">lock</button>
+        <button onclick="post('web_app_toggle_orientation_lock', {locked: false})">unlock</button>
+        <button onclick="post('web_app_open_scan_qr_popup', {text: 'Scan a code'})">qr</button>
+        <button onclick="post('web_app_close_scan_qr_popup')">close qr</button>
+        </div>
+        <div>
+        <button onclick="post('web_app_biometry_get_info')">bio info</button>
+        <button onclick="post('web_app_biometry_request_access', {reason: 'Probe'})">bio access</button>
+        <button onclick="post('web_app_biometry_request_auth', {reason: 'Probe'})">bio auth</button>
+        <button onclick="post('web_app_biometry_update_token', {token: 'secret', reason: 'Probe'})">bio token</button>
+        <button onclick="post('web_app_biometry_update_token', {token: ''})">bio clear</button>
+        <button onclick="post('web_app_biometry_open_settings')">bio settings</button>
+        </div>
+        <div>
+        <button onclick="post('web_app_check_location')">loc check</button>
+        <button onclick="post('web_app_request_location')">loc request</button>
+        <button onclick="post('web_app_open_location_settings')">loc settings</button>
+        <button onclick="post('web_app_check_home_screen')">home check</button>
+        <button onclick="post('web_app_add_to_home_screen')">home add</button>
+        </div>
+        <div>
+        <button onclick="post('web_app_start_accelerometer', {refresh_rate: 500})">accel</button>
+        <button onclick="post('web_app_stop_accelerometer')">stop accel</button>
+        <button onclick="post('web_app_start_gyroscope', {refresh_rate: 500})">gyro</button>
+        <button onclick="post('web_app_stop_gyroscope')">stop gyro</button>
+        <button onclick="post('web_app_start_device_orientation', {refresh_rate: 500, need_absolute: true})">
+        orient</button>
+        <button onclick="post('web_app_stop_device_orientation')">stop orient</button>
+        </div>
+        <div id="sensors"></div>
         <div id="log"></div>
         <script>
         function line(text) { document.getElementById('log').textContent = text + '\\n' + document.getElementById('log').textContent; }
         function post(name, data) { window.TelegramWebviewProxy.postEvent(name, JSON.stringify(data || {})); line('> ' + name); }
+        var sensors = {};
+        function sensor(name, data) {
+          sensors[name] = name.replace('_changed', '') + ' ' + Object.keys(data).map(function(key) {
+            var value = data[key];
+            return key + '=' + (typeof value === 'number' ? value.toFixed(2) : value);
+          }).join(' ');
+          document.getElementById('sensors').textContent = Object.values(sensors).join('\\n');
+        }
         window.TelegramGameProxy = { receiveEvent: function(name, data) {
           if (name === 'theme_changed') {
             document.body.style.setProperty('--bg', data.theme_params.bg_color);
@@ -53,6 +97,8 @@
             line('< theme_changed bg=' + data.theme_params.bg_color + ' button=' + data.theme_params.button_color);
           } else if (name === 'viewport_changed') {
             line('< viewport_changed h=' + Math.round(data.height) + ' expanded=' + data.is_expanded);
+          } else if (/^(accelerometer|gyroscope|device_orientation)_changed$/.test(name)) {
+            sensor(name, data);
           } else {
             line('< ' + name + ' ' + JSON.stringify(data));
           }
