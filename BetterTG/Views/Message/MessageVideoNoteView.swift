@@ -94,6 +94,12 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         window != nil && traitCollection.sceneCaptureState == .inactive
     }
 
+    /// The playlist identity of this note, for the floating player.
+    private var playlistItem: PlaylistItem? {
+        guard let message, let backend, !isSecret else { return nil }
+        return PlaylistItem(source: backend.source, chatID: message.chatId, messageID: message.id)
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         configureViews()
@@ -159,13 +165,19 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        if window == nil { setPlaybackVisible(false) }
+        if window == nil {
+            setPlaybackVisible(false)
+        } else if let item = playlistItem, FloatingVideoNotePlayer.shared.holds(item) {
+            // Back from a screen pushed over the chat: the bubble takes its video back from the circle.
+            setPlaybackVisible(true)
+        }
         concealIfCaptureUnavailable()
     }
 
     /// Pauses the video note playing in the timeline, for another player that takes the audio.
     static func pauseActivePlayback() {
         activePlaybackView?.pauseForCompetingPlayback()
+        FloatingVideoNotePlayer.shared.pause()
     }
 
     static func requestPlaylistPlayback(_ item: PlaylistItem) {
@@ -265,6 +277,45 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
+        if !isVisible { handOffToFloatingPlayer() }
+        applyPlaybackVisibility(isVisible)
+        if isVisible { reclaimFromFloatingPlayer() }
+    }
+
+    /// Telegram's overlay instant video: a note that plays when its bubble leaves the screen keeps playing in the
+    /// floating circle (OverlayInstantVideoNode, SharedMediaPlayer).
+    private func handOffToFloatingPlayer() {
+        guard player.isPlaybackRequested, currentPlayerState == .playing || currentPlayerState == .buffering,
+              !isRevoked, let item = playlistItem, let backend, backend.isCurrent(), let path = representedPath,
+              let videoNote else { return }
+        FloatingVideoNotePlayer.shared.adopt(.init(
+            item: item,
+            url: URL(filePath: path),
+            time: player.currentTime,
+            duration: Double(videoNote.duration),
+            thumbnail: thumbnailView.image,
+            backend: backend,
+        ))
+        player.pause()
+        if Self.activePlaybackView === self { Self.activePlaybackView = nil }
+    }
+
+    /// The bubble shows again with its file: the video comes back from the circle where it left off.
+    private func reclaimFromFloatingPlayer() {
+        guard playbackVisible, !isRevoked, representedPath != nil, let item = playlistItem,
+              let backend, backend.isCurrent(), let reclaimed = FloatingVideoNotePlayer.shared.reclaim(item)
+        else { return }
+        hasStartedPlayback = true
+        if reclaimed.isPlaying {
+            guard beginExclusivePlayback() else { return }
+            player.play(from: reclaimed.time)
+        } else {
+            player.seek(to: reclaimed.time)
+            playIcon.isHidden = false
+        }
+    }
+
+    private func applyPlaybackVisibility(_ isVisible: Bool) {
         playbackVisible = isVisible
         if !isVisible {
             if isSecret {
@@ -436,7 +487,8 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         backend.lifecycle
             .sink { [weak self] event in
                 guard let self, configurationID == bindingID else { return }
-                setPlaybackVisible(event.name == UIApplication.didBecomeActiveNotification && window != nil)
+                // Going to the background pauses in place; the floating player is for leaving the screen.
+                applyPlaybackVisibility(event.name == UIApplication.didBecomeActiveNotification && window != nil)
             }
             .store(in: &bindings)
     }
@@ -478,6 +530,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         representedPath = file.local.path
         player.load(url: URL(filePath: file.local.path), autoplay: false, loops: false)
         startRequestedPlaylistPlayback()
+        reclaimFromFloatingPlayer()
     }
 
     private func renderPlayerState(_ state: LocalMediaPlayer.State) {
@@ -711,6 +764,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         if let active = Self.activePlaybackView, active !== self {
             active.pauseForCompetingPlayback()
         }
+        FloatingVideoNotePlayer.shared.stop(unless: playlistItem)
         Self.activePlaybackView = self
         backend?.takePlayback()
         return configurationID == bindingID && backend?.isCurrent() == true && !isRevoked
