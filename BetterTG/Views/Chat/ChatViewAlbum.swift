@@ -1054,6 +1054,15 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     var openInChatTransitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
     var onOpenMessageTransitionCompleted: ((Int64) -> Void)?
+    /// ChatImageGalleryItem's Reply, offered where the chat takes messages: the gallery closes and the message becomes
+    /// the composer's reply.
+    var onReplyToMessageID: ((Int64) -> Void)? {
+        didSet {
+            if isViewLoaded {
+                updateMoreMenu()
+            }
+        }
+    }
 
     fileprivate let transitionSource: MediaGalleryTransitionTarget?
     fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
@@ -1187,6 +1196,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             onPrepareOpenMessageID: onPrepareOpenMessageID,
             openInChatTransitionSourceProvider: openInChatTransitionSourceProvider,
             onOpenMessageTransitionCompleted: onOpenMessageTransitionCompleted,
+            onReplyToMessageID: onReplyToMessageID,
             onRequestMoreMessages: onRequestMoreMessages,
             chatHistorySource: chatHistorySource,
             onGalleryRestored: onGalleryRestored,
@@ -2867,9 +2877,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             && selectedAsset?.isSecretMedia == false
         let saveAsset = hasActionContext && canExport ? MediaGalleryExportAsset(messages[selectedIndex]) : nil
         let canSave = saveAsset?.photosKind != nil
+        let canReply = hasActionContext && onReplyToMessageID != nil
         deleteButton.isHidden = !canDelete
-        moreButton.isHidden = !canOpen && !canForward && !canSave && !canDelete
-        guard canOpen || canForward || canSave || canDelete else {
+        moreButton.isHidden = !canOpen && !canForward && !canSave && !canReply && !canDelete
+        guard canOpen || canForward || canSave || canReply || canDelete else {
             moreActions = []
             return
         }
@@ -2898,6 +2909,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 self?.exportSelectedMedia(.saveToPhotos)
             })
         }
+        if canReply {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuReply"),
+                image: UIImage(systemName: "arrowshape.turn.up.left"),
+            ) { [weak self] in
+                self?.replyToSelectedMessage()
+            })
+        }
         if canDelete {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("Common.Delete"),
@@ -2914,6 +2933,20 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     @objc private func showMoreActions() {
         guard presentedViewController == nil, !moreActions.isEmpty else { return }
         presentTelegramContextMenu(sourceView: moreButton, actions: moreActions, presentationStyle: .sourceMorph)
+    }
+
+    private func replyToSelectedMessage() {
+        guard openInChatTask == nil,
+              deleteTask == nil,
+              exportTask == nil,
+              forwardTask == nil,
+              presentedViewController == nil,
+              hasCurrentContext,
+              messages.indices.contains(selectedIndex),
+              onReplyToMessageID != nil
+        else { return }
+        let messageID = messages[selectedIndex].id
+        dismiss(animated: true) { [weak self] in self?.onReplyToMessageID?(messageID) }
     }
 
     private func openSelectedMessageInChat() {
@@ -6580,6 +6613,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     let onPrepareOpenMessageID: ((Int64) async -> Bool)?
     let openInChatTransitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
     let onOpenMessageTransitionCompleted: ((Int64) -> Void)?
+    let onReplyToMessageID: ((Int64) -> Void)?
     let onRequestMoreMessages: (() -> Void)?
     let chatHistorySource: (client: TDLibClient, location: ChatLocation)?
     let onGalleryRestored: ((MediaGalleryViewController) -> Void)?
@@ -6595,6 +6629,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         }
         gallery.openInChatTransitionSourceProvider = openInChatTransitionSourceProvider
         gallery.onOpenMessageTransitionCompleted = onOpenMessageTransitionCompleted
+        gallery.onReplyToMessageID = onReplyToMessageID
         gallery.paginationIsCurrent = paginationIsCurrent
         guard paginationIsCurrent?() ?? true else { return }
         if let chatHistorySource {

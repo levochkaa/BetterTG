@@ -4385,11 +4385,24 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         gallery.onOpenMessageTransitionCompleted = { [weak self] messageID in
             self?.highlightMessage(id: messageID)
         }
+        if chatVM.canWriteBasicMessages {
+            gallery.onReplyToMessageID = { [weak self] messageID in self?.replyFromGallery(to: messageID) }
+        }
         if isChatMedia { gallery.enableChatHistoryPaging(client: chatVM.client, location: location) }
         // End the composer's editing session before UIKit retains it for the modal transition.
         // Otherwise cancelling an interactive dismissal can restore its keyboard over the gallery.
         view.endEditing(true)
         present(gallery, animated: true)
+    }
+
+    /// The gallery's Reply: the message becomes the composer's reply, as its context menu's Reply does.
+    private func replyFromGallery(to messageID: Int64) {
+        Task { [weak self] in
+            guard let self, let message = await chatVM.getCustomMessage(fromId: messageID),
+                  chatVM.locationContextIsCurrent, message.properties.canBeReplied
+            else { return }
+            chatVM.beginReply(to: message)
+        }
     }
 
     private func prepareGalleryReturn(to messageID: Int64) async -> Bool {
