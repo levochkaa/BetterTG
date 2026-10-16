@@ -423,6 +423,7 @@ final class MessageStructuredContentView: UIView {
                 PollMessageContentView(
                     messageID: messageID,
                     content: poll,
+                    client: client,
                     interactionStore: pollInteractionStore,
                     onAction: onAction,
                 )
@@ -1362,7 +1363,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     }
 
     private let explanationView = PollExplanationView()
-    private let questionLabel = UILabel()
+    private let questionLabel = CustomEmojiTextView()
     private let typeLabel = UILabel()
     private let solutionButton = UIButton(type: .system)
     private let optionsStack = UIStackView()
@@ -1370,6 +1371,8 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     private let voteButton = UIButton(type: .system)
     private let messageID: Int64
     private let content: MessagePoll
+    /// Loads the custom emoji in the question, the answers and the explanation.
+    private let client: TDLibClient
     private let interactionStore: MessagePollInteractionStore
     private let onAction: (MessageContentAction) -> Void
     private var optionViews = [Int: PollOptionContentView]()
@@ -1494,11 +1497,13 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     init(
         messageID: Int64,
         content: MessagePoll,
+        client: TDLibClient,
         interactionStore: MessagePollInteractionStore,
         onAction: @escaping (MessageContentAction) -> Void,
     ) {
         self.messageID = messageID
         self.content = content
+        self.client = client
         self.interactionStore = interactionStore
         self.onAction = onAction
         super.init(frame: .zero)
@@ -1536,15 +1541,17 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         explanationView.translatesAutoresizingMaskIntoConstraints = false
         explanationView.isHidden = true
         explanationView.closeButton.addTarget(self, action: #selector(closeExplanationTapped), for: .touchUpInside)
-        if let quizExplanation { explanationView.configure(text: quizExplanation) }
+        if let quizExplanation { explanationView.configure(text: quizExplanation, client: client) }
         addSubview(explanationView)
 
+        // ChatMessagePollBubbleContentNode draws the question's custom emoji (TextNodeWithEntities).
         questionLabel.translatesAutoresizingMaskIntoConstraints = false
-        questionLabel.attributedText = NSAttributedString(getAttributedString(from: content.poll.question))
-        questionLabel.font = .preferredFont(forTextStyle: .body).withWeight(.semibold)
-        questionLabel.textColor = .label
-        questionLabel.numberOfLines = 0
-        questionLabel.adjustsFontForContentSizeCategory = true
+        questionLabel.configureForDisplay()
+        questionLabel.customEmojiClient = client
+        questionLabel.setFormattedText(
+            content.poll.question,
+            font: .preferredFont(forTextStyle: .body).withWeight(.semibold),
+        )
         addSubview(questionLabel)
 
         typeLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1574,6 +1581,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
             optionView.configure(
                 option: content.poll.options[index],
                 index: index,
+                client: client,
                 showsResults: showsResults,
                 correct: hasAuthoritativeQuizAnswer && correctOptionIndices.contains(index),
                 incorrect: hasAuthoritativeQuizAnswer
@@ -1785,7 +1793,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
 private final class PollOptionContentView: UIControl {
     private let progressView = UIView()
     private let selectionView = UIImageView()
-    private let textLabel = UILabel()
+    private let textLabel = CustomEmojiTextView()
     private let percentageLabel = UILabel()
     private var index = 0
     private var onTap: ((Int) -> Void)?
@@ -1813,16 +1821,17 @@ private final class PollOptionContentView: UIControl {
         addSubview(selectionView)
 
         textLabel.translatesAutoresizingMaskIntoConstraints = false
-        textLabel.numberOfLines = 0
-        textLabel.font = .preferredFont(forTextStyle: .subheadline)
-        textLabel.textColor = .label
-        textLabel.adjustsFontForContentSizeCategory = true
+        textLabel.configureForDisplay()
+        textLabel.isAccessibilityElement = false
+        textLabel.setContentCompressionResistancePriority(.required, for: .vertical)
         addSubview(textLabel)
 
         percentageLabel.translatesAutoresizingMaskIntoConstraints = false
         percentageLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
         percentageLabel.textColor = .secondaryLabel
         percentageLabel.textAlignment = .right
+        percentageLabel.setContentHuggingPriority(.required, for: .horizontal)
+        percentageLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         addSubview(percentageLabel)
 
         NSLayoutConstraint.activate([
@@ -1833,7 +1842,7 @@ private final class PollOptionContentView: UIControl {
             textLabel.topAnchor.constraint(equalTo: topAnchor, constant: 9),
             textLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -9),
             textLabel.leadingAnchor.constraint(equalTo: selectionView.trailingAnchor, constant: 7),
-            percentageLabel.leadingAnchor.constraint(greaterThanOrEqualTo: textLabel.trailingAnchor, constant: 5),
+            percentageLabel.leadingAnchor.constraint(equalTo: textLabel.trailingAnchor, constant: 5),
             percentageLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             percentageLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
             percentageLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 34),
@@ -1860,6 +1869,7 @@ private final class PollOptionContentView: UIControl {
     func configure(
         option: PollOption,
         index: Int,
+        client: TDLibClient,
         showsResults: Bool,
         correct: Bool,
         incorrect: Bool,
@@ -1872,7 +1882,9 @@ private final class PollOptionContentView: UIControl {
         self.onTap = onTap
         self.showsResults = showsResults
         sourceChosen = option.isChosen
-        textLabel.attributedText = NSAttributedString(getAttributedString(from: option.text))
+        // ChatMessagePollOptionNode draws the answer's custom emoji (TextNodeWithEntities).
+        textLabel.customEmojiClient = client
+        textLabel.setFormattedText(option.text, font: .preferredFont(forTextStyle: .subheadline))
         percentageLabel.text = showsResults ? "\(option.votePercentage)%" : nil
         percentageLabel.accessibilityValue = String(showsResults ? option.votePercentage : 0)
         self.relativeProgress = showsResults ? min(1, max(0, relativeProgress)) : 0
@@ -1937,7 +1949,7 @@ private final class PollExplanationView: UIView {
 
     private let accentView = UIView()
     private let titleLabel = UILabel()
-    private let textLabel = UILabel()
+    private let textLabel = CustomEmojiTextView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1959,8 +1971,8 @@ private final class PollExplanationView: UIView {
         addSubview(titleLabel)
 
         textLabel.translatesAutoresizingMaskIntoConstraints = false
-        textLabel.numberOfLines = 0
-        textLabel.adjustsFontForContentSizeCategory = true
+        textLabel.configureForDisplay()
+        textLabel.setContentCompressionResistancePriority(.required, for: .vertical)
         addSubview(textLabel)
 
         closeButton.translatesAutoresizingMaskIntoConstraints = false
@@ -1999,10 +2011,10 @@ private final class PollExplanationView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(text: FormattedText) {
-        textLabel.attributedText = NSAttributedString(getAttributedString(from: text))
-        textLabel.font = .preferredFont(forTextStyle: .subheadline)
-        textLabel.textColor = .label
+    /// ChatMessageQuizAnswerBubbleContentNode draws the solution's custom emoji.
+    func configure(text: FormattedText, client: TDLibClient) {
+        textLabel.customEmojiClient = client
+        textLabel.setFormattedText(text, font: .preferredFont(forTextStyle: .subheadline))
     }
 }
 
