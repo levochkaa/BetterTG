@@ -42,12 +42,15 @@ enum PhotoCropOrientation: Int {
 
 /// A photo's crop as TGMediaEditingContext keeps it (PGPhotoEditorValues): the crop rectangle inside the bounding box
 /// of the straightened photo, in `originalSize` units, the quarter turns, the straightening angle, the mirroring and
-/// the locked aspect ratio.
+/// the locked aspect ratio, with the photo tools applied over the crop.
 struct PhotoCropAdjustments: Equatable {
     /// TGPhotoCropScrollView's `maximumZoomScale`.
     static let maximumZoomScale: CGFloat = 10
     /// `TGPhotoCropRotationViewMaximumAngle`.
     static let maximumRotation: CGFloat = .pi / 4
+    /// `TGPhotoEditorResultImageMaxSize`: the edited photo's side, which the tools render at before sending scales
+    /// it down.
+    static let toolsResultSide = 2560
 
     /// The upright photo's size the crop is measured in.
     let originalSize: CGSize
@@ -58,6 +61,8 @@ struct PhotoCropAdjustments: Equatable {
     var isMirrored = false
     /// The crop's height over its width while a ratio is locked; zero otherwise.
     var lockedAspectRatio: CGFloat = 0
+    /// PGPhotoEditorValues' `toolValues`.
+    var tools = PhotoToolValues()
 
     /// PGPhotoEditor's `hasDefaultCropping`: the whole photo, upright, straight and unmirrored.
     var hasDefaultCropping: Bool {
@@ -125,7 +130,16 @@ struct PhotoCropAdjustments: Equatable {
         result.rotation = rotation
         result.isMirrored = isMirrored
         result.lockedAspectRatio = lockedAspectRatio
+        result.tools = tools
         return result
+    }
+
+    /// PGPhotoToolComposer's `imageSize`: the crop rectangle in the pixels of the full photo, `fullPixelSize`
+    /// upright. It sets the grain's scale.
+    func toolsGrainSize(fullPixelSize: CGSize) -> CGSize {
+        guard originalSize.width > 0 else { return .zero }
+        let factor = fullPixelSize.width / originalSize.width
+        return CGSize(width: cropRect.width * factor, height: cropRect.height * factor)
     }
 
     // MARK: Geometry
@@ -231,11 +245,32 @@ struct PhotoCropAdjustments: Equatable {
             ))
         }
     }
+
+    /// TGPhotoEditorController's result: the crop (`render`), then the tools over it. `fullPixelSize` is the full
+    /// photo's upright size for the grain's scale, `sourcePixelSize` when unknown. Without Metal the crop goes alone.
+    func renderEdited(
+        _ image: UIImage,
+        sourcePixelSize: CGSize,
+        fullPixelSize: CGSize? = nil,
+        maximumSide: CGFloat,
+    ) -> UIImage? {
+        guard let cropped = render(image, sourcePixelSize: sourcePixelSize, maximumSide: maximumSide) else {
+            return nil
+        }
+        guard !tools.isDefault, let croppedImage = cropped.cgImage else { return cropped }
+        let grainSize = toolsGrainSize(fullPixelSize: fullPixelSize ?? sourcePixelSize)
+        guard let rendered = PhotoToolsRenderer.shared.render(croppedImage, tools: tools, grainSize: grainSize) else {
+            log("Sending the photo without its tools")
+            return cropped
+        }
+        return UIImage(cgImage: rendered)
+    }
 }
 
 // MARK: - Cropped photo files
 
-/// Writes encoded photo data cropped as `adjustments` say, as the JPEG Telegram sends: `TGPhotoEditorCrop` fitted to
+/// Writes encoded photo data edited as `adjustments` say, as the JPEG Telegram sends: `TGPhotoEditorCrop` fitted to
+/// the send size, or with tools the crop at `TGPhotoEditorResultImageMaxSize` with the tools over it, then scaled to
 /// the send size. ImageIO decodes the photo only as large as the crop needs. Call off the main thread.
 func writeImage(data: Data, cropping adjustments: PhotoCropAdjustments, maximumSide: Int) -> SelectedImage? {
     let sourceOptions: [CFString: Any] = [kCGImageSourceShouldCache: false]
@@ -255,9 +290,12 @@ func writeImage(data: Data, cropping adjustments: PhotoCropAdjustments, maximumS
         : CGSize(width: width, height: height)
     let crop = adjustments.cropRect.standardized
     guard crop.width > 0, crop.height > 0, adjustments.originalSize.width > 0 else { return nil }
+    let renderSide = adjustments.tools.isDefault
+        ? maximumSide
+        : max(maximumSide, PhotoCropAdjustments.toolsResultSide)
     let pixelsPerUnit = uprightSize.width / adjustments.originalSize.width
     let cropSide = max(crop.width, crop.height) * pixelsPerUnit
-    let decodeFactor = min(1, CGFloat(maximumSide) / cropSide)
+    let decodeFactor = min(1, CGFloat(renderSide) / cropSide)
     let decodeSide = max(1, Int((max(uprightSize.width, uprightSize.height) * decodeFactor).rounded(.up)))
     let thumbnailOptions: [CFString: Any] = [
         kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -266,10 +304,11 @@ func writeImage(data: Data, cropping adjustments: PhotoCropAdjustments, maximumS
         kCGImageSourceShouldCacheImmediately: true,
     ]
     guard let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary),
-          let rendered = adjustments.render(
+          let rendered = adjustments.renderEdited(
               UIImage(cgImage: decoded),
               sourcePixelSize: uprightSize,
-              maximumSide: CGFloat(maximumSide),
+              fullPixelSize: uprightSize,
+              maximumSide: CGFloat(renderSide),
           )
     else {
         log("Error cropping edited image")
