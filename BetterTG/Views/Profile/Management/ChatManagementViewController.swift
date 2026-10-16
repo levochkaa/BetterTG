@@ -314,6 +314,16 @@ final class ChatManagementViewController: SettingsListViewController {
                 value: count > 0 ? count.formatted(.number) : nil,
             ) { [weak self] in self?.push(ChatRemovedUsersViewController(target: target)) })
         }
+        // The admin log exists for supergroups and channels.
+        if target.supergroupID != nil, isAdministrator {
+            rows
+                .append(disclosure(
+                    L10n.telegram("Group.Info.AdminLog"),
+                    symbol: "list.bullet.rectangle",
+                ) { [weak self] in
+                    self?.push(ChatRecentActionsViewController(target: target))
+                })
+        }
         return rows
     }
 
