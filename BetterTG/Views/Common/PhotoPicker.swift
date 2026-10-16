@@ -5,6 +5,10 @@ import UIKit
 import UniformTypeIdentifiers
 
 enum PhotoPickerSelectionLoader {
+    /// Each load decodes a photo at the sent size; a hundred at once would hold all of them in memory together, so a
+    /// few load at a time.
+    private static let concurrentLoads = 4
+
     static func load(_ results: [PHPickerResult], completion: @escaping ([SelectedImage]) -> Void) {
         guard !results.isEmpty else { return completion([]) }
         // Expired attachments go before this selection writes its own files.
@@ -17,6 +21,7 @@ enum PhotoPickerSelectionLoader {
     private static func loadAll(_ results: [PHPickerResult], completion: @escaping ([SelectedImage]) -> Void) {
         let lock = NSLock()
         let group = DispatchGroup()
+        let slots = DispatchSemaphore(value: concurrentLoads)
         var selected = [Int: SelectedImage]()
 
         for (index, result) in results.prefix(100).enumerated() {
@@ -24,9 +29,14 @@ enum PhotoPickerSelectionLoader {
             let isVideo = !provider.canLoadObject(ofClass: PHLivePhoto.self)
                 && provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier)
             guard isVideo || provider.canLoadObject(ofClass: UIImage.self) else { continue }
+            // This runs on a background queue; the loads finish on the providers' queues.
+            slots.wait()
             group.enter()
             let store: (SelectedImage?) -> Void = { image in
-                defer { group.leave() }
+                defer {
+                    slots.signal()
+                    group.leave()
+                }
                 guard let image else { return }
                 lock.lock()
                 selected[index] = image
