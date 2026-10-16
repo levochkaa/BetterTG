@@ -5,17 +5,26 @@ import UIKit
 
 // MARK: - VideoScrubberView
 
-/// TGMediaPickerGalleryVideoScrubber without its hold-to-zoom: a strip of frames across the video, cut to the crop
-/// and turned as it goes (TGMediaPickerGalleryVideoScrubberThumbnailView), the trim frame
-/// (TGMediaPickerGalleryVideoTrimView) with dark curtains over the cut parts, and the white playhead. Moving a trim
-/// handle seeks to its edge and keeps at least `minimumLength`; the playhead scrubs inside the trim.
+/// TGMediaPickerGalleryVideoScrubber: a strip of frames across the video, cut to the crop and turned as it goes
+/// (TGMediaPickerGalleryVideoScrubberThumbnailView), the trim frame (TGMediaPickerGalleryVideoTrimView) with dark
+/// curtains over the cut parts, and the white playhead. Moving a trim handle seeks to its edge and keeps at least
+/// `minimumLength`; the playhead scrubs inside the trim. Holding a handle or the playhead still for a quarter second
+/// zooms the strip about it until a frame's interval spans the strip, with denser frames read for it, so a short trim
+/// lands where it should; letting go zooms back out.
 final class VideoScrubberView: UIView {
+    // MARK: Private
+
+    /// What the zoom keeps in place (`TGMediaPickerGalleryVideoScrubberPivotSource`).
+    private enum ZoomPivotSource {
+        case trimStart
+        case trimEnd
+        case handle
+    }
+
     // MARK: Internal
 
     /// The 40 pt strip with room for the playhead, which reaches 4 pt past it.
     static let preferredHeight: CGFloat = 64
-
-    // MARK: Private
 
     /// `TGVideoScrubberPadding`.
     private static let padding: CGFloat = 8
@@ -28,6 +37,9 @@ final class VideoScrubberView: UIView {
     private static let playheadSize = CGSize(width: 5, height: 48)
     /// The step of a VoiceOver swipe on a trim handle.
     private static let accessibilityStep = 1.0
+    /// `TGVideoScrubberZoomActivationInterval`: how long a hold rests before the strip zooms.
+    private static let zoomActivationInterval: TimeInterval = 0.25
+    private static let zoomAnimationDuration: TimeInterval = 0.3
 
     var onBeginScrubbing: (() -> Void)?
     var onScrub: ((Double) -> Void)?
@@ -66,7 +78,9 @@ final class VideoScrubberView: UIView {
     private var frameSize = CGSize(width: 1, height: 1)
     /// The crop the frames show; `nil` for the whole frame upright.
     private var crop: PhotoCropAdjustments?
+    /// The strip's own frames (`_summaryThumbnailViews`) at `summaryTimes`.
     private var thumbnailViews = [VideoScrubberThumbnailView]()
+    private var summaryTimes = [Double]()
     /// `_summaryThumbnailSnapshotView`: the old frames over the new ones until they load.
     private var thumbnailSnapshotView: UIView?
     private var thumbnailTask: Task<Void, Never>?
@@ -76,15 +90,29 @@ final class VideoScrubberView: UIView {
     private var scrubInteractionBegan = false
     private var scrubInteractionEnded = false
 
+    /// The frames read for the zoom under the strip's own (`_zoomedThumbnailViews`) at `zoomedTimes`.
+    private var zoomedThumbnailViews = [VideoScrubberThumbnailView]()
+    private var zoomedTimes = [Double]()
+    private var zoomTask: Task<Void, Never>?
+    private var isZoomedIn = false
+    private var isPreparingToZoomIn = false
+    private var isAnimatingZoomIn = false
+    private var isAnimatingZoomOut = false
+    /// Tells a finished zoom-out animation whether the zoom it ended is still the one on screen.
+    private var zoomGeneration = 0
+    private var pivotSource = ZoomPivotSource.handle
+    /// The interval between two of the strip's frames, which the zoomed strip's width shows.
+    private var zoomedDuration: Double = 0
+    private var zoomPivotPosition: Double = 0
+    /// The pivot's place in the strip, which stays put as the strip zooms.
+    private var zoomPivotCenter: CGFloat = 0
+    /// How far the pivot's frame moves with the zoom.
+    private var zoomPivotOffset: CGFloat = 0
+    private var zoomedPivotIndex = -1
+
     /// `hasTrimming`: the handles left the video's ends.
     var hasTrimming: Bool {
         allowsTrimming && (trimStart > Self.valueEpsilon || trimEnd < duration - Self.valueEpsilon)
-    }
-
-    /// `_scrubbingRect` in the strip's coordinates: the width between the handles.
-    private var scrubbingRect: CGRect {
-        let handle = allowsTrimming ? Self.handleWidth : 0
-        return CGRect(x: handle, y: 0, width: max(1, wrapperView.bounds.width - handle * 2), height: Self.stripHeight)
     }
 
     /// The crop the frames show, the whole frame without one (`videoScrubberOriginalSize:cropRect:`).
@@ -104,6 +132,11 @@ final class VideoScrubberView: UIView {
         return CGSize(width: ceil(Self.stripHeight * aspectRatio), height: Self.stripHeight)
     }
 
+    /// `zoomAvailable`: one zoom at a time, over the strip's frames, for a video longer than a second.
+    private var zoomAvailable: Bool {
+        !isZoomedIn && !isPreparingToZoomIn && !summaryTimes.isEmpty && duration > 1
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         configureViews()
@@ -114,20 +147,26 @@ final class VideoScrubberView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        wrapperView.frame = CGRect(
+        let wrapperFrame = CGRect(
             x: Self.padding,
             y: ((bounds.height - Self.stripHeight) / 2).rounded(.down),
             width: max(0, bounds.width - Self.padding * 2),
             height: Self.stripHeight,
         )
-        stripView.frame = wrapperView.bounds
-        if !isTrimming {
-            layoutTrimView()
+        if wrapperFrame.size != wrapperView.frame.size {
+            discardZoom()
         }
-        layoutThumbnails()
+        wrapperView.frame = wrapperFrame
+        stripView.frame = wrapperView.bounds
+        // The zoom keeps its own layout until it ends.
+        guard !isZoomedIn else { return }
+        if !isTrimming {
+            layoutTrimView(zoomedIn: false)
+        }
+        layoutThumbnails(forZoom: false)
         reloadThumbnailsIfNeeded()
         if !isScrubbing, !isTrimming {
-            updatePlayheadPosition()
+            updatePlayheadPosition(zoomedIn: false)
         }
     }
 
@@ -159,6 +198,7 @@ final class VideoScrubberView: UIView {
 
     /// The video to scrub and its trim; `frameSize` is its displayed frame's size.
     func configure(asset: AVAsset, duration: Double, frameSize: CGSize, trimRange: ClosedRange<Double>?) {
+        discardZoom()
         self.asset = asset
         self.duration = max(0, duration)
         let hasFrame = frameSize.width.isFinite && frameSize.height.isFinite && frameSize.width > 0
@@ -178,6 +218,7 @@ final class VideoScrubberView: UIView {
     /// reloads them, the old ones staying until the new ones load (`reloadDataAndReset:false`).
     func setCrop(_ newCrop: PhotoCropAdjustments?) {
         guard newCrop != crop else { return }
+        discardZoom()
         let oldSize = thumbnailSize
         crop = newCrop
         guard !thumbnailViews.isEmpty else { return }
@@ -199,14 +240,14 @@ final class VideoScrubberView: UIView {
         guard duration > Self.valueEpsilon, !isScrubbing else { return }
         value = min(max(0, newValue), duration)
         if !isTrimming {
-            updatePlayheadPosition()
+            updatePlayheadPosition(zoomedIn: isZoomedIn)
         }
     }
 
     /// `resetToStart`.
     func resetToStart() {
         value = trimStart
-        let rect = scrubbingRect
+        let rect = scrubbingRect()
         playheadView.center.x = trimView.frame.minX + rect.minX + playheadView.bounds.width / 2
     }
 
@@ -271,68 +312,95 @@ final class VideoScrubberView: UIView {
 
     // MARK: Geometry
 
-    /// `_trimFrameForStartPosition:endPosition:`: the frame spans both handles around the kept part.
-    private func trimFrame(start: Double, end: Double) -> CGRect {
+    /// `_scrubbingRectZoomedIn:` in the strip's coordinates: the width between the handles, or zoomed, as many
+    /// times wider as the video is longer than the zoomed interval, about the pivot. `nil` is the current one
+    /// (`_scrubbingRect`).
+    private func scrubbingRect(zoomedIn: Bool? = nil) -> CGRect {
+        let handle = allowsTrimming ? Self.handleWidth : 0
+        var origin = handle
+        var width = max(1, wrapperView.bounds.width - handle * 2)
+        if zoomedIn ?? isZoomedIn {
+            let interval = zoomedDuration > Self.valueEpsilon ? zoomedDuration : duration
+            let zoomedWidth = width * CGFloat(duration / max(interval, Self.valueEpsilon))
+            origin += zoomPivotCenter - zoomPivotCenter * zoomedWidth / width
+            width = zoomedWidth
+        }
+        return CGRect(x: origin, y: 0, width: width, height: Self.stripHeight)
+    }
+
+    /// `_trimFrameForStartPosition:endPosition:duration:zoomedIn:`: the frame spans both handles around the kept
+    /// part.
+    private func trimFrame(start: Double, end: Double, zoomedIn: Bool) -> CGRect {
         guard duration > Self.valueEpsilon else { return wrapperView.bounds }
-        let rect = scrubbingRect
-        let minX = CGFloat(start / duration) * rect.width
-        let maxX = CGFloat(end / duration) * rect.width + rect.minX * 2
+        let rect = scrubbingRect(zoomedIn: zoomedIn)
+        let normalRect = scrubbingRect(zoomedIn: false)
+        let minX = CGFloat(start / duration) * rect.width + rect.minX - normalRect.minX
+        let maxX = CGFloat(end / duration) * rect.width + rect.minX + normalRect.minX
         return CGRect(x: minX, y: 0, width: maxX - minX, height: Self.stripHeight)
     }
 
     /// `_trimStartPosition:trimEndPosition:forTrimFrame:`.
     private func trimPositions(for frame: CGRect) -> (start: Double, end: Double) {
-        let rect = scrubbingRect
+        let rect = scrubbingRect()
         let start = Double((frame.minX + Self.handleWidth - rect.minX) / rect.width) * duration
         let end = Double((frame.maxX - Self.handleWidth - rect.minX) / rect.width) * duration
         return (start, end)
     }
 
-    private func playheadCenterX(for position: Double) -> CGFloat {
-        let rect = scrubbingRect
+    /// `_scrubberPositionForPosition:duration:zoomedIn:`.
+    private func playheadCenterX(for position: Double, zoomedIn: Bool) -> CGFloat {
+        let rect = scrubbingRect(zoomedIn: zoomedIn)
         let width = playheadView.bounds.width
         let fraction = duration > Self.valueEpsilon ? CGFloat(position / duration) : 0
         return width / 2 + rect.minX + fraction * (rect.width - width)
     }
 
+    /// `_positionForScrubberPosition:duration:`.
     private func position(forPlayheadCenterX centerX: CGFloat) -> Double {
-        let rect = scrubbingRect
+        let rect = scrubbingRect()
         let width = playheadView.bounds.width
         return Double((centerX - width / 2 - rect.minX) / max(1, rect.width - width)) * duration
     }
 
-    private func layoutTrimView() {
-        trimView.frame = trimFrame(start: trimStart, end: trimEnd)
-        layoutCurtains()
+    /// `_layoutTrimViewZoomedIn:`.
+    private func layoutTrimView(zoomedIn: Bool) {
+        trimView.frame = trimFrame(start: trimStart, end: trimEnd, zoomedIn: zoomedIn)
+        layoutCurtains(zoomedIn: zoomedIn)
     }
 
-    /// `_layoutTrimCurtainViews`: the curtains reach under the handles' rounded outer edges.
-    private func layoutCurtains() {
+    /// `_layoutTrimCurtainViews`: the curtains reach from the video's ends under the handles' rounded outer edges.
+    private func layoutCurtains(zoomedIn: Bool) {
         leftCurtainView.isHidden = !allowsTrimming
         rightCurtainView.isHidden = !allowsTrimming
         guard allowsTrimming else { return }
-        let rect = scrubbingRect
+        let rect = scrubbingRect(zoomedIn: zoomedIn)
+        let normalRect = scrubbingRect(zoomedIn: false)
         let trim = trimView.frame
-        leftCurtainView.frame = CGRect(x: rect.minX - 12, y: 0, width: max(0, trim.minX + 11), height: Self.stripHeight)
+        leftCurtainView.frame = CGRect(
+            x: rect.minX - 12,
+            y: 0,
+            width: max(0, trim.minX - rect.minX + normalRect.minX + 11),
+            height: Self.stripHeight,
+        )
         rightCurtainView.frame = CGRect(
             x: trim.maxX - 7,
             y: 0,
-            width: max(0, rect.width - trim.maxX + rect.minX + 19),
+            width: max(0, rect.width - trim.maxX + normalRect.minX + 19),
             height: Self.stripHeight,
         )
     }
 
-    /// `_updateScrubberAnimationsAndResetCurrentPosition:` without the animation: the playhead at the value,
-    /// against a handle's inner edge when the value is at the trim's start or end.
-    private func updatePlayheadPosition() {
+    /// `_updateScrubberAnimationsAndResetCurrentPosition:zoomedIn:` without the animation: the playhead at the
+    /// value, against a handle's inner edge when the value is at the trim's start or end.
+    private func updatePlayheadPosition(zoomedIn: Bool) {
         guard duration > Self.valueEpsilon else { return }
-        let rect = scrubbingRect
+        let normalRect = scrubbingRect(zoomedIn: false)
         let width = playheadView.bounds.width
-        var x = floor(playheadCenterX(for: value)) - width / 2
+        var x = floor(playheadCenterX(for: value, zoomedIn: zoomedIn)) - width / 2
         if trimStart > Self.valueEpsilon, abs(value - trimStart) < 0.01 {
-            x = trimView.frame.minX + rect.minX
+            x = trimView.frame.minX + normalRect.minX
         } else if abs(value - trimEnd) < 0.01 {
-            x = trimView.frame.maxX - rect.minX - width
+            x = trimView.frame.maxX - normalRect.minX - width
         }
         playheadView.frame.origin = CGPoint(x: x, y: -4)
     }
@@ -355,14 +423,76 @@ final class VideoScrubberView: UIView {
 
     // MARK: Thumbnails
 
-    /// `_layoutSummaryThumbnailViewsForZoom:`: the frames side by side, centered on the strip.
-    private func layoutThumbnails() {
+    /// `_layoutSummaryThumbnailViewsForZoom:`: the frames side by side, centered on the strip; for the zoom, the
+    /// pivot's frame moves by the zoom's offset and the others spread from it as far apart as the read frames reach.
+    private func layoutThumbnails(forZoom: Bool) {
         guard !thumbnailViews.isEmpty else { return }
         let size = thumbnailSize
         let totalWidth = size.width * CGFloat(thumbnailViews.count)
         let originX = (stripView.bounds.width - totalWidth) / 2
+        guard forZoom, thumbnailViews.indices.contains(zoomedPivotIndex),
+              let first = zoomedThumbnailViews.first?.frame, let last = zoomedThumbnailViews.last?.frame
+        else {
+            for (index, view) in thumbnailViews.enumerated() {
+                view.frame = CGRect(
+                    x: originX + size.width * CGFloat(index),
+                    y: 0,
+                    width: size.width,
+                    height: size.height,
+                )
+            }
+            return
+        }
+        let pivotIndex = zoomedPivotIndex
+        let pivotX = originX + size.width * CGFloat(pivotIndex) + zoomPivotOffset
+        let leftStep = pivotX - first.minX + first.width
+        let rightStep = last.maxX - pivotX
         for (index, view) in thumbnailViews.enumerated() {
-            view.frame = CGRect(x: originX + size.width * CGFloat(index), y: 0, width: size.width, height: size.height)
+            var x = pivotX
+            if index < pivotIndex {
+                x = pivotX - leftStep * CGFloat(pivotIndex - index)
+            } else if index > pivotIndex {
+                x = pivotX + rightStep * CGFloat(index - pivotIndex)
+            }
+            view.frame = CGRect(x: x, y: 0, width: size.width, height: size.height)
+        }
+    }
+
+    /// `_layoutZoomedThumbnailViewsStacked:`: the read frames under the pivot's frame, or side by side from it,
+    /// the later ones after it and the earlier ones before it.
+    private func layoutZoomedThumbnails(stacked: Bool) {
+        guard !zoomedThumbnailViews.isEmpty, thumbnailViews.indices.contains(zoomedPivotIndex),
+              summaryTimes.indices.contains(zoomedPivotIndex)
+        else { return }
+        let size = thumbnailSize
+        let stack = thumbnailViews[zoomedPivotIndex].frame
+        guard !stacked else {
+            for view in zoomedThumbnailViews {
+                view.frame = stack
+            }
+            return
+        }
+        let pivotTime = summaryTimes[zoomedPivotIndex]
+        let frames = Array(zip(zoomedTimes, zoomedThumbnailViews))
+        var step: CGFloat = 1
+        for (time, view) in frames where time >= pivotTime {
+            view.frame = CGRect(
+                x: stack.minX + size.width * step + zoomPivotOffset,
+                y: 0,
+                width: size.width,
+                height: size.height,
+            )
+            step += 1
+        }
+        step = 1
+        for (time, view) in frames.reversed() where time < pivotTime {
+            view.frame = CGRect(
+                x: stack.minX - size.width * step + zoomPivotOffset,
+                y: 0,
+                width: size.width,
+                height: size.height,
+            )
+            step += 1
         }
     }
 
@@ -371,15 +501,17 @@ final class VideoScrubberView: UIView {
     private func reloadThumbnailsIfNeeded() {
         let width = stripView.bounds.width
         guard let asset, duration > Self.valueEpsilon, width > 0, width != loadedStripWidth else { return }
+        discardZoom()
         loadedStripWidth = width
         thumbnailTask?.cancel()
         for view in thumbnailViews {
             view.removeFromSuperview()
         }
         let size = thumbnailSize
-        let count = max(1, Int(ceil(width / size.width)))
-        let interval = duration / Double(count)
-        let times = (0..<count).map { CMTime(seconds: Double($0) * interval, preferredTimescale: 600) }
+        let frameCount = max(1, Int(ceil(width / size.width)))
+        let interval = duration / Double(frameCount)
+        summaryTimes = (0..<frameCount).map { Double($0) * interval }
+        let times = summaryTimes.map { CMTime(seconds: $0, preferredTimescale: 600) }
         let crop = displayedCrop
         thumbnailViews = times.map { _ in
             let view = VideoScrubberThumbnailView(crop: crop)
@@ -389,7 +521,7 @@ final class VideoScrubberView: UIView {
         if let thumbnailSnapshotView {
             stripView.bringSubviewToFront(thumbnailSnapshotView)
         }
-        layoutThumbnails()
+        layoutThumbnails(forZoom: false)
         let generator = makeThumbnailGenerator(for: asset)
         thumbnailTask = Task { [weak self] in
             for await result in generator.images(for: times) {
@@ -441,12 +573,185 @@ final class VideoScrubberView: UIView {
         }
     }
 
+    // MARK: Zoom
+
+    /// The hold starts over: a waiting zoom is dropped and another waits for the finger to rest
+    /// (`performSelector:withObject:afterDelay:`).
+    private func scheduleZoomIn(from source: ZoomPivotSource) {
+        cancelZoomIn()
+        guard zoomAvailable else { return }
+        pivotSource = source
+        perform(#selector(zoomIn), with: nil, afterDelay: Self.zoomActivationInterval)
+    }
+
+    /// `zoomIn`: the zoom spans the strip's frames on either side of the one nearest the pivot, with enough frames
+    /// read across them to fill the strip, twice over past the second frame.
+    @objc private func zoomIn() {
+        guard zoomAvailable, let asset else { return }
+        isPreparingToZoomIn = true
+        let positions = trimPositions(for: trimView.frame)
+        let normalRect = scrubbingRect(zoomedIn: false)
+        switch pivotSource {
+        case .trimStart:
+            zoomPivotCenter = trimView.frame.minX
+            zoomPivotPosition = positions.start
+        case .trimEnd:
+            zoomPivotCenter = trimView.frame.maxX - normalRect.minX * 2
+            zoomPivotPosition = positions.end
+        case .handle:
+            // `_zoomPivotCenterForHandle`: the playhead's center, moved across its width with the value.
+            let fraction = CGFloat(value / max(0.0001, duration)) * 2 - 1
+            zoomPivotCenter = playheadView.center.x - normalRect.minX + fraction * playheadView.bounds.width / 2
+            zoomPivotPosition = position(forPlayheadCenterX: playheadView.center.x)
+        }
+        if summaryTimes.count > 1 {
+            zoomedDuration = summaryTimes[1] - summaryTimes[0]
+        }
+        var pivotIndex = 0
+        var minimalInterval = Double.greatestFiniteMagnitude
+        for (index, time) in summaryTimes.enumerated() where abs(time - zoomPivotPosition) < minimalInterval {
+            minimalInterval = abs(time - zoomPivotPosition)
+            pivotIndex = index
+        }
+        zoomedPivotIndex = pivotIndex
+        let lastIndex = summaryTimes.count - 1
+        let rightIndex = min(pivotIndex + 1, lastIndex)
+        let startTime = summaryTimes[max(0, pivotIndex - 1)]
+        let endTime = rightIndex == lastIndex ? duration : summaryTimes[rightIndex]
+        let multiplier: CGFloat = pivotIndex > 1 ? 2.1 : 1
+        let frameCount = Int(ceil(stripView.bounds.width / thumbnailSize.width * multiplier))
+        guard frameCount >= 1, endTime >= startTime else {
+            isPreparingToZoomIn = false
+            resetZooming()
+            return
+        }
+        // `videoScrubber:evenlySpacedTimestamps:startingAt:endingAt:`.
+        let interval = (endTime - startTime) / Double(frameCount)
+        zoomedTimes = (0..<frameCount).map { startTime + Double($0) * interval }
+        let times = zoomedTimes.map { CMTime(seconds: $0, preferredTimescale: CMTimeScale(NSEC_PER_SEC)) }
+        let crop = displayedCrop
+        zoomedThumbnailViews = times.map { _ in
+            let view = VideoScrubberThumbnailView(crop: crop)
+            stripView.insertSubview(view, at: 0)
+            return view
+        }
+        let generator = makeThumbnailGenerator(for: asset)
+        zoomTask = Task { [weak self] in
+            for await result in generator.images(for: times) {
+                guard !Task.isCancelled else { return }
+                guard let self, let image = try? result.image,
+                      let index = times.firstIndex(of: result.requestedTime),
+                      index < zoomedThumbnailViews.count
+                else { continue }
+                zoomedThumbnailViews[index].setImage(UIImage(cgImage: image), fadesIn: false)
+            }
+            guard !Task.isCancelled else { return }
+            self?.commitZoomIn()
+        }
+    }
+
+    /// `commitZoomIn`: the read frames spread out from under the pivot's frame as the strip's own frames move
+    /// apart and the trim stretches with them, the pivot staying under the finger. The strip reaches past its ends
+    /// while zoomed.
+    private func commitZoomIn() {
+        guard isPreparingToZoomIn, thumbnailViews.indices.contains(zoomedPivotIndex),
+              summaryTimes.indices.contains(zoomedPivotIndex)
+        else { return }
+        isZoomedIn = true
+        isPreparingToZoomIn = false
+        isAnimatingZoomIn = true
+        layoutZoomedThumbnails(stacked: true)
+        let pivotTime = summaryTimes[zoomedPivotIndex]
+        let normalPivotFrame = thumbnailViews[zoomedPivotIndex].frame
+        let normalRect = scrubbingRect(zoomedIn: false)
+        let zoomedRect = scrubbingRect(zoomedIn: true)
+        let pivotFraction = CGFloat(pivotTime / max(0.0001, duration))
+        let zoomedPivotPosition = (zoomedRect.width - thumbnailSize.width) * pivotFraction
+        zoomPivotOffset = zoomedPivotPosition - normalPivotFrame.minX + zoomedRect.minX - normalRect.minX
+        stripView.clipsToBounds = false
+        UIView.animate(
+            withDuration: Self.zoomAnimationDuration,
+            delay: 0,
+            options: [.curveEaseInOut, .layoutSubviews, .allowUserInteraction],
+        ) {
+            self.layoutZoomedThumbnails(stacked: false)
+            self.layoutThumbnails(forZoom: true)
+            self.layoutTrimView(zoomedIn: true)
+        } completion: { _ in
+            self.isAnimatingZoomIn = false
+        }
+    }
+
+    /// `cancelZoomIn`: a waiting or loading zoom stops; one on screen stays.
+    private func cancelZoomIn() {
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(zoomIn), object: nil)
+        guard isPreparingToZoomIn else { return }
+        isPreparingToZoomIn = false
+        resetZooming()
+    }
+
+    /// `zoomOut`: the strip's frames, the trim and the playhead go back as the read frames gather under the
+    /// pivot's frame, then the read frames go. The trim takes no touches until it's back.
+    private func zoomOut() {
+        isAnimatingZoomOut = true
+        trimView.isUserInteractionEnabled = false
+        let generation = zoomGeneration
+        UIView.animate(
+            withDuration: Self.zoomAnimationDuration,
+            delay: 0,
+            options: [.curveEaseInOut, .layoutSubviews],
+        ) {
+            self.layoutThumbnails(forZoom: false)
+            self.layoutZoomedThumbnails(stacked: true)
+            self.layoutTrimView(zoomedIn: false)
+            self.updatePlayheadPosition(zoomedIn: false)
+        } completion: { _ in
+            guard generation == self.zoomGeneration else { return }
+            self.isAnimatingZoomOut = false
+            self.resetZooming()
+            self.trimView.isUserInteractionEnabled = true
+            self.stripView.clipsToBounds = true
+            self.setNeedsLayout()
+        }
+    }
+
+    /// `_resetZooming`.
+    private func resetZooming() {
+        isZoomedIn = false
+        zoomTask?.cancel()
+        zoomTask = nil
+        zoomedDuration = 0
+        zoomPivotPosition = 0
+        zoomPivotOffset = 0
+        zoomedPivotIndex = -1
+        for view in zoomedThumbnailViews {
+            view.removeFromSuperview()
+        }
+        zoomedThumbnailViews = []
+        zoomedTimes = []
+    }
+
+    /// The zoom ends at once, for new frames or a new strip width.
+    private func discardZoom() {
+        cancelZoomIn()
+        guard isZoomedIn || isAnimatingZoomOut else { return }
+        zoomGeneration += 1
+        resetZooming()
+        isAnimatingZoomIn = false
+        isAnimatingZoomOut = false
+        trimView.isUserInteractionEnabled = true
+        stripView.clipsToBounds = true
+        layoutThumbnails(forZoom: false)
+        layoutTrimView(zoomedIn: false)
+        updatePlayheadPosition(zoomedIn: false)
+    }
+
     // MARK: Trimming
 
     @objc private func handleTrimPress(_ gesture: UILongPressGestureRecognizer) {
         switch gesture.state {
         case .began:
-            beginTrimInteraction()
+            beginTrimInteraction(atStart: gesture.view === trimView.leftHandle)
         case .cancelled, .ended, .failed:
             endTrimInteraction()
         default:
@@ -459,7 +764,7 @@ final class VideoScrubberView: UIView {
         gesture.setTranslation(.zero, in: trimView)
         switch gesture.state {
         case .began:
-            beginTrimInteraction()
+            beginTrimInteraction(atStart: gesture.view === trimView.leftHandle)
         case .changed:
             if gesture.view === trimView.leftHandle {
                 startHandleMoved(by: translation.x)
@@ -473,28 +778,33 @@ final class VideoScrubberView: UIView {
         }
     }
 
-    /// The trim view's `didBeginEditing`: the frame lights up and the playhead hides.
-    private func beginTrimInteraction() {
+    /// The trim view's `didBeginEditing`: the frame lights up, the playhead hides, and resting there zooms about
+    /// the held edge.
+    private func beginTrimInteraction(atStart: Bool) {
         guard !trimInteractionBegan else { return }
         trimInteractionBegan = true
         trimInteractionEnded = false
         isTrimming = true
         onBeginTrimming?()
+        scheduleZoomIn(from: atStart ? .trimStart : .trimEnd)
         trimView.setHighlighted(true, animated: true)
         setPlayheadHidden(true, animated: false)
     }
 
-    /// `didEndEditing`: a frame within 3 pt of an end snaps to it, and stays lit while it trims.
+    /// `didEndEditing`: a frame within 3 pt of an end snaps to it, stays lit while it trims, and the strip zooms
+    /// back out.
     private func endTrimInteraction() {
         trimInteractionBegan = false
         guard !trimInteractionEnded else { return }
         trimInteractionEnded = true
         isTrimming = false
         var frame = trimView.frame
-        let rect = scrubbingRect
-        let maxWidth = rect.width + rect.minX * 2
-        if frame.minX < Self.trimRectEpsilon {
-            let delta = -frame.minX
+        let rect = scrubbingRect()
+        let normalRect = scrubbingRect(zoomedIn: false)
+        let maxWidth = rect.width + normalRect.minX * 2
+        let leftmostPosition = rect.minX - normalRect.minX
+        if frame.minX < leftmostPosition + Self.trimRectEpsilon {
+            let delta = leftmostPosition - frame.minX
             frame.origin.x += delta
             frame.size.width = min(maxWidth, frame.width - delta)
         }
@@ -502,50 +812,63 @@ final class VideoScrubberView: UIView {
             frame.size.width = min(maxWidth, frame.width + maxWidth - frame.maxX)
         }
         trimView.frame = frame
-        layoutCurtains()
+        layoutCurtains(zoomedIn: isZoomedIn)
         let positions = trimPositions(for: frame)
         trimStart = max(0, positions.start)
         trimEnd = min(duration, positions.end)
         trimView.setHighlighted(hasTrimming, animated: true)
         setPlayheadHidden(false, animated: true)
         updateAccessibilityValues()
+        cancelZoomIn()
+        if isZoomedIn {
+            zoomOut()
+        }
         onEndTrimming?()
     }
 
-    /// `startHandleMoved:`: the frame's left edge follows the finger while the trim keeps its minimum.
+    /// `startHandleMoved:`: the frame's left edge follows the finger while the trim keeps its minimum, and a rest
+    /// there zooms about it.
     private func startHandleMoved(by dx: CGFloat) {
+        guard !isAnimatingZoomIn else { return }
         let current = trimView.frame
-        let rect = scrubbingRect
+        let rect = scrubbingRect()
+        let normalRect = scrubbingRect(zoomedIn: false)
         let originX = max(0, current.minX + dx)
         let delta = originX - current.minX
-        let maxWidth = rect.width + rect.minX * 2 - originX
+        let maxWidth = rect.width + normalRect.minX * 2 - originX
         let frame = CGRect(x: originX, y: 0, width: min(maxWidth, current.width - delta), height: Self.stripHeight)
         let positions = trimPositions(for: frame)
         guard positions.end - positions.start >= minimumLength else { return }
         trimView.frame = frame
-        layoutCurtains()
+        layoutCurtains(zoomedIn: isZoomedIn)
         trimStart = max(0, positions.start)
         trimEnd = min(duration, positions.end)
         value = trimStart
         playheadView.center.x = frame.minX + Self.handleWidth + playheadView.bounds.width / 2
         onTrimEdgeChanged?(trimStart)
+        scheduleZoomIn(from: .trimStart)
     }
 
-    /// `endHandleMoved`: the frame's right edge follows the finger up to the video's end.
+    /// `endHandleMoved`: the frame's right edge follows the finger up to the video's end, and a rest there zooms
+    /// about it.
     private func endHandleMoved(by dx: CGFloat) {
+        guard !isAnimatingZoomIn else { return }
         let current = trimView.frame
-        let rect = scrubbingRect
-        let maxWidth = rect.width + rect.minX * 2 - current.minX
+        let rect = scrubbingRect()
+        let normalRect = scrubbingRect(zoomedIn: false)
+        let localOriginX = current.minX - rect.minX + normalRect.minX
+        let maxWidth = rect.width + normalRect.minX * 2 - localOriginX
         let frame = CGRect(x: current.minX, y: 0, width: min(maxWidth, current.width + dx), height: Self.stripHeight)
         let positions = trimPositions(for: frame)
         guard positions.end - positions.start >= minimumLength else { return }
         trimView.frame = frame
-        layoutCurtains()
+        layoutCurtains(zoomedIn: isZoomedIn)
         trimStart = max(0, positions.start)
         trimEnd = min(duration, positions.end)
         value = trimEnd
         playheadView.center.x = frame.maxX - Self.handleWidth - playheadView.bounds.width / 2
         onTrimEdgeChanged?(trimEnd)
+        scheduleZoomIn(from: .trimEnd)
     }
 
     /// VoiceOver's swipes on a handle move its edge by a second, keeping the minimum length.
@@ -559,8 +882,8 @@ final class VideoScrubberView: UIView {
             value = trimEnd
         }
         onBeginTrimming?()
-        layoutTrimView()
-        updatePlayheadPosition()
+        layoutTrimView(zoomedIn: isZoomedIn)
+        updatePlayheadPosition(zoomedIn: isZoomedIn)
         trimView.setHighlighted(hasTrimming, animated: true)
         updateAccessibilityValues()
         onTrimEdgeChanged?(value)
@@ -574,10 +897,11 @@ final class VideoScrubberView: UIView {
 
     // MARK: Scrubbing
 
+    /// `handlePress:`: holding the playhead zooms about it once it rests.
     @objc private func handlePlayheadPress(_ gesture: UILongPressGestureRecognizer) {
         switch gesture.state {
         case .began:
-            beginScrubInteraction()
+            beginScrubInteraction(schedulesZoom: true)
         case .cancelled, .ended, .failed:
             endScrubInteraction()
         default:
@@ -585,21 +909,24 @@ final class VideoScrubberView: UIView {
         }
     }
 
-    /// `handlePan:`: the playhead stays between the handles; at either one the value is the trim's edge.
+    /// `handlePan:`: the playhead stays between the handles, at either one the value is the trim's edge, and a
+    /// rest zooms about it.
     @objc private func handlePlayheadPan(_ gesture: UIPanGestureRecognizer) {
         let translation = gesture.translation(in: self)
         gesture.setTranslation(.zero, in: self)
         switch gesture.state {
         case .began:
-            beginScrubInteraction()
+            beginScrubInteraction(schedulesZoom: false)
         case .changed:
-            let rect = scrubbingRect
+            guard !isAnimatingZoomIn, !isAnimatingZoomOut else { return }
+            let rect = scrubbingRect()
+            let normalRect = scrubbingRect(zoomedIn: false)
             let halfWidth = playheadView.bounds.width / 2
             var minPosition = rect.minX + halfWidth
             var maxPosition = rect.maxX - halfWidth
             if allowsTrimming {
-                minPosition = max(minPosition, trimView.frame.minX + rect.minX + halfWidth)
-                maxPosition = min(maxPosition, trimView.frame.maxX - rect.minX - halfWidth)
+                minPosition = max(minPosition, trimView.frame.minX + normalRect.minX + halfWidth)
+                maxPosition = min(maxPosition, trimView.frame.maxX - normalRect.minX - halfWidth)
             }
             let centerX = min(max(playheadView.center.x + translation.x, minPosition), maxPosition)
             playheadView.center.x = centerX
@@ -613,6 +940,7 @@ final class VideoScrubberView: UIView {
             }
             value = min(max(0, position), duration)
             onScrub?(value)
+            scheduleZoomIn(from: .handle)
         case .cancelled, .ended, .failed:
             endScrubInteraction()
         default:
@@ -620,12 +948,18 @@ final class VideoScrubberView: UIView {
         }
     }
 
-    private func beginScrubInteraction() {
+    /// The press waits for a rest to zoom; a pan zooms only once it rests after moving.
+    private func beginScrubInteraction(schedulesZoom: Bool) {
         guard !scrubInteractionBegan else { return }
         scrubInteractionBegan = true
         scrubInteractionEnded = false
         isScrubbing = true
         onBeginScrubbing?()
+        if schedulesZoom {
+            scheduleZoomIn(from: .handle)
+        } else {
+            cancelZoomIn()
+        }
     }
 
     private func endScrubInteraction() {
@@ -634,6 +968,10 @@ final class VideoScrubberView: UIView {
         scrubInteractionEnded = true
         isScrubbing = false
         onEndScrubbing?()
+        cancelZoomIn()
+        if isZoomedIn {
+            zoomOut()
+        }
     }
 }
 
