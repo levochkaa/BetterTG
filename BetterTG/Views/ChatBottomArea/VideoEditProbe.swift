@@ -120,8 +120,8 @@
     // MARK: - ProbeVideo
 
     /// A 1280×720 H.264 movie at 30 fps: each second a colour with its number, a white bar along the bottom that
-    /// grows over the whole video, and a 440 Hz tone.
-    private enum ProbeVideo {
+    /// grows over the whole video, and a 440 Hz tone. The message content probe plays it as a game's animation.
+    enum ProbeVideo {
         enum Failure: Error {
             case unwritable
         }

@@ -2902,11 +2902,13 @@ final class TelegramContactDetailsViewController: UIViewController {
                 try? await ProbeFixtures.waitForActiveAccount()
                 // A real custom emoji, so the poll fixture draws one the account can load.
                 let statuses = try? await TDLib.shared.activeClient.send(TDNativeRequests.getDefaultEmojiStatuses())
-                run(in: window, customEmojiID: statuses?.customEmojiIds.first)
+                // A local movie, so the animated game plays without a download.
+                let gameMovie = try? await Task.detached(priority: .userInitiated) { try await ProbeVideo.make() }.value
+                run(in: window, customEmojiID: statuses?.customEmojiIds.first, gameAnimationPath: gameMovie?.path)
             }
         }
 
-        private static func run(in window: UIWindow, customEmojiID: Int64?) {
+        private static func run(in window: UIWindow, customEmojiID: Int64?, gameAnimationPath: String?) {
             let controller = ProbeViewController()
             let navigation = TelegramNavigationController(rootViewController: controller)
             navigation.modalPresentationStyle = .fullScreen
@@ -2915,7 +2917,7 @@ final class TelegramContactDetailsViewController: UIViewController {
 
             let client = TDLib.shared.activeClient
             let pollInteractionStore = MessagePollInteractionStore()
-            let fixtures = makeFixtures(customEmojiID: customEmojiID)
+            let fixtures = makeFixtures(customEmojiID: customEmojiID, gameAnimationPath: gameAnimationPath)
             var actions = [String]()
             var installedNames = [String]()
             var views = [MessageStructuredContentView]()
@@ -2978,6 +2980,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                 precondition(installed, "Fixture \(fixture.name) didn't install")
                 installedNames.append(contentView.debugSupplementName)
                 controller.stack.addArrangedSubview(contentView)
+                // As a visible chat cell does, so animations play.
+                contentView.setPlaybackVisible(true)
                 views.append(contentView)
             }
             controller.view.layoutIfNeeded()
@@ -3009,7 +3013,7 @@ final class TelegramContactDetailsViewController: UIViewController {
             let expectedNames = [
                 "file", "file", "attachmentAlbum", "contact", "contact", "location", "location",
                 "poll", "poll", "poll", "dice", "stickerGlyph", "service", "service", "checklist", "checklist", "game",
-                "story", "story",
+                "game", "story", "story",
             ]
             let actionProof = actions.contains("poll:0") && actions.contains("poll:0,1")
                 && actions.filter { $0 == "checklist:2:true" }.count == 1
@@ -3025,7 +3029,7 @@ final class TelegramContactDetailsViewController: UIViewController {
             }
         }
 
-        private static func makeFixtures(customEmojiID: Int64?) -> [Fixture] {
+        private static func makeFixtures(customEmojiID: Int64?, gameAnimationPath: String?) -> [Fixture] {
             let file = probeFile(id: 91)
             let audio = Audio(
                 albumCoverMinithumbnail: nil,
@@ -3149,6 +3153,15 @@ final class TelegramContactDetailsViewController: UIViewController {
                     shortName: "probe",
                     text: FormattedText(entities: [], text: ""),
                     title: "Parity Game",
+                )))),
+                Fixture(name: "game-animation", messageID: 923, content: .messageGame(MessageGame(game: Game(
+                    animation: gameAnimationPath.map(probeAnimation(path:)),
+                    description: "A game whose animation loops in place.",
+                    id: 2,
+                    photo: Photo(hasStickers: false, minithumbnail: nil, sizes: []),
+                    shortName: "probe-animated",
+                    text: FormattedText(entities: [], text: ""),
+                    title: "Animated Game",
                 )))),
                 // No poster chat: the story reads as expired without a request.
                 Fixture(name: "story", messageID: 917, content: .messageStory(MessageStory(
@@ -3282,6 +3295,44 @@ final class TelegramContactDetailsViewController: UIViewController {
                     type: type,
                     voteRestrictionReason: nil,
                 ),
+            )
+        }
+
+        /// A downloaded 1280×720 MP4 animation at `path`.
+        private static func probeAnimation(path: String) -> Animation {
+            let size = (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int64) ?? 0
+            let file = File(
+                expectedSize: size,
+                id: 93,
+                local: LocalFile(
+                    canBeDeleted: false,
+                    canBeDownloaded: false,
+                    downloadOffset: 0,
+                    downloadedPrefixSize: size,
+                    downloadedSize: size,
+                    isDownloadingActive: false,
+                    isDownloadingCompleted: true,
+                    path: path,
+                ),
+                remote: RemoteFile(
+                    id: "probe-93",
+                    isUploadingActive: false,
+                    isUploadingCompleted: true,
+                    uniqueId: "probe-93",
+                    uploadedSize: size,
+                ),
+                size: size,
+            )
+            return Animation(
+                duration: ProbeVideo.seconds,
+                width: 1280,
+                height: 720,
+                fileName: "probe-game.mp4",
+                mimeType: "video/mp4",
+                hasStickers: false,
+                minithumbnail: nil,
+                thumbnail: nil,
+                animation: file,
             )
         }
 
