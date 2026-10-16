@@ -2061,3 +2061,9 @@
 "Media.EditCover" = "Edit Cover";
 "Media.SelectFrame" = "Select Frame";
 "Media.SaveCover" = "Save Cover";
+"PeerInfo.OpenAppButton" = "Open App";
+"WebApp.DisclaimerTitle" = "Terms of Use";
+"WebApp.DisclaimerAgree" = "I agree to the [Terms of Use]()";
+"WebApp.Disclaimer_URL" = "https://telegram.org/tos/mini-apps";
+"WebApp.DisclaimerContinue" = "Continue";
+"WebApp.DisclaimerText" = "You are about to use a mini app operated by an independent party not affiliated with Telegram. You must agree to the Terms of Use of mini apps to continue.";

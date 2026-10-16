@@ -14,10 +14,33 @@ struct WebAppLaunch {
         /// A reply keyboard button's `getWebAppUrl` (Telegram's simple web view): `web_app_data_send` sends the
         /// data to the bot with the button's text.
         case keyboard(buttonText: String)
+        /// A bot's main Web App from `getMainWebApp` (WebAppParameters.Source.generic): its profile's Open App or a
+        /// `startapp` link. There is no launch to close.
+        case main
+        /// An attachment menu bot's `openWebApp` (WebAppParameters.Source.attachMenu); closing it calls
+        /// `closeWebApp` with the launch ID.
+        case attachMenu(launchID: Int64)
         #if DEBUG
             /// A local page with no bot behind it.
             case probe(html: String)
         #endif
+    }
+
+    /// WebAppParameters' `fullSize` and `isFullscreen`: how the sheet first opens.
+    enum Presentation {
+        /// Half height, as the attachment sheet and a compact main Web App open.
+        case compact
+        case fullSize
+        case fullscreen
+
+        init(_ mode: TDNativeWebAppOpenMode) {
+            self =
+                switch mode {
+                case .webAppOpenModeCompact: .compact
+                case .webAppOpenModeFullSize: .fullSize
+                case .webAppOpenModeFullScreen: .fullscreen
+                }
+        }
     }
 
     let source: Source
@@ -29,6 +52,20 @@ struct WebAppLaunch {
     /// The account whose client opened the page; DeviceStorage and SecureStorage keep its keys apart.
     let accountID: UUID?
     let client: TDLibClient
+    var presentation = Presentation.fullSize
+
+    /// The `openWebApp` launch that `closeWebApp` ends and `updateWebAppMessageSent` names.
+    var launchID: Int64? {
+        switch source {
+        case .attachMenu(let launchID), .button(let launchID): launchID
+        default: nil
+        }
+    }
+
+    /// The account and client whose updates concern the page.
+    var updateSource: TdUpdateSource? {
+        accountID.map { TdUpdateSource(accountID: $0, clientID: client.id) }
+    }
 }
 
 // MARK: - WebAppViewController
@@ -130,6 +167,8 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     private var lastExpansion: CFTimeInterval?
     private var lastViewport: (height: CGFloat, expanded: Bool)?
     private var didClose = false
+    /// A fullscreen launch (`WebAppParameters.isFullscreen`) enters fullscreen once the sheet is up.
+    private var didApplyPresentation = false
     private var dataTask: Task<Void, Never>?
 
     private var sensors: WebAppSensors {
@@ -162,7 +201,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         presentationController?.delegate = self
         if let sheet = sheetPresentationController {
             sheet.detents = [.medium(), .large()]
-            sheet.selectedDetentIdentifier = .large
+            sheet.selectedDetentIdentifier = launch.presentation == .compact ? .medium : .large
             sheet.prefersGrabberVisible = true
             sheet.prefersScrollingExpandsWhenScrolledToEdge = false
             sheet.delegate = self
@@ -248,6 +287,13 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         super.viewDidLayoutSubviews()
         updateBottomPanelHeight()
         sendViewport(force: false)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !didApplyPresentation else { return }
+        didApplyPresentation = true
+        if launch.presentation == .fullscreen { fullscreen.setActive(true) }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -629,7 +675,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         didClose = true
         fullscreen.tearDown()
         motionSensors?.stopAll()
-        if case .button(let launchID) = launch.source {
+        if let launchID = launch.launchID {
             let client = launch.client
             Task { _ = try? await client.closeWebApp(webAppLaunchId: launchID) }
         }

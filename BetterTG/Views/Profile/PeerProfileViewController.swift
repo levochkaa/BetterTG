@@ -168,6 +168,33 @@ ClientRestorableNavigationEntry {
         symbol: "ellipsis",
         action: #selector(morePressed),
     )
+    /// PeerInfoProfileItems' Open App under a bot's about text (`botInfo.flags.contains(.hasWebApp)`), a 52 pt filled
+    /// button. Fake and scam bots get their warning in its place.
+    private lazy var openAppButton: UIButton = {
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = L10n.telegram("PeerInfo.OpenAppButton")
+        configuration.cornerStyle = .large
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = .systemFont(ofSize: 17, weight: .semibold)
+            return outgoing
+        }
+        let button = UIButton(configuration: configuration)
+        button.addTarget(self, action: #selector(openAppPressed), for: .touchUpInside)
+        button.isHidden = true
+        return button
+    }()
+
+    private lazy var webAppLauncher = WebAppLauncher(host: .init(
+        accountID: accountID,
+        client: client,
+        presenter: { [weak self] in self },
+        isCurrent: { [weak self] in self?.contextIsCurrent == true },
+        actions: .init(
+            openTelegramLink: { [weak self] url in TelegramLinkRouter.shared.open(url, from: self) },
+            switchInline: { _, _ in },
+        ),
+    ))
     private var moreMenuTask: Task<Void, Never>?
     private let profileHeaderView = UIView()
     private let sharedTabs = FolderPickerView()
@@ -1054,6 +1081,8 @@ ClientRestorableNavigationEntry {
         bioLabel.numberOfLines = 3
         bioLabel.isHidden = true
         headerStack.addArrangedSubview(bioLabel)
+        headerStack.addArrangedSubview(openAppButton)
+        headerStack.setCustomSpacing(12, after: openAppButton)
 
         detailsLabel.font = .preferredFont(forTextStyle: .footnote)
         detailsLabel.adjustsFontForContentSizeCategory = true
@@ -1103,6 +1132,8 @@ ClientRestorableNavigationEntry {
             storyRingView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
             storyRingView.widthAnchor.constraint(equalTo: avatarView.widthAnchor),
             storyRingView.heightAnchor.constraint(equalTo: avatarView.heightAnchor),
+            openAppButton.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
+            openAppButton.heightAnchor.constraint(equalToConstant: 52),
             actionStack.widthAnchor.constraint(equalTo: headerStack.widthAnchor),
             actionStack.heightAnchor.constraint(greaterThanOrEqualToConstant: 48),
             sharedTabs.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 12),
@@ -1925,6 +1956,9 @@ ClientRestorableNavigationEntry {
 
     private func updateActionAvailability() {
         messageActionButton.isHidden = isSelfProfile
+        let verification = customChat.user?.verificationStatus
+        openAppButton.isHidden = isSelfProfile || customChat.bot?.hasMainWebApp != true
+            || verification?.isFake == true || verification?.isScam == true
         // Telegram's Mute and More act on the whole chat; a topic's profile and Saved Messages have their own.
         moreActionButton.isHidden = isSelfProfile || topic != nil
         membersActionButton.isHidden =
@@ -2782,6 +2816,13 @@ ClientRestorableNavigationEntry {
             return
         }
         openChat(targetMessageID: nil)
+    }
+
+    /// PeerInfoProfileItems' Open App: `openWebApp(… url: "", simple: true, source: .generic,
+    /// skipTermsOfService: true)`, the bot's main Web App for its own chat.
+    @objc private func openAppPressed() {
+        guard contextIsCurrent, let user = customChat.user else { return }
+        webAppLauncher.openMainWebApp(bot: user, chatID: customChat.id, skipsTerms: true)
     }
 
     private func openChat(targetMessageID: Int64?) {

@@ -30,6 +30,8 @@ import UIKit
     private var pendingLink: PendingLink?
     private weak var pendingWindow: UIWindow?
     private var resolveTask: Task<Void, Never>?
+    /// The `startapp` link's launch, through its terms and `getMainWebApp`.
+    private var mainWebAppLauncher: WebAppLauncher?
 
     private init() {
         nc.publisher(&cancellables, for: .authorizationStateReady) { [weak self] _ in
@@ -147,7 +149,7 @@ import UIKit
     }
 
     /// OpenResolvedUrl's cases BetterTG has screens for. Sign-in links stay out of the browser; the rest of Telegram's
-    /// link types (web apps, proxies, payments, Premium, gifts, calls) open their t.me page in Safari.
+    /// link types (other web apps, proxies, payments, Premium, gifts, calls) open their t.me page in Safari.
     private func route(
         _ type: TDNativeInternalLinkType,
         url: URL,
@@ -169,6 +171,8 @@ import UIKit
             guard let chat = await publicChat(value.botUsername, authority: authority, presenter: presenter)
             else { return }
             await openChat(chat.id, authority: authority, presenter: presenter)
+        case .internalLinkTypeMainWebApp(let value):
+            await openMainWebApp(value, authority: authority, presenter: presenter)
         case .internalLinkTypeMessage(let value):
             await openMessage(value.url, authority: authority, presenter: presenter)
         case .internalLinkTypeChatInvite(let value):
@@ -248,6 +252,45 @@ import UIKit
             return
         }
         await openChat(chat.id, authority: authority, presenter: presenter, profile: profile)
+    }
+
+    /// OpenResolvedUrl's `.peer(bot, .appStart(payload, mode))`: a bot with a main Web App opens it for its own chat
+    /// (`openWebApp(… url: "", simple: true, source: .generic, payload:)`, with the terms); any other chat opens.
+    private func openMainWebApp(
+        _ link: TDNativeInternalLinkTypeMainWebApp,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) async {
+        guard let chat = await publicChat(link.botUsername, authority: authority, presenter: presenter) else { return }
+        var bot: User?
+        if case .chatTypePrivate(let type) = chat.type {
+            bot = try? await authority.client.getUser(userId: type.userId)
+        }
+        guard !Task.isCancelled, authority.isCurrent else { return }
+        guard let bot, case .userTypeBot(let type) = bot.type, type.hasMainWebApp,
+              let accountID = authority.source?.accountID
+        else {
+            await openChat(chat.id, authority: authority, presenter: presenter)
+            return
+        }
+        let launcher = WebAppLauncher(host: .init(
+            accountID: accountID,
+            client: authority.client,
+            presenter: { [weak self, weak presenter] in self?.presentationHost(presenter) },
+            isCurrent: { authority.isCurrent },
+            actions: .init(
+                openTelegramLink: { [weak self] url in self?.open(url, from: nil) },
+                switchInline: { _, _ in },
+            ),
+        ))
+        mainWebAppLauncher = launcher
+        launcher.openMainWebApp(
+            bot: bot,
+            chatID: chat.id,
+            startParameter: link.startParameter,
+            mode: link.mode,
+            skipsTerms: false,
+        )
     }
 
     /// OpenResolvedUrl's `.channelMessage` and `.replyThreadMessage`: `getMessageLinkInfo`, then the message in its
