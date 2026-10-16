@@ -31,6 +31,8 @@ enum ChatTimelineItemID: Hashable {
     case topicHeader(ForumTopicRunHeaderID)
     /// Telegram's ChatReplyCountItem, between a reply thread's root and its first reply.
     case threadStart
+    /// Telegram's ChatBotInfoItem, above a bot chat's first message once the history reaches its start.
+    case botInfo
 
     var displayedMessageID: DisplayedMessageID? {
         guard case .message(let id) = self else { return nil }
@@ -45,6 +47,7 @@ enum ChatTimelineItemID: Hashable {
         messages: [CustomMessage],
         includesTopicHeaders: Bool,
         threadHeadID: DisplayedMessageID? = nil,
+        includesBotInfo: Bool = false,
     ) -> [ChatTimelineItemID] {
         var result = [ChatTimelineItemID]()
         result.reserveCapacity(messages.count * (includesTopicHeaders ? 3 : 2))
@@ -73,6 +76,9 @@ enum ChatTimelineItemID: Hashable {
                 result.append(.dateHeader(ChatDateHeaderID(dayTimestamp: dayTimestamp)))
             }
         }
+        // Rows run newest first, so the last row shows at the top, above the first message's date
+        // (ChatHistoryEntriesForView inserts the ChatInfoEntry at index 0).
+        if includesBotInfo { result.append(.botInfo) }
         return result
     }
 }

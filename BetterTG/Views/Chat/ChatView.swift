@@ -412,6 +412,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    /// ChatHistoryEntriesForView's ChatInfoEntry: a bot chat with a description whose history is read back to its
+    /// first message shows the bot's info above it; an empty chat shows it as the background instead.
+    private var showsBotInfoRow: Bool {
+        guard case .bot = chatVM.customChat.type, chatVM.historyReachedStart, !chatVM.messages.isEmpty,
+              location.topic == nil, location.messageThreadID == nil,
+              let info = chatVM.botInfo, !info.description.isEmpty else { return false }
+        return true
+    }
+
     convenience init(
         customChat: CustomChat,
         location: ChatLocation? = nil,
@@ -1989,6 +1998,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ChatReplyCountCell.self,
             forCellWithReuseIdentifier: ChatReplyCountCell.reuseIdentifier,
         )
+        collectionView.register(ChatBotInfoCell.self, forCellWithReuseIdentifier: ChatBotInfoCell.reuseIdentifier)
         if presentationMode == .full {
             let tapGesture = UITapGestureRecognizer(target: self, action: #selector(historyTapped(_:)))
             tapGesture.cancelsTouchesInView = false
@@ -2660,6 +2670,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     },
                     unavailable: { $0.resetUnavailableContent() },
                 )
+            case .botInfo:
+                ChatTimelineCellProvider.dequeue(
+                    ChatBotInfoCell.self, from: collectionView, at: indexPath,
+                    reuseIdentifier: ChatBotInfoCell.reuseIdentifier,
+                    configure: { [weak self] cell in
+                        guard let self, timelineSourceIsCurrent,
+                              case .botInfo(let info, let client) = timelineSnapshots.row(for: itemID)
+                        else { return false }
+                        cell.configure(info: info, client: client)
+                        return true
+                    },
+                    unavailable: { $0.resetUnavailableContent() },
+                )
             case .topicHeader(let headerID):
                 ChatTimelineCellProvider.dequeue(
                     ForumTopicRunHeaderCell.self, from: collectionView, at: indexPath,
@@ -2904,8 +2927,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 DispatchQueue.main.async { [weak self] in
-                    guard let self, collectionView.backgroundView != nil else { return }
-                    collectionView.backgroundView = emptyStateView()
+                    guard let self else { return }
+                    if collectionView.backgroundView != nil { collectionView.backgroundView = emptyStateView() }
+                    updateSnapshot(animated: false)
+                }
+            }
+            .store(in: &cancellables)
+        // The bot info row joins the top once the history is read back to its first message.
+        chatVM.$historyReachedStart
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, case .bot = chatVM.customChat.type else { return }
+                    updateSnapshot(animated: false)
                 }
             }
             .store(in: &cancellables)
@@ -3266,6 +3302,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 },
                 includesTopicHeaders: chatVM.isAllMessagesForum,
                 threadHeadID: threadHead?.id,
+                includesBotInfo: showsBotInfoRow,
             )
             : timelineSnapshots.committed.ids
         let models = Dictionary(chatVM.messages.map { ($0.displayedID, $0) }, uniquingKeysWith: { _, latest in latest })
@@ -3288,6 +3325,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 let text = ChatReplyCountCell.text(hasReplies: threadHead?.hasReplies ?? true)
                 rows[item] = .notice(text)
                 if case .notice(let shown) = timelineSnapshots.committed.rows[item], shown == text {} else {
+                    changed.insert(item)
+                }
+            case .botInfo:
+                if let info = chatVM.botInfo {
+                    rows[item] = .botInfo(info, chatVM.client)
                     changed.insert(item)
                 }
             case .message(let id):

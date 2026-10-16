@@ -84,3 +84,53 @@ final class ChatBotInfoView: UIView {
         }
     }
 }
+
+// MARK: - ChatBotInfoCell
+
+/// The bot info card as the history's top row, above the first message (ChatBotInfoItem in the history list).
+final class ChatBotInfoCell: UICollectionViewCell {
+    static let reuseIdentifier = "ChatBotInfoCell"
+
+    private var card: ChatBotInfoView?
+    private var shownKey: String?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        // The history is flipped; its rows turn back upright.
+        contentView.transform = CGAffineTransform(scaleX: 1, y: -1)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(info: TDNativeBotInfo, client: TDLibClient) {
+        let key = [
+            info.description,
+            String(info.photo?.sizes.last?.photo.id ?? 0),
+            String(info.animation?.animation.id ?? 0),
+        ].joined(separator: "|")
+        guard key != shownKey else { return }
+        shownKey = key
+        card?.removeFromSuperview()
+        let card = ChatBotInfoView(info: info, client: client)
+        card.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(card)
+        let preferredWidth = card.widthAnchor.constraint(equalToConstant: 320)
+        preferredWidth.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            card.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
+            card.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -8),
+            card.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            card.leadingAnchor.constraint(greaterThanOrEqualTo: contentView.leadingAnchor, constant: 24),
+            preferredWidth,
+        ])
+        self.card = card
+    }
+
+    func resetUnavailableContent() {
+        card?.removeFromSuperview()
+        card = nil
+        shownKey = nil
+    }
+}

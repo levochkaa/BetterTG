@@ -117,6 +117,8 @@ import UIKit
     @Published private(set) var inlineBotQuery: InlineBotQueryState?
     /// The history was read to its start without a message (`chatHistoryState == .loaded(isEmpty: true)`).
     @Published private(set) var historyLoadedEmpty = false
+    /// The history is read back to the chat's first message, where Telegram puts a bot's info.
+    @Published private(set) var historyReachedStart = false
     /// MentionChatInputContextPanelNode's results for the "@" word at the caret.
     @Published private(set) var mentionSuggestions = [ChatMentionSuggestion]()
     /// The user blocked this chat's person or bot (`chat.block_list`); a blocked bot offers Restart Bot.
@@ -347,7 +349,12 @@ import UIKit
     private var bufferedDeletedMessageIDs = Set<Int64>()
     private var voiceRetryAvailabilityTask: Task<Void, Never>?
     private var voiceSendTransitionIDs = [UUID: UUID]()
-    private var hasMoreMessages = true
+    private var hasMoreMessages = true {
+        didSet {
+            if historyReachedStart == hasMoreMessages { historyReachedStart = !hasMoreMessages }
+        }
+    }
+
     private var oldestHistoryMessageID: Int64?
     private var historyGapTask: Task<Void, Never>?
     private var messageRefresh: ChatHistoryRestorationRefresh?
@@ -1145,6 +1152,7 @@ import UIKit
             self.messages = history.makeMessages()
             self.oldestHistoryMessageID = history.oldestHistoryMessageID
             self.hasMoreMessages = history.hasMoreMessages
+            self.historyReachedStart = !history.hasMoreMessages
             self.latestRestorationCursor = ChatHistoryLatestRefreshCursor(seed: history)
             self.restorationWaitsForViewport = true
         }
