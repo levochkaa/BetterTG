@@ -1558,6 +1558,37 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(poll.makeNavigationController(), animated: true)
     }
 
+    /// The attachment menu's Checklist (`.todo`): ComposeTodoScreen for a Telegram Premium account, which sends the
+    /// checklist with the composer's reply; without Premium, Telegram's checklist notice.
+    private func showChecklistComposer() {
+        guard chatVM.canCreateChecklist else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            guard let isPremium = await chatVM.accountHasPremium(), chatVM.locationContextIsCurrent,
+                  chatVM.canCreateChecklist, presentedViewController == nil
+            else {
+                attachmentSheetDidDismiss()
+                return
+            }
+            guard isPremium else {
+                presentChecklistPremiumNotice { [weak self] in self?.attachmentSheetDidDismiss() }
+                return
+            }
+            let composer = ChecklistComposerViewController(
+                client: chatVM.client,
+                accountID: chatVM.accountID,
+                chatID: chatVM.chatID,
+            ) { [weak chatVM = self.chatVM] outcome in
+                guard case .checklist(let checklist) = outcome else { return }
+                let content = InputMessageContent
+                    .inputMessageChecklist(TDNativeInputMessageChecklist(checklist: checklist))
+                Task { await chatVM?.sendAttachmentContents([content], kind: .checklist) }
+            }
+            composer.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
+            present(composer.makeNavigationController(), animated: true)
+        }
+    }
+
     private func presentKeyboardRequestFailure() {
         guard presentedViewController == nil else { return }
         let alert = UIAlertController(title: nil, message: L10n.telegram("Login.UnknownError"), preferredStyle: .alert)
@@ -5479,24 +5510,57 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
-    /// Telegram's Add a Task opens its checklist editor for one new task; BetterTG asks for the task's text.
+    /// Telegram's Add a Task: the checklist editor on the empty task after the list.
     private func presentAddChecklistTask(_ message: CustomMessage) {
+        openChecklistEditor(message, focusedTaskID: nil, appends: true)
+    }
+
+    /// ChatControllerOpenAttachmentMenu's openTodoEditing: the checklist editor for a published checklist, Edit
+    /// Checklist where it may be edited and Add a Task otherwise, after the Telegram Premium check Telegram makes.
+    private func openChecklistEditor(_ message: CustomMessage, focusedTaskID: Int?, appends: Bool) {
         guard presentedViewController == nil else { return }
+        Task { [weak self, weak message] in
+            guard let self, let isPremium = await chatVM.accountHasPremium(), let message,
+                  chatVM.locationContextIsCurrent, presentedViewController == nil,
+                  case .messageChecklist(let content) = message.message.content
+            else { return }
+            guard isPremium else {
+                presentChecklistPremiumNotice()
+                return
+            }
+            let canEdit = chatVM.canEditChecklist(message)
+            guard canEdit || chatVM.canAddChecklistTask(message) else { return }
+            let editor = ChecklistComposerViewController(
+                client: chatVM.client,
+                accountID: chatVM.accountID,
+                chatID: chatVM.chatID,
+                existing: ChecklistComposerViewController.Existing(
+                    checklist: content.list,
+                    focusedTaskID: focusedTaskID,
+                    appends: appends,
+                    canEdit: canEdit,
+                ),
+            ) { [weak chatVM = self.chatVM, weak message] outcome in
+                guard let chatVM, let message else { return }
+                chatVM.applyChecklistEditor(outcome, to: message)
+            }
+            editor.onDismiss = { [weak self] in self?.retryClientRestoration() }
+            present(editor.makeNavigationController(), animated: true)
+        }
+    }
+
+    /// PremiumDemoScreen's checklist page, without the subscription it offers.
+    private func presentChecklistPremiumNotice(onDismiss: (() -> Void)? = nil) {
+        guard presentedViewController == nil else {
+            onDismiss?()
+            return
+        }
         let alert = UIAlertController(
-            title: L10n.telegram("Chat.Todo.ContextMenu.AddTask"),
-            message: nil,
+            title: L10n.telegram("Premium.Todo"),
+            message: L10n.telegram("Premium.TodoInfo"),
             preferredStyle: .alert,
         )
-        alert.addTextField { field in
-            field.placeholder = L10n.telegram("CreateTodo.TaskPlaceholder")
-            field.autocapitalizationType = .sentences
-        }
-        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        alert.addAction(UIAlertAction(title: L10n.telegram("CreateTodo.Save"), style: .default) {
-            [weak self, weak message, weak alert] _ in
-            guard let self, let message, let text = alert?.textFields?.first?.text else { return }
-            chatVM.addChecklistTask(message, text: text)
-        })
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .cancel) { _ in onDismiss?() })
         present(alert, animated: true)
     }
 
@@ -6720,6 +6784,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let canSendLocationAndContact = chatVM.canSendLocationAndContact
         if canSendLocationAndContact { tabs.append(.location) }
         if chatVM.canCreatePoll { tabs.append(.poll) }
+        if chatVM.canCreateChecklist { tabs.append(.checklist) }
         if canSendLocationAndContact { tabs.append(.contact) }
         if chatVM.canWriteBasicMessages || chatVM.canSendStickersAndAnimations { tabs.append(.sticker) }
         tabs.insert(contentsOf: attachmentMenuBotTabs(), at: 1)
@@ -6767,6 +6832,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .file: showDocumentPicker()
         case .location: showLocationPicker()
         case .poll: showPollCreator()
+        case .checklist: showChecklistComposer()
         case .contact: showContactPicker()
         case .sticker:
             if !composerView.showMediaInput(mode: .stickers) { showComposerMediaPicker(mode: .stickers) }
@@ -7473,26 +7539,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
-    /// Telegram's Edit Item opens the checklist editor on the task; BetterTG edits the task's text in place.
+    /// Telegram's Edit Item: the checklist editor on the task.
     private func presentEditChecklistTask(_ message: CustomMessage, task: ChecklistTask) {
-        guard presentedViewController == nil else { return }
-        let alert = UIAlertController(
-            title: L10n.telegram("Chat.Todo.ContextMenu.EditTask"),
-            message: nil,
-            preferredStyle: .alert,
-        )
-        alert.addTextField { field in
-            field.text = task.text.text
-            field.placeholder = L10n.telegram("CreateTodo.TaskPlaceholder")
-            field.autocapitalizationType = .sentences
-        }
-        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        alert.addAction(UIAlertAction(title: L10n.telegram("CreateTodo.Save"), style: .default) {
-            [weak self, weak message, weak alert] _ in
-            guard let self, let message, let text = alert?.textFields?.first?.text else { return }
-            chatVM.renameChecklistTask(message, taskID: task.id, text: text)
-        })
-        present(alert, animated: true)
+        openChecklistEditor(message, focusedTaskID: task.id, appends: false)
     }
 
     /// ChatMessageActionOptions' reply options, opened from the composer's reply panel.

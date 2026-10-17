@@ -8,8 +8,9 @@ import UIKit
 
 // MARK: - AttachmentSheetTab
 
-/// AttachmentPanel's buttons in ChatControllerOpenAttachmentMenu's order: Gallery, File, Location, Poll and
-/// Contact, each where the chat allows it. Sticker (AttachmentButtonType.sticker) opens BetterTG's emoji, sticker and
+/// AttachmentPanel's buttons in ChatControllerOpenAttachmentMenu's order: Gallery, File, Location, Poll, Checklist
+/// and Contact, each where the chat allows it. Sticker (AttachmentButtonType.sticker) opens BetterTG's emoji, sticker
+/// and
 /// GIF picker, which the attach button used to offer. Link (AttachmentButtonType.link) is a poll option's
 /// (presentPollAttachmentScreen). App (AttachmentButtonType.app) is an attachment menu bot, after Gallery.
 enum AttachmentSheetTab: Equatable {
@@ -17,6 +18,7 @@ enum AttachmentSheetTab: Equatable {
     case file
     case location
     case poll
+    case checklist
     case contact
     case sticker
     case link
@@ -28,6 +30,7 @@ enum AttachmentSheetTab: Equatable {
         case .file: L10n.telegram("Attachment.File")
         case .location: L10n.telegram("Attachment.Location")
         case .poll: L10n.telegram("Attachment.Poll")
+        case .checklist: L10n.telegram("Attachment.Todo")
         case .contact: L10n.telegram("Attachment.Contact")
         case .sticker: L10n.telegram("Attachment.Sticker")
         case .link: L10n.telegram("Attachment.Link")
@@ -41,6 +44,7 @@ enum AttachmentSheetTab: Equatable {
         case .file: "doc.fill"
         case .location: "location.fill"
         case .poll: "chart.bar.fill"
+        case .checklist: "checklist"
         case .contact: "person.crop.circle.fill"
         case .sticker: "face.smiling"
         case .link: "link"

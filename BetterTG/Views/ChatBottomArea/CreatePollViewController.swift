@@ -1512,7 +1512,7 @@ import UIKit
 // MARK: - SheetDismissObserver
 
 /// Reports a sheet the user swiped away.
-@MainActor private final class SheetDismissObserver: NSObject, UIAdaptivePresentationControllerDelegate {
+@MainActor final class SheetDismissObserver: NSObject, UIAdaptivePresentationControllerDelegate {
     private let onDismiss: () -> Void
 
     init(onDismiss: @escaping () -> Void) {
@@ -1530,7 +1530,7 @@ import UIKit
 /// reorder or add indicator before it and a quiz's correct answer check, and the emoji button while it's edited.
 /// A field that takes media ends with the attach button, or with the attached media's 40-point thumbnail.
 /// Custom emoji stay whole: an edit that touches one replaces all of it.
-private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
+final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
     enum Indicator {
         /// The indicator's space without one, as the first empty option has.
         case blank
@@ -1564,6 +1564,8 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         /// ListComposePollOptionComponent's input mode button.
         var allowsEmoji = false
         var attachment: Attachment?
+        /// ListComposePollOptionComponent's `isEnabled`: a disabled field is dimmed and takes no touches.
+        var isEnabled = true
     }
 
     static let reuseIdentifier = "CreatePollTextCell"
@@ -1582,6 +1584,9 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
     var onAttach: (() -> Void)?
     /// The attached media's thumbnail was tapped; it's the source of the media's menu.
     var onMedia: ((UIView) -> Void)?
+    /// TextFieldComponent's `externalHandlingForMultilinePaste`: pasted text with line breaks goes here in place of
+    /// the field, which takes only one line.
+    var onPasteLines: ((NSAttributedString) -> Void)?
 
     private let textView = CreatePollTextView()
     private let placeholderLabel = UILabel()
@@ -1690,6 +1695,7 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         onEmoji = nil
         onAttach = nil
         onMedia = nil
+        onPasteLines = nil
     }
 
     func configure(_ configuration: Configuration) {
@@ -1729,6 +1735,9 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
             checkButton.accessibilityTraits = check.isSelected ? [.button, .selected] : .button
         }
         setHidden(emojiButton, !configuration.allowsEmoji)
+        textView.isUserInteractionEnabled = configuration.isEnabled
+        textView.alpha = configuration.isEnabled ? 1 : 0.3
+        placeholderLabel.alpha = textView.alpha
         updateAttachment(animated: false)
     }
 
@@ -1772,6 +1781,10 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         guard let configuration else { return true }
         if !configuration.allowsLineFeeds, text == "\n" {
             onReturn?()
+            return false
+        }
+        if !configuration.allowsLineFeeds, text.count > 1, text.contains(where: \.isNewline), let onPasteLines {
+            onPasteLines(NSAttributedString(string: text))
             return false
         }
         let current = textView.textStorage.string
@@ -1824,6 +1837,10 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
     /// come here too, and fall back to plain text when they don't fit.
     private func insert(_ value: NSAttributedString) -> Bool {
         guard let configuration else { return false }
+        if !configuration.allowsLineFeeds, value.string.contains(where: \.isNewline), let onPasteLines {
+            onPasteLines(value)
+            return true
+        }
         if value.string.contains(where: \.isNewline),
            !configuration.allowsLineFeeds || configuration.lineFeedLimit != nil
         {
@@ -1987,7 +2004,7 @@ private final class CreatePollTextView: CustomEmojiTextView {
 
 /// ComposePollScreen's ListActionItemComponent with a toggle: a tinted icon, the title with its description, and
 /// the switch, locked when the setting doesn't apply.
-private final class CreatePollToggleCell: UITableViewCell {
+final class CreatePollToggleCell: UITableViewCell {
     static let reuseIdentifier = "CreatePollToggleCell"
 
     var onChange: ((Bool) -> Void)?

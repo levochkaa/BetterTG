@@ -626,9 +626,22 @@ import UIKit
         customChat.supergroup?.isChannel == true
     }
 
+    /// ChatControllerOpenAttachmentMenu's `canSendTodos`: not in secret chats or channels, and TDLib also refuses
+    /// channel direct messages chats.
+    var canCreateChecklist: Bool {
+        guard editCustomMessage == nil, customChat.secretChatID == nil else { return false }
+        if let group = customChat.supergroup, group.isChannel || group.isDirectMessagesGroup { return false }
+        return (try? resolveSendContext(
+            for: .checklist,
+            replyingTo: replyMessage,
+            useCurrentReplyOverride: true,
+        )) != nil
+    }
+
     var canWriteAnyMessage: Bool {
         canWriteBasicMessages || canAttachPhotos || canAttachVideos || canAttachDocuments
             || canSendStickersAndAnimations || canRecordVoiceNote || canRecordVideoNote || canCreatePoll
+            || canCreateChecklist
     }
 
     var canShowComposer: Bool {
@@ -6669,7 +6682,8 @@ import UIKit
                 \.canSendDocuments
             case .photo:
                 \.canSendPhotos
-            case .poll:
+            // TDLib sends checklists under the poll permission.
+            case .checklist, .poll:
                 \.canSendPolls
             case .text:
                 \.canSendBasicMessages

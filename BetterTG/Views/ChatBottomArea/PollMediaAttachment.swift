@@ -481,7 +481,7 @@ struct PollDraftMedia {
         case .link:
             // The Link button dismisses the sheet and opens chatTextLinkEditController.
             return closeSheet { [self] in presentLinkEditor() }
-        case .app, .contact, .poll:
+        case .app, .checklist, .contact, .poll:
             return
         }
         currentTab = tab

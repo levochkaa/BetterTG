@@ -519,6 +519,7 @@ final class ChatComposerView: UIView {
             || chatVM.canSendStickersAndAnimations
             || chatVM.canWriteBasicMessages
             || chatVM.canCreatePoll
+            || chatVM.canCreateChecklist
         attachmentButton.isHidden = !canAttach
         attachmentButton.isEnabled = canAttach
         if selectedMediaRecordingMode == .voice,
