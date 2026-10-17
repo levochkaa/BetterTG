@@ -1,6 +1,7 @@
 // MessageStructuredContentView.swift
 
 import Combine
+import Contacts
 import MapKit
 import TDLibKit
 import UIKit
@@ -407,7 +408,7 @@ final class MessageStructuredContentView: UIView {
                     onAction: onAction,
                 )
             case .contact(let contact):
-                ContactMessageContentView(contact: contact, onAction: onAction)
+                ContactMessageContentView(contact: contact, client: client, onAction: onAction)
             case .dice(let dice):
                 DiceMessageContentView(
                     content: dice,
@@ -957,53 +958,99 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
 // MARK: - ContactMessageContentView
 
 private final class ContactMessageContentView: UIControl, MessageSupplementView {
+    /// Numbers already put in their country's mask, so a reused cell shows them formatted at once.
+    private static var formattedNumbers = [String: String]()
+
     private let avatarLabel = UILabel()
     private let nameLabel = UILabel()
     private let phoneLabel = UILabel()
     private let buttonSeparator = UIView()
     private let buttonStack = UIStackView()
     private let contact: Contact
+    private let client: TDLibClient
     private let onAction: (MessageContentAction) -> Void
+    private var displayedName = ""
+    private var detailLines = [String]()
+    private var formatTask: Task<Void, Never>?
 
-    init(contact: Contact, onAction: @escaping (MessageContentAction) -> Void) {
+    init(contact: Contact, client: TDLibClient, onAction: @escaping (MessageContentAction) -> Void) {
         self.contact = contact
+        self.client = client
         self.onAction = onAction
         super.init(frame: .zero)
         configureViews()
+        formatPhoneNumbers()
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private static func details(for contact: Contact) -> [String] {
-        var values = [String]()
-        if !contact.phoneNumber.isEmpty {
-            values.append(contact.phoneNumber)
-        }
-        for rawLine in contact.vcard.split(whereSeparator: \.isNewline) {
-            let components = rawLine.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-            guard components.count == 2 else { continue }
-            let key = components[0].uppercased()
-            guard key.hasPrefix("TEL") || key.hasPrefix("EMAIL") || key.hasPrefix("ORG") else { continue }
-            let value = String(components[1])
-                .replacingOccurrences(of: "\\,", with: ",")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !value.isEmpty, !values.contains(value) {
-                values.append(value)
+    /// ChatMessageContactBubbleContentNode's info lines, at most five: the card's phones (the contact's own number
+    /// when the card has none or doesn't parse), then its emails, then the organization unless it is the title.
+    /// Phones are flagged so they can go through formatPhoneNumber.
+    private static func details(for contact: Contact, displayedName: String) -> [(text: String, isPhone: Bool)] {
+        let lineLimit = 5
+        var lines = [(text: String, isPhone: Bool)]()
+        let card = contact.vcard
+            .data(using: .utf8)
+            .flatMap { try? CNContactVCardSerialization.contacts(with: $0).first }
+        if let card {
+            let phones = card.phoneNumbers.map(\.value.stringValue).filter { !$0.isEmpty }
+            for phone in phones.isEmpty ? [contact.phoneNumber] : phones where lines.count < lineLimit {
+                lines.append((phone, true))
             }
+            for email in card.emailAddresses where lines.count < lineLimit {
+                lines.append((String(email.value), false))
+            }
+            let organization = card.organizationName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if lines.count < lineLimit, !organization.isEmpty, organization != displayedName {
+                lines.append((organization, false))
+            }
+        } else {
+            lines.append((contact.phoneNumber, true))
         }
-        return Array((values.isEmpty ? [L10n.betterTG("Message.TelegramContact")] : values).prefix(5))
+        lines.removeAll { $0.text.isEmpty }
+        return lines.isEmpty ? [(L10n.betterTG("Message.TelegramContact"), false)] : lines
     }
 
-    func prepareForReuse() {}
+    func prepareForReuse() {
+        formatTask?.cancel()
+    }
+
+    /// Telegram's formatPhoneNumber for each phone line; a number TDLib knows no mask for stays as sent.
+    private func formatPhoneNumbers() {
+        let phones = Self.details(for: contact, displayedName: displayedName)
+            .filter(\.isPhone)
+            .map(\.text)
+            .filter { Self.formattedNumbers[$0] == nil }
+        guard !phones.isEmpty else { return }
+        let client = client
+        formatTask = Task { [weak self] in
+            var formatted = [String: String]()
+            for phone in phones {
+                formatted[phone] = await PhoneNumberFormat.international(phone, client: client) ?? phone
+            }
+            guard !Task.isCancelled, let self else { return }
+            Self.formattedNumbers.merge(formatted) { $1 }
+            updateDetails()
+        }
+    }
+
+    private func updateDetails() {
+        detailLines = Self.details(for: contact, displayedName: displayedName).map { line in
+            line.isPhone ? Self.formattedNumbers[line.text] ?? line.text : line.text
+        }
+        phoneLabel.text = detailLines.joined(separator: "\n")
+        accessibilityLabel = "\(L10n.telegram("Message.Contact")), \(displayedName), \(phoneLabel.text ?? "")"
+    }
 
     private func configureViews() {
         let fullName = [contact.firstName, contact.lastName]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        let displayedName = fullName.isEmpty ? L10n.telegram("Message.Contact") : fullName
+        displayedName = fullName.isEmpty ? L10n.telegram("Message.Contact") : fullName
         let initials = [contact.firstName.first, contact.lastName.first]
             .compactMap(\.self)
             .map(String.init)
@@ -1027,7 +1074,6 @@ private final class ContactMessageContentView: UIControl, MessageSupplementView 
         addSubview(nameLabel)
 
         phoneLabel.translatesAutoresizingMaskIntoConstraints = false
-        phoneLabel.text = Self.details(for: contact).joined(separator: "\n")
         phoneLabel.font = .preferredFont(forTextStyle: .caption1)
         phoneLabel.textColor = .secondaryLabel
         phoneLabel.numberOfLines = 5
@@ -1062,8 +1108,8 @@ private final class ContactMessageContentView: UIControl, MessageSupplementView 
         addTarget(self, action: #selector(tapped), for: .touchUpInside)
         isAccessibilityElement = true
         accessibilityTraits = [.button]
-        accessibilityLabel = "\(L10n.telegram("Message.Contact")), \(displayedName), \(phoneLabel.text ?? "")"
         accessibilityHint = L10n.betterTG("Accessibility.OpenContactHint")
+        updateDetails()
     }
 
     /// ChatMessageContactBubbleContentNode's buttons: MESSAGE for a Telegram user, and ADD, which opens the contact
