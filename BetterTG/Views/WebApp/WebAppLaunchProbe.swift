@@ -13,6 +13,10 @@
     /// Launch with `-ui-probe-bot-menu-button` to open the first bot chat, or else the first chat, with an "Open
     /// Probe" Web App menu button in place of Menu; the button shows the launch confirmation and then the probe page at
     /// half height.
+    /// Launch with `-ui-probe-startattach` to run a `startattach` link for a made-up bot that isn't added and asks
+    /// for user and group chats: its terms, then Select Chat; the chosen chat opens and shows the probe page at half
+    /// height with the shortcut notice. With `-ui-probe-startattach-current` the bot is added and the link targets
+    /// the current chat, so outside a chat the already-added notice shows.
     /// In all of them, WebAppLauncher puts the probe page in place of every launch and adding a bot only closes the
     /// terms: no openWebApp, getMainWebApp or toggleBotIsAddedToAttachmentMenu reaches TDLib and nothing is sent.
     @MainActor enum WebAppLaunchProbe {
@@ -23,7 +27,10 @@
             let showsAttachBots = arguments.contains("-ui-probe-attach-bots")
             let showsMainWebApp = arguments.contains("-ui-probe-main-web-app")
             let showsMenuButton = arguments.contains("-ui-probe-bot-menu-button")
-            guard showsAttachBots || showsMainWebApp || showsMenuButton else { return }
+            let startsAttach = arguments.contains("-ui-probe-startattach")
+            let startsAttachInCurrentChat = arguments.contains("-ui-probe-startattach-current")
+            guard showsAttachBots || showsMainWebApp || showsMenuButton || startsAttach || startsAttachInCurrentChat
+            else { return }
             WebAppLauncher.probeHTML = WebAppProbe.page
             PeerProfileViewController.probeShowsOpenApp = showsMainWebApp
             if showsAttachBots { AttachmentMenuBotStore.shared.setProbeEntries(probeEntries()) }
@@ -34,7 +41,9 @@
                 guard let accountID = TDLib.shared.activeAccountID else { return }
                 try? await Task.sleep(for: .seconds(2))
                 guard let presenter = topController(in: window) else { return }
-                if showsMenuButton {
+                if startsAttach || startsAttachInCurrentChat {
+                    startAttachmentMenuBot(inCurrentChat: startsAttachInCurrentChat)
+                } else if showsMenuButton {
                     await presentMenuButtonChat()
                 } else if showsMainWebApp {
                     await presentProfile(accountID: accountID, window: window, from: presenter)
@@ -80,34 +89,70 @@
             ]
             return bots.map { item in
                 AttachmentMenuBotStore.Entry(
-                    bot: TDNativeAttachmentMenuBot(
-                        botUserId: item.id,
-                        supportsSelfChat: true,
-                        supportsUserChats: true,
-                        supportsBotChats: true,
-                        supportsGroupChats: true,
-                        supportsChannelChats: true,
-                        requestWriteAccess: !item.isAdded,
-                        isAdded: item.isAdded,
-                        showInAttachmentMenu: true,
-                        showInSideMenu: false,
-                        showDisclaimerInSideMenu: false,
-                        name: item.name,
-                        nameColor: nil,
-                        defaultIcon: nil,
-                        iosStaticIcon: nil,
-                        iosAnimatedIcon: nil,
-                        iosSideMenuIcon: nil,
-                        androidIcon: nil,
-                        androidSideMenuIcon: nil,
-                        macosIcon: nil,
-                        macosSideMenuIcon: nil,
-                        iconColor: nil,
-                        webAppPlaceholder: nil,
-                    ),
+                    bot: probeBot(id: item.id, name: item.name, isAdded: item.isAdded),
                     imageIconPath: item.symbol.flatMap { iconPath(symbol: $0) },
                 )
             }
+        }
+
+        /// A made-up attachment menu bot; no TDLib request ever names its negative ID.
+        private static func probeBot(
+            id: Int64,
+            name: String,
+            isAdded: Bool,
+            groupsAndUsersOnly: Bool = false,
+            showInAttachmentMenu: Bool = true,
+            showInSideMenu: Bool = false,
+            showDisclaimerInSideMenu: Bool = false,
+        ) -> TDNativeAttachmentMenuBot {
+            TDNativeAttachmentMenuBot(
+                botUserId: id,
+                supportsSelfChat: !groupsAndUsersOnly,
+                supportsUserChats: true,
+                supportsBotChats: !groupsAndUsersOnly,
+                supportsGroupChats: true,
+                supportsChannelChats: !groupsAndUsersOnly,
+                requestWriteAccess: !isAdded,
+                isAdded: isAdded,
+                showInAttachmentMenu: showInAttachmentMenu,
+                showInSideMenu: showInSideMenu,
+                showDisclaimerInSideMenu: showDisclaimerInSideMenu,
+                name: name,
+                nameColor: nil,
+                defaultIcon: nil,
+                iosStaticIcon: nil,
+                iosAnimatedIcon: nil,
+                iosSideMenuIcon: nil,
+                androidIcon: nil,
+                androidSideMenuIcon: nil,
+                macosIcon: nil,
+                macosSideMenuIcon: nil,
+                iconColor: nil,
+                webAppPlaceholder: nil,
+            )
+        }
+
+        /// The router's `.startAttach` flow from the point TDLib would have returned the bot.
+        private static func startAttachmentMenuBot(inCurrentChat: Bool) {
+            let bot = probeBot(
+                id: -104,
+                name: "Probe Attach",
+                isAdded: inCurrentChat,
+                groupsAndUsersOnly: true,
+                showInSideMenu: true,
+            )
+            let target: TDNativeTargetChat =
+                if inCurrentChat {
+                    .targetChatCurrent
+                } else {
+                    .targetChatChosen(TDNativeTargetChatChosen(types: TDNativeTargetChatTypes(
+                        allowUserChats: true,
+                        allowBotChats: true,
+                        allowGroupChats: true,
+                        allowChannelChats: false,
+                    )))
+                }
+            TelegramLinkRouter.shared.probeAttachmentMenuBot(bot, target: target)
         }
 
         /// A side menu icon stand-in: the symbol drawn black on clear, which the panel tints as a template.

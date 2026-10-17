@@ -15,6 +15,9 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
         /// A switch inline button's chosen chat (`targetChatChosen`): a chat of the allowed kinds the user can write
         /// to, whose composer gets the bot's query.
         case switchInline(InlineTargetChatTypes)
+        /// An attachment menu bot link's chosen chat (OpenResolvedUrl's `.startAttach` peer selection, titled Select
+        /// Chat): a chat of the kinds both the link and the bot allow, which the user can write to.
+        case attachmentMenuBot(InlineTargetChatTypes)
     }
 
     var onSelect: ((CustomChat, ForumTopic?, PendingMessageForward) -> Void)?
@@ -59,17 +62,17 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     }
 
     private var allowedChatTypes: InlineTargetChatTypes? {
-        if case .switchInline(let types) = purpose, !types.isEmpty {
-            types
-        } else {
-            nil
+        switch purpose {
+        case .attachmentMenuBot(let types), .switchInline(let types): types.isEmpty ? nil : types
+        case .forward, .replyInAnotherChat: nil
         }
     }
 
     /// PeerSelectionController's title: Choose User, Bot, Group or Channel for one requested kind, Select Chat for
-    /// several, and Forward otherwise.
+    /// several or an attachment menu bot, and Forward otherwise.
     private var pickerTitle: String {
         if purpose == .replyInAnotherChat { return L10n.telegram("Conversation.MoveReplyToAnotherChatTitle") }
+        if case .attachmentMenuBot = purpose { return L10n.telegram("WebApp.SelectChat") }
         guard let types = allowedChatTypes else { return L10n.betterTG("Forward.Title") }
         let titles = [
             (types.users, "RequestPeer.ChooseUserTitle"),
@@ -99,6 +102,14 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
         self.seedChats = seedChats
         self.initialMode = initialMode
         super.init(nibName: nil, bundle: nil)
+    }
+
+    /// A picker that only chooses a chat, with no messages behind it. Only the forward purpose reads its request, so
+    /// the others take a stand-in.
+    convenience init?(choosingChatFor purpose: Purpose, client: TDLibClient, accountID: UUID, seedChats: [Chat]) {
+        guard purpose != .forward, let request = try? MessageForwardRequest(sourceChatID: 0, messageIDs: [1])
+        else { return nil }
+        self.init(request: request, client: client, accountID: accountID, seedChats: seedChats, purpose: purpose)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }

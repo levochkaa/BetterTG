@@ -2076,3 +2076,8 @@
 "MediaPicker.LivePhoto.Tooltip.LiveOff" = "Live Photo turned off";
 "Media.ChooseFromGallery" = "Choose From Gallery";
 "PhotoEditor.SkinTool" = "Soften Skin";
+"WebApp.SelectChat" = "Select Chat";
+"WebApp.AddToAttachmentAlreadyAddedError" = "This bot is already added to your attachment menu.";
+"WebApp.AddToAttachmentUnavailableError" = "This bot can't be added to the attachment menu.";
+"WebApp.ShortcutsAdded" = "**%@** shortcut added in attachment menu.";
+"WebApp.ShortcutsSettingsAdded" = "**%@** shortcut added in attachment menu and Settings.";

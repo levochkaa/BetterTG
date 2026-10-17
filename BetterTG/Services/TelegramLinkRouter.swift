@@ -32,6 +32,8 @@ import UIKit
     private var resolveTask: Task<Void, Never>?
     /// The `startapp` link's launch, through its terms and `getMainWebApp`.
     private var mainWebAppLauncher: WebAppLauncher?
+    /// The `startattach` link's terms and `toggleBotIsAddedToAttachmentMenu` for a bot that isn't added.
+    private var attachmentMenuBotLauncher: WebAppLauncher?
 
     private init() {
         nc.publisher(&cancellables, for: .authorizationStateReady) { [weak self] _ in
@@ -127,6 +129,20 @@ import UIKit
         }
     }
 
+    #if DEBUG
+        /// `-ui-probe-startattach`: an attachment menu bot link's flow for a made-up bot, from its terms on.
+        func probeAttachmentMenuBot(_ bot: TDNativeAttachmentMenuBot, target: TDNativeTargetChat) {
+            let presenter = NavigationStorage.shared.navigationController.topViewController
+            startAttachmentMenuBot(
+                bot,
+                target: target,
+                url: "probe",
+                authority: ChatListActionAuthority(),
+                presenter: presenter,
+            )
+        }
+    #endif
+
     private func openPendingLink() {
         guard TDLib.shared.isActiveAccountReady, let pending = pendingLink else { return }
         pendingLink = nil
@@ -173,6 +189,8 @@ import UIKit
             await openChat(chat.id, authority: authority, presenter: presenter)
         case .internalLinkTypeMainWebApp(let value):
             await openMainWebApp(value, authority: authority, presenter: presenter)
+        case .internalLinkTypeAttachmentMenuBot(let value):
+            await openAttachmentMenuBot(value, authority: authority, presenter: presenter)
         case .internalLinkTypeMessage(let value):
             await openMessage(value.url, authority: authority, presenter: presenter)
         case .internalLinkTypeChatInvite(let value):
@@ -291,6 +309,178 @@ import UIKit
             mode: link.mode,
             skipsTerms: false,
         )
+    }
+
+    /// OpenResolvedUrl's `.startAttach`: the link's bot must be one that can join the attachment menu
+    /// (`getAttachMenuBot`), or Telegram's unavailable notice shows.
+    private func openAttachmentMenuBot(
+        _ link: TDNativeInternalLinkTypeAttachmentMenuBot,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) async {
+        guard let chat = await publicChat(link.botUsername, authority: authority, presenter: presenter) else { return }
+        let client = authority.client
+        var bot: TDNativeAttachmentMenuBot?
+        if case .chatTypePrivate(let type) = chat.type,
+           let user = try? await client.getUser(userId: type.userId),
+           case .userTypeBot(let info) = user.type, info.canBeAddedToAttachmentMenu
+        {
+            bot = try? await client.send(TDNativeRequests.getAttachmentMenuBot(botUserId: user.id))
+        }
+        guard !Task.isCancelled, authority.isCurrent else { return }
+        guard let bot else {
+            presentToast(L10n.telegram("WebApp.AddToAttachmentUnavailableError"), presenter: presenter)
+            return
+        }
+        startAttachmentMenuBot(bot, target: link.targetChat, url: link.url, authority: authority, presenter: presenter)
+    }
+
+    /// The rest of `.startAttach`: a bot that isn't added gets webAppTermsAlertController and
+    /// `toggleBotIsAddedToAttachmentMenu` first (the unavailable notice if TDLib refuses), then the link's chat.
+    private func startAttachmentMenuBot(
+        _ bot: TDNativeAttachmentMenuBot,
+        target: TDNativeTargetChat,
+        url: String,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) {
+        let launch: (Bool) -> Void = { [weak self, weak presenter] justInstalled in
+            guard let self, authority.isCurrent else { return }
+            let start = AttachmentMenuBotStart(bot: bot, url: url, justInstalled: justInstalled)
+            resolveTask?.cancel()
+            resolveTask = Task { [weak self, weak presenter] in
+                await self?.openAttachmentMenuBotTarget(
+                    target,
+                    start: start,
+                    authority: authority,
+                    presenter: presenter,
+                )
+            }
+        }
+        guard !bot.isAdded else { return launch(false) }
+        guard let accountID = authority.source?.accountID else { return }
+        let launcher = WebAppLauncher(host: .init(
+            accountID: accountID,
+            client: authority.client,
+            presenter: { [weak self, weak presenter] in self?.presentationHost(presenter) },
+            isCurrent: { authority.isCurrent },
+            actions: .init(
+                openTelegramLink: { [weak self] url in self?.open(url, from: nil) },
+                switchInline: { _, _ in },
+            ),
+        ))
+        attachmentMenuBotLauncher = launcher
+        launcher.addAttachmentMenuBot(
+            botUserID: bot.botUserId,
+            failed: { [weak self, weak presenter] in
+                self?.presentToast(L10n.telegram("WebApp.AddToAttachmentUnavailableError"), presenter: presenter)
+            },
+            added: { launch(true) },
+        )
+    }
+
+    /// `.startAttach`'s chat: Select Chat among the kinds both the link and the bot allow (`filterChooseTypes`),
+    /// the chat the link names, or the chat the link was opened in (`urlContext .chat`), where ChatController's
+    /// `attachBotStart` launches the bot. With no chat, an added bot gets Telegram's already-added notice.
+    private func openAttachmentMenuBotTarget(
+        _ target: TDNativeTargetChat,
+        start: AttachmentMenuBotStart,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) async {
+        let bot = start.bot
+        switch target {
+        case .targetChatChosen(let chosen):
+            let types = InlineTargetChatTypes(
+                users: chosen.types.allowUserChats && bot.supportsUserChats,
+                bots: chosen.types.allowBotChats && bot.supportsBotChats,
+                groups: chosen.types.allowGroupChats && bot.supportsGroupChats,
+                channels: chosen.types.allowChannelChats && bot.supportsChannelChats,
+            )
+            guard types.isEmpty else {
+                return presentAttachmentMenuBotPicker(types, start: start, authority: authority, presenter: presenter)
+            }
+            openAttachmentMenuBotInCurrentChat(start, authority: authority, presenter: presenter)
+        case .targetChatCurrent:
+            openAttachmentMenuBotInCurrentChat(start, authority: authority, presenter: presenter)
+        case .targetChatInternalLink(let value):
+            let client = authority.client
+            var chatID: Int64?
+            switch value.link {
+            case .internalLinkTypePublicChat(let link):
+                guard let chat = await publicChat(link.chatUsername, authority: authority, presenter: presenter)
+                else { return }
+                chatID = chat.id
+            case .internalLinkTypeUserPhoneNumber(let link):
+                if let user = try? await client.send(TDNativeRequests.searchUserByPhoneNumber(
+                    phoneNumber: link.phoneNumber,
+                    onlyLocal: false,
+                )) {
+                    chatID = try? await client.createPrivateChat(force: false, userId: user.id).id
+                }
+            default:
+                break
+            }
+            guard !Task.isCancelled, authority.isCurrent else { return }
+            guard let chatID else {
+                presentAlert(L10n.telegram("Resolve.ErrorNotFound"), presenter: presenter)
+                return
+            }
+            await openChat(chatID, authority: authority, presenter: presenter, attachmentMenuBotStart: start)
+        }
+    }
+
+    private func openAttachmentMenuBotInCurrentChat(
+        _ start: AttachmentMenuBotStart,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) {
+        guard let chat = presenter as? ChatViewController, chat.viewIfLoaded?.window != nil else {
+            if !start.justInstalled {
+                presentToast(L10n.telegram("WebApp.AddToAttachmentAlreadyAddedError"), presenter: presenter)
+            }
+            return
+        }
+        afterDismissingPresentations { [weak chat] in
+            guard authority.isCurrent else { return }
+            chat?.beginAttachmentMenuBot(start)
+        }
+    }
+
+    /// PeerSelectionController titled Select Chat with `onlyWriteable` and the allowed kinds; the chosen chat (or
+    /// forum topic) opens with the bot.
+    private func presentAttachmentMenuBotPicker(
+        _ types: InlineTargetChatTypes,
+        start: AttachmentMenuBotStart,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) {
+        var seen = Set<Int64>()
+        let seedChats = RootVM.shared.allFolders.flatMap(\.chats).map(\.chat).filter { seen.insert($0.id).inserted }
+        guard let accountID = authority.source?.accountID, let host = presentationHost(presenter),
+              let picker = ForwardMessagesViewController(
+                  choosingChatFor: .attachmentMenuBot(types),
+                  client: authority.client,
+                  accountID: accountID,
+                  seedChats: seedChats,
+              )
+        else { return }
+        picker.onChosenChat = { [weak self, weak presenter] chat, topic in
+            guard let self, authority.isCurrent else { return }
+            resolveTask?.cancel()
+            resolveTask = Task { [weak self, weak presenter] in
+                await self?.openChat(
+                    chat.id,
+                    authority: authority,
+                    presenter: presenter,
+                    topic: topic,
+                    attachmentMenuBotStart: start,
+                )
+            }
+        }
+        let navigation = TelegramNavigationController(rootViewController: picker)
+        navigation.modalPresentationStyle = .fullScreen
+        host.present(navigation, animated: true)
     }
 
     /// OpenResolvedUrl's `.channelMessage` and `.replyThreadMessage`: `getMessageLinkInfo`, then the message in its
@@ -418,6 +608,7 @@ import UIKit
         messageThread: TDNativeMessageThreadInfo? = nil,
         messageID: Int64? = nil,
         botStartParameter: String? = nil,
+        attachmentMenuBotStart: AttachmentMenuBotStart? = nil,
         profile: Bool = false,
     ) async {
         let client = authority.client
@@ -456,6 +647,7 @@ import UIKit
                    topic: location.topic,
                    messageID: messageID,
                    botStartParameter: botStartParameter,
+                   attachmentMenuBotStart: attachmentMenuBotStart,
                )
             {
                 return
@@ -463,6 +655,12 @@ import UIKit
             if let botStartParameter {
                 let controller = ChatViewController(customChat: customChat, location: location)
                 controller.beginBotStart(parameter: botStartParameter)
+                navigation.pushViewController(controller, animated: true)
+                return
+            }
+            if let attachmentMenuBotStart {
+                let controller = ChatViewController(customChat: customChat, location: location, forumTopic: topic)
+                controller.beginAttachmentMenuBot(attachmentMenuBotStart)
                 navigation.pushViewController(controller, animated: true)
                 return
             }
@@ -534,6 +732,12 @@ import UIKit
         let alert = UIAlertController(title: nil, message: text, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         host.present(alert, animated: true)
+    }
+
+    /// Telegram's info UndoOverlayController for a link's notice.
+    private func presentToast(_ text: String, presenter: UIViewController?) {
+        guard let host = presentationHost(presenter) else { return }
+        TelegramUndoToast.show(text: text, in: host.view, bottomInset: 8, undo: nil)
     }
 
     /// A Telegram page BetterTG can't show opens in Safari; a tg:// link has nowhere else to go.

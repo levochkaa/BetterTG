@@ -7,6 +7,16 @@ import TDLibKit
 import UIKit
 import UniformTypeIdentifiers
 
+// MARK: - AttachmentMenuBotStart
+
+/// ChatControllerInitialAttachBotStart: the attachment menu bot a `startattach` link opens in a chat, with the
+/// link's start parameter and whether the link just added it.
+struct AttachmentMenuBotStart {
+    let bot: TDNativeAttachmentMenuBot
+    let url: String
+    let justInstalled: Bool
+}
+
 // MARK: - ChatClientRestorationViewport
 
 /// One initial anchor, never a delayed scroll after the user takes control.
@@ -179,6 +189,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var webAppLauncher: WebAppLauncher?
     /// The bot menu button's Web App, made with the chat's account on the first launch.
     private var menuWebAppLauncher: WebAppLauncher?
+    /// ChatControllerInitialAttachBotStart: an attachment menu bot link's bot, launched once the chat is on screen.
+    private var pendingAttachmentMenuBotStart: AttachmentMenuBotStart?
 
     private let messageSelectionToolbar = MessageSelectionToolbar()
     private var messageSelectionToolbarHeightConstraint: NSLayoutConstraint!
@@ -622,6 +634,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         acknowledgeCommittedVisibleMessages(requestHistory: true)
         isChatVisible = true
         setUpRaiseToListen()
+        applyPendingAttachmentMenuBotStart()
         #if DEBUG
         if viewportCompletionProbe == nil, presentationMode == .full, chatVM.customChat.isSavedMessages,
            ChatViewportCompletionProbe.enabled
@@ -889,6 +902,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         chatVM.beginBotStart(parameter: parameter)
     }
 
+    /// An attachment menu bot link's bot for this chat: launched now when the chat is on screen, or as it appears.
+    func beginAttachmentMenuBot(_ start: AttachmentMenuBotStart) {
+        pendingAttachmentMenuBotStart = start
+        if isChatVisible { applyPendingAttachmentMenuBotStart() }
+    }
+
     /// ChatController's sendBotCommand for a "/command" tapped in a message: it's sent where the user can write.
     func sendBotCommand(_ command: String) {
         guard showsComposer, !clientOwnerRetired, chatVM.locationContextIsCurrent, chatVM.canWriteBasicMessages
@@ -897,13 +916,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// ChatControllerImpl.openPeer for the peer already on screen: a link to one of its messages scrolls there and a
-    /// bot start link shows Start here, instead of a second copy of the chat. False when this isn't that chat.
-    func openLinkInPlace(chatID: Int64, topic: MessageTopic?, messageID: Int64?, botStartParameter: String?) -> Bool {
+    /// bot start link shows Start here, and an attachment menu bot link launches its bot here, instead of a second
+    /// copy of the chat. False when this isn't that chat.
+    func openLinkInPlace(
+        chatID: Int64,
+        topic: MessageTopic?,
+        messageID: Int64?,
+        botStartParameter: String?,
+        attachmentMenuBotStart: AttachmentMenuBotStart? = nil,
+    ) -> Bool {
         guard presentationMode == .full, !clientOwnerRetired, chatVM.locationContextIsCurrent,
               location.chatID == chatID, location.topic == topic,
               navigationController?.topViewController === self else { return false }
         if let messageID { navigate(to: .message(chatID: chatID, messageID: messageID, quote: nil)) }
         if let botStartParameter { chatVM.beginBotStart(parameter: botStartParameter) }
+        if let attachmentMenuBotStart { beginAttachmentMenuBot(attachmentMenuBotStart) }
         return true
     }
 
@@ -6535,28 +6562,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// ChatControllerOpenAttachmentMenu's `.app` buttons: the account's attachment menu bots whose peer types meet
     /// this chat's (`sameBot` in the bot's own chat), in the list's order. A secret chat has none.
     private func attachmentMenuBotTabs() -> [AttachmentSheetTab] {
-        guard chatVM.canWriteBasicMessages, let accountID = chatVM.accountID else { return [] }
+        guard chatVM.canWriteBasicMessages, let accountID = chatVM.accountID,
+              let supports = attachmentMenuBotSupport() else { return [] }
         let source = TdUpdateSource(accountID: accountID, clientID: chatVM.client.id)
-        let customChat = chatVM.customChat
-        let supports: (TDNativeAttachmentMenuBot) -> Bool
-        switch customChat.chat.type {
-        case .chatTypePrivate(let type):
-            if customChat.bot != nil {
-                supports = { $0.botUserId == type.userId ? $0.supportsSelfChat : $0.supportsBotChats }
-            } else {
-                supports = { $0.supportsUserChats }
-            }
-        case .chatTypeBasicGroup:
-            supports = { $0.supportsGroupChats }
-        case .chatTypeSupergroup(let type):
-            if type.isChannel {
-                supports = { $0.supportsChannelChats }
-            } else {
-                supports = { $0.supportsGroupChats }
-            }
-        case .chatTypeSecret:
-            return []
-        }
         return AttachmentMenuBotStore.shared
             .entries(for: source)
             .filter { $0.bot.showInAttachmentMenu && supports($0.bot) }
@@ -6568,6 +6576,65 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     imageIconPath: entry.imageIconPath,
                 ))
             }
+    }
+
+    /// Whether an attachment menu bot's peer types meet this chat's; nil in a secret chat, which has no bots.
+    private func attachmentMenuBotSupport() -> ((TDNativeAttachmentMenuBot) -> Bool)? {
+        let customChat = chatVM.customChat
+        switch customChat.chat.type {
+        case .chatTypePrivate(let type):
+            if customChat.bot != nil {
+                return { $0.botUserId == type.userId ? $0.supportsSelfChat : $0.supportsBotChats }
+            } else {
+                return { $0.supportsUserChats }
+            }
+        case .chatTypeBasicGroup:
+            return { $0.supportsGroupChats }
+        case .chatTypeSupergroup(let type):
+            if type.isChannel {
+                return { $0.supportsChannelChats }
+            } else {
+                return { $0.supportsGroupChats }
+            }
+        case .chatTypeSecret:
+            return nil
+        }
+    }
+
+    /// ChatController's presentAttachmentBot (`presentAttachmentMenu(subject: .bot)`): a bot that serves this chat
+    /// opens its Web App here with the link's start parameter, the composer's topic and reply, and Telegram's
+    /// shortcut notice when it was just added; otherwise the notice that it's added (or was just) shows instead.
+    private func applyPendingAttachmentMenuBotStart() {
+        guard let start = pendingAttachmentMenuBotStart else { return }
+        pendingAttachmentMenuBotStart = nil
+        guard presentationMode == .full, chatVM.locationContextIsCurrent, let accountID = chatVM.accountID else {
+            return
+        }
+        let bot = start.bot
+        let addedNotice = L10n.telegram(
+            bot.showInSideMenu ? "WebApp.ShortcutsSettingsAdded" : "WebApp.ShortcutsAdded",
+            bot.name,
+        )
+        .replacingOccurrences(of: "**", with: "")
+        guard chatVM.canWriteBasicMessages, let supports = attachmentMenuBotSupport(), supports(bot) else {
+            showChatToast(start.justInstalled ? addedNotice : L10n.telegram("WebApp.AddToAttachmentAlreadyAddedError"))
+            return
+        }
+        let context = try? chatVM.resolveSendContext(
+            for: .text,
+            replyingTo: chatVM.replyMessage,
+            useCurrentReplyOverride: true,
+        )
+        attachmentWebAppLauncher(accountID: accountID).openAttachmentMenuBot(
+            botUserID: bot.botUserId,
+            name: bot.name,
+            isAdded: true,
+            chatID: chatVM.chatID,
+            topic: context?.destinationTopic,
+            replyTo: context?.replyTo,
+            url: start.url,
+            notice: start.justInstalled ? addedNotice : nil,
+        )
     }
 
     /// ChatControllerOpenAttachmentMenu's `.app` button: the bot's Web App for this chat with the composer's topic

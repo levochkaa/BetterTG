@@ -114,8 +114,14 @@ import UIKit
     }
 
     /// webAppTermsAlertController, then `toggleBotIsAddedToAttachmentMenu` with the check as the write access
-    /// (`addBotToAttachMenu(botId:allowWrite:)`); the launch follows once TDLib added the bot.
-    func addAttachmentMenuBot(botUserID: Int64, cancelled: @escaping () -> Void = {}, added: @escaping () -> Void) {
+    /// (`addBotToAttachMenu(botId:allowWrite:)`); the launch follows once TDLib added the bot. A refusal shows
+    /// Telegram's unknown error unless the caller handles it.
+    func addAttachmentMenuBot(
+        botUserID: Int64,
+        cancelled: @escaping () -> Void = {},
+        failed: (() -> Void)? = nil,
+        added: @escaping () -> Void,
+    ) {
         guard let presenter = host.presenter() else { return }
         let client = host.client
         let noticeKey = Self.noticeKey(accountID: host.accountID, botUserID: botUserID)
@@ -134,7 +140,10 @@ import UIKit
                 guard let self else { return }
                 task = nil
                 guard !Task.isCancelled, host.isCurrent() else { return }
-                guard result != nil else { return showError() }
+                guard result != nil else {
+                    if let failed { return failed() }
+                    return showError()
+                }
                 added()
             }
         }
@@ -142,8 +151,9 @@ import UIKit
     }
 
     /// ChatControllerOpenAttachmentMenu's `.app` button: the terms for a bot that isn't added, then `openWebApp`
-    /// without a URL in the chat, its topic and the composer's reply. The sheet opens at half height, as Telegram's
-    /// attachment container does (`fullSize: false`).
+    /// in the chat, its topic and the composer's reply, with an attachment menu bot link's start parameter as its URL
+    /// (`payload`). The sheet opens at half height, as Telegram's attachment container does (`fullSize: false`),
+    /// and a notice, such as the just-added shortcut's, shows over it.
     func openAttachmentMenuBot(
         botUserID: Int64,
         name: String,
@@ -151,6 +161,8 @@ import UIKit
         chatID: Int64,
         topic: MessageTopic?,
         replyTo: InputMessageReplyTo?,
+        url: String = "",
+        notice: String? = nil,
     ) {
         guard task == nil else { return }
         let open: () -> Void = { [weak self] in
@@ -160,6 +172,8 @@ import UIKit
                 chatID: chatID,
                 topic: topic,
                 replyTo: replyTo,
+                url: url,
+                notice: notice,
             )
         }
         guard isAdded else { return addAttachmentMenuBot(botUserID: botUserID, added: open) }
@@ -193,19 +207,23 @@ import UIKit
             botUserID: Int64,
             name: String,
             presentation: WebAppLaunch.Presentation,
+            notice: String? = nil,
         ) {
             guard let url = URL(string: "https://bettertg.probe/") else { return }
-            present(WebAppLaunch(
-                source: .probe(html: html),
-                url: url,
-                requiresSameOrigin: false,
-                botUserID: botUserID,
-                botName: name,
-                botUsername: nil,
-                accountID: host.accountID,
-                client: host.client,
-                presentation: presentation,
-            ))
+            present(
+                WebAppLaunch(
+                    source: .probe(html: html),
+                    url: url,
+                    requiresSameOrigin: false,
+                    botUserID: botUserID,
+                    botName: name,
+                    botUsername: nil,
+                    accountID: host.accountID,
+                    client: host.client,
+                    presentation: presentation,
+                ),
+                notice: notice,
+            )
         }
     #endif
 
@@ -310,11 +328,19 @@ import UIKit
         chatID: Int64,
         topic: MessageTopic?,
         replyTo: InputMessageReplyTo?,
+        url: String,
+        notice: String?,
     ) {
         guard task == nil, let presenter = host.presenter() else { return }
         #if DEBUG
             if let html = Self.probeHTML {
-                return presentProbe(html: html, botUserID: botUserID, name: name, presentation: .compact)
+                return presentProbe(
+                    html: html,
+                    botUserID: botUserID,
+                    name: name,
+                    presentation: .compact,
+                    notice: notice,
+                )
             }
         #endif
         let client = host.client
@@ -329,7 +355,7 @@ import UIKit
             let info = try? await client.openWebApp(
                 chatId: chatID,
                 botUserId: botUserID,
-                url: "",
+                url: url,
                 topicId: topic,
                 replyTo: replyTo,
                 parameters: parameters,
@@ -343,18 +369,21 @@ import UIKit
                 if let info { _ = try? await client.closeWebApp(webAppLaunchId: info.launchId) }
                 return
             }
-            guard let info, let url = URL(string: info.url.url) else { return showError() }
-            present(WebAppLaunch(
-                source: .attachMenu(launchID: info.launchId),
-                url: url,
-                requiresSameOrigin: info.url.requireSameOrigin,
-                botUserID: botUserID,
-                botName: name,
-                botUsername: bot?.usernames?.activeUsernames.first,
-                accountID: accountID,
-                client: client,
-                presentation: .compact,
-            ))
+            guard let info, let pageURL = URL(string: info.url.url) else { return showError() }
+            present(
+                WebAppLaunch(
+                    source: .attachMenu(launchID: info.launchId),
+                    url: pageURL,
+                    requiresSameOrigin: info.url.requireSameOrigin,
+                    botUserID: botUserID,
+                    botName: name,
+                    botUsername: bot?.usernames?.activeUsernames.first,
+                    accountID: accountID,
+                    client: client,
+                    presentation: .compact,
+                ),
+                notice: notice,
+            )
         }
     }
 
@@ -423,7 +452,8 @@ import UIKit
         }
     }
 
-    private func present(_ launch: WebAppLaunch) {
+    /// The page's sheet; a notice shows over it once it's up, as Telegram's UndoOverlayController does after 0.3 s.
+    private func present(_ launch: WebAppLaunch, notice: String? = nil) {
         guard let presenter = host.presenter() else {
             if let launchID = launch.launchID {
                 let client = launch.client
@@ -431,7 +461,13 @@ import UIKit
             }
             return
         }
-        presenter.present(WebAppViewController(launch: launch, actions: host.actions), animated: true)
+        let controller = WebAppViewController(launch: launch, actions: host.actions)
+        presenter.present(controller, animated: true)
+        guard let notice else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak controller] in
+            guard let view = controller?.viewIfLoaded, view.window != nil else { return }
+            TelegramUndoToast.show(text: notice, in: view, bottomInset: 8, undo: nil)
+        }
     }
 
     private func showError() {
