@@ -42,6 +42,7 @@ import UIKit
     // MARK: Private
 
     private let player = LocalMediaPlayer()
+    private let proximityControl = VideoNoteProximityControl()
     private lazy var circle = FloatingVideoNoteView(player: player)
     private var window: FloatingVideoNoteWindow?
     private var backend: VideoNotePlaybackBackend?
@@ -114,6 +115,7 @@ import UIKit
         circle.setProgress(handoff.duration > 0 ? handoff.time / handoff.duration : 0)
         player.load(url: handoff.url, autoplay: false, loops: false)
         player.play(from: handoff.time)
+        proximityControl.begin(player: player)
         present(in: scene)
     }
 
@@ -138,6 +140,7 @@ import UIKit
     /// Another player takes the audio.
     func pause() {
         guard item != nil else { return }
+        proximityControl.end()
         player.pause()
     }
 
@@ -220,6 +223,7 @@ import UIKit
     }
 
     private func tearDown(animated: Bool) {
+        proximityControl.end()
         item = nil
         backend = nil
         bindings.removeAll()

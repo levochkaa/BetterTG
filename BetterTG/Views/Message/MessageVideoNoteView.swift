@@ -52,6 +52,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     private static let playlistRequestLifetime: TimeInterval = 15
 
     private let player = LocalMediaPlayer()
+    private let proximityControl = VideoNoteProximityControl()
     private let thumbnailView = TDImageLoadingView()
     private let playerSurface = LocalVideoSurfaceView()
     private let playIcon = UIImageView()
@@ -252,6 +253,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
 
     func prepareForReuse() {
         configurationID = UUID()
+        proximityControl.end()
         concealSecret()
         cancelDownload()
         player.stop()
@@ -288,6 +290,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         guard player.isPlaybackRequested, currentPlayerState == .playing || currentPlayerState == .buffering,
               !isRevoked, let item = playlistItem, let backend, backend.isCurrent(), let path = representedPath,
               let videoNote else { return }
+        proximityControl.end()
         FloatingVideoNotePlayer.shared.adopt(.init(
             item: item,
             url: URL(filePath: path),
@@ -565,6 +568,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
                 ? L10n.betterTG("Accessibility.Downloading")
                 : L10n.betterTG("Accessibility.Paused")
         case .ended, .idle:
+            proximityControl.end()
             if Self.activePlaybackView === self { Self.activePlaybackView = nil }
             hasStartedPlayback = false
             playIcon.isHidden = true
@@ -688,6 +692,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     }
 
     private func revoke() {
+        proximityControl.end()
         concealSecret()
         cancelDownload()
         isRevoked = true
@@ -767,6 +772,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         FloatingVideoNotePlayer.shared.stop(unless: playlistItem)
         Self.activePlaybackView = self
         backend?.takePlayback()
+        if !isSecret { proximityControl.begin(player: player) }
         return configurationID == bindingID && backend?.isCurrent() == true && !isRevoked
     }
 
@@ -797,6 +803,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
 
     private func pauseForCompetingPlayback() {
         guard Self.activePlaybackView === self else { return }
+        proximityControl.end()
         if isSecret { concealSecret() } else { player.pause() }
         Self.activePlaybackView = nil
     }

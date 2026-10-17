@@ -63,6 +63,8 @@ final class LocalMediaPlayer {
     private var videoOutput: AVPlayerItemVideoOutput?
     private var videoOutputOrientation = UIImage.Orientation.up
     private var videoOrientationTask: Task<Void, Never>?
+    private var messageGain: AudioMessageGain?
+    private var messageGainTask: Task<Void, Never>?
     private var itemCancellables = Set<AnyCancellable>()
     private var cancellables = Set<AnyCancellable>()
 
@@ -158,6 +160,13 @@ final class LocalMediaPlayer {
             player.pause()
             guard let item = player.currentItem else { return }
             NotificationCenter.default.post(name: .AVPlayerItemDidPlayToEndTime, object: item)
+        }
+    #endif
+
+    #if DEBUG
+        /// The gain the message equalizer last applied to a buffer, in decibels.
+        var measuredMessageGain: Float? {
+            messageGain?.measuredDecibels
         }
     #endif
 
@@ -355,6 +364,20 @@ final class LocalMediaPlayer {
 
     func setMuted(_ muted: Bool) {
         player.isMuted = muted
+    }
+
+    /// MediaPlayerAudioRenderer's message equalizer for voice and round video notes: a gain in decibels for the
+    /// playing item and items loaded later. The tap is installed the first time a gain other than 0 dB is set.
+    func setMessageGain(decibels: Float) {
+        if let messageGain {
+            messageGain.set(decibels: decibels)
+            return
+        }
+        guard decibels != 0 else { return }
+        let gain = AudioMessageGain()
+        gain.set(decibels: decibels)
+        messageGain = gain
+        if let item = player.currentItem { attachMessageGain(to: item) }
     }
 
     func setRate(_ rate: Float) {
@@ -620,7 +643,19 @@ final class LocalMediaPlayer {
         } else {
             videoOutput = nil
         }
+        attachMessageGain(to: item)
         player.replaceCurrentItem(with: item)
+    }
+
+    private func attachMessageGain(to item: AVPlayerItem) {
+        messageGainTask?.cancel()
+        guard let gain = messageGain else { return }
+        let asset = item.asset
+        messageGainTask = Task { @MainActor [weak item] in
+            guard let tracks = try? await asset.loadTracks(withMediaType: .audio), !Task.isCancelled,
+                  let item else { return }
+            item.audioMix = gain.audioMix(for: tracks)
+        }
     }
 
     private func prepareForLoad(

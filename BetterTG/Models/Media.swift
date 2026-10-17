@@ -93,6 +93,13 @@ final class Media: ObservableObject {
         TimeInterval(duration)
     }
 
+    #if DEBUG
+        /// The message equalizer's last measured gain on the shared player, in decibels.
+        var measuredMessageGain: Float? {
+            player.measuredMessageGain
+        }
+    #endif
+
     private init() {
         setPublishers()
         setCommandCenterControls()
@@ -180,6 +187,15 @@ final class Media: ObservableObject {
         stop()
         setAudioSessionPlayback()
         exclusivePlaybackBegan.send()
+    }
+
+    /// SharedMediaPlayer's setForceAudioToSpeaker for a round video under proximity control: the shared session moves
+    /// to the earpiece at the ear. Away from the ear the video pauses, and the next play from its bubble returns the
+    /// session to the speaker through beginExclusivePlayback.
+    func setMessageOutput(earpiece: Bool) {
+        guard playsThroughEarpiece != earpiece else { return }
+        playsThroughEarpiece = earpiece
+        setAudioSessionPlayback()
     }
 
     func onChatOpen(title: String) {
@@ -495,28 +511,34 @@ final class Media: ObservableObject {
     }
 
     /// SharedMediaPlayer with controlPlaybackWithProximity, which MediaManager sets for voice notes while Raise to
-    /// Listen is on: the note starts on the earpiece if the phone is already at the ear.
+    /// Listen is on: the note starts on the earpiece if the phone is already at the ear, 12 dB louder as
+    /// MediaPlayerAudioRenderer's message equalizer starts there.
     private func beginProximityControl(for item: NowPlaying?) {
+        player.setMessageGain(decibels: 0)
         guard let item, !item.isMusic, RaiseToListenSettings.isEnabled else { return }
         MainActor.assumeIsolated {
             let monitor = DeviceProximityMonitor.shared
             playsThroughEarpiece = monitor.currentValue
             proximitySubscription = monitor.add { [weak self] value in self?.proximityChanged(value) }
         }
+        player.setMessageGain(decibels: playsThroughEarpiece ? 12 : 0)
     }
 
     private func endProximityControl() {
         playsThroughEarpiece = false
+        player.setMessageGain(decibels: 0)
         guard let proximitySubscription else { return }
         self.proximitySubscription = nil
         MainActor.assumeIsolated { DeviceProximityMonitor.shared.remove(proximitySubscription) }
     }
 
-    /// At the ear the note plays from the earpiece, from its start if it had barely begun; away from the ear it
-    /// pauses, and plays from the speaker again when resumed.
+    /// At the ear the note plays from the earpiece, 5 dB louder (the equalizer's gain when the output changes during
+    /// playback), from its start if it had barely begun; away from the ear it pauses, and plays from the speaker at
+    /// 0 dB again when resumed.
     private func proximityChanged(_ value: Bool) {
         guard playsThroughEarpiece != value, player.hasItem else { return }
         playsThroughEarpiece = value
+        player.setMessageGain(decibels: value ? 5 : 0)
         if value {
             if playbackPosition < 1.5 { seekTo(0) }
             play()
