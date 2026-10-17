@@ -2070,3 +2070,7 @@
 "WebApp.RemoveBot" = "Remove Bot";
 "WebApp.RemoveConfirmationTitle" = "Remove Bot";
 "WebApp.RemoveAllConfirmationText" = "This will remove **%@** shortcuts from all menus.";
+"MediaPicker.LivePhoto.Live" = "Live";
+"MediaPicker.LivePhoto.LiveOff" = "Live Off";
+"MediaPicker.LivePhoto.Tooltip.Live" = "Live Photo turned on";
+"MediaPicker.LivePhoto.Tooltip.LiveOff" = "Live Photo turned off";

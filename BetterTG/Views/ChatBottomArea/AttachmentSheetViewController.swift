@@ -184,6 +184,11 @@ struct AttachmentMediaSendRequest {
     private var videoEdits = [String: VideoEditAdjustments]()
     /// An edited video's frame for the grid (VideoEditThumbnail), kept while the edit lasts.
     private var videoEditThumbnails = [String: UIImage]()
+    /// TGMediaEditingContext's `forceLivePhotoEnabled`: picked Live Photos go as stills until the bar's Live button
+    /// turns them on.
+    private var forcesLivePhotos = false
+    /// TGMediaEditingContext's `livePhotoModeForItem:`: Live or Live Off as a photo's own menu set it, by asset.
+    private var livePhotoModes = [String: Bool]()
     private var isClosing = false
 
     private var allowsMedia: Bool {
@@ -345,7 +350,7 @@ struct AttachmentMediaSendRequest {
             for: indexPath,
         )
         guard let gridCell = cell as? MediaPickerGridCell, let asset = asset(at: indexPath.item) else { return cell }
-        gridCell.configure(asset: asset, showsLivePhoto: configuration.showsLivePhotos)
+        gridCell.configure(asset: asset, livePhoto: livePhotoMode(of: asset))
         configureSelection(of: gridCell, assetID: asset.localIdentifier)
         loadThumbnail(asset, into: gridCell)
         return cell
@@ -672,7 +677,7 @@ struct AttachmentMediaSendRequest {
     // MARK: Navigation
 
     /// MediaPickerScreen's bar: Cancel, or Back from the picked items; the picked count, which shows them; the
-    /// album as the title; More while items are picked.
+    /// album as the title; More while items are picked, with the Live button left of it while a Live Photo is.
     private func updateNavigation() {
         let leading: UIBarButtonItem
         if displayMode == .selected {
@@ -697,7 +702,14 @@ struct AttachmentMediaSendRequest {
             leftItems.append(UIBarButtonItem(customView: selectedButton))
         }
         navigationItem.leftBarButtonItems = leftItems
-        navigationItem.rightBarButtonItems = selection.isEmpty ? [] : [UIBarButtonItem(customView: moreButton)]
+        var rightItems = [UIBarButtonItem]()
+        if !selection.isEmpty {
+            rightItems.append(UIBarButtonItem(customView: moreButton))
+            if configuration.showsLivePhotos, selection.contains(where: { $0.mediaSubtypes.contains(.photoLive) }) {
+                rightItems.append(makeLivePhotoItem())
+            }
+        }
+        navigationItem.rightBarButtonItems = rightItems
         updateTitle()
     }
 
@@ -1006,6 +1018,9 @@ struct AttachmentMediaSendRequest {
             cropAdjustments: photoEdits.mapValues(\.adjustments),
             // A video sent as a file goes as it is (`LegacyMediaPickers`' `.passthrough`).
             videoEdits: mode == .files ? [:] : videoEdits,
+            livePhotoAssetIDs: mode == .files
+                ? []
+                : Set(selection.filter { livePhotoMode(of: $0) == true }.map(\.localIdentifier)),
             mode: mode,
             timing: timing,
             highQualityPhotos: isHighQuality,
@@ -1052,7 +1067,8 @@ struct AttachmentMediaSendRequest {
     // MARK: Photo editing
 
     /// Telegram edits a picked photo or video in its preview's editor (LegacyMediaPickerGallery); holding one here
-    /// offers Edit, which opens the crop tool on a photo and the trim and mute on a video.
+    /// offers Edit, which opens the crop tool on a photo and the trim and mute on a video. A Live Photo also offers
+    /// its preview's Live and Live Off.
     private func configurePhotoEditing() {
         let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(photoLongPressed(_:)))
         press.pressedViewProvider = { [weak self] gesture in
@@ -1081,7 +1097,11 @@ struct AttachmentMediaSendRequest {
                 self?.editPhoto(asset)
             }
         }
-        presentTelegramContextMenu(sourceView: cell, actions: [edit], tracking: gesture, presentationStyle: .menuOnly)
+        var actions = [edit]
+        if let isLive = livePhotoMode(of: asset) {
+            actions.append(livePhotoModeAction(for: asset, isLive: isLive))
+        }
+        presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture, presentationStyle: .menuOnly)
     }
 
     private func editPhoto(_ asset: PHAsset) {
@@ -1156,6 +1176,84 @@ struct AttachmentMediaSendRequest {
             guard let self, videoEdits[identifier] == videoEdit else { return }
             videoEditThumbnails[identifier] = thumbnail
             reloadThumbnail(of: asset)
+        }
+    }
+
+    // MARK: Live Photos
+
+    /// `TGMediaAssetsResolvedLivePhotoMode` where the chat takes Live Photos: whether a Live Photo goes live, by its
+    /// own mode or else the bar's; nil for any other item.
+    private func livePhotoMode(of asset: PHAsset) -> Bool? {
+        guard configuration.showsLivePhotos, asset.mediaType == .image, asset.mediaSubtypes.contains(.photoLive)
+        else { return nil }
+        return livePhotoModes[asset.localIdentifier] ?? forcesLivePhotos
+    }
+
+    /// MediaPickerScreen's Live button for the picked Live Photos.
+    private func makeLivePhotoItem() -> UIBarButtonItem {
+        let item = UIBarButtonItem(
+            image: UIImage(systemName: forcesLivePhotos ? "livephoto" : "livephoto.slash"),
+            style: .plain,
+            target: self,
+            action: #selector(livePhotoPressed),
+        )
+        item.accessibilityLabel = L10n.telegram("Message.LivePhoto")
+        item.accessibilityValue = L10n.telegram(forcesLivePhotos ? "VoiceOver.Common.On" : "VoiceOver.Common.Off")
+        return item
+    }
+
+    /// The Live button's `setForceLivePhotoEnabled`: every Live Photo without its own mode goes live or as a still,
+    /// with the tooltip.
+    @objc private func livePhotoPressed() {
+        forcesLivePhotos.toggle()
+        updateNavigation()
+        updateVisibleLivePhotos()
+        showToast(L10n.telegram(forcesLivePhotos
+                ? "MediaPicker.LivePhoto.Tooltip.Live"
+                : "MediaPicker.LivePhoto.Tooltip.LiveOff"))
+    }
+
+    /// The gallery preview's LivePhotoButton for one Live Photo: its mode as the title, and its menu's Live and Live
+    /// Off. Loop and Bounce aren't offered.
+    private func livePhotoModeAction(for asset: PHAsset, isLive: Bool) -> TelegramContextMenuAction {
+        TelegramContextMenuAction(
+            title: L10n.telegram(isLive ? "MediaPicker.LivePhoto.Live" : "MediaPicker.LivePhoto.LiveOff"),
+            image: UIImage(systemName: isLive ? "livephoto" : "livephoto.slash"),
+            children: [true, false].map { mode in
+                TelegramContextMenuAction(
+                    title: L10n.telegram(mode ? "MediaPicker.LivePhoto.Live" : "MediaPicker.LivePhoto.LiveOff"),
+                    image: UIImage(systemName: mode ? "livephoto" : "livephoto.slash"),
+                ) { [weak self] in
+                    self?.setLivePhotoMode(mode, of: asset)
+                }
+            },
+        )
+    }
+
+    /// TGMediaPickerGalleryInterfaceView's `livePhotoModeUpdated`: the photo keeps the mode and is picked, with
+    /// LivePhotoButton's tooltip when the mode changes.
+    private func setLivePhotoMode(_ isLive: Bool, of asset: PHAsset) {
+        let identifier = asset.localIdentifier
+        let changed = livePhotoMode(of: asset) != isLive
+        livePhotoModes[identifier] = isLive
+        updateVisibleLivePhotos()
+        if !selection.contains(where: { $0.localIdentifier == identifier }) {
+            toggleSelection(of: asset)
+        }
+        guard changed, !isClosing else { return }
+        showToast(L10n.telegram(isLive
+                ? "MediaPicker.LivePhoto.Tooltip.Live"
+                : "MediaPicker.LivePhoto.Tooltip.LiveOff"))
+    }
+
+    /// MediaPickerGridItem's `updateLivePhotoMode` for the visible Live Photos.
+    private func updateVisibleLivePhotos() {
+        for path in collectionView.indexPathsForVisibleItems {
+            guard let cell = collectionView.cellForItem(at: path) as? MediaPickerGridCell,
+                  let asset = asset(at: path.item),
+                  let isLive = livePhotoMode(of: asset)
+            else { continue }
+            cell.configure(asset: asset, livePhoto: isLive)
         }
     }
 }

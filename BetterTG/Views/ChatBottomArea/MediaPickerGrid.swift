@@ -241,9 +241,12 @@ final class MediaPickerGridCell: UICollectionViewCell {
             : String(format: "%d:%02d", minutes, rest)
     }
 
-    func configure(asset: PHAsset, showsLivePhoto: Bool) {
+    /// `livePhoto` is MediaPickerGridItem's Live Photo icon where the chat takes Live Photos: Live when the photo
+    /// goes live and Live Off when it goes as a still, in the favorite's place; nil shows none.
+    func configure(asset: PHAsset, livePhoto: Bool?) {
         var symbol: String?
         var duration: String?
+        var kind = "Message.Photo"
         if asset.mediaType == .video {
             if asset.mediaSubtypes.contains(.videoHighFrameRate) {
                 symbol = "slowmo"
@@ -253,15 +256,19 @@ final class MediaPickerGridCell: UICollectionViewCell {
                 symbol = "video.fill"
             }
             duration = Self.durationText(asset.duration)
-        } else if showsLivePhoto, asset.mediaSubtypes.contains(.photoLive) {
-            symbol = "livephoto"
+            kind = "Message.Video"
         }
         if asset.isFavorite { symbol = "heart.fill" }
+        if let livePhoto {
+            symbol = livePhoto ? "livephoto" : "livephoto.slash"
+            kind = "Message.LivePhoto"
+        }
         typeIconView.image = symbol.flatMap { UIImage(systemName: $0) }
         durationLabel.text = duration
         durationLabel.isHidden = duration == nil
         accessibilityLabel = [
-            L10n.telegram(asset.mediaType == .video ? "Message.Video" : "Message.Photo"),
+            L10n.telegram(kind),
+            livePhoto.map { L10n.telegram($0 ? "VoiceOver.Common.On" : "VoiceOver.Common.Off") },
             duration,
         ]
             .compactMap(\.self)
