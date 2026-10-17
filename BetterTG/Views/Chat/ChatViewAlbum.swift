@@ -773,9 +773,11 @@ enum MediaGallerySaveError: LocalizedError {
 /// The gallery's save pipeline, shared with the chat message menu's Save Image and Save Video
 /// (Telegram's saveToCameraRoll).
 @MainActor enum MediaGalleryExport {
+    /// The asset is the gallery's page: a poll's pages resolve from the poll message, whose own content has no asset.
     static func validatePermission(
         message: Message,
         properties: MessageProperties,
+        asset: MediaGalleryExportAsset?,
     ) throws {
         if case .messagePaidMedia = message.content {
             throw MediaGallerySaveError.protectedContent
@@ -785,7 +787,7 @@ enum MediaGallerySaveError: LocalizedError {
               !properties.hasProtectedContentByOtherUser,
               message.selfDestructType == nil,
               message.selfDestructIn == 0,
-              let asset = MediaGalleryExportAsset(message),
+              let asset,
               !asset.isSecretMedia
         else { throw MediaGallerySaveError.protectedContent }
     }
@@ -3929,7 +3931,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     selectedIdentity: selectedIdentity,
                     resolvedIdentity: resolvedIdentity,
                 )
-                try MediaGalleryExport.validatePermission(message: resolved, properties: properties)
+                try MediaGalleryExport.validatePermission(
+                    message: resolved,
+                    properties: properties,
+                    asset: exportAsset(resolved, pageID: pageID),
+                )
                 guard let asset = exportAsset(resolved, pageID: pageID) else {
                     throw MediaGallerySaveError.messageUnavailable
                 }
@@ -3970,7 +3976,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     selectedIdentity: selectedIdentity,
                     resolvedIdentity: latestIdentity,
                 )
-                try MediaGalleryExport.validatePermission(message: latestMessage, properties: latestProperties)
+                try MediaGalleryExport.validatePermission(
+                    message: latestMessage,
+                    properties: latestProperties,
+                    asset: exportAsset(latestMessage, pageID: pageID),
+                )
                 guard let latestAsset = exportAsset(latestMessage, pageID: pageID),
                       latestAsset.fileID == asset.fileID, latestAsset.livePhotoVideo?.id == asset.livePhotoVideo?.id
                 else { throw MediaGallerySaveError.messageUnavailable }
@@ -4009,7 +4019,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                         selectedIdentity: selectedIdentity,
                         resolvedIdentity: commitIdentity,
                     )
-                    try MediaGalleryExport.validatePermission(message: commitMessage, properties: commitProperties)
+                    try MediaGalleryExport.validatePermission(
+                        message: commitMessage,
+                        properties: commitProperties,
+                        asset: exportAsset(commitMessage, pageID: pageID),
+                    )
                     guard let commitAsset = exportAsset(commitMessage, pageID: pageID),
                           commitAsset.fileID == latestAsset.fileID,
                           commitAsset.livePhotoVideo?.id == latestAsset.livePhotoVideo?.id
@@ -4052,7 +4066,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                         selectedIdentity: selectedIdentity,
                         resolvedIdentity: commitIdentity,
                     )
-                    try MediaGalleryExport.validatePermission(message: commitMessage, properties: commitProperties)
+                    try MediaGalleryExport.validatePermission(
+                        message: commitMessage,
+                        properties: commitProperties,
+                        asset: exportAsset(commitMessage, pageID: pageID),
+                    )
                     guard let commitAsset = exportAsset(commitMessage, pageID: pageID),
                           commitAsset.fileID == latestAsset.fileID,
                           commitAsset.livePhotoVideo?.id == latestAsset.livePhotoVideo?.id
