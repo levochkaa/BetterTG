@@ -104,23 +104,36 @@ import UIKit
 /// Copy, Share and Revoke), the additional links the account created, with Create a New Link, and the revoked ones
 /// with Delete All. A link opens its own screen. Every change happens on its own tap.
 final class ChatInviteLinksViewController: SettingsListViewController {
+    /// Another admin whose links the owner opens from Invite Links Created By Other Admins (ExportedInvitationCreator).
+    struct Admin {
+        let peer: SettingsPeer
+        let linkCount: Int
+        let revokedLinkCount: Int
+    }
+
     private static let pageLimit = 100
 
     private let target: ChatManagementTarget
+    /// Nil for the user's own links.
+    private let admin: Admin?
     private var mainLink: ChatInviteLink?
     private var links = [ChatInviteLink]()
     private var revokedLinks = [ChatInviteLink]()
+    /// The other admins with links, for the owner (getChatInviteLinkCounts without the user).
+    private var otherAdmins = [Admin]()
     private var myUserID: Int64 = 0
     private var isLoaded = false
     private var loadTask: Task<Void, Never>?
 
-    /// The public t.me address that stands in for the invite link (InviteLink.PublicLink).
+    /// The public t.me address that stands in for the user's invite link (InviteLink.PublicLink).
     private var publicAddress: String? {
-        target.supergroup?.usernames?.activeUsernames.first.map { "https://t.me/\($0)" }
+        guard admin == nil else { return nil }
+        return target.supergroup?.usernames?.activeUsernames.first.map { "https://t.me/\($0)" }
     }
 
-    init(target: ChatManagementTarget) {
+    init(target: ChatManagementTarget, admin: Admin? = nil) {
         self.target = target
+        self.admin = admin
         super.init()
     }
 
@@ -134,7 +147,17 @@ final class ChatInviteLinksViewController: SettingsListViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = L10n.telegram("InviteLink.Title")
+        if let admin {
+            // Telegram titles another admin's links with their name and link count.
+            title = admin.peer.title
+            navigationItem.subtitle = L10n.telegramPlural(
+                "InviteLink.InviteLinks",
+                count: admin.linkCount,
+                formattedCount: admin.linkCount.formatted(.number),
+            )
+        } else {
+            title = L10n.telegram("InviteLink.Title")
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -143,7 +166,7 @@ final class ChatInviteLinksViewController: SettingsListViewController {
     }
 
     override func makeSections() -> [SettingsSection] {
-        let mainAddress = publicAddress ?? mainLink?.inviteLink ?? target.inviteLink
+        let mainAddress = publicAddress ?? mainLink?.inviteLink ?? (admin == nil ? target.inviteLink : nil)
         // A chat without a primary link yet (a basic group that never exported one) shows only the others.
         let mainRows: [SettingsRow] =
             if let mainAddress {
@@ -156,18 +179,29 @@ final class ChatInviteLinksViewController: SettingsListViewController {
             } else {
                 isLoaded ? [] : [ChatManagementRows.loading]
             }
+        let mainFooter: String =
+            if let admin {
+                L10n.telegram("InviteLink.OtherPermanentLinkInfo", admin.peer.title, target.chat.title)
+                    .withoutTelegramMarkup
+            } else {
+                L10n.telegram(
+                    target.isChannel ? "InviteLink.CreatePrivateLinkHelpChannel" : "InviteLink.CreatePrivateLinkHelp",
+                )
+            }
         var sections = [SettingsSection(
             header: L10n.telegram(publicAddress == nil ? "InviteLink.InviteLink" : "InviteLink.PublicLink"),
-            footer: L10n.telegram(
-                target.isChannel ? "InviteLink.CreatePrivateLinkHelpChannel" : "InviteLink.CreatePrivateLinkHelp",
-            ),
+            footer: mainFooter,
             rows: mainRows,
         )]
-        var linkRows = [SettingsRow(
-            title: L10n.telegram("InviteLink.Create"),
-            style: .action(destructive: false),
-            symbol: "plus",
-        ) { [weak self] in self?.createLink() }]
+        // Another admin's links can't be created here (no Create a New Link), so their section shows only links.
+        var linkRows =
+            admin == nil
+                ? [SettingsRow(
+                    title: L10n.telegram("InviteLink.Create"),
+                    style: .action(destructive: false),
+                    symbol: "plus",
+                ) { [weak self] in self?.createLink() }]
+                : []
         if !isLoaded { linkRows.append(ChatManagementRows.loading) }
         linkRows += links.map { link in
             SettingsRow(
@@ -182,11 +216,13 @@ final class ChatInviteLinksViewController: SettingsListViewController {
                 ),
             )
         }
-        sections.append(SettingsSection(
-            header: L10n.telegram("InviteLink.AdditionalLinks"),
-            footer: L10n.telegram("InviteLink.CreateInfo"),
-            rows: linkRows,
-        ))
+        if !linkRows.isEmpty {
+            sections.append(SettingsSection(
+                header: L10n.telegram("InviteLink.AdditionalLinks"),
+                footer: admin == nil ? L10n.telegram("InviteLink.CreateInfo") : nil,
+                rows: linkRows,
+            ))
+        }
         if !revokedLinks.isEmpty {
             let deleteAll = SettingsRow(
                 title: L10n.telegram("InviteLink.DeleteAllRevokedLinks"),
@@ -196,7 +232,7 @@ final class ChatInviteLinksViewController: SettingsListViewController {
             ) { [weak self] in self?.deleteAllRevoked() }
             sections.append(SettingsSection(
                 header: L10n.telegram("InviteLink.RevokedLinks"),
-                rows: [deleteAll] + revokedLinks.map { link in
+                rows: (admin == nil ? [deleteAll] : []) + revokedLinks.map { link in
                     SettingsRow(
                         title: ChatInviteLinkText.title(link),
                         detail: ChatInviteLinkText.status(link),
@@ -211,6 +247,19 @@ final class ChatInviteLinksViewController: SettingsListViewController {
                 },
             ))
         }
+        if !otherAdmins.isEmpty {
+            sections.append(SettingsSection(
+                header: L10n.telegram("InviteLink.OtherAdminsLinks"),
+                rows: otherAdmins.map { admin in
+                    SettingsRow(
+                        title: admin.peer.title,
+                        detail: admin.linkCount > 1 ? admin.linkCount.formatted(.number) : nil,
+                        style: .peer(admin.peer),
+                        accessory: .disclosure,
+                    ) { [weak self] in self?.openAdmin(admin) }
+                },
+            ))
+        }
         return sections
     }
 
@@ -219,12 +268,14 @@ final class ChatInviteLinksViewController: SettingsListViewController {
         loadTask?.cancel()
         let client = client
         let chatID = target.chatID
+        let adminID = admin?.peer.id
+        let isCreator = target.isCreator
         loadTask = Task { [weak self] in
             let userID = await (try? client.getMe())?.id ?? 0
             func loadLinks(revoked: Bool) async -> [ChatInviteLink] {
                 await (try? client.send(TDNativeRequests.getChatInviteLinks(
                     chatId: chatID,
-                    creatorUserId: userID,
+                    creatorUserId: adminID ?? userID,
                     isRevoked: revoked,
                     offsetDate: 0,
                     offsetInviteLink: "",
@@ -233,18 +284,35 @@ final class ChatInviteLinksViewController: SettingsListViewController {
             }
             let active = await loadLinks(revoked: false)
             let revoked = await loadLinks(revoked: true)
+            // peerExportedInvitationsCreators: only the owner lists the other admins with links.
+            var otherAdmins = [Admin]()
+            if adminID == nil, isCreator,
+               let counts = try? await client.send(TDNativeRequests.getChatInviteLinkCounts(chatId: chatID))
+            {
+                for count in counts.inviteLinkCounts where count.userId != userID {
+                    guard !Task.isCancelled else { return }
+                    guard let peer = await SettingsPeer.user(count.userId, client: client) else { continue }
+                    otherAdmins.append(Admin(
+                        peer: peer,
+                        linkCount: count.inviteLinkCount,
+                        revokedLinkCount: count.revokedInviteLinkCount,
+                    ))
+                }
+            }
             guard let self, !Task.isCancelled, contextIsCurrent else { return }
             loadTask = nil
             myUserID = userID
             mainLink = active.first { $0.isPrimary }
             links = active.filter { !$0.isPrimary }
             revokedLinks = revoked
+            self.otherAdmins = otherAdmins
             isLoaded = true
             reload()
         }
     }
 
-    /// ItemListPermanentInviteLinkItem's actions: Copy, Share and, for an invite link, Revoke, which replaces it.
+    /// ItemListPermanentInviteLinkItem's actions: Copy, Get QR Code, Share and, for an invite link, Revoke, which
+    /// replaces it.
     private func presentMainMenu(_ address: String) {
         guard contextIsCurrent, let cell = tableView.cellForRow(at: IndexPath(row: 0, section: 0)) else { return }
         var actions = [
@@ -252,6 +320,10 @@ final class ChatInviteLinksViewController: SettingsListViewController {
                 title: L10n.telegram("InviteLink.ContextCopy"),
                 image: UIImage(systemName: "doc.on.doc"),
             ) { [weak self] in self?.copy(address) },
+            TelegramContextMenuAction(
+                title: L10n.telegram("InviteLink.ContextGetQRCode"),
+                image: UIImage(systemName: "qrcode"),
+            ) { [weak self] in self?.showQRCode(address) },
             TelegramContextMenuAction(
                 title: L10n.telegram("InviteLink.ContextShare"),
                 image: UIImage(systemName: "square.and.arrow.up"),
@@ -271,6 +343,11 @@ final class ChatInviteLinksViewController: SettingsListViewController {
         ChatFolderInviteLinkActions.copy(address, in: self)
     }
 
+    private func showQRCode(_ address: String) {
+        guard contextIsCurrent, presentedViewController == nil else { return }
+        present(ChatInviteLinkQRCodeViewController(link: address, isChannel: target.isChannel), animated: true)
+    }
+
     private func share(_ address: String) {
         ChatFolderInviteLinkActions.share(
             address,
@@ -283,6 +360,14 @@ final class ChatInviteLinksViewController: SettingsListViewController {
         guard contextIsCurrent else { return }
         navigationController?.pushViewController(
             ChatInviteLinkViewController(target: target, link: link),
+            animated: true,
+        )
+    }
+
+    private func openAdmin(_ admin: Admin) {
+        guard contextIsCurrent else { return }
+        navigationController?.pushViewController(
+            ChatInviteLinksViewController(target: target, admin: admin),
             animated: true,
         )
     }
@@ -395,6 +480,10 @@ final class ChatInviteLinkViewController: SettingsListViewController {
                 title: L10n.telegram("InviteLink.ContextShare"),
                 style: .action(destructive: false),
             ) { [weak self] in self?.share() })
+            linkRows.append(SettingsRow(
+                title: L10n.telegram("InviteLink.ContextGetQRCode"),
+                style: .action(destructive: false),
+            ) { [weak self] in self?.showQRCode() })
         }
         var sections = [SettingsSection(footer: ChatInviteLinkText.status(link), rows: linkRows)]
         if !isLoaded {
@@ -461,6 +550,11 @@ final class ChatInviteLinkViewController: SettingsListViewController {
 
     private func copy() {
         ChatFolderInviteLinkActions.copy(link.inviteLink, in: self)
+    }
+
+    private func showQRCode() {
+        guard contextIsCurrent, presentedViewController == nil else { return }
+        present(ChatInviteLinkQRCodeViewController(link: link.inviteLink, isChannel: target.isChannel), animated: true)
     }
 
     private func share() {

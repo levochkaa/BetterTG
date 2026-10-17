@@ -2325,3 +2325,16 @@
 "ChatList.DeleteThreadsConfirmation_any" = "Delete %@ Threads";
 "ChatList.DeletedThreads_1" = "Deleted 1 thread";
 "ChatList.DeletedThreads_any" = "Deleted %@ threads";
+"InviteLink.ContextGetQRCode" = "Get QR Code";
+"InviteLink.QRCode.Title" = "Invite by QR Code";
+"InviteLink.QRCode.Info" = "Everyone on Telegram can scan this code to join your group.";
+"InviteLink.QRCode.InfoChannel" = "Everyone on Telegram can scan this code to join your channel.";
+"InviteLink.QRCode.Share" = "Share QR Code";
+"InviteLink.OtherAdminsLinks" = "Invite Links Created By Other Admins";
+"InviteLink.OtherPermanentLinkInfo" = "**%1$@** can see this link and use it to invite new members to **%2$@**.";
+"InviteLink.InviteLinks_0" = "%@ invite links";
+"InviteLink.InviteLinks_1" = "%@ invite link";
+"InviteLink.InviteLinks_2" = "%@ invite links";
+"InviteLink.InviteLinks_3_10" = "%@ invite links";
+"InviteLink.InviteLinks_many" = "%@ invite links";
+"InviteLink.InviteLinks_any" = "%@ invite links";
