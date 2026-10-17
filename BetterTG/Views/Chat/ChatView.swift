@@ -94,10 +94,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     /// The rows on screen before an album gains or loses members, for performAlbumRegroupTransition(_:).
     private struct AlbumRegroupTransition {
+        struct Row {
+            /// The row as last drawn, placed at its frame, and its bubble's center in that snapshot.
+            let snapshot: UIView
+            let bubbleCenter: CGPoint
+            /// The mosaic's tiles by message, in the collection view; nil when the row showed no mosaic.
+            let tiles: [Int64: CGRect]?
+            /// The tiles of members that left, placed at their frames.
+            let removedTiles: [UIView]
+        }
+
         /// Every visible row's frame, in the collection view.
         let frames: [ChatTimelineItemID: CGRect]
-        /// Each regrouped row as last drawn, placed at its frame, and its bubble's center in that snapshot.
-        let outgoing: [ChatTimelineItemID: (snapshot: UIView, bubbleCenter: CGPoint)]
+        let rows: [ChatTimelineItemID: Row]
     }
 
     private struct PendingComposerSendTransition {
@@ -3974,31 +3983,44 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     ) -> AlbumRegroupTransition? {
         guard view.window != nil, !UIAccessibility.isReduceMotionEnabled, !userIsScrollingTimeline,
               !hasPendingMessageNavigation, !latestEdgeScrollInFlight else { return nil }
-        let regrouped = content.reconfigure.filter { item in
+        var regrouped = [ChatTimelineItemID: Set<Int64>]()
+        for item in content.reconfigure {
             guard case .message(.album) = item,
-                  let previous = timelineSnapshots.committed.rows[item]?.message?.value.sourceMessages.count,
-                  let current = content.rows[item]?.message?.value.sourceMessages.count
-            else { return false }
-            return previous != current
+                  let previous = timelineSnapshots.committed.rows[item]?.message?.value.sourceMessages.map(\.id),
+                  let current = content.rows[item]?.message?.value.sourceMessages.map(\.id),
+                  previous.count != current.count
+            else { continue }
+            regrouped[item] = Set(previous).subtracting(current)
         }
         guard !regrouped.isEmpty else { return nil }
         var frames = [ChatTimelineItemID: CGRect]()
-        var outgoing = [ChatTimelineItemID: (snapshot: UIView, bubbleCenter: CGPoint)]()
+        var rows = [ChatTimelineItemID: AlbumRegroupTransition.Row]()
         for indexPath in collectionView.indexPathsForVisibleItems {
             guard let id = dataSource.itemIdentifier(for: indexPath),
                   let cell = collectionView.cellForItem(at: indexPath) else { continue }
             frames[id] = cell.frame
-            guard regrouped.contains(id), let cell = cell as? MessageCell,
+            guard let removed = regrouped[id], let cell = cell as? MessageCell,
                   let snapshot = cell.snapshotView(afterScreenUpdates: false) else { continue }
             snapshot.frame = cell.frame
-            outgoing[id] = (snapshot, cell.bubbleCenter)
+            let tiles = cell.albumTileFrames(in: collectionView)
+            let removedTiles = removed.compactMap { messageID -> UIView? in
+                guard let frame = tiles?[messageID], let tile = cell.albumTileSnapshot(for: messageID) else {
+                    return nil
+                }
+                tile.frame = frame
+                return tile
+            }
+            rows[id] = .init(
+                snapshot: snapshot, bubbleCenter: cell.bubbleCenter, tiles: tiles, removedTiles: removedTiles,
+            )
         }
-        return outgoing.isEmpty ? nil : .init(frames: frames, outgoing: outgoing)
+        return rows.isEmpty ? nil : .init(frames: frames, rows: rows)
     }
 
-    /// ListView's insertion and removal transitions: every row moves from where it was over 0.4 s on Telegram's
-    /// `.spring` curve, the old item shrinks into its bubble's center and fades out in 0.15 s
-    /// (ChatMessageBubbleItemNode.animateRemoved), and the new one fades in over 0.2 s (animateInsertion) inside an
+    /// Every row moves from where it was over ListView's 0.4 s on Telegram's `.spring` curve. An album that stays
+    /// one moves its tiles to their new frames as ChatMessageBubbleItemNode does, and a member that left fades out in
+    /// 0.25 s (animateRemovalFromBubble). Otherwise the item is replaced: the old one shrinks into its bubble's center
+    /// and fades out in 0.15 s (animateRemoved), and the new one fades in over 0.2 s (animateInsertion) inside an
     /// apparent height that grows from the old one, so the rows above never cover it.
     private func performAlbumRegroupTransition(_ transition: AlbumRegroupTransition) {
         var moves = [(UICollectionViewCell, ChatTimelineItemID, CGFloat)]()
@@ -4016,15 +4038,32 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         guard moves.allSatisfy({ abs($0.2) < collectionView.bounds.height }) else { return }
         for (cell, id, shift) in moves {
-            if abs(shift) > 0.5 {
-                cell.layer.add(Self.listTransitionAnimation(
-                    "position",
-                    from: CGPoint(x: 0, y: shift),
-                    to: CGPoint.zero,
-                    additive: true,
-                ), forKey: "chat.albumRegroupGlide")
+            let glide = Self.listTransitionAnimation(
+                "position",
+                from: CGPoint(x: 0, y: shift),
+                to: CGPoint.zero,
+                additive: true,
+            )
+            if abs(shift) > 0.5 { cell.layer.add(glide, forKey: "chat.albumRegroupGlide") }
+            guard let row = transition.rows[id], let previous = transition.frames[id] else { continue }
+            // The tiles start where they were drawn, against the row's own move.
+            if let tiles = row.tiles, let cell = cell as? MessageCell,
+               cell.animateAlbumTiles(from: tiles.mapValues { $0.offsetBy(dx: 0, dy: -shift) }, in: collectionView)
+            {
+                for tile in row.removedTiles {
+                    tile.isUserInteractionEnabled = false
+                    tile.layer.zPosition = 1
+                    tile.frame = tile.frame.offsetBy(dx: 0, dy: -shift)
+                    collectionView.addSubview(tile)
+                    if abs(shift) > 0.5 { tile.layer.add(glide, forKey: "chat.albumRegroupGlide") }
+                    UIView.animate(withDuration: 0.25) {
+                        tile.alpha = 0
+                    } completion: { _ in
+                        tile.removeFromSuperview()
+                    }
+                }
+                continue
             }
-            guard let outgoing = transition.outgoing[id], let previous = transition.frames[id] else { continue }
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
             fade.toValue = 1
@@ -4046,8 +4085,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 guard let cell, let mask, cell.layer.mask === mask else { return }
                 cell.layer.mask = nil
             }
-            let snapshot = outgoing.snapshot
-            let center = outgoing.bubbleCenter
+            let snapshot = row.snapshot
+            let center = row.bubbleCenter
             snapshot.isUserInteractionEnabled = false
             snapshot.layer.anchorPoint = CGPoint(
                 x: center.x / max(1, previous.width),

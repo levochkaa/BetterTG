@@ -309,6 +309,28 @@ final class MessageMediaView: UIView {
         (contentView as? AlbumMediaView)?.messageID(at: point, in: coordinateSpace)
     }
 
+    /// The album's tiles by message, in `coordinateSpace`; nil when the media isn't a mosaic.
+    func albumTileFrames(in coordinateSpace: UIView) -> [Int64: CGRect]? {
+        (contentView as? AlbumMediaView)?.tileFrames(in: coordinateSpace)
+    }
+
+    func albumTileSnapshot(for messageID: Int64) -> UIView? {
+        (contentView as? AlbumMediaView)?.tileSnapshot(for: messageID)
+    }
+
+    /// Moves the mosaic's tiles from `frames` (in `coordinateSpace`) to their places; false when the media
+    /// isn't a mosaic now.
+    func animateAlbumTiles(from frames: [Int64: CGRect], in coordinateSpace: UIView) -> Bool {
+        guard let albumView = contentView as? AlbumMediaView else { return false }
+        // Tiles travel outside the new bounds; each keeps its own corners.
+        clipsToBounds = false
+        albumView.animateTiles(from: frames, in: coordinateSpace) { [weak self, weak albumView] in
+            guard let self, let albumView, contentView === albumView else { return }
+            clipsToBounds = true
+        }
+        return true
+    }
+
     func makeGalleryTransitionSnapshot(for messageID: Int64) -> UIView? {
         guard transitionIsCurrent(for: messageID) else { return nil }
         return switch contentView {
@@ -581,6 +603,62 @@ final class AlbumMediaView: UIView, ReusableMediaView {
 
     func transitionSourceView(for messageID: Int64) -> UIView? {
         tiles.first(where: { $0.messageID == messageID })
+    }
+
+    func tileFrames(in coordinateSpace: UIView) -> [Int64: CGRect] {
+        var frames = [Int64: CGRect]()
+        for tile in tiles {
+            guard let messageID = tile.messageID else { continue }
+            frames[messageID] = tile.convert(tile.bounds, to: coordinateSpace)
+        }
+        return frames
+    }
+
+    func tileSnapshot(for messageID: Int64) -> UIView? {
+        tiles.first(where: { $0.messageID == messageID })?.snapshotView(afterScreenUpdates: false)
+    }
+
+    /// ChatMessageBubbleItemNode lays a group out again in its bubble: every remaining media node moves from its
+    /// frame to the new one on the list's 0.4 s transition, and a new one fades in over 0.25 s
+    /// (ChatMessageMediaBubbleContentNode.animateInsertionIntoBubble).
+    func animateTiles(
+        from frames: [Int64: CGRect],
+        in coordinateSpace: UIView,
+        completion: @escaping () -> Void,
+    ) {
+        layoutIfNeeded()
+        var moving = [(AlbumMediaTileView, CGRect)]()
+        for (index, tile) in tiles.enumerated() where itemFrames.indices.contains(index) {
+            guard let messageID = tile.messageID, let frame = frames[messageID] else {
+                let fade = CABasicAnimation(keyPath: "opacity")
+                fade.fromValue = 0
+                fade.toValue = 1
+                fade.duration = 0.25
+                tile.layer.add(fade, forKey: "album.tileInsertion")
+                continue
+            }
+            moving.append((tile, itemFrames[index]))
+            UIView.performWithoutAnimation {
+                tile.frame = coordinateSpace.convert(frame, to: self)
+                tile.layoutIfNeeded()
+            }
+        }
+        clipsToBounds = false
+        UIView.animate(
+            withDuration: 0.4,
+            delay: 0,
+            usingSpringWithDamping: 1,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction],
+        ) {
+            for (tile, frame) in moving {
+                tile.frame = frame
+                tile.layoutIfNeeded()
+            }
+        } completion: { [weak self] _ in
+            self?.clipsToBounds = true
+            completion()
+        }
     }
 
     func messageID(at point: CGPoint, in coordinateSpace: UIView) -> Int64? {

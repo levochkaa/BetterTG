@@ -351,6 +351,21 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
     }
 
+    /// The album's tiles by message, in `coordinateSpace`; nil when the cell shows no media mosaic.
+    func albumTileFrames(in coordinateSpace: UIView) -> [Int64: CGRect]? {
+        mediaView.isHidden ? nil : mediaView.albumTileFrames(in: coordinateSpace)
+    }
+
+    func albumTileSnapshot(for messageID: Int64) -> UIView? {
+        mediaView.isHidden ? nil : mediaView.albumTileSnapshot(for: messageID)
+    }
+
+    /// Moves the mosaic's tiles from `frames` (in `coordinateSpace`) to their new places; false when the cell
+    /// shows no mosaic now.
+    func animateAlbumTiles(from frames: [Int64: CGRect], in coordinateSpace: UIView) -> Bool {
+        !mediaView.isHidden && mediaView.animateAlbumTiles(from: frames, in: coordinateSpace)
+    }
+
     /// The text a quote selection works on: the message text, or in a file or music album the caption of the item
     /// at `point` (in the cell's coordinates), else the album's only caption, with that item's message ID.
     func contextQuoteTarget(at point: CGPoint) -> (textView: MessageTextContentView, sourceMessageID: Int64?)? {
