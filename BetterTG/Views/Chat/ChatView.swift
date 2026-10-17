@@ -271,6 +271,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var messageDateJumpTask: Task<Void, Never>?
     /// The account's favorite stickers by file ID, for the sticker message menu's Add/Remove from Favorites.
     private var favoriteStickerFileIDs = Set<Int>()
+    /// The account's saved notification sounds by file unique ID, for the message menu's Save for Notifications.
+    private var savedNotificationSoundIDs = Set<String>()
     private var stickerActionTask: Task<Void, Never>?
     /// A poll's file being downloaded to open or play (openPollMedia).
     private var pollMediaTask: Task<Void, Never>?
@@ -3413,6 +3415,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func observeState() {
         observeFavoriteStickers()
+        observeSavedNotificationSounds()
         NotificationCenter.default
             .publisher(for: UIScene.didActivateNotification)
             .receive(on: DispatchQueue.main)
@@ -5988,11 +5991,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// A short notice above the composer, as Telegram's bot callback toast and copied-text overlay.
-    private func showChatToast(_ text: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
+    private func showChatToast(
+        _ text: String,
+        title: String? = nil,
+        actionTitle: String? = nil,
+        action: (() -> Void)? = nil,
+    ) {
         let bottomInset = showsComposer && composerView.frame.minY > 0
             ? max(0, view.bounds.maxY - view.safeAreaInsets.bottom - composerView.frame.minY) + 8
             : 8
-        TelegramUndoToast.show(text: text, in: view, bottomInset: bottomInset, actionTitle: actionTitle, undo: action)
+        TelegramUndoToast.show(
+            title: title,
+            text: text,
+            in: view,
+            bottomInset: bottomInset,
+            actionTitle: actionTitle,
+            undo: action,
+        )
     }
 
     /// ChatController's requestSelectMessagePollOptions result: a poll vote and a right quiz answer get the success
@@ -6795,6 +6810,86 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ) { [weak self] in self?.saveMessageMediaToFiles(messageID: messageID) }]
         default:
             return []
+        }
+    }
+
+    /// Telegram's Save for Notifications: an mp3 or voice note under 1 MB and a minute that is not a saved tone yet
+    /// and won't disappear. The account's size and duration limits are checked when it is picked.
+    private func saveForNotificationsAction(for message: CustomMessage) -> TelegramContextMenuAction? {
+        let source = message.message
+        guard source.selfDestructType == nil, source.selfDestructIn == 0, source.autoDeleteIn == 0 else { return nil }
+        let file: File
+        let duration: Int
+        let mimeType: String
+        var name = "Tone"
+        switch source.content {
+        case .messageAudio(let content):
+            file = content.audio.audio
+            duration = content.audio.duration
+            mimeType = content.audio.mimeType
+            if !content.audio.fileName.isEmpty { name = content.audio.fileName }
+        case .messageVoiceNote(let content):
+            file = content.voiceNote.voice
+            duration = content.voiceNote.duration
+            mimeType = content.voiceNote.mimeType
+        default:
+            return nil
+        }
+        let size = Int64(file.size > 0 ? file.size : file.expectedSize)
+        guard size < 1024 * 1024, duration < 60,
+              ["audio/mpeg", "audio/mp3", "audio/mpeg3", "audio/ogg"].contains(mimeType.lowercased()),
+              !savedNotificationSoundIDs.contains(file.remote.uniqueId)
+        else { return nil }
+        let fileID = file.id
+        return TelegramContextMenuAction(
+            title: L10n.telegram("Chat.SaveForNotifications"),
+            image: UIImage(systemName: "bell.badge"),
+        ) { [weak self] in
+            self?.saveForNotifications(fileID: fileID, size: size, duration: duration, name: name)
+        }
+    }
+
+    private func saveForNotifications(fileID: Int, size: Int64, duration: Int, name: String) {
+        guard !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+        let client = chatVM.client
+        Task { [weak self] in
+            let limits = await NotificationSoundLimits.load(client: client)
+            if let failure = limits.failure(size: size, duration: Double(duration), name: name) {
+                guard let self, chatVM.locationContextIsCurrent else { return }
+                showChatToast(failure.text, title: failure.title)
+                return
+            }
+            do {
+                let sound = try await client.send(TDNativeRequests.addSavedNotificationSound(
+                    sound: .inputFileId(InputFileId(id: fileID)),
+                ))
+                guard let self, chatVM.locationContextIsCurrent else { return }
+                savedNotificationSoundIDs.insert(sound.sound.remote.uniqueId)
+                let text = L10n.telegram("Notifications.SaveSuccess.Text")
+                    .replacingOccurrences(of: #"\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+                showChatToast(text, title: L10n.telegram("Notifications.UploadSuccess.Title"))
+            } catch {
+                guard let self, chatVM.locationContextIsCurrent else { return }
+                presentChatListActionFailure()
+            }
+        }
+    }
+
+    private func observeSavedNotificationSounds() {
+        guard presentationMode == .full else { return }
+        nc.scopedPublisher(&cancellables, for: .updateSavedNotificationSounds) { [weak self] update in
+            guard let self, update.source.matches(chatVM.location) else { return }
+            loadSavedNotificationSounds()
+        }
+        loadSavedNotificationSounds()
+    }
+
+    private func loadSavedNotificationSounds() {
+        let client = chatVM.client
+        Task { [weak self] in
+            guard let sounds = try? await client.send(TDNativeRequests.getSavedNotificationSounds()) else { return }
+            guard let self, chatVM.locationContextIsCurrent else { return }
+            savedNotificationSoundIDs = Set(sounds.notificationSounds.map(\.sound.remote.uniqueId))
         }
     }
 
@@ -8101,6 +8196,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 })
             }
         }
+        // Telegram lists Save for Notifications first, in its own section.
+        var saveSoundIndex: Int?
+        if let saveSoundAction = saveForNotificationsAction(for: message) {
+            elements.append(saveSoundAction)
+            saveSoundIndex = elements.count - 1
+        }
         if message.properties.canBeReplied {
             elements
                 .append(TelegramContextMenuAction(
@@ -8263,6 +8364,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ))
         }
         elements.append(contentsOf: interactionActions(for: message))
+        if let saveSoundIndex, elements.indices.contains(saveSoundIndex + 1) {
+            elements[saveSoundIndex + 1].startsNewSection = true
+        }
         if let readDateAction = readDateAction(for: message) {
             if !elements.isEmpty { elements[0].startsNewSection = true }
             elements.insert(readDateAction, at: 0)
