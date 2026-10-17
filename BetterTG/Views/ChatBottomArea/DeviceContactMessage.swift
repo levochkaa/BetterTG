@@ -13,6 +13,9 @@ struct DeviceContactEntry {
     let lastName: String
     let organization: String
     let phoneNumbers: [String]
+    /// DeviceContactDataManager's telegramReferences: the Telegram user the card's "Telegram" URL names, which Telegram
+    /// writes when it saves a user to the phonebook. The contact list treats such a card as that user.
+    let telegramUserID: Int64?
 
     /// The names, else the organization, else the first number.
     var title: String {
@@ -29,6 +32,9 @@ struct DeviceContactEntry {
 /// without vCards, as Telegram sends them.
 enum DeviceContactMessage {
     // MARK: Internal
+
+    /// DeviceContactData's phonebookUsernamePrefix: "https://t.me/" and phonebookUsernamePathPrefix.
+    private static let telegramReferencePrefix = "https://t.me/@id"
 
     /// TDLib's contact: a Telegram user goes with its user ID. TDLib refuses a contact without a first name, so a
     /// company
@@ -68,10 +74,11 @@ enum DeviceContactMessage {
     }
 
     /// DeviceContactDataManager's basic data: the phonebook's people with a phone number, by name. Blocks while the
-    /// store reads, so it runs off the main thread.
+    /// store reads, so it runs off the main thread. The URLs come along for the cards' Telegram references.
     static func phonebookContacts() -> [DeviceContactEntry] {
         let keys = [
             CNContactGivenNameKey, CNContactFamilyNameKey, CNContactOrganizationNameKey, CNContactPhoneNumbersKey,
+            CNContactUrlAddressesKey,
         ] as [CNKeyDescriptor]
         let request = CNContactFetchRequest(keysToFetch: keys)
         request.unifyResults = true
@@ -79,17 +86,29 @@ enum DeviceContactMessage {
         try? CNContactStore().enumerateContacts(with: request) { contact, _ in
             let phoneNumbers = contact.phoneNumbers.map(\.value.stringValue).filter { !$0.isEmpty }
             guard !phoneNumbers.isEmpty else { return }
+            let referencedUserID = contact.urlAddresses
+                .lazy
+                .filter { $0.label == "Telegram" }
+                .compactMap { Self.telegramUserID(reference: $0.value as String) }
+                .first
             entries.append(DeviceContactEntry(
                 identifier: contact.identifier,
                 firstName: contact.givenName,
                 lastName: contact.familyName,
                 organization: contact.organizationName,
                 phoneNumbers: phoneNumbers,
+                telegramUserID: referencedUserID,
             ))
         }
         return entries.sorted { lhs, rhs in
             lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
         }
+    }
+
+    /// DeviceContactData's parseAppSpecificContactReference: the user ID in a "https://t.me/@id<ID>" URL.
+    static func telegramUserID(reference value: String) -> Int64? {
+        guard value.hasPrefix(telegramReferencePrefix) else { return nil }
+        return Int64(value.dropFirst(telegramReferencePrefix.count))
     }
 
     /// DeviceContactDataManager's extended data for one contact, as a contact Telegram can share.

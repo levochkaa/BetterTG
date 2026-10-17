@@ -95,8 +95,8 @@ final class DeviceContactFieldsViewController: SettingsListViewController {
         return cell
     }
 
-    /// deviceContactInfoEntries with `selecting`: the info row, then the fields in Telegram's order. The note stays
-    /// out, as BetterTG doesn't read it.
+    /// deviceContactInfoEntries with `selecting`: the info row, then the fields in Telegram's order. Telegram's note
+    /// row never shows, since DeviceContactExtendedData(contact:) always leaves the note empty.
     override func makeSections() -> [SettingsSection] {
         var fields = [SettingsRow]()
         for (index, number) in contact.phoneNumbers.enumerated() {

@@ -182,6 +182,20 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
         }
     }
 
+    /// ContactsSearchContainerNode's existingNormalizedPhoneNumbers and existingPeerIds: the phonebook people that
+    /// none of the shown contacts already is, by number or by the card's Telegram reference.
+    private static func phonebookEntries(
+        _ entries: [DeviceContactEntry],
+        notShownBy shown: [ComposeContact],
+    ) -> [DeviceContactEntry] {
+        let numbers = Set(shown.map { DeviceContactMessage.normalizedPhoneNumber($0.phoneNumber) })
+        let userIDs = Set(shown.map(\.userID))
+        return entries.filter { entry in
+            if let userID = entry.telegramUserID, userIDs.contains(userID) { return false }
+            return !entry.phoneNumbers.contains { numbers.contains(DeviceContactMessage.normalizedPhoneNumber($0)) }
+        }
+    }
+
     // MARK: Table
 
     func numberOfSections(in _: UITableView) -> Int {
@@ -315,15 +329,16 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
 
     /// ContactsSearchContainerNode with `.cloudContacts` and `.deviceContacts`: the matching contacts with a number,
     /// then the phonebook people whose first or last name starts with the query (DeviceContactDataManager.search),
-    /// leaving out the numbers a found contact has.
+    /// leaving out the numbers a found contact has and the cards that refer to a found contact.
     private func showSearchResults(_ found: [ComposeContact], for query: String) {
         foundContacts = found.filter { !$0.phoneNumber.isEmpty }
-        let numbers = Set(foundContacts.map { DeviceContactMessage.normalizedPhoneNumber($0.phoneNumber) })
         let prefix = query.lowercased()
-        foundDeviceContacts = phonebook.filter { entry in
-            (entry.firstName.lowercased().hasPrefix(prefix) || entry.lastName.lowercased().hasPrefix(prefix))
-                && !entry.phoneNumbers.contains { numbers.contains(DeviceContactMessage.normalizedPhoneNumber($0)) }
-        }
+        foundDeviceContacts = Self.phonebookEntries(
+            phonebook.filter { entry in
+                entry.firstName.lowercased().hasPrefix(prefix) || entry.lastName.lowercased().hasPrefix(prefix)
+            },
+            notShownBy: foundContacts,
+        )
         isSearching = false
         reload()
     }
@@ -435,12 +450,10 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
         }
     }
 
-    /// ContactListNode's rule for phonebook people: one whose number a Telegram contact has is that contact.
+    /// ContactListNode's rule for phonebook people: one whose number a Telegram contact has, or whose card refers to
+    /// that contact, is that contact.
     private func updateDeviceContacts() {
-        let numbers = Set(contacts.map { DeviceContactMessage.normalizedPhoneNumber($0.phoneNumber) })
-        deviceContacts = phonebook.filter { entry in
-            !entry.phoneNumbers.contains { numbers.contains(DeviceContactMessage.normalizedPhoneNumber($0)) }
-        }
+        deviceContacts = Self.phonebookEntries(phonebook, notShownBy: contacts)
         let shown = Set(deviceContacts.map(\.identifier))
         let previousCount = selected.count
         selected.removeAll { pick in
