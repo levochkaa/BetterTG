@@ -4486,6 +4486,7 @@ private final class MediaGalleryDismissalInteraction: NSObject, UIViewController
     private var dragSourceView: UIView?
     private var dragSourceAlpha = CGFloat(1)
     private var isEnding = false
+    private var playbackHold: TGSPlaybackHold?
     private let completion: (Bool) -> Void
 
     init(completion: @escaping (Bool) -> Void) {
@@ -4507,6 +4508,8 @@ private final class MediaGalleryDismissalInteraction: NSObject, UIViewController
         }
         let container = transitionContext.containerView
         toView.frame = transitionContext.finalFrame(for: toController)
+        // The chat's animated stickers stay on their frames until the gallery has landed.
+        playbackHold = TGSPlaybackHold()
         container.insertSubview(toView, belowSubview: fromView)
         toView.layoutIfNeeded()
         if let frame = gallery.transitionContentFrame(in: container),
@@ -4614,6 +4617,8 @@ private final class MediaGalleryDismissalInteraction: NSObject, UIViewController
             gallery.setTransitionContentHidden(false)
             self.snapshot = nil
             self.context = nil
+            self.playbackHold?.release()
+            self.playbackHold = nil
             self.completion(completed)
         }
     }
@@ -4743,6 +4748,8 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
         let container = transitionContext.containerView
         let completionGate = MediaGalleryTransitionCompletionGate()
         toView.frame = transitionContext.finalFrame(for: toController)
+        // The chat's animated stickers stay on their frames until the gallery has landed.
+        let playbackHold = TGSPlaybackHold()
         container.insertSubview(toView, belowSubview: fromView)
         toView.layoutIfNeeded()
         let sourceTarget = gallery.isSelectedPictureInPictureRetained
@@ -4775,6 +4782,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                             sourceView?.alpha = sourceAlpha
                         }
                         snapshot?.removeFromSuperview()
+                        playbackHold.release()
                     },
                 )
             }
@@ -4812,6 +4820,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
                     }
                     snapshot.removeFromSuperview()
                     gallery.setTransitionContentHidden(false)
+                    playbackHold.release()
                 },
             )
         }

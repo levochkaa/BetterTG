@@ -123,6 +123,12 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         isAccessibilityElement = true
         accessibilityLabel = L10n.telegram("VoiceOver.Chat.AnimatedSticker")
         accessibilityTraits = .image
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playbackHoldChanged),
+            name: TGSPlaybackHold.didChange,
+            object: nil,
+        )
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -259,7 +265,7 @@ final class TGSStickerView: UIControl, AnimatedFileView {
             return
         }
         let shouldPlay = fileRequest?.isCurrent == true && playbackVisible && window != nil
-            && playbackEnabled && animationView.animation != nil
+            && playbackEnabled && animationView.animation != nil && !TGSPlaybackHold.isActive
         if shouldPlay {
             guard !animationView.isAnimationPlaying else { return }
             if case .once = playbackMode {
@@ -317,5 +323,58 @@ final class TGSStickerView: UIControl, AnimatedFileView {
 
     @objc private func tapped() {
         onTap?()
+    }
+
+    /// Resumes after a hold, one sticker per frame, so the chat doesn't rebuild every animation in one frame.
+    @objc private func playbackHoldChanged() {
+        guard !TGSPlaybackHold.isActive, window != nil, playbackVisible, animationView.animation != nil,
+              !animationView.isAnimationPlaying
+        else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + TGSPlaybackHold.nextResumeDelay()) { [weak self] in
+            self?.updatePlayback()
+        }
+    }
+}
+
+// MARK: - TGSPlaybackHold
+
+/// Keeps animated stickers and emoji that start playing on their current frame while a hold is active. Lottie's Core
+/// Animation engine builds each animation on the main thread when it starts, and a chat coming back under a closing
+/// gallery restarted all of them at once, which delayed the drag and slowed it to about 30 Hz. Telegram renders them
+/// off the main thread; here the chat stays on its frames until the gallery has landed.
+@MainActor final class TGSPlaybackHold {
+    // MARK: Internal
+
+    static let didChange = Notification.Name("TGSPlaybackHoldDidChange")
+
+    // MARK: Private
+
+    private static var activeCount = 0
+    private static var resumeOrder = 0
+
+    static var isActive: Bool { activeCount > 0 }
+
+    private var isReleased = false
+
+    init() {
+        if Self.activeCount == 0 { Self.resumeOrder = 0 }
+        Self.activeCount += 1
+    }
+
+    /// A transition that ends without releasing (for example, a torn-down context) must not freeze stickers.
+    isolated deinit { release() }
+
+    /// Spreads resumptions over frames, one per 1/60 s.
+    static func nextResumeDelay() -> TimeInterval {
+        defer { resumeOrder += 1 }
+        return TimeInterval(resumeOrder) / 60
+    }
+
+    func release() {
+        guard !isReleased else { return }
+        isReleased = true
+        Self.activeCount -= 1
+        guard Self.activeCount == 0 else { return }
+        NotificationCenter.default.post(name: Self.didChange, object: nil)
     }
 }
