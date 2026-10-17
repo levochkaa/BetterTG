@@ -285,6 +285,7 @@ final class ChatListCell: UITableViewCell {
         if let message = lastMessage, let service = ChatPreviewText.serviceText(
             for: message, chatTitle: chat.chat.title, isChannel: chat.supergroup?.isChannel == true,
             client: client, missing: &missing,
+            onResolved: { [weak self] in self?.reconfigure(chatID: chat.id) },
         ) {
             return NSAttributedString(string: service, attributes: [.foregroundColor: UIColor.secondaryLabel])
         }
@@ -306,12 +307,15 @@ final class ChatListCell: UITableViewCell {
         let chatID = chat.id
         for id in Set(ids) {
             ChatListSenderNames.shared.resolve(userID: id, client: client) { [weak self] in
-                guard let self, let chat = configuredChat, chat.id == chatID,
-                      let client = configuredClient
-                else { return }
-                configure(chat: chat, isMuted: configuredMuted, isArchived: configuredArchived, client: client)
+                self?.reconfigure(chatID: chatID)
             }
         }
+    }
+
+    /// Configures the row again once a name or a service message's wording lands, while it still shows that chat.
+    private func reconfigure(chatID: Int64) {
+        guard let chat = configuredChat, chat.id == chatID, let client = configuredClient else { return }
+        configure(chat: chat, isMuted: configuredMuted, isArchived: configuredArchived, client: client)
     }
 
     private func updateBackground(highlighted: Bool, animated: Bool) {
@@ -477,8 +481,17 @@ final class ChatListCell: UITableViewCell {
         isChannel: Bool,
         client: TDLibClient,
         missing: inout [Int64],
+        onResolved: @escaping () -> Void,
     ) -> String? {
         guard MessageContentPresentation.make(message.content).isService else { return nil }
+        if ServiceMessageText.needsResolvedContext(message.content) {
+            return ChatListSenderNames.shared.resolvedServiceText(
+                for: message,
+                isChannel: isChannel,
+                client: client,
+                completion: onResolved,
+            )
+        }
         let cache = ChatListSenderNames.shared
         var author: String?
         var senderUserID: Int64?
@@ -527,11 +540,19 @@ final class ChatListCell: UITableViewCell {
 /// only. TDLib answers getUser from its local store, so a miss costs one hop and the visible row updates when it
 /// lands.
 @MainActor final class ChatListSenderNames {
+    private struct ServiceKey: Hashable {
+        let chatID: Int64
+        let messageID: Int64
+    }
+
     static let shared = ChatListSenderNames()
 
     private var clientID: Int32?
     private var users = [Int64: User]()
     private var waiters = [Int64: [() -> Void]]()
+    /// Service wording that needs more than names, by chat and message.
+    private var serviceTexts = [ServiceKey: String]()
+    private var serviceWaiters = [ServiceKey: [() -> Void]]()
 
     /// Telegram's compactDisplayTitle for users: the first name, else the last name.
     static func compactName(_ user: User) -> String {
@@ -569,10 +590,38 @@ final class ChatListCell: UITableViewCell {
         }
     }
 
+    /// ServiceMessageText.resolve's wording for a service message that needs its checklist, game, chat or the
+    /// account; nil until it lands, when `completion` runs.
+    func resolvedServiceText(
+        for message: Message,
+        isChannel: Bool,
+        client: TDLibClient,
+        completion: @escaping () -> Void,
+    ) -> String? {
+        retain(client)
+        let key = ServiceKey(chatID: message.chatId, messageID: message.id)
+        if let text = serviceTexts[key] { return text }
+        let isFirstWaiter = serviceWaiters[key] == nil
+        serviceWaiters[key, default: []].append(completion)
+        guard isFirstWaiter else { return nil }
+        let requestClientID = client.id
+        Task { [weak self] in
+            let text = await ServiceMessageText.resolve(message, senderUser: nil, isChannel: isChannel, client: client)
+            guard let self, clientID == requestClientID else { return }
+            let completions = serviceWaiters.removeValue(forKey: key) ?? []
+            guard let text else { return }
+            serviceTexts[key] = text
+            completions.forEach { $0() }
+        }
+        return nil
+    }
+
     private func retain(_ client: TDLibClient) {
         guard clientID != client.id else { return }
         clientID = client.id
         users.removeAll()
         waiters.removeAll()
+        serviceTexts.removeAll()
+        serviceWaiters.removeAll()
     }
 }

@@ -307,6 +307,19 @@ enum ServiceMessageText {
         }
     }
 
+    /// Service messages whose wording needs more than their author's and members' names: their checklist or game,
+    /// the chat, its community or the account. Chat and topic lists resolve them in the background, as Telegram's
+    /// lists read them with the message's associated messages and peers.
+    static func needsResolvedContext(_ content: MessageContent) -> Bool {
+        if needsAccount(content) || needsChat(content) { return true }
+        switch content {
+        case .messageChecklistTasksAdded, .messageChecklistTasksDone, .messageGameScore:
+            return true
+        default:
+            return false
+        }
+    }
+
     private static func handles(_ content: MessageContent) -> Bool {
         switch content {
         case .messageBasicGroupChatCreate, .messageBotWriteAccessAllowed, .messageCall,

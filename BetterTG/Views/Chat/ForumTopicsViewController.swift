@@ -1959,6 +1959,7 @@ final class ForumTopicCell: UITableViewCell {
         let secondary: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.secondaryLabel]
         if let service = ChatPreviewText.serviceText(
             for: message, chatTitle: nil, isChannel: false, client: client, missing: &missing,
+            onResolved: { [weak self] in self?.reconfigure(topicID: topicID) },
         ) {
             return NSAttributedString(string: service, attributes: secondary)
         }
@@ -1972,12 +1973,16 @@ final class ForumTopicCell: UITableViewCell {
     private func requestUsers(_ ids: [Int64], topicID: Int, client: TDLibClient) {
         for id in Set(ids) {
             ChatListSenderNames.shared.resolve(userID: id, client: client) { [weak self] in
-                guard let self, let topic = configuredTopic, topic.info.forumTopicId == topicID,
-                      let client = configuredClient
-                else { return }
-                configure(topic: topic, client: client, muted: configuredMuted)
+                self?.reconfigure(topicID: topicID)
             }
         }
+    }
+
+    /// Configures the row again once a name or a service message's wording lands, while it still shows that topic.
+    private func reconfigure(topicID: Int) {
+        guard let topic = configuredTopic, topic.info.forumTopicId == topicID, let client = configuredClient
+        else { return }
+        configure(topic: topic, client: client, muted: configuredMuted)
     }
 
     private func configureUnavailable() {
