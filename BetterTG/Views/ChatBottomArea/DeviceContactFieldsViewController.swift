@@ -36,6 +36,8 @@ final class DeviceContactFieldsViewController: SettingsListViewController {
     private let send: (InputMessageContent) -> Void
     /// DeviceContactInfoState's excludedComponents: the fields the user has unchecked.
     private var excluded = Set<Field>()
+    /// The phones by their place on the card, once TDLib has put them in their country's mask.
+    private var formattedNumbers = [Int: String]()
     private var didFinish = false
 
     private lazy var sendItem = UIBarButtonItem(
@@ -79,6 +81,7 @@ final class DeviceContactFieldsViewController: SettingsListViewController {
         navigationItem.leftBarButtonItem = closeItem
         navigationItem.rightBarButtonItem = sendItem
         updateSendItem()
+        formatPhoneNumbers()
     }
 
     /// ItemListTextWithLabelItem: the field's label above in the primary colour, its value below in the accent colour.
@@ -103,7 +106,7 @@ final class DeviceContactFieldsViewController: SettingsListViewController {
             fields.append(fieldRow(
                 .phone(index),
                 label: DeviceContactMessage.phoneLabel(number.label),
-                value: Self.displayedPhoneNumber(number.value.stringValue),
+                value: formattedNumbers[index] ?? Self.displayedPhoneNumber(number.value.stringValue),
             ))
         }
         for (index, email) in contact.emailAddresses.enumerated() {
@@ -161,7 +164,8 @@ final class DeviceContactFieldsViewController: SettingsListViewController {
         return result
     }
 
-    /// formatPhoneNumber for a Telegram user's number, which comes without the plus; a phonebook number stays as typed.
+    /// The phone until TDLib answers, or when it knows no country for it: a Telegram user's number, which comes
+    /// without the plus, gets one; a phonebook number stays as typed.
     private static func displayedPhoneNumber(_ value: String) -> String {
         guard !value.isEmpty, DeviceContactMessage.normalizedPhoneNumber(value) == value else { return value }
         return "+" + value
@@ -179,6 +183,24 @@ final class DeviceContactFieldsViewController: SettingsListViewController {
             formatter.setLocalizedDateFormatFromTemplate("MMMMd")
         }
         return formatter.string(from: date)
+    }
+
+    /// deviceContactInfoEntries shows every phone through formatPhoneNumber(number.value): read as international and
+    /// put in its country's mask.
+    private func formatPhoneNumbers() {
+        let client = client
+        let numbers = contact.phoneNumbers.map(\.value.stringValue)
+        Task { [weak self] in
+            var formatted = [Int: String]()
+            for (index, number) in numbers.enumerated() {
+                if let value = await PhoneNumberFormat.international(number, client: client) {
+                    formatted[index] = value
+                }
+            }
+            guard let self, !formatted.isEmpty else { return }
+            formattedNumbers = formatted
+            reload()
+        }
     }
 
     // MARK: Rows

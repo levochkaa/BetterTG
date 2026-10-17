@@ -542,6 +542,16 @@ extension TDClient {
         try await send(TDNativeRequests.getOption(name: name))
     }
 
+    func getPhoneNumberInfoSync(
+        languageCode: String,
+        phoneNumberPrefix: String,
+    ) async throws -> TDNativePhoneNumberInfo {
+        try await send(TDNativeRequests.getPhoneNumberInfoSync(
+            languageCode: languageCode,
+            phoneNumberPrefix: phoneNumberPrefix,
+        ))
+    }
+
     func getPollVoters(
         chatId: Int64,
         limit: Int,

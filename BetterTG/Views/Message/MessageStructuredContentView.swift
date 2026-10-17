@@ -2563,10 +2563,10 @@ final class TelegramContactDetailsViewController: UIViewController {
         return value.isEmpty ? "•" : value
     }
 
-    private var vCardRows: [(key: String, value: String)] {
+    private var vCardRows: [(key: String, value: String, isPhone: Bool)] {
         contact.vcard
             .split(whereSeparator: \.isNewline)
-            .compactMap { rawLine -> (String, String)? in
+            .compactMap { rawLine -> (String, String, Bool)? in
                 let components = rawLine.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
                 guard components.count == 2 else { return nil }
                 let rawKey = String(components[0]).uppercased()
@@ -2589,7 +2589,7 @@ final class TelegramContactDetailsViewController: UIViewController {
                 } else {
                     return nil
                 }
-                return (key, value.replacingOccurrences(of: ";", with: " "))
+                return (key, value.replacingOccurrences(of: ";", with: " "), rawKey.hasPrefix("TEL"))
             }
     }
 
@@ -2663,6 +2663,7 @@ final class TelegramContactDetailsViewController: UIViewController {
             phoneLabel.textAlignment = .center
             phoneLabel.adjustsFontForContentSizeCategory = true
             stack.addArrangedSubview(phoneLabel)
+            showFormattedPhoneNumber(contact.phoneNumber, in: phoneLabel)
         }
 
         let actions = UIStackView()
@@ -2725,6 +2726,7 @@ final class TelegramContactDetailsViewController: UIViewController {
             valueLabel.textColor = .label
             valueLabel.numberOfLines = 0
             rowView.addSubview(valueLabel)
+            if row.isPhone { showFormattedPhoneNumber(row.value, in: valueLabel) }
             NSLayoutConstraint.activate([
                 keyLabel.topAnchor.constraint(equalTo: rowView.topAnchor, constant: 8),
                 keyLabel.leadingAnchor.constraint(equalTo: rowView.leadingAnchor, constant: 12),
@@ -2767,6 +2769,18 @@ final class TelegramContactDetailsViewController: UIViewController {
         let digits = contact.phoneNumber.filter { $0.isNumber || $0 == "+" }
         guard !digits.isEmpty, let url = URL(string: "tel:\(digits)") else { return }
         UIApplication.shared.open(url)
+    }
+
+    /// DeviceContactInfoController shows each phone through formatPhoneNumber: the number stays as sent until TDLib
+    /// has put it in its country's mask.
+    private func showFormattedPhoneNumber(_ number: String, in label: UILabel) {
+        guard let client else { return }
+        Task { [weak label] in
+            guard let formatted = await PhoneNumberFormat.international(number, client: client), let label else {
+                return
+            }
+            label.text = formatted
+        }
     }
 
     /// Add Contact shows only for a user who isn't already in this account's contacts.
