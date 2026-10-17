@@ -374,7 +374,9 @@
             let location = TDNativeStoryAreaTypeLocation(location: bigBen, address: nil)
             let message = TDNativeStoryAreaTypeMessage(chatId: carol, messageId: 1 << 20)
             let link = TDNativeStoryAreaTypeLink(url: "telegram.org")
-            let weather = TDNativeStoryAreaTypeWeather(temperature: 21.4, emoji: "☀️", backgroundColor: 0xFFFF_FFFF)
+            // TDLib's ARGB is a signed int32: opaque white is -1.
+            let white = Int(Int32(bitPattern: 0xFFFF_FFFF))
+            let weather = TDNativeStoryAreaTypeWeather(temperature: 21.4, emoji: "☀️", backgroundColor: white)
             let heart = TDNativeReactionTypeEmoji(emoji: "❤")
             let reaction = TDNativeStoryAreaTypeSuggestedReaction(
                 reactionType: .reactionTypeEmoji(heart),
