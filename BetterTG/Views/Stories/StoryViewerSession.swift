@@ -25,6 +25,13 @@ import TDLibKit
     var onRetired: (() -> Void)?
 
     private(set) var isRetired = false
+    #if DEBUG
+        /// The UI probe's session: it answers from seeded stories, chats and story lists, and nothing reaches TDLib.
+        private(set) var isOffline = false
+        private var offlineActiveStories = [Int64: ChatActiveStories]()
+    #else
+        let isOffline = false
+    #endif
 
     private var stories = [StoryKey: Story]()
     private var storyRequests = [StoryKey: Task<Story?, Never>]()
@@ -58,6 +65,7 @@ import TDLibKit
 
     func story(_ key: StoryKey) async -> Story? {
         if let story = stories[key] { return story }
+        guard !isOffline else { return nil }
         let task = storyRequests[key] ?? Task { [client] in
             try? await client.getStory(onlyLocal: false, storyId: key.storyID, storyPosterChatId: key.chatID)
         }
@@ -72,6 +80,9 @@ import TDLibKit
     }
 
     func activeStories(chatID: Int64) async -> ChatActiveStories? {
+        #if DEBUG
+            if isOffline { return offlineActiveStories[chatID] }
+        #endif
         let task = activeStoryRequests[chatID] ?? Task { [client] in
             try? await client.getChatActiveStories(chatId: chatID)
         }
@@ -83,6 +94,7 @@ import TDLibKit
 
     func chat(_ chatID: Int64) async -> Chat? {
         if let chat = chats[chatID] { return chat }
+        guard !isOffline else { return nil }
         let task = chatRequests[chatID] ?? Task { [client] in
             try? await client.getChat(chatId: chatID)
         }
@@ -97,7 +109,7 @@ import TDLibKit
     /// Telegram marks a story seen while it shows (StoryContentContext.markAsSeen); TDLib's openStory views and
     /// reads it, and closeStory ends the view.
     func open(_ key: StoryKey) {
-        guard isCurrent, openedStory != key else { return }
+        guard isCurrent, !isOffline, openedStory != key else { return }
         closeOpenedStory()
         openedStory = key
         enqueueVisibility { client in
@@ -117,7 +129,7 @@ import TDLibKit
     /// Starts the file a story shows first, so the next story opens without waiting: a photo whole, a video its
     /// preload prefix (StoryContentContextImpl preloads the following items).
     func preloadMedia(of story: Story) {
-        guard isCurrent else { return }
+        guard isCurrent, !isOffline else { return }
         let client = client
         switch story.content {
         case .storyContentPhoto(let content):
@@ -145,7 +157,7 @@ import TDLibKit
 
     /// The shown story's file goes before preloads.
     func prioritizeDownload(of file: File) {
-        guard isCurrent, !file.local.isDownloadingCompleted else { return }
+        guard isCurrent, !isOffline, !file.local.isDownloadingCompleted else { return }
         let client = client
         Task {
             _ = try? await client.downloadFile(fileId: file.id, limit: 0, offset: 0, priority: 32, synchronous: false)
@@ -163,6 +175,22 @@ import TDLibKit
         cancellables.removeAll()
         isRetired = true
     }
+
+    #if DEBUG
+        /// Turns the session into the UI probe's: the viewer shows only these, without TDLib requests.
+        func seedOffline(stories: [Story], chats: [Chat], activeStories: [ChatActiveStories]) {
+            isOffline = true
+            for story in stories {
+                self.stories[StoryKey(chatID: story.posterChatId, storyID: story.id)] = story
+            }
+            for chat in chats {
+                self.chats[chat.id] = chat
+            }
+            for list in activeStories {
+                offlineActiveStories[list.chatId] = list
+            }
+        }
+    #endif
 
     private func enqueueVisibility(_ request: @escaping (TDLibClient) async -> Void) {
         let previous = visibilityRequests

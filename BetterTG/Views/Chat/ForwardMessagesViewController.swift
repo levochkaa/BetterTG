@@ -18,10 +18,13 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
         /// An attachment menu bot link's chosen chat (OpenResolvedUrl's `.startAttach` peer selection, titled Select
         /// Chat): a chat of the kinds both the link and the bot allow, which the user can write to.
         case attachmentMenuBot(InlineTargetChatTypes)
+        /// A story's Share (StoryItemSetContainerViewSendMessage.performShareAction): a chat the user can write to
+        /// outside secret chats, which receives the story.
+        case shareStory
     }
 
     var onSelect: ((CustomChat, ForumTopic?, PendingMessageForward) -> Void)?
-    /// The chat chosen in the reply and switch inline purposes.
+    /// The chat chosen in the reply, switch inline and story share purposes.
     var onChosenChat: ((CustomChat, ForumTopic?) -> Void)?
 
     private let request: MessageForwardRequest
@@ -73,6 +76,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private var pickerTitle: String {
         if purpose == .replyInAnotherChat { return L10n.telegram("Conversation.MoveReplyToAnotherChatTitle") }
         if case .attachmentMenuBot = purpose { return L10n.telegram("WebApp.SelectChat") }
+        if purpose == .shareStory { return L10n.telegram("ShareMenu.ShareTo") }
         guard let types = allowedChatTypes else { return L10n.betterTG("Forward.Title") }
         let titles = [
             (types.users, "RequestPeer.ChooseUserTitle"),

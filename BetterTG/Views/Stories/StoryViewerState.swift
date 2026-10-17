@@ -41,6 +41,8 @@ struct StoryViewerState: Equatable {
         case buffering
         /// A story area's tooltip is open (activateMediaArea's menu controller).
         case menu
+        /// The More menu is open (performOtherMoreAction's context controller).
+        case moreMenu
         /// A screen is presented over the viewer, such as a story area's location.
         case presentation
     }

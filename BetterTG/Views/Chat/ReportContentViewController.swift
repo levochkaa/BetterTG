@@ -5,17 +5,31 @@ import UIKit
 
 // MARK: - ReportContentViewController
 
-/// Telegram's ContentReportScreen for messages. TDLib's `reportChat` leads through its reason pages: the first request
-/// only asks for the reasons, a reason may open more reasons or a comment page, and the report goes out when TDLib
-/// accepts a chosen reason or the comment's Send Report. Every request runs on the account that opened the sheet.
+/// Telegram's ContentReportScreen for messages and stories. TDLib's `reportChat` or `reportStory` leads through its
+/// reason pages: the first request only asks for the reasons, a reason may open more reasons or a comment page, and the
+/// report goes out when TDLib accepts a chosen reason or the comment's Send Report. Every request runs on the account
+/// that opened the sheet.
 final class ReportContentViewController: SettingsListViewController {
+    /// ContentReportScreen's subjects BetterTG reports.
+    enum Subject {
+        case messages(chatID: Int64, messageIDs: [Int64])
+        case story(chatID: Int64, storyID: Int)
+    }
+
     enum Page {
         case options(title: String, options: [TDNativeReportOption])
         case comment(optionID: Data, isOptional: Bool)
     }
 
-    private let chatID: Int64
-    private let messageIDs: [Int64]
+    /// What TDLib answers to a report request, for either subject.
+    private enum Outcome {
+        case reported
+        case page(Page)
+        /// TDLib asked for messages, which are already part of the report.
+        case unexpected
+    }
+
+    private let subject: Subject
     private let page: Page
     private let onReported: () -> Void
     private var comment = ""
@@ -30,9 +44,8 @@ final class ReportContentViewController: SettingsListViewController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private init(chatID: Int64, messageIDs: [Int64], page: Page, onReported: @escaping () -> Void) {
-        self.chatID = chatID
-        self.messageIDs = messageIDs
+    private init(subject: Subject, page: Page, onReported: @escaping () -> Void) {
+        self.subject = subject
         self.page = page
         self.onReported = onReported
         super.init()
@@ -40,7 +53,11 @@ final class ReportContentViewController: SettingsListViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = L10n.telegram("Report.Title.Message")
+        title =
+            switch subject {
+            case .messages: L10n.telegram("Report.Title.Message")
+            case .story: L10n.telegram("Report.Title.Story")
+            }
         if navigationController?.viewControllers.first === self {
             navigationItem.leftBarButtonItem = UIBarButtonItem(
                 title: L10n.telegram("Common.Cancel"),
@@ -100,27 +117,36 @@ final class ReportContentViewController: SettingsListViewController {
         from presenter: UIViewController,
         onReported: @escaping () -> Void,
     ) {
-        guard let accountID = TDLib.shared.activeAccountID, !messageIDs.isEmpty else { return }
+        guard !messageIDs.isEmpty else { return }
+        present(.messages(chatID: chatID, messageIDs: messageIDs), from: presenter, onReported: onReported)
+    }
+
+    /// makeContentReportScreen with the `.stories` subject, as the story viewer's Report opens it.
+    static func present(
+        storyChatID: Int64,
+        storyID: Int,
+        from presenter: UIViewController,
+        onReported: @escaping () -> Void,
+    ) {
+        present(.story(chatID: storyChatID, storyID: storyID), from: presenter, onReported: onReported)
+    }
+
+    private static func present(
+        _ subject: Subject,
+        from presenter: UIViewController,
+        onReported: @escaping () -> Void,
+    ) {
+        guard let accountID = TDLib.shared.activeAccountID else { return }
         let client = TDLib.shared.activeClient
         Task { @MainActor [weak presenter] in
-            let result = try? await client.send(TDNativeRequests.reportChat(
-                chatId: chatID,
-                optionId: Data(),
-                messageIds: messageIDs,
-                text: "",
-            ))
+            let outcome = try? await send(subject, optionID: Data(), text: "", client: client)
             guard let presenter, TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id else { return }
-            guard case .reportChatResultOptionRequired(let required) = result else {
+            guard case .page(let page) = outcome, case .options = page else {
                 presenter.presentChatListActionFailure()
                 return
             }
-            let controller = ReportContentViewController(
-                chatID: chatID,
-                messageIDs: messageIDs,
-                page: .options(title: required.title, options: required.options),
-                onReported: onReported,
-            )
+            let controller = ReportContentViewController(subject: subject, page: page, onReported: onReported)
             presenter.chatListTopPresenter.present(
                 TelegramNavigationController(rootViewController: controller),
                 animated: true,
@@ -128,30 +154,67 @@ final class ReportContentViewController: SettingsListViewController {
         }
     }
 
+    /// `reportChat` for messages and `reportStory` for a story, read as the same pages.
+    private static func send(
+        _ subject: Subject,
+        optionID: Data,
+        text: String,
+        client: TDLibClient,
+    ) async throws -> Outcome {
+        switch subject {
+        case .messages(let chatID, let messageIDs):
+            let result = try await client.send(TDNativeRequests.reportChat(
+                chatId: chatID,
+                optionId: optionID,
+                messageIds: messageIDs,
+                text: text,
+            ))
+            switch result {
+            case .reportChatResultOk:
+                return .reported
+            case .reportChatResultOptionRequired(let required):
+                return .page(.options(title: required.title, options: required.options))
+            case .reportChatResultTextRequired(let required):
+                return .page(.comment(optionID: required.optionId, isOptional: required.isOptional))
+            case .reportChatResultMessagesRequired:
+                return .unexpected
+            }
+        case .story(let chatID, let storyID):
+            let result = try await client.send(TDNativeRequests.reportStory(
+                storyPosterChatId: chatID,
+                storyId: storyID,
+                optionId: optionID,
+                text: text,
+            ))
+            switch result {
+            case .reportStoryResultOk:
+                return .reported
+            case .reportStoryResultOptionRequired(let required):
+                return .page(.options(title: required.title, options: required.options))
+            case .reportStoryResultTextRequired(let required):
+                return .page(.comment(optionID: required.optionId, isOptional: required.isOptional))
+            }
+        }
+    }
+
     @objc private func cancel() {
         dismiss(animated: true)
     }
 
-    /// `reportChat` with the chosen reason: TDLib accepts the report or asks for the next page.
+    /// The report with the chosen reason: TDLib accepts it or asks for the next page.
     private func report(optionID: Data, text: String) {
         guard !isSending, contextIsCurrent else { return }
         isSending = true
         reload()
         let client = client
-        let chatID = chatID
-        let messageIDs = messageIDs
+        let subject = subject
         Task { [weak self] in
             do {
-                let result = try await client.send(TDNativeRequests.reportChat(
-                    chatId: chatID,
-                    optionId: optionID,
-                    messageIds: messageIDs,
-                    text: text,
-                ))
+                let outcome = try await Self.send(subject, optionID: optionID, text: text, client: client)
                 guard let self, contextIsCurrent else { return }
                 isSending = false
                 reload()
-                handle(result)
+                handle(outcome)
             } catch {
                 guard let self, contextIsCurrent else { return }
                 isSending = false
@@ -161,17 +224,15 @@ final class ReportContentViewController: SettingsListViewController {
         }
     }
 
-    private func handle(_ result: TDNativeReportChatResult) {
-        switch result {
-        case .reportChatResultOk:
+    private func handle(_ outcome: Outcome) {
+        switch outcome {
+        case .reported:
             let onReported = onReported
             let host: UIViewController = navigationController ?? self
             host.dismiss(animated: true) { onReported() }
-        case .reportChatResultOptionRequired(let required):
-            show(.options(title: required.title, options: required.options))
-        case .reportChatResultTextRequired(let required):
-            show(.comment(optionID: required.optionId, isOptional: required.isOptional))
-        case .reportChatResultMessagesRequired:
+        case .page(let page):
+            show(page)
+        case .unexpected:
             // The messages are already part of the report; TDLib asking again is unexpected.
             presentChatListActionFailure()
         }
@@ -179,7 +240,7 @@ final class ReportContentViewController: SettingsListViewController {
 
     private func show(_ page: Page) {
         navigationController?.pushViewController(
-            ReportContentViewController(chatID: chatID, messageIDs: messageIDs, page: page, onReported: onReported),
+            ReportContentViewController(subject: subject, page: page, onReported: onReported),
             animated: true,
         )
     }

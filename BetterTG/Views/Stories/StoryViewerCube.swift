@@ -202,6 +202,7 @@ final class StoryCubePreviewView: UIView {
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let closeGlyph = UIImageView()
+    private let moreGlyph = UIImageView()
     private var represented: Represented?
 
     override init(frame: CGRect) {
@@ -238,6 +239,12 @@ final class StoryCubePreviewView: UIView {
         closeGlyph.tintColor = .white
         closeGlyph.contentMode = .center
         addSubview(closeGlyph)
+
+        moreGlyph.image = StoryChromeLayout.moreImage
+        moreGlyph.tintColor = .white
+        moreGlyph.contentMode = .center
+        moreGlyph.isHidden = true
+        addSubview(moreGlyph)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -251,7 +258,11 @@ final class StoryCubePreviewView: UIView {
         progressStrip.frame = StoryChromeLayout.progressFrame(in: bounds)
         avatarView.frame = StoryChromeLayout.avatarFrame
         closeGlyph.frame = StoryChromeLayout.closeFrame(in: bounds)
-        let text = StoryChromeLayout.textFrames(in: bounds, trailingLimit: closeGlyph.frame.minX)
+        moreGlyph.frame = StoryChromeLayout.moreFrame(in: bounds)
+        let text = StoryChromeLayout.textFrames(
+            in: bounds,
+            trailingLimit: StoryChromeLayout.textTrailingLimit(in: bounds, showsMore: !moreGlyph.isHidden),
+        )
         titleLabel.frame = text.title
         subtitleLabel.frame = text.subtitle
     }
@@ -283,6 +294,8 @@ final class StoryCubePreviewView: UIView {
             avatarView.prepareForReuse()
         }
         subtitleLabel.text = story.map { StoryTimestamp.string(date: $0.date) }
+        moreGlyph.isHidden = !StoryMoreMenu.showsButton(for: story)
+        setNeedsLayout()
         guard previous?.neighbor != neighbor || previous?.storyDate != story?.date else { return }
         loadMedia(of: story, client: client)
     }

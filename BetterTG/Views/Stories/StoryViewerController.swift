@@ -13,8 +13,8 @@ import UIKit
 /// sideways turns Telegram's cube to the neighbouring poster, whose face shows its story as the cube turns. A photo
 /// shows for five seconds and a video for its duration, then the next story opens, across posters, and the viewer
 /// closes after the last one. The story's areas draw their reactions and weather, and a tap on a location, message or
-/// link area offers to open it. Telegram's reply field and reactions under the story are left out: BetterTG doesn't
-/// send story replies or reactions.
+/// link area offers to open it. Someone else's story has Telegram's More menu beside the close button. Telegram's reply
+/// field and reactions under the story are left out: BetterTG doesn't send story replies or reactions.
 final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate {
     enum Subject {
         /// One story, as a shared story or a story mention opens it (SingleStoryContentContextImpl).
@@ -72,6 +72,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private let avatarView = ProfileAvatarView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
+    private let moreButton = UIButton(type: .system)
     private let closeButton = UIButton(type: .system)
     private let captionView = UITextView()
 
@@ -86,6 +87,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private var neighborTask: Task<Void, Never>?
     private var headerTask: Task<Void, Never>?
     private var areaMessageTask: Task<Void, Never>?
+    private var moreTask: Task<Void, Never>?
+    private var menuActionTask: Task<Void, Never>?
     private var areaTooltip: StoryAreaTooltipView?
     /// The area whose tooltip is up, or was just dismissed: a second tap on a message area opens the message.
     private var selectedArea: (key: StoryViewerSession.StoryKey, index: Int)?
@@ -105,6 +108,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private var isClosing = false
     private var didAppear = false
     private var cancellables = Set<AnyCancellable>()
+    #if DEBUG
+        /// The UI probe's poster for the More menu, and where its choices go instead of TDLib.
+        private var probeMenuPoster: StoryMoreMenu.Poster?
+        private var probeMenuActionHandler: ((StoryMoreMenu.Item) -> Void)?
+    #endif
 
     /// Whether the shown video should play: every pause but buffering stops it.
     private var shouldPlay: Bool {
@@ -140,6 +148,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
+        // Telegram's story screens, menus and sheets use its dark theme.
+        overrideUserInterfaceStyle = .dark
         view.accessibilityViewIsModal = true
         configureViews()
         configureGestures()
@@ -419,6 +429,13 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         subtitleLabel.textColor = UIColor.white.withAlphaComponent(0.8)
         chromeView.addSubview(subtitleLabel)
 
+        moreButton.tintColor = .white
+        moreButton.setImage(StoryChromeLayout.moreImage, for: .normal)
+        moreButton.accessibilityLabel = L10n.telegram("Common.More")
+        moreButton.isHidden = true
+        moreButton.addTarget(self, action: #selector(morePressed), for: .touchUpInside)
+        chromeView.addSubview(moreButton)
+
         closeButton.tintColor = .white
         closeButton.setImage(
             UIImage(
@@ -463,7 +480,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         progressStrip.frame = StoryChromeLayout.progressFrame(in: bounds)
         avatarView.frame = StoryChromeLayout.avatarFrame
         closeButton.frame = StoryChromeLayout.closeFrame(in: bounds)
-        let textFrames = StoryChromeLayout.textFrames(in: bounds, trailingLimit: closeButton.frame.minX)
+        moreButton.frame = StoryChromeLayout.moreFrame(in: bounds)
+        let textFrames = StoryChromeLayout.textFrames(
+            in: bounds,
+            trailingLimit: StoryChromeLayout.textTrailingLimit(in: bounds, showsMore: !moreButton.isHidden),
+        )
         titleLabel.frame = textFrames.title
         subtitleLabel.frame = textFrames.subtitle
         layoutCaption()
@@ -564,6 +585,13 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         mediaTask = nil
         areaTooltip?.dismiss()
         areaOverlay.update(areas: [], client: session.client, loadsStickers: false)
+        if let moreTask {
+            // The menu was still loading for the story that leaves.
+            moreTask.cancel()
+            self.moreTask = nil
+            state.setPaused(false, for: .moreMenu)
+        }
+        moreButton.isHidden = true
         session.closeOpenedStory()
         imageView.onFullImage = nil
         imageView.cancel()
@@ -657,7 +685,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         captionView.attributedText = caption.text.isEmpty
             ? nil
             : NSAttributedString(getAttributedString(from: caption, .white))
-        areaOverlay.update(areas: story.areas, client: session.client, loadsStickers: true)
+        areaOverlay.update(areas: story.areas, client: session.client, loadsStickers: !session.isOffline)
+        moreButton.isHidden = !StoryMoreMenu.showsButton(for: story)
         updateAccessibilityLabel()
         view.setNeedsLayout()
     }
@@ -1165,6 +1194,223 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         TelegramLinkRouter.shared.open(url, from: self)
     }
 
+    // MARK: More menu
+
+    /// performMoreAction on someone else's story: the poster's details load, then Telegram's menu opens from the
+    /// button, and the story waits until it closes.
+    @objc private func morePressed() {
+        guard !isClosing, moreTask == nil, presentedViewController == nil, !isPresentingTelegramContextMenu,
+              let key = shownKey, StoryMoreMenu.showsButton(for: shownStory) else { return }
+        areaTooltip?.dismiss()
+        setPaused(true, for: .moreMenu)
+        moreTask = Task { [weak self] in
+            guard let self else { return }
+            let poster = await menuPoster(chatID: key.chatID)
+            guard !Task.isCancelled else { return }
+            moreTask = nil
+            if let poster, let story = shownStory, shownKey == key, session.isCurrent, !isClosing,
+               presentMoreMenu(story: story, poster: poster)
+            {
+                return
+            }
+            setPaused(false, for: .moreMenu)
+        }
+    }
+
+    private func menuPoster(chatID: Int64) async -> StoryMoreMenu.Poster? {
+        #if DEBUG
+            if session.isOffline { return probeMenuPoster }
+        #endif
+        return await StoryMoreMenu.resolvePoster(chatID: chatID, client: session.client)
+    }
+
+    private func presentMoreMenu(story: Story, poster: StoryMoreMenu.Poster) -> Bool {
+        let actions = StoryMoreMenu.items(story: story, poster: poster).map { item in
+            TelegramContextMenuAction(
+                title: StoryMoreMenu.title(of: item),
+                image: StoryMoreMenu.image(of: item),
+                handler: { [weak self] in self?.performMoreItem(item, story: story, poster: poster) },
+            )
+        }
+        return presentTelegramContextMenu(
+            sourceView: moreButton,
+            actions: actions,
+            presentationStyle: .sourceMorph,
+            onDismiss: { [weak self] in self?.setPaused(false, for: .moreMenu) },
+        )
+    }
+
+    private func performMoreItem(_ item: StoryMoreMenu.Item, story: Story, poster: StoryMoreMenu.Poster) {
+        #if DEBUG
+            if session.isOffline {
+                probeMenuActionHandler?(item)
+                return
+            }
+        #endif
+        guard session.isCurrent, !isClosing else { return }
+        switch item {
+        case .notify(let isMuted):
+            toggleStoryNotifications(of: poster, wereMuted: isMuted)
+        case .copyLink:
+            copyLink(to: story, poster: poster)
+        case .share:
+            share(story)
+        case .archive(let isHidden):
+            setStoriesHidden(!isHidden, of: poster, offersUndo: true)
+        case .save:
+            save(story, poster: poster)
+        case .report:
+            report(story)
+        }
+    }
+
+    private func showMenuToast(_ text: String, undo: (() -> Void)? = nil) {
+        TelegramUndoToast.show(text: text, in: view, bottomInset: 8, undo: undo)
+    }
+
+    /// togglePeerStoriesMuted, with Telegram's tooltip naming the poster.
+    private func toggleStoryNotifications(of poster: StoryMoreMenu.Poster, wereMuted: Bool) {
+        let client = session.client
+        let chatID = poster.chatID
+        Task {
+            guard let chat = try? await client.send(TDNativeRequests.getChat(chatId: chatID)) else { return }
+            let settings = chat.notificationSettings.settingMuteStories(!wereMuted)
+            _ = try? await client.send(TDNativeRequests.setChatNotificationSettings(
+                chatId: chatID,
+                notificationSettings: settings,
+            ))
+        }
+        let key = wereMuted ? "StoryFeed.TooltipNotifyOn" : "StoryFeed.TooltipNotifyOff"
+        showMenuToast(L10n.telegram(key, poster.title).withoutTelegramMarkup)
+    }
+
+    /// exportStoryLink: TDLib's https link to the story by its poster's username, copied with Telegram's toast.
+    private func copyLink(to story: Story, poster: StoryMoreMenu.Poster) {
+        guard let username = poster.username else { return }
+        let client = session.client
+        let link = TDNativeInternalLinkTypeStory(storyPosterUsername: username, storyId: story.id)
+        menuActionTask?.cancel()
+        menuActionTask = Task { [weak self] in
+            let url = try? await client.send(TDNativeRequests.getInternalLink(
+                type: .internalLinkTypeStory(link),
+                isHttp: true,
+            ))
+            .url
+            guard let self, !Task.isCancelled, session.isCurrent, !isClosing, let url else { return }
+            UIPasteboard.general.string = url
+            showMenuToast(L10n.telegram("Story.ToastLinkCopied"))
+        }
+    }
+
+    /// performShareAction: the Forward picker's chats a story can go to, then the story as a message there.
+    private func share(_ story: Story) {
+        let client = session.client
+        // The picker's request names a message; its story purpose never reads it.
+        guard presentedViewController == nil, let accountID = TDLib.shared.activeAccountID,
+              TDLib.shared.activeClient.id == client.id,
+              let request = try? MessageForwardRequest(sourceChatID: story.posterChatId, messageIDs: [1])
+        else { return }
+        var seen = Set<Int64>()
+        let seedChats = RootVM.shared
+            .allFolders
+            .flatMap(\.chats)
+            .map(\.chat)
+            .filter { seen.insert($0.id).inserted }
+        let picker = ForwardMessagesViewController(
+            request: request,
+            client: client,
+            accountID: accountID,
+            seedChats: seedChats,
+            purpose: .shareStory,
+        )
+        let storyChatID = story.posterChatId
+        let storyID = story.id
+        picker.onChosenChat = { [weak self] chat, topic in
+            guard let self, TDLib.shared.activeAccountID == accountID, TDLib.shared.activeClient.id == client.id
+            else { return }
+            send(storyChatID: storyChatID, storyID: storyID, to: chat.chat, topic: topic)
+        }
+        let navigation = TelegramNavigationController(rootViewController: picker)
+        navigation.modalPresentationStyle = .fullScreen
+        present(navigation, animated: true)
+    }
+
+    /// The shared story as an inputMessageStory, with Telegram's forwarded tooltip.
+    private func send(storyChatID: Int64, storyID: Int, to chat: Chat, topic: ForumTopic?) {
+        let client = session.client
+        let chatID = chat.id
+        let topicID = topic
+            .map { MessageTopic.messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId)) }
+        let content = TDNativeInputMessageStory(storyPosterChatId: storyChatID, storyId: storyID)
+        let tooltip = chatID == TDLib.shared.activeAccount?.userID
+            ? L10n.telegram("Conversation.StoryForwardTooltip.SavedMessages.One")
+            : L10n.telegram("Conversation.StoryForwardTooltip.Chat.One", chat.title)
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.sendMessage(
+                    chatId: chatID,
+                    topicId: topicID,
+                    replyTo: nil,
+                    options: nil,
+                    replyMarkup: nil,
+                    inputMessageContent: .inputMessageStory(content),
+                ))
+                guard let self, !isClosing else { return }
+                showMenuToast(tooltip.withoutTelegramMarkup)
+            } catch {
+                guard let self, !isClosing else { return }
+                presentChatListActionFailure()
+            }
+        }
+    }
+
+    /// updatePeerStoriesHidden, with Telegram's tooltip and its Undo.
+    private func setStoriesHidden(_ isHidden: Bool, of poster: StoryMoreMenu.Poster, offersUndo: Bool) {
+        let client = session.client
+        let chatID = poster.chatID
+        let list: TDNativeStoryList = isHidden ? .storyListArchive : .storyListMain
+        Task { _ = try? await client.send(TDNativeRequests.setChatActiveStoriesList(chatId: chatID, storyList: list)) }
+        guard offersUndo else { return }
+        let key = isHidden ? "StoryFeed.TooltipArchive" : "StoryFeed.TooltipUnarchive"
+        showMenuToast(L10n.telegram(key, poster.compactTitle).withoutTelegramMarkup) { [weak self] in
+            self?.setStoriesHidden(!isHidden, of: poster, offersUndo: false)
+        }
+    }
+
+    /// requestSave: a Premium account saves the story's photo or video with Telegram's Saving and Saved tooltips;
+    /// without Premium, Telegram's toast names the subscription.
+    private func save(_ story: Story, poster: StoryMoreMenu.Poster) {
+        guard poster.accountIsPremium else {
+            showMenuToast(L10n.telegram("Story.ToastPremiumSaveToGallery").withoutTelegramLinkMarkup)
+            return
+        }
+        guard let media = StoryMoreMenu.savedFile(of: story) else { return }
+        let client = session.client
+        showMenuToast(L10n.telegram("Story.TooltipSaving"))
+        menuActionTask?.cancel()
+        menuActionTask = Task { [weak self] in
+            do {
+                try await StoryMoreMenu.saveToPhotos(media.file, isVideo: media.isVideo, client: client)
+                guard let self, !Task.isCancelled, !isClosing else { return }
+                showMenuToast(L10n.telegram("Story.TooltipSaved"))
+            } catch {
+                guard let self, !(error is CancellationError), !isClosing else { return }
+                let alert = MediaGalleryExport.failureAlert(for: error, title: L10n.betterTG("Gallery.SaveFailedTitle"))
+                present(alert, animated: true)
+            }
+        }
+    }
+
+    /// makeContentReportScreen with the story as its subject; the story waits while the sheet is up.
+    private func report(_ story: Story) {
+        ReportContentViewController.present(
+            storyChatID: story.posterChatId,
+            storyID: story.id,
+            from: self,
+            onReported: { [weak self] in self?.showMenuToast(L10n.telegram("Report.Succeed")) },
+        )
+    }
+
     // MARK: Cube
 
     /// beginHorizontalPan: a running turn stops where it rests, and the neighbours' faces join.
@@ -1374,6 +1620,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         preloadTask?.cancel()
         neighborTask?.cancel()
         areaMessageTask?.cancel()
+        moreTask?.cancel()
+        menuActionTask?.cancel()
         headerTask?.cancel()
         mediaTask = nil
         preloadTask = nil

@@ -5,11 +5,19 @@ import UIKit
 // MARK: - StoryChromeLayout
 
 /// The story's header (StoryItemSetContainerComponent): the progress strip 8 pt from the top and sides, the 32 pt
-/// avatar with the title and time beside it, and the close button at the trailing edge. The viewer and the cube's
-/// side faces share it, so a turn lands on the same layout.
+/// avatar with the title and time beside it, and the close button at the trailing edge with the More button before
+/// it. The viewer and the cube's side faces share it, so a turn lands on the same layout.
 enum StoryChromeLayout {
     static let cornerRadius = CGFloat(12)
     static let avatarFrame = CGRect(x: 12, y: 22, width: 32, height: 32)
+
+    /// Telegram's anim_story_more dots as the plain glyph BetterTG's header uses.
+    static var moreImage: UIImage? {
+        UIImage(
+            systemName: "ellipsis",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold),
+        )
+    }
 
     static func progressFrame(in bounds: CGRect) -> CGRect {
         CGRect(x: 8, y: 8, width: bounds.width - 16, height: 2)
@@ -17,6 +25,16 @@ enum StoryChromeLayout {
 
     static func closeFrame(in bounds: CGRect) -> CGRect {
         CGRect(x: bounds.width - 48, y: 16, width: 44, height: 44)
+    }
+
+    /// Telegram's 33 pt More button, ending 51 pt from the trailing edge beside the close button.
+    static func moreFrame(in bounds: CGRect) -> CGRect {
+        CGRect(x: bounds.width - 84, y: 16, width: 33, height: 44)
+    }
+
+    /// The title ends 12 pt before the More button (headerRightOffset), or at the close button without it.
+    static func textTrailingLimit(in bounds: CGRect, showsMore: Bool) -> CGFloat {
+        showsMore ? moreFrame(in: bounds).minX - 12 : closeFrame(in: bounds).minX
     }
 
     static func textFrames(in _: CGRect, trailingLimit: CGFloat) -> (title: CGRect, subtitle: CGRect) {
