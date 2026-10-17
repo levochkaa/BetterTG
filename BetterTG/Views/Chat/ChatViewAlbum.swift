@@ -108,7 +108,11 @@ struct VideoPlaybackAttachmentToken: Hashable {
                         contentMode: imageView.contentMode,
                     )
                     .offsetBy(dx: -cropRect.minX, dy: -cropRect.minY)
-                    self.capturedSnapshot = MediaGalleryImageTransitionView(image: image, imageFrame: contentFrame)
+                    self.capturedSnapshot = MediaGalleryImageTransitionView(
+                        image: image,
+                        imageFrame: contentFrame,
+                        liveVideo: (imageView as? MediaGalleryVideoFrameSnapshotView)?.attachLiveVideo,
+                    )
                 } else {
                     customSnapshot.frame = sourceView.bounds
                     customSnapshot.layoutIfNeeded()
@@ -4514,6 +4518,7 @@ private final class MediaGalleryDismissalInteraction: NSObject, UIViewController
                     MediaGalleryImageTransitionView(
                         image: image,
                         imageFrame: CGRect(origin: .zero, size: frame.size),
+                        liveVideo: (mediaSnapshot as? MediaGalleryVideoFrameSnapshotView)?.attachLiveVideo,
                     )
                 } else {
                     mediaSnapshot
@@ -4752,6 +4757,7 @@ private final class MediaGalleryTransitionAnimator: NSObject, UIViewControllerAn
             snapshot = MediaGalleryImageTransitionView(
                 image: image,
                 imageFrame: CGRect(origin: .zero, size: startFrame.size),
+                liveVideo: (snapshot as? MediaGalleryVideoFrameSnapshotView)?.attachLiveVideo,
             )
         }
         sourceView?.alpha = 0
@@ -8259,11 +8265,14 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
 
     func makeTransitionSnapshot(contentMode: UIView.ContentMode) -> UIView? {
         // The cover stays under the video surface, so once playback moved it no longer matches the screen. Telegram
-        // flies the frame on screen back to the bubble.
+        // flies the live video node back to the bubble: the frame on screen, with the same player over it.
         if let frame = currentFrameImage() {
-            let snapshot = UIImageView(image: frame)
+            let snapshot = MediaGalleryVideoFrameSnapshotView(image: frame)
             snapshot.contentMode = contentMode
             snapshot.clipsToBounds = true
+            if !usesFFmpegVOD {
+                snapshot.attachLiveVideo = { [player] layer in player.attach(to: layer) }
+            }
             return snapshot
         }
         if preview.image != nil {
