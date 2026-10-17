@@ -426,7 +426,7 @@ From `codex/parity-groups` (cherry-picked; build fix `12f1b2ce`).
 | G-5 | P2 | No Removed Users or unban | fixed `d033dc0a` |
 | G-6 | P2 | Read-only admin list | fixed `0aeb8555`: add admin, rights editor, custom title, dismiss, sign messages and show authors. Simulator: 33 admins with "promoted by" lines and Add Admin |
 | G-7 | P2 | No Promote, Restrict, Remove or Add Members | fixed `727e7704` |
-| G-8 | P2 | No invite link management | fixed `1e480f34`, `12f1b2ce`: primary link, create/edit/revoke/delete, joined members |
+| G-8 | P2 | No invite link management | fixed `1e480f34`, `12f1b2ce`, `afae09a9`: primary link, create/edit/revoke/delete, joined members, Get QR Code (Telegram's rounded QR with the plane logo, Share QR Code), owner-only Invite Links Created By Other Admins. Simulator: link menu shows Get QR Code; the sheet decoded back to the group's t.me link; Share QR Code opened the share sheet. The other-admins section stays hidden because no other admin has links |
 | G-9 | P2 | No join requests | fixed `06fc4b8a` |
 | G-10 | P2 | No Group/Channel Type | fixed `f26dd7d8`: public link check or private invite link, join-to-send, approve members, restrict saving |
 | G-11 | P3 | No chat history, topics, hide members toggles | fixed `8c775528` |
@@ -434,7 +434,7 @@ From `codex/parity-groups` (cherry-picked; build fix `12f1b2ce`).
 | G-13 | P3 | No Recent Actions | fixed `91d5d6ef`: `getChatEventLog` by day with Telegram's sentences. Simulator: Telegram's empty state for the last 48 h |
 | G-14 | P3 | No discussion group link setup | fixed `d7acd743` |
 
-Not ported: other admins' links and QR codes, the apply-to-existing-links prompt, Create New Group for discussion, collectible link ordering, Recent Actions filters and bubbles. Switches in these screens apply on tap, so the Simulator check stayed on list and detail screens.
+Not ported: the apply-to-existing-links prompt, Create New Group for discussion, collectible link ordering, Recent Actions filters and bubbles. Switches in these screens apply on tap, so the Simulator check stayed on list and detail screens.
 
 
 ### Media sending and gallery audit — 2026-10-16
