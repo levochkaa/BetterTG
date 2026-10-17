@@ -2136,5 +2136,8 @@
 "Attachment.FilesIntro" = "Send and receive files of any type, up to 2 GB\nin size each, access them instantly\non your other devices.";
 "Attachment.File.PollSubtitle.Description" = "Add file to the poll description";
 "Attachment.File.PollSubtitle.Explanation" = "Add file to the quiz explanation";
+"Attachment.FilesSearchPlaceholder" = "Search sent files";
+"Attachment.ChatsMusic" = "YOUR CHATS";
+"MediaEditor.Audio.ShowMore" = "Show More";
 "CreatePoll.MediaUploading.Title" = "Please Wait";
 "CreatePoll.MediaUploading.Text" = "Poll media is still uploading...";

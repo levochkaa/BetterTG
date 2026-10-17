@@ -16,6 +16,15 @@ protocol TelegramEmbeddedNavigationChrome: AnyObject {}
     var telegramNavigationSearch: UISearchController { get }
 }
 
+// MARK: - TelegramConditionalNavigationSearchProvider
+
+/// A screen whose search field shows only at times, as Telegram shows AttachmentFileController's search button once
+/// there are more than ten recent files. The screen asks TelegramNavigationController.refreshChrome(of:) when it
+/// changes.
+@MainActor protocol TelegramConditionalNavigationSearchProvider: AnyObject {
+    var shownTelegramNavigationSearch: UISearchController? { get }
+}
+
 extension UISearchController {
     /// Ends the classic chrome's search for this controller as its close button does: the field clears and gives up
     /// the keyboard, and the results updater hears the empty query. Telegram closes a picker's search once a result
@@ -132,7 +141,8 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
             item: item,
             fallbackTitle: controller.title,
             showsBack: navigation.viewControllers.first !== controller,
-            searchController: (controller as? TelegramNavigationSearchProvider)?.telegramNavigationSearch,
+            searchController: (controller as? TelegramNavigationSearchProvider)?.telegramNavigationSearch
+                ?? (controller as? TelegramConditionalNavigationSearchProvider)?.shownTelegramNavigationSearch,
         )
         let height = bar.contentHeight
         if reservedHeight != height {

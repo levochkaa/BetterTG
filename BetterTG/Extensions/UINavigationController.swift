@@ -37,6 +37,11 @@ UINavigationControllerDelegate {
         }
     }
 
+    /// Re-reads a screen's navigation item and search for a change KVO doesn't report, such as a conditional search.
+    func refreshChrome(of controller: UIViewController) {
+        chromeStates[ObjectIdentifier(controller)]?.refresh()
+    }
+
     func navigationController(
         _: UINavigationController, willShow controller: UIViewController, animated _: Bool,
     ) {
