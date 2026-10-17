@@ -659,6 +659,16 @@ ClientRestorableNavigationEntry {
         return memberCountText(count, isChannel: chat.supergroup?.isChannel == true)
     }
 
+    private static func voiceSenderTitle(of message: Message, client: TDLibClient) async -> String? {
+        switch message.senderId {
+        case .messageSenderUser(let sender):
+            guard let user = try? await client.getUser(userId: sender.userId) else { return nil }
+            return ServiceMessageText.displayTitle(user)
+        case .messageSenderChat(let sender):
+            return try? await client.getChat(chatId: sender.chatId).title
+        }
+    }
+
     func scrollViewWillBeginDragging(_: UIScrollView) {
         sharedViewportGeneration &+= 1
         let hadPendingViewport = restoredViewport != nil
@@ -846,7 +856,7 @@ ClientRestorableNavigationEntry {
         if file.local.isDownloadingCompleted, !file.local.path.isEmpty,
            FileManager.default.fileExists(atPath: file.local.path)
         {
-            finishOpening(path: file.local.path, isAudio: isAudio, duration: duration)
+            finishOpening(path: file.local.path, of: message, isAudio: isAudio, duration: duration)
             return
         }
         // A second tap on a downloading row cancels it, as the chat's file view does.
@@ -872,14 +882,14 @@ ClientRestorableNavigationEntry {
             cancelSharedItemDownload(cancelInTDLib: false)
             guard let downloaded, downloaded.local.isDownloadingCompleted, contextIsCurrent,
                   navigationController?.topViewController === self, presentedViewController == nil else { return }
-            finishOpening(path: downloaded.local.path, isAudio: isAudio, duration: duration)
+            finishOpening(path: downloaded.local.path, of: message, isAudio: isAudio, duration: duration)
         }
         sharedItemDownload = (messageID, fileID, task, updates)
     }
 
-    private func finishOpening(path: String, isAudio: Bool, duration: Int) {
+    private func finishOpening(path: String, of message: Message, isAudio: Bool, duration: Int) {
         if isAudio {
-            Media.shared.toggle(with: path, duration: duration)
+            playSharedAudio(path: path, of: message, duration: duration)
             return
         }
         // The chat opens a document the same way (`MessageContentAction.openDocument`).
@@ -892,6 +902,55 @@ ClientRestorableNavigationEntry {
             height: 1,
         )
         present(activity, animated: true)
+    }
+
+    /// PeerInfoScreen plays a track or a voice message in its chat's playlist (openChatMessage's `.messages`
+    /// location with the music or voice tag): a track names its title and performer and plays on through the chat's
+    /// tracks, with the lock screen's previous and next; a voice message names its sender over "Voice Message" or the
+    /// group, and an incoming one is marked listened as PeerMessagesMediaPlaylist's onItemPlaybackStarted does.
+    private func playSharedAudio(path: String, of message: Message, duration: Int) {
+        let isMusic =
+            if case .messageAudio = message.content {
+                true
+            } else {
+                false
+            }
+        let item = Media.NowPlaying(
+            accountID: accountID,
+            chatID: message.chatId,
+            messageID: message.id,
+            isMusic: isMusic,
+        )
+        let startsItem = Media.shared.nowPlaying != item
+        Media.shared.toggle(with: path, duration: duration, item: item)
+        switch message.content {
+        case .messageAudio(let value):
+            Media.shared.setDisplay(.music(value.audio, item: item))
+        case .messageVoiceNote(let value):
+            let client = client
+            let subtitle = voicePlaybackSubtitle()
+            let fallbackTitle = customChat.displayTitle
+            Task {
+                let title = await Self.voiceSenderTitle(of: message, client: client) ?? fallbackTitle
+                Media.shared.setDisplay(Media.NowPlayingDisplay(item: item, title: title, subtitle: subtitle))
+                guard startsItem, !message.isOutgoing, !value.isListened else { return }
+                _ = try? await client.openMessageContent(chatId: message.chatId, messageId: message.id)
+            }
+        default:
+            break
+        }
+    }
+
+    /// "Voice Message" in private chats and channels; a group's title in groups, as the chat's playback header has it.
+    private func voicePlaybackSubtitle() -> String {
+        switch customChat.chat.type {
+        case .chatTypeBasicGroup:
+            customChat.displayTitle
+        case .chatTypeSupergroup(let supergroup) where !supergroup.isChannel:
+            customChat.displayTitle
+        default:
+            L10n.telegram("MusicPlayer.VoiceNote")
+        }
     }
 
     private func cancelSharedItemDownload(cancelInTDLib: Bool) {
