@@ -132,7 +132,7 @@ final class PhotoToolRowView: UIView {
 // MARK: - PhotoToolsListView
 
 /// TGPhotoEditorCollectionView with its TGPhotoToolCells: the slider tools one under another, scrolled vertically.
-/// The row being dragged stays while the others hide.
+/// The row being dragged stays while the others hide. The tools that need a face stay out until one is found.
 final class PhotoToolsListView: UIView {
     // MARK: Private
 
@@ -149,6 +149,7 @@ final class PhotoToolsListView: UIView {
 
     private let scrollView = PhotoToolsScrollView()
     private var rows = [PhotoToolRowView]()
+    private var hasFaces = false
 
     var isTracking: Bool {
         rows.contains(where: \.isTracking)
@@ -181,6 +182,7 @@ final class PhotoToolsListView: UIView {
             scrollView.addSubview(row)
             rows.append(row)
         }
+        updateRowsAvailability(values: values)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
@@ -189,7 +191,7 @@ final class PhotoToolsListView: UIView {
         super.layoutSubviews()
         scrollView.frame = bounds
         var y: CGFloat = 0
-        for row in rows {
+        for row in rows where !row.isHidden {
             row.frame = CGRect(x: 0, y: y, width: bounds.width, height: Self.rowHeight)
             y += Self.rowHeight + Self.rowSpacing
         }
@@ -199,6 +201,28 @@ final class PhotoToolsListView: UIView {
     func setValues(_ values: PhotoToolValues) {
         for row in rows {
             row.setValue(values[row.tool])
+        }
+        updateRowsAvailability(values: values)
+    }
+
+    /// TGPhotoEditorController's `faces`: a face in the photo adds Soften Skin at the top.
+    func setHasFaces(_ hasFaces: Bool, values: PhotoToolValues) {
+        self.hasFaces = hasFaces
+        updateRowsAvailability(values: values)
+    }
+
+    /// A tool that needs a face shows once one is found, or while it still changes the photo.
+    private func updateRowsAvailability(values: PhotoToolValues) {
+        var didChange = false
+        for row in rows where row.tool.requiresFaces {
+            let isHidden = !hasFaces && values[row.tool] == 0
+            if row.isHidden != isHidden {
+                row.isHidden = isHidden
+                didChange = true
+            }
+        }
+        if didChange {
+            setNeedsLayout()
         }
     }
 

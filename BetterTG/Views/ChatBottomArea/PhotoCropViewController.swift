@@ -120,6 +120,7 @@ final class PhotoCropViewController: UIViewController {
     private let renderQueue = DispatchQueue(label: "BetterTG.PhotoToolsPreview", qos: .userInitiated)
     private let histogramQueue = DispatchQueue(label: "BetterTG.PhotoToolsHistogram", qos: .userInitiated)
     private let horizonQueue = DispatchQueue(label: "BetterTG.PhotoCropHorizon", qos: .userInitiated)
+    private let faceQueue = DispatchQueue(label: "BetterTG.PhotoEditorFaces", qos: .userInitiated)
 
     private var editorTab: PhotoEditorTab
     private var toolsTab = PhotoToolsTab.list
@@ -231,6 +232,7 @@ final class PhotoCropViewController: UIViewController {
         updateTabs()
         schedulePreviewRender()
         detectHorizon()
+        detectFaces()
     }
 
     override func viewDidLayoutSubviews() {
@@ -818,6 +820,18 @@ final class PhotoCropViewController: UIViewController {
             DispatchQueue.main.async {
                 guard let angle else { return }
                 self?.setAutoRotationAngle(angle)
+            }
+        }
+    }
+
+    /// TGPhotoEditorController's `detectFaces`: a face found as the editor opens adds Soften Skin to the tools.
+    private func detectFaces() {
+        let image = image
+        faceQueue.async { [weak self] in
+            guard PhotoFaceDetector.hasFaces(in: image) else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                toolsListView.setHasFaces(true, values: toolValues)
             }
         }
     }

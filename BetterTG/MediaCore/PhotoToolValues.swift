@@ -4,8 +4,10 @@ import UIKit
 
 // MARK: - PhotoTool
 
-/// The photo editor's slider tools (PGPhotoTool's `isSimple` tools) in TGPhotoToolsController's list order.
+/// The photo editor's slider tools (PGPhotoTool's `isSimple` tools) in TGPhotoToolsController's list order. Soften
+/// Skin (PGSkinTool) leads it and shows only for a photo with a face.
 enum PhotoTool: CaseIterable {
+    case skin
     case enhance
     case exposure
     case contrast
@@ -20,6 +22,7 @@ enum PhotoTool: CaseIterable {
 
     var titleKey: String {
         switch self {
+        case .skin: "PhotoEditor.SkinTool"
         case .enhance: "PhotoEditor.EnhanceTool"
         case .exposure: "PhotoEditor.ExposureTool"
         case .contrast: "PhotoEditor.ContrastTool"
@@ -37,9 +40,14 @@ enum PhotoTool: CaseIterable {
     /// The tool's `minimumValue`: the one-sided tools start at zero.
     var minimumValue: Int {
         switch self {
-        case .enhance, .fade, .grain, .sharpen, .vignette: 0
+        case .enhance, .fade, .grain, .sharpen, .skin, .vignette: 0
         case .contrast, .exposure, .highlights, .saturation, .shadows, .warmth: -100
         }
+    }
+
+    /// PGPhotoTool's `requiresFaces`: TGPhotoToolsController leaves the tool out when no face was found.
+    var requiresFaces: Bool {
+        self == .skin
     }
 
     var maximumValue: Int {

@@ -2,6 +2,7 @@
 
 #if DEBUG
     import AVFoundation
+    import CoreImage
     import UIKit
 
     /// Launch with `-ui-probe-photo-crop`, or `-ui-probe-photo-tools` for the Tools tab. Once an account is active it
@@ -10,6 +11,9 @@
     /// After `-ui-probe-photo-tools`, `blur` opens Blur with a radial blur already on, `linear` with a turned linear
     /// one, and `curves` opens Curves with the photo's histogram. Done shows the photo as it would be sent, with its
     /// crop and tools rendered at the standard 1280 px; nothing is sent.
+    /// `-ui-probe-photo-tools skin` opens the tools on `photo-probe-face.jpg` from the app's Documents, so the face
+    /// detector adds Soften Skin; Done also writes the sent photo with Soften Skin and without it to Documents as
+    /// `photo-probe-skin-on.png` and `photo-probe-skin-off.png`, and logs the fine detail each keeps.
     /// `-ui-probe-photo-crop auto` opens the crop on a sea horizon rising 8° to the right, for AUTO. A few seconds
     /// in it logs the angle Vision found, or gives AUTO the drawn tilt when Vision found none.
     /// `-ui-probe-photo-crop live` opens the crop on a Live Photo's still: the first frame of a generated six-second
@@ -134,6 +138,12 @@
         /// The Live Photo still's size: the 1280×720 motion's shape, larger as a library still is.
         private static let liveStillSize = CGSize(width: 1920, height: 1080)
 
+        // MARK: - Soften Skin
+
+        private static var documentsDirectory: URL {
+            URL.documentsDirectory
+        }
+
         static func runIfRequested(in window: UIWindow) {
             let arguments = ProcessInfo.processInfo.arguments
             let toolsIndex = arguments.firstIndex(of: "-ui-probe-photo-tools")
@@ -144,6 +154,7 @@
             let cropOption = opensTools ? nil : cropIndex.flatMap { arguments[safe: $0 + 1] }
             let opensAuto = cropOption == "auto"
             let opensLive = cropOption == "live"
+            let opensSkin = toolsOption == "skin"
             Task { @MainActor in
                 for _ in 0..<60 where TDLib.shared.activeAccountID == nil {
                     try? await Task.sleep(for: .milliseconds(500))
@@ -159,7 +170,9 @@
                     await presentLivePhoto(from: presenter)
                     return
                 }
-                let photo = opensAuto ? makeHorizonPhoto() : makePhoto(withStrip: opensTools)
+                let facePhoto = opensSkin ? loadFacePhoto() : nil
+                let photo = facePhoto ?? (opensAuto ? makeHorizonPhoto() : makePhoto(withStrip: opensTools))
+                let sourceSize = CGSize(width: photo.size.width * photo.scale, height: photo.size.height * photo.scale)
                 let preset = toolsPreset(for: toolsOption)
                 let editor = PhotoCropViewController(
                     image: photo,
@@ -168,7 +181,10 @@
                     initialToolsTab: preset.tab,
                 )
                 editor.onDone = { [weak presenter] edit in
-                    let result = edit?.adjustments.renderEdited(photo, sourcePixelSize: photoSize, maximumSide: 1280)
+                    let result = edit?.adjustments.renderEdited(photo, sourcePixelSize: sourceSize, maximumSide: 1280)
+                    if facePhoto != nil, let adjustments = edit?.adjustments {
+                        reportSkin(of: photo, sourceSize: sourceSize, adjustments: adjustments)
+                    }
                     // The editor dismisses itself right after handing back the edit.
                     Task { @MainActor in
                         try? await Task.sleep(for: .seconds(1))
@@ -200,6 +216,129 @@
             }
             log(String(format: "Photo crop probe: Vision found no horizon; AUTO turns the drawn %.2f°", drawn))
             editor.setAutoRotationAngle(horizonTilt)
+        }
+
+        private static func loadFacePhoto() -> UIImage? {
+            let url = documentsDirectory.appending(path: "photo-probe-face.jpg")
+            guard let photo = UIImage(contentsOfFile: url.path(percentEncoded: false)) else {
+                log("Photo tools probe: no photo-probe-face.jpg in Documents; opening the drawn photo")
+                return nil
+            }
+            return photo
+        }
+
+        /// Writes the sent photo with the edit and with the edit but Soften Skin, and logs how much darker than their
+        /// surroundings the cheeks' pores and freckles are, which the tool's lightening lowers, and the difference
+        /// between neighboring pixels over the whole photo, which its sharpen raises.
+        private static func reportSkin(of photo: UIImage, sourceSize: CGSize, adjustments: PhotoCropAdjustments) {
+            var withoutSkin = adjustments
+            withoutSkin.tools[.skin] = 0
+            guard let smoothed = adjustments.renderEdited(photo, sourcePixelSize: sourceSize, maximumSide: 1280),
+                  let plain = withoutSkin.renderEdited(photo, sourcePixelSize: sourceSize, maximumSide: 1280)
+            else {
+                log("Photo tools probe: Soften Skin could not render")
+                return
+            }
+            try? smoothed.pngData()?.write(to: documentsDirectory.appending(path: "photo-probe-skin-on.png"))
+            try? plain.pngData()?.write(to: documentsDirectory.appending(path: "photo-probe-skin-off.png"))
+            let cheeks = cheekRects(in: plain)
+            log(String(
+                format: "Photo tools probe: Soften Skin %d at %d×%d; cheek dark detail %.3f without it and %.3f with"
+                    + " it over %d patches; whole photo neighbor difference %.3f and %.3f",
+                adjustments.tools[.skin],
+                Int(smoothed.size.width * smoothed.scale),
+                Int(smoothed.size.height * smoothed.scale),
+                darkDetail(of: plain, in: cheeks),
+                darkDetail(of: smoothed, in: cheeks),
+                cheeks.count,
+                neighborDifference(of: plain),
+                neighborDifference(of: smoothed),
+            ))
+        }
+
+        /// Squares a fifth of the face wide on the cheeks: under each eye, halfway down to the mouth, from the top
+        /// left.
+        private static func cheekRects(in image: UIImage) -> [CGRect] {
+            guard let cgImage = image.cgImage,
+                  let detector = CIDetector(
+                      ofType: CIDetectorTypeFace,
+                      context: nil,
+                      options: [CIDetectorAccuracy: CIDetectorAccuracyHigh],
+                  )
+            else { return [] }
+            let height = CGFloat(cgImage.height)
+            return detector.features(in: CIImage(cgImage: cgImage)).flatMap { feature -> [CGRect] in
+                guard let face = feature as? CIFaceFeature, face.hasLeftEyePosition, face.hasRightEyePosition,
+                      face.hasMouthPosition
+                else { return [] }
+                let side = face.bounds.width / 5
+                return [face.leftEyePosition, face.rightEyePosition].map { eye in
+                    let center = CGPoint(x: eye.x, y: height - (eye.y + face.mouthPosition.y) / 2)
+                    return CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side).integral
+                }
+            }
+        }
+
+        /// The picture's gray levels, top row first.
+        private static func grayLevels(of image: UIImage) -> (levels: [UInt8], width: Int, height: Int)? {
+            guard let cgImage = image.cgImage else { return nil }
+            let width = cgImage.width
+            let height = cgImage.height
+            guard width > 1, height > 0 else { return nil }
+            var gray = [UInt8](repeating: 0, count: width * height)
+            let isDrawn = gray.withUnsafeMutableBytes { bytes -> Bool in
+                guard let context = CGContext(
+                    data: bytes.baseAddress,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: width,
+                    space: CGColorSpaceCreateDeviceGray(),
+                    bitmapInfo: CGImageAlphaInfo.none.rawValue,
+                ) else { return false }
+                context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+                return true
+            }
+            return isDrawn ? (gray, width, height) : nil
+        }
+
+        /// The mean difference between horizontally neighboring gray levels.
+        private static func neighborDifference(of image: UIImage) -> Double {
+            guard let (gray, width, height) = grayLevels(of: image) else { return 0 }
+            var sum = 0
+            for y in 0..<height {
+                let row = y * width
+                for x in 1..<width {
+                    sum += abs(Int(gray[row + x]) - Int(gray[row + x - 1]))
+                }
+            }
+            return Double(sum) / Double((width - 1) * height)
+        }
+
+        /// How much darker than the mean of its 7×7 surroundings each pixel in `rects` is, on average.
+        private static func darkDetail(of image: UIImage, in rects: [CGRect]) -> Double {
+            guard let (gray, width, height) = grayLevels(of: image) else { return 0 }
+            let radius = 3
+            let inner = CGRect(x: radius, y: radius, width: width - 2 * radius, height: height - 2 * radius)
+            var sum = 0.0
+            var count = 0
+            for area in rects.map({ $0.intersection(inner) }) where !area.isEmpty {
+                for y in Int(area.minY)..<Int(area.maxY) {
+                    for x in Int(area.minX)..<Int(area.maxX) {
+                        var surrounding = 0
+                        for dy in -radius...radius {
+                            let row = (y + dy) * width
+                            for dx in -radius...radius {
+                                surrounding += Int(gray[row + x + dx])
+                            }
+                        }
+                        let mean = Double(surrounding) / Double((2 * radius + 1) * (2 * radius + 1))
+                        sum += max(0, mean - Double(gray[y * width + x]))
+                        count += 1
+                    }
+                }
+            }
+            return count > 0 ? sum / Double(count) : 0
         }
 
         // MARK: - Live Photo

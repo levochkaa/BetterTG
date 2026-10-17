@@ -133,13 +133,16 @@ final class PhotoToolsSource: @unchecked Sendable {
 
 // MARK: - PhotoToolsRenderer
 
-/// PGPhotoEditor's tool processing on Metal: the Enhance, Sharpen and Blur passes, then PGPhotoToolComposer's shader
-/// with the rest of the tools in their order. The kernels port the tools' GLSL and keep 8 bits per channel between
-/// passes like GPUImage's framebuffers.
+/// PGPhotoEditor's tool processing on Metal: the Soften Skin, Enhance, Sharpen and Blur passes, then
+/// PGPhotoToolComposer's shader with the rest of the tools in their order. The kernels port the tools' GLSL and keep
+/// 8 bits per channel between passes like GPUImage's framebuffers.
 final class PhotoToolsRenderer: @unchecked Sendable {
     private struct Pipelines {
         let device: MTLDevice
         let queue: MTLCommandQueue
+        let skinOverlay: MTLComputePipelineState
+        let skinMask: MTLComputePipelineState
+        let skinCompose: MTLComputePipelineState
         let enhance: MTLComputePipelineState
         let sharpen: MTLComputePipelineState
         let blurVertical: MTLComputePipelineState
@@ -157,6 +160,11 @@ final class PhotoToolsRenderer: @unchecked Sendable {
         var angle: Float = 0
         var aspectRatio: Float = 1
         var sampleRadius: Float = 0
+
+        /// A plain Gaussian's, for Soften Skin's high pass.
+        init(sampleRadius: Int) {
+            self.sampleRadius = Float(sampleRadius)
+        }
 
         init(blur: PhotoBlurValue, width: Int, height: Int, sampleRadius: Int) {
             self.type = blur.type == .linear ? 2 : 1
@@ -195,6 +203,8 @@ final class PhotoToolsRenderer: @unchecked Sendable {
         var grain: Float = 0
         var vignette: Float = 0
         var skipTone: Float = 1
+        /// PGPhotoSkinPass's amount.
+        var skin: Float = 0
 
         init(tools: PhotoToolValues, grainSize: CGSize) {
             self.width = Float(grainSize.width)
@@ -226,10 +236,65 @@ final class PhotoToolsRenderer: @unchecked Sendable {
             self.grain = Float(tools[.grain]) / 100 * 0.04
             self.vignette = Float(tools[.vignette]) / 100
             self.skipTone = tools.curves.isDefault ? 1 : 0
+            self.skin = 0.75 * Float(tools[.skin]) / 100
         }
     }
 
     static let shared = PhotoToolsRenderer()
+
+    /// GPUImageToneCurveFilter's table for YUGPUImageHighPassSkinSmoothingFilter's curve through (0, 0),
+    /// (0.47, 0.57) and (1, 1): `splineCurve` over the 256 levels with `secondDerivative`'s natural spline, kept in
+    /// bytes like the filter's texture.
+    private static let skinToneCurve: [Float] = {
+        let points: [(x: Double, y: Double)] = [(0, 0), (0.47 * 255, 0.57 * 255), (255, 255)]
+        let count = points.count
+        var matrix = [[Double]](repeating: [0, 0, 0], count: count)
+        var result = [Double](repeating: 0, count: count)
+        matrix[0][1] = 1
+        matrix[count - 1][1] = 1
+        for index in 1..<(count - 1) {
+            let previous = points[index - 1]
+            let point = points[index]
+            let next = points[index + 1]
+            matrix[index][0] = (point.x - previous.x) / 6
+            matrix[index][1] = (next.x - previous.x) / 3
+            matrix[index][2] = (next.x - point.x) / 6
+            result[index] = (next.y - point.y) / (next.x - point.x) - (point.y - previous.y) / (point.x - previous.x)
+        }
+        for index in 1..<count {
+            let factor = matrix[index][0] / matrix[index - 1][1]
+            matrix[index][1] -= factor * matrix[index - 1][2]
+            matrix[index][0] = 0
+            result[index] -= factor * result[index - 1]
+        }
+        for index in stride(from: count - 2, through: 0, by: -1) {
+            let factor = matrix[index][2] / matrix[index + 1][1]
+            matrix[index][1] -= factor * matrix[index + 1][0]
+            matrix[index][2] = 0
+            result[index] -= factor * result[index + 1]
+        }
+        let secondDerivatives = (0..<count).map { result[$0] / matrix[$0][1] }
+        var levels = [Double]()
+        for index in 0..<(count - 1) {
+            let point = points[index]
+            let next = points[index + 1]
+            let width = next.x - point.x
+            // The C loop starts and ends on the points' truncated levels.
+            for x in Int(point.x)..<Int(next.x) {
+                let b = (Double(x) - point.x) / width
+                let a = 1 - b
+                let curve = (a * a * a - a) * secondDerivatives[index] + (b * b * b - b) * secondDerivatives[index + 1]
+                levels.append(min(255, max(0, a * point.y + b * next.y + width * width / 6 * curve)))
+            }
+        }
+        levels.append(points[count - 1].y)
+        return (0..<256).map { level in
+            let value = levels[min(level, levels.count - 1)]
+            // The texture's bytes take the level plus the curve's offset from it, truncated.
+            let byte = min(255, max(0, Float(level) + Float(value - Double(level))))
+            return Float(UInt8(byte)) / 255
+        }
+    }()
 
     private static let source = """
     #include <metal_stdlib>
@@ -258,6 +323,7 @@ final class PhotoToolsRenderer: @unchecked Sendable {
         float grain;
         float vignette;
         float skipTone;
+        float skin;
     };
     
     struct PhotoBlurParameters {
@@ -300,6 +366,94 @@ final class PhotoToolsRenderer: @unchecked Sendable {
         float4 K = float4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
         float3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
         return c.z * mix(K.xxx, clamp(p - K.xxx, float3(0.0), float3(1.0)), float3(c.y));
+    }
+    
+    // YUGPUImageGreenAndBlueChannelOverlayFragmentShaderString: the halved blue laid over the halved green.
+    kernel void photoToolsSkinOverlay(
+        device const uchar4 *source [[buffer(0)]],
+        device uchar4 *destination [[buffer(1)]],
+        constant uint2 &size [[buffer(4)]],
+        uint2 gid [[thread_position_in_grid]])
+    {
+        if (gid.x >= size.x || gid.y >= size.y) {
+            return;
+        }
+        float3 image = loadPixel(source, size, int(gid.x), int(gid.y)).rgb * 0.5;
+        float overlay = 2.0 * image.b * image.g;
+        destination[gid.y * size.x + gid.x] = storePixel(float3(overlay));
+    }
+    
+    // YUGPUImageStillImageHighPassFilter: the overlay's Gaussian across the rows after the pass down the columns, and
+    // the overlay's difference from it; then YUCIHighPassSkinSmoothingMaskBoostFilterFragmentShaderString.
+    kernel void photoToolsSkinMask(
+        device const uchar4 *overlay [[buffer(0)]],
+        device uchar4 *destination [[buffer(1)]],
+        constant float *weights [[buffer(2)]],
+        constant uint2 &size [[buffer(4)]],
+        constant PhotoBlurParameters &blur [[buffer(5)]],
+        device const uchar4 *vertical [[buffer(6)]],
+        uint2 gid [[thread_position_in_grid]])
+    {
+        if (gid.x >= size.x || gid.y >= size.y) {
+            return;
+        }
+        int x = int(gid.x);
+        int y = int(gid.y);
+        int radius = int(blur.sampleRadius);
+        float3 sum = loadPixel(vertical, size, x, y).rgb * weights[0];
+        for (int offset = 1; offset <= radius; offset++) {
+            float3 pair = loadPixel(vertical, size, x + offset, y).rgb + loadPixel(vertical, size, x - offset, y).rgb;
+            sum += pair * weights[offset];
+        }
+        float blurred = round(clamp(sum.b, 0.0, 1.0) * 255.0) / 255.0;
+        float highPass = clamp(loadPixel(overlay, size, x, y).b - blurred + 0.5, 0.0, 1.0);
+        float hardLightColor = round(highPass * 255.0) / 255.0;
+        for (int i = 0; i < 3; ++i) {
+            if (hardLightColor < 0.5) {
+                hardLightColor = hardLightColor * hardLightColor * 2.0;
+            } else {
+                hardLightColor = 1.0 - (1.0 - hardLightColor) * (1.0 - hardLightColor) * 2.0;
+            }
+        }
+        float k = 255.0 / (164.0 - 75.0);
+        hardLightColor = (hardLightColor - 75.0 / 255.0) * k;
+        destination[gid.y * size.x + gid.x] = storePixel(float3(hardLightColor));
+    }
+    
+    // GPUImageToneCurveFilter's lookup with the texture's linear filtering.
+    static float skinToneCurve(constant float *curve, float value) {
+        float position = value * 256.0 - 0.5;
+        float lower = floor(position);
+        int index = int(lower);
+        float first = curve[clamp(index, 0, 255)];
+        float second = curve[clamp(index + 1, 0, 255)];
+        return mix(first, second, position - lower);
+    }
+    
+    // The skin tone curve dissolved in by the amount (GPUImageDissolveBlendFilter), then
+    // YUGPUImageHighpassSkinSmoothingCompositingFilterFragmentShaderString keeping the photo where the mask is light.
+    kernel void photoToolsSkinCompose(
+        device const uchar4 *source [[buffer(0)]],
+        device uchar4 *destination [[buffer(1)]],
+        constant float *curve [[buffer(2)]],
+        constant PhotoToolParameters &parameters [[buffer(3)]],
+        constant uint2 &size [[buffer(4)]],
+        device const uchar4 *mask [[buffer(6)]],
+        uint2 gid [[thread_position_in_grid]])
+    {
+        if (gid.x >= size.x || gid.y >= size.y) {
+            return;
+        }
+        int x = int(gid.x);
+        int y = int(gid.y);
+        float3 image = loadPixel(source, size, x, y).rgb;
+        float3 toneCurved = float3(
+            skinToneCurve(curve, image.r), skinToneCurve(curve, image.g), skinToneCurve(curve, image.b));
+        toneCurved = round(clamp(toneCurved, float3(0.0), float3(1.0)) * 255.0) / 255.0;
+        float3 dissolved = mix(image, toneCurved, float3(parameters.skin));
+        dissolved = round(clamp(dissolved, float3(0.0), float3(1.0)) * 255.0) / 255.0;
+        float maskValue = loadPixel(mask, size, x, y).b;
+        destination[gid.y * size.x + gid.x] = storePixel(mix(image, dissolved, float3(1.0 - maskValue)));
     }
     
     // PGPhotoEnhanceInterpolationFilter: the tile's equalized value, read from the 256-bin table with the linear
@@ -813,20 +967,37 @@ final class PhotoToolsRenderer: @unchecked Sendable {
     /// a tap would weigh under 1/256 and rounded up to an even count, with the normalized weights from the center
     /// out. `nil` when the picture is too large for the filter's formula.
     private static func gaussianWeights(width: Int, height: Int) -> [Float]? {
-        let sigma = (Double(max(width, height)) * 0.008).rounded(.up)
+        gaussianWeights(sigma: (Double(max(width, height)) * 0.008).rounded(.up))
+    }
+
+    /// GPUImageGaussianBlurFilter's weights for a whole `sigma`, sampled out to where a tap would weigh under 1/256,
+    /// or to `fixedRadius`.
+    private static func gaussianWeights(sigma: Double, fixedRadius: Int? = nil) -> [Float]? {
         guard sigma >= 1 else { return [1] }
         let variance = sigma * sigma
         let normalization = (2 * Double.pi * variance).squareRoot()
-        let edge = -2 * variance * log(normalization / 256)
-        guard edge > 0 else { return nil }
-        var sampleRadius = Int(edge.squareRoot().rounded(.down))
-        sampleRadius += sampleRadius % 2
+        var sampleRadius: Int
+        if let fixedRadius {
+            sampleRadius = fixedRadius
+        } else {
+            let edge = -2 * variance * log(normalization / 256)
+            guard edge > 0 else { return nil }
+            sampleRadius = Int(edge.squareRoot().rounded(.down))
+            sampleRadius += sampleRadius % 2
+        }
         guard sampleRadius >= 1 else { return [1] }
         let weights = (0...sampleRadius).map { offset in
             exp(-Double(offset * offset) / (2 * variance)) / normalization
         }
         let sum = weights.dropFirst().reduce(weights[0]) { $0 + 2 * $1 }
         return weights.map { Float($0 / sum) }
+    }
+
+    private static func makeBuffer(_ values: [Float], on device: MTLDevice) -> MTLBuffer? {
+        values.withUnsafeBytes { bytes -> MTLBuffer? in
+            guard let baseAddress = bytes.baseAddress else { return nil }
+            return device.makeBuffer(bytes: baseAddress, length: bytes.count, options: .storageModeShared)
+        }
     }
 
     /// Draws `image` and renders the tools over it. Call off the main thread.
@@ -847,6 +1018,19 @@ final class PhotoToolsRenderer: @unchecked Sendable {
         var size = SIMD2<UInt32>(UInt32(source.width), UInt32(source.height))
         var current = input
         // PGPhotoEditor's `updateProcessChain`: the passes the tools don't skip, by their order.
+        if tools[.skin] != 0,
+           let output = encodeSkin(
+               from: current,
+               width: source.width,
+               length: length,
+               pipelines: pipelines,
+               in: commandBuffer,
+               parameters: &parameters,
+               size: &size,
+           )
+        {
+            current = output
+        }
         if tools[.enhance] != 0, let table = source.enhanceTable(on: pipelines.device),
            let output = pipelines.device.makeBuffer(length: length, options: .storageModePrivate)
         {
@@ -876,12 +1060,8 @@ final class PhotoToolsRenderer: @unchecked Sendable {
            let vertical = pipelines.device.makeBuffer(length: length, options: .storageModePrivate),
            let output = pipelines.device.makeBuffer(length: length, options: .storageModePrivate)
         {
-            let weightsBuffer = weights.withUnsafeBytes { bytes -> MTLBuffer? in
-                guard let baseAddress = bytes.baseAddress else { return nil }
-                return pipelines.device.makeBuffer(bytes: baseAddress, length: bytes.count, options: .storageModeShared)
-            }
-            if let weightsBuffer {
-                var blur = BlurParameters(
+            if let weightsBuffer = Self.makeBuffer(weights, on: pipelines.device) {
+                let blur = BlurParameters(
                     blur: tools.blur,
                     width: source.width,
                     height: source.height,
@@ -891,7 +1071,7 @@ final class PhotoToolsRenderer: @unchecked Sendable {
                     pipelines.blurVertical,
                     in: commandBuffer,
                     buffers: [(0, current), (1, vertical), (2, weightsBuffer)],
-                    blur: &blur,
+                    blur: blur,
                     parameters: &parameters,
                     size: &size,
                 )
@@ -899,7 +1079,7 @@ final class PhotoToolsRenderer: @unchecked Sendable {
                     pipelines.blurFocus,
                     in: commandBuffer,
                     buffers: [(0, current), (1, output), (2, weightsBuffer), (6, vertical)],
-                    blur: &blur,
+                    blur: blur,
                     parameters: &parameters,
                     size: &size,
                 )
@@ -926,6 +1106,73 @@ final class PhotoToolsRenderer: @unchecked Sendable {
         return makeImage(result, width: source.width, height: source.height)
     }
 
+    /// PGPhotoSkinPass's YUGPUImageHighPassSkinSmoothingFilter: a mask from the high pass of the green and blue
+    /// channels' overlay, with a blur of 0.6% of the picture's width; the skin tone curve dissolved in by the amount
+    /// where the mask is dark; then GPUImageSharpenFilter at 0.4 of the amount.
+    private func encodeSkin(
+        from input: MTLBuffer,
+        width: Int,
+        length: Int,
+        pipelines: Pipelines,
+        in commandBuffer: MTLCommandBuffer,
+        parameters: inout Parameters,
+        size: inout SIMD2<UInt32>,
+    ) -> MTLBuffer? {
+        let device = pipelines.device
+        // `updateHighPassRadius`: the blur keeps whole sigmas and starts as its four-sample one of 2.
+        let sigma = (Double(width) * 0.006).rounded()
+        guard let weights = Self.gaussianWeights(sigma: sigma, fixedRadius: sigma == 2 ? 4 : nil),
+              let weightsBuffer = Self.makeBuffer(weights, on: device),
+              let overlay = device.makeBuffer(length: length, options: .storageModePrivate),
+              let vertical = device.makeBuffer(length: length, options: .storageModePrivate),
+              let mask = device.makeBuffer(length: length, options: .storageModePrivate),
+              let composed = device.makeBuffer(length: length, options: .storageModePrivate),
+              let sharpened = device.makeBuffer(length: length, options: .storageModePrivate)
+        else { return nil }
+        let blur = BlurParameters(sampleRadius: weights.count - 1)
+        encode(
+            pipelines.skinOverlay,
+            in: commandBuffer,
+            buffers: [(0, input), (1, overlay)],
+            parameters: &parameters,
+            size: &size,
+        )
+        encode(
+            pipelines.blurVertical,
+            in: commandBuffer,
+            buffers: [(0, overlay), (1, vertical), (2, weightsBuffer)],
+            blur: blur,
+            parameters: &parameters,
+            size: &size,
+        )
+        encode(
+            pipelines.skinMask,
+            in: commandBuffer,
+            buffers: [(0, overlay), (1, mask), (2, weightsBuffer), (6, vertical)],
+            blur: blur,
+            parameters: &parameters,
+            size: &size,
+        )
+        encode(
+            pipelines.skinCompose,
+            in: commandBuffer,
+            buffers: [(0, input), (1, composed), (6, mask)],
+            table: Self.skinToneCurve,
+            parameters: &parameters,
+            size: &size,
+        )
+        var sharpen = parameters
+        sharpen.sharpness = 0.4 * parameters.skin
+        encode(
+            pipelines.sharpen,
+            in: commandBuffer,
+            buffers: [(0, composed), (1, sharpened)],
+            parameters: &sharpen,
+            size: &size,
+        )
+        return sharpened
+    }
+
     private func preparedPipelines() -> Pipelines? {
         lock.withLock {
             if let pipelines { return pipelines }
@@ -942,6 +1189,9 @@ final class PhotoToolsRenderer: @unchecked Sendable {
                 let prepared = try Pipelines(
                     device: device,
                     queue: queue,
+                    skinOverlay: pipeline("photoToolsSkinOverlay"),
+                    skinMask: pipeline("photoToolsSkinMask"),
+                    skinCompose: pipeline("photoToolsSkinCompose"),
                     enhance: pipeline("photoToolsEnhance"),
                     sharpen: pipeline("photoToolsSharpen"),
                     blurVertical: pipeline("photoToolsBlurVertical"),
@@ -994,12 +1244,14 @@ final class PhotoToolsRenderer: @unchecked Sendable {
         dispatch(pipeline, encoder: encoder, parameters: &parameters, size: &size)
     }
 
-    /// The blur's passes with their buffers at the shader's indices.
+    /// A pass with its buffers at the shader's indices, a table at index 2 and the blur's uniforms when it takes
+    /// them.
     private func encode(
         _ pipeline: MTLComputePipelineState,
         in commandBuffer: MTLCommandBuffer,
         buffers: [(index: Int, buffer: MTLBuffer)],
-        blur: inout BlurParameters,
+        table: [Float]? = nil,
+        blur: BlurParameters? = nil,
         parameters: inout Parameters,
         size: inout SIMD2<UInt32>,
     ) {
@@ -1008,7 +1260,14 @@ final class PhotoToolsRenderer: @unchecked Sendable {
         for item in buffers {
             encoder.setBuffer(item.buffer, offset: 0, index: item.index)
         }
-        encoder.setBytes(&blur, length: MemoryLayout<BlurParameters>.stride, index: 5)
+        table?.withUnsafeBytes { bytes in
+            if let baseAddress = bytes.baseAddress {
+                encoder.setBytes(baseAddress, length: bytes.count, index: 2)
+            }
+        }
+        if var blur {
+            encoder.setBytes(&blur, length: MemoryLayout<BlurParameters>.stride, index: 5)
+        }
         dispatch(pipeline, encoder: encoder, parameters: &parameters, size: &size)
     }
 
