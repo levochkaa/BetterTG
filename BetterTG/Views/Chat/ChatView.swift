@@ -5407,7 +5407,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard presentationMode == .full, !clientOwnerRetired, chatVM.locationContextIsCurrent,
               presentedViewController == nil else { return }
         view.endEditing(true)
-        let noCaption = FormattedText(entities: [], text: "")
         switch media {
         case .pollMediaSticker(let value):
             presentPollSticker(value.sticker)
@@ -5421,95 +5420,26 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             openPollFile(value.document.document, audioDuration: nil, in: message)
         case .pollMediaAudio(let value):
             openPollFile(value.audio.audio, audioDuration: value.audio.duration, in: message)
-        case .pollMediaPhoto(let value):
-            presentPollMediaGallery(.messagePhoto(TDNativeMessagePhoto(
-                photo: value.photo,
-                video: value.video,
-                caption: noCaption,
-                showCaptionAboveMedia: false,
-                hasSpoiler: false,
-                isSecret: false,
-            )), messageID: messageID, in: message)
-        case .pollMediaVideo(let value):
-            presentPollMediaGallery(.messageVideo(TDNativeMessageVideo(
-                video: value.video,
-                alternativeVideos: value.alternativeVideos,
-                storyboards: value.storyboards,
-                cover: value.cover,
-                startTimestamp: value.startTimestamp,
-                caption: noCaption,
-                showCaptionAboveMedia: false,
-                hasSpoiler: false,
-                isSecret: false,
-            )), messageID: messageID, in: message)
-        case .pollMediaAnimation(let value):
-            presentPollMediaGallery(.messageAnimation(TDNativeMessageAnimation(
-                animation: value.animation,
-                caption: noCaption,
-                showCaptionAboveMedia: false,
-                hasSpoiler: false,
-                isSecret: false,
-            )), messageID: messageID, in: message)
+        case .pollMediaAnimation, .pollMediaPhoto, .pollMediaVideo:
+            presentPollMediaGallery(media, messageID: messageID, in: message)
         }
     }
 
-    /// Telegram opens a poll's photo, video or GIF alone in the gallery (openChatMessage with `standalone` and the
-    /// poll media subject). Here the gallery shows the poll's message carrying that media, without message actions.
-    private func presentPollMediaGallery(_ content: MessageContent, messageID: Int64, in message: CustomMessage) {
+    /// Telegram opens a poll's photo, video or GIF in a standalone gallery (openChatMessage with `standalone` and the
+    /// poll media subject), described in PollMediaGallery.
+    private func presentPollMediaGallery(_ media: TDNativePollMedia, messageID: Int64, in message: CustomMessage) {
         guard let galleryPlaybackContext, galleryPlaybackContext.isCurrent,
-              let source = message.sourceMessages.first(where: { $0.id == messageID }) else { return }
-        let standalone = Message(
-            id: source.id,
-            senderId: source.senderId,
-            receiverId: source.receiverId,
-            chatId: source.chatId,
-            sendingState: source.sendingState,
-            schedulingState: source.schedulingState,
-            isOutgoing: source.isOutgoing,
-            isPinned: source.isPinned,
-            isFromOffline: source.isFromOffline,
-            canBeSaved: source.canBeSaved,
-            hasTimestampedMedia: false,
-            isChannelPost: source.isChannelPost,
-            isPaidStarSuggestedPost: source.isPaidStarSuggestedPost,
-            isPaidGramSuggestedPost: source.isPaidGramSuggestedPost,
-            containsUnreadMention: false,
-            containsUnreadPollVotes: false,
-            date: source.date,
-            editDate: source.editDate,
-            forwardInfo: source.forwardInfo,
-            importInfo: source.importInfo,
-            interactionInfo: nil,
-            unreadReactions: [],
-            factCheck: nil,
-            suggestedPostInfo: nil,
-            replyTo: nil,
-            topicId: source.topicId,
-            selfDestructType: nil,
-            selfDestructIn: 0,
-            autoDeleteIn: 0,
-            viaBotUserId: source.viaBotUserId,
-            guestBotCallerId: nil,
-            senderBusinessBotUserId: source.senderBusinessBotUserId,
-            senderBoostCount: source.senderBoostCount,
-            senderTag: source.senderTag,
-            paidMessageStarCount: 0,
-            authorSignature: source.authorSignature,
-            mediaAlbumId: 0,
-            effectId: 0,
-            restrictionInfo: nil,
-            summaryLanguageCode: "",
-            content: content,
-            ephemeralContent: nil,
-            replyMarkup: nil,
-            ephemeralMessageId: 0,
-            chatInstance: source.chatInstance,
-        )
+              let accountID = location.accountID,
+              let source = message.sourceMessages.first(where: { $0.id == messageID }),
+              let pollGallery = PollMediaGallery(media: media, in: source)
+        else { return }
         let gallery = MediaGalleryViewController(
-            messages: [standalone],
-            selection: standalone.id,
+            messages: pollGallery.pages,
+            selection: pollGallery.selection,
             tdlib: tdlib,
+            actionClient: chatVM.client,
             playbackContext: galleryPlaybackContext,
+            embeddedMediaSource: pollGallery.embeddedSource(accountID: accountID, clientID: location.clientID),
         )
         gallery.contextIsCurrent = { [weak self] in
             guard let self else { return false }

@@ -530,6 +530,27 @@ private struct MediaGalleryMessageIdentity: Equatable {
         self.messageID = message.id
         self.topic = message.topicId.map(MediaGalleryTopicIdentity.init)
     }
+
+    /// The message holding a page of a standalone gallery of its media.
+    init(_ message: Message, embeddedIn source: MediaGalleryEmbeddedMediaSource) {
+        self.chatID = source.chatID
+        self.messageID = source.containerMessageID
+        self.topic = message.topicId.map(MediaGalleryTopicIdentity.init)
+    }
+}
+
+// MARK: - MediaGalleryEmbeddedMediaSource
+
+/// Telegram's standalone gallery of media inside another message (a poll's, GalleryMediaSubject's `pollOption`,
+/// `pollDescription` and `pollSolution`): each page stands for one of that message's media under its own page id, and
+/// share and save find the page's media again in the copy of the message TDLib returns.
+struct MediaGalleryEmbeddedMediaSource {
+    let accountID: UUID
+    let chatID: Int64
+    let clientID: Int32
+    let containerMessageID: Int64
+    /// The page's media as a message of its own, read from a fresh copy of the containing message; nil once gone.
+    let resolvePage: (_ pageID: Int64, _ container: Message) -> Message?
 }
 
 // MARK: - MediaGalleryOpenInChatError
@@ -1066,10 +1087,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
 
     fileprivate let transitionSource: MediaGalleryTransitionTarget?
     fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
-
     fileprivate private(set) var playbackContext: MediaGalleryPlaybackContext?
     fileprivate private(set) var mediaRevealSession: MediaRevealSession?
     fileprivate let pictureInPictureCoordinator: GalleryPictureInPictureCoordinator
+
+    private let embeddedMediaSource: MediaGalleryEmbeddedMediaSource?
 
     private let emptyKeyboardView = UIView(frame: .zero)
 
@@ -1260,6 +1282,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         transferredPlaybackOwners: [GalleryVideoPlaybackOwner] = [],
         transitionSource: MediaGalleryTransitionTarget? = nil,
         transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)? = nil,
+        embeddedMediaSource: MediaGalleryEmbeddedMediaSource? = nil,
     ) {
         self.tdlib = tdlib
         self.playbackContext = playbackContext ?? actionClient.flatMap { client in
@@ -1274,10 +1297,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                 self.playbackContext.map(MediaRevealSession.init)
             }
         self.pictureInPictureCoordinator = pictureInPictureCoordinator ?? .shared
-        self.actionAccountID = sourceLocation?.accountID
+        // A standalone gallery of embedded media shares and saves (ChatItemGalleryFooterContentNode's action button)
+        // without the chat's history, forwarding or deletion.
+        self.embeddedMediaSource = sourceLocation == nil ? embeddedMediaSource : nil
+        self.actionAccountID = sourceLocation?.accountID ?? self.embeddedMediaSource?.accountID
         self.actionClient = actionClient
-        self.actionChatID = sourceLocation?.chatID
-        self.actionClientID = sourceLocation?.clientID
+        self.actionChatID = sourceLocation?.chatID ?? self.embeddedMediaSource?.chatID
+        self.actionClientID = sourceLocation?.clientID ?? self.embeddedMediaSource?.clientID
         self.actionSourceLocation = sourceLocation
         self.requiredActionTopic = sourceLocation?.topic.map(MediaGalleryTopicIdentity.init)
         self.actionRequiresTopicMatch = sourceLocation?.topic != nil
@@ -2099,7 +2125,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
               !update.fromCache,
               update.isPermanent
         else { return }
-        let deletedIDs = Set(update.messageIds)
+        var deletedIDs = Set(update.messageIds)
+        // The pages of a standalone gallery go with the message holding their media.
+        if let embeddedMediaSource, embeddedMediaSource.chatID == update.chatId,
+           deletedIDs.contains(embeddedMediaSource.containerMessageID)
+        {
+            deletedIDs.formUnion(messages.map(\.id))
+        }
         chatHistory?.removeMessages(chatID: update.chatId, ids: deletedIDs)
         let hasMatchingMessage = messages.contains { message in
             message.chatId == update.chatId && deletedIDs.contains(message.id)
@@ -3855,7 +3887,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
               let selectedAsset = MediaGalleryExportAsset(messages[selectedIndex]),
               action == .share || selectedAsset.photosKind != nil
         else { return }
-        let selectedIdentity = MediaGalleryMessageIdentity(messages[selectedIndex])
+        let pageID = messages[selectedIndex].id
+        let selectedIdentity = embeddedMediaSource.map { MediaGalleryMessageIdentity(
+            messages[selectedIndex],
+            embeddedIn: $0,
+        ) }
+            ?? MediaGalleryMessageIdentity(messages[selectedIndex])
         guard selectedIdentity.chatID == chatID else { return }
         let generation = UUID()
         exportGeneration = generation
@@ -3884,11 +3921,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     accountID: accountID,
                     clientID: clientID,
                     generation: generation,
+                    pageID: pageID,
                     selectedIdentity: selectedIdentity,
                     resolvedIdentity: resolvedIdentity,
                 )
                 try MediaGalleryExport.validatePermission(message: resolved, properties: properties)
-                guard let asset = MediaGalleryExportAsset(resolved) else {
+                guard let asset = exportAsset(resolved, pageID: pageID) else {
                     throw MediaGallerySaveError.messageUnavailable
                 }
                 guard action == .share || asset.photosKind != nil else {
@@ -3900,6 +3938,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     accountID: accountID,
                     clientID: clientID,
                     generation: generation,
+                    pageID: pageID,
                     selectedIdentity: selectedIdentity,
                     resolvedIdentity: resolvedIdentity,
                 )
@@ -3923,11 +3962,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     accountID: accountID,
                     clientID: clientID,
                     generation: generation,
+                    pageID: pageID,
                     selectedIdentity: selectedIdentity,
                     resolvedIdentity: latestIdentity,
                 )
                 try MediaGalleryExport.validatePermission(message: latestMessage, properties: latestProperties)
-                guard let latestAsset = MediaGalleryExportAsset(latestMessage),
+                guard let latestAsset = exportAsset(latestMessage, pageID: pageID),
                       latestAsset.fileID == asset.fileID, latestAsset.livePhotoVideo?.id == asset.livePhotoVideo?.id
                 else { throw MediaGallerySaveError.messageUnavailable }
                 let liveResources = try await MediaGalleryExport.livePhotoResources(
@@ -3961,11 +4001,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                         accountID: accountID,
                         clientID: clientID,
                         generation: generation,
+                        pageID: pageID,
                         selectedIdentity: selectedIdentity,
                         resolvedIdentity: commitIdentity,
                     )
                     try MediaGalleryExport.validatePermission(message: commitMessage, properties: commitProperties)
-                    guard let commitAsset = MediaGalleryExportAsset(commitMessage),
+                    guard let commitAsset = exportAsset(commitMessage, pageID: pageID),
                           commitAsset.fileID == latestAsset.fileID,
                           commitAsset.livePhotoVideo?.id == latestAsset.livePhotoVideo?.id
                     else { throw MediaGallerySaveError.messageUnavailable }
@@ -4003,11 +4044,12 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                         accountID: accountID,
                         clientID: clientID,
                         generation: generation,
+                        pageID: pageID,
                         selectedIdentity: selectedIdentity,
                         resolvedIdentity: commitIdentity,
                     )
                     try MediaGalleryExport.validatePermission(message: commitMessage, properties: commitProperties)
-                    guard let commitAsset = MediaGalleryExportAsset(commitMessage),
+                    guard let commitAsset = exportAsset(commitMessage, pageID: pageID),
                           commitAsset.fileID == latestAsset.fileID,
                           commitAsset.livePhotoVideo?.id == latestAsset.livePhotoVideo?.id
                     else { throw MediaGallerySaveError.messageUnavailable }
@@ -4043,13 +4085,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         accountID: UUID,
         clientID: Int32,
         generation: UUID,
+        pageID: Int64,
         selectedIdentity: MediaGalleryMessageIdentity,
         resolvedIdentity: MediaGalleryMessageIdentity,
     ) throws {
         guard exportGeneration == generation,
               hasCurrentContext,
               !isBeingDismissed,
-              selectedMessageID == selectedIdentity.messageID,
+              selectedMessageID == pageID,
               TDLib.shared.activeAccountID == accountID,
               TDLib.shared.activeClient.id == clientID
         else { throw MediaGallerySaveError.contextChanged }
@@ -4057,6 +4100,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
               resolvedIdentity.messageID == selectedIdentity.messageID,
               !actionRequiresTopicMatch || resolvedIdentity.topic == requiredActionTopic
         else { throw MediaGallerySaveError.messageUnavailable }
+    }
+
+    /// The exported file of a page: the message's own media, or the page's media inside a fresh copy of the message
+    /// that holds it.
+    private func exportAsset(_ message: Message, pageID: Int64) -> MediaGalleryExportAsset? {
+        guard let embeddedMediaSource else { return MediaGalleryExportAsset(message) }
+        return embeddedMediaSource.resolvePage(pageID, message).flatMap(MediaGalleryExportAsset.init)
     }
 
     private func preparedShareLease(
