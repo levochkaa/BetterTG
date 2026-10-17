@@ -222,7 +222,11 @@ final class ReplySnippetView: UIControl {
         titleLabel.numberOfLines = presentation.isManualQuote ? 2 : 1
         bodyLabel.attributedText = MessageTextSpoilerPresentation(presentation.body).attributedText()
         if let isDone = presentation.checklistTaskIsDone {
-            bodyLabel.attributedText = checklistTaskBody(bodyLabel.attributedText, isDone: isDone)
+            bodyLabel.attributedText = checklistTaskBody(
+                bodyLabel.attributedText,
+                isDone: isDone,
+                isSquare: presentation.checklistTaskIsSquare,
+            )
         }
         bodyLabel.numberOfLines = presentation.isManualQuote ? (expanded ? 50 : 5) : 1
         quoteIconView.setHiddenIfChanged(!presentation.isManualQuote)
@@ -259,12 +263,20 @@ final class ReplySnippetView: UIControl {
         configure(title: title, text: ChatSummary.summary(for: message), onTap: onTap)
     }
 
-    /// ReplyAccessoryPanelNode for a checklist task: Telegram's title, and the task's text after its check.
-    func configure(title: String, checklistTask text: FormattedText, isDone: Bool, onTap: @escaping () -> Void) {
+    /// ReplyAccessoryPanelNode for a checklist task or a poll answer: Telegram's title, and the item's text after its
+    /// check, square for an answer of a multiple-answer poll.
+    func configure(
+        title: String,
+        checklistTask text: FormattedText,
+        isDone: Bool,
+        isSquare: Bool = false,
+        onTap: @escaping () -> Void,
+    ) {
         configure(title: title, text: text.text, onTap: onTap)
         bodyLabel.attributedText = checklistTaskBody(
             MessageTextSpoilerPresentation(text).attributedText(),
             isDone: isDone,
+            isSquare: isSquare,
         )
     }
 
@@ -326,11 +338,12 @@ final class ReplySnippetView: UIControl {
     }
 
     /// ChatMessageReplyInfoNode's check before a checklist task's text, in the reply's accent colour.
-    private func checklistTaskBody(_ text: NSAttributedString?, isDone: Bool) -> NSAttributedString? {
+    private func checklistTaskBody(_ text: NSAttributedString?, isDone: Bool, isSquare: Bool) -> NSAttributedString? {
         let configuration = UIImage.SymbolConfiguration(font: bodyLabel.font, scale: .small)
+        let shape = isSquare ? "square" : "circle"
         guard let text,
               let image = UIImage(
-                  systemName: isDone ? "checkmark.circle.fill" : "circle",
+                  systemName: isDone ? "checkmark.\(shape).fill" : shape,
                   withConfiguration: configuration,
               )?
                   .withTintColor(titleLabel.textColor, renderingMode: .alwaysOriginal)

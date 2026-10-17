@@ -286,6 +286,9 @@ struct MessageReplyPresentation: Equatable {
     let title: String
     /// A reply to a checklist task shows the task's text after its check, done or not (ChatMessageReplyInfoNode).
     var checklistTaskIsDone: Bool?
+    /// A reply to an answer of a multiple-answer poll shows a square check (ChatMessageReplyInfoNode's
+    /// `checkIsRectangle`).
+    var checklistTaskIsSquare = false
 
     var isManualQuote: Bool { quote?.isManual == true }
 
@@ -523,11 +526,21 @@ struct MessageForwardPresentation: Equatable {
             } else {
                 nil
             }
+        // ChatMessageReplyInfoNode: a reply to a poll answer shows the answer after a check.
+        let pollOption: (option: PollOption, allowsMultipleAnswers: Bool)? =
+            if !reply.pollOptionId.isEmpty, case .messagePoll(let poll)? = content,
+            let option = poll.poll.options.first(where: { $0.id == reply.pollOptionId }) {
+                (option, poll.poll.allowsMultipleAnswers)
+            } else {
+                nil
+            }
         let body =
             if let quote = reply.quote, !quote.text.text.isEmpty {
                 quote.text
             } else if let checklistTask {
                 checklistTask.text
+            } else if let pollOption {
+                pollOption.option.text
             } else if let content {
                 previewText(for: content)
             } else {
@@ -554,7 +567,8 @@ struct MessageForwardPresentation: Equatable {
             targetMessageID: targetMessageID,
             thumbnail: content.flatMap(MessageReplyThumbnail.make(for:)),
             title: title,
-            checklistTaskIsDone: checklistTask.map { $0.completedBy != nil },
+            checklistTaskIsDone: checklistTask.map { $0.completedBy != nil } ?? (pollOption == nil ? nil : true),
+            checklistTaskIsSquare: pollOption?.allowsMultipleAnswers ?? false,
         )
     }
 

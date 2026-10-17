@@ -673,6 +673,14 @@ final class ChatComposerView: UIView {
                     isDone: task.completedBy != nil,
                     onTap: openReplyOptions,
                 )
+            } else if let reply = chatVM.replyPollOption {
+                replySnippet.configure(
+                    title: L10n.telegram("Chat.ReplyPanel.ReplyToPollOption"),
+                    checklistTask: reply.option.text,
+                    isDone: true,
+                    isSquare: reply.allowsMultipleAnswers,
+                    onTap: openReplyOptions,
+                )
             } else {
                 replySnippet.configure(title: title, message: reply.message, onTap: openReplyOptions)
             }

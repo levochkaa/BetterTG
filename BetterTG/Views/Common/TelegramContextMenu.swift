@@ -41,6 +41,9 @@ struct TelegramContextMenuAction {
     /// A row that only shows its text in the smaller 14-point font, such as when a checklist task was completed
     /// (ContextMenuActionItem with `.small` text and no action): it is never highlighted or selected.
     var isInformational = false
+    /// A selectable row in the smaller 14-point font, such as who added a poll answer (ContextMenuActionItem with
+    /// `.small` text and an action).
+    var usesSmallText = false
 
     init(
         title: String,
@@ -1820,7 +1823,9 @@ final class TelegramContextMenuActionButton: UIControl {
         let color: UIColor = action.isDestructive ? .systemRed : .label
         titleLabel.text = action.title
         titleLabel.textColor = color
-        titleLabel.font = .systemFont(ofSize: action.isInformational ? 14 : TelegramContextMenuLayout.actionFontSize)
+        titleLabel.font = .systemFont(
+            ofSize: action.isInformational || action.usesSmallText ? 14 : TelegramContextMenuLayout.actionFontSize,
+        )
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
 

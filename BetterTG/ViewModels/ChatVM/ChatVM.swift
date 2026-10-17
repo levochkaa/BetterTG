@@ -1008,6 +1008,15 @@ import UIKit
         return botInfo?.menuButton
     }
 
+    /// The poll answer the composer's reply is to, for the reply panel's "Reply to Poll Option".
+    var replyPollOption: (option: PollOption, allowsMultipleAnswers: Bool)? {
+        guard case .inputMessageReplyToMessage(let reply)? = replyInputOverride, !reply.pollOptionId.isEmpty,
+              let message = replyMessage, case .messagePoll(let content) = message.message.content,
+              let option = content.poll.options.first(where: { $0.id == reply.pollOptionId })
+        else { return nil }
+        return (option, content.poll.allowsMultipleAnswers)
+    }
+
     private var usesOrdinaryDeliveryReceipts: Bool {
         guard location.topic == nil, !customChat.chat.viewAsTopics, !customChat.isSavedMessages else { return false }
         if case .chatTypeSupergroup(let type) = customChat.chat.type {
@@ -2879,6 +2888,54 @@ import UIKit
         }
     }
 
+    /// The answer menu's Vote: an open, sent poll without a pending answer that the user hasn't answered yet or may
+    /// answer again (ChatControllerOpenPollContextMenu's `canVote`).
+    func canVoteInPoll(_ message: CustomMessage) -> Bool {
+        guard !isReadOnlyTopic, locationContextIsCurrent, location.matches(message: message.message),
+              message.message.sendingState == nil, message.message.schedulingState == nil,
+              case .messagePoll(let content) = message.message.content,
+              pollInteractionStore.currentSubmission(messageID: message.id) == nil
+        else { return false }
+        let poll = content.poll
+        let isPastCloseDate = poll.closeDate > 0 && poll.closeDate <= Int(Date().timeIntervalSince1970)
+        return !poll.isClosed && !isPastCloseDate && poll.voteRestrictionReason == nil
+            && !poll.options.contains(where: \.isBeingChosen)
+            && (!poll.options.contains(where: \.isChosen) || poll.allowsRevoting)
+    }
+
+    /// The answer menu's Vote and Retract Vote (requestSelectMessagePollOptions): the answer joins the chosen ones
+    /// in a multiple-answer poll and replaces them otherwise, or leaves them. The poll arrives through
+    /// updateMessageContent.
+    func setPollOption(_ message: CustomMessage, index: Int, isChosen: Bool) {
+        guard canVoteInPoll(message), case .messagePoll(let content) = message.message.content,
+              content.poll.options.indices.contains(index) else { return }
+        let poll = content.poll
+        var selection = poll.options.indices.filter { poll.options[$0].isChosen }
+        if isChosen {
+            if !poll.allowsMultipleAnswers { selection = [] }
+            if !selection.contains(index) { selection.append(index) }
+        } else {
+            selection.removeAll { $0 == index }
+        }
+        let optionIDs = selection.sorted()
+        performMessageContentRequest(message) { client, chatID, messageID in
+            _ = try await client.setPollAnswer(chatId: chatID, messageId: messageID, optionIds: optionIDs)
+        }
+    }
+
+    /// The answer menu's Remove: deletePollOption, which TDLib's pollOptionProperties allow. The poll without the
+    /// answer arrives through updateMessageContent.
+    func deletePollOption(_ message: CustomMessage, optionID: String) {
+        guard !optionID.isEmpty else { return }
+        performMessageContentRequest(message) { client, chatID, messageID in
+            _ = try await client.send(TDNativeRequests.deletePollOption(
+                chatId: chatID,
+                messageId: messageID,
+                optionId: optionID,
+            ))
+        }
+    }
+
     /// Stops sharing an outgoing live location: `editMessageLiveLocation` with no location, which `canBeEdited`
     /// allows for a live location.
     func stopLiveLocation(_ message: CustomMessage) {
@@ -2924,6 +2981,19 @@ import UIKit
             checklistTaskId: taskID,
             messageId: message.id,
             pollOptionId: "",
+            quote: nil,
+        ))
+    }
+
+    /// Reply to Option: a reply to the poll that names the answer (setupReplyMessage with `.pollOption`).
+    func beginPollOptionReply(to message: CustomMessage, optionID: String) {
+        guard !optionID.isEmpty else { return }
+        beginReply(to: message)
+        guard replyMessage === message else { return }
+        replyInputOverride = .inputMessageReplyToMessage(InputMessageReplyToMessage(
+            checklistTaskId: 0,
+            messageId: message.id,
+            pollOptionId: optionID,
             quote: nil,
         ))
     }

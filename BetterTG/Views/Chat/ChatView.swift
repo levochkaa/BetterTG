@@ -943,6 +943,48 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    private nonisolated static func pollOptionProperties(
+        _ option: PollOption,
+        chatID: Int64,
+        messageID: Int64,
+        client: TDLibClient,
+    ) async -> TDNativePollOptionProperties? {
+        guard !option.id.isEmpty else { return nil }
+        return try? await client.send(TDNativeRequests.getPollOptionProperties(
+            chatId: chatID,
+            messageId: messageID,
+            pollOptionId: option.id,
+        ))
+    }
+
+    /// Who added the answer: a user's first name or a chat's title, with the avatar when its photo is downloaded.
+    private nonisolated static func pollOptionAuthor(
+        _ sender: MessageSender?,
+        accountUserID: Int64?,
+        client: TDLibClient,
+    ) async -> PollOptionMenu.Author? {
+        let name: String
+        let photo: TDNativeFile?
+        var isCurrentUser = false
+        switch sender {
+        case .messageSenderUser(let value):
+            guard let user = try? await client.getUser(userId: value.userId) else { return nil }
+            name = [user.firstName, user.lastName].first { !$0.isEmpty } ?? ServiceMessageText.displayTitle(user)
+            photo = user.profilePhoto?.small
+            isCurrentUser = user.id == accountUserID
+        case .messageSenderChat(let value):
+            guard let chat = try? await client.getChat(chatId: value.chatId) else { return nil }
+            name = chat.title
+            photo = chat.photo?.small
+        case nil:
+            return nil
+        }
+        let avatar = photo.flatMap { file in
+            file.local.isDownloadingCompleted ? PollOptionMenu.avatar(path: file.local.path) : nil
+        }
+        return PollOptionMenu.Author(name: name, isCurrentUser: isCurrentUser, avatar: avatar)
+    }
+
     /// A bot start link for a chat the router has just created shows Start before the chat appears.
     func beginBotStart(parameter: String) {
         chatVM.beginBotStart(parameter: parameter)
@@ -7456,6 +7498,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let taskSources = cell.contextChecklistTaskID(at: gesture.location(in: cell))
             .flatMap { checklistTaskMenu(for: message, taskID: $0) }?
             .sources(messageActions: messageActions) ?? []
+        // ChatControllerOpenPollContextMenu: a poll answer under the finger opens its own actions first.
+        if taskSources.isEmpty, let optionIndex = cell.contextPollOptionIndex(at: gesture.location(in: cell)) {
+            presentPollOptionMenu(
+                for: message,
+                optionIndex: optionIndex,
+                cell: cell,
+                gesture: gesture,
+                messageActions: messageActions,
+            )
+            return
+        }
         presentTelegramContextMenu(
             sourceView: cell.contextPreviewView,
             actions: messageActions,
@@ -7545,6 +7598,99 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         chatVM.toggleChecklistTask(toggle) { [weak self] in
             self?.showChatToast(ChatVM.checklistPremiumRequiredText)
         }
+    }
+
+    /// ChatControllerOpenPollContextMenu for an answer of a poll. Its Reply, Copy Link and Remove follow TDLib's
+    /// pollOptionProperties, and its last row names who added the answer, so the menu opens once both are known.
+    private func presentPollOptionMenu(
+        for message: CustomMessage,
+        optionIndex: Int,
+        cell: MessageCell,
+        gesture: ContextMenuPressGestureRecognizer,
+        messageActions: [TelegramContextMenuAction],
+    ) {
+        guard !chatVM.isReadOnlyTopic, case .messagePoll(let content) = message.message.content,
+              content.poll.options.indices.contains(optionIndex) else { return }
+        let option = content.poll.options[optionIndex]
+        let client = chatVM.client
+        let chatID = message.message.chatId
+        let messageID = message.id
+        let accountUserID = TDLib.shared.activeAccount?.userID
+        Task { [weak self, weak cell, weak message] in
+            async let properties = Self.pollOptionProperties(
+                option,
+                chatID: chatID,
+                messageID: messageID,
+                client: client,
+            )
+            async let author = Self.pollOptionAuthor(option.author, accountUserID: accountUserID, client: client)
+            let (optionProperties, optionAuthor) = await (properties, author)
+            guard let self, let cell, let message, chatVM.locationContextIsCurrent, !isSelectingMessages,
+                  self.message(for: message.displayedID) === message
+            else { return }
+            let menu = PollOptionMenu(
+                option: option,
+                author: optionAuthor,
+                permissions: .init(
+                    canVote: chatVM.canVoteInPoll(message),
+                    canReply: optionProperties?.canBeReplied ?? false,
+                    canCopyLink: optionProperties?.canGetLink ?? false,
+                    canRemove: optionProperties?.canBeDeleted ?? false,
+                ),
+                handlers: pollOptionMenuHandlers(option: option, index: optionIndex, message: message),
+            )
+            presentTelegramContextMenu(
+                sourceView: cell.contextPreviewView,
+                actions: messageActions,
+                tracking: gesture,
+                reactionsProvider: contextReactionsProvider(for: message),
+                sources: menu.sources(messageActions: messageActions),
+                onDismiss: { [weak self] in self?.retryClientRestoration() },
+            )
+        }
+    }
+
+    private func pollOptionMenuHandlers(
+        option: PollOption,
+        index: Int,
+        message: CustomMessage,
+    ) -> PollOptionMenu.Handlers {
+        PollOptionMenu.Handlers(
+            vote: { [weak self, weak message] in
+                guard let self, let message else { return }
+                chatVM.setPollOption(message, index: index, isChosen: true)
+            },
+            retractVote: { [weak self, weak message] in
+                guard let self, let message else { return }
+                chatVM.setPollOption(message, index: index, isChosen: false)
+            },
+            reply: { [weak self, weak message] in
+                guard let self, let message else { return }
+                chatVM.beginPollOptionReply(to: message, optionID: option.id)
+            },
+            copy: { [weak self] in
+                UIPasteboard.setFormattedText(option.text)
+                self?.showChatToast(L10n.telegram("Conversation.TextCopied"))
+            },
+            copyLink: { [weak self, weak message] in
+                guard let self, let message else { return }
+                copyMessageLink(message, pollOptionID: option.id)
+            },
+            remove: { [weak self, weak message] in
+                guard let self, let message else { return }
+                chatVM.deletePollOption(message, optionID: option.id)
+            },
+            openAuthor: { [weak self] in
+                switch option.author {
+                case .messageSenderUser(let user):
+                    self?.navigate(to: .user(userID: user.userId))
+                case .messageSenderChat(let chat):
+                    self?.navigate(to: .chat(chatID: chat.chatId))
+                case nil:
+                    break
+                }
+            },
+        )
     }
 
     /// Telegram's Edit Item: the checklist editor on the task.
@@ -8128,8 +8274,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// Telegram's Copy Link (getMessageLink): an album's link, or a thread's or topic's in one, and the toast that
-    /// says a private link works only for members. A checklist task's link opens that task.
-    private func copyMessageLink(_ message: CustomMessage, checklistTaskID: Int = 0) {
+    /// says a private link works only for members. A checklist task's or a poll answer's link opens that item.
+    private func copyMessageLink(_ message: CustomMessage, checklistTaskID: Int = 0, pollOptionID: String = "") {
         let client = chatVM.client
         let currentLocation = location
         let isAlbum =
@@ -8145,7 +8291,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 messageId: messageID,
                 mediaTimestamp: 0,
                 checklistTaskId: checklistTaskID,
-                pollOptionId: "",
+                pollOptionId: pollOptionID,
                 forAlbum: isAlbum,
                 inMessageThread: currentLocation.isTopicScoped,
             ))

@@ -367,6 +367,11 @@ final class MessageStructuredContentView: UIView {
         (supplementView as? ChecklistMessageContentView)?.taskID(at: point, in: sourceView)
     }
 
+    /// The index of the poll answer under `point` (in `sourceView`'s coordinates).
+    func pollOptionIndex(at point: CGPoint, in sourceView: UIView) -> Int? {
+        (supplementView as? PollMessageContentView)?.optionIndex(at: point, in: sourceView)
+    }
+
     @discardableResult func configure(
         presentation: MessageContentPresentation,
         messageID: Int64,
@@ -1577,6 +1582,11 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// The answer whose row contains `point`, for Telegram's option menu (ChatControllerOpenPollContextMenu).
+    func optionIndex(at point: CGPoint, in sourceView: UIView) -> Int? {
+        optionViews.first { _, view in view.convert(view.bounds, to: sourceView).contains(point) }?.key
     }
 
     func prepareForReuse() {
