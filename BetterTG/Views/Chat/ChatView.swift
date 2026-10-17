@@ -6778,8 +6778,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             selfDestructTimer: request.selfDestructTimer,
             videoPreset: request.videoPreset,
         ) { [self] images in
+            // Telegram's sheet sends at once; a scheduled send waits in the composer for its time.
+            let sendsAtOnce = request.timing != .schedule
+            composerView.hidesSheetMedia = sendsAtOnce
             guard finishImageImport(images, token: token, barrier: barrier), !images.isEmpty,
-                  chatVM.locationContextIsCurrent else { return }
+                  chatVM.locationContextIsCurrent
+            else {
+                revealSheetMedia()
+                return
+            }
             chatVM.mediaCaptionIsAbove = request.captionIsAbove
             switch request.timing {
             case .now:
@@ -6794,7 +6801,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             case .schedule:
                 presentScheduleMessagePicker(mediaMode: request.mode)
             }
+            guard sendsAtOnce else { return }
+            let send = chatVM.sendMessageTask
+            Task { [weak self] in
+                await send?.value
+                self?.revealSheetMedia()
+            }
         }
+    }
+
+    /// What the sheet's send left in the composer, after a failure, shows again.
+    private func revealSheetMedia() {
+        guard composerView.hidesSheetMedia else { return }
+        composerView.hidesSheetMedia = false
+        if !composerAwaitsSentMediaInsertion { composerView.update(from: chatVM) }
     }
 
     private func showDocumentPicker() {
