@@ -92,6 +92,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let anchor: SnapshotAnchor?
     }
 
+    /// The rows on screen before an album gains or loses members, for performAlbumRegroupTransition(_:).
+    private struct AlbumRegroupTransition {
+        /// Every visible row's frame, in the collection view.
+        let frames: [ChatTimelineItemID: CGRect]
+        /// Each regrouped row as last drawn, placed at its frame, and its bubble's center in that snapshot.
+        let outgoing: [ChatTimelineItemID: (snapshot: UIView, bubbleCenter: CGPoint)]
+    }
+
     private struct PendingComposerSendTransition {
         let kind: ComposerSendTransitionKind
         var messageIDs = [Int64]()
@@ -895,6 +903,27 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         }.value
         return (directoryURL, destinationURL)
+    }
+
+    /// Telegram's list transitions run 0.4 s (ListView's insertionAnimationDuration) on `.spring`, which on iOS 26
+    /// samples a critically damped spring (mass 1, stiffness 555.027, damping 47.118) across its 0.5 s.
+    private static func listTransitionAnimation(
+        _ keyPath: String,
+        from: Any,
+        to: Any,
+        additive: Bool = false,
+    ) -> CASpringAnimation {
+        let animation = CASpringAnimation(keyPath: keyPath)
+        animation.mass = 1
+        animation.stiffness = 555.027
+        animation.damping = 47.118
+        animation.duration = 0.5
+        animation.speed = Float(0.5 / 0.4)
+        animation.timingFunction = CAMediaTimingFunction(name: .linear)
+        animation.isAdditive = additive
+        animation.fromValue = from
+        animation.toValue = to
+        return animation
     }
 
     /// A bot start link for a chat the router has just created shows Start before the chat appears.
@@ -3856,6 +3885,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let structural = batch.demand.structural
         let highlighted = batch.demand.highlight
         let viewportRevision = batch.demand.viewportRevision
+        let regroup = structural || batch.demand.animated ? nil : captureAlbumRegroupTransition(batch.content)
         let completion = { [weak self, timelineSnapshots] in
             guard let owner = self else {
                 timelineSnapshots.retire()
@@ -3922,7 +3952,126 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if batch.demand.animated, !previousItemIDs.isEmpty {
             riseInsertedLatestRows(after: previousItemIDs, ids: batch.content.ids)
         }
+        if let regroup {
+            // The reconfigured row self-sizes in this layout pass, before the frame commits; the native completion
+            // comes on the next turn, one frame after the rows moved. Restore the viewport and start the motion now.
+            layoutForViewportCompletion()
+            if timelineSourceIsCurrent, !timelineSnapshots.retired, !hasPendingMessageNavigation {
+                restoreAutomaticViewport(restoration)
+                restoration = nil
+            }
+            performAlbumRegroupTransition(regroup)
+        }
         collectionView.backgroundView = batch.content.ids.isEmpty ? emptyStateView() : nil
+    }
+
+    /// Telegram builds a group entry only for two or more messages, so an album that becomes one message, or one
+    /// that becomes an album, is a removed list item and an inserted one; an album that keeps two or more members
+    /// lays its mosaic out again in the same bubble. Here the album keeps its row, which is reconfigured, so the row
+    /// takes its new height at once and the rows above it jump.
+    private func captureAlbumRegroupTransition(
+        _ content: ChatTimelineSnapshotState.Content,
+    ) -> AlbumRegroupTransition? {
+        guard view.window != nil, !UIAccessibility.isReduceMotionEnabled, !userIsScrollingTimeline,
+              !hasPendingMessageNavigation, !latestEdgeScrollInFlight else { return nil }
+        let regrouped = content.reconfigure.filter { item in
+            guard case .message(.album) = item,
+                  let previous = timelineSnapshots.committed.rows[item]?.message?.value.sourceMessages.count,
+                  let current = content.rows[item]?.message?.value.sourceMessages.count
+            else { return false }
+            return previous != current
+        }
+        guard !regrouped.isEmpty else { return nil }
+        var frames = [ChatTimelineItemID: CGRect]()
+        var outgoing = [ChatTimelineItemID: (snapshot: UIView, bubbleCenter: CGPoint)]()
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            guard let id = dataSource.itemIdentifier(for: indexPath),
+                  let cell = collectionView.cellForItem(at: indexPath) else { continue }
+            frames[id] = cell.frame
+            guard regrouped.contains(id), let cell = cell as? MessageCell,
+                  let snapshot = cell.snapshotView(afterScreenUpdates: false) else { continue }
+            snapshot.frame = cell.frame
+            outgoing[id] = (snapshot, cell.bubbleCenter)
+        }
+        return outgoing.isEmpty ? nil : .init(frames: frames, outgoing: outgoing)
+    }
+
+    /// ListView's insertion and removal transitions: every row moves from where it was over 0.4 s on Telegram's
+    /// `.spring` curve, the old item shrinks into its bubble's center and fades out in 0.15 s
+    /// (ChatMessageBubbleItemNode.animateRemoved), and the new one fades in over 0.2 s (animateInsertion) inside an
+    /// apparent height that grows from the old one, so the rows above never cover it.
+    private func performAlbumRegroupTransition(_ transition: AlbumRegroupTransition) {
+        var moves = [(UICollectionViewCell, ChatTimelineItemID, CGFloat)]()
+        // Rows are ordered newest first from the screen's bottom; a row that came on screen moves with the one below.
+        var carriedShift: CGFloat = 0
+        for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
+            guard let id = dataSource.itemIdentifier(for: indexPath),
+                  let cell = collectionView.cellForItem(at: indexPath) else { continue }
+            var shift = carriedShift
+            if let previous = transition.frames[id] {
+                shift = previous.minY - cell.frame.minY
+                carriedShift = previous.maxY - cell.frame.maxY
+            }
+            moves.append((cell, id, shift))
+        }
+        guard moves.allSatisfy({ abs($0.2) < collectionView.bounds.height }) else { return }
+        for (cell, id, shift) in moves {
+            if abs(shift) > 0.5 {
+                cell.layer.add(Self.listTransitionAnimation(
+                    "position",
+                    from: CGPoint(x: 0, y: shift),
+                    to: CGPoint.zero,
+                    additive: true,
+                ), forKey: "chat.albumRegroupGlide")
+            }
+            guard let outgoing = transition.outgoing[id], let previous = transition.frames[id] else { continue }
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = 0.2
+            cell.contentView.layer.add(fade, forKey: "chat.albumRegroupFade")
+            // The cell's own coordinates start at the screen's bottom edge, where the row grows from.
+            let mask = CALayer()
+            mask.backgroundColor = UIColor.black.cgColor
+            mask.anchorPoint = .zero
+            mask.position = CGPoint(x: -cell.bounds.width, y: -cell.bounds.height)
+            mask.bounds = CGRect(x: 0, y: 0, width: cell.bounds.width * 3, height: cell.bounds.height * 2)
+            let previousHeight = CGSize(width: mask.bounds.width, height: previous.height + cell.bounds.height)
+            mask.add(
+                Self.listTransitionAnimation("bounds.size", from: previousHeight, to: mask.bounds.size),
+                forKey: "chat.albumRegroupHeight",
+            )
+            cell.layer.mask = mask
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak cell, weak mask] in
+                guard let cell, let mask, cell.layer.mask === mask else { return }
+                cell.layer.mask = nil
+            }
+            let snapshot = outgoing.snapshot
+            let center = outgoing.bubbleCenter
+            snapshot.isUserInteractionEnabled = false
+            snapshot.layer.anchorPoint = CGPoint(
+                x: center.x / max(1, previous.width),
+                y: center.y / max(1, previous.height),
+            )
+            snapshot.layer.position = CGPoint(x: previous.minX + center.x, y: previous.minY + center.y)
+            snapshot.layer.zPosition = 1
+            collectionView.addSubview(snapshot)
+            CATransaction.begin()
+            CATransaction.setCompletionBlock { snapshot.removeFromSuperview() }
+            let removal = CAAnimationGroup()
+            let alpha = CABasicAnimation(keyPath: "opacity")
+            alpha.fromValue = 1
+            alpha.toValue = 0
+            let scale = CABasicAnimation(keyPath: "transform.scale")
+            scale.fromValue = 1
+            scale.toValue = 0.1
+            removal.animations = [alpha, scale]
+            removal.duration = 0.15
+            removal.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            snapshot.layer.opacity = 0
+            snapshot.layer.add(removal, forKey: "chat.albumRegroupRemoval")
+            CATransaction.commit()
+        }
     }
 
     /// Telegram moves a new latest message in from the bottom edge together with the rows it pushes up. UIKit adds

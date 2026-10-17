@@ -287,6 +287,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     var contextPreviewView: UIView { bubbleContainerView }
     var contextQuoteTextView: MessageTextContentView { textView }
 
+    /// The bubble's center in the cell's coordinates, where Telegram's removal animation shrinks a message.
+    var bubbleCenter: CGPoint {
+        let frame = bubbleContainerView.convert(bubbleContainerView.bounds, to: self)
+        return frame.isEmpty ? CGPoint(x: bounds.midX, y: bounds.midY) : CGPoint(x: frame.midX, y: frame.midY)
+    }
+
     private var bubbleContentViews: [UIView] {
         [
             forwardView, replyView, mediaView, structuredContentView, textView, reactionView, timestampLabel,
