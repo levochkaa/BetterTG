@@ -1,6 +1,7 @@
 // PhotoCropProbe.swift
 
 #if DEBUG
+    import AVFoundation
     import UIKit
 
     /// Launch with `-ui-probe-photo-crop`, or `-ui-probe-photo-tools` for the Tools tab. Once an account is active it
@@ -11,6 +12,11 @@
     /// crop and tools rendered at the standard 1280 px; nothing is sent.
     /// `-ui-probe-photo-crop auto` opens the crop on a sea horizon rising 8° to the right, for AUTO. A few seconds
     /// in it logs the angle Vision found, or gives AUTO the drawn tilt when Vision found none.
+    /// `-ui-probe-photo-crop live` opens the crop on a Live Photo's still: the first frame of a generated six-second
+    /// motion with a tone, scaled to 1920×1080 because a library Live Photo's still is larger than its motion. Done
+    /// writes the still and converts the motion as the attachment sheet sends a Live Photo in Live mode
+    /// (`livePhotoConversion`, then `VideoSendTranscoder` as `VideoSendGenerationCoordinator` runs it), and shows
+    /// the still above the converted motion's first frame, so their crops can be compared; nothing is sent.
     @MainActor enum PhotoCropProbe {
         /// The rendered photo with its pixel size, closed by Close.
         private final class ResultViewController: UIViewController {
@@ -56,9 +62,77 @@
             }
         }
 
+        /// The written still above the converted motion's first frame, with their sizes and the conversion, closed by
+        /// Close.
+        private final class LivePhotoResultViewController: UIViewController {
+            private let label = UILabel()
+            private let stillView = UIImageView()
+            private let motionView = UIImageView()
+
+            var text: String {
+                get { label.text ?? "" }
+                set { label.text = newValue }
+            }
+
+            var still: UIImage? {
+                get { stillView.image }
+                set { stillView.image = newValue }
+            }
+
+            var motionFrame: UIImage? {
+                get { motionView.image }
+                set { motionView.image = newValue }
+            }
+
+            init() {
+                super.init(nibName: nil, bundle: nil)
+                modalPresentationStyle = .fullScreen
+            }
+
+            @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+            override func viewDidLoad() {
+                super.viewDidLoad()
+                view.backgroundColor = .black
+                label.textColor = .white
+                label.textAlignment = .center
+                label.numberOfLines = 0
+                label.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+                for imageView in [stillView, motionView] {
+                    imageView.contentMode = .scaleAspectFit
+                    imageView.backgroundColor = UIColor(white: 0.12, alpha: 1)
+                }
+                let images = UIStackView(arrangedSubviews: [stillView, motionView])
+                images.axis = .vertical
+                images.spacing = 8
+                images.distribution = .fillEqually
+                let close = UIButton(type: .system, primaryAction: UIAction(title: "Close") { [weak self] _ in
+                    self?.dismiss(animated: true)
+                })
+                for subview in [images, label, close] as [UIView] {
+                    subview.translatesAutoresizingMaskIntoConstraints = false
+                    view.addSubview(subview)
+                }
+                let guide = view.safeAreaLayoutGuide
+                NSLayoutConstraint.activate([
+                    close.topAnchor.constraint(equalTo: guide.topAnchor, constant: 8),
+                    close.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 16),
+                    label.topAnchor.constraint(equalTo: close.bottomAnchor, constant: 8),
+                    label.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 16),
+                    label.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -16),
+                    images.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 12),
+                    images.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 16),
+                    images.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -16),
+                    images.bottomAnchor.constraint(equalTo: guide.bottomAnchor, constant: -8),
+                ])
+            }
+        }
+
         private static let photoSize = CGSize(width: 1600, height: 1200)
         /// The horizon photo's tilt, inside the ±10° Vision finds a horizon in; leveling it is this turn clockwise.
         private static let horizonTilt: CGFloat = 8 * .pi / 180
+        /// The Live Photo still's size: the 1280×720 motion's shape, larger as a library still is.
+        private static let liveStillSize = CGSize(width: 1920, height: 1080)
 
         static func runIfRequested(in window: UIWindow) {
             let arguments = ProcessInfo.processInfo.arguments
@@ -67,7 +141,9 @@
             let opensTools = toolsIndex != nil
             guard opensTools || cropIndex != nil else { return }
             let toolsOption = toolsIndex.flatMap { arguments[safe: $0 + 1] }
-            let opensAuto = !opensTools && cropIndex.flatMap { arguments[safe: $0 + 1] } == "auto"
+            let cropOption = opensTools ? nil : cropIndex.flatMap { arguments[safe: $0 + 1] }
+            let opensAuto = cropOption == "auto"
+            let opensLive = cropOption == "live"
             Task { @MainActor in
                 for _ in 0..<60 where TDLib.shared.activeAccountID == nil {
                     try? await Task.sleep(for: .milliseconds(500))
@@ -79,6 +155,10 @@
                     presenter = presented
                 }
                 guard let presenter else { return }
+                if opensLive {
+                    await presentLivePhoto(from: presenter)
+                    return
+                }
                 let photo = opensAuto ? makeHorizonPhoto() : makePhoto(withStrip: opensTools)
                 let preset = toolsPreset(for: toolsOption)
                 let editor = PhotoCropViewController(
@@ -120,6 +200,137 @@
             }
             log(String(format: "Photo crop probe: Vision found no horizon; AUTO turns the drawn %.2f°", drawn))
             editor.setAutoRotationAngle(horizonTilt)
+        }
+
+        // MARK: - Live Photo
+
+        /// The crop on the Live Photo's still; Done writes the still and converts the motion as they would be sent.
+        private static func presentLivePhoto(from presenter: UIViewController) async {
+            let motion: URL
+            let still: UIImage
+            do {
+                motion = try await Task.detached(priority: .userInitiated) { () async throws -> URL in
+                    try await ProbeVideo.make(
+                        seconds: ProbeVideo.seconds,
+                        frameRate: ProbeVideo.frameRate,
+                        named: "bettertg-live-photo-probe.mov",
+                    )
+                }.value
+                still = try await makeLiveStill(of: motion)
+            } catch {
+                log("Photo crop probe could not write its Live Photo: \(error)")
+                return
+            }
+            let editor = PhotoCropViewController(image: still, adjustments: nil)
+            editor.onDone = { [weak presenter] edit in
+                // The editor dismisses itself right after handing back the edit.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1))
+                    let result = LivePhotoResultViewController()
+                    result.text = "writing the still…"
+                    presenter?.present(result, animated: true)
+                    let crop = edit?.adjustments
+                    guard let selection = await writeLiveSelection(still: still, motion: motion, crop: crop) else {
+                        result.text = "the still could not be written"
+                        return
+                    }
+                    result.still = UIImage(contentsOfFile: selection.url.path(percentEncoded: false))
+                    let summary = describeLive(selection, still: result.still, crop: crop)
+                    result.text = summary + "\n\nconverting the motion…"
+                    let converted = await convertMotion(of: selection)
+                    result.motionFrame = converted.frame
+                    result.text = summary + "\n" + converted.summary
+                    log("Photo crop probe Live Photo: " + result.text.replacingOccurrences(of: "\n", with: "; "))
+                    SelectedDocumentFileStore.remove([selection.url])
+                }
+            }
+            presenter.present(editor, animated: true)
+        }
+
+        /// The motion's first frame scaled up to `liveStillSize`.
+        private static func makeLiveStill(of motion: URL) async throws -> UIImage {
+            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: motion))
+            generator.appliesPreferredTrackTransform = true
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+            let frame = try await generator.image(at: .zero).image
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            return UIGraphicsImageRenderer(size: liveStillSize, format: format).image { _ in
+                UIImage(cgImage: frame).draw(in: CGRect(origin: .zero, size: liveStillSize))
+            }
+        }
+
+        /// The item PhotoAssetSelectionLoader's Live mode makes: the still written with the editor's crop and tools at
+        /// the standard 1280 px, with the motion and the crop its conversion takes.
+        private static func writeLiveSelection(
+            still: UIImage,
+            motion: URL,
+            crop: PhotoCropAdjustments?,
+        ) async -> SelectedImage? {
+            guard let data = still.jpegData(compressionQuality: 0.95) else { return nil }
+            let written = await Task.detached(priority: .userInitiated) { () -> SelectedImage? in
+                guard let crop else { return writeImage(data: data, maximumSide: PhotoSendPreset.maximumSide) }
+                return writeImage(data: data, cropping: crop, maximumSide: PhotoSendPreset.maximumSide)
+            }.value
+            guard var selection = written else { return nil }
+            selection.livePhotoVideoURL = motion
+            selection.livePhotoCrop = crop
+            return selection
+        }
+
+        private static func describeLive(
+            _ selection: SelectedImage,
+            still: UIImage?,
+            crop: PhotoCropAdjustments?,
+        ) -> String {
+            var lines = [String]()
+            let stillSize = still.map { "\(Int($0.size.width * $0.scale))×\(Int($0.size.height * $0.scale))" }
+            let sourceSize = "\(Int(liveStillSize.width))×\(Int(liveStillSize.height))"
+            lines.append("still \(stillSize ?? "unreadable") from \(sourceSize)")
+            if let crop, !crop.hasDefaultCropping {
+                let rect = crop.cropRect
+                lines.append(
+                    "crop \(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))×\(Int(rect.height))"
+                        + " of \(Int(crop.originalSize.width))×\(Int(crop.originalSize.height))"
+                        + ", turned \(crop.orientation)" + (crop.isMirrored ? ", mirrored" : "")
+                        + String(format: ", straightened %.2f°", Double(crop.rotation * 180 / .pi)),
+                )
+            } else {
+                lines.append("uncropped")
+            }
+            if let crop, !crop.tools.isDefault {
+                lines.append("tools on the still only")
+            }
+            lines.append(selection.livePhotoConversion)
+            return lines.joined(separator: "\n")
+        }
+
+        /// The motion as `VideoSendGenerationCoordinator` converts it for TDLib, read back with its first frame.
+        private static func convertMotion(of selection: SelectedImage) async -> (frame: UIImage?, summary: String) {
+            guard let motion = selection.livePhotoVideoURL,
+                  let conversion = VideoEditAdjustments.parse(conversion: selection.livePhotoConversion)
+            else { return (nil, "the conversion could not be read") }
+            let directory = FileManager.default.temporaryDirectory
+            let destination = directory.appendingPathComponent("bettertg-live-photo-probe-sent.mp4")
+            let transcoder = VideoSendTranscoder(preset: conversion.preset, edit: conversion.edit)
+            do {
+                try await transcoder.transcode(from: motion, to: destination) { _ in }
+                let output = AVURLAsset(url: destination)
+                let duration = try await output.load(.duration).seconds
+                let size = try await output.loadTracks(withMediaType: .video).first?.load(.naturalSize) ?? .zero
+                let hasAudio = try await !output.loadTracks(withMediaType: .audio).isEmpty
+                let generator = AVAssetImageGenerator(asset: output)
+                generator.appliesPreferredTrackTransform = true
+                generator.requestedTimeToleranceBefore = .zero
+                generator.requestedTimeToleranceAfter = .zero
+                let frame = try? await generator.image(at: .zero).image
+                let summary = String(format: "motion %.2f s, %d×%d", duration, Int(size.width), Int(size.height))
+                    + (hasAudio ? ", with sound" : ", no sound")
+                return (frame.map { UIImage(cgImage: $0) }, summary)
+            } catch {
+                return (nil, "motion conversion failed: \(error)")
+            }
         }
 
         /// The tools panel and the edit the editor opens with for the option after `-ui-probe-photo-tools`.
