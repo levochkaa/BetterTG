@@ -28,6 +28,8 @@ enum MessageContentAction {
     case submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission)
     /// The Add an Option field's Save or Done (requestAddMessagePollOption): TDLib's addPollOption with the text.
     case addPollOption(messageID: Int64, text: String, submission: MessagePollInteractionStore.AddOptionSubmission)
+    /// The Add an Option field's attach button (openNewOptionAttachment): the answer's attachment screen.
+    case attachPollOptionMedia(messageID: Int64)
     /// Telegram's View Votes button and a public poll's result row (requestOpenMessagePollResults): the poll's
     /// voters, opened at the tapped answer.
     case openPollResults(messageID: Int64, optionID: Int?)
@@ -128,6 +130,8 @@ enum MessageContentAction {
     private var checklistTimeouts = [UUID: DispatchWorkItem]()
     /// The text typed into each poll's Add an Option field, kept while the poll's view is rebuilt.
     private var addOptionDrafts = [Int64: String]()
+    /// The media attached to each poll's new answer (ChatMessagePollBubbleContentNode's `currentNewOptionMedia`).
+    private var addOptionMediaByMessage = [Int64: PollDraftMedia]()
     private var addOptionSubmissions = [Int64: AddOptionSubmission]()
 
     func state(messageID: Int64, sourceSelection: Set<Int>) -> State {
@@ -224,6 +228,19 @@ enum MessageContentAction {
         addOptionDrafts[messageID] = text.isEmpty ? nil : text
     }
 
+    func addOptionMedia(messageID: Int64) -> PollDraftMedia? {
+        addOptionMediaByMessage[messageID]
+    }
+
+    /// Attaches or removes the new answer's media; replaced media's picked files go.
+    func setAddOptionMedia(_ media: PollDraftMedia?, messageID: Int64) {
+        if let current = addOptionMediaByMessage[messageID], current.id != media?.id {
+            SelectedDocumentFileStore.remove(current.fileURLs)
+        }
+        addOptionMediaByMessage[messageID] = media
+        changes.send(messageID)
+    }
+
     func setAddOptionFocused(_ focused: Bool, messageID: Int64) {
         let previous = focusedAddOptionMessageID
         if focused {
@@ -265,6 +282,10 @@ enum MessageContentAction {
         addOptionSubmissions[messageID] = nil
         if succeeded {
             addOptionDrafts[messageID] = nil
+            // TDLib uploaded the picked files with the answer.
+            if let media = addOptionMediaByMessage.removeValue(forKey: messageID) {
+                SelectedDocumentFileStore.remove(media.fileURLs)
+            }
             if focusedAddOptionMessageID == messageID {
                 focusedAddOptionMessageID = nil
                 addOptionFocusChanges.send(nil)
@@ -1826,6 +1847,16 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
                 interactionStore.setAddOptionFocused(focused, messageID: messageID)
             }
             addOptionView.onReturn = { [weak self] in self?.saveNewOption() }
+            addOptionView.setMedia(interactionStore.addOptionMedia(messageID: messageID), client: client)
+            addOptionView.onAttach = { [weak self] in
+                guard let self else { return }
+                onAction(.attachPollOptionMedia(messageID: messageID))
+            }
+            // openNewOptionAttachment with media attached removes it.
+            addOptionView.onRemoveMedia = { [weak self] in
+                guard let self else { return }
+                interactionStore.setAddOptionMedia(nil, messageID: messageID)
+            }
             optionsStack.addArrangedSubview(addOptionView)
             self.addOptionView = addOptionView
         }
@@ -2039,6 +2070,10 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
             view.setPendingSelected(state.pendingSelection.contains(index))
         }
         addOptionView?.isBusy = interactionStore.isAddingOption(messageID: messageID)
+        let mediaChanged = addOptionView?.setMedia(
+            interactionStore.addOptionMedia(messageID: messageID),
+            client: client,
+        ) ?? false
         let hasSelectionChange = state.pendingSelection != currentSelection
         let action = footerAction
         let showsButton = action != nil
@@ -2081,7 +2116,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         }
         voteButton.alpha = voteButton.isEnabled ? 1 : 0.45
         footerLabel.text = footerText
-        return resultsToggled || buttonVisibilityChanged || footerLabel.text != previousFooter
+        return resultsToggled || buttonVisibilityChanged || mediaChanged || footerLabel.text != previousFooter
     }
 
     /// Shows the quiz's explanation above the poll while it is open, and the lamp otherwise. Returns whether the
@@ -2404,15 +2439,22 @@ private final class PollOptionContentView: UIControl {
 
 /// ChatMessagePollAddOptionNode in BetterTG's answer style: a plus where an answer has its circle and a field that
 /// grows with its text up to Telegram's 100 characters. Done saves, and new lines aren't allowed. A UIControl, so the
-/// chat's tap that puts the keyboard away passes it by.
+/// chat's tap that puts the keyboard away passes it by. Typed text brings the attach button at the trailing edge;
+/// attached media shows there as the answer's 40-point thumbnail, which removes it when tapped.
 private final class PollAddOptionView: UIControl, UITextViewDelegate {
     private static let characterLimit = 100
     private static let verticalInset: CGFloat = 11
+    /// ChatMessagePollAddOptionNode's 52-point row with media, whose text sits in the middle.
+    private static let mediaVerticalInset: CGFloat = 16
+    /// ChatMessagePollAddOptionNode's `attachmentInset`: the text keeps clear of the attach button and the media.
+    private static let attachmentInset: CGFloat = 52
 
     var onTextChange: ((String) -> Void)?
     var onHeightChange: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
     var onReturn: (() -> Void)?
+    var onAttach: (() -> Void)?
+    var onRemoveMedia: (() -> Void)?
     /// Set once the poll is being rebuilt: the field's end of editing is then not the user's.
     var isTearingDown = false
 
@@ -2428,6 +2470,11 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
     private let plusView = UIImageView()
     private let textView = UITextView()
     private let placeholderLabel = UILabel()
+    private let attachButton = UIButton(type: .system)
+    private let mediaView = PollMediaThumbnailView()
+    private var mediaID: UUID?
+    private var placeholderTop: NSLayoutConstraint!
+    private var minimumHeight: NSLayoutConstraint!
     private var measuredHeight = CGFloat.zero
 
     var text: String {
@@ -2480,6 +2527,28 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
         placeholderLabel.isUserInteractionEnabled = false
         addSubview(placeholderLabel)
 
+        attachButton.translatesAutoresizingMaskIntoConstraints = false
+        attachButton.setImage(
+            UIImage(systemName: "paperclip", withConfiguration: UIImage.SymbolConfiguration(pointSize: 19)),
+            for: .normal,
+        )
+        attachButton.tintColor = .secondaryLabel
+        attachButton.accessibilityLabel = L10n.telegram("VoiceOver.AttachMedia")
+        attachButton.addTarget(self, action: #selector(attachTapped), for: .touchUpInside)
+        attachButton.isHidden = true
+        addSubview(attachButton)
+
+        mediaView.translatesAutoresizingMaskIntoConstraints = false
+        mediaView.setPlaybackVisible(true)
+        mediaView.addTarget(self, action: #selector(mediaTapped), for: .touchUpInside)
+        mediaView.isHidden = true
+        addSubview(mediaView)
+
+        self.placeholderTop = placeholderLabel.topAnchor.constraint(
+            equalTo: textView.topAnchor,
+            constant: Self.verticalInset,
+        )
+        self.minimumHeight = heightAnchor.constraint(greaterThanOrEqualToConstant: 42)
         NSLayoutConstraint.activate([
             plusView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             plusView.topAnchor.constraint(equalTo: topAnchor, constant: 10),
@@ -2488,11 +2557,19 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
             textView.topAnchor.constraint(equalTo: topAnchor),
             textView.bottomAnchor.constraint(equalTo: bottomAnchor),
             textView.leadingAnchor.constraint(equalTo: plusView.trailingAnchor, constant: 7),
-            textView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            textView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.attachmentInset),
             placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
             placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: textView.trailingAnchor),
-            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: Self.verticalInset),
-            heightAnchor.constraint(greaterThanOrEqualToConstant: 42),
+            placeholderTop,
+            minimumHeight,
+            attachButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            attachButton.centerYAnchor.constraint(equalTo: bottomAnchor, constant: -21),
+            attachButton.widthAnchor.constraint(equalToConstant: 28),
+            attachButton.heightAnchor.constraint(equalToConstant: 28),
+            mediaView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            mediaView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            mediaView.widthAnchor.constraint(equalToConstant: PollMediaThumbnailView.size.width),
+            mediaView.heightAnchor.constraint(equalToConstant: PollMediaThumbnailView.size.height),
         ])
         addTarget(self, action: #selector(rowTapped), for: .touchUpInside)
     }
@@ -2508,6 +2585,28 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
 
     func beginEditing() {
         textView.becomeFirstResponder()
+    }
+
+    /// Shows the attached media in the field and returns whether the field's height changed with it.
+    @discardableResult func setMedia(_ media: PollDraftMedia?, client: TDLibClient) -> Bool {
+        guard media?.id != mediaID else { return false }
+        let hadMedia = mediaID != nil
+        mediaID = media?.id
+        if let media {
+            mediaView.configure(draft: media.preview, client: client)
+        } else {
+            mediaView.prepareForReuse()
+        }
+        mediaView.isHidden = media == nil
+        updateAttachButton()
+        guard hadMedia != (media != nil) else { return false }
+        let inset = media == nil ? Self.verticalInset : Self.mediaVerticalInset
+        textView.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
+        placeholderTop.constant = inset
+        minimumHeight.constant = media == nil ? 42 : 52
+        measuredHeight = 0
+        textView.invalidateIntrinsicContentSize()
+        return true
     }
 
     func textViewDidBeginEditing(_: UITextView) {
@@ -2545,6 +2644,7 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
 
     private func textChanged(notify: Bool) {
         placeholderLabel.isHidden = !textView.text.isEmpty
+        updateAttachButton()
         if notify { onTextChange?(textView.text) }
         guard textView.bounds.width > 0 else { return }
         let height = textView.sizeThatFits(CGSize(width: textView.bounds.width, height: .greatestFiniteMagnitude))
@@ -2557,6 +2657,19 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
 
     @objc private func rowTapped() {
         beginEditing()
+    }
+
+    /// ChatMessagePollAddOptionNode's attach button: shown once there's text and no media.
+    private func updateAttachButton() {
+        attachButton.isHidden = mediaID != nil || textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    @objc private func attachTapped() {
+        onAttach?()
+    }
+
+    @objc private func mediaTapped() {
+        onRemoveMedia?()
     }
 }
 
@@ -3482,6 +3595,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("poll:\(optionIDs.map(String.init).joined(separator: ","))")
                     case .addPollOption:
                         actions.append("poll-add-option")
+                    case .attachPollOptionMedia:
+                        actions.append("poll-add-option-media")
                     case .openPollResults:
                         actions.append("poll-results")
                     case .openPollMedia:

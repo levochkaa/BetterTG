@@ -2970,8 +2970,9 @@ import UIKit
         }
     }
 
-    /// The poll's Add an Option (requestAddMessagePollOption): TDLib's addPollOption with the typed text. The poll
-    /// with the answer arrives through updateMessageContent; `onSaved` plays Telegram's success haptic.
+    /// The poll's Add an Option (requestAddMessagePollOption): TDLib's addPollOption with the typed text and the
+    /// attached media, whose picked file TDLib uploads with the request. The poll with the answer arrives through
+    /// updateMessageContent; `onSaved` plays Telegram's success haptic.
     func addPollOption(
         messageID: Int64,
         text: String,
@@ -2988,7 +2989,10 @@ import UIKit
         }
         let client = client
         let chatID = message.message.chatId
-        let option = TDNativeInputPollOption(text: FormattedText(entities: [], text: text), media: nil)
+        let option = TDNativeInputPollOption(
+            text: FormattedText(entities: [], text: text),
+            media: pollInteractionStore.addOptionMedia(messageID: messageID)?.input,
+        )
         Task { [weak self] in
             do {
                 _ = try await client.send(TDNativeRequests.addPollOption(

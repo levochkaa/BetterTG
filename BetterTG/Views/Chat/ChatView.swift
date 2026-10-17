@@ -204,6 +204,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     ))
     /// The attachment menu bots' Web Apps, made with the chat's account on the first launch.
     private var webAppLauncher: WebAppLauncher?
+    /// The attachment screen for a poll's new answer (openNewOptionAttachment).
+    private var pollOptionMediaFlow: PollMediaAttachmentFlow?
     /// The bot menu button's Web App, made with the chat's account on the first launch.
     private var menuWebAppLauncher: WebAppLauncher?
     /// ChatControllerInitialAttachBotStart: an attachment menu bot link's bot, launched once the chat is on screen.
@@ -5534,6 +5536,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             chatVM.addPollOption(messageID: messageID, text: text, submission: submission) {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
+        case .attachPollOptionMedia(let messageID):
+            attachPollOptionMedia(messageID: messageID)
         case .openPollResults(let messageID, let optionID):
             openPollResults(messageID: messageID, optionID: optionID, in: message)
         case .openPollMedia(let messageID, let media):
@@ -5799,6 +5803,29 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             accountID: accountID,
         )
         navigation.pushViewController(results, animated: true)
+    }
+
+    /// ChatMessagePollBubbleContentNode.openNewOptionAttachment: the keyboard goes and presentPollAttachmentScreen
+    /// opens with the answer's buttons (gallery, sticker, location, link); the pick shows in the field and goes out
+    /// with the answer.
+    private func attachPollOptionMedia(messageID: Int64) {
+        guard pollOptionMediaFlow == nil, presentedViewController == nil else { return }
+        view.endEditing(true)
+        let store = chatVM.pollInteractionStore
+        let flow = PollMediaAttachmentFlow(
+            subject: .option,
+            client: chatVM.client,
+            accountID: chatVM.accountID,
+            chatID: chatVM.chatID,
+            presenter: self,
+        ) { [weak self, weak store] media in
+            self?.pollOptionMediaFlow = nil
+            guard let media else { return }
+            guard let store else { return SelectedDocumentFileStore.remove(media.fileURLs) }
+            store.setAddOptionMedia(media, messageID: messageID)
+        }
+        pollOptionMediaFlow = flow
+        flow.start()
     }
 
     /// Telegram's openPollMedia (ChatControllerOpenPollOptionMedia): a sticker offers Add to Favorites and View
