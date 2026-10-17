@@ -10,12 +10,13 @@ import UIKit
 final class ComposerMediaInputViewController: UIInputViewController {
     let picker: ComposerMediaPickerViewController
 
-    private var heightConstraint: NSLayoutConstraint?
-    private var panelHeight: CGFloat
+    private let panelView: PanelInputView
 
-    init(picker: ComposerMediaPickerViewController, height: CGFloat) {
+    /// The panel takes the container's width: the system sizes a self-sizing input view's height only, so the width
+    /// stays the frame's.
+    init(picker: ComposerMediaPickerViewController, size: CGSize) {
         self.picker = picker
-        self.panelHeight = height
+        self.panelView = PanelInputView(size: size)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -24,20 +25,11 @@ final class ComposerMediaInputViewController: UIInputViewController {
     }
 
     override func loadView() {
-        let inputView = UIInputView(
-            frame: CGRect(x: 0, y: 0, width: 320, height: panelHeight),
-            inputViewStyle: .keyboard,
-        )
-        inputView.allowsSelfSizing = true
-        self.inputView = inputView
+        inputView = panelView
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        let height = view.heightAnchor.constraint(equalToConstant: panelHeight)
-        height.priority = UILayoutPriority(999)
-        height.isActive = true
-        heightConstraint = height
         addChild(picker)
         picker.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(picker.view)
@@ -52,9 +44,33 @@ final class ComposerMediaInputViewController: UIInputViewController {
 
     /// Follows the system keyboard's height for the current width; true when it changed.
     @discardableResult func setPanelHeight(_ height: CGFloat) -> Bool {
-        guard abs(height - panelHeight) > 0.5 else { return false }
-        panelHeight = height
-        heightConstraint?.constant = height
+        guard abs(height - panelView.panelHeight) > 0.5 else { return false }
+        panelView.panelHeight = height
         return true
+    }
+}
+
+// MARK: - PanelInputView
+
+/// Sizes itself like ReplyKeyboardInputView, by an intrinsic height. A self-sizing input view keeps its frame's
+/// width, so it starts at the window's width: a 320 pt frame left the panel's content in 320 of 402 pt, and a
+/// flexible width doubled it as the host grew from zero.
+private final class PanelInputView: UIInputView {
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: panelHeight)
+    }
+
+    var panelHeight: CGFloat {
+        didSet { invalidateIntrinsicContentSize() }
+    }
+
+    init(size: CGSize) {
+        self.panelHeight = size.height
+        super.init(frame: CGRect(origin: .zero, size: size), inputViewStyle: .keyboard)
+        allowsSelfSizing = true
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }

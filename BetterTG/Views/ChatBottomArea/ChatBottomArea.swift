@@ -320,13 +320,14 @@ final class ChatComposerView: UIView {
     @discardableResult func showMediaInput(mode: ComposerMediaPickerViewController.Mode) -> Bool {
         guard window != nil, !hiddenForSearch, mediaInputIsAvailable, chatVM.locationContextIsCurrent,
               let picker = makeMediaInputPicker(mode: mode) else { return false }
+        let containerSize = window?.bounds.size ?? bounds.size
         let height = ReplyKeyboardInputView.standardHeight(
-            containerSize: window?.bounds.size ?? bounds.size,
+            containerSize: containerSize,
             bottomInset: window?.safeAreaInsets.bottom ?? 0,
         )
         mediaInputResponder.keyboardInputViewController = ComposerMediaInputViewController(
             picker: picker,
-            height: height,
+            size: CGSize(width: containerSize.width, height: height),
         )
         if mediaInputResponder.isFirstResponder {
             mediaInputResponder.reloadInputViews()
