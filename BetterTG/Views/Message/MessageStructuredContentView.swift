@@ -119,6 +119,9 @@ enum MessageContentAction {
     /// The quiz whose explanation is open (Telegram's `currentPollMessageWithTooltip`), one at a time.
     private(set) var explanationMessageID: Int64?
 
+    /// Anonymous polls whose creator is looking at the results before voting (Telegram's `isPreviewingResults`).
+    private var previewingResultsMessageIDs = Set<Int64>()
+
     private var entries = [Int64: Entry]()
     private var timeoutWorkItems = [Int64: DispatchWorkItem]()
     private var checklistEntries = [Int64: [Int: ChecklistEntry]]()
@@ -200,6 +203,17 @@ enum MessageContentAction {
     }
 
     // MARK: New answers
+
+    func isPreviewingResults(messageID: Int64) -> Bool {
+        previewingResultsMessageIDs.contains(messageID)
+    }
+
+    func togglePreviewingResults(messageID: Int64) {
+        if previewingResultsMessageIDs.remove(messageID) == nil {
+            previewingResultsMessageIDs.insert(messageID)
+        }
+        changes.send(messageID)
+    }
 
     func addOptionDraft(messageID: Int64) -> String {
         addOptionDrafts[messageID] ?? ""
@@ -1500,6 +1514,8 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     private enum FooterAction {
         case vote
         case viewVotes
+        /// Telegram's "N votes >" and "< Vote" for the creator of an anonymous poll who hasn't voted.
+        case previewResults
         /// Telegram's Save for a typed new answer (`buttonSaveTextNode`).
         case saveOption
     }
@@ -1523,6 +1539,8 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     /// ChatMessagePollAddOptionNode: the Add an Option field under the answers while TDLib's `canAddOption` holds.
     private var addOptionView: PollAddOptionView?
     private var currentSelection = Set<Int>()
+    /// Whether the answers were last configured with their results.
+    private var optionsShowResults = false
     private var storeCancellable: AnyCancellable?
     /// The top of the poll's first block, its media or its question, under the bubble's edge or the explanation.
     private var contentTopToView: NSLayoutConstraint!
@@ -1551,13 +1569,26 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
 
     private var canVote: Bool {
         canOfferVote
+            && !isPreviewingResults
             && !content.poll.options.contains(where: \.isBeingChosen)
             && !interactionState.isSubmitting
     }
 
     private var showsResults: Bool {
         content.poll.canSeeResults
-            && (content.poll.isClosed || !currentSelection.isEmpty || content.poll.voteRestrictionReason != nil)
+            && (content.poll.isClosed || !currentSelection.isEmpty || content.poll.voteRestrictionReason != nil
+                || isPreviewingResults)
+    }
+
+    /// ChatMessagePollBubbleContentNode's `canAlwaysViewResults` for an anonymous poll: someone who sees the results
+    /// of an open poll they haven't voted in, its creator, may look at them before voting once anyone has voted.
+    private var canPreviewResults: Bool {
+        content.poll.isAnonymous && !content.poll.isClosed && content.poll.voteRestrictionReason == nil
+            && content.poll.canSeeResults && currentSelection.isEmpty && content.poll.totalVoterCount > 0
+    }
+
+    private var isPreviewingResults: Bool {
+        canPreviewResults && interactionStore.isPreviewingResults(messageID: messageID)
     }
 
     private var displayedOptionIndices: [Int] {
@@ -1601,12 +1632,14 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     /// offers View Votes.
     private var footerAction: FooterAction? {
         if canSaveNewOption { return .saveOption }
+        if isPreviewingResults { return .previewResults }
         if content.poll.allowsMultipleAnswers, canOfferVote,
-           !canViewVoters || !interactionState.pendingSelection.isEmpty
+           !canViewVoters && !canPreviewResults || !interactionState.pendingSelection.isEmpty
         {
             return .vote
         }
-        return canViewVoters ? .viewVotes : nil
+        if canViewVoters { return .viewVotes }
+        return canPreviewResults ? .previewResults : nil
     }
 
     /// Telegram swaps the button under the answers for Save once the new answer has text (`canSubmitNewOption`).
@@ -1776,28 +1809,12 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         optionsStack.spacing = 7
         addSubview(optionsStack)
 
-        // ChatMessagePollBubbleContentNode's hasAnyOptionMedia: every answer keeps the media's room at its end.
-        let hasAnyOptionMedia = content.poll.options.contains { $0.media != nil }
         for index in displayedOptionIndices {
             let optionView = PollOptionContentView()
-            optionView.configure(
-                option: content.poll.options[index],
-                index: index,
-                client: client,
-                hasAnyMedia: hasAnyOptionMedia,
-                showsResults: showsResults,
-                correct: hasAuthoritativeQuizAnswer && correctOptionIndices.contains(index),
-                incorrect: hasAuthoritativeQuizAnswer
-                    && content.poll.options[index].isChosen
-                    && !correctOptionIndices.contains(index),
-                enabled: canVote,
-                opensVoters: resultsOpenVoters,
-                relativeProgress: relativeProgress(for: content.poll.options[index]),
-                onMediaTap: { [weak self] media in self?.openMedia(media) },
-            ) { [weak self] selectedIndex in self?.optionTapped(selectedIndex) }
             optionViews[index] = optionView
             optionsStack.addArrangedSubview(optionView)
         }
+        configureOptions()
 
         if content.canAddOption {
             let addOptionView = PollAddOptionView()
@@ -1924,6 +1941,60 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         return min(1, max(0, CGFloat(option.voterCount) / CGFloat(maximumVoters)))
     }
 
+    /// Fills the answers in, and again when the creator's preview of the results starts or ends.
+    private func configureOptions() {
+        // ChatMessagePollBubbleContentNode's hasAnyOptionMedia: every answer keeps the media's room at its end.
+        let hasAnyOptionMedia = content.poll.options.contains { $0.media != nil }
+        let showsResults = showsResults
+        optionsShowResults = showsResults
+        for (index, optionView) in optionViews {
+            optionView.configure(
+                option: content.poll.options[index],
+                index: index,
+                client: client,
+                hasAnyMedia: hasAnyOptionMedia,
+                showsResults: showsResults,
+                correct: hasAuthoritativeQuizAnswer && correctOptionIndices.contains(index),
+                incorrect: hasAuthoritativeQuizAnswer
+                    && content.poll.options[index].isChosen
+                    && !correctOptionIndices.contains(index),
+                enabled: canVote,
+                opensVoters: resultsOpenVoters,
+                relativeProgress: relativeProgress(for: content.poll.options[index]),
+                onMediaTap: { [weak self] media in self?.openMedia(media) },
+            ) { [weak self] selectedIndex in self?.optionTapped(selectedIndex) }
+        }
+    }
+
+    /// Telegram's "N votes >" and "< Vote", with its chevrons in place of the angle brackets.
+    private func previewResultsTitle() -> NSAttributedString {
+        let text = isPreviewingResults
+            ? L10n.telegram("MessagePoll.BackToVote")
+            : L10n.telegramPlural("MessagePoll.ViewVote", count: content.poll.totalVoterCount)
+        let font = UIFont.preferredFont(forTextStyle: .callout).withWeight(.semibold)
+        let color = voteButton.tintColor ?? .systemBlue
+        let symbol = UIImage.SymbolConfiguration(font: font, scale: .small)
+        let result = NSMutableAttributedString()
+        for character in text {
+            let name: String? =
+                switch character {
+                case "<": "chevron.left"
+                case ">": "chevron.right"
+                default: nil
+                }
+            if let name, let image = UIImage(systemName: name, withConfiguration: symbol) {
+                let tinted = image.withTintColor(color, renderingMode: .alwaysOriginal)
+                result.append(NSAttributedString(attachment: NSTextAttachment(image: tinted)))
+            } else {
+                result.append(NSAttributedString(
+                    string: String(character),
+                    attributes: [.font: font, .foregroundColor: color],
+                ))
+            }
+        }
+        return result
+    }
+
     private func selectOption(_ index: Int) {
         guard canVote, content.poll.options.indices.contains(index) else { return }
         var selection = pendingSelection
@@ -1956,6 +2027,8 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
 
     /// Returns whether the button under the answers or the footer changed, which changes the poll's height.
     @discardableResult private func renderSelection() -> Bool {
+        let resultsToggled = showsResults != optionsShowResults
+        if resultsToggled { configureOptions() }
         let state = interactionState
         let opensVoters = resultsOpenVoters
         // ChatMessagePollBubbleContentNode.updatePollOptionsInteraction: the answers rest while a new one is typed.
@@ -1979,17 +2052,28 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
             voteButtonHeight.isActive = false
             voteButtonCollapsed.isActive = true
         }
+        voteButton.accessibilityLabel = nil
         switch action {
         case .vote:
+            voteButton.setAttributedTitle(nil, for: .normal)
             voteButton.setTitle(L10n.telegram("MessagePoll.SubmitVote"), for: .normal)
             voteButton.isEnabled = hasSelectionChange && canVote
         case .viewVotes:
+            voteButton.setAttributedTitle(nil, for: .normal)
             voteButton.setTitle(
                 L10n.telegram("MessagePoll.ViewVotes", compactNumericCountString(content.poll.totalVoterCount)),
                 for: .normal,
             )
             voteButton.isEnabled = !state.isSubmitting
+        case .previewResults:
+            let title = previewResultsTitle()
+            voteButton.setAttributedTitle(title, for: .normal)
+            voteButton.accessibilityLabel = title.string
+                .replacingOccurrences(of: "\u{FFFC}", with: "")
+                .trimmingCharacters(in: .whitespaces)
+            voteButton.isEnabled = !state.isSubmitting
         case .saveOption:
+            voteButton.setAttributedTitle(nil, for: .normal)
             voteButton.setTitle(L10n.telegram("Common.Save"), for: .normal)
             voteButton.isEnabled = !interactionStore.isAddingOption(messageID: messageID)
         case nil:
@@ -1997,7 +2081,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         }
         voteButton.alpha = voteButton.isEnabled ? 1 : 0.45
         footerLabel.text = footerText
-        return buttonVisibilityChanged || footerLabel.text != previousFooter
+        return resultsToggled || buttonVisibilityChanged || footerLabel.text != previousFooter
     }
 
     /// Shows the quiz's explanation above the poll while it is open, and the lamp otherwise. Returns whether the
@@ -2070,6 +2154,8 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
             submitSelection()
         case .viewVotes:
             onAction(.openPollResults(messageID: messageID, optionID: nil))
+        case .previewResults:
+            interactionStore.togglePreviewingResults(messageID: messageID)
         case .saveOption:
             saveNewOption()
         case nil:
@@ -3449,8 +3535,8 @@ final class TelegramContactDetailsViewController: UIViewController {
             }
             let expectedNames = [
                 "file", "file", "attachmentAlbum", "contact", "contact", "location", "location",
-                "poll", "poll", "poll", "dice", "stickerGlyph", "service", "service", "checklist", "checklist", "game",
-                "game", "story", "story",
+                "poll", "poll", "poll", "poll", "dice", "stickerGlyph", "service", "service", "checklist", "checklist",
+                "game", "game", "story", "story",
             ]
             let actionProof = actions.contains("poll:0") && actions.contains("poll:0,1")
                 && actions.filter { $0 == "checklist:2:true" }.count == 1
@@ -3537,6 +3623,12 @@ final class TelegramContactDetailsViewController: UIViewController {
                     name: "multi-poll",
                     messageID: 908,
                     content: .messagePoll(makePoll(quiz: false, multiple: true)),
+                ),
+                // The creator of an anonymous poll who hasn't voted previews its results.
+                Fixture(
+                    name: "anonymous-poll",
+                    messageID: 924,
+                    content: .messagePoll(makePoll(quiz: false, multiple: false, anonymous: true)),
                 ),
                 Fixture(
                     name: "poll-media",
@@ -3644,6 +3736,7 @@ final class TelegramContactDetailsViewController: UIViewController {
         private static func makePoll(
             quiz: Bool,
             multiple: Bool,
+            anonymous: Bool = false,
             mediaLocation: Location? = nil,
             customEmojiID: Int64? = nil,
         ) -> MessagePoll {
@@ -3713,12 +3806,12 @@ final class TelegramContactDetailsViewController: UIViewController {
                 poll: Poll(
                     allowsMultipleAnswers: multiple,
                     allowsRevoting: true,
-                    canGetVoters: true,
+                    canGetVoters: !anonymous,
                     canSeeResults: true,
                     closeDate: 0,
                     countryCodes: [],
                     id: 700,
-                    isAnonymous: false,
+                    isAnonymous: anonymous,
                     isClosed: false,
                     membersOnly: false,
                     openPeriod: 0,
