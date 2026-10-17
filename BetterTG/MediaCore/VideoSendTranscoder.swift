@@ -238,6 +238,12 @@ enum SelectedVideoLoader {
                 )
                 preview = crop.render(preview, sourcePixelSize: pixelSize, maximumSide: 960) ?? preview
             }
+            if let drawing = edit?.drawing, !drawing.isEmpty {
+                // The first frame and the thumbnail show the painting as the video does.
+                var placement = crop ?? PhotoCropAdjustments(originalSize: presented)
+                placement.drawing = drawing
+                preview = placement.paint(preview)
+            }
             // The thumbnail fits the sent dimensions into 320 x 320 (`aspectFitted`), JPEG quality 0.4.
             // The thumbnail's shape follows the sent video's, which the presets share up to rounding.
             let sent = VideoSendPreset.medium.outputDimensions(for: presented, crop: crop)
@@ -379,6 +385,27 @@ final class VideoSendTranscoder: @unchecked Sendable {
         self.edit = edit
     }
 
+    /// The overlay composited over a frame (`imageByCompositingOverImage:`), drawn into the reader's BGRA buffer
+    /// before it is encoded.
+    private static func draw(_ overlay: CGImage, over sample: CMSampleBuffer) {
+        guard let buffer = CMSampleBufferGetImageBuffer(sample),
+              CVPixelBufferLockBaseAddress(buffer, []) == kCVReturnSuccess
+        else { return }
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+        let width = CVPixelBufferGetWidth(buffer)
+        let height = CVPixelBufferGetHeight(buffer)
+        guard let context = CGContext(
+            data: CVPixelBufferGetBaseAddress(buffer),
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+            space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue,
+        ) else { return }
+        context.draw(overlay, in: CGRect(x: 0, y: 0, width: width, height: height))
+    }
+
     /// Stops reading; the writer is cancelled on the pump queue once both inputs have stopped appending.
     func cancel() {
         lock.lock()
@@ -406,6 +433,7 @@ final class VideoSendTranscoder: @unchecked Sendable {
         guard presented.width > 0, presented.height > 0 else { throw Failure.noVideoTrack }
         let crop = edit?.crop(inFrameOf: presented.size)
         let dimensions = outputPreset.outputDimensions(for: presented.size, crop: crop)
+        let overlay = paintingOverlay(crop: crop, presentedSize: presented.size, dimensions: dimensions)
         let frameRate = try await frameRate(of: sourceVideoTrack)
         let readable = try await readableSource(
             sourceAsset,
@@ -419,10 +447,13 @@ final class VideoSendTranscoder: @unchecked Sendable {
         let duration = readable.duration
 
         let reader = try AVAssetReader(asset: readable.asset)
+        // The painting is drawn into each frame, which needs the frames in BGRA.
         let videoOutput = AVAssetReaderVideoCompositionOutput(
             videoTracks: [videoTrack],
             videoSettings: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                kCVPixelBufferPixelFormatTypeKey as String: overlay == nil
+                    ? kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+                    : kCVPixelFormatType_32BGRA,
             ],
         )
         videoOutput.videoComposition = composition(
@@ -473,6 +504,9 @@ final class VideoSendTranscoder: @unchecked Sendable {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 let group = DispatchGroup()
                 pump(videoInput, from: videoOutput, label: "video", group: group) { sample in
+                    if let overlay {
+                        Self.draw(overlay, over: sample)
+                    }
                     let time = CMSampleBufferGetPresentationTimeStamp(sample).seconds
                     if time.isFinite { reporter.update(min(1, max(0, time / totalSeconds))) }
                 }
@@ -512,6 +546,22 @@ final class VideoSendTranscoder: @unchecked Sendable {
         defer { lock.unlock() }
         self.reader = reader
         return !cancelled
+    }
+
+    /// TGMediaVideoConverter's `overlayImage` from `paintingData.imagePath` at the output's size; a painting whose
+    /// file is gone leaves the video without it.
+    private func paintingOverlay(crop: PhotoCropAdjustments?, presentedSize: CGSize, dimensions: CGSize) -> CGImage? {
+        guard let url = edit?.paintingImageURL else { return nil }
+        guard let overlay = VideoEditPainting.overlay(
+            at: url,
+            crop: crop,
+            presentedSize: presentedSize,
+            dimensions: dimensions,
+        ) else {
+            log("Sending the video without its painting")
+            return nil
+        }
+        return overlay
     }
 
     private func pump(

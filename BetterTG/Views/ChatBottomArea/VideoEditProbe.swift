@@ -4,12 +4,14 @@
     import AVFoundation
     import UIKit
 
-    /// Launch with `-ui-probe-video-edit`, or `-ui-probe-video-edit crop` to open in the Crop tab. Once an account
-    /// is active it opens the attachment sheet's video editor on a generated six-second test video with a tone, so the
-    /// trim, mute, crop and the scrubber's zoom are checked without photo library access. Done shows the edit, with
-    /// the crop in the frame's pixels, and the grid's thumbnail of a cropped or trimmed video in a square cell
-    /// (VideoEditThumbnail). It converts the video as it would be sent, with `VideoSendTranscoder` at Medium, then
-    /// shows the converted file's length, size and sound; nothing is sent. `-ui-probe-video-edit cover` opens a
+    /// Launch with `-ui-probe-video-edit`, or `-ui-probe-video-edit crop` or `paint` to open in the Crop or Paint tab.
+    /// Once an account is active it opens the attachment sheet's video editor on a generated six-second test video with
+    /// a tone, so the trim, mute, crop, painting and the scrubber's zoom are checked without photo library access.
+    /// Done shows the edit, with the crop in the frame's pixels, and the grid's thumbnail of a cropped, trimmed or
+    /// painted video in a square cell (VideoEditThumbnail). It converts the video as it would be sent, with
+    /// `VideoSendTranscoder` at Medium and the edit read back from its conversion as `VideoSendGenerationCoordinator`
+    /// reads it, then shows the converted file's length, size and sound; nothing is sent. A painted video's converted
+    /// frame at half a second is written to `Documents/video-probe-draw.png`. `-ui-probe-video-edit cover` opens a
     /// 64-second video as a broadcast channel or Saved Messages would, with Edit Cover; Done also writes the cover as
     /// the send path does (`SelectedVideoLoader`) and shows the file with its time and size. Choose From Gallery
     /// there opens the system picker, then the cover editor in the video's shape.
@@ -85,7 +87,12 @@
             let arguments = ProcessInfo.processInfo.arguments
             guard let flagIndex = arguments.firstIndex(of: "-ui-probe-video-edit") else { return }
             let mode = arguments[safe: flagIndex + 1]
-            let initialTab: VideoEditorTab = mode == "crop" ? .crop : .video
+            let initialTab: VideoEditorTab =
+ switch mode {
+            case "crop": .crop
+            case "paint": .paint
+            default: .video
+            }
             let picksCover = mode == "cover"
             Task { @MainActor in
                 for _ in 0..<60 where TDLib.shared.activeAccountID == nil {
@@ -167,6 +174,12 @@
             if edit.coverImageURL != nil {
                 lines.append("cover from the gallery")
             }
+            if let drawing = edit.drawing {
+                lines.append(
+                    "painting \(Int(drawing.size.width))×\(Int(drawing.size.height)), "
+                        + "\(drawing.entities.count) entities" + (drawing.strokes == nil ? "" : ", strokes"),
+                )
+            }
             lines.append(edit.conversion(for: .medium))
             return lines.joined(separator: "\n")
         }
@@ -193,18 +206,39 @@
         private static func convert(_ source: URL, edit: VideoEditAdjustments?) async -> String {
             let directory = FileManager.default.temporaryDirectory
             let destination = directory.appendingPathComponent("bettertg-video-edit-probe-sent.mp4")
-            let transcoder = VideoSendTranscoder(preset: .medium, edit: edit)
+            // TDLib hands the conversion back, and the coordinator reads the edit from it.
+            let sentEdit = edit.flatMap { VideoEditAdjustments.parse(conversion: $0.conversion(for: .medium))?.edit }
+                ?? edit
+            let transcoder = VideoSendTranscoder(preset: .medium, edit: sentEdit)
             do {
                 try await transcoder.transcode(from: source, to: destination) { _ in }
                 let output = AVURLAsset(url: destination)
                 let duration = try await output.load(.duration).seconds
                 let size = try await output.loadTracks(withMediaType: .video).first?.load(.naturalSize) ?? .zero
                 let hasAudio = try await !output.loadTracks(withMediaType: .audio).isEmpty
-                return String(format: "converted %.2f s, %d×%d", duration, Int(size.width), Int(size.height))
+                var summary = String(format: "converted %.2f s, %d×%d", duration, Int(size.width), Int(size.height))
                     + (hasAudio ? ", with sound" : ", no sound")
+                if sentEdit?.paintingImageURL != nil {
+                    summary += await writePaintedFrame(of: output)
+                }
+                return summary
             } catch {
                 return "conversion failed: \(error)"
             }
+        }
+
+        /// The converted video's frame at half a second, the painting drawn into it, as
+        /// `Documents/video-probe-draw.png`.
+        private static func writePaintedFrame(of asset: AVAsset) async -> String {
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            guard let frame = try? await generator.image(at: CMTime(value: 1, timescale: 2)).image,
+                  let data = UIImage(cgImage: frame).pngData(),
+                  let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            else { return "\nno painted frame" }
+            let url = documents.appendingPathComponent("video-probe-draw.png")
+            guard (try? data.write(to: url, options: .atomic)) != nil else { return "\nno painted frame" }
+            return "\npainted frame \(frame.width)×\(frame.height) → \(url.lastPathComponent)"
         }
     }
 

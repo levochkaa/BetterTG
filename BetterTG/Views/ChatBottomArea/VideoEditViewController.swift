@@ -9,11 +9,12 @@ import UniformTypeIdentifiers
 
 // MARK: - VideoEditorTab
 
-/// The video editor's tabs: TGMediaPickerGalleryVideoItemView's trim and mute, and the crop of
-/// TGPhotoEditorController's video intent (TGPhotoCropController with `forVideo`).
+/// The video editor's tabs: TGMediaPickerGalleryVideoItemView's trim and mute, and the crop and paint of
+/// TGPhotoEditorController's video intent (TGPhotoCropController with `forVideo` and TGPhotoDrawingController).
 enum VideoEditorTab {
     case video
     case crop
+    case paint
 }
 
 // MARK: - VideoEditViewController
@@ -27,7 +28,9 @@ enum VideoEditorTab {
 /// mute and crop, or nothing for the video as it was; Cancel asks before it drops changes. Where the chat takes a
 /// cover, a video of a minute or more has TGMediaPickerGalleryInterfaceView's Edit Cover: Select Frame stops the
 /// video and swaps the trim for the cover picker, Save Cover keeps the frame under its handle, and Choose From Gallery
-/// takes a photo edited in the video's shape instead.
+/// takes a photo edited in the video's shape instead. The Paint tab is TGPhotoDrawingController for video: the photo
+/// editor's DrawingScreen without Blur over the muted, looping video, and the painting stays over the video in the
+/// Video tab as TGMediaPickerGalleryVideoItemView's `_paintingImageView` and `_entitiesView` show it.
 final class VideoEditViewController: UIViewController {
     // MARK: Private
 
@@ -51,6 +54,8 @@ final class VideoEditViewController: UIViewController {
     private static let areaInset: CGFloat = 9
     /// `photoContainerFrameForParentViewFrame` without the dial: `TGPhotoEditorPanelSize` less 55.
     private static let cropPanelHeight: CGFloat = 60
+    /// `TGPhotoEditorPanelSize` under the painted video, as in the photo editor's paint tab.
+    private static let paintPanelHeight: CGFloat = 115
     /// The still frame under the crop, at TGPhotoEditorController's screen image size.
     private static let frameImageSide: CGFloat = 1280
     /// TGMediaPickerCoverButton's frame width; the pill inside is narrower.
@@ -92,6 +97,7 @@ final class VideoEditViewController: UIViewController {
     private let tabBarView = UIView()
     private let videoTabButton = UIButton(type: .system)
     private let cropTabButton = UIButton(type: .system)
+    private let paintTabButton = UIButton(type: .system)
     private let tabSelectionView = PhotoCropViewController.makeSelectionView()
     private let toolbarView = UIView()
     private let cancelButton = UIButton(type: .system)
@@ -112,6 +118,10 @@ final class VideoEditViewController: UIViewController {
     private var isCoverScrubberLoaded = false
     /// TGPhotoCropView for video, made once the displayed frame's size is known.
     private var cropView: PhotoCropView?
+    /// DrawingScreen over the video, made with the crop once the frame's size is known.
+    private var paintView: PhotoDrawingScreenView?
+    /// The frame on screen cut as the Paint tab shows it, which the eyedropper picks from.
+    private var paintPreviewImage: UIImage?
     /// The displayed frame's size, which the crop is measured in.
     private var presentedSize = CGSize.zero
     /// Reads the frame on screen for the crop's quarter turn.
@@ -151,6 +161,12 @@ final class VideoEditViewController: UIViewController {
         adjustments.crop = currentCrop
         adjustments.coverTime = coverTime
         adjustments.coverImageURL = coverImageURL
+        let drawing = paintView == nil ? initialAdjustments.drawing : paintView?.drawing
+        adjustments.drawing = drawing
+        // An unchanged painting keeps its file; a changed one is written on Done.
+        if drawing != nil, drawing == initialAdjustments.drawing {
+            adjustments.paintingImageURL = initialAdjustments.paintingImageURL
+        }
         return adjustments
     }
 
@@ -162,6 +178,19 @@ final class VideoEditViewController: UIViewController {
     private var isCropBusy: Bool {
         guard let cropView else { return false }
         return cropView.isTracking || cropView.isAnimating
+    }
+
+    /// A stroke is drawn or an entity is moved.
+    private var isPaintBusy: Bool {
+        paintView?.isTracking == true
+    }
+
+    private var selectedTabButton: UIButton {
+        switch editorTab {
+        case .video: videoTabButton
+        case .crop: cropTabButton
+        case .paint: paintTabButton
+        }
     }
 
     /// `canHaveCover`: the chat takes a cover and the video is a minute or more (`originalDuration`).
@@ -264,12 +293,23 @@ final class VideoEditViewController: UIViewController {
         )
         let videoBottom = isCoverEditing ? coverGalleryButton.frame.minY - 4 : toolbarTop - 8
         let videoTop = scrubber.frame.maxY + 8
-        layoutPlayer(in: CGRect(
+        // The Paint tab fits the video under the tabs above the drawing controls, as the photo editor does.
+        let paintContainer = CGRect(
             x: safeArea.left,
-            y: videoTop,
+            y: contentTop,
             width: contentWidth,
-            height: max(0, videoBottom - videoTop),
-        ))
+            height: max(0, toolbarTop - Self.paintPanelHeight - contentTop),
+        )
+        if editorTab == .paint {
+            layoutPlayer(in: paintContainer)
+        } else {
+            layoutPlayer(in: CGRect(
+                x: safeArea.left,
+                y: videoTop,
+                width: contentWidth,
+                height: max(0, videoBottom - videoTop),
+            ))
+        }
         playButton.bounds = CGRect(x: 0, y: 0, width: Self.playButtonSide, height: Self.playButtonSide)
         playButton.center = CGPoint(x: playerClipView.frame.midX, y: playerClipView.frame.midY)
         // `_muteButtonFrameForOrientation:`: the video's bottom left corner, above the toolbar.
@@ -314,6 +354,7 @@ final class VideoEditViewController: UIViewController {
             height: max(0, toolbarTop - Self.cropPanelHeight - contentTop),
         )
         cropView?.frame = container.insetBy(dx: Self.areaInset, dy: Self.areaInset)
+        layoutPaint(container: paintContainer, toolbarTop: toolbarTop)
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -502,6 +543,12 @@ final class VideoEditViewController: UIViewController {
         let items: [(button: UIButton, symbol: String, label: String, action: Selector)] = [
             (videoTabButton, "video", L10n.betterTG("Accessibility.VideoEditor.Video"), #selector(videoTabPressed)),
             (cropTabButton, "crop.rotate", L10n.betterTG("Accessibility.PhotoEditor.Crop"), #selector(cropTabPressed)),
+            (
+                paintTabButton,
+                "paintbrush.pointed",
+                L10n.betterTG("Accessibility.PhotoEditor.Paint"),
+                #selector(paintTabPressed),
+            ),
         ]
         for item in items {
             item.button.setImage(UIImage(systemName: item.symbol, withConfiguration: symbolConfiguration), for: .normal)
@@ -580,6 +627,29 @@ final class VideoEditViewController: UIViewController {
         self.cropView = cropView
     }
 
+    /// TGPhotoDrawingController for video over everything, letting touches through outside its controls: the
+    /// painting covers the whole displayed frame at `TGPhotoPaintingMaxSize`, and Blur stays out (`forVideo`).
+    private func makePaintView() {
+        let drawing = initialAdjustments.drawing
+        let paintView = PhotoDrawingScreenView(
+            paintingSize: drawing?.size ?? PhotoDrawing.paintingSize(for: presentedSize),
+            drawing: drawing,
+            isVideo: true,
+        )
+        paintView.hostController = self
+        paintView.getPreviewImage = { [weak self] in self?.paintPreviewImage }
+        paintView.onPaintingChanged = { [weak self] in self?.updateTabs() }
+        paintView.onControlsHiddenChanged = { [weak self] hidden in
+            guard let self else { return }
+            UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+                self.tabBarView.alpha = hidden ? 0 : 1
+                self.toolbarView.alpha = hidden ? 0 : 1
+            }
+        }
+        view.addSubview(paintView)
+        self.paintView = paintView
+    }
+
     // MARK: Layout
 
     /// TGPhotoToolbarView's portrait layout: Cancel and Done in 49 pt squares at the ends, and the crop's three tools
@@ -605,11 +675,12 @@ final class VideoEditViewController: UIViewController {
     private func layoutTabBar() {
         let width = tabBarView.bounds.width
         let centerY = Self.tabBarHeight / 2
-        for (button, offset) in [(videoTabButton, -30), (cropTabButton, 30)] as [(UIButton, CGFloat)] {
+        let tabs: [(UIButton, CGFloat)] = [(videoTabButton, -60), (cropTabButton, 0), (paintTabButton, 60)]
+        for (button, offset) in tabs {
             button.bounds = CGRect(x: 0, y: 0, width: Self.tabTouchSide, height: Self.tabTouchSide)
             button.center = CGPoint(x: width / 2 + offset, y: centerY)
         }
-        tabSelectionView.center = (editorTab == .video ? videoTabButton : cropTabButton).center
+        tabSelectionView.center = selectedTabButton.center
     }
 
     /// `_layoutPlayerViewWithCropRect:`: the crop fitted into the area, with the whole frame turned and mirrored
@@ -633,15 +704,37 @@ final class VideoEditViewController: UIViewController {
         playerView.transform = placement.transform
     }
 
-    /// What each tab shows: the scrubber, player, mute and Edit Cover, or the crop with RESET and its tools. Choosing
-    /// a cover hides the tabs, the toolbar and the trim behind Select Frame (`setAllInterfaceHidden:keepHeader:`).
+    /// The painting over the video on screen, mapped through the crop as the converter lays it over the frames.
+    private func layoutPaint(container: CGRect, toolbarTop: CGFloat) {
+        guard let paintView else { return }
+        paintView.frame = view.bounds
+        let videoFrame = playerClipView.frame
+        let transform = displayedCrop.paintingTransform(
+            paintingSize: paintView.paintingSize,
+            outputSize: videoFrame.size,
+        )
+        paintView.layout(
+            photoFrame: videoFrame,
+            transform: transform,
+            topRow: tabBarView.frame,
+            drawingArea: CGRect(x: 0, y: container.minY, width: view.bounds.width, height: toolbarTop - container.minY),
+            bottomEdge: toolbarTop,
+            modeRow: CGRect(x: 0, y: toolbarTop, width: view.bounds.width, height: Self.toolbarHeight),
+        )
+    }
+
+    /// What each tab shows: the scrubber, player, mute and Edit Cover, the crop with RESET and its tools, or the
+    /// painting's controls over the player. The painting shows over the video outside the Crop tab. Choosing a cover
+    /// hides the tabs, the toolbar, the trim and the painting behind Select Frame
+    /// (`setAllInterfaceHidden:keepHeader:`).
     private func applyVisibility() {
         let isCrop = editorTab == .crop
+        let isVideoTab = editorTab == .video
         let isLoaded = loadedAdjustments != nil
         let isCover = isCoverEditing
-        Self.setVisible(scrubber, !isCrop && isLoaded && !isCover)
-        Self.setVisible(muteButton, !isCrop && isLoaded && !isCover)
-        Self.setVisible(coverButton, !isCrop && isLoaded && !isCover && canHaveCover)
+        Self.setVisible(scrubber, isVideoTab && isLoaded && !isCover)
+        Self.setVisible(muteButton, isVideoTab && isLoaded && !isCover)
+        Self.setVisible(coverButton, isVideoTab && isLoaded && !isCover && canHaveCover)
         for coverView in [coverScrubber, coverTitleLabel, coverCancelButton, saveCoverButton, coverGalleryButton]
             as [UIView]
         {
@@ -657,6 +750,8 @@ final class VideoEditViewController: UIViewController {
             Self.setVisible(button, isCrop && cropView != nil)
         }
         Self.setVisible(tabBarView, cropView != nil && !isCover)
+        paintView?.setPaintingVisible(!isCrop && !isCover)
+        paintView?.setActive(editorTab == .paint && !isCover, animated: false)
     }
 
     /// `highlightedTabs`: Mirror while mirrored, Aspect Ratio while a ratio is locked, and a tab while its edit
@@ -674,18 +769,24 @@ final class VideoEditViewController: UIViewController {
             isSelected: editorTab == .crop,
             isApplied: currentCrop.map { !$0.hasDefaultCropping } ?? false,
         )
-        tabSelectionView.center = (editorTab == .video ? videoTabButton : cropTabButton).center
+        PhotoCropViewController.style(
+            paintTabButton,
+            isSelected: editorTab == .paint,
+            isApplied: paintView?.hasDrawing == true,
+        )
+        tabSelectionView.center = selectedTabButton.center
     }
 
     /// `presentTab`: the crop settles before the player shows it, and the scrubber's frames take its shape
-    /// (`croppingChanged`'s `updateThumbnails`).
+    /// (`croppingChanged`'s `updateThumbnails`); a stroke being drawn finishes first.
     private func setTab(_ newTab: VideoEditorTab) {
-        guard newTab != editorTab, let cropView, !isCropBusy, !scrubber.isTrimming, !scrubber.isScrubbing,
-              !isCoverEditing
+        guard newTab != editorTab, let cropView, !isCropBusy, !isPaintBusy, !scrubber.isTrimming,
+              !scrubber.isScrubbing, !isCoverEditing
         else {
             return
         }
         cropView.commitPendingChanges()
+        paintView?.commitPendingStroke()
         editorTab = newTab
         updatePlayerMuting()
         switch newTab {
@@ -697,6 +798,8 @@ final class VideoEditViewController: UIViewController {
             }
         case .crop:
             refreshCropFrame()
+        case .paint:
+            refreshPaintPreview()
         }
         view.setNeedsLayout()
         view.layoutIfNeeded()
@@ -750,6 +853,7 @@ final class VideoEditViewController: UIViewController {
         scrubber.setCrop(initialCrop)
         if hasFrame {
             makeCropView(frame: frame.map { UIImage(cgImage: $0) }, crop: initialCrop)
+            makePaintView()
         } else {
             editorTab = .video
         }
@@ -780,9 +884,12 @@ final class VideoEditViewController: UIViewController {
         applyVisibility()
         updateTabs()
         view.setNeedsLayout()
-        // A muted video plays at once, as Telegram's gallery loops a GIF, and so does the crop the editor opens in
-        // (the crop's `finishedTransitionIn` starts playback on the initial appearance).
-        if sendsAsGIF || editorTab == .crop {
+        // A muted video plays at once, as Telegram's gallery loops a GIF, and so do the crop and paint the editor
+        // opens in (their `finishedTransitionIn` starts playback on the initial appearance).
+        if sendsAsGIF || editorTab != .video {
+            if editorTab == .paint {
+                refreshPaintPreview()
+            }
             play()
         } else {
             setPlayButtonHidden(false, animated: false)
@@ -811,6 +918,21 @@ final class VideoEditViewController: UIViewController {
         }
     }
 
+    /// The eyedropper picks from the frame on screen, cut, turned and mirrored as the Paint tab shows it.
+    private func refreshPaintPreview() {
+        let crop = displayedCrop
+        Task { [weak self] in
+            guard let frame = await self?.currentFrame() else { return }
+            let pixelSize = CGSize(width: frame.size.width * frame.scale, height: frame.size.height * frame.scale)
+            let image = crop.videoCrop(inFrameOf: pixelSize).render(
+                frame,
+                sourcePixelSize: pixelSize,
+                maximumSide: Self.frameImageSide,
+            )
+            self?.paintPreviewImage = image
+        }
+    }
+
     // MARK: Playback
 
     private func playerTimeChanged(_ time: CMTime) {
@@ -836,10 +958,10 @@ final class VideoEditViewController: UIViewController {
         player.pause()
     }
 
-    /// `playerItemDidPlayToEndTime:`: a GIF loops, and so does the video under the crop; otherwise the video stops
-    /// with its play button at the trim's start.
+    /// `playerItemDidPlayToEndTime:`: a GIF loops, and so does the video under the crop and the painting; otherwise
+    /// the video stops with its play button at the trim's start.
     private func playerItemDidPlayToEnd() {
-        if sendsAsGIF || editorTab == .crop {
+        if sendsAsGIF || editorTab != .video {
             scrubber.setPlaybackPosition(scrubber.trimStart)
         } else {
             pause()
@@ -887,9 +1009,10 @@ final class VideoEditViewController: UIViewController {
         }
     }
 
-    /// The play button shows over the paused video in the Video tab; the Crop tab plays and pauses by a tap.
+    /// The play button shows over the paused video in the Video tab; the Crop tab plays and pauses by a tap, and the
+    /// Paint tab draws over the video.
     private func setPlayButtonHidden(_ requestedHidden: Bool, animated: Bool) {
-        let hidden = requestedHidden || editorTab == .crop || isCoverEditing
+        let hidden = requestedHidden || editorTab != .video || isCoverEditing
         guard animated else {
             playButton.isHidden = hidden
             playButton.alpha = hidden ? 0 : 1
@@ -900,7 +1023,7 @@ final class VideoEditViewController: UIViewController {
             self.playButton.alpha = hidden ? 0 : 1
         } completion: { finished in
             if finished {
-                self.playButton.isHidden = hidden || self.isPlaying || self.editorTab == .crop || self.isCoverEditing
+                self.playButton.isHidden = hidden || self.isPlaying || self.editorTab != .video || self.isCoverEditing
             }
         }
     }
@@ -910,10 +1033,10 @@ final class VideoEditViewController: UIViewController {
         muteButton.accessibilityTraits = sendsAsGIF ? [.button, .selected] : .button
     }
 
-    /// The sound plays in the Video tab unless the video goes as a GIF; the crop plays without it, as
+    /// The sound plays in the Video tab unless the video goes as a GIF; the crop and paint play without it, as
     /// TGPhotoEditorController's muted player does.
     private func updatePlayerMuting() {
-        player.isMuted = sendsAsGIF || editorTab == .crop
+        player.isMuted = sendsAsGIF || editorTab != .video
     }
 
     @objc private func videoTapped() {
@@ -1102,6 +1225,10 @@ final class VideoEditViewController: UIViewController {
         setTab(.crop)
     }
 
+    @objc private func paintTabPressed() {
+        setTab(.paint)
+    }
+
     /// `cropReset`: the whole frame, upright and unmirrored, without a locked ratio.
     @objc private func resetPressed() {
         cropView?.reset(animated: true)
@@ -1155,8 +1282,10 @@ final class VideoEditViewController: UIViewController {
 
     /// `dismissEditor`: changes are dropped only after Discard Changes.
     @objc private func cancelPressed() {
-        guard !scrubber.isTrimming, !scrubber.isScrubbing, !isCropBusy, !isCoverEditing else { return }
+        guard !scrubber.isTrimming, !scrubber.isScrubbing, !isCropBusy, !isPaintBusy, !isCoverEditing else { return }
+        paintView?.commitPendingStroke()
         guard hasChanges else {
+            paintView?.saveToolState()
             dismiss(animated: true)
             return
         }
@@ -1165,6 +1294,7 @@ final class VideoEditViewController: UIViewController {
             title: L10n.telegram("PhotoEditor.DiscardChanges"),
             style: .destructive,
         ) { [weak self] _ in
+            self?.paintView?.saveToolState()
             self?.dismiss(animated: true)
         })
         sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
@@ -1173,10 +1303,13 @@ final class VideoEditViewController: UIViewController {
         present(sheet, animated: true)
     }
 
-    /// The trim, mute, crop and cover go with the video; a waiting crop change settles first, and an untouched video
-    /// hands back nothing (`isDefaultValues`).
+    /// The trim, mute, crop, painting and cover go with the video; a waiting crop change and stroke settle first, a
+    /// changed painting is written as the file the converter lays over the frames, and an untouched video hands back
+    /// nothing (`isDefaultValues`).
     @objc private func donePressed() {
-        guard !scrubber.isTrimming, !scrubber.isScrubbing, cropView?.isTracking != true, !isCoverEditing else {
+        guard !scrubber.isTrimming, !scrubber.isScrubbing, cropView?.isTracking != true, !isPaintBusy,
+              !isCoverEditing
+        else {
             return
         }
         guard loadedAdjustments != nil else {
@@ -1184,7 +1317,15 @@ final class VideoEditViewController: UIViewController {
             return
         }
         cropView?.commitPendingChanges()
-        let adjustments = currentAdjustments
+        paintView?.commitPendingStroke()
+        paintView?.saveToolState()
+        var adjustments = currentAdjustments
+        if let drawing = adjustments.drawing, adjustments.paintingImageURL == nil {
+            adjustments.paintingImageURL = VideoEditPainting.write(drawing)
+            if adjustments.paintingImageURL == nil {
+                log("Sending the video without its painting")
+            }
+        }
         onDone?(adjustments.isDefault ? nil : adjustments)
         dismiss(animated: true)
     }

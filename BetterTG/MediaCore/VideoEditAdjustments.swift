@@ -2,12 +2,14 @@
 
 import CoreMedia
 import Foundation
+import ImageIO
+import UIKit
 
 // MARK: - VideoEditAdjustments
 
 /// What TGVideoEditAdjustments keeps for a picked video in the attachment sheet: the trimmed part, `sendAsGif`,
 /// which mutes the video and sends it as a GIF that autoplays and loops, and the crop with its quarter turns and
-/// mirroring. The cover TGMediaEditingContext keeps beside them goes with them here.
+/// mirroring, and the painting. The cover TGMediaEditingContext keeps beside them goes with them here.
 struct VideoEditAdjustments: Equatable {
     /// `TGVideoScrubberMinimumTrimDuration`: the shortest part a trim keeps.
     static let minimumTrimDuration = 1.0
@@ -32,10 +34,17 @@ struct VideoEditAdjustments: Equatable {
     /// TGMediaEditingContext's `setCoverImage:position:nil`: a gallery photo edited in the video's shape
     /// (MediaEditorScreen's `coverEditor`) and stored as the cover's JPEG; it replaces `coverTime`.
     var coverImageURL: URL?
+    /// TGVideoEditAdjustments' `paintingData`: the strokes and entities over the whole displayed frame, kept
+    /// editable for the editor (`entitiesData`).
+    var drawing: PhotoDrawing?
+    /// `paintingData.imagePath`: the painting flattened at its own size, which TGMediaVideoConverter lays over
+    /// every frame. The conversion names it, so a generation TDLib restarts keeps it.
+    var paintingImageURL: URL?
 
     /// `isDefaultValues`: nothing to apply.
     var isDefault: Bool {
-        trimRange == nil && !sendsAsGIF && crop == nil && coverTime == nil && coverImageURL == nil
+        trimRange == nil && !sendsAsGIF && crop == nil && coverTime == nil && coverImageURL == nil && drawing == nil
+            && paintingImageURL == nil
     }
 
     /// The sent length of a video `duration` seconds long.
@@ -73,11 +82,13 @@ extension VideoEditAdjustments {
     private static let turnPrefix = "turn="
     private static let mirrorFlag = "mirror"
     private static let rotationPrefix = "rot="
+    private static let paintPrefix = "paint="
 
     /// TDLib restarts an unfinished generation with its original path and conversion, so the conversion carries the
     /// edit after the preset's name: `bettertg-video-medium-v1;trim=1.500-9.250;gif`, and a crop as its rectangle
     /// and frame size, quarter turns, mirroring and a Live Photo's straightening in radians:
-    /// `crop=0.00,140.00,720.00,720.00,1280.00,720.00;turn=1;mirror;rot=0.13963`.
+    /// `crop=0.00,140.00,720.00,720.00,1280.00,720.00;turn=1;mirror;rot=0.13963`, and the painting's file in
+    /// VideoEditPainting's folder: `paint=6F9619FF-8B86-D011-B42D-00C04FC964FF.png`.
     func conversion(for preset: VideoSendPreset) -> String {
         var parts = [preset.conversion]
         if let trimRange {
@@ -106,6 +117,9 @@ extension VideoEditAdjustments {
             if abs(crop.rotation) > .ulpOfOne {
                 parts.append(Self.rotationPrefix + String(format: "%.5f", crop.rotation))
             }
+        }
+        if let paintingImageURL {
+            parts.append(Self.paintPrefix + paintingImageURL.lastPathComponent)
         }
         return parts.joined(separator: ";")
     }
@@ -144,6 +158,11 @@ extension VideoEditAdjustments {
                       abs(value) <= Double(PhotoCropAdjustments.maximumRotation) + 0.001
                 else { return nil }
                 rotation = CGFloat(value)
+            } else if part.hasPrefix(paintPrefix) {
+                guard let url = VideoEditPainting.url(named: String(part.dropFirst(paintPrefix.count))) else {
+                    return nil
+                }
+                edit.paintingImageURL = url
             } else {
                 return nil
             }
@@ -303,5 +322,56 @@ extension SelectedImage {
             edit.crop = livePhotoCrop
         }
         return edit.conversion(for: .medium)
+    }
+}
+
+// MARK: - VideoEditPainting
+
+/// TGPaintingData's file for a video: the painting flattened at its own size as a PNG in a temporary folder, as
+/// TGMediaEditingContext stores `paintingImagePath`, and laid over the frames as TGMediaVideoConverter does.
+enum VideoEditPainting {
+    static let directory = FileManager.default
+        .temporaryDirectory
+        .appendingPathComponent("bettertg-video-paintings", isDirectory: true)
+
+    /// The painting file a conversion names; nil for a name that isn't a PNG in the folder.
+    static func url(named name: String) -> URL? {
+        guard name.hasSuffix(".png"), !name.hasPrefix("."), !name.contains("/") else { return nil }
+        return directory.appendingPathComponent(name, isDirectory: false)
+    }
+
+    /// Writes the strokes and entities flattened over a transparent painting of their own size.
+    static func write(_ drawing: PhotoDrawing) -> URL? {
+        guard let image = drawing.overlayImage(size: drawing.size, transform: .identity),
+              let data = UIImage(cgImage: image).pngData()
+        else { return nil }
+        let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("png")
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            log("Could not write the video's painting: \(error)")
+            return nil
+        }
+        return url
+    }
+
+    /// TGMediaVideoConverter's `overlayImage`: the painting at `url` over an output frame of `dimensions`, placed as
+    /// `crop` cuts, straightens and turns the displayed frame of `presentedSize`, without its mirroring
+    /// (`TGMirrorSidewardOrientation`); nil when the file can't be read.
+    static func overlay(
+        at url: URL,
+        crop: PhotoCropAdjustments?,
+        presentedSize: CGSize,
+        dimensions: CGSize,
+    ) -> CGImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let painting = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { return nil }
+        var placement = crop ?? PhotoCropAdjustments(originalSize: presentedSize)
+        placement.cropRect = placement.videoCropRect
+        let paintingSize = CGSize(width: painting.width, height: painting.height)
+        let transform = placement.paintingTransform(paintingSize: paintingSize, outputSize: dimensions)
+        return PhotoDrawing(size: paintingSize, strokes: painting).overlayImage(size: dimensions, transform: transform)
     }
 }
