@@ -3,6 +3,7 @@
 #if DEBUG
     import AVFoundation
     import CoreImage
+    import ImageIO
     import UIKit
 
     /// Launch with `-ui-probe-photo-crop`, or `-ui-probe-photo-tools` for the Tools tab. Once an account is active it
@@ -322,8 +323,12 @@
                     log("Photo draw probe: the send path wrote no photo")
                     return
                 }
-                let sent = selection.image
-                log("Photo draw probe: sent \(Int(sent.size.width * sent.scale))×\(Int(sent.size.height * sent.scale))")
+                // `selection.image` is the composer preview (960 px); the file is what TDLib uploads.
+                let properties = CGImageSourceCreateWithURL(selection.url as CFURL, nil)
+                    .flatMap { CGImageSourceCopyPropertiesAtIndex($0, 0, nil) as? [CFString: Any] }
+                let width = (properties?[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 0
+                let height = (properties?[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
+                log("Photo draw probe: sent a \(width)×\(height) JPEG")
                 SelectedDocumentFileStore.remove(selection.fileURLs)
             }
         }
