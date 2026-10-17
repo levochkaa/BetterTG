@@ -517,7 +517,7 @@ Proofs:
   list by design (`touchOrigin` returns nil for `.chatPreview`), so I was checked on a message: a touch on the bubble
   dragged onto copy copied the message (I, pasteboard checked).
 - Not proven: preview pan visuals mid-drag; VoiceOver escape (the Simulator doesn't run VoiceOver); 120 Hz and haptics on
-  a physical device; the iOS 26 fallback path at runtime (selector checks only). Device-interaction multi-touch was
+  a physical device. iOS 26 runs the same gesture code; its morph is checked under "Liquid morph" below. Device-interaction multi-touch was
   first rejected by automatic approval review under the old AGENTS.md rule; `75872177` allows Xcode MCP, and the next
   section has the multi-touch proofs.
 
@@ -580,7 +580,10 @@ Proofs:
 - Keyboard up (10-17, Xcode MCP in UI test, 60 fps `/tmp/kbmorph.mp4` frames 1464-1478): with the system keyboard
   showing, holding the send button grew Send Without Sound and Schedule Message out of it in about 0.2 s, above the
   keyboard, which stayed in place; while editing, the attach button morphed into its Emoji menu the same way.
-- Not proven: 120 Hz on a device, the iOS 26 fallback at runtime.
+- iOS 26 (10-17, iPhone 17 Pro iOS 26.5 Simulator, `-ui-probe-context-menu-liquid-morph`): the probe passed with
+  the runtime supported, so iOS 26 morphs as iOS 27 does. An unsupported runtime takes the same
+  `usesLiquidMorph == false` branch as Reduce Motion, whose plain presentation is proven above.
+- Not proven: 120 Hz on a device.
 
 ## BetterTG identity (user decisions)
 
