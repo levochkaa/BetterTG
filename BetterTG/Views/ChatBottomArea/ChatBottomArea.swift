@@ -76,8 +76,10 @@ final class ChatComposerView: UIView {
     var onOpenScheduledMessages: (() -> Void)?
     /// The menu button of a bot whose menu is a Web App (`botMenuButton == .webView`): the chat opens it.
     var onOpenBotMenuWebApp: ((TDNativeBotMenuButton) -> Void)?
-    /// A long press on a sticker suggested for the typed emoji: the chat shows its menu.
-    var onSuggestedStickerMenu: ((Sticker, UIView, UIGestureRecognizer) -> Void)?
+    /// The peek menu of a sticker suggested for the typed emoji, from the chat.
+    var suggestedStickerPeekActions: ((Sticker) -> [TelegramContextMenuAction])?
+    /// The chat's Send Silently and Schedule Message at the top of a sticker's peek menu in the media panel.
+    var stickerPeekSendActions: ((Sticker) -> [TelegramContextMenuAction])?
 
     private let chatVM: ChatVM
     private let glassView: UIVisualEffectView = {
@@ -1221,8 +1223,8 @@ final class ChatComposerView: UIView {
         suggestionsView.onRemoveHashtag = { [weak self] hashtag in self?.chatVM.removeRecentHashtag(hashtag) }
         suggestionsView.onSelectEmoji = { [weak self] emoji in self?.insertSuggestedEmoji(emoji) }
         suggestionsView.onSelectSticker = { [weak self] sticker in self?.sendSuggestedSticker(sticker) }
-        suggestionsView.onStickerMenu = { [weak self] sticker, cell, gesture in
-            self?.onSuggestedStickerMenu?(sticker, cell, gesture)
+        suggestionsView.stickerPeekActions = { [weak self] sticker in
+            self?.suggestedStickerPeekActions?(sticker) ?? []
         }
     }
 
@@ -1410,6 +1412,7 @@ final class ChatComposerView: UIView {
             let chatVM = chatVM
             Task { await chatVM.sendSticker(sticker) }
         }
+        picker.stickerSendActions = { [weak self] sticker in self?.stickerPeekSendActions?(sticker) ?? [] }
         picker.onAnimation = { [weak self] animation in
             guard let self, chatVM.locationContextIsCurrent else { return }
             let chatVM = chatVM

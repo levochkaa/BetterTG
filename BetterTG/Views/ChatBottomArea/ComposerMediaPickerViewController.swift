@@ -23,6 +23,21 @@ UISearchBarDelegate {
         case input
     }
 
+    #if DEBUG
+        /// The sticker peek probe's generated stickers, in Favorites, Recently Used and one pack in place of TDLib's.
+        struct ProbeStickers {
+            let favorites: [Sticker]
+            let recent: [Sticker]
+            let packID: Int64
+            let packTitle: String
+            let pack: [Sticker]
+        }
+
+        var probeStickers: ProbeStickers?
+        /// Reports a sticker menu item instead of sending its request.
+        var onProbeStickerAction: ((String, Sticker) -> Void)?
+    #endif
+
     /// Telegram's sticker tab groups (EmojiPagerContentSignals): Favorite Stickers, Recently Used, then every installed
     /// pack in the user's order. The emoji tab has Recently Used and Telegram's emoji categories. Searches and the
     /// other tabs use one plain section.
@@ -55,6 +70,14 @@ UISearchBarDelegate {
         let resultID: String
     }
 
+    /// The sticker peek menu's own items (ChatEntityKeyboardInputNode).
+    private enum StickerAction: String {
+        case addToFavorites
+        case removeFromFavorites
+        case viewPack
+        case removeFromRecent
+    }
+
     /// Telegram shows up to 20 recently used stickers.
     private static let recentStickerLimit = 20
     /// The emoji tab's category bar sits where the other tabs have their search field.
@@ -67,6 +90,9 @@ UISearchBarDelegate {
     var onEmoji: ((String) -> Void)?
     var onCustomEmoji: ((Sticker) -> Void)?
     var onSticker: ((Sticker) -> Void)?
+    /// The chat's items at the top of a sticker's peek menu, Send Silently and Schedule Message
+    /// (ChatEntityKeyboardInputNode); nil where the picker chooses a sticker without sending it.
+    var stickerSendActions: ((Sticker) -> [TelegramContextMenuAction])?
     /// Off while a message is edited (Telegram offers only emoji input then, `ChatInterfaceInputContexts`) or when the
     /// chat doesn't take stickers and GIFs: the picker keeps only its emoji tabs.
     var allowsStickersAndGIFs = true
@@ -379,6 +405,10 @@ UISearchBarDelegate {
             return collectionView.cellForItem(at: path)
         }
         collectionView.addGestureRecognizer(press)
+        // ChatEntityKeyboardInputNode's peek recognizer: holding a sticker previews it and holding on opens its menu.
+        let peek = StickerPeekGestureRecognizer(target: nil, action: nil)
+        peek.contentAtPoint = { [weak self] point in self?.stickerPeekContent(at: point) }
+        collectionView.addGestureRecognizer(peek)
         view.addSubview(collectionView)
         let segmentedLeading: NSLayoutConstraint
         let segmentedTrailing: NSLayoutConstraint
@@ -816,6 +846,24 @@ UISearchBarDelegate {
 
     /// Favorite Stickers, Recently Used and the installed packs in order. Each pack fills in as TDLib returns it.
     private func loadStickerGroups() async {
+        #if DEBUG
+            if let probeStickers {
+                favoriteStickerIDs = Set(probeStickers.favorites.map(\.sticker.id))
+                applyStickerGroups(
+                    [
+                        (.favorites, probeStickers.favorites),
+                        (.recent, probeStickers.recent),
+                        (.pack(probeStickers.packID), probeStickers.pack),
+                    ],
+                    titles: [
+                        .favorites: L10n.telegram("EmojiInput.SectionTitleFavoriteStickers"),
+                        .recent: L10n.telegram("Stickers.FrequentlyUsed"),
+                        .pack(probeStickers.packID): probeStickers.packTitle,
+                    ],
+                )
+                return
+            }
+        #endif
         let client = client
         async let favoritesRequest = client.send(TDNativeRequests.getFavoriteStickers())
         async let recentRequest = client.send(TDNativeRequests.getRecentStickers(isAttached: false))
@@ -925,91 +973,118 @@ UISearchBarDelegate {
     // MARK: Item menus
 
     private func hasMenu(_ item: ItemID) -> Bool {
-        switch item {
-        case .animation, .groupedSticker: true
-        // Custom emoji have no sticker menu.
-        case .sticker: mode == .stickers
-        case .emoji, .inlineAnimation: false
+        // Stickers open Telegram's peek instead.
+        if case .animation = item {
+            true
+        } else {
+            false
         }
     }
 
-    /// Telegram's sticker and GIF preview menus (StickerPreviewPeekContent, ChatContextResultPeekContent).
+    /// Telegram's saved GIF menu (ChatContextResultPeekContent): Delete.
     @objc private func itemLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
         guard gesture.state == .began, contextIsCurrent,
               let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
-              let item = dataSource.itemIdentifier(for: path),
+              case .animation(let id) = dataSource.itemIdentifier(for: path),
+              let animation = animations[id],
               let cell = collectionView.cellForItem(at: path)
         else { return }
-        let actions: [TelegramContextMenuAction]
-        switch item {
-        case .groupedSticker(let section, let id):
-            guard let sticker = stickers[id] else { return }
-            actions = stickerActions(sticker, section: section)
-        case .sticker(let id):
-            guard mode == .stickers, let sticker = stickers[id] else { return }
-            actions = stickerActions(sticker, section: .content)
-        case .animation(let id):
-            guard let animation = animations[id] else { return }
-            actions = [
-                TelegramContextMenuAction(
-                    title: L10n.telegram("Preview.DeleteGif"),
-                    image: UIImage(systemName: "trash"),
-                    isDestructive: true,
-                ) { [weak self] in self?.removeSavedAnimation(animation) },
-            ]
-        case .emoji, .inlineAnimation:
-            return
-        }
+        let actions = [
+            TelegramContextMenuAction(
+                title: L10n.telegram("Preview.DeleteGif"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+            ) { [weak self] in self?.removeSavedAnimation(animation) },
+        ]
         presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture, presentationStyle: .menuOnly)
     }
 
+    /// The sticker under the finger for Telegram's peek, with the menu of the group it is in. Custom emoji have no
+    /// sticker peek here.
+    private func stickerPeekContent(at point: CGPoint) -> StickerPeekContent? {
+        guard contextIsCurrent, mode == .stickers,
+              let path = collectionView.indexPathForItem(at: point),
+              let item = dataSource.itemIdentifier(for: path),
+              let cell = collectionView.cellForItem(at: path)
+        else { return nil }
+        let section: Section
+        let stickerID: Int
+        switch item {
+        case .groupedSticker(let itemSection, let id):
+            section = itemSection
+            stickerID = id
+        case .sticker(let id):
+            section = .content
+            stickerID = id
+        case .animation, .emoji, .inlineAnimation:
+            return nil
+        }
+        guard let sticker = stickers[stickerID] else { return nil }
+        return StickerPeekContent(
+            sticker: sticker,
+            client: client,
+            sourceView: cell,
+            actions: stickerActions(sticker, section: section),
+        )
+    }
+
+    /// ChatEntityKeyboardInputNode's sticker peek menu: the chat's Send Silently and Schedule Message, Add to or
+    /// Remove from Favorites, View Pack for a sticker from a pack, and Remove from Recent in Recently Used.
     private func stickerActions(_ sticker: Sticker, section: Section) -> [TelegramContextMenuAction] {
         let isFavorite = favoriteStickerIDs.contains(sticker.sticker.id)
-        var actions = [
-            TelegramContextMenuAction(
-                title: L10n.telegram("StickerPack.Send"),
-                image: UIImage(systemName: "paperplane"),
-            ) { [weak self] in
-                guard let self, contextIsCurrent else { return }
-                onSticker?(sticker)
-            },
-            TelegramContextMenuAction(
-                title: L10n.telegram(isFavorite ? "Stickers.RemoveFromFavorites" : "Stickers.AddToFavorites"),
-                image: UIImage(systemName: isFavorite ? "star.slash" : "star"),
-            ) { [weak self] in
-                self?.changeSticker(
-                    sticker,
-                    request: isFavorite
-                        ? TDNativeRequests
-                            .removeFavoriteSticker(sticker: .inputFileId(InputFileId(id: sticker.sticker.id)))
-                        : TDNativeRequests
-                            .addFavoriteSticker(sticker: .inputFileId(InputFileId(id: sticker.sticker.id))),
-                    toast: L10n.telegram(
-                        isFavorite
-                            ? "Conversation.StickerRemovedFromFavorites"
-                            : "Conversation.StickerAddedToFavorites",
-                    ),
-                )
-            },
-        ]
+        var actions = stickerSendActions?(sticker) ?? []
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram(isFavorite ? "Stickers.RemoveFromFavorites" : "Stickers.AddToFavorites"),
+            image: UIImage(systemName: isFavorite ? "star.slash" : "star"),
+        ) { [weak self] in
+            self?.performStickerAction(isFavorite ? .removeFromFavorites : .addToFavorites, sticker: sticker)
+        })
         if sticker.setId != 0 {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("StickerPack.ViewPack"),
                 image: UIImage(systemName: "square.grid.2x2"),
-            ) { [weak self] in self?.openStickerSet(sticker.setId) })
+            ) { [weak self] in self?.performStickerAction(.viewPack, sticker: sticker) })
         }
         if section == .recent {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("Stickers.RemoveFromRecent"),
-                image: UIImage(systemName: "clock.arrow.circlepath"),
+                image: UIImage(systemName: "trash"),
                 isDestructive: true,
-            ) { [weak self] in
-                self?.changeSticker(sticker, request: TDNativeRequests.removeRecentSticker(
-                    isAttached: false, sticker: .inputFileId(InputFileId(id: sticker.sticker.id)),
-                ))
-            })
+            ) { [weak self] in self?.performStickerAction(.removeFromRecent, sticker: sticker) })
         }
         return actions
+    }
+
+    private func performStickerAction(_ action: StickerAction, sticker: Sticker) {
+        #if DEBUG
+            if let onProbeStickerAction {
+                onProbeStickerAction(action.rawValue, sticker)
+                return
+            }
+        #endif
+        let input = InputFile.inputFileId(InputFileId(id: sticker.sticker.id))
+        switch action {
+        case .addToFavorites:
+            changeSticker(
+                sticker,
+                request: TDNativeRequests.addFavoriteSticker(sticker: input),
+                toast: L10n.telegram("Conversation.StickerAddedToFavorites"),
+            )
+        case .removeFromFavorites:
+            changeSticker(
+                sticker,
+                request: TDNativeRequests.removeFavoriteSticker(sticker: input),
+                toast: L10n.telegram("Conversation.StickerRemovedFromFavorites"),
+            )
+        case .viewPack:
+            openStickerSet(sticker.setId)
+        case .removeFromRecent:
+            changeSticker(
+                sticker,
+                request: TDNativeRequests.removeRecentSticker(isAttached: false, sticker: input),
+                toast: L10n.telegram("Conversation.StickerRemovedFromRecent"),
+            )
+        }
     }
 
     private func changeSticker(_: Sticker, request: TDRequest<TDNativeOk>, toast: String? = nil) {

@@ -67,8 +67,8 @@ UICollectionViewDelegateFlowLayout {
     var onRemoveHashtag: ((String) -> Void)?
     var onSelectEmoji: ((String) -> Void)?
     var onSelectSticker: ((Sticker) -> Void)?
-    /// A long press on a suggested sticker, for its preview menu.
-    var onStickerMenu: ((Sticker, UIView, UIGestureRecognizer) -> Void)?
+    /// The peek menu of a suggested sticker (InlineReactionSearchPanel).
+    var stickerPeekActions: ((Sticker) -> [TelegramContextMenuAction])?
 
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let collectionView: UICollectionView
@@ -152,14 +152,10 @@ UICollectionViewDelegateFlowLayout {
         stickerGrid.dataSource = self
         stickerGrid.delegate = self
         stickerGrid.register(ComposerStickerCell.self, forCellWithReuseIdentifier: ComposerStickerCell.reuseIdentifier)
-        // StickerPreviewPeekContent: the sticker grows under the finger, then its menu opens.
-        let stickerPress = ContextMenuPressGestureRecognizer(target: self, action: #selector(stickerLongPressed(_:)))
-        stickerPress.pressedViewProvider = { [weak self] gesture in
-            guard let self,
-                  let path = stickerGrid.indexPathForItem(at: gesture.location(in: stickerGrid)) else { return nil }
-            return stickerGrid.cellForItem(at: path)
-        }
-        stickerGrid.addGestureRecognizer(stickerPress)
+        // InlineReactionSearchPanel's peek recognizer: holding a sticker previews it and holding on opens its menu.
+        let stickerPeek = StickerPeekGestureRecognizer(target: nil, action: nil)
+        stickerPeek.contentAtPoint = { [weak self] point in self?.stickerPeekContent(at: point) }
+        stickerGrid.addGestureRecognizer(stickerPeek)
         emojiBubble.onSelect = { [weak self] emoji in self?.onSelectEmoji?(emoji) }
         for subview in [tableView, collectionView, stickerGrid, emojiBubble] as [UIView] {
             subview.translatesAutoresizingMaskIntoConstraints = false
@@ -430,12 +426,17 @@ UICollectionViewDelegateFlowLayout {
         return count > item.perRow ? floor(item.side * 1.5) : 7 + item.side + 4
     }
 
-    @objc private func stickerLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
-        guard gesture.state == .began,
-              let path = stickerGrid.indexPathForItem(at: gesture.location(in: stickerGrid)),
+    private func stickerPeekContent(at point: CGPoint) -> StickerPeekContent? {
+        guard let client,
+              let path = stickerGrid.indexPathForItem(at: point),
               let sticker = suggestedStickers[safe: path.item],
-              let cell = stickerGrid.cellForItem(at: path) else { return }
-        onStickerMenu?(sticker, cell, gesture)
+              let cell = stickerGrid.cellForItem(at: path) else { return nil }
+        return StickerPeekContent(
+            sticker: sticker,
+            client: client,
+            sourceView: cell,
+            actions: stickerPeekActions?(sticker) ?? [],
+        )
     }
 }
 

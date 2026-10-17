@@ -2105,3 +2105,4 @@
 "Report.Title.Story" = "Report Story";
 "Conversation.StoryForwardTooltip.Chat.One" = "Story forwarded to **%@**";
 "Conversation.StoryForwardTooltip.SavedMessages.One" = "Story forwarded to to **Saved Messages**";
+"Conversation.StickerRemovedFromRecent" = "Sticker was removed from Recents.";

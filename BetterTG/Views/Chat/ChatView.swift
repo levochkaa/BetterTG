@@ -2431,8 +2431,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
             composerView.onOpenReplyOptions = { [weak self] source in self?.presentReplyOptions(from: source) }
             composerView.onScheduleMessage = { [weak self] in self?.presentScheduleMessagePicker() }
-            composerView.onSuggestedStickerMenu = { [weak self] sticker, cell, gesture in
-                self?.presentSuggestedStickerMenu(sticker, from: cell, tracking: gesture)
+            composerView.suggestedStickerPeekActions = { [weak self] sticker in
+                self?.suggestedStickerPeekActions(sticker) ?? []
+            }
+            composerView.stickerPeekSendActions = { [weak self] sticker in
+                guard let self else { return [] }
+                let chatVM = chatVM
+                return stickerPeekSendActions(sticker) { sticker, options in
+                    Task { await chatVM.sendSticker(sticker, options: options) }
+                }
             }
             composerView.onOpenScheduledMessages = { [weak self] in self?.openScheduledMessages() }
             composerView.onOpenBotMenuWebApp = { [weak self] button in self?.openBotMenuWebApp(button) }
@@ -6149,36 +6156,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         StickerPackPreviewViewController.present(setID: setID, client: chatVM.client, from: self, onSend: send)
     }
 
-    /// InlineReactionSearchPanel's peek menu for a sticker suggested by the typed emoji: Send Silently outside Saved
-    /// Messages and secret chats, Schedule Message where scheduling is allowed, Add to or Remove from Favorites, and
-    /// View Pack.
-    private func presentSuggestedStickerMenu(
-        _ sticker: Sticker,
-        from cell: UIView,
-        tracking gesture: UIGestureRecognizer,
-    ) {
+    /// InlineReactionSearchPanel's peek menu for a sticker suggested by the typed emoji: the send items, Add to or
+    /// Remove from Favorites, and View Pack.
+    private func suggestedStickerPeekActions(_ sticker: Sticker) -> [TelegramContextMenuAction] {
         guard presentationMode == .full, presentedViewController == nil, !clientOwnerRetired,
-              chatVM.locationContextIsCurrent else { return }
-        var actions = [TelegramContextMenuAction]()
-        let isSecret =
-            if case .chatTypeSecret = chatVM.customChat.chat.type {
-                true
-            } else {
-                false
-            }
-        if !chatVM.customChat.isSavedMessages, !isSecret {
-            actions.append(TelegramContextMenuAction(
-                title: L10n.telegram("Conversation.SendMessage.SendSilently"),
-                image: UIImage(systemName: "bell.slash"),
-            ) { [weak self] in
-                self?.composerView.sendSuggestedSticker(sticker, options: ChatVM.sendOptions(silent: true))
-            })
-        }
-        if chatVM.canScheduleMessages {
-            actions.append(TelegramContextMenuAction(
-                title: L10n.telegram("Conversation.SendMessage.ScheduleMessage"),
-                image: UIImage(systemName: "calendar.badge.clock"),
-            ) { [weak self] in self?.presentSuggestedStickerSchedulePicker(sticker) })
+              chatVM.locationContextIsCurrent else { return [] }
+        var actions = stickerPeekSendActions(sticker) { [weak self] sticker, options in
+            self?.composerView.sendSuggestedSticker(sticker, options: options)
         }
         let fileID = sticker.sticker.id
         let isFavorite = favoriteStickerFileIDs.contains(fileID)
@@ -6193,12 +6177,45 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 image: UIImage(systemName: "square.grid.2x2"),
             ) { [weak self] in self?.presentStickerPack(setID: setID) })
         }
-        presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture, presentationStyle: .menuOnly)
+        return actions
     }
 
-    /// InlineReactionSearchPanel's Schedule Message: `sendSticker` with `schedule` opens the date picker, and the
-    /// sticker goes out at the picked time.
-    private func presentSuggestedStickerSchedulePicker(_ sticker: Sticker) {
+    /// The send items of Telegram's sticker peek menus (ChatEntityKeyboardInputNode, InlineReactionSearchPanel):
+    /// Send Silently outside Saved Messages and secret chats, and Schedule Message where scheduling is allowed.
+    private func stickerPeekSendActions(
+        _ sticker: Sticker,
+        send: @escaping (Sticker, TDNativeMessageSendOptions) -> Void,
+    ) -> [TelegramContextMenuAction] {
+        guard presentationMode == .full, !clientOwnerRetired, chatVM.locationContextIsCurrent,
+              chatVM.canSendStickersAndAnimations, chatVM.editCustomMessage == nil else { return [] }
+        var actions = [TelegramContextMenuAction]()
+        let isSecret =
+            if case .chatTypeSecret = chatVM.customChat.chat.type {
+                true
+            } else {
+                false
+            }
+        if !chatVM.customChat.isSavedMessages, !isSecret {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.SendMessage.SendSilently"),
+                image: UIImage(systemName: "bell.slash"),
+            ) { send(sticker, ChatVM.sendOptions(silent: true)) })
+        }
+        if chatVM.canScheduleMessages {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.SendMessage.ScheduleMessage"),
+                image: UIImage(systemName: "calendar.badge.clock"),
+            ) { [weak self] in self?.presentStickerSchedulePicker(sticker, send: send) })
+        }
+        return actions
+    }
+
+    /// The peek menu's Schedule Message: `sendSticker` with `schedule` opens the date picker, and the sticker goes out
+    /// at the picked time.
+    private func presentStickerSchedulePicker(
+        _ sticker: Sticker,
+        send: @escaping (Sticker, TDNativeMessageSendOptions) -> Void,
+    ) {
         guard presentationMode == .full, chatVM.locationContextIsCurrent, chatVM.canScheduleMessages else { return }
         ScheduleMessagePickerViewController.present(
             from: self,
@@ -6206,7 +6223,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             showsSendWhenOnline: chatVM.canSendWhenOnline,
         ) { [weak self] state in
             guard let self, chatVM.locationContextIsCurrent else { return }
-            composerView.sendSuggestedSticker(sticker, options: ChatVM.sendOptions(schedulingState: state))
+            send(sticker, ChatVM.sendOptions(schedulingState: state))
         }
     }
 
@@ -6874,6 +6891,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 self?.retryClientRestoration()
                 Task { await chatVM?.sendSticker(sticker) }
             }
+        }
+        picker.stickerSendActions = { [weak self, weak picker] sticker in
+            self?.stickerPeekSendActions(sticker) { [weak self, weak picker] sticker, options in
+                let chatVM = self?.chatVM
+                picker?.navigationController?.dismiss(animated: true) {
+                    self?.retryClientRestoration()
+                    Task { await chatVM?.sendSticker(sticker, options: options) }
+                }
+            } ?? []
         }
         picker.onAnimation = { [weak self, weak picker, weak chatVM] animation in
             picker?.navigationController?.dismiss(animated: true) {
