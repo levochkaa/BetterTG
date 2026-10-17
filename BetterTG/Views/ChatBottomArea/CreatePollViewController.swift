@@ -165,6 +165,8 @@ import UIKit
     private var mediaFlow: PollMediaAttachmentFlow?
     /// The uploads of the picked files, by the media's id.
     private var uploads = [UUID: MediaUpload]()
+    /// The web pages being asked for links attached without one, by the media's id.
+    private var linkPreviewRequests = [UUID: Task<Void, Never>]()
     private var options = [DraftOption]()
     private var nextOptionID = 0
     private var editingOptionID: Int?
@@ -805,9 +807,9 @@ import UIKit
 
     /// chatTextLinkEditController for an attached link: an empty link removes it, a new one replaces it.
     private func openAttachedLink(_ link: String, for target: MediaTarget) {
-        let editor = PollLinkEditor.make(link: link) { [weak self] value in
+        let editor = PollLinkEditor.make(link: link, client: client) { [weak self] value, preview in
             guard let self, let value else { return }
-            setMedia(value.isEmpty ? nil : PollDraftMedia.link(value), for: target)
+            setMedia(value.isEmpty ? nil : PollDraftMedia.link(value, preview: preview), for: target)
         }
         present(editor, animated: true)
     }
@@ -901,11 +903,19 @@ import UIKit
         media.flatMap { uploads[$0.id]?.progress }
     }
 
+    /// ComposePollScreen's `requiresUpload` while the poll can't go yet: a file uploading, or a link's web page being
+    /// asked for.
+    private func isUploading(_ media: PollDraftMedia?) -> Bool {
+        guard let media else { return false }
+        return uploads[media.id] != nil || linkPreviewRequests[media.id] != nil
+    }
+
     /// ComposePollScreen's uploadAttachedMediaIfNeeded: TDLib uploads a picked file ahead of the poll
     /// (`preliminaryUploadFile`, as standaloneUploadedImage and standaloneUploadedFile do), its thumbnail shows the
     /// progress, and the media then sends the uploaded file. A video TDLib generates counts its conversion as the
     /// first half, as the chat's upload status does.
     private func uploadIfNeeded(_ media: PollDraftMedia) {
+        if media.needsLinkPreview { return requestLinkPreview(for: media) }
         guard let upload = media.upload, uploads[media.id] == nil,
               let source = TDImageOrigin.captured(client: client)?.source else { return }
         let id = media.id
@@ -945,6 +955,23 @@ import UIKit
         refreshUploadProgress(of: id)
     }
 
+    /// uploadAttachedMediaIfNeeded for a link attached without its web page (makePollAttachmentLinkWebpage):
+    /// `webpagePreview` asks for the page without a progress on the thumbnail, which then draws the page's image, and
+    /// the poll waits for the answer. TDLib sends the link by its URL, so a link without a page doesn't hold the poll
+    /// back once the answer is in.
+    private func requestLinkPreview(for media: PollDraftMedia) {
+        guard let url = media.link, linkPreviewRequests[media.id] == nil else { return }
+        let id = media.id
+        let client = client
+        let text = FormattedText(entities: [], text: url)
+        linkPreviewRequests[id] = Task { [weak self] in
+            let preview = try? await client.send(TDNativeRequests.getLinkPreview(text: text, linkPreviewOptions: nil))
+            guard let self, !Task.isCancelled, linkPreviewRequests.removeValue(forKey: id) != nil,
+                  let preview else { return }
+            replaceMedia(id) { $0.withLinkPreview(preview) }
+        }
+    }
+
     private func uploadDidChange(_ id: UUID, file: File) {
         guard var upload = uploads[id] else { return }
         if file.remote.isUploadingCompleted {
@@ -978,6 +1005,7 @@ import UIKit
     }
 
     private func cancelUpload(of id: UUID) {
+        linkPreviewRequests.removeValue(forKey: id)?.cancel()
         guard let fileID = uploads.removeValue(forKey: id)?.fileID else { return }
         let client = client
         Task { _ = try? await client.send(TDNativeRequests.cancelPreliminaryUploadFile(fileId: fileID)) }
@@ -1285,7 +1313,7 @@ import UIKit
             return .failed(L10n.telegram("CreatePoll.QuestionNeeded"))
         }
         let filled = options.filter { !$0.text.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        if filled.contains(where: { uploadProgress(of: $0.media) != nil }) { return .uploading }
+        if filled.contains(where: { isUploading($0.media) }) { return .uploading }
         guard !filled.isEmpty else {
             return .failed(L10n.telegram(isQuiz ? "CreatePoll.OptionsNeeded" : "CreatePoll.OptionsNeededOne"))
         }
@@ -1295,8 +1323,8 @@ import UIKit
                     ? "CreatePoll.QuizCorrectOptionNeededMultiple"
                     : "CreatePoll.QuizCorrectOptionNeeded"))
         }
-        if isQuiz, uploadProgress(of: explanationMedia) != nil { return .uploading }
-        if uploadProgress(of: pollMedia) != nil { return .uploading }
+        if isQuiz, isUploading(explanationMedia) { return .uploading }
+        if isUploading(pollMedia) { return .uploading }
         let type: TDNativeInputPollType =
             if isQuiz {
                 .inputPollTypeQuiz(TDNativeInputPollTypeQuiz(
@@ -1342,7 +1370,7 @@ import UIKit
             didSend = true
             view.endEditing(true)
             // Media the poll leaves out, such as an explanation's outside a quiz, stops uploading.
-            for id in Array(uploads.keys) {
+            for id in Set(uploads.keys).union(linkPreviewRequests.keys) {
                 cancelUpload(of: id)
             }
             let send = send

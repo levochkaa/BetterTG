@@ -51,12 +51,17 @@ struct PollMediaStill {
             )
         case .pollMediaLink(let value):
             // ChatMessagePollOptionNode draws a link's preview image (the web page's `content.image`).
-            guard let preview = value.linkPreview,
-                  let thumbnail = MessageLinkPreviewView.thumbnail(preview.type) else { return nil }
-            self.init(file: thumbnail.file, minithumbnail: thumbnail.placeholder, pixelSize: thumbnail.size)
+            guard let preview = value.linkPreview else { return nil }
+            self.init(linkPreview: preview)
         case .pollMediaLocation, .pollMediaSticker, .pollMediaVenue:
             return nil
         }
+    }
+
+    /// A link preview's image, which a poll draws for a link being composed too.
+    init?(linkPreview: LinkPreview) {
+        guard let thumbnail = MessageLinkPreviewView.thumbnail(linkPreview.type) else { return nil }
+        self.init(file: thumbnail.file, minithumbnail: thumbnail.placeholder, pixelSize: thumbnail.size)
     }
 
     private init(photo: Photo, pixelSize: CGSize? = nil) {
@@ -239,10 +244,17 @@ final class PollMediaThumbnailView: UIControl {
             configureSticker(sticker, client: client)
         case .location(let location):
             mapView.load(location, size: Self.size, meters: 500)
-        case .link:
+        case .link(_, let linkPreview):
+            // The link's icon over the web page's image once getLinkPreview has it, on the accent color before.
             showIcon("link")
-            backgroundColor = UIColor.systemBlue.withAlphaComponent(0.1)
-            iconView.tintColor = .systemBlue
+            if let still = linkPreview.flatMap(PollMediaStill.init(linkPreview:)) {
+                still.load(into: imageView, maximumPixelSize: 160, client: client)
+                overlayView.isHidden = false
+                iconView.tintColor = .white
+            } else {
+                backgroundColor = UIColor.systemBlue.withAlphaComponent(0.1)
+                iconView.tintColor = .systemBlue
+            }
         case .file:
             showIcon("doc.fill")
             iconView.tintColor = .secondaryLabel

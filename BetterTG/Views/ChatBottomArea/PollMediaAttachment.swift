@@ -61,7 +61,8 @@ enum PollDraftMediaPreview {
     /// A file without a preview image.
     case file
     case audio
-    case link(String)
+    /// A link with its web page, once getLinkPreview has one.
+    case link(String, LinkPreview?)
 }
 
 // MARK: - PollDraftMedia
@@ -82,7 +83,7 @@ struct PollDraftMedia {
 
     let id = UUID()
     private(set) var input: TDNativeInputPollMedia
-    let preview: PollDraftMediaPreview
+    private(set) var preview: PollDraftMediaPreview
     /// Files in `SelectedDocumentFileStore` the media sends, removed when it's replaced, deleted or discarded.
     let fileURLs: [URL]
     /// The file still to upload; nil once uploaded, or for media without a picked file.
@@ -90,8 +91,15 @@ struct PollDraftMedia {
 
     /// An option's attached link, which opens its editor when tapped.
     var link: String? {
-        if case .link(let url) = preview { return url }
+        if case .link(let url, _) = preview { return url }
         return nil
+    }
+
+    /// ComposePollScreen's `requiresUpload` for a link: a link without its web page (makePollAttachmentLinkWebpage)
+    /// asks getLinkPreview for it ahead of the poll.
+    var needsLinkPreview: Bool {
+        if case .link(_, nil) = preview { return true }
+        return false
     }
 
     init(input: TDNativeInputPollMedia, preview: PollDraftMediaPreview, fileURLs: [URL], upload: Upload? = nil) {
@@ -297,10 +305,11 @@ struct PollDraftMedia {
         )
     }
 
-    static func link(_ url: String) -> PollDraftMedia {
+    /// chatTextLinkEditController's link, with the web page it previewed for that link.
+    static func link(_ url: String, preview: LinkPreview? = nil) -> PollDraftMedia {
         PollDraftMedia(
             input: .inputPollMediaLink(TDNativeInputPollMediaLink(url: url)),
-            preview: .link(url),
+            preview: .link(url, preview),
             fileURLs: [],
         )
     }
@@ -350,73 +359,14 @@ struct PollDraftMedia {
         media.upload = nil
         return media
     }
-}
 
-// MARK: - PollLinkEditor
-
-/// chatTextLinkEditController as a poll option's link editor: Add Link, or Edit Link for an attached one, "Attach a
-/// link to this option.", the URL field and Done. Done takes a link Telegram would open (`explicitUrl` adds
-/// https://, `isValidUrl` wants an http, https or tonsite address with a domain) or an empty field, which removes
-/// the link. A new link starts from a URL on the pasteboard.
-enum PollLinkEditor {
-    /// - Parameter apply: The link, empty to remove it, or nil for Cancel.
-    @MainActor static func make(link: String?, apply: @escaping (String?) -> Void) -> UIAlertController {
-        let alert = UIAlertController(
-            title: L10n.telegram(link == nil ? "TextFormat.AddLinkTitle" : "TextFormat.EditLinkTitle"),
-            message: L10n.telegram("CreatePoll.Link.Description"),
-            preferredStyle: .alert,
-        )
-        let done = UIAlertAction(title: L10n.telegram("Common.Done"), style: .default) { [weak alert] _ in
-            let value = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            apply(value.isEmpty ? "" : explicitURL(value))
-        }
-        alert.addTextField { [weak done] field in
-            field.placeholder = L10n.telegram("TextFormat.AddLinkPlaceholder")
-            field.text = link
-            field.keyboardType = .URL
-            field.autocapitalizationType = .none
-            field.autocorrectionType = .no
-            field.returnKeyType = .done
-            if link == nil, UIPasteboard.general.hasURLs, let url = UIPasteboard.general.url?.absoluteString {
-                field.text = url
-            }
-            field.addAction(UIAction { [weak field] _ in
-                done?.isEnabled = isAcceptable(field?.text ?? "")
-            }, for: .editingChanged)
-        }
-        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel) { _ in apply(nil) })
-        alert.addAction(done)
-        alert.preferredAction = done
-        done.isEnabled = isAcceptable(alert.textFields?.first?.text ?? "")
-        return alert
-    }
-
-    /// An empty field, or a link Telegram accepts.
-    private static func isAcceptable(_ text: String) -> Bool {
-        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.isEmpty || isValidURL(explicitURL(value))
-    }
-
-    /// UrlEscaping's explicitUrl: an address without a scheme gets https://, or tonsite:// on a .ton domain.
-    private static func explicitURL(_ value: String) -> String {
-        let lowercased = value.lowercased()
-        guard !lowercased.hasPrefix("http:"), !lowercased.hasPrefix("https:"), !lowercased.hasPrefix("tonsite:"),
-              !value.contains("://")
-        else { return value }
-        if URL(string: "http://\(value)")?.host?.hasSuffix(".ton") == true { return "tonsite://\(value)" }
-        return "https://\(value)"
-    }
-
-    /// UrlEscaping's isValidUrl with chatTextLinkEditController's schemes: http, https and tonsite, the web ones
-    /// with a top level domain, and no user.
-    private static func isValidURL(_ value: String) -> Bool {
-        let requiresTopLevelDomain = ["http": true, "https": true, "tonsite": true]
-        guard let escaped = value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
-              let url = URL(string: escaped), let scheme = url.scheme?.lowercased(),
-              let requiresDomain = requiresTopLevelDomain[scheme], let host = url.host, url.user == nil
-        else { return false }
-        guard requiresDomain else { return true }
-        return host.contains(".") && host.components(separatedBy: ".").last?.isEmpty == false
+    /// uploadAttachedMediaIfNeeded's `webpagePreview` result for a link: TDLib sends the link by its URL, and the
+    /// web page only draws its thumbnail.
+    func withLinkPreview(_ linkPreview: LinkPreview) -> PollDraftMedia {
+        guard case .link(let url, _) = preview else { return self }
+        var media = self
+        media.preview = .link(url, linkPreview)
+        return media
     }
 }
 
@@ -698,9 +648,9 @@ enum PollLinkEditor {
     private func presentLinkEditor() {
         guard let presenter else { return finish(nil) }
         nextPickerID()
-        let editor = PollLinkEditor.make(link: nil) { [self] link in
+        let editor = PollLinkEditor.make(link: nil, client: client) { [self] link, preview in
             guard let link, !link.isEmpty else { return finish(nil) }
-            finish(PollDraftMedia.link(link))
+            finish(PollDraftMedia.link(link, preview: preview))
         }
         presenter.present(editor, animated: true)
     }
