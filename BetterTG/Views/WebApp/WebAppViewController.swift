@@ -24,6 +24,9 @@ struct WebAppLaunch {
         /// A bot menu button's `openWebApp` (WebAppParameters.Source.menu); closing it calls `closeWebApp` with the
         /// launch ID. A button linking to a named Web App opens it through `getWebAppLinkUrl`, with no launch.
         case menu(launchID: Int64?)
+        /// A Settings bot's `getWebAppUrl` with no URL (WebAppParameters.Source.settings, a simple web view). There
+        /// is no launch to close.
+        case settings
         #if DEBUG
             /// A local page with no bot behind it.
             case probe(html: String)
@@ -191,12 +194,12 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         launch.url.host.map { "\(launch.url.scheme ?? "https")://\($0)" }
     }
 
-    /// WebAppController's Remove Bot: an activated attachment menu bot opened from the attachment menu or as a main
-    /// Web App (`[.attachMenu, .settings, .generic].contains(source)`).
+    /// WebAppController's Remove Bot: an activated attachment menu bot opened from the attachment menu, Settings or as
+    /// a main Web App (`[.attachMenu, .settings, .generic].contains(source)`).
     private var canRemoveBot: Bool {
         guard let source = launch.updateSource else { return false }
         switch launch.source {
-        case .attachMenu, .main:
+        case .attachMenu, .main, .settings:
             return AttachmentMenuBotStore.shared.isAdded(botUserID: launch.botUserID, source: source)
         default:
             return false

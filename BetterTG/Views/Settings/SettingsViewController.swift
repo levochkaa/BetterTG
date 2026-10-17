@@ -6,8 +6,8 @@ import UIKit
 
 // MARK: - SettingsViewController
 
-/// Telegram's Settings (PeerInfoScreen in settings mode): the account's profile, its accounts, Saved Messages,
-/// Devices and Chat Folders, then Notifications, Privacy, Data and Storage, Appearance and Language.
+/// Telegram's Settings (PeerInfoScreen in settings mode): the account's profile, its accounts, the side menu bots,
+/// Saved Messages, Devices and Chat Folders, then Notifications, Privacy, Data and Storage, Appearance and Language.
 final class SettingsViewController: UITableViewController {
     // MARK: Private
 
@@ -16,6 +16,8 @@ final class SettingsViewController: UITableViewController {
     private var meAccountID: UUID?
     private var sessionCount: Int?
     private var loadTask: Task<Void, Never>?
+    /// The Settings bots' launcher, for the account and client it was made for.
+    private var appLauncher: (source: TdUpdateSource, launcher: WebAppLauncher)?
 
     init() {
         super.init(style: .insetGrouped)
@@ -47,6 +49,10 @@ final class SettingsViewController: UITableViewController {
             self?.title = L10n.telegram("Settings.Title")
             self?.tableView.reloadData()
         }
+        AttachmentMenuBotStore.shared
+            .changes
+            .sink { [weak self] in self?.tableView.reloadData() }
+            .store(in: &cancellables)
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -64,6 +70,15 @@ final class SettingsViewController: UITableViewController {
 
     override func tableView(_: UITableView, titleForHeaderInSection section: Int) -> String? {
         Section(rawValue: section)?.title
+    }
+
+    /// An account without side menu bots shows no gap for their section.
+    override func tableView(_: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        isEmptyAppsSection(section) ? .leastNormalMagnitude : UITableView.automaticDimension
+    }
+
+    override func tableView(_: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+        isEmptyAppsSection(section) ? .leastNormalMagnitude : UITableView.automaticDimension
     }
 
     override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
@@ -102,6 +117,7 @@ final class SettingsViewController: UITableViewController {
         cell.backgroundColor = .secondarySystemGroupedBackground
         cell.accessoryView = nil
         cell.accessoryType = .none
+        cell.accessibilityValue = nil
         cell.selectionStyle = row.isSelectable ? .default : .none
 
         switch row {
@@ -110,6 +126,8 @@ final class SettingsViewController: UITableViewController {
         case .addAccount:
             configuration.textProperties.color = .systemBlue
             cell.contentConfiguration = configuration
+        case .app(let botUserID):
+            configureApp(cell, configuration: configuration, botUserID: botUserID)
         case .appearance, .chatFolders, .dataAndStorage, .devices, .language, .notifications, .privacy,
              .savedMessages:
             cell.accessoryType = .disclosureIndicator
@@ -133,6 +151,8 @@ final class SettingsViewController: UITableViewController {
             performAccountOperation { try TDLib.shared.switchToAccount(id) }
         case .addAccount:
             performAccountOperation { try TDLib.shared.addAccount() }
+        case .app(let botUserID):
+            openBotApp(botUserID)
         case .appearance:
             navigationController?.pushViewController(AppearanceViewController(), animated: true)
         case .language:
@@ -166,6 +186,8 @@ final class SettingsViewController: UITableViewController {
         case .accounts:
             let accountRows: [Row] = TDLib.shared.sortedAccounts.map { .account($0.id) }
             return accountRows + [.addAccount]
+        case .apps:
+            return appEntries().map { .app($0.bot.botUserId) }
         case .shortcuts:
             return TDLib.shared.activeAccountID == nil ? [] : [.savedMessages, .devices, .chatFolders]
         case .appearance:
@@ -201,6 +223,101 @@ final class SettingsViewController: UITableViewController {
             sessionCount = sessions?.sessions.count
             tableView.reloadData()
         }
+    }
+
+    private func isEmptyAppsSection(_ section: Int) -> Bool {
+        Section(rawValue: section) == .apps && rows(in: section).isEmpty
+    }
+
+    /// PeerInfoData's settings bots: the account's attachment menu bots shown in the side menu (`.showInSettings`),
+    /// in the list's order.
+    private func appEntries() -> [AttachmentMenuBotStore.Entry] {
+        guard TDLib.shared.activeAccountID != nil, let source = TDLib.shared.activeUpdateSource else { return [] }
+        return AttachmentMenuBotStore.shared.entries(for: source).filter(\.bot.showInSideMenu)
+    }
+
+    /// PeerInfoSettingsItems' app row: the bot's short name and its side menu icon with 8 pt corners at Telegram's
+    /// 30 pt (scaled to the other rows' icons), and a NEW title badge while the bot isn't added or its disclaimer
+    /// stands.
+    private func configureApp(
+        _ cell: UITableViewCell,
+        configuration: UIListContentConfiguration,
+        botUserID: Int64,
+    ) {
+        var configuration = configuration
+        cell.accessoryType = .disclosureIndicator
+        guard let accountID = TDLib.shared.activeAccountID,
+              let bot = appEntries().first(where: { $0.bot.botUserId == botUserID })
+        else { return }
+        let showsBadge = !bot.bot.isAdded
+            || AttachmentMenuBotStore.shared.showsSideMenuDisclaimer(for: bot.bot, accountID: accountID)
+        let badge = L10n.telegram("Settings.New")
+        configuration.attributedText = appTitle(bot.bot.name, badge: showsBadge ? badge : nil)
+        if let path = bot.imageIconPath, let icon = UIImage(contentsOfFile: path) {
+            configuration.image = icon.withRenderingMode(.alwaysOriginal)
+            configuration.imageProperties.cornerRadius = 25 * 8 / 30
+        }
+        cell.contentConfiguration = configuration
+        cell.accessibilityValue = showsBadge ? badge : nil
+    }
+
+    /// PeerInfoScreenDisclosureItem's `.titleBadge`: the text in medium 11 white on the accent colour, 4 pt wider
+    /// and 2 pt taller on each side, with 5 pt corners, 6 pt after the title.
+    private func appTitle(_ title: String, badge: String?) -> NSAttributedString {
+        let font = UIFont.preferredFont(forTextStyle: .body)
+        let result = NSMutableAttributedString(
+            string: title,
+            attributes: [.font: font, .foregroundColor: UIColor.label],
+        )
+        guard let badge else { return result }
+        let text = NSAttributedString(string: badge, attributes: [
+            .font: UIFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: UIColor.white,
+        ])
+        let textSize = text.size()
+        let badgeSize = CGSize(width: ceil(textSize.width) + 8, height: ceil(textSize.height) + 4)
+        let spacing: CGFloat = 6
+        let fill = UIColor.systemBlue.resolvedColor(with: traitCollection)
+        let canvas = CGSize(width: spacing + badgeSize.width, height: badgeSize.height)
+        let image = UIGraphicsImageRenderer(size: canvas).image { _ in
+            let rect = CGRect(origin: CGPoint(x: spacing, y: 0), size: badgeSize)
+            fill.setFill()
+            UIBezierPath(roundedRect: rect, cornerRadius: 5).fill()
+            text.draw(at: CGPoint(
+                x: rect.minX + (badgeSize.width - textSize.width) / 2,
+                y: (badgeSize.height - textSize.height) / 2,
+            ))
+        }
+        let attachment = NSTextAttachment(image: image)
+        attachment.bounds = CGRect(origin: CGPoint(x: 0, y: (font.capHeight - canvas.height) / 2), size: canvas)
+        result.append(NSAttributedString(attachment: attachment))
+        return result
+    }
+
+    /// PeerInfoScreen's `openBotApp`: the bot's terms or side menu disclaimer when due, then its Web App at full
+    /// size for the account.
+    private func openBotApp(_ botUserID: Int64) {
+        guard let source = TDLib.shared.activeUpdateSource,
+              let entry = AttachmentMenuBotStore.shared.entry(botUserID: botUserID, source: source),
+              let client = TDLib.shared.authorizationClient(for: source)
+        else { return }
+        let launcher: WebAppLauncher
+        if let appLauncher, appLauncher.source == source {
+            launcher = appLauncher.launcher
+        } else {
+            launcher = WebAppLauncher(host: .init(
+                accountID: source.accountID,
+                client: client,
+                presenter: { [weak self] in self },
+                isCurrent: { [weak self] in self != nil && TDLib.shared.activeUpdateSource == source },
+                actions: .init(
+                    openTelegramLink: { [weak self] url in TelegramLinkRouter.shared.open(url, from: self) },
+                    switchInline: { _, _ in },
+                ),
+            ))
+            appLauncher = (source, launcher)
+        }
+        launcher.openSettingsWebApp(bot: entry.bot)
     }
 
     /// Telegram's Saved Messages row opens the account's own chat.
@@ -264,6 +381,7 @@ private extension SettingsViewController {
     enum Section: Int, CaseIterable {
         case profile
         case accounts
+        case apps
         case shortcuts
         case appearance
         case media
@@ -277,7 +395,7 @@ private extension SettingsViewController {
             case .accounts: L10n.betterTG("Accounts.Section")
             case .media: L10n.betterTG("Settings.MediaSection")
             case .about: L10n.betterTG("Settings.AboutSection")
-            case .accountActions, .appearance, .profile, .shortcuts: nil
+            case .accountActions, .appearance, .apps, .profile, .shortcuts: nil
             }
         }
     }
@@ -286,6 +404,8 @@ private extension SettingsViewController {
         case profile
         case account(UUID)
         case addAccount
+        /// A side menu bot by its user ID.
+        case app(Int64)
         case savedMessages
         case devices
         case chatFolders
@@ -311,6 +431,8 @@ private extension SettingsViewController {
                 account?.localizedTitle ?? L10n.betterTG("Accounts.Account")
             case .addAccount:
                 L10n.telegram("Settings.AddAccount")
+            case .app:
+                ""
             case .profile:
                 L10n.telegram("EditProfile.Title")
             case .savedMessages:
@@ -352,8 +474,8 @@ private extension SettingsViewController {
                 L10n.betterTG("Settings.AnimatedMediaFormats")
             case .version:
                 Utils.applicationVersion
-            case .addAccount, .chatFolders, .dataAndStorage, .devices, .logOut, .notifications, .privacy, .profile,
-                 .savedMessages:
+            case .addAccount, .app, .chatFolders, .dataAndStorage, .devices, .logOut, .notifications, .privacy,
+                 .profile, .savedMessages:
                 nil
             }
         }
@@ -371,6 +493,7 @@ private extension SettingsViewController {
             case .profile: "person.crop.circle"
             case .account: "person.crop.circle.fill"
             case .addAccount: "plus.circle.fill"
+            case .app: "square.grid.2x2.fill"
             case .savedMessages: "bookmark.fill"
             case .devices: "laptopcomputer.and.iphone"
             case .chatFolders: "folder.fill"
@@ -388,7 +511,7 @@ private extension SettingsViewController {
         var tintColor: UIColor {
             switch self {
             case .account: .systemTeal
-            case .addAccount, .appearance, .language, .profile, .savedMessages, .version: .systemBlue
+            case .addAccount, .app, .appearance, .language, .profile, .savedMessages, .version: .systemBlue
             case .devices: .systemOrange
             case .chatFolders: .systemCyan
             case .notifications: .systemRed

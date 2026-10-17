@@ -2081,3 +2081,4 @@
 "WebApp.AddToAttachmentUnavailableError" = "This bot can't be added to the attachment menu.";
 "WebApp.ShortcutsAdded" = "**%@** shortcut added in attachment menu.";
 "WebApp.ShortcutsSettingsAdded" = "**%@** shortcut added in attachment menu and Settings.";
+"Settings.New" = "NEW";

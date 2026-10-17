@@ -6,9 +6,9 @@ import UIKit
 // MARK: - WebAppLauncher
 
 /// ChatControllerOpenWebApp's `openWebAppImpl` for a bot's main Web App (`simple` with an empty URL:
-/// `requestMainWebView`, WebAppParameters.Source.generic), a bot's menu button (source .menu) and
-/// ChatControllerOpenAttachmentMenu's `.app` button (WebAppController with source .attachMenu). Before the page
-/// opens, a bot that can be added to the attachment menu
+/// `requestMainWebView`, WebAppParameters.Source.generic), a bot's menu button (source .menu),
+/// ChatControllerOpenAttachmentMenu's `.app` button (WebAppController with source .attachMenu) and PeerInfoScreen's
+/// Settings bots (source .settings). Before the page opens, a bot that can be added to the attachment menu
 /// but isn't (`isAttachMenuBotInstalled == false`, `.notActivated`) gets webAppTermsAlertController and
 /// `addBotToAttachMenu` with the check as its write access; any other main or menu Web App gets
 /// webAppLaunchConfirmationController the first time (`getBotGameNotice`) unless the caller skips the terms, as the
@@ -123,30 +123,36 @@ import UIKit
         added: @escaping () -> Void,
     ) {
         guard let presenter = host.presenter() else { return }
-        let client = host.client
-        let noticeKey = Self.noticeKey(accountID: host.accountID, botUserID: botUserID)
         let alert = WebAppTermsAlert.make(cancel: cancelled) { [weak self] allowWriteAccess in
-            guard let self, task == nil else { return }
-            #if DEBUG
-                if Self.probeHTML != nil { return added() }
-            #endif
-            UserDefaults.standard.set(true, forKey: noticeKey)
-            task = Task { [weak self] in
-                let result = try? await client.send(TDNativeRequests.toggleBotIsAddedToAttachmentMenu(
-                    botUserId: botUserID,
-                    isAdded: true,
-                    allowWriteAccess: allowWriteAccess,
-                ))
-                guard let self else { return }
-                task = nil
-                guard !Task.isCancelled, host.isCurrent() else { return }
-                guard result != nil else {
-                    if let failed { return failed() }
-                    return showError()
-                }
-                added()
-            }
+            self?.requestAddition(
+                botUserID: botUserID,
+                allowWriteAccess: allowWriteAccess,
+                failed: failed,
+                added: added,
+            )
         }
+        presenter.present(alert, animated: true)
+    }
+
+    /// PeerInfoScreen's `openBotApp` for a Settings bot row. A bot that isn't added, or whose side menu disclaimer
+    /// stands, gets webAppTermsAlertController first: proceeding accepts the disclaimer
+    /// (`acceptAttachMenuBotDisclaimer`) and adds a bot that isn't (`addBotToAttachMenu`, whose failure ends the
+    /// launch quietly). Only an install without a disclaimer shows the shortcut notice over the page.
+    func openSettingsWebApp(bot: TDNativeAttachmentMenuBot) {
+        guard task == nil else { return }
+        let store = AttachmentMenuBotStore.shared
+        let accountID = host.accountID
+        let showsDisclaimer = store.showsSideMenuDisclaimer(for: bot, accountID: accountID)
+        guard !bot.isAdded || showsDisclaimer else { return requestSettingsWebApp(bot: bot, justAdded: false) }
+        guard let presenter = host.presenter() else { return }
+        let alert = WebAppTermsAlert.make(proceed: { [weak self] allowWriteAccess in
+            guard let self else { return }
+            if showsDisclaimer { store.acceptSideMenuDisclaimer(botUserID: bot.botUserId, accountID: accountID) }
+            guard !bot.isAdded else { return requestSettingsWebApp(bot: bot, justAdded: false) }
+            requestAddition(botUserID: bot.botUserId, allowWriteAccess: allowWriteAccess, failed: {}) { [weak self] in
+                self?.requestSettingsWebApp(bot: bot, justAdded: !showsDisclaimer)
+            }
+        })
         presenter.present(alert, animated: true)
     }
 
@@ -250,6 +256,37 @@ import UIKit
         }
     }
 
+    /// `toggleBotIsAddedToAttachmentMenu` with the terms' check as the write access; the launch follows once TDLib
+    /// added the bot.
+    private func requestAddition(
+        botUserID: Int64,
+        allowWriteAccess: Bool,
+        failed: (() -> Void)?,
+        added: @escaping () -> Void,
+    ) {
+        guard task == nil else { return }
+        #if DEBUG
+            if Self.probeHTML != nil { return added() }
+        #endif
+        let client = host.client
+        UserDefaults.standard.set(true, forKey: Self.noticeKey(accountID: host.accountID, botUserID: botUserID))
+        task = Task { [weak self] in
+            let result = try? await client.send(TDNativeRequests.toggleBotIsAddedToAttachmentMenu(
+                botUserId: botUserID,
+                isAdded: true,
+                allowWriteAccess: allowWriteAccess,
+            ))
+            guard let self else { return }
+            task = nil
+            guard !Task.isCancelled, host.isCurrent() else { return }
+            guard result != nil else {
+                if let failed { return failed() }
+                return showError()
+            }
+            added()
+        }
+    }
+
     /// The checks before the page opens, in ChatControllerOpenWebApp's order.
     private func confirm(
         botUserID: Int64,
@@ -319,6 +356,58 @@ import UIKit
                 client: client,
                 presentation: WebAppLaunch.Presentation(result.mode),
             ))
+        }
+    }
+
+    /// WebAppController.setupWebView for `.settings`: `requestSimpleWebView(url: nil, source: .settings)`, TDLib's
+    /// `getWebAppUrl` with an empty URL, opened at full size under the bot's name. A just-installed bot's
+    /// ShortcutsSettingsAdded notice shows over the page.
+    private func requestSettingsWebApp(bot: TDNativeAttachmentMenuBot, justAdded: Bool) {
+        guard task == nil, let presenter = host.presenter() else { return }
+        let notice: (String) -> String? = { name in
+            guard justAdded else { return nil }
+            return L10n.telegram("WebApp.ShortcutsSettingsAdded", name).replacingOccurrences(of: "**", with: "")
+        }
+        #if DEBUG
+            if let html = Self.probeHTML {
+                return presentProbe(
+                    html: html,
+                    botUserID: bot.botUserId,
+                    name: bot.name,
+                    presentation: .fullSize,
+                    notice: notice(bot.name),
+                )
+            }
+        #endif
+        let client = host.client
+        let accountID = host.accountID
+        let parameters = TDNativeWebAppOpenParameters(
+            theme: WebAppViewController.themeParameters(for: presenter.traitCollection),
+            applicationName: "BetterTG",
+            mode: nil,
+        )
+        task = Task { [weak self] in
+            let user = try? await client.getUser(userId: bot.botUserId)
+            let result = try? await client.getWebAppUrl(botUserId: bot.botUserId, url: "", parameters: parameters)
+            guard let self else { return }
+            task = nil
+            guard !Task.isCancelled, host.isCurrent() else { return }
+            guard let result, let url = URL(string: result.url) else { return showError() }
+            let name = user.map { Self.displayName(of: $0) } ?? bot.name
+            present(
+                WebAppLaunch(
+                    source: .settings,
+                    url: url,
+                    requiresSameOrigin: result.requireSameOrigin,
+                    botUserID: bot.botUserId,
+                    botName: name,
+                    botUsername: user?.usernames?.activeUsernames.first,
+                    accountID: accountID,
+                    client: client,
+                    presentation: .fullSize,
+                ),
+                notice: notice(name),
+            )
         }
     }
 

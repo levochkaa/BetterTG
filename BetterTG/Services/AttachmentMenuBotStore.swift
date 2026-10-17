@@ -25,6 +25,9 @@ import TDLibKit
 
     static let shared = AttachmentMenuBotStore()
 
+    /// Any change to an account's list, its icons or an accepted side menu disclaimer; Settings' bot rows reload.
+    let changes = PassthroughSubject<Void, Never>()
+
     #if DEBUG
         /// `-ui-probe-attach-bots`: made-up bots in place of every account's.
         private(set) var probeEntries: [Entry]?
@@ -33,6 +36,10 @@ import TDLibKit
     private var lists = [UUID: List]()
     private var iconTasks = [UUID: Task<Void, Never>]()
     private var cancellables = Set<AnyCancellable>()
+
+    static func disclaimerKey(accountID: UUID, botUserID: Int64) -> String {
+        "bettertg.webAppSideMenuDisclaimer.\(accountID.uuidString).\(botUserID)"
+    }
 
     private static func localPath(of file: File?, client: TDLibClient) async -> String? {
         guard let file else { return nil }
@@ -74,9 +81,22 @@ import TDLibKit
         entry(botUserID: botUserID, source: source)?.bot.isAdded == true
     }
 
+    /// AttachMenuBots' `.showInSettingsDisclaimer` until `acceptAttachMenuBotDisclaimer` clears it from Telegram's
+    /// cached list. TDLib keeps no such state, so the acceptance is kept per account and bot.
+    func showsSideMenuDisclaimer(for bot: TDNativeAttachmentMenuBot, accountID: UUID) -> Bool {
+        bot.showDisclaimerInSideMenu
+            && !UserDefaults.standard.bool(forKey: Self.disclaimerKey(accountID: accountID, botUserID: bot.botUserId))
+    }
+
+    func acceptSideMenuDisclaimer(botUserID: Int64, accountID: UUID) {
+        UserDefaults.standard.set(true, forKey: Self.disclaimerKey(accountID: accountID, botUserID: botUserID))
+        changes.send()
+    }
+
     #if DEBUG
         func setProbeEntries(_ entries: [Entry]) {
             probeEntries = entries
+            changes.send()
         }
     #endif
 
@@ -91,6 +111,7 @@ import TDLibKit
             }
             return entry
         })
+        changes.send()
         downloadIcons(source: source)
     }
 
@@ -115,5 +136,6 @@ import TDLibKit
         list.entries[index].animatedIconPath = animated
         list.entries[index].imageIconPath = image
         lists[source.accountID] = list
+        changes.send()
     }
 }

@@ -17,8 +17,14 @@
     /// for user and group chats: its terms, then Select Chat; the chosen chat opens and shows the probe page at half
     /// height with the shortcut notice. With `-ui-probe-startattach-current` the bot is added and the link targets
     /// the current chat, so outside a chat the already-added notice shows.
+    /// Launch with `-ui-probe-settings-bots` to open Settings with three made-up side menu bots above Saved Messages:
+    /// Wallet (not added, NEW), Mini Games (added, its disclaimer pending, NEW) and Probe (added, the generic glyph).
+    /// Wallet runs the terms and opens the probe page at full size with the Settings shortcut notice; Mini Games runs
+    /// the terms, accepts its disclaimer (its badge goes) and opens the page; Probe opens the page at once. The
+    /// made-up bots' disclaimers and notices are cleared on each run.
     /// In all of them, WebAppLauncher puts the probe page in place of every launch and adding a bot only closes the
-    /// terms: no openWebApp, getMainWebApp or toggleBotIsAddedToAttachmentMenu reaches TDLib and nothing is sent.
+    /// terms: no openWebApp, getMainWebApp, getWebAppUrl or toggleBotIsAddedToAttachmentMenu reaches TDLib and
+    /// nothing is sent.
     @MainActor enum WebAppLaunchProbe {
         private static var launcher: WebAppLauncher?
 
@@ -29,7 +35,9 @@
             let showsMenuButton = arguments.contains("-ui-probe-bot-menu-button")
             let startsAttach = arguments.contains("-ui-probe-startattach")
             let startsAttachInCurrentChat = arguments.contains("-ui-probe-startattach-current")
+            let showsSettingsBots = arguments.contains("-ui-probe-settings-bots")
             guard showsAttachBots || showsMainWebApp || showsMenuButton || startsAttach || startsAttachInCurrentChat
+                || showsSettingsBots
             else { return }
             WebAppLauncher.probeHTML = WebAppProbe.page
             PeerProfileViewController.probeShowsOpenApp = showsMainWebApp
@@ -41,7 +49,9 @@
                 guard let accountID = TDLib.shared.activeAccountID else { return }
                 try? await Task.sleep(for: .seconds(2))
                 guard let presenter = topController(in: window) else { return }
-                if startsAttach || startsAttachInCurrentChat {
+                if showsSettingsBots {
+                    presentSettingsBots(accountID: accountID)
+                } else if startsAttach || startsAttachInCurrentChat {
                     startAttachmentMenuBot(inCurrentChat: startsAttachInCurrentChat)
                 } else if showsMenuButton {
                     await presentMenuButtonChat()
@@ -93,6 +103,39 @@
                     imageIconPath: item.symbol.flatMap { iconPath(symbol: $0) },
                 )
             }
+        }
+
+        /// PeerInfoSettingsItems' apps section for made-up side menu bots, opened from the chat list's stack.
+        private static func presentSettingsBots(accountID: UUID) {
+            let bots: [(id: Int64, name: String, symbol: String?, color: UIColor, isAdded: Bool, disclaimer: Bool)] = [
+                (-111, "Wallet", "wallet.pass.fill", .systemBlue, false, false),
+                (-112, "Mini Games", "gamecontroller.fill", .systemOrange, true, true),
+                (-113, "Probe", nil, .systemGray, true, false),
+            ]
+            for bot in bots {
+                UserDefaults.standard.removeObject(forKey: AttachmentMenuBotStore.disclaimerKey(
+                    accountID: accountID,
+                    botUserID: bot.id,
+                ))
+                UserDefaults.standard.removeObject(forKey: WebAppLauncher.noticeKey(
+                    accountID: accountID,
+                    botUserID: bot.id,
+                ))
+            }
+            AttachmentMenuBotStore.shared.setProbeEntries(bots.map { item in
+                AttachmentMenuBotStore.Entry(
+                    bot: probeBot(
+                        id: item.id,
+                        name: item.name,
+                        isAdded: item.isAdded,
+                        showInAttachmentMenu: false,
+                        showInSideMenu: true,
+                        showDisclaimerInSideMenu: item.disclaimer,
+                    ),
+                    imageIconPath: item.symbol.flatMap { sideMenuIconPath(symbol: $0, color: item.color) },
+                )
+            })
+            NavigationStorage.shared.navigationController.pushViewController(SettingsViewController(), animated: true)
         }
 
         /// A made-up attachment menu bot; no TDLib request ever names its negative ID.
@@ -163,6 +206,25 @@
                 image.withTintColor(.black).draw(at: .zero)
             }
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("attach-bot-probe-\(symbol).png")
+            guard (try? data.write(to: url, options: .atomic)) != nil else { return nil }
+            return url.path
+        }
+
+        /// A Settings icon stand-in in the style of the real side menu icons: the symbol in white on a full colour
+        /// square, which Settings rounds.
+        private static func sideMenuIconPath(symbol: String, color: UIColor) -> String? {
+            let side: CGFloat = 60
+            let configuration = UIImage.SymbolConfiguration(pointSize: 30, weight: .medium)
+            guard let glyph = UIImage(systemName: symbol, withConfiguration: configuration) else { return nil }
+            let data = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).pngData { context in
+                color.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: side, height: side))
+                glyph.withTintColor(.white).draw(at: CGPoint(
+                    x: (side - glyph.size.width) / 2,
+                    y: (side - glyph.size.height) / 2,
+                ))
+            }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("settings-bot-probe-\(symbol).png")
             guard (try? data.write(to: url, options: .atomic)) != nil else { return nil }
             return url.path
         }
