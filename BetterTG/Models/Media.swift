@@ -16,6 +16,10 @@ final class Media: ObservableObject {
         let messageID: Int64
         /// A music track, which plays on through its chat's tracks (PeerMessagesMediaPlaylist's `.music`).
         var isMusic = false
+        /// Audio that isn't a message's own voice note or track, such as a poll's, played as openChatMessage's
+        /// standalone playlist (`.recentActions`) with the `.file` player type: alone, without Raise to Listen, its
+        /// header opening the message.
+        var isFile = false
     }
 
     /// The header text the note's chat gave it, so the header can name it over the chat list and in other chats.
@@ -515,7 +519,7 @@ final class Media: ObservableObject {
     /// MediaPlayerAudioRenderer's message equalizer starts there.
     private func beginProximityControl(for item: NowPlaying?) {
         player.setMessageGain(decibels: 0)
-        guard let item, !item.isMusic, RaiseToListenSettings.isEnabled else { return }
+        guard let item, !item.isMusic, !item.isFile, RaiseToListenSettings.isEnabled else { return }
         MainActor.assumeIsolated {
             let monitor = DeviceProximityMonitor.shared
             playsThroughEarpiece = monitor.currentValue

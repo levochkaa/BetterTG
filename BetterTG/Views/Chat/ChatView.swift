@@ -2032,7 +2032,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .receive(on: DispatchQueue.main)
             .sink { [weak self] finished in
                 // Music plays on through VoicePlaylistContinuation, open chat or not.
-                guard let self, !finished.isMusic, finished.chatID == chatVM.chatID,
+                guard let self, !finished.isMusic, !finished.isFile, finished.chatID == chatVM.chatID,
                       finished.accountID == location.accountID else { return }
                 playNextPlaylistItem(after: finished.messageID)
             }
@@ -2293,6 +2293,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let text: Media.NowPlayingDisplay? = item.flatMap { item in
             let recorded = display?.item == item ? display : nil
             guard item.chatID == chatVM.chatID else { return recorded }
+            // A poll's audio keeps the track's text its poll gave it.
+            if item.isFile, let recorded { return recorded }
             let message = chatVM.messages.first { message in
                 message.id == item.messageID || message.album.contains { $0.id == item.messageID }
             }
@@ -5454,9 +5456,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .pollMediaVenue(let value):
             presentLocationViewer(LocationViewSubject(venue: value.venue))
         case .pollMediaDocument(let value):
-            openPollFile(value.document.document, audioDuration: nil, in: message)
+            openPollFile(value.document.document, audio: nil, messageID: messageID, in: message)
         case .pollMediaAudio(let value):
-            openPollFile(value.audio.audio, audioDuration: value.audio.duration, in: message)
+            openPollFile(value.audio.audio, audio: value.audio, messageID: messageID, in: message)
         case .pollMediaAnimation, .pollMediaPhoto, .pollMediaVideo:
             presentPollMediaGallery(media, messageID: messageID, in: message)
         }
@@ -5534,7 +5536,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     /// A poll's file opens as a file message's does: downloaded, then an audio file plays and a document goes to the
     /// share sheet.
-    private func openPollFile(_ file: File, audioDuration: Int?, in message: CustomMessage) {
+    private func openPollFile(_ file: File, audio: Audio?, messageID: Int64, in message: CustomMessage) {
         pollMediaTask?.cancel()
         let client = chatVM.client
         pollMediaTask = Task { [weak self] in
@@ -5549,8 +5551,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             pollMediaTask = nil
             guard !clientOwnerRetired, chatVM.locationContextIsCurrent, let downloaded,
                   downloaded.local.isDownloadingCompleted, !downloaded.local.path.isEmpty else { return }
-            if let audioDuration {
-                Media.shared.toggle(with: downloaded.local.path, duration: audioDuration, item: nil)
+            if let audio {
+                // openChatMessage's standalone playlist for the poll: the header names the track and opens the poll.
+                let item = Media.NowPlaying(
+                    accountID: location.accountID,
+                    chatID: message.message.chatId,
+                    messageID: messageID,
+                    isFile: true,
+                )
+                Media.shared.toggle(with: downloaded.local.path, duration: audio.duration, item: item)
+                Media.shared.setDisplay(.music(audio, item: item))
             } else if presentedViewController == nil {
                 performContentAction(.openDocument(URL(fileURLWithPath: downloaded.local.path)), for: message)
             }

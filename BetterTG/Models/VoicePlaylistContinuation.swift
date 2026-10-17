@@ -266,7 +266,7 @@ import TDLibKit
             navigateMusic(from: finished, action: .next, requiresIdle: true)
             return
         }
-        guard openChats[ChatKey(accountID: finished.accountID, chatID: finished.chatID)] == nil,
+        guard !finished.isFile, openChats[ChatKey(accountID: finished.accountID, chatID: finished.chatID)] == nil,
               let accountID = finished.accountID, TDLib.shared.activeAccountID == accountID
         else { return }
         let client = TDLib.shared.activeClient
