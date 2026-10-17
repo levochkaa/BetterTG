@@ -21,6 +21,11 @@
     /// writes the still and converts the motion as the attachment sheet sends a Live Photo in Live mode
     /// (`livePhotoConversion`, then `VideoSendTranscoder` as `VideoSendGenerationCoordinator` runs it), and shows
     /// the still above the converted motion's first frame, so their crops can be compared; nothing is sent.
+    /// `-ui-probe-photo-draw` opens the editor's Paint tab on the drawn photo; `-ui-probe-photo-draw auto` opens it
+    /// with a painting already there, the same every launch: two strokes, a filled text, a star and an arrow, all
+    /// editable. Done renders the photo with its painting at the photo's full 1600×1200, logs the size and writes it
+    /// to Documents as `photo-probe-draw.png`, then writes the photo as the send path does (`writeImage`), logs that
+    /// file's size and removes it; nothing is sent.
     @MainActor enum PhotoCropProbe {
         /// The rendered photo with its pixel size, closed by Close.
         private final class ResultViewController: UIViewController {
@@ -148,13 +153,16 @@
             let arguments = ProcessInfo.processInfo.arguments
             let toolsIndex = arguments.firstIndex(of: "-ui-probe-photo-tools")
             let cropIndex = arguments.firstIndex(of: "-ui-probe-photo-crop")
+            let drawIndex = arguments.firstIndex(of: "-ui-probe-photo-draw")
             let opensTools = toolsIndex != nil
-            guard opensTools || cropIndex != nil else { return }
+            let opensDraw = drawIndex != nil
+            guard opensTools || cropIndex != nil || opensDraw else { return }
             let toolsOption = toolsIndex.flatMap { arguments[safe: $0 + 1] }
-            let cropOption = opensTools ? nil : cropIndex.flatMap { arguments[safe: $0 + 1] }
+            let cropOption = opensTools || opensDraw ? nil : cropIndex.flatMap { arguments[safe: $0 + 1] }
+            let drawsAuto = drawIndex.flatMap { arguments[safe: $0 + 1] } == "auto"
             let opensAuto = cropOption == "auto"
             let opensLive = cropOption == "live"
-            let opensSkin = toolsOption == "skin"
+            let opensSkin = !opensDraw && toolsOption == "skin"
             Task { @MainActor in
                 for _ in 0..<60 where TDLib.shared.activeAccountID == nil {
                     try? await Task.sleep(for: .milliseconds(500))
@@ -171,19 +179,26 @@
                     return
                 }
                 let facePhoto = opensSkin ? loadFacePhoto() : nil
-                let photo = facePhoto ?? (opensAuto ? makeHorizonPhoto() : makePhoto(withStrip: opensTools))
+                let photo = facePhoto
+                    ?? (opensAuto ? makeHorizonPhoto() : makePhoto(withStrip: opensTools && !opensDraw))
                 let sourceSize = CGSize(width: photo.size.width * photo.scale, height: photo.size.height * photo.scale)
                 let preset = toolsPreset(for: toolsOption)
+                let initialTab: PhotoEditorTab = opensDraw ? .paint : opensTools ? .tools : .crop
                 let editor = PhotoCropViewController(
                     image: photo,
-                    adjustments: preset.adjustments,
-                    initialTab: opensTools ? .tools : .crop,
+                    adjustments: opensDraw ? (drawsAuto ? drawPreset() : nil) : preset.adjustments,
+                    initialTab: initialTab,
                     initialToolsTab: preset.tab,
                 )
                 editor.onDone = { [weak presenter] edit in
-                    let result = edit?.adjustments.renderEdited(photo, sourcePixelSize: sourceSize, maximumSide: 1280)
+                    // The painting's probe renders at the photo's full size.
+                    let side = opensDraw ? max(sourceSize.width, sourceSize.height) : 1280
+                    let result = edit?.adjustments.renderEdited(photo, sourcePixelSize: sourceSize, maximumSide: side)
                     if facePhoto != nil, let adjustments = edit?.adjustments {
                         reportSkin(of: photo, sourceSize: sourceSize, adjustments: adjustments)
+                    }
+                    if opensDraw {
+                        reportDrawing(result, of: photo, adjustments: edit?.adjustments)
                     }
                     // The editor dismisses itself right after handing back the edit.
                     Task { @MainActor in
@@ -216,6 +231,101 @@
             }
             log(String(format: "Photo crop probe: Vision found no horizon; AUTO turns the drawn %.2f°", drawn))
             editor.setAutoRotationAngle(horizonTilt)
+        }
+
+        // MARK: - Painting
+
+        /// `-ui-probe-photo-draw auto`'s painting over the whole photo: a white zigzag and a yellow curve as strokes,
+        /// a blue filled text turned a little, a yellow filled star and a bent green arrow.
+        private static func drawPreset() -> PhotoCropAdjustments {
+            var adjustments = PhotoCropAdjustments(originalSize: photoSize)
+            let size = PhotoDrawing.paintingSize(for: photoSize)
+            var strokes: CGImage?
+            if let context = PhotoDrawing.makeContext(width: Int(size.width), height: Int(size.height)) {
+                UIGraphicsPushContext(context)
+                let zigzag = UIBezierPath()
+                zigzag.move(to: CGPoint(x: size.width * 0.1, y: size.height * 0.15))
+                for step in 1...6 {
+                    let y = size.height * (step.isMultiple(of: 2) ? 0.15 : 0.3)
+                    zigzag.addLine(to: CGPoint(x: size.width * (0.1 + 0.06 * CGFloat(step)), y: y))
+                }
+                zigzag.lineWidth = 18
+                zigzag.lineCapStyle = .round
+                zigzag.lineJoinStyle = .round
+                UIColor.white.setStroke()
+                zigzag.stroke()
+                let curve = UIBezierPath()
+                curve.move(to: CGPoint(x: size.width * 0.15, y: size.height * 0.88))
+                curve.addQuadCurve(
+                    to: CGPoint(x: size.width * 0.85, y: size.height * 0.88),
+                    controlPoint: CGPoint(x: size.width * 0.5, y: size.height * 0.55),
+                )
+                curve.lineWidth = 30
+                curve.lineCapStyle = .round
+                UIColor(red: 1, green: 0.84, blue: 0.04, alpha: 1).setStroke()
+                curve.stroke()
+                UIGraphicsPopContext()
+                strokes = context.makeImage()
+            }
+            let text = PhotoDrawingEntity(
+                content: .text(PhotoDrawingTextEntity(string: "BetterTG", style: .filled, width: size.width * 0.6)),
+                color: PhotoDrawingColor(rgb: 0x0A84FF),
+                position: CGPoint(x: size.width * 0.5, y: size.height * 0.45),
+                rotation: -0.12,
+            )
+            let star = PhotoDrawingEntity(
+                content: .shape(PhotoDrawingShapeEntity(
+                    kind: .star,
+                    size: CGSize(width: size.width * 0.18, height: size.width * 0.18),
+                    drawType: .fill,
+                )),
+                color: PhotoDrawingColor(rgb: 0xFFD60A),
+                position: CGPoint(x: size.width * 0.8, y: size.height * 0.22),
+                rotation: 0.3,
+            )
+            let arrow = PhotoDrawingEntity(
+                content: .vector(PhotoDrawingVectorEntity(
+                    start: CGPoint(x: size.width * 0.25, y: size.height * 0.7),
+                    end: CGPoint(x: size.width * 0.62, y: size.height * 0.62),
+                    midHeight: 0.15,
+                )),
+                color: PhotoDrawingColor(rgb: 0x30D158),
+            )
+            adjustments.drawing = PhotoDrawing(size: size, strokes: strokes, entities: [text, star, arrow])
+            return adjustments
+        }
+
+        /// Logs the full-size result and writes it to Documents as `photo-probe-draw.png`, then writes the photo as
+        /// PhotoAssetSelectionLoader sends it, logs the sent file's size and removes it.
+        private static func reportDrawing(_ result: UIImage?, of photo: UIImage, adjustments: PhotoCropAdjustments?) {
+            guard let adjustments, let result else {
+                log("Photo draw probe: Done handed back no edit")
+                return
+            }
+            let width = Int(result.size.width * result.scale)
+            let height = Int(result.size.height * result.scale)
+            let entities = adjustments.drawing?.entities.count ?? 0
+            let hasStrokes = adjustments.drawing?.strokes != nil
+            let url = documentsDirectory.appending(path: "photo-probe-draw.png")
+            let isWritten = (try? result.pngData()?.write(to: url, options: .atomic)) != nil
+            log(
+                "Photo draw probe: \(width)×\(height) with \(entities) entities"
+                    + (hasStrokes ? " and strokes" : "")
+                    + (isWritten ? ", written to \(url.lastPathComponent)" : ", not written"),
+            )
+            guard let data = photo.jpegData(compressionQuality: 0.95) else { return }
+            Task {
+                let selection = await Task.detached(priority: .userInitiated) { () -> SelectedImage? in
+                    writeImage(data: data, cropping: adjustments, maximumSide: PhotoSendPreset.maximumSide)
+                }.value
+                guard let selection else {
+                    log("Photo draw probe: the send path wrote no photo")
+                    return
+                }
+                let sent = selection.image
+                log("Photo draw probe: sent \(Int(sent.size.width * sent.scale))×\(Int(sent.size.height * sent.scale))")
+                SelectedDocumentFileStore.remove(selection.fileURLs)
+            }
         }
 
         private static func loadFacePhoto() -> UIImage? {
