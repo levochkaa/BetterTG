@@ -1236,6 +1236,13 @@ final class FolderPickerView: UIView {
     var onSelection: ((Int) -> Void)?
     var onReselection: ((Int) -> Void)?
     var onAction: ((FolderMenuAction, CustomFolder) -> Void)?
+    /// The capsule's distance from the safe area's sides; the composer's media panel keeps its keys beside it.
+    var controlHorizontalInset: CGFloat = 16 {
+        didSet {
+            controlLeadingConstraint.constant = controlHorizontalInset
+            controlTrailingConstraint.constant = -controlHorizontalInset
+        }
+    }
 
     // MARK: Private
 
@@ -1268,6 +1275,8 @@ final class FolderPickerView: UIView {
     private var isLifted = false
     private var lowering: DispatchWorkItem?
     private var stripWidthConstraint: NSLayoutConstraint!
+    private var controlLeadingConstraint: NSLayoutConstraint!
+    private var controlTrailingConstraint: NSLayoutConstraint!
     private var folders = [CustomFolder]()
     private var items = [Item]()
     private var selectedID: Int?
@@ -1416,6 +1425,14 @@ final class FolderPickerView: UIView {
         addSubview(separator)
 
         stripWidthConstraint = stripView.widthAnchor.constraint(equalToConstant: 0)
+        controlLeadingConstraint = controlEffectView.leadingAnchor.constraint(
+            equalTo: safeAreaLayoutGuide.leadingAnchor,
+            constant: controlHorizontalInset,
+        )
+        controlTrailingConstraint = controlEffectView.trailingAnchor.constraint(
+            equalTo: safeAreaLayoutGuide.trailingAnchor,
+            constant: -controlHorizontalInset,
+        )
         NSLayoutConstraint.activate([
             blurView.topAnchor.constraint(equalTo: topAnchor),
             blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1426,8 +1443,8 @@ final class FolderPickerView: UIView {
             liftedContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             liftedContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
             controlEffectView.topAnchor.constraint(equalTo: topAnchor, constant: Self.controlTopInset),
-            controlEffectView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            controlEffectView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            controlLeadingConstraint,
+            controlTrailingConstraint,
             controlEffectView.heightAnchor.constraint(equalToConstant: 42),
             controlContainer.topAnchor.constraint(equalTo: controlEffectView.contentView.topAnchor, constant: 3),
             controlContainer.leadingAnchor.constraint(
