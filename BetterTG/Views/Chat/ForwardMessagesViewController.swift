@@ -21,6 +21,9 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
         /// A story's Share (StoryItemSetContainerViewSendMessage.performShareAction): a chat the user can write to
         /// outside secret chats, which receives the story.
         case shareStory
+        /// A game's Share (GameControllerNode's ShareController): a chat the user can write to outside secret chats,
+        /// which receives the game's link or the game with the player's score.
+        case shareGame
     }
 
     var onSelect: ((CustomChat, ForumTopic?, PendingMessageForward) -> Void)?
@@ -67,7 +70,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private var allowedChatTypes: InlineTargetChatTypes? {
         switch purpose {
         case .attachmentMenuBot(let types), .switchInline(let types): types.isEmpty ? nil : types
-        case .forward, .replyInAnotherChat, .shareStory: nil
+        case .forward, .replyInAnotherChat, .shareGame, .shareStory: nil
         }
     }
 
@@ -76,7 +79,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private var pickerTitle: String {
         if purpose == .replyInAnotherChat { return L10n.telegram("Conversation.MoveReplyToAnotherChatTitle") }
         if case .attachmentMenuBot = purpose { return L10n.telegram("WebApp.SelectChat") }
-        if purpose == .shareStory { return L10n.telegram("ShareMenu.ShareTo") }
+        if purpose == .shareStory || purpose == .shareGame { return L10n.telegram("ShareMenu.ShareTo") }
         guard let types = allowedChatTypes else { return L10n.betterTG("Forward.Title") }
         let titles = [
             (types.users, "RequestPeer.ChooseUserTitle"),

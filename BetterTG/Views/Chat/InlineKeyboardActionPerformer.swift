@@ -110,6 +110,7 @@ struct InlineTargetChatTypes: Equatable {
                 key: "\(message.id):game",
                 message: message,
                 client: client,
+                game: game.game,
             )
         case .inlineKeyboardButtonTypeSwitchInline(let value):
             switchInline(query: value.query, target: value.targetChat, message: message, client: client)
@@ -181,6 +182,7 @@ struct InlineTargetChatTypes: Equatable {
         key: String,
         message: Message,
         client: TDLibClient,
+        game: Game? = nil,
     ) {
         guard tasks[key] == nil else { return }
         let chatID = message.chatId
@@ -195,11 +197,78 @@ struct InlineTargetChatTypes: Equatable {
             tasks[key] = nil
             guard !Task.isCancelled, host.isCurrent(), TDLib.shared.activeClient.id == client.id,
                   let answer else { return }
-            show(answer)
+            if let game, !answer.url.isEmpty {
+                showText(of: answer)
+                openGame(game, url: answer.url, message: message, client: client)
+            } else {
+                show(answer)
+            }
+        }
+    }
+
+    // MARK: Games
+
+    /// ChatController's `.url` answer for a game: GameController pushed over the chat, after
+    /// webAppLaunchConfirmationController the first time the game's bot opens (`getBotGameNotice`). The bot is the
+    /// inline bot that sent the game, else its author or the private chat's bot.
+    private func openGame(_ game: Game, url: String, message: Message, client: TDLibClient) {
+        guard let pageURL = URL(string: url) else { return }
+        let key = "\(message.id):game-open"
+        guard tasks[key] == nil else { return }
+        tasks[key] = Task { [weak self] in
+            var candidates = [Int64]()
+            if message.viaBotUserId != 0 { candidates.append(message.viaBotUserId) }
+            if case .messageSenderUser(let sender) = message.senderId { candidates.append(sender.userId) }
+            if message.chatId > 0 { candidates.append(message.chatId) }
+            var bot: User?
+            for userID in candidates {
+                if let user = try? await client.getUser(userId: userID), case .userTypeBot = user.type {
+                    bot = user
+                    break
+                }
+            }
+            guard let self else { return }
+            tasks[key] = nil
+            guard !Task.isCancelled, host.isCurrent(), TDLib.shared.activeClient.id == client.id,
+                  let accountID = TDLib.shared.activeAccountID, let bot, let presenter = host.presenter()
+            else { return }
+            let controller = GameViewController(
+                game: GameViewController.Game(
+                    url: pageURL,
+                    title: game.title,
+                    shortName: game.shortName,
+                    botUsername: bot.usernames?.activeUsernames.first,
+                    chatID: message.chatId,
+                    messageID: message.id,
+                ),
+                client: client,
+                accountID: accountID,
+            )
+            let noticeKey = WebAppLauncher.noticeKey(accountID: accountID, botUserID: bot.id)
+            let open = { [weak self, weak presenter] in
+                UserDefaults.standard.set(true, forKey: noticeKey)
+                guard let self, host.isCurrent(), let navigation = presenter?.navigationController else { return }
+                presenter?.view.endEditing(true)
+                navigation.pushViewController(controller, animated: true)
+            }
+            guard !UserDefaults.standard.bool(forKey: noticeKey) else { return open() }
+            let terms = L10n.telegram("WebApp.LaunchTermsConfirmation")
+                .replacingOccurrences(of: #"\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+            let alert = UIAlertController(title: Self.displayName(of: bot), message: terms, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+            alert.addAction(UIAlertAction(title: L10n.telegram("WebApp.LaunchOpenApp"), style: .default) { _ in
+                open()
+            })
+            presenter.present(alert, animated: true)
         }
     }
 
     private func show(_ answer: TDNativeCallbackQueryAnswer) {
+        showText(of: answer)
+        if !answer.url.isEmpty { openURL(answer.url, confirming: false) }
+    }
+
+    private func showText(of answer: TDNativeCallbackQueryAnswer) {
         if !answer.text.isEmpty {
             if answer.showAlert {
                 showAlert(answer.text)
@@ -207,7 +276,6 @@ struct InlineTargetChatTypes: Equatable {
                 host.showToast(answer.text)
             }
         }
-        if !answer.url.isEmpty { openURL(answer.url, confirming: false) }
     }
 
     // MARK: Login URLs
