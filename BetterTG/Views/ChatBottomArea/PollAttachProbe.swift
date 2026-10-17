@@ -1,16 +1,34 @@
 // PollAttachProbe.swift
 
 #if DEBUG
+    import TDLibKit
     import UIKit
 
     /// Launch with `-ui-probe-poll-attach`. Once an account is active it opens the poll creator with a question, a
-    /// first option and a drawn test photo attached to the poll (its description row) and to that option, so the
-    /// media thumbnails and their Replace and Delete menu are checked without photo library access. Nothing is sent.
+    /// drawn test photo on the poll (its description row) and four options: a photo, a link without its web page
+    /// (the creator asks getLinkPreview for it), a venue and a generated sticker. Their thumbnails and the Replace and
+    /// Delete menu with its preview are checked without photo library access. `-ui-probe-poll-attach upload` also
+    /// runs a simulated upload on the first option's photo; `-ui-probe-poll-attach tabs` opens the description's
+    /// attachment sheet. Nothing is sent or uploaded.
     @MainActor enum PollAttachProbe {
         private static let photoSize = CGSize(width: 800, height: 600)
 
+        /// A place as the location picker's venue search gives it.
+        private static var venue: InputMessageContent {
+            .inputMessageVenue(TDNativeInputMessageVenue(venue: TDNativeVenue(
+                location: TDNativeLocation(latitude: 37.7853, longitude: -122.4021, horizontalAccuracy: 0),
+                title: "Yerba Buena Gardens",
+                address: "750 Howard St",
+                provider: "",
+                id: "",
+                type: "parks_outdoors/park",
+            )))
+        }
+
         static func runIfRequested(in window: UIWindow) {
-            guard ProcessInfo.processInfo.arguments.contains("-ui-probe-poll-attach") else { return }
+            let arguments = ProcessInfo.processInfo.arguments
+            guard let flag = arguments.firstIndex(of: "-ui-probe-poll-attach") else { return }
+            let mode = arguments.indices.contains(flag + 1) ? arguments[flag + 1] : ""
             Task { @MainActor in
                 for _ in 0..<60 where TDLib.shared.activeAccountID == nil {
                     try? await Task.sleep(for: .milliseconds(500))
@@ -31,13 +49,24 @@
                     accountID: accountID,
                     chatID: 0,
                 ) { _ in }
+                let sticker = (try? StickerPeekProbe.makeStickers())?.first.map { PollDraftMedia.sticker($0) }
                 poll.applyProbeDraft(
                     question: "Poll attachment probe",
-                    option: "First option",
+                    options: [
+                        ("Photo option", optionMedia),
+                        ("Link option", PollDraftMedia.link("https://telegram.org")),
+                        ("Venue option", PollDraftMedia.location(venue)),
+                        ("Sticker option", sticker),
+                    ],
                     pollMedia: pollMedia,
-                    optionMedia: optionMedia,
                 )
-                presenter.present(poll.makeNavigationController(), animated: true)
+                presenter.present(poll.makeNavigationController(), animated: true) {
+                    switch mode {
+                    case "upload": poll.simulateProbeUpload(ofOptionAt: 0)
+                    case "tabs": poll.openProbeAttachmentSheet()
+                    default: break
+                    }
+                }
             }
         }
 

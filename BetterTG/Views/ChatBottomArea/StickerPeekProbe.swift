@@ -80,6 +80,37 @@
             }
         }
 
+        /// The generated stickers, which the poll attachment probe borrows too.
+        static func makeStickers() throws -> [Sticker] {
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "sticker-peek-probe",
+                isDirectory: true,
+            )
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            return try specs.enumerated().map { index, spec in
+                guard let data = makeWebP(color: spec.color, label: String(index + 1)) else {
+                    throw ProbeError(description: "sticker \(index + 1) didn't encode")
+                }
+                let url = directory.appendingPathComponent("sticker-\(index + 1).webp")
+                try data.write(to: url, options: .atomic)
+                let file = completedFile(id: fileIDBase + index, path: url.path, size: Int64(data.count))
+                let fullType = TDNativeStickerFullType.stickerFullTypeRegular(
+                    TDNativeStickerFullTypeRegular(premiumAnimation: nil),
+                )
+                return Sticker(
+                    id: Int64(fileIDBase + index),
+                    setId: packID,
+                    width: stickerSide,
+                    height: stickerSide,
+                    emoji: spec.emoji,
+                    format: .stickerFormatWebp,
+                    fullType: fullType,
+                    thumbnail: nil,
+                    sticker: file,
+                )
+            }
+        }
+
         private static func makePicker(
             stickers: [Sticker],
             accountID: UUID,
@@ -173,36 +204,6 @@
         }
 
         // MARK: Fixtures
-
-        private static func makeStickers() throws -> [Sticker] {
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
-                "sticker-peek-probe",
-                isDirectory: true,
-            )
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            return try specs.enumerated().map { index, spec in
-                guard let data = makeWebP(color: spec.color, label: String(index + 1)) else {
-                    throw ProbeError(description: "sticker \(index + 1) didn't encode")
-                }
-                let url = directory.appendingPathComponent("sticker-\(index + 1).webp")
-                try data.write(to: url, options: .atomic)
-                let file = completedFile(id: fileIDBase + index, path: url.path, size: Int64(data.count))
-                let fullType = TDNativeStickerFullType.stickerFullTypeRegular(
-                    TDNativeStickerFullTypeRegular(premiumAnimation: nil),
-                )
-                return Sticker(
-                    id: Int64(fileIDBase + index),
-                    setId: packID,
-                    width: stickerSide,
-                    height: stickerSide,
-                    emoji: spec.emoji,
-                    format: .stickerFormatWebp,
-                    fullType: fullType,
-                    thumbnail: nil,
-                    sticker: file,
-                )
-            }
-        }
 
         /// A downloaded sticker file, which the cell and the preview decode without asking TDLib for it.
         private static func completedFile(id: Int, path: String, size: Int64) -> File {

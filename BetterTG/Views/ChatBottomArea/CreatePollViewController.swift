@@ -435,16 +435,53 @@ import UIKit
     }
 
     #if DEBUG
-    /// The poll attachment probe's draft: the question, the first option's text, and media on the poll and on
-    /// that option. Call before the screen loads.
-    func applyProbeDraft(question: String, option: String, pollMedia: PollDraftMedia, optionMedia: PollDraftMedia) {
+    /// The poll attachment probe's draft: the question, the options' texts with their media, and the poll's media.
+    /// A link without its web page asks for it as an attached one does; picked files don't upload. Call before the
+    /// screen loads.
+    func applyProbeDraft(
+        question: String,
+        options probeOptions: [(text: String, media: PollDraftMedia?)],
+        pollMedia: PollDraftMedia?,
+    ) {
         let font = UIFont.preferredFont(forTextStyle: .body)
         self.question = NSAttributedString(string: question, attributes: [.font: font])
-        options[0].text = NSAttributedString(string: option, attributes: [.font: font])
-        options[0].media = optionMedia
+        for (index, option) in probeOptions.enumerated() {
+            if index >= options.count {
+                options.append(DraftOption(id: nextOptionID))
+                nextOptionID += 1
+            }
+            options[index].text = NSAttributedString(string: option.text, attributes: [.font: font])
+            options[index].media = option.media
+        }
         self.pollMedia = pollMedia
         normalizeOptions()
+        for media in probeOptions.compactMap(\.media) where media.needsLinkPreview {
+            requestLinkPreview(for: media)
+        }
         if isViewLoaded { tableView.reloadData() }
+    }
+
+    /// The probe's stand-in for an upload of an option's media: the thumbnail's ring runs up to 90 % and stays, so
+    /// a tap on it and Send while it uploads can be checked without uploading anything.
+    func simulateProbeUpload(ofOptionAt index: Int) {
+        guard let media = options[safe: index]?.media else { return }
+        let id = media.id
+        uploads[id] = MediaUpload()
+        refreshUploadProgress(of: id)
+        Task { [weak self] in
+            for step in 1...30 {
+                try? await Task.sleep(for: .milliseconds(200))
+                guard let self, uploads[id] != nil else { return }
+                uploads[id]?.uploaded = CGFloat(step) * 0.03
+                uploads[id]?.updateProgress()
+                refreshUploadProgress(of: id)
+            }
+        }
+    }
+
+    /// The probe opens the poll description's attachment sheet, whose buttons switch its tabs in place.
+    func openProbeAttachmentSheet() {
+        openAttachedMedia(.poll, sourceView: nil, replace: true)
     }
     #endif
 
