@@ -9,7 +9,9 @@ import TDLibKit
 
     @Published var message: Message {
         didSet {
-            if oldValue.editDate != message.editDate || oldValue.content.typeID != message.content.typeID {
+            if oldValue.editDate != message.editDate || oldValue.content.constructorID != message.content
+                .constructorID
+            {
                 richContentState.invalidateContent()
             }
         }

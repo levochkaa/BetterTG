@@ -3277,7 +3277,7 @@ private struct SharedCellSignature: Equatable {
     @MainActor init(message: Message, ready: Bool) {
         self.ready = ready
         self.editDate = message.editDate
-        self.contentType = Int(message.content.typeID)
+        self.contentType = Int(message.content.constructorID)
         self.revealKey = MediaRevealSession.Key(message: message)
     }
 }

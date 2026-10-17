@@ -1700,7 +1700,9 @@ import UIKit
         if let previous = messages.first(where: { $0.sourceMessages.contains { $0.id == (oldID ?? message.id) } }) {
             display.properties = previous.properties
             if previous.message.senderId == message.senderId { display.senderUser = previous.senderUser }
-            if previous.message.content.typeID == message.content.typeID { display.serviceText = previous.serviceText }
+            if previous.message.content.constructorID == message.content.constructorID {
+                display.serviceText = previous.serviceText
+            }
             if previous.message.replyTo == message.replyTo { display.replyPresentation = previous.replyPresentation }
             if previous.message.forwardInfo == message
                 .forwardInfo { display.forwardPresentation = previous.forwardPresentation }

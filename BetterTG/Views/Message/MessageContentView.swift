@@ -148,7 +148,9 @@ final class MessageMediaView: UIView {
                     view = animationView
                 }
             case .messageSticker(let sticker):
-                if sticker.sticker.format.typeID == TDNativeStickerFormatTgs.typeID {
+                // TDLibKit's generated instance `typeID` reports WebM for every sticker format, so match the case.
+                switch sticker.sticker.format {
+                case .stickerFormatTgs:
                     let stickerView = TGSStickerView()
                     stickerView.configure(
                         file: sticker.sticker.sticker,
@@ -158,7 +160,7 @@ final class MessageMediaView: UIView {
                         onTap: { onTap([item], item.id) },
                     )
                     view = stickerView
-                } else if sticker.sticker.format.typeID == TDNativeStickerFormatWebp.typeID {
+                case .stickerFormatWebp:
                     let stickerView = AnimatedWebPView()
                     stickerView.configure(
                         file: sticker.sticker.sticker,
@@ -168,7 +170,7 @@ final class MessageMediaView: UIView {
                         onTap: { onTap([item], item.id) },
                     )
                     view = stickerView
-                } else if sticker.sticker.format.typeID == TDNativeStickerFormatWebm.typeID {
+                case .stickerFormatWebm:
                     let stickerView = FFmpegAnimatedVideoView()
                     stickerView.configure(
                         file: sticker.sticker.sticker,
@@ -178,17 +180,6 @@ final class MessageMediaView: UIView {
                         onTap: { onTap([item], item.id) },
                     )
                     view = stickerView
-                } else {
-                    let fileView = FileMediaPreviewView()
-                    fileView.configure(
-                        file: sticker.sticker.sticker,
-                        thumbnail: sticker.sticker.thumbnail,
-                        minithumbnail: nil,
-                        displaySize: displaySize,
-                        showsPlayIcon: sticker.sticker.format.typeID != TDNativeStickerFormatWebp.typeID,
-                        client: client,
-                    ) { onTap([item], item.id) }
-                    view = fileView
                 }
             case .messageVideo(let video):
                 if let videoPlaybackOwner = videoPlaybackOwners[item.id],
