@@ -230,9 +230,17 @@ final class ChatFoldersViewController: UITableViewController {
             from: self,
             scope: scope,
             client: TDLib.shared.activeClient,
-            remove: { [weak self] leaveChatIDs in
-                guard let self, scope.isCurrent else { return }
+            toastPlacement: { [weak self] in
+                guard let window = self?.view.window else { return nil }
+                return ChatFolderRemoval.ToastPlacement(host: window, bottomInset: 8)
+            },
+            remove: { [weak self] leaveChatIDs, finished in
+                guard let self, scope.isCurrent else {
+                    finished()
+                    return
+                }
                 session.mutate(.delete(info.id, leaveChatIDs: leaveChatIDs), owner: self) { [weak self] result in
+                    finished()
                     if case .failure(let error) = result { self?.presentFolderError(error) }
                 }
             },

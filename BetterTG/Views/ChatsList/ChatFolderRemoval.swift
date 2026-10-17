@@ -8,16 +8,38 @@ import UIKit
 /// Telegram's folder removal (ChatListController.askForFilterRemoval and ChatListFilterPresetListController's
 /// removePreset) on TDLib. A folder shared through invite links first warns that its links stop working when it has
 /// any, then offers to quit its groups and channels (ChatFolderLinkPreviewScreen with the remove subject), the chats
-/// TDLib suggests leaving selected; a shared folder without groups or channels is removed at once. Any other folder
-/// keeps the plain confirmation. Every request runs on the caller's client and stops once its scope is not current.
+/// TDLib suggests leaving selected, and removes it behind Telegram's Undo toast; a shared folder without groups or
+/// channels is removed at once. Any other folder keeps the plain confirmation. Every request runs on the caller's
+/// client and stops once its scope is not current.
 @MainActor enum ChatFolderRemoval {
+    /// The Undo toast's place: the chat list above its folder picker, or the window when the list isn't showing.
+    struct ToastPlacement {
+        let host: UIView
+        let bottomInset: CGFloat
+    }
+
+    /// Brings back a folder and the chats it was leaving once its removal finished or was undone.
+    private final class Restoration {
+        private var restore: (() -> Void)?
+
+        init(_ restore: @escaping () -> Void) {
+            self.restore = restore
+        }
+
+        func run() {
+            restore?()
+            restore = nil
+        }
+    }
+
     static func confirm(
         info: ChatFolderInfo,
         folder: ChatFolder,
         from presenter: UIViewController,
         scope: ChatListActionScope,
         client: TDLibClient,
-        remove: @escaping (_ leaveChatIDs: [Int64]) -> Void,
+        toastPlacement: @escaping () -> ToastPlacement?,
+        remove: @escaping (_ leaveChatIDs: [Int64], _ finished: @escaping () -> Void) -> Void,
         failure: @escaping (any Swift.Error) -> Void,
     ) {
         guard scope.isCurrent, scope.source?.clientID == client.id else { return }
@@ -33,7 +55,7 @@ import UIKit
                 style: .destructive,
             ) { _ in
                 guard scope.isCurrent else { return }
-                remove([])
+                remove([]) {}
             })
             presenter.chatListTopPresenter.present(alert, animated: true)
             return
@@ -47,14 +69,23 @@ import UIKit
                     )
                     guard scope.isCurrent, let presenter else { return }
                     guard !items.isEmpty else {
-                        remove([])
+                        remove([]) {}
                         return
                     }
                     let controller = ChatFolderLeaveChatsViewController(
                         items: items,
                         selectedIDs: suggestedIDs.intersection(items.map(\.id)),
                         scope: scope,
-                        onRemove: remove,
+                        onRemove: { leaveChatIDs in
+                            removeBehindUndo(
+                                info: info,
+                                leaveChatIDs: leaveChatIDs,
+                                clientID: client.id,
+                                scope: scope,
+                                placement: toastPlacement(),
+                                remove: remove,
+                            )
+                        },
                     )
                     presenter.chatListTopPresenter.present(
                         TelegramNavigationController(rootViewController: controller),
@@ -81,6 +112,57 @@ import UIKit
         })
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
         presenter.chatListTopPresenter.present(alert, animated: true)
+    }
+
+    /// ChatFolderLinkPreviewScreen's remove subject: the folder and the chats it leaves hide at once
+    /// (addHiddenChatListFilterIds, addHiddenChatIds), Telegram's removedChat toast offers Undo, and the removal runs
+    /// once the toast is gone. The folder and chats come back a second after the removal finishes, as TDLib's updates
+    /// have dropped them by then, or right away on Undo.
+    private static func removeBehindUndo(
+        info: ChatFolderInfo,
+        leaveChatIDs: [Int64],
+        clientID: Int32,
+        scope: ChatListActionScope,
+        placement: ToastPlacement?,
+        remove: @escaping (_ leaveChatIDs: [Int64], _ finished: @escaping () -> Void) -> Void,
+    ) {
+        guard scope.isCurrent else { return }
+        let rootVM = RootVM.shared
+        let showChats = PendingChatRemovals.shared.hide(leaveChatIDs.map {
+            PendingChatRemovals.Key(clientID: clientID, chatID: $0)
+        })
+        rootVM.setFolderHidden(info.id, true)
+        let restoration = Restoration {
+            showChats()
+            rootVM.setFolderHidden(info.id, false)
+        }
+        let commit = DispatchWorkItem {
+            guard scope.isCurrent else {
+                restoration.run()
+                return
+            }
+            remove(leaveChatIDs) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { restoration.run() }
+            }
+            // A removal that never reports back still returns the folder if TDLib kept it.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 15) { restoration.run() }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + PendingChatRemovals.delay, execute: commit)
+        guard let placement else { return }
+        let title = L10n.telegram("FolderLinkPreview.ToastLeftTitleV2")
+            .replacingOccurrences(of: "{folder}", with: info.name.text.text)
+        TelegramUndoToast.show(
+            title: title,
+            text: leaveChatIDs.isEmpty
+                ? ""
+                : L10n.telegramPlural("FolderLinkPreview.ToastLeftChatsText", count: leaveChatIDs.count)
+                    .withoutTelegramMarkup,
+            in: placement.host,
+            bottomInset: placement.bottomInset,
+        ) {
+            commit.cancel()
+            restoration.run()
+        }
     }
 
     /// Telegram lists the folder's channels and supergroups among its pinned and included chats, and selects the ones

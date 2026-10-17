@@ -154,6 +154,7 @@ extension RootVM {
             folders = []
             archive = nil
         }
+        if accountChanged { resetHiddenFolders() }
         if accountChanged { currentFolder = nil }
         ensureBaseChatLists()
         if store.folderConfiguration != nil { loadFolderConfiguration() }
@@ -221,7 +222,7 @@ extension RootVM {
             guard let self else { return }
             var loadedFolders = [CustomFolder]()
             var newFolders = [CustomFolder]()
-            for info in configuration.chatFolders {
+            for info in configuration.chatFolders where !hiddenFolderIDs.contains(info.id) {
                 guard let definition = try? await client.getChatFolder(chatFolderId: info.id) else { continue }
                 guard !Task.isCancelled, folderConfigurationGeneration == generation,
                       activeAccountID == accountID, td.id == client.id else { return }

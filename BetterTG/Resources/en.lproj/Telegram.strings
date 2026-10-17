@@ -2258,3 +2258,6 @@
 "Target.ShareGameConfirmationPrivate" = "Share the game with %@?";
 "Target.ShareGameConfirmationGroup" = "Share the game with \"%@\"?";
 "ShareMenu.SelectChats" = "Select chats";
+"FolderLinkPreview.ToastLeftTitleV2" = "Folder {folder} deleted";
+"FolderLinkPreview.ToastLeftChatsText_1" = "You also left **%d** chat";
+"FolderLinkPreview.ToastLeftChatsText_any" = "You also left **%d** chats";

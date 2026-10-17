@@ -50,4 +50,16 @@ import Foundation
             hiddenKeys.remove(key)
         }
     }
+
+    /// Hides chats until the returned closure runs: ChatFolderLinkPreviewScreen's addHiddenChatIds for the chats a
+    /// folder's removal leaves while it waits behind its Undo toast. A chat with its own removal pending stays hidden.
+    func hide(_ keys: [Key]) -> () -> Void {
+        let added = keys.filter { hiddenKeys.insert($0).inserted }
+        return { [weak self] in
+            guard let self else { return }
+            for key in added where pending[key] == nil {
+                hiddenKeys.remove(key)
+            }
+        }
+    }
 }

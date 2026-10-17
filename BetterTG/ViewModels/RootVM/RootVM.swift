@@ -35,6 +35,8 @@ enum Route {
     var folderConfigurationGeneration = UUID()
     /// Lists a same-account client renewal has not reloaded yet. Their rows stay until the new client lists them.
     var renewalHeldFolderIDs = Set<Int>()
+    /// Folders whose removal waits behind its Undo toast (ChatFolderLinkPreviewScreen's addHiddenChatListFilterIds).
+    private(set) var hiddenFolderIDs = Set<Int>()
     var renewalHoldTask: Task<Void, Never>?
     let listAuthority = RootListAuthority()
     let scopeSettingsLoading = RootScopeSettingsLoading()
@@ -63,6 +65,18 @@ enum Route {
         if loggedIn {
             loadScopeNotificationSettings()
         }
+    }
+
+    /// Hides a folder's tab and page while its removal waits, or brings them back after Undo or the removal.
+    func setFolderHidden(_ id: Int, _ hidden: Bool) {
+        let changed = hidden ? hiddenFolderIDs.insert(id).inserted : hiddenFolderIDs.remove(id) != nil
+        guard changed else { return }
+        loadFolderConfiguration()
+    }
+
+    /// A new account or client starts with every folder it lists.
+    func resetHiddenFolders() {
+        hiddenFolderIDs.removeAll()
     }
 
     func isMuted(_ chat: CustomChat) -> Bool {

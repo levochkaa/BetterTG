@@ -1165,8 +1165,13 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             from: self,
             scope: scope,
             client: client,
-            remove: { [weak self] leaveChatIDs in
+            toastPlacement: { [weak self] in
+                guard let view = self?.view else { return nil }
+                return ChatFolderRemoval.ToastPlacement(host: view, bottomInset: 64)
+            },
+            remove: { [weak self] leaveChatIDs, finished in
                 Task { @MainActor [weak self] in
+                    defer { finished() }
                     do {
                         _ = try await scope.perform {
                             try await client.deleteChatFolder(chatFolderId: info.id, leaveChatIds: leaveChatIDs)
