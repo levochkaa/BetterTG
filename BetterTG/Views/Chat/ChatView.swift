@@ -935,6 +935,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return animation
     }
 
+    /// Telegram leaves a group's upgrade to a supergroup out of the history (ChatHistoryEntriesForView).
+    private static func isUpgradeNotice(_ content: MessageContent) -> Bool {
+        switch content {
+        case .messageChatUpgradeFrom, .messageChatUpgradeTo: true
+        default: false
+        }
+    }
+
     /// A bot start link for a chat the router has just created shows Start before the chat appears.
     func beginBotStart(parameter: String) {
         chatVM.beginBotStart(parameter: parameter)
@@ -3796,7 +3804,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ? ChatTimelineProjection.items(
                 messages: chatVM.messages.filter {
                     !timelineSnapshots.deleting.contains($0.displayedID) && !chatVM.holdsIncompleteOutgoingAlbum($0)
-                        && !chatVM.holdsComposerSendMessage($0)
+                        && !chatVM.holdsComposerSendMessage($0) && !Self.isUpgradeNotice($0.message.content)
                 },
                 includesTopicHeaders: chatVM.isAllMessagesForum,
                 threadHeadID: threadHead?.id,

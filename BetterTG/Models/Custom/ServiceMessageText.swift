@@ -31,6 +31,10 @@ enum ServiceMessageText {
         var gameTitle: String?
         /// The checklist whose tasks were marked or added, while its message is still there.
         var checklist: Checklist?
+        /// EnginePeer.compactDisplayTitle of the chat (a user's first name), which sharing and Passport notices name.
+        var chatCompactTitle = ""
+        /// The community the chat was added to, named by TDLib's updateCommunity.
+        var communityName: String?
     }
 
     static func resolve(
@@ -73,6 +77,7 @@ enum ServiceMessageText {
         if needsChat(message.content), let chat = try? await client.getChat(chatId: message.chatId) {
             context.chatTitle = chat.title
             context.chatKind = chatKind(chat.type)
+            context.chatCompactTitle = await compactTitle(chat, client: client)
         }
         switch message.content {
         case .messageGameScore(let value) where value.gameMessageId != 0:
@@ -85,6 +90,14 @@ enum ServiceMessageText {
             context.checklist = await checklist(in: message.chatId, messageID: value.checklistMessageId, client: client)
         case .messageChecklistTasksAdded(let value) where value.checklistMessageId != 0:
             context.checklist = await checklist(in: message.chatId, messageID: value.checklistMessageId, client: client)
+        case .messageChatShared(let value) where context.names[value.chat.chatId] == nil:
+            let title = await (try? client.getChat(chatId: value.chat.chatId))?.title ?? value.chat.title
+            if !title.isEmpty { context.names[value.chat.chatId] = title }
+        case .messageChatAddedToCommunity(let value):
+            context.communityName = await TelegramChatListStore.shared.communityName(
+                value.communityId,
+                clientID: client.id,
+            )
         case .messageProximityAlertTriggered(let value):
             for sender in [value.travelerId, value.watcherId] {
                 guard case .messageSenderChat(let chat) = sender, context.names[chat.chatId] == nil else { continue }
@@ -203,6 +216,65 @@ enum ServiceMessageText {
                 author.isEmpty
                     ? telegram("Notification.ForumTopicRenamed", value.name)
                     : telegram("Notification.ForumTopicRenamedAuthor", author, value.name)
+            case .messageForumTopicIsHiddenToggled(let value):
+                context.senderUserID == nil || author.isEmpty
+                    ? telegram(value.isHidden ? "Notification.ForumTopicHidden" : "Notification.ForumTopicUnhidden")
+                    : telegram(
+                        value
+                            .isHidden ? "Notification.ForumTopicHiddenAuthor" : "Notification.ForumTopicUnhiddenAuthor",
+                        author,
+                    )
+            case .messageChatOwnerLeft(let value):
+                ownerChange(to: value.newOwnerUserId, applied: false, context: context)
+            case .messageChatOwnerChanged(let value):
+                ownerChange(to: value.newOwnerUserId, applied: true, context: context)
+            case .messageChatHasProtectedContentToggled(let value):
+                copyProtection(old: value.oldHasProtectedContent, new: value.newHasProtectedContent, context: context)
+            case .messageChatHasProtectedContentDisableRequested:
+                context.isOutgoing
+                    ? telegram("Notification.CopyProtection.RequestYou")
+                    : context.chatCompactTitle.isEmpty
+                        ? nil
+                        : telegram("Notification.CopyProtection.Request", context.chatCompactTitle)
+            case .messageSuggestProfilePhoto(let value):
+                telegram(
+                    value.photo.animation == nil && value.photo.smallAnimation == nil
+                        ? "Notification.SuggestedProfilePhoto"
+                        : "Notification.SuggestedProfileVideo",
+                )
+            case .messageSuggestBirthdate:
+                telegram("Notification.SuggestBirthdate")
+            case .messageBotWriteAccessAllowed(let value):
+                botWriteAccess(value.reason)
+            case .messageUsersShared(let value):
+                sharedPeers(value.users.map(\.userId), context: context)
+            case .messageChatShared(let value):
+                sharedPeers([value.chat.chatId], context: context)
+            case .messagePassportDataSent(let value):
+                passportValues(value.types, context: context)
+            case .messagePollOptionAdded(let value):
+                pollOption(value.text.text, added: true, context: context)
+            case .messagePollOptionDeleted(let value):
+                pollOption(value.text.text, added: false, context: context)
+            case .messageSuggestedPostApproved:
+                telegram(
+                    context.isOutgoing
+                        ? "Chat.PostApproval.Status.AdminApproved"
+                        : "Chat.PostApproval.Status.UserApproved",
+                )
+            case .messageSuggestedPostApprovalFailed, .messageSuggestedPostDeclined:
+                // Telegram words a rejection for a low balance as any rejection.
+                telegram(
+                    context.isOutgoing
+                        ? "Chat.PostApproval.Status.AdminRejected"
+                        : "Chat.PostApproval.Status.UserRejected",
+                )
+            case .messageManagedBotCreated(let value):
+                context.names[value.botUserId].map { telegram("Notification.ManagedBotCreated", $0) }
+            case .messageChatAddedToCommunity:
+                community(added: true, context: context)
+            case .messageChatRemovedFromCommunity:
+                community(added: false, context: context)
             default:
                 nil
             }
@@ -223,6 +295,10 @@ enum ServiceMessageText {
         case .messageChatAddMembers(let value): value.memberUserIds
         case .messageChatDeleteMember(let value): [value.userId]
         case .messageInviteVideoChatParticipants(let value): value.userIds
+        case .messageChatOwnerLeft(let value): value.newOwnerUserId == 0 ? [] : [value.newOwnerUserId]
+        case .messageChatOwnerChanged(let value): [value.newOwnerUserId]
+        case .messageUsersShared(let value): value.users.map(\.userId)
+        case .messageManagedBotCreated(let value): [value.botUserId]
         case .messageProximityAlertTriggered(let value):
             [value.travelerId, value.watcherId].compactMap { sender in
                 if case .messageSenderUser(let user) = sender { user.userId } else { nil }
@@ -233,16 +309,25 @@ enum ServiceMessageText {
 
     private static func handles(_ content: MessageContent) -> Bool {
         switch content {
-        case .messageBasicGroupChatCreate, .messageCall, .messageChatAddMembers,
-             .messageChatChangePhoto, .messageChatChangeTitle, .messageChatDeleteMember, .messageChatDeletePhoto,
-             .messageChatJoinByLink, .messageChatJoinByRequest, .messageChatSetBackground,
-             .messageChatSetMessageAutoDeleteTime, .messageChatSetTheme, .messageChecklistTasksAdded,
-             .messageChecklistTasksDone, .messageContactRegistered, .messageForumTopicCreated,
-             .messageForumTopicEdited, .messageForumTopicIsClosedToggled, .messageGameScore, .messageGroupCall,
-             .messageInviteVideoChatParticipants, .messagePinMessage, .messageProximityAlertTriggered,
-             .messageScreenshotTaken,
-             .messageSupergroupChatCreate, .messageVideoChatEnded, .messageVideoChatScheduled, .messageVideoChatStarted,
-             .messageWebAppDataSent:
+        case .messageBasicGroupChatCreate, .messageBotWriteAccessAllowed, .messageCall,
+             .messageChatAddedToCommunity, .messageChatAddMembers, .messageChatChangePhoto, .messageChatChangeTitle,
+             .messageChatDeleteMember, .messageChatDeletePhoto, .messageChatHasProtectedContentDisableRequested,
+             .messageChatHasProtectedContentToggled, .messageChatJoinByLink, .messageChatJoinByRequest,
+             .messageChatOwnerChanged, .messageChatOwnerLeft, .messageChatRemovedFromCommunity,
+             .messageChatSetBackground, .messageChatSetMessageAutoDeleteTime, .messageChatSetTheme, .messageChatShared,
+             .messageChecklistTasksAdded, .messageChecklistTasksDone, .messageContactRegistered,
+             .messageForumTopicCreated,
+             .messageForumTopicEdited, .messageForumTopicIsClosedToggled, .messageForumTopicIsHiddenToggled,
+             .messageGameScore,
+             .messageGroupCall, .messageInviteVideoChatParticipants, .messageManagedBotCreated,
+             .messagePassportDataSent,
+             .messagePinMessage, .messagePollOptionAdded,
+             .messagePollOptionDeleted, .messageProximityAlertTriggered, .messageScreenshotTaken,
+             .messageSuggestBirthdate,
+             .messageSuggestedPostApprovalFailed, .messageSuggestedPostApproved, .messageSuggestedPostDeclined,
+             .messageSuggestProfilePhoto,
+             .messageSupergroupChatCreate, .messageUsersShared, .messageVideoChatEnded,
+             .messageVideoChatScheduled, .messageVideoChatStarted, .messageWebAppDataSent:
             true
         default:
             false
@@ -260,8 +345,155 @@ enum ServiceMessageText {
 
     private static func needsChat(_ content: MessageContent) -> Bool {
         switch content {
-        case .messageChatSetBackground, .messageChatSetMessageAutoDeleteTime: true
+        case .messageChatAddedToCommunity, .messageChatHasProtectedContentDisableRequested,
+             .messageChatHasProtectedContentToggled,
+             .messageChatRemovedFromCommunity, .messageChatSetBackground, .messageChatSetMessageAutoDeleteTime,
+             .messageChatShared, .messagePassportDataSent, .messageUsersShared:
+            true
         default: false
+        }
+    }
+
+    /// EnginePeer.compactDisplayTitle: a user's first name, else the last name; a group's or channel's title.
+    private static func compactTitle(_ chat: Chat, client: TDLibClient) async -> String {
+        let userID: Int64? =
+            switch chat.type {
+            case .chatTypePrivate(let value): value.userId
+            case .chatTypeSecret(let value): value.userId
+            default: nil
+            }
+        guard let userID, let user = try? await client.getUser(userId: userID) else { return chat.title }
+        return [user.firstName, user.lastName].first { !$0.isEmpty } ?? displayTitle(user)
+    }
+
+    /// groupCreatorChange: the owner left and the member becomes the owner in 7 days unless they return, or the
+    /// owner handed the group over.
+    private static func ownerChange(to userID: Int64, applied: Bool, context: Context) -> String? {
+        guard !context.author.isEmpty, let target = context.names[userID] else { return nil }
+        return telegram(
+            applied ? "Notification.GroupCreatorChangeApplied" : "Notification.GroupCreatorChangePending",
+            context.author,
+            target,
+        )
+    }
+
+    /// copyProtectionToggle, which names the chat rather than its author. A toggle that keeps protection on is a
+    /// declined request to enable sharing.
+    private static func copyProtection(old: Bool, new: Bool, context: Context) -> String? {
+        if old, new { return telegram("Notification.CopyProtection.StillEnabled") }
+        if context.isOutgoing {
+            return telegram(new ? "Notification.CopyProtection.EnabledYou" : "Notification.CopyProtection.DisabledYou")
+        }
+        guard !context.chatCompactTitle.isEmpty else { return nil }
+        return telegram(
+            new ? "Notification.CopyProtection.Enabled" : "Notification.CopyProtection.Disabled",
+            context.chatCompactTitle,
+        )
+    }
+
+    /// botDomainAccessGranted and botAppAccessGranted.
+    private static func botWriteAccess(_ reason: TDNativeBotWriteAccessAllowReason) -> String {
+        switch reason {
+        case .botWriteAccessAllowReasonConnectedWebsite(let value):
+            telegram("AuthSessions.Message", value.domainName)
+        case .botWriteAccessAllowReasonAddedToAttachmentMenu:
+            telegram("Notification.BotWriteAllowedMenu")
+        case .botWriteAccessAllowReasonLaunchedWebApp(let value):
+            telegram("AuthSessions.MessageApp", value.webApp.title)
+        case .botWriteAccessAllowReasonAcceptedRequest:
+            telegram("Notification.BotWriteAllowedRequest")
+        }
+    }
+
+    /// requestedPeer: the users or the chat shared with the bot whose chat this is.
+    private static func sharedPeers(_ ids: [Int64], context: Context) -> String? {
+        let names = ids.compactMap { context.names[$0] }
+        guard !ids.isEmpty, names.count == ids.count, !context.chatTitle.isEmpty else { return nil }
+        return telegram(
+            ids.count == 1 ? "Notification.RequestedPeer" : "Notification.RequestedPeerMultiple",
+            names.joined(separator: ", "),
+            context.chatTitle,
+        )
+    }
+
+    /// botSentSecureValues: the bot and the kinds of documents it received, each proof of identity or address once.
+    private static func passportValues(_ types: [TDNativePassportElementType], context: Context) -> String? {
+        guard !context.chatCompactTitle.isEmpty else { return nil }
+        var values = [String]()
+        var hasIdentity = false
+        var hasAddress = false
+        for type in types {
+            switch type {
+            case .passportElementTypePersonalDetails:
+                values.append(telegram("Notification.PassportValuePersonalDetails"))
+            case .passportElementTypeDriverLicense, .passportElementTypeIdentityCard,
+                 .passportElementTypeInternalPassport,
+                 .passportElementTypePassport:
+                guard !hasIdentity else { continue }
+                hasIdentity = true
+                values.append(telegram("Notification.PassportValueProofOfIdentity"))
+            case .passportElementTypeAddress:
+                values.append(telegram("Notification.PassportValueAddress"))
+            case .passportElementTypeBankStatement, .passportElementTypePassportRegistration,
+                 .passportElementTypeRentalAgreement,
+                 .passportElementTypeTemporaryRegistration, .passportElementTypeUtilityBill:
+                guard !hasAddress else { continue }
+                hasAddress = true
+                values.append(telegram("Notification.PassportValueProofOfAddress"))
+            case .passportElementTypePhoneNumber:
+                values.append(telegram("Notification.PassportValuePhone"))
+            case .passportElementTypeEmailAddress:
+                values.append(telegram("Notification.PassportValueEmail"))
+            }
+        }
+        return telegram(
+            "Notification.PassportValuesSentMessage",
+            context.chatCompactTitle,
+            values.joined(separator: ", "),
+        )
+    }
+
+    /// pollOptionAppended and pollOptionDeleted, with the option cut after 20 characters.
+    private static func pollOption(_ text: String, added: Bool, context: Context) -> String? {
+        let option = shortened(text)
+        if context.isOutgoing {
+            return telegram(added ? "Notification.PollAddedOptionYou" : "Notification.PollDeletedOptionYou", option)
+        }
+        guard !context.author.isEmpty else { return nil }
+        return telegram(
+            added ? "Notification.PollAddedOption" : "Notification.PollDeletedOption",
+            context.author,
+            option,
+        )
+    }
+
+    /// communityChanged: a bot's, a channel's or a group's community. A community TDLib hasn't named keeps the
+    /// generic title.
+    private static func community(added: Bool, context: Context) -> String? {
+        let name = context.communityName ?? ""
+        if added, name.isEmpty { return nil }
+        switch context.chatKind {
+        case .privateChat:
+            return added
+                ? telegram("Notification.CommunityAddedBot", name)
+                : telegram("Notification.CommunityRemovedBot")
+        case .channel:
+            return added
+                ? telegram("Notification.CommunityAddedChannel", name)
+                : telegram("Notification.CommunityRemovedChannel")
+        case .basicGroup, .supergroup:
+            if context.isOutgoing {
+                return added
+                    ? telegram("Notification.CommunityAddedGroupYou", name)
+                    : telegram("Notification.CommunityRemovedGroupYou")
+            }
+            if added, context.senderUserID == nil { return telegram("Notification.CommunityAddedGroupUnknown", name) }
+            guard !context.author.isEmpty else { return nil }
+            return added
+                ? telegram("Notification.CommunityAddedGroup", context.author, name)
+                : telegram("Notification.CommunityRemovedGroup", context.author)
+        case .secretChat, .unknown:
+            return nil
         }
     }
 

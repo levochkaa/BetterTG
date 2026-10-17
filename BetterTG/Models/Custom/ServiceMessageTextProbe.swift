@@ -5,7 +5,8 @@
     import TDLibKit
 
     /// Checks Telegram's service wording for actions whose real messages are rare (calls, video chats, timers,
-    /// game scores, proximity alerts, web app data, themes). Launch with `-ui-probe-service-text`.
+    /// game scores, proximity alerts, web app data, themes, ownership, sharing, shared peers, Passport, poll
+    /// options, suggested posts, communities). Launch with `-ui-probe-service-text`.
     @MainActor enum ServiceMessageTextProbe {
         private struct Case {
             let name: String
@@ -34,6 +35,7 @@
             byUser: Bool = true,
             kind: ServiceMessageText.ChatKind = .unknown,
             names: [Int64: String] = [:],
+            communityName: String? = nil,
         ) -> ServiceMessageText.Context {
             ServiceMessageText.Context(
                 author: byUser ? "Ada" : "News",
@@ -45,6 +47,8 @@
                 accountUserID: 7,
                 chatKind: kind,
                 chatTitle: "Ada",
+                chatCompactTitle: "Ada",
+                communityName: communityName,
             )
         }
 
@@ -207,6 +211,120 @@
                     content: .messageVideoChatStarted(MessageVideoChatStarted(groupCallId: 1)),
                     context: context(channel: true, byUser: false, kind: .channel),
                     check: equals(t("Notification.LiveStreamStarted")),
+                ),
+            ] + recentCases()
+        }
+
+        private static func recentCases() -> [Case] {
+            let longOption = "An option that is long"
+            return [
+                Case(
+                    name: "owner-left",
+                    content: .messageChatOwnerLeft(TDNativeMessageChatOwnerLeft(newOwnerUserId: 5)),
+                    context: context(kind: .supergroup, names: [5: "Bob"]),
+                    check: equals(t("Notification.GroupCreatorChangePending", "Ada", "Bob")),
+                ),
+                Case(
+                    name: "owner-changed",
+                    content: .messageChatOwnerChanged(TDNativeMessageChatOwnerChanged(newOwnerUserId: 5)),
+                    context: context(kind: .supergroup, names: [5: "Bob"]),
+                    check: equals(t("Notification.GroupCreatorChangeApplied", "Ada", "Bob")),
+                ),
+                Case(
+                    name: "sharing-still-disabled",
+                    content: .messageChatHasProtectedContentToggled(TDNativeMessageChatHasProtectedContentToggled(
+                        requestMessageId: 0, oldHasProtectedContent: true, newHasProtectedContent: true,
+                    )),
+                    context: context(kind: .privateChat),
+                    check: equals(t("Notification.CopyProtection.StillEnabled")),
+                ),
+                Case(
+                    name: "sharing-disabled-by-peer",
+                    content: .messageChatHasProtectedContentToggled(TDNativeMessageChatHasProtectedContentToggled(
+                        requestMessageId: 0, oldHasProtectedContent: false, newHasProtectedContent: true,
+                    )),
+                    context: context(kind: .privateChat),
+                    check: equals(t("Notification.CopyProtection.Enabled", "Ada")),
+                ),
+                Case(
+                    name: "topic-hidden",
+                    content: .messageForumTopicIsHiddenToggled(
+                        TDNativeMessageForumTopicIsHiddenToggled(isHidden: true),
+                    ),
+                    context: context(kind: .supergroup),
+                    check: equals(t("Notification.ForumTopicHiddenAuthor", "Ada")),
+                ),
+                Case(
+                    name: "bot-website",
+                    content: .messageBotWriteAccessAllowed(TDNativeMessageBotWriteAccessAllowed(
+                        reason: .botWriteAccessAllowReasonConnectedWebsite(
+                            TDNativeBotWriteAccessAllowReasonConnectedWebsite(domainName: "example.com"),
+                        ),
+                    )),
+                    context: context(kind: .privateChat),
+                    check: equals(t("AuthSessions.Message", "example.com")),
+                ),
+                Case(
+                    name: "users-shared",
+                    content: .messageUsersShared(TDNativeMessageUsersShared(
+                        users: [TDNativeSharedUser(userId: 5, firstName: "", lastName: "", username: "", photo: nil)],
+                        buttonId: 1,
+                    )),
+                    context: context(outgoing: true, kind: .privateChat, names: [5: "Bob"]),
+                    check: equals(t("Notification.RequestedPeer", "Bob", "Ada")),
+                ),
+                Case(
+                    name: "passport-sent",
+                    content: .messagePassportDataSent(TDNativeMessagePassportDataSent(types: [
+                        .passportElementTypePersonalDetails, .passportElementTypePassport,
+                        .passportElementTypeDriverLicense, .passportElementTypePhoneNumber,
+                    ])),
+                    context: context(outgoing: true, kind: .privateChat),
+                    check: equals(t(
+                        "Notification.PassportValuesSentMessage",
+                        "Ada",
+                        [
+                            t("Notification.PassportValuePersonalDetails"),
+                            t("Notification.PassportValueProofOfIdentity"),
+                            t("Notification.PassportValuePhone"),
+                        ].joined(separator: ", "),
+                    )),
+                ),
+                Case(
+                    name: "poll-option-added",
+                    content: .messagePollOptionAdded(TDNativeMessagePollOptionAdded(
+                        pollMessageId: 1, optionId: "a", text: FormattedText(text: longOption, entities: []),
+                    )),
+                    context: context(kind: .supergroup),
+                    check: equals(t("Notification.PollAddedOption", "Ada", String(longOption.prefix(20)) + "…")),
+                ),
+                Case(
+                    name: "suggested-post-declined",
+                    content: .messageSuggestedPostDeclined(
+                        TDNativeMessageSuggestedPostDeclined(suggestedPostMessageId: 1, comment: ""),
+                    ),
+                    context: context(kind: .supergroup),
+                    check: equals(t("Chat.PostApproval.Status.UserRejected")),
+                ),
+                Case(
+                    name: "managed-bot",
+                    content: .messageManagedBotCreated(
+                        TDNativeMessageManagedBotCreated(botUserId: 9, managerBotUserId: 10),
+                    ),
+                    context: context(outgoing: true, kind: .privateChat, names: [9: "Helper"]),
+                    check: equals(t("Notification.ManagedBotCreated", "Helper")),
+                ),
+                Case(
+                    name: "community-added-you",
+                    content: .messageChatAddedToCommunity(TDNativeMessageChatAddedToCommunity(communityId: 3)),
+                    context: context(outgoing: true, kind: .supergroup, communityName: "Makers"),
+                    check: equals(t("Notification.CommunityAddedGroupYou", "Makers")),
+                ),
+                Case(
+                    name: "community-removed",
+                    content: .messageChatRemovedFromCommunity,
+                    context: context(kind: .supergroup),
+                    check: equals(t("Notification.CommunityRemovedGroup", "Ada")),
                 ),
             ]
         }
