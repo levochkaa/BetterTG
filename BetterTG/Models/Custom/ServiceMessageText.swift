@@ -29,6 +29,8 @@ enum ServiceMessageText {
         var chatKind = ChatKind.unknown
         var chatTitle = ""
         var gameTitle: String?
+        /// The checklist whose tasks were marked or added, while its message is still there.
+        var checklist: Checklist?
     }
 
     static func resolve(
@@ -79,6 +81,10 @@ enum ServiceMessageText {
             {
                 context.gameTitle = content.game.title
             }
+        case .messageChecklistTasksDone(let value) where value.checklistMessageId != 0:
+            context.checklist = await checklist(in: message.chatId, messageID: value.checklistMessageId, client: client)
+        case .messageChecklistTasksAdded(let value) where value.checklistMessageId != 0:
+            context.checklist = await checklist(in: message.chatId, messageID: value.checklistMessageId, client: client)
         case .messageProximityAlertTriggered(let value):
             for sender in [value.travelerId, value.watcherId] {
                 guard case .messageSenderChat(let chat) = sender, context.names[chat.chatId] == nil else { continue }
@@ -167,6 +173,14 @@ enum ServiceMessageText {
                 autoDeleteTimer(value.messageAutoDeleteTime, fromUserID: value.fromUserId, context: context)
             case .messageGameScore(let value):
                 gameScore(value.score, context: context)
+            case .messageChecklistTasksDone(let value):
+                checklistTasksDone(
+                    done: value.markedAsDoneTaskIds,
+                    notDone: value.markedAsNotDoneTaskIds,
+                    context: context,
+                )
+            case .messageChecklistTasksAdded(let value):
+                checklistTasksAdded(value.tasks, context: context)
             case .messageProximityAlertTriggered(let value):
                 proximityAlert(traveler: value.travelerId, watcher: value.watcherId, distance: value.distance, context)
             case .messageWebAppDataSent(let value):
@@ -222,8 +236,8 @@ enum ServiceMessageText {
         case .messageBasicGroupChatCreate, .messageCall, .messageChatAddMembers,
              .messageChatChangePhoto, .messageChatChangeTitle, .messageChatDeleteMember, .messageChatDeletePhoto,
              .messageChatJoinByLink, .messageChatJoinByRequest, .messageChatSetBackground,
-             .messageChatSetMessageAutoDeleteTime,
-             .messageChatSetTheme, .messageContactRegistered, .messageForumTopicCreated,
+             .messageChatSetMessageAutoDeleteTime, .messageChatSetTheme, .messageChecklistTasksAdded,
+             .messageChecklistTasksDone, .messageContactRegistered, .messageForumTopicCreated,
              .messageForumTopicEdited, .messageForumTopicIsClosedToggled, .messageGameScore, .messageGroupCall,
              .messageInviteVideoChatParticipants, .messagePinMessage, .messageProximityAlertTriggered,
              .messageScreenshotTaken,
@@ -380,6 +394,67 @@ enum ServiceMessageText {
             .telegramPluralString(key, count: score)
             .replacingOccurrences(of: "{name}", with: context.author)
             .replacingOccurrences(of: "{game}", with: context.gameTitle ?? "")
+    }
+
+    private static func checklist(in chatID: Int64, messageID: Int64, client: TDLibClient) async -> Checklist? {
+        guard let message = try? await client.getMessage(chatId: chatID, messageId: messageID),
+              case .messageChecklist(let content) = message.content
+        else { return nil }
+        return content.list
+    }
+
+    /// ServiceMessageStrings' todoCompletions: the task's name while one task was marked and is still in the
+    /// checklist, or the number of tasks, by the author or You.
+    private static func checklistTasksDone(done: [Int], notDone: [Int], context: Context) -> String? {
+        let author = context.author
+        let isYou = context.isOutgoing
+        guard isYou || !author.isEmpty else { return nil }
+        let tasks = context.checklist?.tasks ?? []
+        func name(_ id: Int) -> String? {
+            tasks.first { $0.id == id }.map { shortened($0.text.text) }
+        }
+        let title = done.first.flatMap(name) ?? notDone.first.flatMap(name)
+        func counted(_ key: String, _ count: Int) -> String {
+            let tasksText = AppLocalization.shared.telegramPluralString(key, count: count)
+            return isYou
+                ? telegram("Notification.TodoMultipleYou", tasksText)
+                : telegram("Notification.TodoMultiple", author, tasksText)
+        }
+        func named(_ youKey: String, _ key: String) -> String {
+            isYou ? telegram(youKey, title ?? "") : telegram(key, author, title ?? "")
+        }
+        if done.count > 1 || (done.count == 1 && title == nil) {
+            return counted("Notification.TodoTasksDone", done.count)
+        }
+        if !done.isEmpty { return named("Notification.TodoCompletedYou", "Notification.TodoCompleted") }
+        if notDone.count > 1 || (notDone.count == 1 && title == nil) {
+            return counted("Notification.TodoTasksUndone", notDone.count)
+        }
+        if !notDone.isEmpty { return named("Notification.TodoIncompletedYou", "Notification.TodoIncompleted") }
+        return named("Notification.TodoCompletedYou", "Notification.TodoCompleted")
+    }
+
+    /// ServiceMessageStrings' todoAppendTasks: the task's name for one task or the number of tasks, and the
+    /// checklist's title, DELETED once its message is gone.
+    private static func checklistTasksAdded(_ tasks: [ChecklistTask], context: Context) -> String? {
+        let author = context.author
+        guard context.isOutgoing || !author.isEmpty else { return nil }
+        let checklistTitle = shortened(context.checklist?.title.text ?? "DELETED")
+        if tasks.count == 1, let task = tasks.first {
+            let title = shortened(task.text.text)
+            return context.isOutgoing
+                ? telegram("Notification.TodoAddedTaskYou", title, checklistTitle)
+                : telegram("Notification.TodoAddedTask", author, title, checklistTitle)
+        }
+        let count = AppLocalization.shared.telegramPluralString("Notification.TodoAddedTasks", count: tasks.count)
+        return context.isOutgoing
+            ? telegram("Notification.TodoAddedMultipleTasksYou", count, checklistTitle)
+            : telegram("Notification.TodoAddedMultipleTasks", author, count, checklistTitle)
+    }
+
+    /// Telegram cuts a task's or a checklist's name after 20 characters.
+    private static func shortened(_ text: String) -> String {
+        text.count > 20 ? String(text.prefix(20)) + "…" : text
     }
 
     private static func proximityAlert(
