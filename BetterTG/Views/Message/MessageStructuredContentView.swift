@@ -26,10 +26,17 @@ enum MessageContentAction {
     case openChatPhoto(ChatPhoto)
     case openLocation(location: Location, title: String)
     case submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission)
-    /// The Add an Option field's Save or Done (requestAddMessagePollOption): TDLib's addPollOption with the text.
-    case addPollOption(messageID: Int64, text: String, submission: MessagePollInteractionStore.AddOptionSubmission)
+    /// The Add an Option field's Save or Done (requestAddMessagePollOption): TDLib's addPollOption with the text and
+    /// its custom emoji.
+    case addPollOption(
+        messageID: Int64,
+        text: FormattedText,
+        submission: MessagePollInteractionStore.AddOptionSubmission,
+    )
     /// The Add an Option field's attach button (openNewOptionAttachment): the answer's attachment screen.
     case attachPollOptionMedia(messageID: Int64)
+    /// The Add an Option field's input mode button (toggleNewOptionInputMode): the emoji picker for the field.
+    case pickPollOptionEmoji(messageID: Int64)
     /// Telegram's View Votes button and a public poll's result row (requestOpenMessagePollResults): the poll's
     /// voters, opened at the tapped answer.
     case openPollResults(messageID: Int64, optionID: Int?)
@@ -117,6 +124,8 @@ enum MessageContentAction {
     /// time; the chat hides its input panel while one does.
     private(set) var focusedAddOptionMessageID: Int64?
     let addOptionFocusChanges = PassthroughSubject<Int64?, Never>()
+    /// Emoji picked for a poll's Add an Option field, which puts them at its cursor.
+    let addOptionEmojiInsertions = PassthroughSubject<(messageID: Int64, emoji: NSAttributedString), Never>()
 
     /// The quiz whose explanation is open (Telegram's `currentPollMessageWithTooltip`), one at a time.
     private(set) var explanationMessageID: Int64?
@@ -129,7 +138,7 @@ enum MessageContentAction {
     private var checklistEntries = [Int64: [Int: ChecklistEntry]]()
     private var checklistTimeouts = [UUID: DispatchWorkItem]()
     /// The text typed into each poll's Add an Option field, kept while the poll's view is rebuilt.
-    private var addOptionDrafts = [Int64: String]()
+    private var addOptionDrafts = [Int64: NSAttributedString]()
     /// The media attached to each poll's new answer (ChatMessagePollBubbleContentNode's `currentNewOptionMedia`).
     private var addOptionMediaByMessage = [Int64: PollDraftMedia]()
     private var addOptionSubmissions = [Int64: AddOptionSubmission]()
@@ -219,13 +228,18 @@ enum MessageContentAction {
         changes.send(messageID)
     }
 
-    func addOptionDraft(messageID: Int64) -> String {
-        addOptionDrafts[messageID] ?? ""
+    func addOptionDraft(messageID: Int64) -> NSAttributedString {
+        addOptionDrafts[messageID] ?? NSAttributedString()
     }
 
     /// Keeps the field's text; the field itself shows it, so nothing is redrawn.
-    func setAddOptionDraft(_ text: String, messageID: Int64) {
-        addOptionDrafts[messageID] = text.isEmpty ? nil : text
+    func setAddOptionDraft(_ text: NSAttributedString, messageID: Int64) {
+        addOptionDrafts[messageID] = text.length == 0 ? nil : text
+    }
+
+    /// An emoji or custom emoji picked for the field (the emoji keyboard's insertText).
+    func insertAddOptionEmoji(_ emoji: NSAttributedString, messageID: Int64) {
+        addOptionEmojiInsertions.send((messageID, emoji))
     }
 
     func addOptionMedia(messageID: Int64) -> PollDraftMedia? {
@@ -266,7 +280,7 @@ enum MessageContentAction {
     /// Starts sending the draft; a poll sends one new answer at a time.
     func beginAddOption(messageID: Int64) -> AddOptionSubmission? {
         guard addOptionSubmissions[messageID] == nil,
-              !addOptionDraft(messageID: messageID).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              !addOptionDraft(messageID: messageID).string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return nil }
         let submission = AddOptionSubmission(messageID: messageID, id: UUID())
         addOptionSubmissions[messageID] = submission
@@ -1563,6 +1577,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     /// Whether the answers were last configured with their results.
     private var optionsShowResults = false
     private var storeCancellable: AnyCancellable?
+    private var emojiCancellable: AnyCancellable?
     /// The top of the poll's first block, its media or its question, under the bubble's edge or the explanation.
     private var contentTopToView: NSLayoutConstraint!
     private var contentTopToExplanation: NSLayoutConstraint!
@@ -1667,6 +1682,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     private var canSaveNewOption: Bool {
         addOptionView != nil
             && !interactionStore.addOptionDraft(messageID: messageID)
+            .string
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty
     }
@@ -1729,6 +1745,9 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         self.storeCancellable = interactionStore.changes
             .filter { $0 == messageID }
             .sink { [weak self] _ in self?.interactionStoreChanged() }
+        self.emojiCancellable = interactionStore.addOptionEmojiInsertions
+            .filter { $0.messageID == messageID }
+            .sink { [weak self] insertion in self?.addOptionView?.insertEmoji(insertion.emoji) }
         renderSelection()
         renderExplanation()
     }
@@ -1742,6 +1761,33 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         syncAddOptionFocus()
     }
 
+    /// The typed answer without its surrounding spaces, keeping only custom emoji entities as TDLib allows in an
+    /// option (ComposePollScreen's validatedInput).
+    private static func newOptionText(_ draft: NSAttributedString) -> FormattedText {
+        let string = draft.string as NSString
+        let whitespace = CharacterSet.whitespacesAndNewlines
+        func isSpace(_ index: Int) -> Bool {
+            UnicodeScalar(string.character(at: index)).map(whitespace.contains) ?? false
+        }
+        var start = 0
+        var end = string.length
+        while start < end, isSpace(start) {
+            start += 1
+        }
+        while end > start, isSpace(end - 1) {
+            end -= 1
+        }
+        let formatted = ComposerText.formatted(draft.attributedSubstring(from: NSRange(
+            location: start,
+            length: end - start,
+        )))
+        let entities = formatted.entities.filter { entity in
+            if case .textEntityTypeCustomEmoji = entity.type { return true }
+            return false
+        }
+        return FormattedText(entities: entities, text: formatted.text)
+    }
+
     /// The answer whose row contains `point`, for Telegram's option menu (ChatControllerOpenPollContextMenu).
     func optionIndex(at point: CGPoint, in sourceView: UIView) -> Int? {
         optionViews.first { _, view in view.convert(view.bounds, to: sourceView).contains(point) }?.key
@@ -1750,6 +1796,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     func prepareForReuse() {
         storeCancellable?.cancel()
         storeCancellable = nil
+        emojiCancellable = nil
         // The rebuilt poll takes the keyboard back (didMoveToWindow), so this field's end of editing is no blur.
         addOptionView?.isTearingDown = true
         mediaView?.prepareForReuse()
@@ -1839,6 +1886,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
 
         if content.canAddOption {
             let addOptionView = PollAddOptionView()
+            addOptionView.setClient(client)
             addOptionView.text = interactionStore.addOptionDraft(messageID: messageID)
             addOptionView.onTextChange = { [weak self] text in self?.addOptionTextChanged(text) }
             addOptionView.onHeightChange = { [weak self] in self?.onAction(.richContentLayoutChanged) }
@@ -1847,6 +1895,10 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
                 interactionStore.setAddOptionFocused(focused, messageID: messageID)
             }
             addOptionView.onReturn = { [weak self] in self?.saveNewOption() }
+            addOptionView.onEmoji = { [weak self] in
+                guard let self else { return }
+                onAction(.pickPollOptionEmoji(messageID: messageID))
+            }
             addOptionView.setMedia(interactionStore.addOptionMedia(messageID: messageID), client: client)
             addOptionView.onAttach = { [weak self] in
                 guard let self else { return }
@@ -2152,11 +2204,11 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         } else {
             if addOptionView.isEditing { addOptionView.endEditing(true) }
             let draft = interactionStore.addOptionDraft(messageID: messageID)
-            if addOptionView.text != draft { addOptionView.text = draft }
+            if !addOptionView.text.isEqual(to: draft) { addOptionView.text = draft }
         }
     }
 
-    private func addOptionTextChanged(_ text: String) {
+    private func addOptionTextChanged(_ text: NSAttributedString) {
         let couldSave = canSaveNewOption
         interactionStore.setAddOptionDraft(text, messageID: messageID)
         guard canSaveNewOption != couldSave else { return }
@@ -2170,8 +2222,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
             if canSaveNewOption == false { addOptionView?.endEditing(true) }
             return
         }
-        let text = interactionStore.addOptionDraft(messageID: messageID)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = Self.newOptionText(interactionStore.addOptionDraft(messageID: messageID))
         onAction(.addPollOption(messageID: messageID, text: text, submission: submission))
     }
 
@@ -2441,6 +2492,8 @@ private final class PollOptionContentView: UIControl {
 /// grows with its text up to Telegram's 100 characters. Done saves, and new lines aren't allowed. A UIControl, so the
 /// chat's tap that puts the keyboard away passes it by. Typed text brings the attach button at the trailing edge;
 /// attached media shows there as the answer's 40-point thumbnail, which removes it when tapped.
+/// While the field is edited the plus turns into the input mode button, which opens the emoji picker; custom emoji
+/// are drawn in place and edited whole.
 private final class PollAddOptionView: UIControl, UITextViewDelegate {
     private static let characterLimit = 100
     private static let verticalInset: CGFloat = 11
@@ -2449,12 +2502,13 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
     /// ChatMessagePollAddOptionNode's `attachmentInset`: the text keeps clear of the attach button and the media.
     private static let attachmentInset: CGFloat = 52
 
-    var onTextChange: ((String) -> Void)?
+    var onTextChange: ((NSAttributedString) -> Void)?
     var onHeightChange: (() -> Void)?
     var onFocusChange: ((Bool) -> Void)?
     var onReturn: (() -> Void)?
     var onAttach: (() -> Void)?
     var onRemoveMedia: (() -> Void)?
+    var onEmoji: (() -> Void)?
     /// Set once the poll is being rebuilt: the field's end of editing is then not the user's.
     var isTearingDown = false
 
@@ -2468,7 +2522,8 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
     }
 
     private let plusView = UIImageView()
-    private let textView = UITextView()
+    private let emojiButton = UIButton(type: .system)
+    private let textView = PollAddOptionTextView()
     private let placeholderLabel = UILabel()
     private let attachButton = UIButton(type: .system)
     private let mediaView = PollMediaThumbnailView()
@@ -2477,15 +2532,25 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
     private var minimumHeight: NSLayoutConstraint!
     private var measuredHeight = CGFloat.zero
 
-    var text: String {
-        get { textView.text }
+    var text: NSAttributedString {
+        get { NSAttributedString(attributedString: textView.textStorage) }
         set {
-            textView.text = newValue
+            let storage = textView.textStorage
+            storage.beginEditing()
+            storage.setAttributedString(newValue)
+            ComposerText.refresh(storage)
+            storage.addAttribute(.font, value: font, range: NSRange(location: 0, length: storage.length))
+            storage.endEditing()
+            textView.updateCustomEmoji()
             textChanged(notify: false)
         }
     }
 
     var isEditing: Bool { textView.isFirstResponder }
+
+    private var font: UIFont {
+        UIFont.preferredFont(forTextStyle: .subheadline)
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -2499,6 +2564,18 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
         plusView.tintColor = .systemBlue
         plusView.isUserInteractionEnabled = false
         addSubview(plusView)
+
+        // ChatMessagePollAddOptionNode's mode selector in place of the plus while the field is edited.
+        emojiButton.translatesAutoresizingMaskIntoConstraints = false
+        emojiButton.setImage(
+            UIImage(systemName: "face.smiling", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18)),
+            for: .normal,
+        )
+        emojiButton.tintColor = .secondaryLabel
+        emojiButton.accessibilityLabel = L10n.telegram("EmojiInput.TabEmoji")
+        emojiButton.addTarget(self, action: #selector(emojiTapped), for: .touchUpInside)
+        emojiButton.isHidden = true
+        addSubview(emojiButton)
 
         let font = UIFont.preferredFont(forTextStyle: .subheadline)
         textView.translatesAutoresizingMaskIntoConstraints = false
@@ -2516,6 +2593,7 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
         textView.returnKeyType = .done
         textView.delegate = self
         textView.accessibilityLabel = L10n.telegram("CreatePoll.AddOption")
+        textView.onPasteTelegramText = { [weak self] value in self?.insert(value) ?? false }
         addSubview(textView)
 
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -2554,6 +2632,10 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
             plusView.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             plusView.widthAnchor.constraint(equalToConstant: 22),
             plusView.heightAnchor.constraint(equalToConstant: 22),
+            emojiButton.centerXAnchor.constraint(equalTo: plusView.centerXAnchor),
+            emojiButton.centerYAnchor.constraint(equalTo: plusView.centerYAnchor),
+            emojiButton.widthAnchor.constraint(equalToConstant: 32),
+            emojiButton.heightAnchor.constraint(equalToConstant: 32),
             textView.topAnchor.constraint(equalTo: topAnchor),
             textView.bottomAnchor.constraint(equalTo: bottomAnchor),
             textView.leadingAnchor.constraint(equalTo: plusView.trailingAnchor, constant: 7),
@@ -2583,8 +2665,32 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
         if measuredHeight == 0 { measuredHeight = textView.bounds.height }
     }
 
+    /// A selection touching a custom emoji takes the whole emoji.
+    private static func expanding(_ range: NSRange, overCustomEmojiIn text: NSAttributedString) -> NSRange {
+        var edited = range
+        for emoji in TelegramCustomEmojiRun.extract(from: text)
+            where range.length > 0 && NSIntersectionRange(range, emoji.range).length > 0
+        {
+            edited = NSUnionRange(edited, emoji.range)
+        }
+        return edited
+    }
+
     func beginEditing() {
         textView.becomeFirstResponder()
+    }
+
+    /// The client whose account owns the custom emoji in the field.
+    func setClient(_ client: TDLibClient) {
+        textView.customEmojiClient = client
+    }
+
+    /// An emoji from the picker at the cursor, or at the end when the field isn't being edited.
+    func insertEmoji(_ emoji: NSAttributedString) {
+        if !textView.isFirstResponder {
+            textView.selectedRange = NSRange(location: textView.textStorage.length, length: 0)
+        }
+        _ = insert(emoji)
     }
 
     /// Shows the attached media in the field and returns whether the field's height changed with it.
@@ -2610,42 +2716,99 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
     }
 
     func textViewDidBeginEditing(_: UITextView) {
+        setModeSelectorVisible(true)
         onFocusChange?(true)
     }
 
     func textViewDidEndEditing(_: UITextView) {
+        setModeSelectorVisible(false)
         guard !isTearingDown else { return }
         onFocusChange?(false)
     }
 
     /// TextFieldComponent with `returnKeyType: .done`, `emptyLineHandling: .notAllowed` and `characterLimit: 100`:
-    /// Return saves, pasted lines join with spaces and text past the limit is cut.
+    /// Return saves, pasted lines join with spaces and text past the limit is cut. A custom emoji is one glyph: a
+    /// partial edit replaces the whole emoji.
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         guard !isBusy else { return false }
         if text == "\n" {
             onReturn?()
             return false
         }
-        let current = textView.text as NSString
-        let replaced = current.substring(with: range)
-        let available = Self.characterLimit - textView.text.count + replaced.count
-        let cleaned = text.components(separatedBy: .newlines).joined(separator: " ")
-        guard cleaned != text || cleaned.count > available else { return true }
-        let inserted = String(cleaned.prefix(max(0, available)))
-        textView.text = current.replacingCharacters(in: range, with: inserted)
-        textView.selectedRange = NSRange(location: range.location + (inserted as NSString).length, length: 0)
-        textChanged(notify: true)
+        let storage = self.textView.textStorage
+        let current = storage.string
+        guard ComposerText.isValid(range, in: current as NSString) else { return false }
+        self.textView.typingAttributes = typingAttributes(at: range.location)
+        let editedRange = Self.expanding(range, overCustomEmojiIn: storage)
+        guard let bounds = Range(editedRange, in: current) else { return false }
+        let kept = current.replacingCharacters(in: bounds, with: "")
+        var replacement = text.components(separatedBy: .newlines).joined(separator: " ")
+        let available = max(0, Self.characterLimit - kept.count)
+        if replacement.count > available { replacement = String(replacement.prefix(available)) }
+        if replacement == text, editedRange == range { return true }
+        guard let start = textView.position(from: textView.beginningOfDocument, offset: editedRange.location),
+              let end = textView.position(from: start, offset: editedRange.length),
+              let textRange = textView.textRange(from: start, to: end)
+        else { return false }
+        textView.replace(textRange, withText: replacement)
+        textDidChange()
         return false
     }
 
     func textViewDidChange(_: UITextView) {
+        textDidChange()
+    }
+
+    /// Puts `value` in place of the selection if it fits the 100 characters; pasted custom emoji come here too.
+    @discardableResult private func insert(_ value: NSAttributedString) -> Bool {
+        guard !isBusy, value.length > 0 else { return false }
+        if textView.markedTextRange != nil { textView.unmarkText() }
+        let storage = textView.textStorage
+        var range = textView.selectedRange
+        if !ComposerText.isValid(range, in: storage.string as NSString) {
+            range = NSRange(location: storage.length, length: 0)
+        }
+        let editedRange = Self.expanding(range, overCustomEmojiIn: storage)
+        guard let bounds = Range(editedRange, in: storage.string) else { return false }
+        let kept = storage.string.replacingCharacters(in: bounds, with: "")
+        let flattened = NSMutableAttributedString(attributedString: value)
+        flattened.mutableString.replaceOccurrences(
+            of: "\n",
+            with: " ",
+            options: [],
+            range: NSRange(location: 0, length: flattened.length),
+        )
+        guard kept.count + flattened.string.count <= Self.characterLimit else { return false }
+        storage.replaceCharacters(in: editedRange, with: flattened)
+        textView.selectedRange = NSRange(location: editedRange.location + flattened.length, length: 0)
+        textDidChange()
+        return true
+    }
+
+    /// Keeps the custom emoji that still match their text, as the composer does, in the field's font.
+    private func textDidChange() {
+        let storage = textView.textStorage
+        if textView.markedTextRange == nil {
+            storage.beginEditing()
+            ComposerText.refresh(storage)
+            storage.addAttribute(.font, value: font, range: NSRange(location: 0, length: storage.length))
+            storage.endEditing()
+            textView.typingAttributes = typingAttributes(at: textView.selectedRange.location)
+        }
+        textView.updateCustomEmoji()
         textChanged(notify: true)
+    }
+
+    private func typingAttributes(at location: Int) -> [NSAttributedString.Key: Any] {
+        var attributes = ComposerText.typingAttributes(in: textView.textStorage, at: location)
+        attributes[.font] = font
+        return attributes
     }
 
     private func textChanged(notify: Bool) {
         placeholderLabel.isHidden = !textView.text.isEmpty
         updateAttachButton()
-        if notify { onTextChange?(textView.text) }
+        if notify { onTextChange?(text) }
         guard textView.bounds.width > 0 else { return }
         let height = textView.sizeThatFits(CGSize(width: textView.bounds.width, height: .greatestFiniteMagnitude))
             .height
@@ -2659,6 +2822,15 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
         beginEditing()
     }
 
+    private func setModeSelectorVisible(_ visible: Bool) {
+        plusView.isHidden = visible
+        emojiButton.isHidden = !visible
+    }
+
+    @objc private func emojiTapped() {
+        onEmoji?()
+    }
+
     /// ChatMessagePollAddOptionNode's attach button: shown once there's text and no media.
     private func updateAttachButton() {
         attachButton.isHidden = mediaID != nil || textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -2670,6 +2842,30 @@ private final class PollAddOptionView: UIControl, UITextViewDelegate {
 
     @objc private func mediaTapped() {
         onRemoveMedia?()
+    }
+}
+
+// MARK: - PollAddOptionTextView
+
+/// The Add an Option field's text view, which draws custom emoji and takes BetterTG's own pasteboard payload, the
+/// only trusted source of custom emoji, as the composer does.
+private final class PollAddOptionTextView: CustomEmojiTextView {
+    /// Takes pasted text with custom emoji; false pastes it as plain text.
+    var onPasteTelegramText: ((NSAttributedString) -> Bool)?
+
+    override func paste(_ sender: Any?) {
+        if let data = UIPasteboard.general.data(forPasteboardType: TelegramEmojiPasteboardPayload.type),
+           let payload = try? JSONDecoder().decode(TelegramEmojiPasteboardPayload.self, from: data),
+           !payload.emojis.isEmpty
+        {
+            let value = NSMutableAttributedString(
+                attributedString: ComposerText.importing(NSAttributedString(string: payload.text)),
+            )
+            payload.apply(to: value)
+            ComposerText.setCustomEmoji(TelegramCustomEmojiRun.extract(from: value), in: value)
+            if onPasteTelegramText?(value) == true { return }
+        }
+        super.paste(sender)
     }
 }
 
@@ -3597,6 +3793,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("poll-add-option")
                     case .attachPollOptionMedia:
                         actions.append("poll-add-option-media")
+                    case .pickPollOptionEmoji:
+                        actions.append("poll-add-option-emoji")
                     case .openPollResults:
                         actions.append("poll-results")
                     case .openPollMedia:

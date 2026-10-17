@@ -2975,7 +2975,7 @@ import UIKit
     /// updateMessageContent; `onSaved` plays Telegram's success haptic.
     func addPollOption(
         messageID: Int64,
-        text: String,
+        text: FormattedText,
         submission: MessagePollInteractionStore.AddOptionSubmission,
         onSaved: @escaping @MainActor () -> Void,
     ) {
@@ -2990,7 +2990,7 @@ import UIKit
         let client = client
         let chatID = message.message.chatId
         let option = TDNativeInputPollOption(
-            text: FormattedText(entities: [], text: text),
+            text: text,
             media: pollInteractionStore.addOptionMedia(messageID: messageID)?.input,
         )
         Task { [weak self] in

@@ -206,6 +206,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var webAppLauncher: WebAppLauncher?
     /// The attachment screen for a poll's new answer (openNewOptionAttachment).
     private var pollOptionMediaFlow: PollMediaAttachmentFlow?
+    /// The emoji picker filling a poll's Add an Option field, and the poll it belongs to.
+    private var pollOptionEmojiMessageID: Int64?
+    private var pollOptionEmojiObserver: SheetDismissObserver?
     /// The bot menu button's Web App, made with the chat's account on the first launch.
     private var menuWebAppLauncher: WebAppLauncher?
     /// ChatControllerInitialAttachBotStart: an attachment menu bot link's bot, launched once the chat is on screen.
@@ -996,6 +999,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             file.local.isDownloadingCompleted ? PollOptionMenu.avatar(path: file.local.path) : nil
         }
         return PollOptionMenu.Author(name: name, isCurrentUser: isCurrentUser, avatar: avatar)
+    }
+
+    private static func pickedEmoji(_ emoji: String, customID: Int64?) -> NSAttributedString {
+        let value = NSMutableAttributedString(
+            attributedString: ComposerText.importing(NSAttributedString(string: emoji)),
+        )
+        if let customID {
+            ComposerText.setCustomEmoji(
+                [TelegramCustomEmojiRun(id: customID, range: NSRange(location: 0, length: value.length))],
+                in: value,
+            )
+        }
+        return value
     }
 
     /// A bot start link for a chat the router has just created shows Start before the chat appears.
@@ -5538,6 +5554,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         case .attachPollOptionMedia(let messageID):
             attachPollOptionMedia(messageID: messageID)
+        case .pickPollOptionEmoji(let messageID):
+            presentPollOptionEmojiPicker(messageID: messageID)
         case .openPollResults(let messageID, let optionID):
             openPollResults(messageID: messageID, optionID: optionID, in: message)
         case .openPollMedia(let messageID, let media):
@@ -5826,6 +5844,49 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         pollOptionMediaFlow = flow
         flow.start()
+    }
+
+    /// ChatMessagePollBubbleContentNode.toggleNewOptionInputMode. Telegram swaps the keyboard for its emoji keyboard;
+    /// here the composer's emoji picker opens over the chat, emoji only, as in the poll creator, and fills the field,
+    /// which takes the keyboard back once the picker closes.
+    private func presentPollOptionEmojiPicker(messageID: Int64) {
+        guard let accountID = chatVM.accountID, pollOptionEmojiMessageID == nil, presentedViewController == nil
+        else { return }
+        let store = chatVM.pollInteractionStore
+        let picker = ComposerMediaPickerViewController(
+            accountID: accountID,
+            chatID: chatVM.chatID,
+            client: chatVM.client,
+        )
+        picker.allowsStickersAndGIFs = false
+        picker.onEmoji = { [weak store] emoji in
+            store?.insertAddOptionEmoji(Self.pickedEmoji(emoji, customID: nil), messageID: messageID)
+        }
+        picker.onCustomEmoji = { [weak store] sticker in
+            guard case .stickerFullTypeCustomEmoji(let type) = sticker.fullType else { return }
+            store?.insertAddOptionEmoji(
+                Self.pickedEmoji(sticker.emoji, customID: type.customEmojiId),
+                messageID: messageID,
+            )
+        }
+        picker.onDismiss = { [weak self] in self?.pollOptionEmojiPickerDidDismiss() }
+        pollOptionEmojiMessageID = messageID
+        let observer = SheetDismissObserver { [weak self] in self?.pollOptionEmojiPickerDidDismiss() }
+        pollOptionEmojiObserver = observer
+        let navigation = TelegramNavigationController(rootViewController: picker)
+        navigation.modalPresentationStyle = .pageSheet
+        navigation.sheetPresentationController?.detents = [.medium(), .large()]
+        navigation.sheetPresentationController?.prefersGrabberVisible = false
+        navigation.presentationController?.delegate = observer
+        present(navigation, animated: true)
+    }
+
+    /// Telegram's emoji keyboard switches back to the keyboard in the same field.
+    private func pollOptionEmojiPickerDidDismiss() {
+        guard let messageID = pollOptionEmojiMessageID else { return }
+        pollOptionEmojiMessageID = nil
+        pollOptionEmojiObserver = nil
+        chatVM.pollInteractionStore.setAddOptionFocused(true, messageID: messageID)
     }
 
     /// Telegram's openPollMedia (ChatControllerOpenPollOptionMedia): a sticker offers Add to Favorites and View
