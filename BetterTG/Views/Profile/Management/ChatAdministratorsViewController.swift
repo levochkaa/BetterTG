@@ -238,13 +238,36 @@ final class ChatAdministratorsViewController: SettingsListViewController {
 /// chatMemberStatusAdministrator) and sets the tag (setChatMemberTag); Dismiss makes them a member again. A basic
 /// group's admins have every right, so its screen keeps only the tag and Dismiss.
 final class ChatAdminRightsViewController: SettingsListViewController {
+    /// ChannelAdminController with `invite` for a bot (OpenResolvedUrl's groupBotStart): titled Add Bot, with a
+    /// group's Admin Rights switch and a button that adds the bot as an admin after Telegram's confirmation, or as a
+    /// member.
+    struct BotInvite {
+        /// The rights the link or the bot asks for; the account's own rights cap them.
+        let requestedRights: AdminRightsSet?
+        let onAdded: @MainActor () -> Void
+    }
+
     private let target: ChatManagementTarget
     private let member: ChatManagementMember
     private let isNew: Bool
     private let grantable: AdminRightsSet
+    private let botInvite: BotInvite?
     private var rights: AdminRightsSet
     private var tag: String
     private var isSaving = false
+    /// ChannelAdminControllerState's `adminRights` for an invited bot: off adds it as a member.
+    private var addsBotAsAdmin = true
+
+    /// A group's bot that isn't an admin yet may join as a member instead (Bot.AddToChat.Add.AdminRights).
+    private var offersMemberInvite: Bool {
+        guard botInvite != nil, !target.isChannel else { return false }
+        if case .chatMemberStatusAdministrator = member.status { return false }
+        return true
+    }
+
+    private var editsRights: Bool {
+        !offersMemberInvite || addsBotAsAdmin
+    }
 
     /// The rights rows for this kind of chat, in ChannelAdminController's rightsOrder.
     private var items: [(title: String, key: WritableKeyPath<AdminRightsSet, Bool>)] {
@@ -294,13 +317,16 @@ final class ChatAdminRightsViewController: SettingsListViewController {
         return items.map { (title: $0.0, key: $0.1) }
     }
 
-    init(target: ChatManagementTarget, member: ChatManagementMember, isNew: Bool) {
+    init(target: ChatManagementTarget, member: ChatManagementMember, isNew: Bool, botInvite: BotInvite? = nil) {
         self.target = target
         self.member = member
         self.isNew = isNew
         self.grantable = target.rights ?? .none
+        self.botInvite = botInvite
         self.tag = member.tag
-        if case .chatMemberStatusAdministrator(let administrator) = member.status {
+        if let requested = botInvite?.requestedRights {
+            self.rights = requested.intersection(target.rights ?? .none)
+        } else if case .chatMemberStatusAdministrator(let administrator) = member.status {
             self.rights = AdminRightsSet(administrator.rights)
         } else {
             // ChannelAdminController's new admin: the account's rights without adding admins or anonymity.
@@ -318,6 +344,10 @@ final class ChatAdminRightsViewController: SettingsListViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        if botInvite != nil {
+            title = L10n.telegram("Bot.AddToChat.Add.Title")
+            return
+        }
         title = L10n.telegram(isNew ? "Channel.Management.AddModerator" : "Channel.Moderator.Title")
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             title: L10n.telegram("Common.Save"), style: .prominent, target: self, action: #selector(savePressed),
@@ -330,6 +360,17 @@ final class ChatAdminRightsViewController: SettingsListViewController {
             detail: ChatManagementRows.role(member.status, tag: member.tag),
             style: .peer(member.peer),
         )])]
+        if offersMemberInvite {
+            sections.append(SettingsSection(rows: [SettingsRow(
+                title: L10n.telegram("Bot.AddToChat.Add.AdminRights"),
+                accessory: .toggle(isOn: addsBotAsAdmin, onChange: { [weak self] isOn in
+                    guard let self else { return }
+                    addsBotAsAdmin = isOn
+                    reload()
+                }),
+                isEnabled: !isSaving,
+            )]))
+        }
         let rows = items.map { item in
             SettingsRow(
                 title: item.title,
@@ -339,7 +380,7 @@ final class ChatAdminRightsViewController: SettingsListViewController {
                 isEnabled: !isSaving && grantable[keyPath: item.key],
             )
         }
-        if !rows.isEmpty {
+        if !rows.isEmpty, editsRights {
             sections.append(SettingsSection(
                 header: L10n.telegram("Channel.EditAdmin.PermissionsHeader"),
                 footer: L10n.telegram(
@@ -350,7 +391,7 @@ final class ChatAdminRightsViewController: SettingsListViewController {
                 rows: rows,
             ))
         }
-        if !target.isChannel {
+        if !target.isChannel, editsRights {
             sections.append(SettingsSection(
                 header: L10n.telegram("Group.EditAdmin.MemberTagTitle"),
                 footer: L10n.telegram("Group.EditAdmin.MemberTagInfo", member.peer.title),
@@ -360,6 +401,13 @@ final class ChatAdminRightsViewController: SettingsListViewController {
                     maxLength: 16,
                 ) { [weak self] text in self?.tag = text }))],
             ))
+        }
+        if botInvite != nil {
+            sections.append(SettingsSection(rows: [SettingsRow(
+                title: L10n.telegram(editsRights ? "Bot.AddToChat.Add.AddAsAdmin" : "Bot.AddToChat.Add.AddAsMember"),
+                style: .action(destructive: false),
+                isEnabled: !isSaving,
+            ) { [weak self] in self?.addBotPressed() }]))
         }
         if !isNew {
             sections.append(SettingsSection(rows: [SettingsRow(
@@ -373,7 +421,47 @@ final class ChatAdminRightsViewController: SettingsListViewController {
     private func setRight(_ key: WritableKeyPath<AdminRightsSet, Bool>, _ value: Bool) {
         rights[keyPath: key] = value
         if key == \AdminRightsSet.canPromoteMembers {
-            reload(sections: IndexSet(integer: 1))
+            reload(sections: IndexSet(integer: offersMemberInvite ? 2 : 1))
+        }
+    }
+
+    /// ChannelParticipantFooterItem for an invited bot: Add Bot as Admin asks first, Add Bot as Member adds it.
+    private func addBotPressed() {
+        guard !isSaving else { return }
+        guard editsRights else {
+            addBotAsMember()
+            return
+        }
+        let key = target.isChannel ? "Bot.AddToChat.Add.AdminAlertTextChannel" : "Bot.AddToChat.Add.AdminAlertTextGroup"
+        confirm(
+            title: L10n.telegram("Bot.AddToChat.Add.AdminAlertTitle"),
+            message: L10n.telegram(key, target.chat.title).replacingOccurrences(of: "**", with: ""),
+            actionTitle: L10n.telegram("Bot.AddToChat.Add.AdminAlertAdd"),
+            isDestructive: false,
+        ) { [weak self] in self?.savePressed() }
+    }
+
+    private func addBotAsMember() {
+        guard let userID = member.userID, contextIsCurrent else { return }
+        isSaving = true
+        reload()
+        let client = client
+        let chatID = target.chatID
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.addChatMember(
+                    chatId: chatID,
+                    userId: userID,
+                    forwardLimit: 0,
+                ))
+                guard let self, contextIsCurrent else { return }
+                botInvite?.onAdded()
+            } catch {
+                guard let self else { return }
+                isSaving = false
+                reload()
+                if contextIsCurrent { presentAlert(title: nil, message: ChatManagementRows.failureText(error)) }
+            }
         }
     }
 
@@ -410,7 +498,11 @@ final class ChatAdminRightsViewController: SettingsListViewController {
                     _ = try await client.setChatMemberTag(chatId: chatID, tag: newTag, userId: userID)
                 }
                 guard let self, contextIsCurrent else { return }
-                popToAdministrators()
+                if let botInvite {
+                    botInvite.onAdded()
+                } else {
+                    popToAdministrators()
+                }
             } catch {
                 guard let self else { return }
                 isSaving = false

@@ -24,6 +24,12 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
         /// A game's Share (GameControllerNode's ShareController): a chat the user can write to outside secret chats,
         /// which receives the game's link or the game with the player's score.
         case shareGame
+        /// A message draft link (OpenResolvedUrl's `.share`): any chat the user can write to, whose composer gets
+        /// the link's text.
+        case messageDraft
+        /// A bot's add-to-group or add-to-channel link (OpenResolvedUrl's `.groupBotStart`): the groups or channels
+        /// of the allowed kinds the user manages (ChatListNodePeersFilter's `onlyManageable`), chosen as a whole.
+        case addBot(InlineTargetChatTypes)
     }
 
     var onSelect: ((CustomChat, ForumTopic?, PendingMessageForward) -> Void)?
@@ -69,9 +75,14 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
 
     private var allowedChatTypes: InlineTargetChatTypes? {
         switch purpose {
-        case .attachmentMenuBot(let types), .switchInline(let types): types.isEmpty ? nil : types
-        case .forward, .replyInAnotherChat, .shareGame, .shareStory: nil
+        case .addBot(let types), .attachmentMenuBot(let types), .switchInline(let types): types.isEmpty ? nil : types
+        case .forward, .messageDraft, .replyInAnotherChat, .shareGame, .shareStory: nil
         }
+    }
+
+    private var choosesBotDestination: Bool {
+        if case .addBot = purpose { return true }
+        return false
     }
 
     /// PeerSelectionController's title: Choose User, Bot, Group or Channel for one requested kind, Select Chat for
@@ -79,6 +90,11 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private var pickerTitle: String {
         if purpose == .replyInAnotherChat { return L10n.telegram("Conversation.MoveReplyToAnotherChatTitle") }
         if case .attachmentMenuBot = purpose { return L10n.telegram("WebApp.SelectChat") }
+        if case .addBot(let types) = purpose {
+            if types.groups, !types.channels { return L10n.telegram("Bot.AddToGroup.Title") }
+            if types.channels, !types.groups { return L10n.telegram("Bot.AddToChannel.Title") }
+            return L10n.telegram("Bot.AddToChat.Title")
+        }
         if purpose == .shareStory || purpose == .shareGame { return L10n.telegram("ShareMenu.ShareTo") }
         guard let types = allowedChatTypes else { return L10n.betterTG("Forward.Title") }
         let titles = [
@@ -211,8 +227,10 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
                             request: request,
                             canForward: true,
                             canCopy: true,
-                            canCopyToSecretChat: false,
-                            contentRequirements: [.basic],
+                            // A draft goes into any composer, a secret chat's too; a bot joins a channel whose
+                            // admin may not post.
+                            canCopyToSecretChat: purpose == .messageDraft,
+                            contentRequirements: choosesBotDestination ? [] : [.basic],
                             hasCaptions: false,
                         )
                     } else {
@@ -232,6 +250,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
                         accountID: self.accountID,
                         seedChats: self.seedChats,
                         chatTypes: self.allowedChatTypes,
+                        requiresBotManagement: self.choosesBotDestination,
                     )
                     page.updateQuery(self.query)
                     page.setSearchActive(self.customNavigationBar.isSearchActive, animated: false)
@@ -351,7 +370,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private func selectChat(_ chat: Chat, isForum: Bool) {
         guard selectionTask == nil, let preparedForward, contextIsCurrent else { return }
         view.endEditing(true)
-        if isForum {
+        if isForum, !choosesBotDestination {
             let picker = ForwardForumTopicsViewController(
                 chat: chat,
                 preparedForward: preparedForward,

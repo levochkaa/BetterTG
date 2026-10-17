@@ -11,6 +11,15 @@ import UIKit
 /// TDLib doesn't know or BetterTG can't show, leaves through Safari. A result is dropped when the account or client
 /// that resolved it is no longer the active one, or when a newer link replaced it.
 @MainActor final class TelegramLinkRouter {
+    // MARK: Adding bots
+
+    /// Where a bot's add link puts it: startgroup's group, whose start parameter goes to the bot, or startchannel's
+    /// channel.
+    enum BotAdditionTarget {
+        case group(startParameter: String)
+        case channel
+    }
+
     /// A link that waits until the account is ready.
     private struct PendingLink {
         let link: String
@@ -194,10 +203,38 @@ import UIKit
             else { return }
             await openChat(chat.id, authority: authority, presenter: presenter, botStartParameter: value.startParameter)
         case .internalLinkTypeBotStartInGroup(let value):
-            // Telegram's group picker for adding the bot isn't ported; the link opens the bot's chat.
-            guard let chat = await publicChat(value.botUsername, authority: authority, presenter: presenter)
-            else { return }
-            await openChat(chat.id, authority: authority, presenter: presenter)
+            await addBot(
+                value.botUsername,
+                to: .group(startParameter: value.startParameter),
+                requestedRights: value.administratorRights,
+                authority: authority,
+                presenter: presenter,
+            )
+        case .internalLinkTypeBotAddToChannel(let value):
+            await addBot(
+                value.botUsername,
+                to: .channel,
+                requestedRights: value.administratorRights,
+                authority: authority,
+                presenter: presenter,
+            )
+        case .internalLinkTypeMessageDraft(let value):
+            presentChatPicker(.messageDraft, authority: authority, presenter: presenter) { [weak self] chat, topic in
+                await self?.openChat(
+                    chat.id,
+                    authority: authority,
+                    presenter: presenter,
+                    topic: topic,
+                    linkDraft: value.text,
+                )
+            }
+        case .internalLinkTypeGame(let value):
+            await shareGame(
+                value.gameShortName,
+                botUsername: value.botUsername,
+                authority: authority,
+                presenter: presenter,
+            )
         case .internalLinkTypeMainWebApp(let value):
             await openMainWebApp(value, authority: authority, presenter: presenter)
         case .internalLinkTypeAttachmentMenuBot(let value):
@@ -494,6 +531,312 @@ import UIKit
         host.present(navigation, animated: true)
     }
 
+    // MARK: Chat pickers
+
+    /// PeerSelectionController for a link's chat: the chosen chat, or forum topic, goes to `chosen` once the
+    /// picker has closed.
+    private func presentChatPicker(
+        _ purpose: ForwardMessagesViewController.Purpose,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+        chosen: @escaping @MainActor (CustomChat, ForumTopic?) async -> Void,
+    ) {
+        var seen = Set<Int64>()
+        let seedChats = RootVM.shared.allFolders.flatMap(\.chats).map(\.chat).filter { seen.insert($0.id).inserted }
+        guard let accountID = authority.source?.accountID, let host = presentationHost(presenter),
+              let picker = ForwardMessagesViewController(
+                  choosingChatFor: purpose,
+                  client: authority.client,
+                  accountID: accountID,
+                  seedChats: seedChats,
+              )
+        else { return }
+        picker.onChosenChat = { [weak self] chat, topic in
+            guard let self, authority.isCurrent else { return }
+            resolveTask?.cancel()
+            resolveTask = Task { await chosen(chat, topic) }
+        }
+        let navigation = TelegramNavigationController(rootViewController: picker)
+        navigation.modalPresentationStyle = .fullScreen
+        host.present(navigation, animated: true)
+    }
+
+    /// OpenResolvedUrl's `.gameStart`: a chat to share the bot's game with, Telegram's confirmation, the game sent
+    /// there, and the chat or topic opened.
+    private func shareGame(
+        _ shortName: String,
+        botUsername: String,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) async {
+        guard let botChat = await publicChat(botUsername, authority: authority, presenter: presenter),
+              case .chatTypePrivate(let botType) = botChat.type else { return }
+        let botUserID = botType.userId
+        presentChatPicker(.shareGame, authority: authority, presenter: presenter) { [weak self] chat, topic in
+            guard let self, let host = presentationHost(presenter) else { return }
+            let key =
+                if case .chatTypePrivate = chat.chat.type {
+                    "Target.ShareGameConfirmationPrivate"
+                } else {
+                    "Target.ShareGameConfirmationGroup"
+                }
+            let alert = UIAlertController(
+                title: nil,
+                message: L10n.telegram(key, chat.chat.title),
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+            alert.addAction(UIAlertAction(
+                title: L10n.telegram("RequestPeer.SelectionConfirmationSend"),
+                style: .default,
+            ) { [weak self] _ in
+                self?.sendGame(
+                    shortName,
+                    botUserID: botUserID,
+                    to: chat,
+                    topic: topic,
+                    authority: authority,
+                    presenter: presenter,
+                )
+            })
+            host.present(alert, animated: true)
+        }
+    }
+
+    private func sendGame(
+        _ shortName: String,
+        botUserID: Int64,
+        to chat: CustomChat,
+        topic: ForumTopic?,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) {
+        guard authority.isCurrent else { return }
+        let client = authority.client
+        let topicID = topic
+            .map { MessageTopic.messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId)) }
+        resolveTask?.cancel()
+        resolveTask = Task { [weak self, weak presenter] in
+            do {
+                _ = try await client.send(TDNativeRequests.sendMessage(
+                    chatId: chat.id,
+                    topicId: topicID,
+                    replyTo: nil,
+                    options: nil,
+                    replyMarkup: nil,
+                    inputMessageContent: .inputMessageGame(InputMessageGame(
+                        botUserId: botUserID,
+                        gameShortName: shortName,
+                    )),
+                ))
+                guard let self, !Task.isCancelled, authority.isCurrent else { return }
+                await openChat(chat.id, authority: authority, presenter: presenter, topic: topic)
+            } catch {
+                guard let self, !Task.isCancelled, authority.isCurrent else { return }
+                presentAlert(L10n.telegram("Login.UnknownError"), presenter: presenter)
+            }
+        }
+    }
+
+    /// OpenResolvedUrl's `.groupBotStart`: the groups or channels the user manages, then the bot's admin rights
+    /// where the user may add admins, or Telegram's Add Bot as Member confirmation elsewhere.
+    private func addBot(
+        _ username: String,
+        to destination: BotAdditionTarget,
+        requestedRights: ChatAdministratorRights?,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) async {
+        let client = authority.client
+        guard let botChat = await publicChat(username, authority: authority, presenter: presenter) else { return }
+        guard case .chatTypePrivate(let botType) = botChat.type,
+              let bot = try? await client.getUser(userId: botType.userId),
+              case .userTypeBot(let info) = bot.type
+        else {
+            guard !Task.isCancelled, authority.isCurrent else { return }
+            await openChat(botChat.id, authority: authority, presenter: presenter)
+            return
+        }
+        guard !Task.isCancelled, authority.isCurrent else { return }
+        let payload: String
+        let isStartGroup: Bool
+        switch destination {
+        case .group(let startParameter):
+            // A bot that can't join groups only has its chat to offer.
+            guard info.canJoinGroups else {
+                await openChat(botChat.id, authority: authority, presenter: presenter)
+                return
+            }
+            payload = startParameter
+            isStartGroup = true
+        case .channel:
+            payload = ""
+            isStartGroup = false
+        }
+        // An empty set of rights in the link means it asked for none (ResolvedBotAdminRights is nil).
+        let requested = requestedRights.map(AdminRightsSet.init).flatMap { rights in
+            var withoutManagement = rights
+            withoutManagement.canManageChat = false
+            return withoutManagement == AdminRightsSet.none ? nil : rights
+        }
+        let types = InlineTargetChatTypes(users: false, bots: false, groups: isStartGroup, channels: !isStartGroup)
+        presentChatPicker(.addBot(types), authority: authority, presenter: presenter) { [weak self] chat, _ in
+            await self?.addBot(
+                bot,
+                to: chat.id,
+                payload: payload,
+                isStartGroup: isStartGroup,
+                requested: requested,
+                authority: authority,
+                presenter: presenter,
+            )
+        }
+    }
+
+    /// The chosen group or channel: a forced start, a bot that is already an admin, or a chat where the user can't
+    /// add admins takes the member confirmation; otherwise the admin rights screen opens with the link's rights or
+    /// the bot's defaults.
+    private func addBot(
+        _ bot: User,
+        to chatID: Int64,
+        payload: String,
+        isStartGroup: Bool,
+        requested: AdminRightsSet?,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) async {
+        let client = authority.client
+        guard let target = await ChatManagementTarget.load(chatID: chatID, client: client),
+              !Task.isCancelled, authority.isCurrent else { return }
+        let forcesStart = isStartGroup && !payload.isEmpty && requested == nil
+        let checksExistingAdmin = isStartGroup && !payload.isEmpty && requested != nil
+        let botSender = MessageSender.user(bot.id)
+        let botStatus = try? await client.send(TDNativeRequests.getChatMember(chatId: chatID, memberId: botSender))
+            .status
+        guard !Task.isCancelled, authority.isCurrent else { return }
+        let botIsAdmin =
+            switch botStatus {
+            case .chatMemberStatusAdministrator, .chatMemberStatusCreator: true
+            default: false
+            }
+        let opensRights: Bool
+        switch target.group {
+        case .supergroup:
+            let canAddAdmins = target.isCreator || target.rights?.canPromoteMembers == true
+            opensRights = !forcesStart && canAddAdmins && !(checksExistingAdmin && !target.isChannel && botIsAdmin)
+        case .basic:
+            let isMember =
+                if case .chatMemberStatusMember = target.status {
+                    true
+                } else {
+                    false
+                }
+            opensRights = !forcesStart && !isMember && !(checksExistingAdmin && botIsAdmin)
+        }
+        guard opensRights else {
+            confirmBotMember(bot, target: target, payload: payload, authority: authority, presenter: presenter)
+            return
+        }
+        var rights = requested
+        if rights == nil, let botInfo = try? await client.getUserFullInfo(userId: bot.id).botInfo {
+            rights = (target.isChannel
+                ? botInfo.defaultChannelAdministratorRights
+                : botInfo.defaultGroupAdministratorRights)
+                .map(AdminRightsSet.init)
+        }
+        guard !Task.isCancelled, authority.isCurrent,
+              let peer = await SettingsPeer.resolve(botSender, client: client), authority.isCurrent else { return }
+        let member = ChatManagementMember(
+            sender: botSender,
+            peer: peer,
+            status: botStatus ?? .chatMemberStatusLeft,
+            tag: "",
+        )
+        afterDismissingPresentations { [weak self] in
+            guard authority.isCurrent else { return }
+            let navigation = NavigationStorage.shared.navigationController
+            let editor = ChatAdminRightsViewController(
+                target: target,
+                member: member,
+                isNew: true,
+                botInvite: .init(requestedRights: rights) { [weak self, weak navigation] in
+                    navigation?.popViewController(animated: true)
+                    guard checksExistingAdmin else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        self?.confirmBotMember(
+                            bot,
+                            target: target,
+                            payload: payload,
+                            authority: authority,
+                            presenter: presenter,
+                        )
+                    }
+                },
+            )
+            navigation.pushViewController(editor, animated: true)
+        }
+    }
+
+    /// Bot.AddToChat.Add.MemberAlert: the bot joins, or with a start parameter is started in the group, which then
+    /// opens.
+    private func confirmBotMember(
+        _ bot: User,
+        target: ChatManagementTarget,
+        payload: String,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) {
+        guard authority.isCurrent, let host = presentationHost(presenter) else { return }
+        let key = target.isChannel
+            ? "Bot.AddToChat.Add.MemberAlertTextChannel"
+            : "Bot.AddToChat.Add.MemberAlertTextGroup"
+        let alert = UIAlertController(
+            title: L10n.telegram("Bot.AddToChat.Add.MemberAlertTitle"),
+            message: L10n.telegram(key, target.chat.title).withoutTelegramMarkup,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Bot.AddToChat.Add.MemberAlertAdd"), style: .default) {
+            [weak self] _ in
+            self?.addBotMember(bot, to: target.chatID, payload: payload, authority: authority, presenter: presenter)
+        })
+        host.present(alert, animated: true)
+    }
+
+    private func addBotMember(
+        _ bot: User,
+        to chatID: Int64,
+        payload: String,
+        authority: ChatListActionAuthority,
+        presenter: UIViewController?,
+    ) {
+        guard authority.isCurrent else { return }
+        let client = authority.client
+        resolveTask?.cancel()
+        resolveTask = Task { [weak self, weak presenter] in
+            do {
+                if payload.isEmpty {
+                    _ = try await client.send(TDNativeRequests.addChatMember(
+                        chatId: chatID,
+                        userId: bot.id,
+                        forwardLimit: 0,
+                    ))
+                } else {
+                    _ = try await client.send(TDNativeRequests.sendBotStartMessage(
+                        botUserId: bot.id,
+                        chatId: chatID,
+                        parameter: payload,
+                    ))
+                    guard let self, !Task.isCancelled, authority.isCurrent else { return }
+                    await openChat(chatID, authority: authority, presenter: presenter)
+                }
+            } catch {
+                guard let self, !Task.isCancelled, authority.isCurrent else { return }
+                presentAlert(ChatManagementRows.failureText(error), presenter: presenter)
+            }
+        }
+    }
+
     /// OpenResolvedUrl's `.channelMessage` and `.replyThreadMessage`: `getMessageLinkInfo`, then the message in its
     /// chat, forum topic or comment thread. A chat the user can't see gets Telegram's inaccessible-message alert.
     private func openMessage(_ link: String, authority: ChatListActionAuthority, presenter: UIViewController?) async {
@@ -620,6 +963,7 @@ import UIKit
         messageID: Int64? = nil,
         botStartParameter: String? = nil,
         attachmentMenuBotStart: AttachmentMenuBotStart? = nil,
+        linkDraft: FormattedText? = nil,
         profile: Bool = false,
     ) async {
         let client = authority.client
@@ -659,6 +1003,7 @@ import UIKit
                    messageID: messageID,
                    botStartParameter: botStartParameter,
                    attachmentMenuBotStart: attachmentMenuBotStart,
+                   linkDraft: linkDraft,
                )
             {
                 return
@@ -672,6 +1017,12 @@ import UIKit
             if let attachmentMenuBotStart {
                 let controller = ChatViewController(customChat: customChat, location: location, forumTopic: topic)
                 controller.beginAttachmentMenuBot(attachmentMenuBotStart)
+                navigation.pushViewController(controller, animated: true)
+                return
+            }
+            if let linkDraft {
+                let controller = ChatViewController(customChat: customChat, location: location, forumTopic: topic)
+                controller.beginLinkDraft(linkDraft)
                 navigation.pushViewController(controller, animated: true)
                 return
             }

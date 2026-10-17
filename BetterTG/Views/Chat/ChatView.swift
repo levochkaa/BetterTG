@@ -208,6 +208,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var menuWebAppLauncher: WebAppLauncher?
     /// ChatControllerInitialAttachBotStart: an attachment menu bot link's bot, launched once the chat is on screen.
     private var pendingAttachmentMenuBotStart: AttachmentMenuBotStart?
+    /// A message draft link's text (OpenResolvedUrl's `.share`), put into the composer once the chat is on screen.
+    private var pendingLinkDraft: FormattedText?
 
     private let messageSelectionToolbar = MessageSelectionToolbar()
     private var messageSelectionToolbarHeightConstraint: NSLayoutConstraint!
@@ -658,6 +660,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         isChatVisible = true
         setUpRaiseToListen()
         applyPendingAttachmentMenuBotStart()
+        applyPendingLinkDraft()
         #if DEBUG
         if viewportCompletionProbe == nil, presentationMode == .full, chatVM.customChat.isSavedMessages,
            ChatViewportCompletionProbe.enabled
@@ -1002,6 +1005,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if isChatVisible { applyPendingAttachmentMenuBotStart() }
     }
 
+    /// A message draft link's text for this chat: it replaces the composer's text now when the chat is on screen,
+    /// or as it appears (ChatInterfaceState.withUpdatedComposeInputState before Telegram opens the chat).
+    func beginLinkDraft(_ text: FormattedText) {
+        pendingLinkDraft = text
+        if isChatVisible { applyPendingLinkDraft() }
+    }
+
     /// ChatController's sendBotCommand for a "/command" tapped in a message: it's sent where the user can write.
     func sendBotCommand(_ command: String) {
         guard showsComposer, !clientOwnerRetired, chatVM.locationContextIsCurrent, chatVM.canWriteBasicMessages
@@ -1018,6 +1028,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         messageID: Int64?,
         botStartParameter: String?,
         attachmentMenuBotStart: AttachmentMenuBotStart? = nil,
+        linkDraft: FormattedText? = nil,
     ) -> Bool {
         guard presentationMode == .full, !clientOwnerRetired, chatVM.locationContextIsCurrent,
               location.chatID == chatID, location.topic == topic,
@@ -1025,6 +1036,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if let messageID { navigate(to: .message(chatID: chatID, messageID: messageID, quote: nil)) }
         if let botStartParameter { chatVM.beginBotStart(parameter: botStartParameter) }
         if let attachmentMenuBotStart { beginAttachmentMenuBot(attachmentMenuBotStart) }
+        if let linkDraft { beginLinkDraft(linkDraft) }
         return true
     }
 
@@ -1530,6 +1542,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return values
         }
     #endif
+
+    private func applyPendingLinkDraft() {
+        guard let text = pendingLinkDraft else { return }
+        pendingLinkDraft = nil
+        guard presentationMode == .full, showsComposer, chatVM.locationContextIsCurrent,
+              chatVM.canWriteBasicMessages, chatVM.editCustomMessage == nil else { return }
+        chatVM.updateComposerTextFromUser(ComposerText.attributed(text))
+        composerView.update(from: chatVM)
+    }
 
     /// Telegram's reply keyboard buttons (ChatControllerInteraction): the phone and location requests ask first and
     /// then send as a reply to the keyboard's message (shareAccountContact, shareCurrentLocation); the users and chat

@@ -337,6 +337,21 @@ struct AdminRightsSet: Equatable {
     static func all(isAnonymous: Bool = false) -> AdminRightsSet {
         AdminRightsSet(all: true, isAnonymous: isAnonymous)
     }
+
+    /// The rights both sets hold.
+    func intersection(_ other: AdminRightsSet) -> AdminRightsSet {
+        var result = self
+        let keys: [WritableKeyPath<AdminRightsSet, Bool>] = [
+            \.canManageChat, \.canChangeInfo, \.canPostMessages, \.canEditMessages, \.canDeleteMessages,
+            \.canInviteUsers, \.canRestrictMembers, \.canPinMessages, \.canManageTopics, \.canPromoteMembers,
+            \.canManageVideoChats, \.canPostStories, \.canEditStories, \.canDeleteStories,
+            \.canManageDirectMessages, \.canManageTags, \.canSendWelcomeMessages, \.isAnonymous,
+        ]
+        for key in keys {
+            result[keyPath: key] = self[keyPath: key] && other[keyPath: key]
+        }
+        return result
+    }
 }
 
 // MARK: - ChatManagementMember

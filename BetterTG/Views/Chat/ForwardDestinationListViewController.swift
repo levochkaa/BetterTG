@@ -18,6 +18,8 @@ import UIKit
     private let preparedForward: PreparedMessageForward?
     /// A switch inline button's chat kinds; nil lists every chat.
     private let chatTypes: InlineTargetChatTypes?
+    /// ChatListNodePeersFilter's `onlyManageable`: only groups and channels the user may add a bot to.
+    private let requiresBotManagement: Bool
     /// Private chats with bots, told apart from users only when the kinds treat them differently.
     private var botChatIDs = Set<Int64>()
     private var checkedBotChatIDs = Set<Int64>()
@@ -65,6 +67,7 @@ import UIKit
         accountID: UUID,
         seedChats: [Chat],
         chatTypes: InlineTargetChatTypes? = nil,
+        requiresBotManagement: Bool = false,
     ) {
         self.folder = folder
         self.preparedForward = prepared
@@ -72,6 +75,7 @@ import UIKit
         self.accountID = accountID
         self.seedChats = seedChats
         self.chatTypes = chatTypes
+        self.requiresBotManagement = requiresBotManagement
         super.init(nibName: nil, bundle: nil)
         for chat in seedChats {
             chatsByID[chat.id] = chat
@@ -370,6 +374,7 @@ import UIKit
 
     /// PeerSelectionController's `requestPeerType` for a switch inline button: users, bots, groups or channels.
     private func allowsType(of chatID: Int64) -> Bool {
+        if requiresBotManagement, !canAddBot(to: chatID) { return false }
         guard let chatTypes, let chat = chatsByID[chatID] else { return true }
         switch chat.type {
         case .chatTypePrivate:
@@ -379,6 +384,26 @@ import UIKit
         case .chatTypeSupergroup(let supergroup):
             return supergroup.isChannel ? chatTypes.channels : chatTypes.groups
         case .chatTypeSecret:
+            return false
+        }
+    }
+
+    /// ChatListNode's `onlyManageable`: a basic group's owner or admin, a supergroup where the user may invite
+    /// members, or a channel where they may add admins.
+    private func canAddBot(to chatID: Int64) -> Bool {
+        guard let chat = chatsByID[chatID], case .group(let group) = standingByChatID[chatID] else { return false }
+        switch (chat.type, group.status) {
+        case (_, .chatMemberStatusCreator):
+            return true
+        case (.chatTypeBasicGroup, .chatMemberStatusAdministrator):
+            return true
+        case (.chatTypeSupergroup(let supergroup), .chatMemberStatusAdministrator(let administrator)):
+            return supergroup.isChannel ? administrator.rights.canPromoteMembers : administrator.rights.canInviteUsers
+        case (.chatTypeSupergroup(let supergroup), .chatMemberStatusMember):
+            return !supergroup.isChannel && chat.permissions.canInviteUsers
+        case (.chatTypeSupergroup(let supergroup), .chatMemberStatusRestricted(let restricted)):
+            return !supergroup.isChannel && restricted.permissions.canInviteUsers
+        default:
             return false
         }
     }
