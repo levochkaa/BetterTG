@@ -242,7 +242,7 @@ final class PollMediaThumbnailView: UIControl {
             if isVideo { showPlayIcon() }
         case .sticker(let sticker):
             configureSticker(sticker, client: client)
-        case .location(let location):
+        case .location(let location, _):
             mapView.load(location, size: Self.size, meters: 500)
         case .link(_, let linkPreview):
             // The link's icon over the web page's image once getLinkPreview has it, on the accent color before.

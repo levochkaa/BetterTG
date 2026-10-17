@@ -896,17 +896,29 @@ private final class TelegramContextMenuController: UIViewController {
             )
         case .chatPreview:
             let spacing: CGFloat = 10
-            let preferredHeight = view.bounds.height * 0.48
-            let previewHeight = min(
-                preferredHeight,
-                maximumBottom - verticalInset - menuHeight - spacing,
-            )
-            targetPreviewFrame = CGRect(
-                x: horizontalInset,
-                y: verticalInset,
-                width: availableWidth,
-                height: max(220, previewHeight),
-            )
+            let maximumHeight = maximumBottom - verticalInset - menuHeight - spacing
+            if let contentSize = previewController?.preferredContentSize, contentSize.width > 0,
+               contentSize.height > 0
+            {
+                // GalleryController's preferredContentSizeForLayout: media keeps its aspect in the space above the
+                // menu.
+                let scale = min(availableWidth / contentSize.width, max(44, maximumHeight) / contentSize.height)
+                let fitted = CGSize(width: floor(contentSize.width * scale), height: floor(contentSize.height * scale))
+                targetPreviewFrame = CGRect(
+                    x: (view.bounds.width - fitted.width) / 2,
+                    y: verticalInset,
+                    width: fitted.width,
+                    height: fitted.height,
+                )
+            } else {
+                let preferredHeight = view.bounds.height * 0.48
+                targetPreviewFrame = CGRect(
+                    x: horizontalInset,
+                    y: verticalInset,
+                    width: availableWidth,
+                    height: max(220, min(preferredHeight, maximumHeight)),
+                )
+            }
             targetMenuFrame = CGRect(
                 x: view.bounds.width - horizontalInset - menuWidth,
                 y: targetPreviewFrame.maxY + spacing,

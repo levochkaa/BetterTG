@@ -57,7 +57,8 @@ enum PollDraftMediaPreview {
     /// A photo, or a video's or GIF's first frame with the play button on a video.
     case image(UIImage, isVideo: Bool)
     case sticker(Sticker)
-    case location(Location)
+    /// A point, or a place with its venue, which the menu's map marks as LocationViewController does.
+    case location(Location, venue: TDNativeVenue?)
     /// A file without a preview image.
     case file
     case audio
@@ -277,13 +278,13 @@ struct PollDraftMedia {
         case .inputMessageLocation(let value):
             PollDraftMedia(
                 input: .inputPollMediaLocation(TDNativeInputPollMediaLocation(location: value.location)),
-                preview: .location(value.location),
+                preview: .location(value.location, venue: nil),
                 fileURLs: [],
             )
         case .inputMessageVenue(let value):
             PollDraftMedia(
                 input: .inputPollMediaVenue(TDNativeInputPollMediaVenue(venue: value.venue)),
-                preview: .location(value.venue.location),
+                preview: .location(value.venue.location, venue: value.venue),
                 fileURLs: [],
             )
         default:

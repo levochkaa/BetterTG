@@ -814,10 +814,12 @@ import UIKit
         present(editor, animated: true)
     }
 
-    /// openAttachMediaContextMenu's Replace and Delete.
+    /// openAttachMediaContextMenu's Replace and Delete over the media: a sticker in its peek preview with the menu
+    /// open at once (StickerPreviewPeekContent, `activateImmediately`), other media over their gallery or map
+    /// preview.
     private func presentMediaMenu(for target: MediaTarget, sourceView: UIView?) {
         let cell = rowIndexPath(for: target.field).flatMap { tableView.cellForRow(at: $0) }
-        guard let sourceView = sourceView ?? cell else { return }
+        guard let sourceView = sourceView ?? cell, let media = media(for: target) else { return }
         let actions = [
             TelegramContextMenuAction(
                 title: L10n.telegram("CreatePoll.Media.Replace"),
@@ -833,7 +835,17 @@ import UIKit
                 self?.setMedia(nil, for: target)
             },
         ]
-        presentTelegramContextMenu(sourceView: sourceView, actions: actions, presentationStyle: .menuOnly)
+        if case .sticker(let sticker) = media.preview {
+            let content = StickerPeekContent(sticker: sticker, client: client, sourceView: sourceView, actions: actions)
+            StickerPeekView.present(content)?.activateMenu(immediately: true)
+            return
+        }
+        presentTelegramContextMenu(
+            sourceView: sourceView,
+            actions: actions,
+            presentationStyle: .chatPreview,
+            previewController: PollMediaMenuPreviewViewController(media: media),
+        )
     }
 
     private func media(for target: MediaTarget) -> PollDraftMedia? {
