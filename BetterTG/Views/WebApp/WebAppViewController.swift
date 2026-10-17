@@ -21,6 +21,9 @@ struct WebAppLaunch {
         /// An attachment menu bot's `openWebApp` (WebAppParameters.Source.attachMenu); closing it calls
         /// `closeWebApp` with the launch ID.
         case attachMenu(launchID: Int64)
+        /// A bot menu button's `openWebApp` (WebAppParameters.Source.menu); closing it calls `closeWebApp` with the
+        /// launch ID. A button linking to a named Web App opens it through `getWebAppLinkUrl`, with no launch.
+        case menu(launchID: Int64?)
         #if DEBUG
             /// A local page with no bot behind it.
             case probe(html: String)
@@ -59,6 +62,7 @@ struct WebAppLaunch {
     var launchID: Int64? {
         switch source {
         case .attachMenu(let launchID), .button(let launchID): launchID
+        case .menu(let launchID): launchID
         default: nil
         }
     }

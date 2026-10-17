@@ -74,6 +74,8 @@ final class ChatComposerView: UIView {
     var onScheduleMessage: (() -> Void)?
     /// The input panel's scheduled messages button.
     var onOpenScheduledMessages: (() -> Void)?
+    /// The menu button of a bot whose menu is a Web App (`botMenuButton == .webView`): the chat opens it.
+    var onOpenBotMenuWebApp: ((TDNativeBotMenuButton) -> Void)?
     /// A long press on a sticker suggested for the typed emoji: the chat shows its menu.
     var onSuggestedStickerMenu: ((Sticker, UIView, UIGestureRecognizer) -> Void)?
 
@@ -113,8 +115,10 @@ final class ChatComposerView: UIView {
     private let actionButton = UIButton(type: .system)
     private let restrictionLabel = UILabel()
     private let botStartButton = UIButton(type: .system)
-    /// ChatTextInputPanelNode's menu button: a bot's command list, labelled "Menu" while the input is empty.
+    /// ChatTextInputPanelNode's menu button: a bot's command list labelled "Menu", or its Web App labelled with the
+    /// button's text, while the input is empty.
     private let botMenuButton = UIButton(type: .system)
+    private var botMenuButtonSymbol = "line.3.horizontal"
     /// The input context panel: a bot's commands or an inline bot's results above the input.
     private let suggestionsView = ChatInputSuggestionsView()
     private let recordingRow = UIStackView()
@@ -935,11 +939,12 @@ final class ChatComposerView: UIView {
         )
         menuConfiguration.imagePadding = 4
         menuConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
+        menuConfiguration.titleLineBreakMode = .byTruncatingTail
         botMenuButton.configuration = menuConfiguration
         botMenuButton.accessibilityLabel = L10n.telegram("Conversation.InputMenu")
         botMenuButton.isHidden = true
         botMenuButton.setContentHuggingPriority(.required, for: .horizontal)
-        botMenuButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        botMenuButton.setContentCompressionResistancePriority(.required - 1, for: .horizontal)
         inputRow.addArrangedSubview(botMenuButton)
         inputRow.addArrangedSubview(attachmentButton)
         inputRow.addArrangedSubview(textView)
@@ -949,6 +954,12 @@ final class ChatComposerView: UIView {
         inputRow.addArrangedSubview(actionButton)
         NSLayoutConstraint.activate([
             botMenuButton.heightAnchor.constraint(equalToConstant: 36),
+            // The Web App button's text gets at most half the panel less 60 points, as `menuButtonTextNode` does.
+            botMenuButton.widthAnchor.constraint(
+                lessThanOrEqualTo: inputRow.widthAnchor,
+                multiplier: 0.5,
+                constant: -20,
+            ),
             attachmentButton.widthAnchor.constraint(equalToConstant: 34),
             attachmentButton.heightAnchor.constraint(equalToConstant: 36),
             scheduledMessagesButton.widthAnchor.constraint(equalToConstant: 34),
@@ -1154,7 +1165,14 @@ final class ChatComposerView: UIView {
         )
         closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)
         botMenuButton.addAction(
-            UIAction { [weak self] _ in self?.chatVM.showsBotCommandMenu.toggle() },
+            UIAction { [weak self] _ in
+                guard let self else { return }
+                if let button = chatVM.botMenuWebApp {
+                    onOpenBotMenuWebApp?(button)
+                } else {
+                    chatVM.showsBotCommandMenu.toggle()
+                }
+            },
             for: .touchUpInside,
         )
         suggestionsView.onSendCommand = { [weak self] command in self?.chatVM.sendBotCommand(command) }
@@ -2082,17 +2100,29 @@ final class ChatComposerView: UIView {
         chatVM.pendingForward = transform(forward)
     }
 
-    /// ChatTextInputPanelNode's menu button reads "Menu" while the input is empty and folds to its icon while typing.
+    /// ChatTextInputPanelNode's menu button reads "Menu", or a Web App menu's text with the app icon, while the input
+    /// is empty and folds to its icon while typing.
     private func updateBotMenuButton(expanded: Bool) {
         guard var configuration = botMenuButton.configuration else { return }
+        let webApp = chatVM.botMenuWebApp
+        let text = webApp?.text ?? L10n.telegram("Conversation.InputMenu")
+        let symbol = webApp == nil ? "line.3.horizontal" : "macwindow"
         let title: AttributedString? = expanded
             ? AttributedString(
-                L10n.telegram("Conversation.InputMenu"),
+                text,
                 attributes: AttributeContainer([.font: UIFont.systemFont(ofSize: 15, weight: .semibold)]),
             )
             : nil
-        guard configuration.attributedTitle != title else { return }
+        botMenuButton.accessibilityLabel = text
+        guard configuration.attributedTitle != title || botMenuButtonSymbol != symbol else { return }
         configuration.attributedTitle = title
+        if botMenuButtonSymbol != symbol {
+            botMenuButtonSymbol = symbol
+            configuration.image = UIImage(
+                systemName: symbol,
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold),
+            )
+        }
         botMenuButton.configuration = configuration
     }
 

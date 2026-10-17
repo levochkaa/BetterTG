@@ -177,6 +177,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     ))
     /// The attachment menu bots' Web Apps, made with the chat's account on the first launch.
     private var webAppLauncher: WebAppLauncher?
+    /// The bot menu button's Web App, made with the chat's account on the first launch.
+    private var menuWebAppLauncher: WebAppLauncher?
 
     private let messageSelectionToolbar = MessageSelectionToolbar()
     private var messageSelectionToolbarHeightConstraint: NSLayoutConstraint!
@@ -2406,6 +2408,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 self?.presentSuggestedStickerMenu(sticker, from: cell, tracking: gesture)
             }
             composerView.onOpenScheduledMessages = { [weak self] in self?.openScheduledMessages() }
+            composerView.onOpenBotMenuWebApp = { [weak self] button in self?.openBotMenuWebApp(button) }
             composerView.onVoiceGestureActivityChange = { [weak self] active in
                 guard let self, voiceGestureDefersSystemGestures != active else { return }
                 voiceGestureDefersSystemGestures = active
@@ -6620,6 +6623,50 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard chatVM.locationContextIsCurrent else { return }
         chatVM.cancelReply()
         scrollToLatestMessage(animated: true)
+    }
+
+    /// ChatTextInputPanelNode's `menuButtonPressed` for a `.webView` menu: ChatControllerOpenWebApp's
+    /// `openWebApp(buttonText:url:simple: false, source: .menu)` dismisses the input, hides the command list
+    /// (`updatedForceInputCommandsHidden`) and opens the button's Web App for this chat and topic.
+    private func openBotMenuWebApp(_ button: TDNativeBotMenuButton) {
+        guard chatVM.locationContextIsCurrent, let accountID = chatVM.accountID else { return }
+        view.endEditing(true)
+        chatVM.showsBotCommandMenu = false
+        let launcher = botMenuWebAppLauncher(accountID: accountID)
+        #if DEBUG
+            if WebAppLauncher.probeHTML != nil {
+                return launcher.openProbeMenuWebApp(name: chatVM.customChat.displayTitle)
+            }
+        #endif
+        guard case .bot(let bot) = chatVM.customChat.type else { return }
+        let topic = (try? chatVM.resolveSendContext(for: .text, replyingTo: nil))?.destinationTopic
+        launcher.openMenuWebApp(bot: bot, chatID: chatVM.chatID, url: button.url, topic: topic)
+    }
+
+    /// The menu's Web App sends no reply; its `completion` scrolls the chat to its end.
+    private func botMenuWebAppLauncher(accountID: UUID) -> WebAppLauncher {
+        if let menuWebAppLauncher { return menuWebAppLauncher }
+        let launcher = WebAppLauncher(host: .init(
+            accountID: accountID,
+            client: chatVM.client,
+            presenter: { [weak self] in self },
+            isCurrent: { [weak self] in
+                guard let self else { return false }
+                return routeIsRetained && chatVM.locationContextIsCurrent
+            },
+            actions: .init(
+                openTelegramLink: { [weak self] url in TelegramLinkRouter.shared.open(url, from: self) },
+                switchInline: { [weak self] text, types in
+                    if types == nil { self?.insertInlineQuery(text) }
+                },
+                messageSent: { [weak self] in
+                    guard let self, chatVM.locationContextIsCurrent else { return }
+                    scrollToLatestMessage(animated: true)
+                },
+            ),
+        ))
+        menuWebAppLauncher = launcher
+        return launcher
     }
 
     /// The sheet's picked items become the composer's media and go out with the sheet's send choice, so they take the

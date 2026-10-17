@@ -55,6 +55,11 @@ import UIKit
         case send
     }
 
+    #if DEBUG
+        /// `-ui-probe-bot-menu-button`: a made-up Web App menu button for one chat.
+        static var probeBotMenuButton: (chatID: Int64, button: TDNativeBotMenuButton)?
+    #endif
+
     private static let historyPageSize = 30
 
     let messagesDidChange = PassthroughSubject<Void, Never>()
@@ -971,10 +976,23 @@ import UIKit
         return state.placeholder
     }
 
-    /// ChatTextInputPanelNode's menu button: a bot chat with commands. A Mini App menu button isn't offered.
+    /// ChatTextInputPanelNode's menu button: a bot chat with commands or with a Web App menu button
+    /// (`hasBotCommands` or `botMenuButton == .webView`), outside editing.
     var showsBotMenuButton: Bool {
+        guard editCustomMessage == nil, !showsBotStart else { return false }
+        if botMenuWebApp != nil { return true }
         guard case .bot = customChat.type else { return false }
-        return editCustomMessage == nil && !botCommands.isEmpty && !showsBotStart
+        return !botCommands.isEmpty
+    }
+
+    /// The bot's `.webView` menu button (`BotInfo.menuButton`): its text names the Menu button, and its URL opens the
+    /// bot's Web App in place of the command list. Nil for the commands menu.
+    var botMenuWebApp: TDNativeBotMenuButton? {
+        #if DEBUG
+            if let probe = Self.probeBotMenuButton, probe.chatID == chatID { return probe.button }
+        #endif
+        guard case .bot = customChat.type else { return nil }
+        return botInfo?.menuButton
     }
 
     private var usesOrdinaryDeliveryReceipts: Bool {

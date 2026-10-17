@@ -10,8 +10,11 @@
     /// first; each tab then opens the Web App probe page at half height.
     /// Launch with `-ui-probe-main-web-app` to open the profile of the first bot chat, or else the first chat, with
     /// Open App under its bio; the button runs the terms and opens the probe page at full size.
-    /// In both, WebAppLauncher puts the probe page in place of every launch and adding a bot only closes the terms:
-    /// no openWebApp, getMainWebApp or toggleBotIsAddedToAttachmentMenu reaches TDLib and nothing is sent.
+    /// Launch with `-ui-probe-bot-menu-button` to open the first bot chat, or else the first chat, with an "Open
+    /// Probe" Web App menu button in place of Menu; the button shows the launch confirmation and then the probe page at
+    /// half height.
+    /// In all of them, WebAppLauncher puts the probe page in place of every launch and adding a bot only closes the
+    /// terms: no openWebApp, getMainWebApp or toggleBotIsAddedToAttachmentMenu reaches TDLib and nothing is sent.
     @MainActor enum WebAppLaunchProbe {
         private static var launcher: WebAppLauncher?
 
@@ -19,7 +22,8 @@
             let arguments = ProcessInfo.processInfo.arguments
             let showsAttachBots = arguments.contains("-ui-probe-attach-bots")
             let showsMainWebApp = arguments.contains("-ui-probe-main-web-app")
-            guard showsAttachBots || showsMainWebApp else { return }
+            let showsMenuButton = arguments.contains("-ui-probe-bot-menu-button")
+            guard showsAttachBots || showsMainWebApp || showsMenuButton else { return }
             WebAppLauncher.probeHTML = WebAppProbe.page
             PeerProfileViewController.probeShowsOpenApp = showsMainWebApp
             if showsAttachBots { AttachmentMenuBotStore.shared.setProbeEntries(probeEntries()) }
@@ -30,12 +34,42 @@
                 guard let accountID = TDLib.shared.activeAccountID else { return }
                 try? await Task.sleep(for: .seconds(2))
                 guard let presenter = topController(in: window) else { return }
-                if showsMainWebApp {
+                if showsMenuButton {
+                    await presentMenuButtonChat()
+                } else if showsMainWebApp {
                     await presentProfile(accountID: accountID, window: window, from: presenter)
                 } else {
                     presentAttachmentSheet(accountID: accountID, window: window, from: presenter)
                 }
             }
+        }
+
+        private static func probeChats() async -> [CustomChat] {
+            var chats = [CustomChat]()
+            for _ in 0..<20 {
+                var seen = Set<Int64>()
+                chats = RootVM.shared.allFolders.flatMap(\.chats).filter {
+                    seen.insert($0.id).inserted && !$0.isSavedMessages
+                }
+                if !chats.isEmpty { break }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+            return chats
+        }
+
+        /// The chat's composer shows the made-up menu button; its tap goes to WebAppLauncher's probe path.
+        private static func presentMenuButtonChat() async {
+            let chats = await probeChats()
+            guard let chat = chats.first(where: { $0.bot != nil }) ?? chats.first else { return }
+            ChatVM.probeBotMenuButton = (
+                chat.id,
+                TDNativeBotMenuButton(text: "Open Probe", url: "https://bettertg.probe/"),
+            )
+            let client = TDLib.shared.activeClient
+            NavigationStorage.shared.navigationController.pushViewController(
+                ChatViewController(customChat: chat, location: .current(chatID: chat.id, client: client)),
+                animated: true,
+            )
         }
 
         private static func probeEntries() -> [AttachmentMenuBotStore.Entry] {

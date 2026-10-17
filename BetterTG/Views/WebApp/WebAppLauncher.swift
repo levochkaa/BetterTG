@@ -6,10 +6,11 @@ import UIKit
 // MARK: - WebAppLauncher
 
 /// ChatControllerOpenWebApp's `openWebAppImpl` for a bot's main Web App (`simple` with an empty URL:
-/// `requestMainWebView`, WebAppParameters.Source.generic) and ChatControllerOpenAttachmentMenu's `.app` button
-/// (WebAppController with source .attachMenu). Before the page opens, a bot that can be added to the attachment menu
+/// `requestMainWebView`, WebAppParameters.Source.generic), a bot's menu button (source .menu) and
+/// ChatControllerOpenAttachmentMenu's `.app` button (WebAppController with source .attachMenu). Before the page
+/// opens, a bot that can be added to the attachment menu
 /// but isn't (`isAttachMenuBotInstalled == false`, `.notActivated`) gets webAppTermsAlertController and
-/// `addBotToAttachMenu` with the check as its write access; any other main Web App gets
+/// `addBotToAttachMenu` with the check as its write access; any other main or menu Web App gets
 /// webAppLaunchConfirmationController the first time (`getBotGameNotice`) unless the caller skips the terms, as the
 /// profile's Open App does.
 @MainActor final class WebAppLauncher {
@@ -47,6 +48,45 @@ import UIKit
         [user.firstName, user.lastName].filter { !$0.isEmpty }.joined(separator: " ")
     }
 
+    /// The named Web App a menu button links to: its bot, `searchWebApp`, then `getWebAppLinkUrl` for the menu
+    /// bot's chat with write access (`requestAppWebView(allowWrite: true)`), titled with the app's name.
+    private static func namedWebAppLaunch(
+        _ link: TDNativeInternalLinkTypeWebApp,
+        chatID: Int64,
+        theme: TDNativeThemeParameters,
+        client: TDLibClient,
+        accountID: UUID,
+    ) async -> WebAppLaunch? {
+        guard let chat = try? await client.send(TDNativeRequests.searchPublicChat(username: link.botUsername)),
+              case .chatTypePrivate(let type) = chat.type,
+              let bot = try? await client.getUser(userId: type.userId), case .userTypeBot = bot.type,
+              let found = try? await client.send(TDNativeRequests.searchWebApp(
+                  botUserId: bot.id,
+                  webAppShortName: link.webAppShortName,
+              )),
+              let result = try? await client.send(TDNativeRequests.getWebAppLinkUrl(
+                  chatId: chatID,
+                  botUserId: bot.id,
+                  webAppShortName: link.webAppShortName,
+                  startParameter: link.startParameter,
+                  allowWriteAccess: true,
+                  parameters: TDNativeWebAppOpenParameters(theme: theme, applicationName: "BetterTG", mode: link.mode),
+              )),
+              let url = URL(string: result.url)
+        else { return nil }
+        return WebAppLaunch(
+            source: .menu(launchID: nil),
+            url: url,
+            requiresSameOrigin: result.requireSameOrigin,
+            botUserID: bot.id,
+            botName: found.webApp.title.isEmpty ? displayName(of: bot) : found.webApp.title,
+            botUsername: bot.usernames?.activeUsernames.first,
+            accountID: accountID,
+            client: client,
+            presentation: WebAppLaunch.Presentation(link.mode),
+        )
+    }
+
     /// The profile's Open App (PeerInfoProfileItems: `openWebApp(botPeer:chatPeer: nil, url: "", simple: true,
     /// source: .generic, skipTermsOfService: true)`) and a `startapp` link (OpenResolvedUrl's `.appStart`, with the
     /// terms). The page opens for the bot's own chat, Telegram's `chatPeer?.id ?? botId`, and in the mode the bot
@@ -58,25 +98,18 @@ import UIKit
         mode: TDNativeWebAppOpenMode? = nil,
         skipsTerms: Bool,
     ) {
-        guard task == nil, case .userTypeBot(let type) = bot.type, type.hasMainWebApp else { return }
-        let client = host.client
-        let canBeAdded = type.canBeAddedToAttachmentMenu
-        task = Task { [weak self] in
-            var attachmentMenuBot: TDNativeAttachmentMenuBot?
-            if canBeAdded {
-                attachmentMenuBot = try? await client.send(TDNativeRequests.getAttachmentMenuBot(botUserId: bot.id))
-            }
-            guard let self else { return }
-            task = nil
-            guard !Task.isCancelled, host.isCurrent() else { return }
-            confirm(
-                botUserID: bot.id,
-                botName: Self.displayName(of: bot),
-                attachmentMenuBot: attachmentMenuBot,
-                skipsTerms: skipsTerms,
-            ) { [weak self] in
-                self?.requestMainWebApp(bot: bot, chatID: chatID, startParameter: startParameter, mode: mode)
-            }
+        guard case .userTypeBot(let type) = bot.type, type.hasMainWebApp else { return }
+        prepare(bot: bot, skipsTerms: skipsTerms) { [weak self] in
+            self?.requestMainWebApp(bot: bot, chatID: chatID, startParameter: startParameter, mode: mode)
+        }
+    }
+
+    /// ChatTextInputPanelNode's menu button for a bot's `.webView` menu (ChatControllerOpenWebApp's
+    /// `openWebApp(buttonText:url:simple: false, source: .menu)`, never skipping the terms): the main Web App's
+    /// checks, then the button's page for the bot's chat and topic at half height (`fullSize: false`).
+    func openMenuWebApp(bot: User, chatID: Int64, url: String, topic: MessageTopic?) {
+        prepare(bot: bot, skipsTerms: false) { [weak self] in
+            self?.requestMenuWebApp(bot: bot, chatID: chatID, url: url, topic: topic)
         }
     }
 
@@ -143,6 +176,18 @@ import UIKit
             })
         }
 
+        /// `-ui-probe-bot-menu-button`: the menu button as for a bot seen for the first time, so the launch
+        /// confirmation comes first and then the probe page at half height. The made-up bot's notice is cleared on
+        /// each run.
+        func openProbeMenuWebApp(name: String) {
+            let botUserID: Int64 = -1
+            UserDefaults.standard.removeObject(forKey: Self.noticeKey(accountID: host.accountID, botUserID: botUserID))
+            confirm(botUserID: botUserID, botName: name, attachmentMenuBot: nil, skipsTerms: false) { [weak self] in
+                guard let self, let html = Self.probeHTML else { return }
+                presentProbe(html: html, botUserID: botUserID, name: name, presentation: .compact)
+            }
+        }
+
         private func presentProbe(
             html: String,
             botUserID: Int64,
@@ -163,6 +208,29 @@ import UIKit
             ))
         }
     #endif
+
+    /// openWebAppImpl's `getAttachMenuBot(cached: true)` for a bot that can join the attachment menu, then the checks.
+    private func prepare(bot: User, skipsTerms: Bool, open: @escaping () -> Void) {
+        guard task == nil, case .userTypeBot(let type) = bot.type else { return }
+        let client = host.client
+        let canBeAdded = type.canBeAddedToAttachmentMenu
+        task = Task { [weak self] in
+            var attachmentMenuBot: TDNativeAttachmentMenuBot?
+            if canBeAdded {
+                attachmentMenuBot = try? await client.send(TDNativeRequests.getAttachmentMenuBot(botUserId: bot.id))
+            }
+            guard let self else { return }
+            task = nil
+            guard !Task.isCancelled, host.isCurrent() else { return }
+            confirm(
+                botUserID: bot.id,
+                botName: Self.displayName(of: bot),
+                attachmentMenuBot: attachmentMenuBot,
+                skipsTerms: skipsTerms,
+                open: open,
+            )
+        }
+    }
 
     /// The checks before the page opens, in ChatControllerOpenWebApp's order.
     private func confirm(
@@ -287,6 +355,71 @@ import UIKit
                 client: client,
                 presentation: .compact,
             ))
+        }
+    }
+
+    /// WebAppController.setupWebView for `.menu`: `openWebApp` with the button's URL (`requestWebView(fromMenu:
+    /// true)`) and no reply. A button linking to a named Web App on t.me (the `.peer(_, .appStart)` branch, TDLib's
+    /// internalLinkTypeWebApp) opens that app instead, in the mode its link asks for.
+    private func requestMenuWebApp(bot: User, chatID: Int64, url: String, topic: MessageTopic?) {
+        guard task == nil, let presenter = host.presenter() else { return }
+        let botName = Self.displayName(of: bot)
+        #if DEBUG
+            if let html = Self.probeHTML {
+                return presentProbe(html: html, botUserID: bot.id, name: botName, presentation: .compact)
+            }
+        #endif
+        let client = host.client
+        let accountID = host.accountID
+        let theme = WebAppViewController.themeParameters(for: presenter.traitCollection)
+        let link = URL(string: url).flatMap { TelegramLinkRouter.internalLink(for: $0) }
+        task = Task { [weak self] in
+            var linkType: TDNativeInternalLinkType?
+            if let link { linkType = try? await client.send(TDNativeRequests.getInternalLinkType(link: link)) }
+            var launch: WebAppLaunch?
+            if case .internalLinkTypeWebApp(let app) = linkType {
+                launch = await Self.namedWebAppLaunch(
+                    app,
+                    chatID: chatID,
+                    theme: theme,
+                    client: client,
+                    accountID: accountID,
+                )
+            } else if let info = try? await client.openWebApp(
+                chatId: chatID,
+                botUserId: bot.id,
+                url: url,
+                topicId: topic,
+                replyTo: nil,
+                parameters: TDNativeWebAppOpenParameters(theme: theme, applicationName: "BetterTG", mode: nil),
+            ) {
+                if let pageURL = URL(string: info.url.url) {
+                    launch = WebAppLaunch(
+                        source: .menu(launchID: info.launchId),
+                        url: pageURL,
+                        requiresSameOrigin: info.url.requireSameOrigin,
+                        botUserID: bot.id,
+                        botName: botName,
+                        botUsername: bot.usernames?.activeUsernames.first,
+                        accountID: accountID,
+                        client: client,
+                        presentation: .compact,
+                    )
+                } else {
+                    _ = try? await client.closeWebApp(webAppLaunchId: info.launchId)
+                }
+            }
+            guard let self else {
+                if let launchID = launch?.launchID { _ = try? await client.closeWebApp(webAppLaunchId: launchID) }
+                return
+            }
+            task = nil
+            guard !Task.isCancelled, host.isCurrent() else {
+                if let launchID = launch?.launchID { _ = try? await client.closeWebApp(webAppLaunchId: launchID) }
+                return
+            }
+            guard let launch else { return showError() }
+            present(launch)
         }
     }
 
