@@ -1,5 +1,6 @@
 // CreatePollViewController.swift
 
+import Combine
 import TDLibKit
 import UIKit
 
@@ -49,6 +50,8 @@ import UIKit
     private enum Validation {
         case ready(InputMessageContent)
         case failed(String)
+        /// ComposePollScreen's `isUploading`: media the poll sends hasn't finished uploading.
+        case uploading
     }
 
     /// A field the emoji picker inserts into.
@@ -103,6 +106,26 @@ import UIKit
         }
     }
 
+    /// ComposePollScreen's `uploadDisposable` and `progress` for a picked file TDLib uploads ahead of the poll.
+    private struct MediaUpload {
+        var fileID: Int?
+        /// The uploaded share of the file.
+        var uploaded: CGFloat = 0
+        /// The converted share of a video TDLib generates before uploading; nil for other files.
+        var converted: CGFloat?
+        /// What the thumbnail shows, which never steps back.
+        var progress: CGFloat = 0
+        /// The upload has started; a later stop without completing means it failed.
+        var wasActive = false
+        /// The file's and the conversion's updates, which end with the upload.
+        var updates = Set<AnyCancellable>()
+
+        mutating func updateProgress() {
+            let value = converted.map { $0 * 0.5 + uploaded * 0.5 } ?? uploaded
+            progress = max(progress, min(1, value))
+        }
+    }
+
     /// ComposePollScreen's limits: 200 characters for the question and the explanation, 1024 for the description and
     /// 100 for an option.
     private static let questionLengthLimit = 200
@@ -140,6 +163,8 @@ import UIKit
     private var explanationMedia: PollDraftMedia?
     /// The attachment pickers on screen, which end with the picked media.
     private var mediaFlow: PollMediaAttachmentFlow?
+    /// The uploads of the picked files, by the media's id.
+    private var uploads = [UUID: MediaUpload]()
     private var options = [DraftOption]()
     private var nextOptionID = 0
     private var editingOptionID: Int?
@@ -499,7 +524,11 @@ import UIKit
             placeholder: L10n.telegram("CreatePoll.DescriptionPlaceholder"),
             lengthLimit: Self.descriptionLengthLimit,
             allowsEmoji: accountID != nil,
-            attachment: CreatePollTextCell.Attachment(media: pollMedia, alwaysShowsButton: true),
+            attachment: CreatePollTextCell.Attachment(
+                media: pollMedia,
+                alwaysShowsButton: true,
+                progress: uploadProgress(of: pollMedia),
+            ),
         )
     }
 
@@ -510,7 +539,11 @@ import UIKit
             lengthLimit: Self.explanationLengthLimit,
             lineFeedLimit: Self.explanationLineFeedLimit,
             allowsEmoji: accountID != nil,
-            attachment: CreatePollTextCell.Attachment(media: explanationMedia, alwaysShowsButton: true),
+            attachment: CreatePollTextCell.Attachment(
+                media: explanationMedia,
+                alwaysShowsButton: true,
+                progress: uploadProgress(of: explanationMedia),
+            ),
         )
     }
 
@@ -542,7 +575,11 @@ import UIKit
                 )
                 : nil,
             allowsEmoji: accountID != nil,
-            attachment: CreatePollTextCell.Attachment(media: option.media, alwaysShowsButton: false),
+            attachment: CreatePollTextCell.Attachment(
+                media: option.media,
+                alwaysShowsButton: false,
+                progress: uploadProgress(of: option.media),
+            ),
         )
     }
 
@@ -738,7 +775,10 @@ import UIKit
         guard presentedViewController == nil else { return }
         view.endEditing(true)
         if !replace, let media = media(for: target) {
-            if case .option = target, let link = media.link {
+            if uploads[media.id] != nil {
+                // openAttachMediaContextMenu: a tap on media still uploading stops the upload and removes it.
+                setMedia(nil, for: target)
+            } else if case .option = target, let link = media.link {
                 openAttachedLink(link, for: target)
             } else {
                 presentMediaMenu(for: target, sourceView: sourceView)
@@ -802,7 +842,8 @@ import UIKit
         }
     }
 
-    /// ComposePollScreen's setAttachedMedia; the replaced media's files go.
+    /// ComposePollScreen's setAttachedMedia; the replaced media's upload stops and its files go, and new media starts
+    /// uploading (uploadAttachedMediaIfNeeded).
     private func setMedia(_ media: PollDraftMedia?, for target: MediaTarget) {
         let previous = self.media(for: target)
         switch target {
@@ -817,7 +858,10 @@ import UIKit
             }
             options[index].media = media
         }
-        if previous?.id != media?.id { discardMedia(previous) }
+        if previous?.id != media?.id {
+            discardMedia(previous)
+            if let media { uploadIfNeeded(media) }
+        }
         refreshMediaCell(for: target)
     }
 
@@ -835,6 +879,7 @@ import UIKit
 
     private func discardMedia(_ media: PollDraftMedia?) {
         guard let media else { return }
+        cancelUpload(of: media.id)
         SelectedDocumentFileStore.remove(media.fileURLs)
     }
 
@@ -848,6 +893,112 @@ import UIKit
             discardMedia(options[index].media)
             options[index].media = nil
         }
+    }
+
+    // MARK: Uploads
+
+    private func uploadProgress(of media: PollDraftMedia?) -> CGFloat? {
+        media.flatMap { uploads[$0.id]?.progress }
+    }
+
+    /// ComposePollScreen's uploadAttachedMediaIfNeeded: TDLib uploads a picked file ahead of the poll
+    /// (`preliminaryUploadFile`, as standaloneUploadedImage and standaloneUploadedFile do), its thumbnail shows the
+    /// progress, and the media then sends the uploaded file. A video TDLib generates counts its conversion as the
+    /// first half, as the chat's upload status does.
+    private func uploadIfNeeded(_ media: PollDraftMedia) {
+        guard let upload = media.upload, uploads[media.id] == nil,
+              let source = TDImageOrigin.captured(client: client)?.source else { return }
+        let id = media.id
+        let client = client
+        uploads[id] = MediaUpload(converted: upload.convertedPath == nil ? nil : 0)
+        Task { [weak self] in
+            let file = try? await client.send(TDNativeRequests.preliminaryUploadFile(
+                file: upload.file,
+                fileType: upload.type,
+                priority: 1,
+            ))
+            guard let self, uploads[id] != nil else {
+                guard let fileID = file?.id else { return }
+                _ = try? await client.send(TDNativeRequests.cancelPreliminaryUploadFile(fileId: fileID))
+                return
+            }
+            guard let file else { return uploadDidFail(id) }
+            uploads[id]?.fileID = file.id
+            TDImageLoadingView.fileUpdates(source: source, fileID: file.id)
+                .sink { [weak self] file in self?.uploadDidChange(id, file: file) }
+                .store(in: &uploads[id, default: MediaUpload()].updates)
+            if let path = upload.convertedPath {
+                VideoSendConversionProgress.register(fileID: file.id, clientID: client.id, originalPath: path)
+                VideoSendConversionProgress.updates(fileID: file.id, clientID: client.id)
+                    .sink { [weak self] fraction in self?.conversionDidChange(id, fraction: fraction) }
+                    .store(in: &uploads[id, default: MediaUpload()].updates)
+                conversionDidChange(
+                    id,
+                    fraction: VideoSendConversionProgress.fraction(fileID: file.id, clientID: client.id) ?? 0,
+                )
+            }
+            uploadDidChange(id, file: file)
+            // An update between the request's answer and the subscription would be lost.
+            guard let current = try? await client.send(TDNativeRequests.getFile(fileId: file.id)) else { return }
+            uploadDidChange(id, file: current)
+        }
+        refreshUploadProgress(of: id)
+    }
+
+    private func uploadDidChange(_ id: UUID, file: File) {
+        guard var upload = uploads[id] else { return }
+        if file.remote.isUploadingCompleted {
+            uploads[id] = nil
+            replaceMedia(id) { $0.uploaded(fileID: file.id) }
+            return
+        }
+        if file.remote.isUploadingActive {
+            upload.wasActive = true
+        } else if upload.wasActive {
+            return uploadDidFail(id)
+        }
+        let total = max(file.size, file.expectedSize)
+        if total > 0 { upload.uploaded = min(1, CGFloat(file.remote.uploadedSize) / CGFloat(total)) }
+        upload.updateProgress()
+        uploads[id] = upload
+        refreshUploadProgress(of: id)
+    }
+
+    private func conversionDidChange(_ id: UUID, fraction: Double) {
+        guard uploads[id] != nil else { return }
+        uploads[id]?.converted = CGFloat(fraction)
+        uploads[id]?.updateProgress()
+        refreshUploadProgress(of: id)
+    }
+
+    /// A failed upload leaves the media with its picked file, which TDLib uploads with the poll.
+    private func uploadDidFail(_ id: UUID) {
+        guard uploads.removeValue(forKey: id) != nil else { return }
+        refreshUploadProgress(of: id)
+    }
+
+    private func cancelUpload(of id: UUID) {
+        guard let fileID = uploads.removeValue(forKey: id)?.fileID else { return }
+        let client = client
+        Task { _ = try? await client.send(TDNativeRequests.cancelPreliminaryUploadFile(fileId: fileID)) }
+    }
+
+    private func target(ofMedia id: UUID) -> MediaTarget? {
+        if pollMedia?.id == id { return .poll }
+        if explanationMedia?.id == id { return .explanation }
+        return options.first { $0.media?.id == id }.map { .option($0.id) }
+    }
+
+    private func replaceMedia(_ id: UUID, with transform: (PollDraftMedia) -> PollDraftMedia) {
+        guard let target = target(ofMedia: id), let media = media(for: target) else { return }
+        setMedia(transform(media), for: target)
+    }
+
+    /// The progress on the media's thumbnail, without laying out the rows again.
+    private func refreshUploadProgress(of id: UUID) {
+        guard let target = target(ofMedia: id), let indexPath = rowIndexPath(for: target.field),
+              let cell = tableView.cellForRow(at: indexPath) as? CreatePollTextCell else { return }
+        cell.setUploadProgress(uploads[id]?.progress)
     }
 
     // MARK: Footers
@@ -1127,12 +1278,14 @@ import UIKit
         refreshSettingsCells()
     }
 
-    /// ComposePollScreen's validatedInput: a question, at least one option and, in a quiz, a correct answer.
+    /// ComposePollScreen's validatedInput: a question, at least one option and, in a quiz, a correct answer, with the
+    /// options', the explanation's and the poll's media uploaded.
     private func validatedPoll() -> Validation {
         guard !question.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .failed(L10n.telegram("CreatePoll.QuestionNeeded"))
         }
         let filled = options.filter { !$0.text.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if filled.contains(where: { uploadProgress(of: $0.media) != nil }) { return .uploading }
         guard !filled.isEmpty else {
             return .failed(L10n.telegram(isQuiz ? "CreatePoll.OptionsNeeded" : "CreatePoll.OptionsNeededOne"))
         }
@@ -1142,6 +1295,8 @@ import UIKit
                     ? "CreatePoll.QuizCorrectOptionNeededMultiple"
                     : "CreatePoll.QuizCorrectOptionNeeded"))
         }
+        if isQuiz, uploadProgress(of: explanationMedia) != nil { return .uploading }
+        if uploadProgress(of: pollMedia) != nil { return .uploading }
         let type: TDNativeInputPollType =
             if isQuiz {
                 .inputPollTypeQuiz(TDNativeInputPollTypeQuiz(
@@ -1186,6 +1341,10 @@ import UIKit
             guard !didSend else { return }
             didSend = true
             view.endEditing(true)
+            // Media the poll leaves out, such as an explanation's outside a quiz, stops uploading.
+            for id in Array(uploads.keys) {
+                cancelUpload(of: id)
+            }
             let send = send
             let onDismiss = onDismiss
             dismiss(animated: true) {
@@ -1194,6 +1353,12 @@ import UIKit
             }
         case .failed(let text):
             showToast(text)
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        case .uploading:
+            showToast(
+                L10n.telegram("CreatePoll.MediaUploading.Text"),
+                title: L10n.telegram("CreatePoll.MediaUploading.Title"),
+            )
             UINotificationFeedbackGenerator().notificationOccurred(.error)
         }
     }
@@ -1230,10 +1395,10 @@ import UIKit
         dismiss(animated: true) { onDismiss?() }
     }
 
-    private func showToast(_ text: String) {
+    private func showToast(_ text: String, title: String? = nil) {
         let host: UIView = navigationController?.view ?? view
         let keyboardOverlap = max(0, host.keyboardLayoutGuide.layoutFrame.height - host.safeAreaInsets.bottom)
-        TelegramUndoToast.show(text: text, in: host, bottomInset: 12 + keyboardOverlap, undo: nil)
+        TelegramUndoToast.show(title: title, text: text, in: host, bottomInset: 12 + keyboardOverlap, undo: nil)
     }
 
     private func updateTitle() {
@@ -1302,10 +1467,12 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
     }
 
     /// ListComposePollOptionComponent's Attachment: the field's media, whose thumbnail takes the attach button's
-    /// place, and whether the button shows on an empty field (`alwaysDisplayAttachButton`).
+    /// place, whether the button shows on an empty field (`alwaysDisplayAttachButton`), and the media's upload
+    /// progress while it uploads.
     struct Attachment {
         var media: PollDraftMedia?
         var alwaysShowsButton: Bool
+        var progress: CGFloat?
     }
 
     struct Configuration {
@@ -1569,6 +1736,13 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
         textDidChange()
     }
 
+    /// The upload's progress on the media's thumbnail; nil once it has uploaded.
+    func setUploadProgress(_ progress: CGFloat?) {
+        guard mediaID != nil else { return }
+        configuration?.attachment?.progress = progress
+        mediaView.setUploadProgress(progress, animated: true)
+    }
+
     /// Puts `value` in place of the selection as the user's edit, if it fits the field's limits; pasted custom emoji
     /// come here too, and fall back to plain text when they don't fit.
     private func insert(_ value: NSAttributedString) -> Bool {
@@ -1647,6 +1821,7 @@ private final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
                 mediaID = media.id
                 mediaView.configure(draft: media.preview, client: client)
             }
+            mediaView.setUploadProgress(attachment?.progress, animated: animated)
         } else if mediaID != nil {
             mediaID = nil
             mediaView.prepareForReuse()

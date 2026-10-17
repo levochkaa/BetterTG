@@ -160,6 +160,7 @@ final class PollMediaThumbnailView: UIControl {
     private let overlayView = UIView()
     private let iconView = UIImageView()
     private var stickerView: CustomEmojiInlineView?
+    private var statusView: PollMediaUploadStatusView?
     private var media: TDNativePollMedia?
     private var playbackVisible = false
 
@@ -259,11 +260,44 @@ final class PollMediaThumbnailView: UIControl {
         stickerView?.prepareForReuse()
         stickerView?.removeFromSuperview()
         stickerView = nil
+        statusView?.removeFromSuperview()
+        statusView = nil
         overlayView.isHidden = true
+        overlayView.alpha = 1
         iconView.isHidden = true
+        iconView.alpha = 1
         iconView.image = nil
         backgroundColor = .tertiarySystemFill
         clipsToBounds = true
+    }
+
+    /// ListComposePollOptionComponent's RadialStatusNode while the media uploads, 4 points inside the thumbnail,
+    /// over the play and link icons it hides; it shrinks and fades away once the media has uploaded.
+    func setUploadProgress(_ progress: CGFloat?, animated: Bool) {
+        guard let progress else {
+            guard let statusView else { return }
+            self.statusView = nil
+            iconView.alpha = 1
+            overlayView.alpha = 1
+            guard animated else { return statusView.removeFromSuperview() }
+            UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseInOut) {
+                statusView.alpha = 0
+                statusView.transform = CGAffineTransform(scaleX: 0.001, y: 0.001)
+            } completion: { _ in
+                statusView.removeFromSuperview()
+            }
+            return
+        }
+        let statusView = statusView ?? {
+            let view = PollMediaUploadStatusView(frame: bounds.insetBy(dx: 4, dy: 4))
+            view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            addSubview(view)
+            self.statusView = view
+            return view
+        }()
+        iconView.alpha = 0
+        overlayView.alpha = 0
+        statusView.progress = progress
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -311,6 +345,82 @@ final class PollMediaThumbnailView: UIControl {
         )
         iconView.tintColor = .white
         iconView.isHidden = false
+    }
+}
+
+// MARK: - PollMediaUploadStatusView
+
+/// RadialStatusNode in its `.progress(color: .white, lineWidth: 2 − pixel, value:, cancelEnabled: true,
+/// animateRotation: true)` state on a half-black disc: the uploaded share as a white arc from the top, at least 2.7%,
+/// turning once every 1.5 s, and the cancel cross (RadialProgressContentCancelNode).
+final class PollMediaUploadStatusView: UIView {
+    private static let minimumProgress: CGFloat = 0.027
+
+    var progress: CGFloat = 0 {
+        didSet { arcLayer.strokeEnd = max(Self.minimumProgress, min(1, progress)) }
+    }
+
+    private let spinnerLayer = CALayer()
+    private let arcLayer = CAShapeLayer()
+    private let crossLayer = CAShapeLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        for shape in [arcLayer, crossLayer] {
+            shape.fillColor = nil
+            shape.strokeColor = UIColor.white.cgColor
+            shape.lineCap = .round
+        }
+        arcLayer.strokeEnd = Self.minimumProgress
+        spinnerLayer.addSublayer(arcLayer)
+        layer.addSublayer(spinnerLayer)
+        layer.addSublayer(crossLayer)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let diameter = min(bounds.width, bounds.height)
+        layer.cornerRadius = diameter / 2
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let lineWidth = 2 - 1 / max(1, traitCollection.displayScale)
+        spinnerLayer.frame = bounds
+        arcLayer.frame = bounds
+        arcLayer.lineWidth = lineWidth
+        arcLayer.path = UIBezierPath(
+            arcCenter: center,
+            radius: (diameter - lineWidth) / 2,
+            startAngle: -.pi / 2,
+            endAngle: .pi * 3 / 2,
+            clockwise: true,
+        ).cgPath
+        let factor = diameter / 50
+        let crossSize = 14 * factor
+        let cross = UIBezierPath()
+        cross.move(to: CGPoint(x: center.x - crossSize / 2, y: center.y - crossSize / 2))
+        cross.addLine(to: CGPoint(x: center.x + crossSize / 2, y: center.y + crossSize / 2))
+        cross.move(to: CGPoint(x: center.x + crossSize / 2, y: center.y - crossSize / 2))
+        cross.addLine(to: CGPoint(x: center.x - crossSize / 2, y: center.y + crossSize / 2))
+        crossLayer.frame = bounds
+        crossLayer.lineWidth = max(1.3, 2 * factor)
+        crossLayer.path = cross.cgPath
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, spinnerLayer.animation(forKey: "progressRotation") == nil else { return }
+        let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
+        rotation.fromValue = Float.pi + 0.58
+        rotation.toValue = Float.pi * 3 + 0.58
+        rotation.duration = 1.5
+        rotation.repeatCount = .infinity
+        rotation.timingFunction = CAMediaTimingFunction(name: .linear)
+        spinnerLayer.add(rotation, forKey: "progressRotation")
     }
 }
 

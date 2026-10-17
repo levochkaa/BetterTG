@@ -67,14 +67,26 @@ enum PollDraftMediaPreview {
 // MARK: - PollDraftMedia
 
 /// ComposePollScreen's AttachedMedia: the media TDLib sends as `inputPollMedia`, the field's thumbnail and the
-/// app's copies of the picked files. TDLib uploads the files when the poll is sent, so there's no upload to wait for
-/// (ComposePollScreen's `isUploading`).
+/// app's copies of the picked files. A picked file `requiresUpload`: the poll creator uploads it ahead of the poll
+/// and the media then sends the uploaded file.
 struct PollDraftMedia {
+    /// The picked file TDLib uploads ahead of the poll (`preliminaryUploadFile`), and the media with another file
+    /// in its place.
+    struct Upload {
+        let file: TDNativeInputFile
+        let type: TDNativeFileType
+        let media: (TDNativeInputFile) -> TDNativeInputPollMedia
+        /// The original of a video TDLib generates by converting it (`inputFileGenerated`).
+        var convertedPath: String?
+    }
+
     let id = UUID()
-    let input: TDNativeInputPollMedia
+    private(set) var input: TDNativeInputPollMedia
     let preview: PollDraftMediaPreview
     /// Files in `SelectedDocumentFileStore` the media sends, removed when it's replaced, deleted or discarded.
     let fileURLs: [URL]
+    /// The file still to upload; nil once uploaded, or for media without a picked file.
+    private(set) var upload: Upload?
 
     /// An option's attached link, which opens its editor when tapped.
     var link: String? {
@@ -82,12 +94,20 @@ struct PollDraftMedia {
         return nil
     }
 
+    init(input: TDNativeInputPollMedia, preview: PollDraftMediaPreview, fileURLs: [URL], upload: Upload? = nil) {
+        self.input = input
+        self.preview = preview
+        self.fileURLs = fileURLs
+        self.upload = upload
+    }
+
     /// The gallery's pick as legacyAssetPickerEnqueueMessages would send it: a photo, a video converted at its
     /// quality, or a muted video as a GIF. A Live Photo goes as its still.
     static func gallery(_ image: SelectedImage) -> PollDraftMedia {
         if let motion = image.livePhotoVideoURL { SelectedDocumentFileStore.remove([motion]) }
         guard let video = image.video else { return photo(at: image.url, preview: image.image) }
-        let dimensions = video.sentDimensions
+        let width = Int(video.sentDimensions.width)
+        let height = Int(video.sentDimensions.height)
         let file = TDNativeInputFile.inputFileGenerated(TDNativeInputFileGenerated(
             originalPath: video.url.path(percentEncoded: false),
             conversion: video.conversion,
@@ -99,33 +119,43 @@ struct PollDraftMedia {
             height: Int(video.thumbnailSize.height),
         )
         let duration = Int(video.sentDuration.rounded())
-        let input: TDNativeInputPollMedia =
-            if video.sendsAsGIF {
-                .inputPollMediaAnimation(TDNativeInputPollMediaAnimation(animation: TDNativeInputAnimation(
+        let type: TDNativeFileType
+        let media: (TDNativeInputFile) -> TDNativeInputPollMedia
+        if video.sendsAsGIF {
+            type = .fileTypeAnimation
+            media = { file in
+                let animation = TDNativeInputAnimation(
                     animation: file,
                     thumbnail: thumbnail,
                     addedStickerFileIds: [],
                     duration: duration,
-                    width: Int(dimensions.width),
-                    height: Int(dimensions.height),
-                )))
-            } else {
-                .inputPollMediaVideo(TDNativeInputPollMediaVideo(video: TDNativeInputVideo(
+                    width: width,
+                    height: height,
+                )
+                return .inputPollMediaAnimation(TDNativeInputPollMediaAnimation(animation: animation))
+            }
+        } else {
+            type = .fileTypeVideo
+            media = { file in
+                let video = TDNativeInputVideo(
                     video: file,
                     thumbnail: thumbnail,
                     cover: nil,
                     startTimestamp: 0,
                     addedStickerFileIds: [],
                     duration: duration,
-                    width: Int(dimensions.width),
-                    height: Int(dimensions.height),
+                    width: width,
+                    height: height,
                     supportsStreaming: true,
-                )))
+                )
+                return .inputPollMediaVideo(TDNativeInputPollMediaVideo(video: video))
             }
+        }
         return PollDraftMedia(
-            input: input,
+            input: media(file),
             preview: .image(image.image, isVideo: !video.sendsAsGIF),
             fileURLs: image.fileURLs,
+            upload: Upload(file: file, type: type, media: media, convertedPath: video.url.path(percentEncoded: false)),
         )
     }
 
@@ -135,18 +165,25 @@ struct PollDraftMedia {
             width: preview.size.width * preview.scale,
             height: preview.size.height * preview.scale,
         )
-        let photo = TDNativeInputPhoto(
-            photo: .inputFileLocal(TDNativeInputFileLocal(path: url.path(percentEncoded: false))),
-            thumbnail: nil,
-            video: nil,
-            addedStickerFileIds: [],
-            width: Int(size.width),
-            height: Int(size.height),
-        )
+        let width = Int(size.width)
+        let height = Int(size.height)
+        let file = TDNativeInputFile.inputFileLocal(TDNativeInputFileLocal(path: url.path(percentEncoded: false)))
+        let media: (TDNativeInputFile) -> TDNativeInputPollMedia = { file in
+            let photo = TDNativeInputPhoto(
+                photo: file,
+                thumbnail: nil,
+                video: nil,
+                addedStickerFileIds: [],
+                width: width,
+                height: height,
+            )
+            return .inputPollMediaPhoto(TDNativeInputPollMediaPhoto(photo: photo))
+        }
         return PollDraftMedia(
-            input: .inputPollMediaPhoto(TDNativeInputPollMediaPhoto(photo: photo)),
+            input: media(file),
             preview: .image(preview, isVideo: false),
             fileURLs: [url],
+            upload: Upload(file: file, type: .fileTypePhoto, media: media),
         )
     }
 
@@ -163,28 +200,21 @@ struct PollDraftMedia {
                 height: Int(video.thumbnailSize.height),
             )
         }
-        let document = TDNativeInputDocument(
-            document: .inputFileLocal(TDNativeInputFileLocal(path: url.path(percentEncoded: false))),
-            thumbnail: thumbnail,
-            disableContentTypeDetection: true,
-        )
+        let file = TDNativeInputFile.inputFileLocal(TDNativeInputFileLocal(path: url.path(percentEncoded: false)))
+        let media = documentMedia(thumbnail: thumbnail)
         return PollDraftMedia(
-            input: .inputPollMediaDocument(TDNativeInputPollMediaDocument(document: document)),
+            input: media(file),
             preview: .image(image.image, isVideo: false),
             fileURLs: image.fileURLs,
+            upload: Upload(file: file, type: .fileTypeDocument, media: media),
         )
     }
 
     /// A recently sent file from the file list, attached by its uploaded file and previewed by its minithumbnail.
     static func sentDocument(_ document: Document) -> PollDraftMedia {
-        let input = TDNativeInputDocument(
-            document: .inputFileId(TDNativeInputFileId(id: document.document.id)),
-            thumbnail: nil,
-            disableContentTypeDetection: true,
-        )
         let image = document.minithumbnail.flatMap { UIImage(data: $0.data) }
         return PollDraftMedia(
-            input: .inputPollMediaDocument(TDNativeInputPollMediaDocument(document: input)),
+            input: documentMedia(thumbnail: nil)(.inputFileId(TDNativeInputFileId(id: document.document.id))),
             preview: image.map { .image($0, isVideo: false) } ?? .file,
             fileURLs: [],
         )
@@ -196,36 +226,40 @@ struct PollDraftMedia {
         let file = TDNativeInputFile
             .inputFileLocal(TDNativeInputFileLocal(path: document.url.path(percentEncoded: false)))
         if let music {
-            let audio = TDNativeInputAudio(
-                audio: file,
-                albumCoverThumbnail: music.coverURL.map { cover in
-                    TDNativeInputThumbnail(
-                        thumbnail: .inputFileLocal(TDNativeInputFileLocal(path: cover.path(percentEncoded: false))),
-                        width: Int(music.coverSize.width),
-                        height: Int(music.coverSize.height),
-                    )
-                },
-                duration: music.duration,
-                title: music.title,
-                performer: music.performer,
-            )
-            let cover = music.coverURL.flatMap { thumbnailImage(at: $0) }
+            var cover: TDNativeInputThumbnail?
+            if let url = music.coverURL {
+                cover = TDNativeInputThumbnail(
+                    thumbnail: .inputFileLocal(TDNativeInputFileLocal(path: url.path(percentEncoded: false))),
+                    width: Int(music.coverSize.width),
+                    height: Int(music.coverSize.height),
+                )
+            }
+            let media: (TDNativeInputFile) -> TDNativeInputPollMedia = { file in
+                let audio = TDNativeInputAudio(
+                    audio: file,
+                    albumCoverThumbnail: cover,
+                    duration: music.duration,
+                    title: music.title,
+                    performer: music.performer,
+                )
+                return .inputPollMediaAudio(TDNativeInputPollMediaAudio(audio: audio))
+            }
+            let coverImage = music.coverURL.flatMap { thumbnailImage(at: $0) }
             return PollDraftMedia(
-                input: .inputPollMediaAudio(TDNativeInputPollMediaAudio(audio: audio)),
-                preview: cover.map { .image($0, isVideo: false) } ?? .audio,
+                input: media(file),
+                preview: coverImage.map { .image($0, isVideo: false) } ?? .audio,
                 fileURLs: [document.url],
+                upload: Upload(file: file, type: .fileTypeAudio, media: media),
             )
         }
         let isImage = UTType(filenameExtension: document.url.pathExtension)?.conforms(to: .image) == true
         let image = isImage ? thumbnailImage(at: document.url) : nil
+        let media = documentMedia(thumbnail: nil)
         return PollDraftMedia(
-            input: .inputPollMediaDocument(TDNativeInputPollMediaDocument(document: TDNativeInputDocument(
-                document: file,
-                thumbnail: nil,
-                disableContentTypeDetection: true,
-            ))),
+            input: media(file),
             preview: image.map { .image($0, isVideo: false) } ?? .file,
             fileURLs: [document.url],
+            upload: Upload(file: file, type: .fileTypeDocument, media: media),
         )
     }
 
@@ -271,6 +305,20 @@ struct PollDraftMedia {
         )
     }
 
+    /// A document sent as it is, without TDLib guessing its kind.
+    private static func documentMedia(
+        thumbnail: TDNativeInputThumbnail?,
+    ) -> (TDNativeInputFile) -> TDNativeInputPollMedia {
+        { file in
+            let document = TDNativeInputDocument(
+                document: file,
+                thumbnail: thumbnail,
+                disableContentTypeDetection: true,
+            )
+            return .inputPollMediaDocument(TDNativeInputPollMediaDocument(document: document))
+        }
+    }
+
     private static func pixelSize(of url: URL) -> CGSize? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -291,6 +339,16 @@ struct PollDraftMedia {
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
         return UIImage(cgImage: image)
+    }
+
+    /// ComposePollScreen's uploaded media (`standaloneUploadedImage`, `standaloneUploadedFile`): it sends the
+    /// uploaded file and needs no further upload.
+    func uploaded(fileID: Int) -> PollDraftMedia {
+        guard let upload else { return self }
+        var media = self
+        media.input = upload.media(.inputFileId(TDNativeInputFileId(id: fileID)))
+        media.upload = nil
+        return media
     }
 }
 
