@@ -39,6 +39,8 @@ import UIKit
     private var pendingLink: PendingLink?
     private weak var pendingWindow: UIWindow?
     private var resolveTask: Task<Void, Never>?
+    /// OpenUserGeneratedUrl's loading overlay over the link that is resolving.
+    private var resolveProgress: LinkResolutionProgressView?
     /// The `startapp` link's launch, through its terms and `getMainWebApp`.
     private var mainWebAppLauncher: WebAppLauncher?
     /// The `startattach` link's terms and `toggleBotIsAddedToAttachmentMenu` for a bot that isn't added.
@@ -173,7 +175,15 @@ import UIKit
         resolveTask?.cancel()
         let authority = ChatListActionAuthority()
         let client = authority.client
-        resolveTask = Task { [weak self, weak presenter] in
+        let window = presenter?.viewIfLoaded?.window ?? NavigationStorage.shared.navigationController.viewIfLoaded?
+            .window
+        let task = Task { [weak self, weak presenter] in
+            #if DEBUG
+                // `-ui-probe-slow-links`: OpenUserGeneratedUrl's DEBUG delay, so the loading overlay shows.
+                if ProcessInfo.processInfo.arguments.contains("-ui-probe-slow-links") {
+                    try? await Task.sleep(for: .seconds(2))
+                }
+            #endif
             let type = try? await client.send(TDNativeRequests.getInternalLinkType(link: link))
             guard let self, !Task.isCancelled, authority.isCurrent else { return }
             guard let type else {
@@ -181,6 +191,27 @@ import UIKit
                 return
             }
             await route(type, url: url, authority: authority, presenter: presenter)
+        }
+        resolveTask = task
+        showResolveProgress(for: task, in: window)
+    }
+
+    /// OpenUserGeneratedUrl's progress: Telegram's loading overlay appears once a link needs the network, and a tap
+    /// on it cancels the link. TDLib doesn't say when a request leaves its cache, so the overlay appears when the link
+    /// is still resolving after a moment, and leaves when the link has opened what it leads to.
+    private func showResolveProgress(for task: Task<Void, Never>, in window: UIWindow?) {
+        resolveProgress?.finish()
+        guard let window else { return }
+        let progress = LinkResolutionProgressView { task.cancel() }
+        resolveProgress = progress
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak progress, weak window] in
+            guard let progress, let window else { return }
+            progress.show(in: window)
+        }
+        Task { [weak self, weak progress] in
+            await task.value
+            progress?.finish()
+            if self?.resolveProgress === progress { self?.resolveProgress = nil }
         }
     }
 
@@ -1352,5 +1383,78 @@ final class TelegramSheetActionButton: UIControl {
         backgroundColor = isHighlighted ? .tertiarySystemBackground : .secondarySystemBackground
         label.textColor = isEnabled ? .systemBlue : .tertiaryLabel
         accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
+    }
+}
+
+// MARK: - LinkResolutionProgressView
+
+/// TGProgressWindow, OverlayStatusController's `.loading`: a 100-point blurred square with a spinner in the middle of
+/// the window, which takes every touch while it shows and cancels the link on a tap.
+private final class LinkResolutionProgressView: UIView {
+    private let cancel: () -> Void
+    private let container = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterial))
+    private let spinner = UIActivityIndicatorView(style: .large)
+    private var isFinished = false
+
+    init(cancel: @escaping () -> Void) {
+        self.cancel = cancel
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        container.layer.cornerRadius = 20
+        container.layer.cornerCurve = .continuous
+        container.clipsToBounds = true
+        container.alpha = 0
+        container.translatesAutoresizingMaskIntoConstraints = false
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.startAnimating()
+        addSubview(container)
+        container.contentView.addSubview(spinner)
+        NSLayoutConstraint.activate([
+            container.centerXAnchor.constraint(equalTo: centerXAnchor),
+            container.centerYAnchor.constraint(equalTo: centerYAnchor),
+            container.widthAnchor.constraint(equalToConstant: 100),
+            container.heightAnchor.constraint(equalToConstant: 100),
+            spinner.centerXAnchor.constraint(equalTo: container.contentView.centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: container.contentView.centerYAnchor),
+        ])
+        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
+        isAccessibilityElement = true
+        accessibilityLabel = L10n.telegram("Common.Cancel")
+        accessibilityTraits = .button
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// TGProgressWindow's appearance: the square grows from 0.6 with a spring while it fades in over 0.3 seconds.
+    func show(in window: UIWindow) {
+        guard !isFinished, superview == nil else { return }
+        frame = window.bounds
+        autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        window.addSubview(self)
+        container.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
+        UIView.animate(springDuration: 0.3, bounce: 0) {
+            self.container.transform = .identity
+        }
+        UIView.animate(withDuration: 0.3) {
+            self.container.alpha = 1
+        }
+    }
+
+    /// TGProgressWindow's dismissal: a 0.3-second fade, or nothing when the link resolved before the overlay showed.
+    func finish() {
+        guard !isFinished else { return }
+        isFinished = true
+        isUserInteractionEnabled = false
+        guard superview != nil else { return }
+        UIView.animate(withDuration: 0.3, delay: 0, options: .beginFromCurrentState) {
+            self.container.alpha = 0
+        } completion: { _ in
+            self.removeFromSuperview()
+        }
+    }
+
+    @objc private func tapped() {
+        cancel()
+        finish()
     }
 }
