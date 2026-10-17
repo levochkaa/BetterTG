@@ -461,6 +461,7 @@
 "Profile.SharedVoiceLoadFailed" = "Couldn't load voice messages.";
 "Profile.SharedGIFsLoadFailed" = "Couldn't load GIFs.";
 "Profile.SharedGroupsLoadFailed" = "Couldn't load groups in common.";
+"Profile.SharedMembersLoadFailed" = "Couldn't load members.";
 "Profile.SharedMediaEmpty" = "No shared media";
 "Profile.SharedFilesEmpty" = "No shared files";
 "Profile.SharedLinksEmpty" = "No shared links";

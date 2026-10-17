@@ -563,9 +563,7 @@ import UIKit
         return actions
     }
 
-    /// PeerInfoData.availableActionsForMemberOfPeer: the owner reaches everyone; an admin reaches members with the
-    /// right to restrict or promote, and the admins they promoted themselves (TDLib's canBeEdited). A basic group
-    /// offers only Remove; a channel has nothing to restrict.
+    /// PeerInfoData.availableActionsForMemberOfPeer (PeerProfileMemberRights); a channel has nothing to restrict.
     private func managementActions(for memberID: MemberID) -> [TelegramContextMenuAction] {
         guard let accountUserID, memberID != .user(accountUserID), let actionContext,
               let seed = seeds[memberID], let status = seed.status, !seed.isOwner else { return [] }
@@ -575,23 +573,9 @@ import UIKit
             } else {
                 false
             }
-        var canRestrict = false
-        var canPromote = false
-        switch actionContext.actorStatus {
-        case .chatMemberStatusCreator:
-            canRestrict = true
-            canPromote = isSupergroup
-        case .chatMemberStatusAdministrator(let actor):
-            if case .chatMemberStatusAdministrator(let target) = status {
-                canRestrict = isSupergroup && target.canBeEdited
-                canPromote = isSupergroup && target.canBeEdited && actor.rights.canPromoteMembers
-            } else {
-                canRestrict = actor.rights.canRestrictMembers
-                canPromote = isSupergroup && actor.rights.canPromoteMembers
-            }
-        case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember, .chatMemberStatusRestricted:
-            break
-        }
+        let (canPromote, canRestrict) = PeerProfileMemberRights.management(
+            actor: actionContext.actorStatus, target: status, isSupergroup: isSupergroup,
+        )
         var actions = [TelegramContextMenuAction]()
         if canPromote, case .user = memberID {
             actions.append(TelegramContextMenuAction(

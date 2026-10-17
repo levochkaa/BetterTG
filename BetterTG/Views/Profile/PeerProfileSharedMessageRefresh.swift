@@ -297,8 +297,8 @@ private extension PeerProfileViewController.SharedTab {
             } else {
                 false
             }
-        case .groupsInCommon:
-            // Groups lists chats; no message belongs to it.
+        case .groupsInCommon, .members:
+            // Groups lists chats and Members lists people; no message belongs to them.
             false
         case .links:
             switch message.content {

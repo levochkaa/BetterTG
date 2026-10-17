@@ -461,6 +461,7 @@
 "Profile.SharedVoiceLoadFailed" = "Не удалось загрузить голосовые сообщения.";
 "Profile.SharedGIFsLoadFailed" = "Не удалось загрузить GIF.";
 "Profile.SharedGroupsLoadFailed" = "Не удалось загрузить общие группы.";
+"Profile.SharedMembersLoadFailed" = "Не удалось загрузить участников.";
 "Profile.SharedMediaEmpty" = "Нет медиа";
 "Profile.SharedFilesEmpty" = "Нет файлов";
 "Profile.SharedLinksEmpty" = "Нет ссылок";

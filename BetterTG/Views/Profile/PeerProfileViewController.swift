@@ -8,16 +8,17 @@ import UIKit
 
 @MainActor final class PeerProfileViewController: UIViewController, UICollectionViewDelegate,
 ClientRestorableNavigationEntry {
-    /// Telegram's panes in its order (`peerInfoAvailableMediaPanes`, then Groups for a user). A pane shows only when
-    /// it has content.
+    /// Telegram's panes in its order (Members for a large group, `peerInfoAvailableMediaPanes`, then Groups for a
+    /// user). A pane shows only when it has content.
     enum SharedTab: Int, CaseIterable {
-        case media
-        case files
-        case audio
-        case voice
-        case links
-        case gifs
-        case groupsInCommon
+        case members = 7
+        case media = 0
+        case files = 1
+        case audio = 2
+        case voice = 3
+        case links = 4
+        case gifs = 5
+        case groupsInCommon = 6
 
         var title: String {
             switch self {
@@ -28,6 +29,7 @@ ClientRestorableNavigationEntry {
             case .links: L10n.telegram("PeerInfo.PaneLinks")
             case .gifs: L10n.telegram("PeerInfo.PaneGifs")
             case .groupsInCommon: L10n.telegram("PeerInfo.PaneGroups")
+            case .members: L10n.telegram("PeerInfo.PaneMembers")
             }
         }
 
@@ -40,6 +42,7 @@ ClientRestorableNavigationEntry {
             case .links: L10n.betterTG("Profile.SharedLinksLoadFailed")
             case .gifs: L10n.betterTG("Profile.SharedGIFsLoadFailed")
             case .groupsInCommon: L10n.betterTG("Profile.SharedGroupsLoadFailed")
+            case .members: L10n.betterTG("Profile.SharedMembersLoadFailed")
             }
         }
 
@@ -52,10 +55,11 @@ ClientRestorableNavigationEntry {
             case .links: L10n.betterTG("Profile.SharedLinksEmpty")
             case .gifs: L10n.betterTG("Profile.SharedGIFsEmpty")
             case .groupsInCommon: L10n.betterTG("Profile.SharedGroupsEmpty")
+            case .members: L10n.betterTG("Profile.NoMembers")
             }
         }
 
-        /// The message index a pane lists; Groups lists chats instead.
+        /// The message index a pane lists; Groups lists chats and Members lists people instead.
         var filter: SearchMessagesFilter? {
             switch self {
             case .media: .searchMessagesFilterPhotoAndVideo
@@ -64,7 +68,7 @@ ClientRestorableNavigationEntry {
             case .voice: .searchMessagesFilterVoiceAndVideoNote
             case .links: .searchMessagesFilterUrl
             case .gifs: .searchMessagesFilterAnimation
-            case .groupsInCommon: nil
+            case .groupsInCommon, .members: nil
             }
         }
 
@@ -259,6 +263,11 @@ ClientRestorableNavigationEntry {
     private var sharedTabCountTask: Task<Void, Never>?
     private var sharedTabsHeightConstraint: NSLayoutConstraint!
     private var groupsInCommonCount: Int?
+    /// Telegram's Members pane (PeerInfoData's long list), made once the group qualifies.
+    private var membersPane: PeerProfileMembersPane?
+    private var currentSupergroupMemberCount = 0
+    /// The group's full info arrived (or failed): the Members pane's place is known.
+    private var membersInfoLoaded = false
     private var groupsInCommon = [Int64]()
     private var groupsByID = [Int64: CustomChat]()
     private var groupsInCommonOffset = Int64.zero
@@ -400,6 +409,30 @@ ClientRestorableNavigationEntry {
         case .chatMemberStatusAdministrator?: true
         case .chatMemberStatusCreator(let creator)?: creator.isMember
         default: false
+        }
+    }
+
+    /// The chats with a Members pane: groups, outside a topic (PeerInfoData reads members for a peer location only).
+    private var listsMembers: Bool {
+        guard topic == nil else { return false }
+        return switch customChat.type {
+        case .group: true
+        case .supergroup(let group): !group.isChannel
+        case .bot, .user: false
+        }
+    }
+
+    /// PeerInfoData's long list: a group whose members the account may read, with more than five of them.
+    private var showsMembersPane: Bool {
+        guard listsMembers else { return false }
+        return switch customChat.type {
+        case .group(let group):
+            max(group.memberCount, currentBasicGroupMembers.count) > PeerProfileMembersPane.threshold
+        case .supergroup(let group):
+            currentSupergroupCanGetMembers
+                && max(group.memberCount, currentSupergroupMemberCount) > PeerProfileMembersPane.threshold
+        case .bot, .user:
+            false
         }
     }
 
@@ -752,7 +785,13 @@ ClientRestorableNavigationEntry {
         )
     }
 
-    func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        if currentSharedTab == .members {
+            collectionView.deselectItem(at: indexPath, animated: true)
+            guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath) else { return }
+            membersPane?.open(id)
+            return
+        }
         if currentSharedTab == .groupsInCommon {
             // Telegram's Groups pane opens the group (`PeerInfoGroupsInCommonPaneNode`).
             guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath), let chat = groupsByID[id]
@@ -780,7 +819,12 @@ ClientRestorableNavigationEntry {
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         (cell as? SharedMediaGridCell)?.resumeLoading()
-        let itemCount = currentSharedTab == .groupsInCommon ? groupsInCommon.count : messagesByID.count
+        let itemCount =
+            switch currentSharedTab {
+            case .groupsInCommon: groupsInCommon.count
+            case .members: membersPane?.items.count ?? 0
+            case .audio, .files, .gifs, .links, .media, .voice: messagesByID.count
+            }
         guard historyError == nil, indexPath.item >= max(0, itemCount - 6) else { return }
         loadMore()
     }
@@ -995,6 +1039,16 @@ ClientRestorableNavigationEntry {
 
     /// Telegram's list items keep View in Chat in their context menu.
     @objc private func sharedRowLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        if currentSharedTab == .members {
+            // PeerInfoScreenNode.openMemberContextMenu.
+            guard gesture.state == .began, contextIsCurrent,
+                  let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
+                  let id = dataSource.itemIdentifier(for: path),
+                  let actions = membersPane?.menuActions(for: id), !actions.isEmpty,
+                  let cell = collectionView.cellForItem(at: path) else { return }
+            presentTelegramContextMenu(sourceView: cell, actions: actions)
+            return
+        }
         guard gesture.state == .began, currentSharedTab != .media, contextIsCurrent,
               let path = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
               let id = dataSource.itemIdentifier(for: path), messagesByID[id] != nil,
@@ -1247,6 +1301,10 @@ ClientRestorableNavigationEntry {
             SharedGroupRowCell.self,
             forCellWithReuseIdentifier: SharedGroupRowCell.reuseIdentifier,
         )
+        collectionView.register(
+            SharedMemberRowCell.self,
+            forCellWithReuseIdentifier: SharedMemberRowCell.reuseIdentifier,
+        )
         view.addSubview(collectionView)
         collectionView.addSubview(profileHeaderView)
         NSLayoutConstraint.activate([
@@ -1324,6 +1382,17 @@ ClientRestorableNavigationEntry {
             collectionView: collectionView,
         ) { [weak self] collectionView, indexPath, id in
             guard let self else { return UICollectionViewCell() }
+            if currentSharedTab == .members {
+                let cell = collectionView.dequeueReusableCell(
+                    withReuseIdentifier: SharedMemberRowCell.reuseIdentifier, for: indexPath,
+                ) as? SharedMemberRowCell
+                if id == PeerProfileMembersPane.addMemberItem {
+                    cell?.configureAddMember()
+                } else if let row = membersPane?.row(for: id) {
+                    cell?.configure(row: row, accountID: accountID, client: client)
+                }
+                return cell ?? UICollectionViewCell()
+            }
             if currentSharedTab == .groupsInCommon {
                 guard let chat = groupsByID[id],
                       let cell = collectionView.dequeueReusableCell(
@@ -1524,6 +1593,7 @@ ClientRestorableNavigationEntry {
                 groupsInCommonGeneration &+= 1
                 groupsInCommonTask?.cancel()
                 groupsInCommonTask = nil
+                membersPane?.suspend()
                 if source.map({ $0.accountID != accountID }) ?? false || !keepsGalleryThroughClientRenewal {
                     revokeSharedMessages(Set(messagesByID.keys), closesGallery: true)
                 }
@@ -1743,6 +1813,8 @@ ClientRestorableNavigationEntry {
         infoTask?.cancel()
         infoTask = nil
         currentBasicGroupMembers = update.basicGroupFullInfo.members
+        membersInfoLoaded = true
+        updateSharedTabAvailability()
         applyFullInfo(
             bio: update.basicGroupFullInfo.description,
             details: [],
@@ -1760,6 +1832,9 @@ ClientRestorableNavigationEntry {
         infoTask?.cancel()
         infoTask = nil
         currentSupergroupCanGetMembers = update.supergroupFullInfo.canGetMembers
+        currentSupergroupMemberCount = update.supergroupFullInfo.memberCount
+        membersInfoLoaded = true
+        updateSharedTabAvailability()
         applyFullInfo(
             bio: update.supergroupFullInfo.description,
             details: group.usernames?.activeUsernames.map { "@\($0)" } ?? [],
@@ -2116,6 +2191,10 @@ ClientRestorableNavigationEntry {
     }
 
     private func resumeSharedHistoryIfNeeded() {
+        if currentSharedTab == .members {
+            if membersPane?.rows.isEmpty != false, historyError == nil { loadMore() }
+            return
+        }
         if currentSharedTab == .groupsInCommon {
             if groupsInCommon.isEmpty, historyError == nil { loadMore() }
             return
@@ -2187,6 +2266,8 @@ ClientRestorableNavigationEntry {
                           fullInfoGeneration == generation
                     else { return }
                     currentBasicGroupMembers = info.members
+                    membersInfoLoaded = true
+                    updateSharedTabAvailability()
                     applyFullInfo(bio: info.description, details: [], status: nil, photo: info.photo)
                 case .supergroup(let group):
                     let info = try await client.getSupergroupFullInfo(supergroupId: group.id)
@@ -2195,6 +2276,9 @@ ClientRestorableNavigationEntry {
                           fullInfoGeneration == generation
                     else { return }
                     currentSupergroupCanGetMembers = info.canGetMembers
+                    currentSupergroupMemberCount = info.memberCount
+                    membersInfoLoaded = true
+                    updateSharedTabAvailability()
                     applyFullInfo(
                         bio: info.description,
                         details: group.usernames?.activeUsernames.map { "@\($0)" } ?? [],
@@ -2218,6 +2302,10 @@ ClientRestorableNavigationEntry {
                     groupsInCommonCount = 0
                     updateSharedTabAvailability()
                 }
+                if !membersInfoLoaded {
+                    membersInfoLoaded = true
+                    updateSharedTabAvailability()
+                }
             }
         }
     }
@@ -2226,7 +2314,14 @@ ClientRestorableNavigationEntry {
         // Before the counts arrive only a restored pane reads; afterwards only a pane with content does.
         guard availableSharedTabs?.contains(currentSharedTab) ?? (restoration != nil) else { return }
         guard let filter = currentSharedTab.filter else {
-            loadMoreGroupsInCommon()
+            if currentSharedTab == .members {
+                guard restoredViewport == nil, contextIsCurrent, let membersPane else { return }
+                historyError = nil
+                membersPane.loadMore()
+                if membersPane.rows.isEmpty { applySnapshot() }
+            } else {
+                loadMoreGroupsInCommon()
+            }
             return
         }
         guard restoredViewport == nil, historyTask == nil, hasMore, contextIsCurrent,
@@ -2303,6 +2398,10 @@ ClientRestorableNavigationEntry {
     }
 
     private func applySnapshot(animated: Bool = true, completion: (() -> Void)? = nil) {
+        if currentSharedTab == .members {
+            applyMembersSnapshot(animated: animated, completion: completion)
+            return
+        }
         if currentSharedTab == .groupsInCommon {
             applyGroupsSnapshot(animated: animated, completion: completion)
             return
@@ -2799,15 +2898,23 @@ ClientRestorableNavigationEntry {
         guard sharedTabCountsLoaded else { return }
         let listsGroups = customChat.user != nil && !isSelfProfile
         if listsGroups, groupsInCommonCount == nil { return }
+        // A group's Members pane comes first, so the panes wait for the member count in its full info.
+        if listsMembers, !membersInfoLoaded { return }
+        let showsMembers = showsMembersPane
         let tabs = SharedTab.allCases.filter { tab in
-            guard tab.filter != nil else { return listsGroups && (groupsInCommonCount ?? 0) > 0 }
-            return sharedTabCounts[tab].map { $0 > 0 } ?? true
+            switch tab {
+            case .members: showsMembers
+            case .groupsInCommon: listsGroups && (groupsInCommonCount ?? 0) > 0
+            case .audio, .files, .gifs, .links, .media, .voice: sharedTabCounts[tab].map { $0 > 0 } ?? true
+            }
         }
+        if showsMembers { makeMembersPaneIfNeeded() }
         guard tabs != availableSharedTabs else { return }
         let wasResolved = availableSharedTabs != nil
         availableSharedTabs = tabs
         let previousTab = selectedSharedTab
-        if !tabs.contains(selectedSharedTab), let first = tabs.first {
+        // Telegram opens on the first pane, Members for a large group.
+        if !tabs.contains(selectedSharedTab) || !wasResolved && restoration == nil, let first = tabs.first {
             selectedSharedTab = first
         }
         sharedTabs.configure(
@@ -2862,6 +2969,46 @@ ClientRestorableNavigationEntry {
             }
         }
         if groupsInCommon.isEmpty { applySnapshot() }
+    }
+
+    private func makeMembersPaneIfNeeded() {
+        guard membersPane == nil else { return }
+        let group: PeerProfileMembersPane.Group
+        switch customChat.type {
+        case .group(let value): group = .basic(value.id)
+        case .supergroup(let value): group = .supergroup(value.id)
+        case .bot, .user: return
+        }
+        let pane = PeerProfileMembersPane(
+            chatID: customChat.id,
+            group: group,
+            accountID: accountID,
+            accountUserID: accountUserID,
+            client: client,
+            isCurrent: { [weak self] in
+                guard let self else { return false }
+                return contextIsCurrent && restorationIdentity.readySource == restorationIdentity.origin
+            },
+        )
+        pane.host = self
+        pane.onChange = { [weak self] in
+            guard let self, currentSharedTab == .members else { return }
+            historyError = membersPane?.error
+            applySnapshot()
+        }
+        membersPane = pane
+    }
+
+    private func applyMembersSnapshot(animated: Bool, completion: (() -> Void)?) {
+        let items = membersPane?.items ?? []
+        let existing = Set(dataSource.snapshot().itemIdentifiers)
+        var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
+        snapshot.appendSections([.messages])
+        snapshot.appendItems(items)
+        // A reread can change a member's role or presence under the same ID.
+        snapshot.reconfigureItems(items.filter(existing.contains))
+        dataSource.apply(snapshot, animatingDifferences: animated) { completion?() }
+        updateEmptyBackground(isEmpty: items.isEmpty, isLoading: membersPane?.isLoading ?? true)
     }
 
     private func readsGroupsInCommon(_ generation: UInt64) -> Bool {

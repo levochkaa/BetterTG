@@ -2346,3 +2346,10 @@
 "Group.Setup.ApproveNewMembersApplyToExistingInviteLinksText.EnableChannel" = "Also enable **Approve New Subscribers** for **%@** in this group?";
 "Group.Setup.ApproveNewMembersApplyToExistingInviteLinksText.DisableChannel" = "Also disable **Approve New Subscribers** for **%@** in this group?";
 "Channel.DiscussionGroup.Create" = "Create New Group";
+"PeerInfo.PaneMembers" = "Members";
+"GroupInfo.AddParticipant" = "Add Member";
+"GroupInfo.LabelOwner" = "owner";
+"GroupInfo.LabelAdmin" = "admin";
+"GroupInfo.AddRank" = "Add Tag";
+"Bot.GroupStatusReadsHistory" = "has access to messages";
+"Bot.GroupStatusDoesNotReadHistory" = "has no access to messages";
