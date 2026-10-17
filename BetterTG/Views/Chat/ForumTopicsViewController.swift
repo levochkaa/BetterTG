@@ -123,6 +123,12 @@ import UIKit
     private var isReorderingPinnedTopics = false
     private var reorderDoneButton: UIButton?
     private var pinnedOrderSave: Task<Void, Never>?
+    /// Telegram's editing with topics selected from the menu's Select (ChatListNodeState.selectedThreadIds); nil
+    /// outside it.
+    private var selectedTopicIDs: Set<Int>?
+    private var selectionToolbar: ChatListSelectionToolbar?
+    /// Topics deleted from a selection, hidden while Telegram's toast offers Undo (`pendingRemovalItemIds`).
+    private var pendingRemovalTopicIDs = Set<Int>()
     /// The forum's messages found for the current query, shown below its topics.
     private var messageSearch: ForumMessageSearch?
     /// Row models for found messages, kept while UIKit may still show them.
@@ -350,8 +356,9 @@ import UIKit
     }
 
     func tableView(_ tableView: UITableView, editingStyleForRowAt _: IndexPath) -> UITableViewCell.EditingStyle {
-        // Reordering shows only the grip; outside it the style lets UIKit offer the row's swipe actions.
-        tableView.isEditing ? .none : .delete
+        // Reordering shows only the grip; outside it the style lets UIKit offer the row's swipe actions or, while
+        // topics are selected, the selection check.
+        tableView.isEditing && selectedTopicIDs == nil ? .none : .delete
     }
 
     /// Telegram's topic reveal options (ChatListItem `forumThreadRevealOptions`, `forumGeneralRevealOptions`):
@@ -377,7 +384,8 @@ import UIKit
     }
 
     func tableView(_: UITableView, shouldIndentWhileEditingRowAt _: IndexPath) -> Bool {
-        false
+        // Telegram moves a selecting row's content right of its check (ChatListItem's `editingOffset`).
+        selectedTopicIDs != nil
     }
 
     /// Telegram (ChatListNode.reorderItem) moves a pinned topic only among the pinned topics.
@@ -444,6 +452,17 @@ import UIKit
     }
 
     func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
+        if selectedTopicIDs != nil {
+            guard let topicID = dataSource.itemIdentifier(for: indexPath)?.topicID,
+                  snapshotState.topic(id: topicID) != nil
+            else {
+                tableView.deselectRow(at: indexPath, animated: false)
+                return
+            }
+            selectedTopicIDs?.insert(topicID)
+            updateTopicSelection()
+            return
+        }
         tableView.deselectRow(at: indexPath, animated: true)
         guard presentationMode == .standard, snapshotState.canSelect,
               let item = dataSource.itemIdentifier(for: indexPath) else { return }
@@ -457,6 +476,12 @@ import UIKit
               let topic = viewModel.topicForOpening(displayed)
         else { return }
         open(topic: topic, targetMessageID: nil, quote: nil, model: viewModel, binding: bindingID)
+    }
+
+    func tableView(_: UITableView, didDeselectRowAt indexPath: IndexPath) {
+        guard selectedTopicIDs != nil, let topicID = dataSource.itemIdentifier(for: indexPath)?.topicID else { return }
+        selectedTopicIDs?.remove(topicID)
+        updateTopicSelection()
     }
 
     func tableView(_: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
@@ -484,7 +509,10 @@ import UIKit
     }
 
     private func searchActivityChanged(_ active: Bool) {
-        if active { endPinnedReorder() }
+        if active {
+            endPinnedReorder()
+            endTopicSelection()
+        }
         if !active {
             #if DEBUG
             probeSearchDismissals += 1
@@ -943,7 +971,11 @@ import UIKit
 
     private func applySnapshot(_ topics: [ForumTopic], client: TDLibClient) {
         guard !retired else { return }
-        snapshotState.enqueue(topics, client: client)
+        let removing = pendingRemovalTopicIDs
+        snapshotState.enqueue(
+            removing.isEmpty ? topics : topics.filter { !removing.contains($0.info.forumTopicId) },
+            client: client,
+        )
         drainSnapshot()
     }
 
@@ -1030,6 +1062,7 @@ import UIKit
         // A removed row can move the table while its animation runs without the bar following; after a topic was
         // deleted the search slot stayed open with the search field collapsed, leaving an empty band.
         updateNavigationBar()
+        updateTopicSelection()
         let shownMessages = Set(dataSource.snapshot().itemIdentifiers.compactMap { item -> Int64? in
             if case .message(let id) = item { id } else { nil }
         })
@@ -1396,7 +1429,7 @@ import UIKit
         )
     }
 
-    /// Telegram's `chatForumTopicMenuItems`. Select and the notification exceptions screen aren't ported.
+    /// Telegram's `chatForumTopicMenuItems`.
     private func topicMenu(for topic: ForumTopic) -> [TelegramContextMenuAction] {
         let chat = viewModel.customChat
         let id = topic.info.forumTopicId
@@ -1476,6 +1509,14 @@ import UIKit
                 image: UIImage(systemName: "trash"),
                 isDestructive: true,
             ) { [weak self] in self?.confirmDelete(topicID: id) })
+        }
+        // Telegram ends the menu with Select in the forum's own list (canSelect), which starts editing with the topic.
+        if !navigationBarView.isSearchActive, searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.Context.Select"),
+                image: UIImage(systemName: "checkmark.circle"),
+                startsNewSection: true,
+            ) { [weak self] in self?.beginTopicSelection(with: id) })
         }
         return actions
     }
@@ -1629,7 +1670,7 @@ import UIKit
     }
 
     private func beginPinnedReorder() {
-        guard presentationMode == .standard, contextIsCurrent, !isReorderingPinnedTopics,
+        guard presentationMode == .standard, contextIsCurrent, !isReorderingPinnedTopics, selectedTopicIDs == nil,
               !navigationBarView.isSearchActive, !snapshotState.isApplying else { return }
         isReorderingPinnedTopics = true
         pressGesture?.isEnabled = false
@@ -1663,6 +1704,187 @@ import UIKit
         guard isViewLoaded, !retired else { return }
         tableView.setEditing(false, animated: true)
         applySnapshot(viewModel.topics, client: viewModel.client)
+    }
+
+    // MARK: Topic selection
+
+    /// Telegram's selectPeerThread: the list edits with the topic selected, Done replaces the right buttons, the count
+    /// titles the list and the toolbar offers Read and Delete. Taps then select and deselect topics.
+    private func beginTopicSelection(with topicID: Int) {
+        guard presentationMode == .standard, contextIsCurrent, selectedTopicIDs == nil, !isReorderingPinnedTopics,
+              !navigationBarView.isSearchActive, snapshotState.topic(id: topicID) != nil else { return }
+        selectedTopicIDs = [topicID]
+        pressGesture?.isEnabled = false
+        tableView.allowsMultipleSelectionDuringEditing = true
+        tableView.setEditing(true, animated: true)
+        let toolbar = ChatListSelectionToolbar()
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
+        toolbar.onLeft = { [weak self] in self?.readSelectedTopics() }
+        toolbar.onRight = { [weak self] in self?.confirmDeleteSelectedTopics() }
+        view.addSubview(toolbar)
+        NSLayoutConstraint.activate([
+            toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            toolbar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            toolbar.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+                constant: -ChatListSelectionToolbar.contentHeight,
+            ),
+        ])
+        selectionToolbar = toolbar
+        tableView.contentInset.bottom = ChatListSelectionToolbar.contentHeight
+        tableView.verticalScrollIndicatorInsets.bottom = ChatListSelectionToolbar.contentHeight
+        updateTopicSelection()
+    }
+
+    /// Telegram's donePressed: editing ends and the selection is cleared.
+    private func endTopicSelection() {
+        guard selectedTopicIDs != nil else { return }
+        selectedTopicIDs = nil
+        pressGesture?.isEnabled = true
+        selectionToolbar?.removeFromSuperview()
+        selectionToolbar = nil
+        navigationBarView.setEditing(title: nil, done: nil)
+        guard isViewLoaded else { return }
+        for indexPath in tableView.indexPathsForSelectedRows ?? [] {
+            tableView.deselectRow(at: indexPath, animated: false)
+        }
+        tableView.contentInset.bottom = 0
+        tableView.verticalScrollIndicatorInsets.bottom = 0
+        tableView.setEditing(false, animated: true)
+        tableView.allowsMultipleSelectionDuringEditing = false
+    }
+
+    /// Keeps the checks, the title and the toolbar in step with the selection. Read needs an unread topic and Delete
+    /// needs the right to delete all messages without General among the topics (forumSelectionOptions). With nothing
+    /// selected the list keeps editing under its own title.
+    private func updateTopicSelection() {
+        guard var selected = selectedTopicIDs else { return }
+        selected.formIntersection(snapshotState.displayedIDs)
+        selectedTopicIDs = selected
+        for indexPath in tableView.indexPathsForSelectedRows ?? []
+            where dataSource.itemIdentifier(for: indexPath)?.topicID.map(selected.contains) != true
+        {
+            tableView.deselectRow(at: indexPath, animated: false)
+        }
+        let selectedRows = Set(tableView.indexPathsForSelectedRows ?? [])
+        for id in selected {
+            guard let indexPath = dataSource.indexPath(for: .topic(id)), !selectedRows.contains(indexPath) else {
+                continue
+            }
+            tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
+        }
+        let topics = selected.compactMap { snapshotState.topic(id: $0) }
+        navigationBarView.setEditing(
+            title: selected.isEmpty
+                ? nil
+                : L10n.telegramPlural(
+                    "ChatList.SelectedTopics",
+                    count: selected.count,
+                    formattedCount: selected.count.formatted(.number),
+                ),
+            done: { [weak self] in self?.endTopicSelection() },
+        )
+        selectionToolbar?.update(
+            left: L10n.telegram("ChatList.Read"),
+            leftEnabled: topics.contains { $0.unreadCount > 0 },
+            right: L10n.telegram("Common.Delete"),
+            rightEnabled: !topics.isEmpty && !topics.contains(where: \.info.isGeneral)
+                && viewModel.customChat.canDeleteAllMessages,
+        )
+    }
+
+    /// Telegram's Read (markForumThreadsAsRead): each selected unread topic is read up to its last message, then
+    /// editing ends.
+    private func readSelectedTopics() {
+        guard let selected = selectedTopicIDs else { return }
+        let lastMessageIDs = selected.compactMap { id -> Int64? in
+            guard let topic = snapshotState.topic(id: id), topic.unreadCount > 0 else { return nil }
+            return topic.lastMessage?.id
+        }
+        guard !lastMessageIDs.isEmpty else { return }
+        selectionToolbar?.isUserInteractionEnabled = false
+        performTopicRequest { client, chatID in
+            for messageID in lastMessageIDs {
+                _ = try await client.viewMessages(
+                    chatId: chatID,
+                    forceRead: true,
+                    messageIds: [messageID],
+                    source: .messageSourceForumTopicHistory,
+                )
+            }
+        } onSuccess: { [weak self] in
+            self?.endTopicSelection()
+        } onFailure: { [weak self] in
+            self?.endTopicSelection()
+        }
+    }
+
+    /// Telegram's Delete for selected topics asks in an action sheet with the count.
+    private func confirmDeleteSelectedTopics() {
+        guard let selected = selectedTopicIDs, !selected.isEmpty, contextIsCurrent,
+              presentedViewController == nil else { return }
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(
+            title: L10n.telegramPlural(
+                "ChatList.DeleteThreadsConfirmation",
+                count: selected.count,
+                formattedCount: selected.count.formatted(.number),
+            ),
+            style: .destructive,
+        ) { [weak self] _ in
+            self?.deleteBehindUndo(Array(selected))
+        })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        sheet.popoverPresentationController?.sourceView = selectionToolbar ?? view
+        present(sheet, animated: true)
+    }
+
+    /// The topics hide at once and editing ends; Telegram's DeletedThreads toast offers Undo, and the topics are
+    /// deleted once it is gone (removeForumChannelThreads), even if the forum was closed meanwhile.
+    private func deleteBehindUndo(_ topicIDs: [Int]) {
+        guard contextIsCurrent else { return }
+        let model = viewModel
+        let binding = bindingID
+        let client = model.client
+        let chatID = model.location.chatID
+        pendingRemovalTopicIDs.formUnion(topicIDs)
+        endTopicSelection()
+        applySnapshot(model.topics, client: client)
+        let commit = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(PendingChatRemovals.delay))
+            guard !Task.isCancelled else { return }
+            var deleted = [Int]()
+            for id in topicIDs {
+                if await (try? client.send(TDNativeRequests.deleteForumTopic(chatId: chatID, forumTopicId: id))) !=
+                    nil
+                {
+                    deleted.append(id)
+                }
+            }
+            guard let self else { return }
+            pendingRemovalTopicIDs.subtract(topicIDs)
+            guard owns(model, binding: binding) else { return }
+            for id in deleted {
+                model.removeDeletedTopic(id: id)
+            }
+            applySnapshot(model.topics, client: model.client)
+            if deleted.count < topicIDs.count { presentChatListActionFailure() }
+        }
+        TelegramUndoToast.show(
+            text: L10n.telegramPlural(
+                "ChatList.DeletedThreads",
+                count: topicIDs.count,
+                formattedCount: topicIDs.count.formatted(.number),
+            ),
+            in: view,
+            bottomInset: 12,
+        ) { [weak self] in
+            commit.cancel()
+            guard let self else { return }
+            pendingRemovalTopicIDs.subtract(topicIDs)
+            applySnapshot(viewModel.topics, client: viewModel.client)
+        }
     }
 
     /// Telegram (ChatListNode.reorderItem) reads the forum's pinned topics, puts the dropped one beside its drop target

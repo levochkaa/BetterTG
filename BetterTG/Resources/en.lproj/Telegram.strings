@@ -2317,3 +2317,11 @@
 "NotificationsSound.Glass" = "Glass";
 "NotificationsSound.Telegraph" = "Telegraph";
 "UserInfo.NotificationsDefault" = "Default";
+"ChatList.Context.Select" = "Select";
+"ChatList.Read" = "Read";
+"ChatList.SelectedTopics_1" = "%@ Topic Selected";
+"ChatList.SelectedTopics_any" = "%@ Topics Selected";
+"ChatList.DeleteThreadsConfirmation_1" = "Delete";
+"ChatList.DeleteThreadsConfirmation_any" = "Delete %@ Threads";
+"ChatList.DeletedThreads_1" = "Deleted 1 thread";
+"ChatList.DeletedThreads_any" = "Deleted %@ threads";

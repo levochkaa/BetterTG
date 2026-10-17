@@ -34,6 +34,11 @@ final class TelegramListNavigationBar: UIView {
     private let rightButton = UIButton(type: .system)
     /// An optional second button left of the right one, such as the chat list's compose button.
     private let secondaryRightButton = UIButton(type: .system)
+    /// Telegram's Done while a list edits (ChatListControllerImpl.editPressed outside the root list).
+    private let doneButton = UIButton(type: .system)
+    private var doneAction: (() -> Void)?
+    /// The title shown outside editing while a selection count replaces it.
+    private var regularTitle: String?
     private let searchView: ChatListNavigationSearchView
     private let leftAction: (() -> Void)?
     private let rightAction: (() -> Void)?
@@ -114,12 +119,32 @@ final class TelegramListNavigationBar: UIView {
     /// A secondary line under the title, as Telegram shows a forum's member status.
     func setSubtitle(_ text: String?) {
         subtitleLabel.text = text
-        subtitleLabel.isHidden = text?.isEmpty != false
+        subtitleLabel.isHidden = text?.isEmpty != false || regularTitle != nil
+        updateTitleInteraction()
+    }
+
+    /// Telegram's editing state outside the root list: Done replaces the right buttons, and a selection title such as
+    /// "2 Topics Selected" replaces the title and status (ChatTitleComponent's custom content). A nil title shows the
+    /// regular one; a nil action ends editing.
+    func setEditing(title: String?, done: (() -> Void)?) {
+        let editing = done != nil
+        doneAction = done
+        if let title, editing {
+            if regularTitle == nil { regularTitle = titleLabel.text ?? "" }
+            titleLabel.text = title
+        } else if let regularTitle {
+            titleLabel.text = regularTitle
+            self.regularTitle = nil
+        }
+        subtitleLabel.isHidden = subtitleLabel.text?.isEmpty != false || regularTitle != nil
+        rightButton.isHidden = editing
+        secondaryRightButton.isHidden = editing || secondaryRightButton.image(for: .normal) == nil
+        doneButton.isHidden = !editing
         updateTitleInteraction()
     }
 
     private func updateTitleInteraction() {
-        let tappable = onTitleTap != nil
+        let tappable = onTitleTap != nil && doneAction == nil
         titleControl.isUserInteractionEnabled = tappable
         // Without an action the labels stay separate static text, as before.
         titleControl.isAccessibilityElement = tappable
@@ -148,6 +173,14 @@ final class TelegramListNavigationBar: UIView {
         leftButton.addTarget(self, action: #selector(leftPressed), for: .touchUpInside)
         rightButton.addTarget(self, action: #selector(rightPressed), for: .touchUpInside)
         secondaryRightButton.addTarget(self, action: #selector(secondaryRightPressed), for: .touchUpInside)
+        doneButton.translatesAutoresizingMaskIntoConstraints = false
+        doneButton.tintColor = .systemBlue
+        doneButton.setTitle(L10n.telegram("Common.Done"), for: .normal)
+        doneButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
+        doneButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        doneButton.isHidden = true
+        doneButton.addAction(UIAction { [weak self] _ in self?.doneAction?() }, for: .touchUpInside)
+        addSubview(doneButton)
 
         titleLabel.textColor = .label
         titleLabel.font = .preferredFont(forTextStyle: .headline)
@@ -208,6 +241,9 @@ final class TelegramListNavigationBar: UIView {
             secondaryRightButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             secondaryRightButton.widthAnchor.constraint(equalToConstant: 44),
             secondaryRightButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
+            doneButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            doneButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            doneButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
 
             titleControl.leadingAnchor.constraint(greaterThanOrEqualTo: leftButton.trailingAnchor, constant: 8),
             titleControl.trailingAnchor.constraint(
@@ -255,6 +291,7 @@ final class TelegramListNavigationBar: UIView {
             self.leftButton.alpha = active ? 0 : 1
             self.rightButton.alpha = active ? 0 : 1
             self.secondaryRightButton.alpha = active ? 0 : 1
+            self.doneButton.alpha = active ? 0 : 1
             self.searchView.transform = active
                 ? CGAffineTransform(translationX: 0, y: -Self.titleHeight)
                 : .identity
