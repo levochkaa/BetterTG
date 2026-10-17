@@ -1480,7 +1480,8 @@ import UIKit
         return actions
     }
 
-    /// Muted: a direct Unmute. Otherwise Telegram's submenu: Mute for… presets, the sound toggle and Mute Forever.
+    /// Muted: a direct Unmute. Otherwise Telegram's submenu: Mute for… presets and Custom, the sound toggle,
+    /// Customize and Mute Forever.
     private func muteAction(for topic: ForumTopic) -> TelegramContextMenuAction {
         let settings = topic.notificationSettings
         guard !isMuted(topic) else {
@@ -1512,7 +1513,9 @@ import UIKit
                                 ),
                             )
                         }
-                    },
+                    } + [TelegramContextMenuAction(title: L10n.telegram("PeerInfo.MuteForCustom")) { [weak self] in
+                        self?.openCustomMute(for: topic)
+                    }],
                 ),
                 TelegramContextMenuAction(
                     title: L10n.telegram(soundEnabled ? "PeerInfo.DisableSound" : "PeerInfo.EnableSound"),
@@ -1528,6 +1531,10 @@ import UIKit
                     )
                 },
                 TelegramContextMenuAction(
+                    title: L10n.telegram("PeerInfo.NotificationsCustomize"),
+                    image: UIImage(systemName: "slider.horizontal.3"),
+                ) { [weak self] in self?.customizeNotifications(of: topic) },
+                TelegramContextMenuAction(
                     title: L10n.telegram("PeerInfo.MuteForever"),
                     image: UIImage(systemName: "speaker.slash.fill"),
                     isDestructive: true,
@@ -1540,6 +1547,40 @@ import UIKit
                 },
             ],
         )
+    }
+
+    /// ChatContextMenus.openCustomMute: mute the topic until a picked date.
+    private func openCustomMute(for topic: ForumTopic) {
+        guard contextIsCurrent, presentedViewController == nil else { return }
+        let settings = topic.notificationSettings
+        PeerProfileTimerPickerViewController(mode: .muteUntil(onApply: { [weak self] seconds in
+            let until = Foundation.Date(timeIntervalSinceNow: TimeInterval(seconds))
+            self?.updateNotifications(
+                of: topic,
+                to: settings.replacingMuteFor(seconds),
+                toast: L10n.telegram(
+                    "PeerInfo.TooltipMutedUntil",
+                    PeerProfileTimerPickerViewController.preciseText(for: until),
+                ),
+            )
+        })).present(from: self)
+    }
+
+    /// Telegram's Customize: the topic's notification exception screen, with the group scope's default sound.
+    private func customizeNotifications(of topic: ForumTopic) {
+        guard contextIsCurrent, presentedViewController == nil else { return }
+        NotificationExceptionViewController(
+            title: topic.info.name,
+            scope: viewModel.customChat.notificationSettingsScope,
+            settings: topic.notificationSettings,
+            offersStories: false,
+        ) { [weak self] settings in
+            self?.updateNotifications(
+                of: topic,
+                to: settings,
+                toast: settings.muteFor > 0 ? L10n.telegram("PeerInfo.TooltipMutedForever") : nil,
+            )
+        }.present(from: self)
     }
 
     private func updateNotifications(

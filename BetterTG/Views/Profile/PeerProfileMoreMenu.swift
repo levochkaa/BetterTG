@@ -77,7 +77,7 @@ import UIKit
         return actions
     }
 
-    /// Muted: Unmute. Otherwise Telegram's Mute menu: Mute for… presets, the sound toggle and Mute Forever.
+    /// Muted: Unmute. Otherwise Telegram's Mute menu: Mute for… presets, the sound toggle, Customize and Mute Forever.
     private func muteAction() -> TelegramContextMenuAction {
         let settings = chat.notificationSettings
         guard !isMuted else {
@@ -122,6 +122,10 @@ import UIKit
                     )
                 },
                 TelegramContextMenuAction(
+                    title: L10n.telegram("PeerInfo.NotificationsCustomize"),
+                    image: UIImage(systemName: "slider.horizontal.3"),
+                ) { openCustomization() },
+                TelegramContextMenuAction(
                     title: L10n.telegram("PeerInfo.MuteForever"),
                     image: UIImage(systemName: "speaker.slash.fill"),
                     isDestructive: true,
@@ -135,11 +139,34 @@ import UIKit
         )
     }
 
-    private func updateNotifications(_ settings: ChatNotificationSettings, toast: String) {
+    private func updateNotifications(_ settings: ChatNotificationSettings, toast: String?) {
         let chatID = chat.id
         perform(toast: toast) { client in
             _ = try await client.setChatNotificationSettings(chatId: chatID, notificationSettings: settings)
         }
+    }
+
+    /// PeerInfoScreenPerformButtonAction's Customize: the chat's notification exception screen, with story
+    /// notifications for a person or bot.
+    private func openCustomization() {
+        guard scope.isCurrent, let host else { return }
+        let menu = self
+        let offersStories =
+            switch customChat.type {
+            case .bot, .user: true
+            case .group, .supergroup: false
+            }
+        NotificationExceptionViewController(
+            title: chat.title,
+            scope: customChat.notificationSettingsScope,
+            settings: chat.notificationSettings,
+            offersStories: offersStories,
+        ) { settings in
+            menu.updateNotifications(
+                settings,
+                toast: settings.muteFor > 0 ? L10n.telegram("PeerInfo.TooltipMutedForever") : nil,
+            )
+        }.present(from: host)
     }
 
     /// PeerInfoScreen.openCustomMute: mute until a picked date, with "Notifications are muted until …".
@@ -299,7 +326,7 @@ import UIKit
 
     // MARK: Helpers
 
-    private func perform(toast: String, _ request: @escaping @MainActor (TDLibClient) async throws -> Void) {
+    private func perform(toast: String?, _ request: @escaping @MainActor (TDLibClient) async throws -> Void) {
         guard scope.isCurrent else { return }
         let client = client
         let scope = scope
@@ -307,7 +334,7 @@ import UIKit
         Task { [weak host] in
             do {
                 try await scope.perform { try await request(client) }
-                guard let host else { return }
+                guard let host, let toast else { return }
                 TelegramUndoToast.show(text: toast, in: host.view, bottomInset: 12, undo: nil)
             } catch {
                 guard scope.isCurrent, let host else { return }
