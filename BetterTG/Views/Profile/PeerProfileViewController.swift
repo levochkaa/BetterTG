@@ -3048,6 +3048,8 @@ final class SharedMediaGridCell: UICollectionViewCell {
     #endif
 
     private let imageView = TDImageLoadingView()
+    /// PeerInfoGifPaneNode plays the pane's GIFs in place, muted and looping.
+    private let animationView = InlineAnimationMediaView()
     private let videoBadge = UIImageView(image: UIImage(systemName: "play.fill"))
     private var representedMessage: Message?
     private var loadingIsPaused = false
@@ -3074,6 +3076,12 @@ final class SharedMediaGridCell: UICollectionViewCell {
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
         contentView.addSubview(imageView)
+        animationView.translatesAutoresizingMaskIntoConstraints = false
+        animationView.fillsBounds = true
+        animationView.isUserInteractionEnabled = false
+        animationView.isAccessibilityElement = false
+        animationView.isHidden = true
+        contentView.addSubview(animationView)
         videoBadge.translatesAutoresizingMaskIntoConstraints = false
         videoBadge.tintColor = .white
         videoBadge.backgroundColor = UIColor.black.withAlphaComponent(0.35)
@@ -3085,6 +3093,10 @@ final class SharedMediaGridCell: UICollectionViewCell {
             imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             imageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             imageView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            animationView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            animationView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            animationView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            animationView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             videoBadge.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -6),
             videoBadge.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
             videoBadge.widthAnchor.constraint(equalToConstant: 24),
@@ -3099,6 +3111,7 @@ final class SharedMediaGridCell: UICollectionViewCell {
         imageView.cancel()
         imageView.image = nil
         imageView.alpha = 1
+        stopAnimation()
         representedMessage = nil
         loadingIsPaused = false
         subscriptions.removeAll()
@@ -3141,6 +3154,7 @@ final class SharedMediaGridCell: UICollectionViewCell {
         guard representedMessage != nil else { return }
         loadingIsPaused = true
         imageView.cancel()
+        stopAnimation()
     }
 
     func resumeLoading() {
@@ -3157,7 +3171,7 @@ final class SharedMediaGridCell: UICollectionViewCell {
               permit?.isCurrent == true, context?.isCurrent == true else { return nil }
         let generation = renderGeneration
         let usesImage = renderedAllowsPixels
-        let source: UIView = cover ?? imageView
+        let source: UIView = cover ?? (animationView.isHidden ? imageView : animationView)
         return MediaGalleryTransitionTarget(
             messageID: messageID,
             sourceView: source,
@@ -3176,11 +3190,17 @@ final class SharedMediaGridCell: UICollectionViewCell {
         )
     }
 
+    private func stopAnimation() {
+        animationView.prepareForReuse()
+        animationView.isHidden = true
+    }
+
     private func render() {
         guard let message = representedMessage else { return }
         renderGeneration = UUID()
         imageView.cancel()
         imageView.image = nil
+        stopAnimation()
         cover?.removeFromSuperview()
         cover = nil
         renderedAllowsPixels = allowsPixels
@@ -3254,6 +3274,9 @@ final class SharedMediaGridCell: UICollectionViewCell {
             } else {
                 imageView.loadPlaceholder(data: animation.animation.minithumbnail?.data, client: client)
             }
+            animationView.isHidden = false
+            animationView.configure(animation: animation.animation, displaySize: nil, client: client)
+            animationView.setPlaybackVisible(true)
             videoBadge.isHidden = true
         default:
             if let preview = SharedMediaGridPreview(message: message) {
