@@ -343,6 +343,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var restorationFocusAttempted = false
     private var restorationFocusSettled = false
     private var keyboardIsChanging = false
+    /// The poll whose Add an Option field has the keyboard (Telegram's `focusedPollAddOptionMessageId`).
+    private var pollAddOptionFocusMessageID: Int64?
+    /// Set when the field takes the keyboard, until the poll has moved above it.
+    private var pendingPollAddOptionScroll = false
     #if DEBUG
         private var messageNavigationGeometry: ChatMessageNavigationGeometry?
         private var viewportCompletionProbe: ChatViewportCompletionProbe?
@@ -680,7 +684,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 < view.bounds.maxY - view.safeAreaInsets.bottom - 1
             updateComposerFloatingState(keyboardAttached)
             composerKeyboardEdgeView.setVisible(
-                keyboardAttached && !messageSearchActive && !isSelectingMessages,
+                keyboardAttached && !messageSearchActive && !isSelectingMessages && pollAddOptionFocusMessageID == nil,
                 animated: view.window != nil,
             )
         }
@@ -1213,6 +1217,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             touchedView = current.superview
         }
         return true
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        // ChatMessageBubbleItemNode opens no message menu while a poll's new answer is typed.
+        gestureRecognizer !== messageContextGesture || pollAddOptionFocusMessageID == nil
     }
 
     func gestureRecognizer(
@@ -3049,6 +3058,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func updateUnreadJumpButtons(animated: Bool) {
         guard let mentionsButtonBottomConstraint, let reactionsButtonBottomConstraint else { return }
         let allowed = presentationMode == .full && !messageSearchActive && !isSelectingMessages
+            && pollAddOptionFocusMessageID == nil
         let mentions = chatVM.unreadMentionCount
         let reactions = chatVM.unreadReactionCount
         mentionsButton.setCount(mentions)
@@ -3136,6 +3146,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard restoredViewport?.pending != true else { return }
         let isAwayFromLatest = collectionView.contentOffset.y + collectionView.adjustedContentInset.top > 160
         let visible = isAwayFromLatest && !messageSearchActive && !isSelectingMessages
+            && pollAddOptionFocusMessageID == nil
         defer { updateUnreadJumpButtons(animated: animated) }
         guard scrollToLatestButtonVisible != visible else { return }
         scrollToLatestButtonVisible = visible
@@ -3424,10 +3435,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     keyboardIsChanging = name == UIResponder.keyboardWillChangeFrameNotification
                     if !keyboardIsChanging { settleRestoredViewport()
                         retryClientRestoration()
+                        scrollFocusedPollAddOptionIntoView()
                     }
                 }
                 .store(in: &cancellables)
         }
+        chatVM.pollInteractionStore
+            .addOptionFocusChanges
+            .removeDuplicates()
+            .sink { [weak self] messageID in self?.pollAddOptionFocusChanged(messageID) }
+            .store(in: &cancellables)
         NotificationCenter.default
             .publisher(for: .updateConnectionState)
             .receive(on: DispatchQueue.main)
@@ -4656,6 +4673,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY,
                     ) + 8
                 }
+            } else if pollAddOptionFocusMessageID != nil {
+                // The input panel steps aside for the poll's field, so the history ends at the keyboard.
+                max(
+                    view.safeAreaInsets.bottom,
+                    view.bounds.maxY - view.keyboardLayoutGuide.layoutFrame.minY,
+                ) + 8
             } else if showsComposer, composerView.frame.minY > 0 {
                 max(view.safeAreaInsets.bottom, view.bounds.maxY - composerView.frame.minY) + 10
             } else {
@@ -5474,6 +5497,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             presentLocationViewer(subject)
         case .submitPollAnswer(let messageID, let optionIDs, let submission):
             chatVM.submitPollAnswer(messageID: messageID, optionIDs: optionIDs, submission: submission)
+        case .addPollOption(let messageID, let text, let submission):
+            chatVM.addPollOption(messageID: messageID, text: text, submission: submission) {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
         case .openPollResults(let messageID, let optionID):
             openPollResults(messageID: messageID, optionID: optionID, in: message)
         case .openPollMedia(let messageID, let media):
@@ -7891,6 +7918,47 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             textView?.beginQuoteSelection(range: quoteRange)
         }
         return true
+    }
+
+    /// Telegram's `focusedPollAddOptionMessageId`: while a poll's new answer is typed the input panel and the jump
+    /// buttons go away and the history holds still with the poll above the keyboard (ChatControllerNode).
+    private func pollAddOptionFocusChanged(_ messageID: Int64?) {
+        guard presentationMode == .full, pollAddOptionFocusMessageID != messageID else { return }
+        pollAddOptionFocusMessageID = messageID
+        let focused = messageID != nil
+        collectionView.isScrollEnabled = !focused
+        if showsComposer {
+            composerView.isUserInteractionEnabled = !focused
+            UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.2) {
+                self.composerView.alpha = focused ? 0 : 1
+            }
+        }
+        updateScrollToLatestButtonVisibility(animated: true)
+        view.setNeedsLayout()
+        pendingPollAddOptionScroll = focused
+        guard focused else { return }
+        abandonRestoredViewport()
+        // The keyboard may already be up, so no frame change follows.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+            self?.scrollFocusedPollAddOptionIntoView()
+        }
+    }
+
+    /// Moves the focused poll above the keyboard (`navigateToMessage` in ChatControllerNode); a poll taller than the
+    /// history keeps its bottom, where the field is, in view.
+    private func scrollFocusedPollAddOptionIntoView() {
+        guard pendingPollAddOptionScroll, let messageID = pollAddOptionFocusMessageID,
+              let displayedID = chatVM.displayedMessageID(containing: messageID),
+              let indexPath = dataSource.indexPath(for: .message(displayedID)),
+              let attributes = collectionView.layoutAttributesForItem(at: indexPath)
+        else { return }
+        pendingPollAddOptionScroll = false
+        let insets = collectionView.adjustedContentInset
+        let visibleHeight = collectionView.bounds.height - insets.top - insets.bottom - 16
+        // The history is flipped: the cell's minY is its bottom on screen.
+        var target = attributes.frame.insetBy(dx: 0, dy: -8)
+        target.size.height = min(target.height, max(1, visibleHeight))
+        collectionView.scrollRectToVisible(target, animated: true)
     }
 
     @objc private func historyTapped(_: UITapGestureRecognizer) {

@@ -24,6 +24,8 @@ enum MessageContentAction {
     case openChatPhoto(ChatPhoto)
     case openLocation(location: Location, title: String)
     case submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission)
+    /// The Add an Option field's Save or Done (requestAddMessagePollOption): TDLib's addPollOption with the text.
+    case addPollOption(messageID: Int64, text: String, submission: MessagePollInteractionStore.AddOptionSubmission)
     /// Telegram's View Votes button and a public poll's result row (requestOpenMessagePollResults): the poll's
     /// voters, opened at the tapped answer.
     case openPollResults(messageID: Int64, optionID: Int?)
@@ -45,11 +47,13 @@ enum MessageContentAction {
     /// `sourceView`, which is round for a mention.
     case openStory(posterChatID: Int64, storyID: Int, sourceView: UIView, sourceIsRound: Bool)
 
-    /// Rolls back the poll vote or checklist toggle an action carries when the chat refuses it.
+    /// Rolls back the poll vote, new answer or checklist toggle an action carries when the chat refuses it.
     @MainActor func rejectPollSubmission(in store: MessagePollInteractionStore?) {
         switch self {
         case .submitPollAnswer(_, _, let submission):
             store?.failSubmission(submission)
+        case .addPollOption(_, _, let submission):
+            store?.finishAddOption(submission, succeeded: false)
         case .toggleChecklistTask(let toggle):
             store?.failChecklistToggle(toggle)
         default:
@@ -82,6 +86,13 @@ enum MessageContentAction {
         fileprivate let id: UUID
     }
 
+    /// A new answer on its way to TDLib (Telegram's requestAddMessagePollOption, `pollMessageIdsInProgress`).
+    struct AddOptionSubmission: Equatable {
+        let messageID: Int64
+
+        fileprivate let id: UUID
+    }
+
     private struct Entry {
         var submission: Submission?
         var pendingSelection: Set<Int>
@@ -98,6 +109,11 @@ enum MessageContentAction {
 
     let changes = PassthroughSubject<Int64, Never>()
 
+    /// The poll whose Add an Option field has the keyboard (Telegram's `focusedPollAddOptionMessageId`), one at a
+    /// time; the chat hides its input panel while one does.
+    private(set) var focusedAddOptionMessageID: Int64?
+    let addOptionFocusChanges = PassthroughSubject<Int64?, Never>()
+
     /// The quiz whose explanation is open (Telegram's `currentPollMessageWithTooltip`), one at a time.
     private(set) var explanationMessageID: Int64?
 
@@ -105,6 +121,9 @@ enum MessageContentAction {
     private var timeoutWorkItems = [Int64: DispatchWorkItem]()
     private var checklistEntries = [Int64: [Int: ChecklistEntry]]()
     private var checklistTimeouts = [UUID: DispatchWorkItem]()
+    /// The text typed into each poll's Add an Option field, kept while the poll's view is rebuilt.
+    private var addOptionDrafts = [Int64: String]()
+    private var addOptionSubmissions = [Int64: AddOptionSubmission]()
 
     func state(messageID: Int64, sourceSelection: Set<Int>) -> State {
         if let entry = entries[messageID], entry.sourceSelection == sourceSelection {
@@ -175,6 +194,67 @@ enum MessageContentAction {
         entry.submission = nil
         entries[submission.messageID] = entry
         changes.send(submission.messageID)
+        return true
+    }
+
+    // MARK: New answers
+
+    func addOptionDraft(messageID: Int64) -> String {
+        addOptionDrafts[messageID] ?? ""
+    }
+
+    /// Keeps the field's text; the field itself shows it, so nothing is redrawn.
+    func setAddOptionDraft(_ text: String, messageID: Int64) {
+        addOptionDrafts[messageID] = text.isEmpty ? nil : text
+    }
+
+    func setAddOptionFocused(_ focused: Bool, messageID: Int64) {
+        let previous = focusedAddOptionMessageID
+        if focused {
+            guard previous != messageID else { return }
+            focusedAddOptionMessageID = messageID
+            if let previous { changes.send(previous) }
+        } else {
+            guard previous == messageID else { return }
+            focusedAddOptionMessageID = nil
+        }
+        changes.send(messageID)
+        addOptionFocusChanges.send(focusedAddOptionMessageID)
+    }
+
+    func isAddingOption(messageID: Int64) -> Bool {
+        addOptionSubmissions[messageID] != nil
+    }
+
+    func isCurrent(_ submission: AddOptionSubmission) -> Bool {
+        addOptionSubmissions[submission.messageID] == submission
+    }
+
+    /// Starts sending the draft; a poll sends one new answer at a time.
+    func beginAddOption(messageID: Int64) -> AddOptionSubmission? {
+        guard addOptionSubmissions[messageID] == nil,
+              !addOptionDraft(messageID: messageID).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        let submission = AddOptionSubmission(messageID: messageID, id: UUID())
+        addOptionSubmissions[messageID] = submission
+        changes.send(messageID)
+        return submission
+    }
+
+    /// A saved answer clears the field and puts the keyboard away (clearNewOptionInput); a failed one keeps the
+    /// text for another try.
+    @discardableResult func finishAddOption(_ submission: AddOptionSubmission, succeeded: Bool) -> Bool {
+        guard isCurrent(submission) else { return false }
+        let messageID = submission.messageID
+        addOptionSubmissions[messageID] = nil
+        if succeeded {
+            addOptionDrafts[messageID] = nil
+            if focusedAddOptionMessageID == messageID {
+                focusedAddOptionMessageID = nil
+                addOptionFocusChanges.send(nil)
+            }
+        }
+        changes.send(messageID)
         return true
     }
 
@@ -1418,6 +1498,8 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     private enum FooterAction {
         case vote
         case viewVotes
+        /// Telegram's Save for a typed new answer (`buttonSaveTextNode`).
+        case saveOption
     }
 
     private let explanationView = PollExplanationView()
@@ -1436,6 +1518,8 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     /// The poll's own media above the question (ChatMessageBubbleItemNode's `attachedMedia` bubble).
     private var mediaView: (UIView & MessageSupplementView)?
     private var optionViews = [Int: PollOptionContentView]()
+    /// ChatMessagePollAddOptionNode: the Add an Option field under the answers while TDLib's `canAddOption` holds.
+    private var addOptionView: PollAddOptionView?
     private var currentSelection = Set<Int>()
     private var storeCancellable: AnyCancellable?
     /// The top of the poll's first block, its media or its question, under the bubble's edge or the explanation.
@@ -1514,12 +1598,25 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     /// except to someone who already sees its voters (its creator) with nothing checked. A public poll otherwise
     /// offers View Votes.
     private var footerAction: FooterAction? {
+        if canSaveNewOption { return .saveOption }
         if content.poll.allowsMultipleAnswers, canOfferVote,
            !canViewVoters || !interactionState.pendingSelection.isEmpty
         {
             return .vote
         }
         return canViewVoters ? .viewVotes : nil
+    }
+
+    /// Telegram swaps the button under the answers for Save once the new answer has text (`canSubmitNewOption`).
+    private var canSaveNewOption: Bool {
+        addOptionView != nil
+            && !interactionStore.addOptionDraft(messageID: messageID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+    }
+
+    private var addOptionIsFocused: Bool {
+        addOptionView != nil && interactionStore.focusedAddOptionMessageID == messageID
     }
 
     private var pollTypeText: String {
@@ -1584,6 +1681,11 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        syncAddOptionFocus()
+    }
+
     /// The answer whose row contains `point`, for Telegram's option menu (ChatControllerOpenPollContextMenu).
     func optionIndex(at point: CGPoint, in sourceView: UIView) -> Int? {
         optionViews.first { _, view in view.convert(view.bounds, to: sourceView).contains(point) }?.key
@@ -1592,6 +1694,8 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     func prepareForReuse() {
         storeCancellable?.cancel()
         storeCancellable = nil
+        // The rebuilt poll takes the keyboard back (didMoveToWindow), so this field's end of editing is no blur.
+        addOptionView?.isTearingDown = true
         mediaView?.prepareForReuse()
         explanationView.prepareForReuse()
         for view in optionViews.values {
@@ -1691,6 +1795,20 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
             ) { [weak self] selectedIndex in self?.optionTapped(selectedIndex) }
             optionViews[index] = optionView
             optionsStack.addArrangedSubview(optionView)
+        }
+
+        if content.canAddOption {
+            let addOptionView = PollAddOptionView()
+            addOptionView.text = interactionStore.addOptionDraft(messageID: messageID)
+            addOptionView.onTextChange = { [weak self] text in self?.addOptionTextChanged(text) }
+            addOptionView.onHeightChange = { [weak self] in self?.onAction(.richContentLayoutChanged) }
+            addOptionView.onFocusChange = { [weak self] focused in
+                guard let self else { return }
+                interactionStore.setAddOptionFocused(focused, messageID: messageID)
+            }
+            addOptionView.onReturn = { [weak self] in self?.saveNewOption() }
+            optionsStack.addArrangedSubview(addOptionView)
+            self.addOptionView = addOptionView
         }
 
         voteButton.translatesAutoresizingMaskIntoConstraints = false
@@ -1838,11 +1956,14 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     @discardableResult private func renderSelection() -> Bool {
         let state = interactionState
         let opensVoters = resultsOpenVoters
+        // ChatMessagePollBubbleContentNode.updatePollOptionsInteraction: the answers rest while a new one is typed.
+        let addOptionFocused = addOptionIsFocused
         for (index, view) in optionViews {
-            view.isEnabled = canVote || opensVoters
-            view.alpha = canVote || showsResults ? 1 : 0.7
+            view.isEnabled = !addOptionFocused && (canVote || opensVoters)
+            view.alpha = addOptionFocused ? 0.5 : canVote || showsResults ? 1 : 0.7
             view.setPendingSelected(state.pendingSelection.contains(index))
         }
+        addOptionView?.isBusy = interactionStore.isAddingOption(messageID: messageID)
         let hasSelectionChange = state.pendingSelection != currentSelection
         let action = footerAction
         let showsButton = action != nil
@@ -1866,6 +1987,9 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
                 for: .normal,
             )
             voteButton.isEnabled = !state.isSubmitting
+        case .saveOption:
+            voteButton.setTitle(L10n.telegram("Common.Save"), for: .normal)
+            voteButton.isEnabled = !interactionStore.isAddingOption(messageID: messageID)
         case nil:
             voteButton.isEnabled = false
         }
@@ -1892,9 +2016,42 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
     }
 
     private func interactionStoreChanged() {
+        syncAddOptionFocus()
         let selectionLayoutChanged = renderSelection()
         let explanationLayoutChanged = renderExplanation()
         if selectionLayoutChanged || explanationLayoutChanged { onAction(.richContentLayoutChanged) }
+    }
+
+    /// The field follows the chat's focused poll: a rebuilt poll takes the keyboard back, and a saved answer gives
+    /// it up (clearNewOptionInput).
+    private func syncAddOptionFocus() {
+        guard let addOptionView, !addOptionView.isTearingDown else { return }
+        if interactionStore.focusedAddOptionMessageID == messageID {
+            if window != nil, !addOptionView.isEditing { addOptionView.beginEditing() }
+        } else {
+            if addOptionView.isEditing { addOptionView.endEditing(true) }
+            let draft = interactionStore.addOptionDraft(messageID: messageID)
+            if addOptionView.text != draft { addOptionView.text = draft }
+        }
+    }
+
+    private func addOptionTextChanged(_ text: String) {
+        let couldSave = canSaveNewOption
+        interactionStore.setAddOptionDraft(text, messageID: messageID)
+        guard canSaveNewOption != couldSave else { return }
+        if renderSelection() { onAction(.richContentLayoutChanged) }
+    }
+
+    /// ChatMessagePollBubbleContentNode.buttonPressed with a typed answer, or the field's Done: an empty field only
+    /// puts the keyboard away.
+    private func saveNewOption() {
+        guard let submission = interactionStore.beginAddOption(messageID: messageID) else {
+            if canSaveNewOption == false { addOptionView?.endEditing(true) }
+            return
+        }
+        let text = interactionStore.addOptionDraft(messageID: messageID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        onAction(.addPollOption(messageID: messageID, text: text, submission: submission))
     }
 
     @objc private func solutionTapped() {
@@ -1911,6 +2068,8 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
             submitSelection()
         case .viewVotes:
             onAction(.openPollResults(messageID: messageID, optionID: nil))
+        case .saveOption:
+            saveNewOption()
         case nil:
             break
         }
@@ -2150,6 +2309,166 @@ private final class PollOptionContentView: UIControl {
 
     @objc private func tapped() {
         onTap?(index)
+    }
+}
+
+// MARK: - PollAddOptionView
+
+/// ChatMessagePollAddOptionNode in BetterTG's answer style: a plus where an answer has its circle and a field that
+/// grows with its text up to Telegram's 100 characters. Done saves, and new lines aren't allowed. A UIControl, so the
+/// chat's tap that puts the keyboard away passes it by.
+private final class PollAddOptionView: UIControl, UITextViewDelegate {
+    private static let characterLimit = 100
+    private static let verticalInset: CGFloat = 11
+
+    var onTextChange: ((String) -> Void)?
+    var onHeightChange: (() -> Void)?
+    var onFocusChange: ((Bool) -> Void)?
+    var onReturn: (() -> Void)?
+    /// Set once the poll is being rebuilt: the field's end of editing is then not the user's.
+    var isTearingDown = false
+
+    /// The answer is on its way: Telegram's field takes no input until TDLib answers (`isRequesting`).
+    var isBusy = false {
+        didSet {
+            guard isBusy != oldValue else { return }
+            isUserInteractionEnabled = !isBusy
+            textView.alpha = isBusy ? 0.5 : 1
+        }
+    }
+
+    private let plusView = UIImageView()
+    private let textView = UITextView()
+    private let placeholderLabel = UILabel()
+    private var measuredHeight = CGFloat.zero
+
+    var text: String {
+        get { textView.text }
+        set {
+            textView.text = newValue
+            textChanged(notify: false)
+        }
+    }
+
+    var isEditing: Bool { textView.isFirstResponder }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.cornerRadius = 10
+        layer.borderWidth = 1
+        layer.borderColor = UIColor.separator.withAlphaComponent(0.55).cgColor
+
+        plusView.translatesAutoresizingMaskIntoConstraints = false
+        plusView.image = UIImage(systemName: "plus.circle")
+        plusView.contentMode = .center
+        plusView.tintColor = .systemBlue
+        plusView.isUserInteractionEnabled = false
+        addSubview(plusView)
+
+        let font = UIFont.preferredFont(forTextStyle: .subheadline)
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.font = font
+        textView.adjustsFontForContentSizeCategory = true
+        textView.backgroundColor = .clear
+        textView.isScrollEnabled = false
+        textView.textContainerInset = UIEdgeInsets(
+            top: Self.verticalInset,
+            left: 0,
+            bottom: Self.verticalInset,
+            right: 0,
+        )
+        textView.textContainer.lineFragmentPadding = 0
+        textView.returnKeyType = .done
+        textView.delegate = self
+        textView.accessibilityLabel = L10n.telegram("CreatePoll.AddOption")
+        addSubview(textView)
+
+        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+        placeholderLabel.text = L10n.telegram("CreatePoll.AddOption")
+        placeholderLabel.font = font
+        placeholderLabel.adjustsFontForContentSizeCategory = true
+        placeholderLabel.textColor = .placeholderText
+        placeholderLabel.isAccessibilityElement = false
+        placeholderLabel.isUserInteractionEnabled = false
+        addSubview(placeholderLabel)
+
+        NSLayoutConstraint.activate([
+            plusView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            plusView.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            plusView.widthAnchor.constraint(equalToConstant: 22),
+            plusView.heightAnchor.constraint(equalToConstant: 22),
+            textView.topAnchor.constraint(equalTo: topAnchor),
+            textView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            textView.leadingAnchor.constraint(equalTo: plusView.trailingAnchor, constant: 7),
+            textView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
+            placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: textView.trailingAnchor),
+            placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: Self.verticalInset),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 42),
+        ])
+        addTarget(self, action: #selector(rowTapped), for: .touchUpInside)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if measuredHeight == 0 { measuredHeight = textView.bounds.height }
+    }
+
+    func beginEditing() {
+        textView.becomeFirstResponder()
+    }
+
+    func textViewDidBeginEditing(_: UITextView) {
+        onFocusChange?(true)
+    }
+
+    func textViewDidEndEditing(_: UITextView) {
+        guard !isTearingDown else { return }
+        onFocusChange?(false)
+    }
+
+    /// TextFieldComponent with `returnKeyType: .done`, `emptyLineHandling: .notAllowed` and `characterLimit: 100`:
+    /// Return saves, pasted lines join with spaces and text past the limit is cut.
+    func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        guard !isBusy else { return false }
+        if text == "\n" {
+            onReturn?()
+            return false
+        }
+        let current = textView.text as NSString
+        let replaced = current.substring(with: range)
+        let available = Self.characterLimit - textView.text.count + replaced.count
+        let cleaned = text.components(separatedBy: .newlines).joined(separator: " ")
+        guard cleaned != text || cleaned.count > available else { return true }
+        let inserted = String(cleaned.prefix(max(0, available)))
+        textView.text = current.replacingCharacters(in: range, with: inserted)
+        textView.selectedRange = NSRange(location: range.location + (inserted as NSString).length, length: 0)
+        textChanged(notify: true)
+        return false
+    }
+
+    func textViewDidChange(_: UITextView) {
+        textChanged(notify: true)
+    }
+
+    private func textChanged(notify: Bool) {
+        placeholderLabel.isHidden = !textView.text.isEmpty
+        if notify { onTextChange?(textView.text) }
+        guard textView.bounds.width > 0 else { return }
+        let height = textView.sizeThatFits(CGSize(width: textView.bounds.width, height: .greatestFiniteMagnitude))
+            .height
+        guard abs(height - measuredHeight) > 0.5 else { return }
+        measuredHeight = height
+        textView.invalidateIntrinsicContentSize()
+        if notify { onHeightChange?() }
+    }
+
+    @objc private func rowTapped() {
+        beginEditing()
     }
 }
 
@@ -3029,6 +3348,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("location")
                     case .submitPollAnswer(_, let optionIDs, _):
                         actions.append("poll:\(optionIDs.map(String.init).joined(separator: ","))")
+                    case .addPollOption:
+                        actions.append("poll-add-option")
                     case .openPollResults:
                         actions.append("poll-results")
                     case .openPollMedia:

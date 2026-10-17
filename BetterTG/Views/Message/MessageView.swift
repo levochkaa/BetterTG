@@ -277,6 +277,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var swipeReplyFeedback: UIImpactFeedbackGenerator?
     private weak var suspendedHistoryPanGesture: UIPanGestureRecognizer?
     private var selectionActive = false
+    /// Its focused Add an Option field holds the history still, swipe to reply included.
+    private weak var pollInteractionStore: MessagePollInteractionStore?
     private var selectionOutgoing = false
     private var selectionCentered = false
     private lazy var swipeToReplyRecognizer = TelegramSwipeToReplyRecognizer(
@@ -656,6 +658,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         accessibilityElementsHidden = false
         isUserInteractionEnabled = true
         self.onSwipeToReply = onSwipeToReply
+        self.pollInteractionStore = pollInteractionStore
         self.onMediaTap = onMediaTap
         self.onSelectionToggle = onSelectionToggle
         spoilerSubscriptions.removeAll()
@@ -1270,7 +1273,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         ])
 
         swipeToReplyRecognizer.shouldBegin = { [weak self] in
-            self?.onSwipeToReply != nil
+            self?.onSwipeToReply != nil && self?.pollInteractionStore?.focusedAddOptionMessageID == nil
         }
         swipeToReplyRecognizer.delegate = self
         swipeToReplyRecognizer.isEnabled = false

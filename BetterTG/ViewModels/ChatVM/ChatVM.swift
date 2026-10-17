@@ -2936,6 +2936,43 @@ import UIKit
         }
     }
 
+    /// The poll's Add an Option (requestAddMessagePollOption): TDLib's addPollOption with the typed text. The poll
+    /// with the answer arrives through updateMessageContent; `onSaved` plays Telegram's success haptic.
+    func addPollOption(
+        messageID: Int64,
+        text: String,
+        submission: MessagePollInteractionStore.AddOptionSubmission,
+        onSaved: @escaping @MainActor () -> Void,
+    ) {
+        guard submission.messageID == messageID, pollInteractionStore.isCurrent(submission) else { return }
+        guard !isReadOnlyTopic, locationContextIsCurrent,
+              let message = messages.first(where: { $0.id == messageID }),
+              case .messagePoll(let content) = message.message.content, content.canAddOption
+        else {
+            pollInteractionStore.finishAddOption(submission, succeeded: false)
+            return
+        }
+        let client = client
+        let chatID = message.message.chatId
+        let option = TDNativeInputPollOption(text: FormattedText(entities: [], text: text), media: nil)
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.addPollOption(
+                    chatId: chatID,
+                    messageId: messageID,
+                    option: option,
+                ))
+                guard let self, pollInteractionStore.finishAddOption(submission, succeeded: true) else { return }
+                onSaved()
+            } catch {
+                guard let self, pollInteractionStore.finishAddOption(submission, succeeded: false) else { return }
+                log("Couldn't add a poll option to \(messageID): \(error.localizedDescription)")
+                guard locationContextIsCurrent, TDLib.shared.activeClient.id == client.id else { return }
+                messageActionErrorMessage = (error as? TDLibError)?.message ?? error.localizedDescription
+            }
+        }
+    }
+
     /// Stops sharing an outgoing live location: `editMessageLiveLocation` with no location, which `canBeEdited`
     /// allows for a live location.
     func stopLiveLocation(_ message: CustomMessage) {
