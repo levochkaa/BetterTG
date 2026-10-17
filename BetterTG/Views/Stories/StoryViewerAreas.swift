@@ -463,6 +463,13 @@ final class StoryAreaTooltipView: UIView {
     private let action: () -> Void
     private var isDismissing = false
 
+    #if DEBUG
+        /// The title and subtitle as VoiceOver reads them, for the UI probe.
+        var probeText: String {
+            bubble.accessibilityLabel ?? ""
+        }
+    #endif
+
     init(title: String, subtitle: String?, action: @escaping () -> Void) {
         self.action = action
         super.init(frame: .zero)

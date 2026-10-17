@@ -1,0 +1,527 @@
+// StoryViewerUIProbe.swift
+
+#if DEBUG
+    import TDLibKit
+    import UIKit
+
+    /// Opens the story viewer on generated stories, so Telegram's cube, the story areas and the More menu can be
+    /// checked on screen without the network. Launch with `-ui-probe-story-viewer-ui MODE [VALUE]`; once an
+    /// account is active the viewer opens at Bob, between Alice and Carol:
+    /// - `cube [fraction]` holds the cube part of a turn towards Carol (0.5 by default; a negative fraction
+    ///   turns towards Alice), with the neighbour's face beside Bob's;
+    /// - `cube-commit [fraction]` holds it for 1.5 s, then lets go as a drag that stops: past 0.3 the cube
+    ///   turns on to the neighbour, short of it it springs back to Bob;
+    /// - `areas [location|venue|message|link|weather]` taps that area on Bob's story (location by default)
+    ///   and opens its tooltip; weather takes the tap without one;
+    /// - `menu` opens the More menu as one of Bob's contacts sees it.
+    /// The viewer reads only the seeded stories and chats and nothing reaches TDLib: a menu choice, and the chat picked
+    /// to share to, are only recorded. The story stays still until the viewer closes. Results go to the log and to
+    /// Documents/story-viewer-ui-probe.txt.
+    @MainActor enum StoryViewerUIProbe {
+        private enum Mode {
+            case cube(fraction: CGFloat, commits: Bool)
+            case areas(kind: String)
+            case menu
+        }
+
+        /// One of the areas on Bob's story, with the sticker its picture shows where the overlay draws nothing, and
+        /// the tooltip a tap on it opens.
+        private struct AreaSpec {
+            let kind: String
+            let area: StoryArea
+            let label: String?
+            let tooltip: String?
+        }
+
+        private struct Fixture {
+            var stories = [Story]()
+            var chats = [Chat]()
+            var lists = [ChatActiveStories]()
+        }
+
+        private struct Failure: Swift.Error, CustomStringConvertible {
+            let description: String
+        }
+
+        private static let flag = "-ui-probe-story-viewer-ui"
+        private static let alice = Int64(9_100_000_001)
+        private static let bob = Int64(9_100_000_002)
+        private static let carol = Int64(9_100_000_003)
+        /// Bob's first unseen story, where the viewer opens, carries the areas.
+        private static let areaStoryID = 202
+        private static let fileIDBase = 1_910_000_000
+        private static let menuPoster = StoryMoreMenu.Poster(
+            chatID: bob,
+            title: "Bob",
+            compactTitle: "Bob",
+            kind: .user(isContact: true, isBot: false),
+            isService: false,
+            username: "bettertg_probe",
+            storiesMuted: false,
+            storiesHidden: false,
+            canBeArchived: true,
+            accountIsPremium: true,
+        )
+        private static var lines = [String]()
+
+        static func runIfRequested(in window: UIWindow) {
+            let arguments = ProcessInfo.processInfo.arguments
+            guard let index = arguments.firstIndex(of: flag) else { return }
+            guard let mode = mode(from: arguments, flagIndex: index) else {
+                record("Story viewer UI probe failed: unknown mode \(arguments[safe: index + 1] ?? "")")
+                return
+            }
+            Task { @MainActor in
+                do {
+                    try await ProbeFixtures.waitForActiveAccount()
+                } catch {
+                    record("Story viewer UI probe failed: \(error)")
+                    return
+                }
+                try? await Task.sleep(for: .seconds(1))
+                var presenter = window.rootViewController
+                while let presented = presenter?.presentedViewController {
+                    presenter = presented
+                }
+                let fixture: Fixture
+                do {
+                    fixture = try makeFixture()
+                } catch {
+                    record("Story viewer UI probe failed: \(error)")
+                    return
+                }
+                guard let presenter,
+                      let viewer = StoryViewerController.presentProbe(
+                          stories: fixture.stories,
+                          chats: fixture.chats,
+                          activeStories: fixture.lists,
+                          initialChatID: bob,
+                          menuPoster: menuPoster,
+                          onMenuItem: { record("Story viewer UI probe menu chose \($0)") },
+                          client: TDLib.shared.activeClient,
+                          from: presenter,
+                      )
+                else {
+                    record("Story viewer UI probe failed: the viewer didn't open")
+                    return
+                }
+                // The viewer's entrance and the story's picture.
+                try? await Task.sleep(for: .milliseconds(800))
+                switch mode {
+                case .cube(let fraction, let commits):
+                    await runCube(viewer, fraction: fraction, commits: commits)
+                case .areas(let kind):
+                    await runAreas(viewer, kind: kind)
+                case .menu:
+                    await runMenu(viewer)
+                }
+            }
+        }
+
+        /// Someone else's photo story everyone may see, as TDLib describes one; the menu probe varies its privacy,
+        /// forwarding and editing.
+        static func makeStory(
+            id: Int,
+            chatID: Int64,
+            date: Int,
+            file: File,
+            areas: [StoryArea],
+            privacy: TDNativeStoryPrivacySettings = .storyPrivacySettingsEveryone(
+                TDNativeStoryPrivacySettingsEveryone(exceptUserIds: []),
+            ),
+            canBeForwarded: Bool = true,
+            canBeEdited: Bool = false,
+        ) -> Story {
+            let size = PhotoSize(type: "y", photo: file, width: 720, height: 1280, progressiveSizes: [])
+            let photo = Photo(hasStickers: false, minithumbnail: nil, sizes: [size])
+            let content = TDNativeStoryContent.storyContentPhoto(TDNativeStoryContentPhoto(photo: photo))
+            let caption = FormattedText(text: "", entities: [])
+            return Story(
+                id: id,
+                posterChatId: chatID,
+                posterId: nil,
+                date: date,
+                isBeingPosted: false,
+                isBeingEdited: false,
+                isEdited: false,
+                isPostedToChatPage: false,
+                isVisibleOnlyForSelf: false,
+                canBeAddedToAlbum: false,
+                canBeDeleted: false,
+                canBeEdited: canBeEdited,
+                canBeForwarded: canBeForwarded,
+                canBeReplied: false,
+                canSetPrivacySettings: false,
+                canToggleIsPostedToChatPage: false,
+                canGetStatistics: false,
+                canGetInteractions: false,
+                hasExpiredViewers: false,
+                repostInfo: nil,
+                interactionInfo: nil,
+                chosenReactionType: nil,
+                privacySettings: privacy,
+                content: content,
+                areas: areas,
+                caption: caption,
+                albumIds: [],
+            )
+        }
+
+        /// A downloaded photo file at `path`, which the viewer decodes without asking TDLib for it.
+        static func photoFile(id: Int, path: String, uniqueID: String) -> File {
+            let size = Int64((try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int) ?? 0)
+            let local = LocalFile(
+                path: path,
+                canBeDownloaded: false,
+                canBeDeleted: false,
+                isDownloadingActive: false,
+                isDownloadingCompleted: !path.isEmpty,
+                downloadOffset: 0,
+                downloadedPrefixSize: size,
+                downloadedSize: size,
+            )
+            let remote = RemoteFile(
+                id: "",
+                uniqueId: "bettertg-story-ui-probe-\(uniqueID)",
+                isUploadingActive: false,
+                isUploadingCompleted: true,
+                uploadedSize: size,
+            )
+            return File(id: id, size: size, expectedSize: size, local: local, remote: remote)
+        }
+
+        // MARK: Modes
+
+        private static func mode(from arguments: [String], flagIndex: Int) -> Mode? {
+            let name = arguments[safe: flagIndex + 1].flatMap { $0.hasPrefix("-") ? nil : $0 } ?? "cube"
+            let value = arguments[safe: flagIndex + 2].flatMap { $0.hasPrefix("-") && Double($0) == nil ? nil : $0 }
+            switch name {
+            case "cube", "cube-commit":
+                let fraction = value.flatMap(Double.init).map { CGFloat($0) } ?? 0.5
+                guard abs(fraction) > 0.01 else { return nil }
+                return .cube(fraction: min(0.95, max(-0.95, fraction)), commits: name == "cube-commit")
+            case "areas":
+                return .areas(kind: value ?? "location")
+            case "menu":
+                return .menu
+            default:
+                return nil
+            }
+        }
+
+        /// The held cube shows the neighbour it turns towards and turns Bob's face; a released one turns on past
+        /// Telegram's 0.3 or springs back, and comes to rest flat with the side faces gone.
+        private static func runCube(_ viewer: StoryViewerController, fraction: CGFloat, commits: Bool) async {
+            let name = commits ? "cube-commit" : "cube"
+            viewer.probeHoldCube(at: fraction)
+            try? await Task.sleep(for: .milliseconds(300))
+            let held = viewer.probeCube
+            let towardsNext = fraction > 0
+            let showsNeighbor = towardsNext
+                ? held.showsNext && !held.showsPrevious
+                : held.showsPrevious && !held.showsNext
+            let holds = abs(held.fraction - fraction) < 0.01 && showsNeighbor && held.turnsFocused
+            let heldText = String(format: "fraction=%.2f", Double(held.fraction))
+                + " previous-face=\(held.showsPrevious) next-face=\(held.showsNext)"
+                + " focused-turned=\(held.turnsFocused) reduce-motion=\(UIAccessibility.isReduceMotionEnabled)"
+            guard commits else {
+                record("Story viewer UI probe \(name) \(holds ? "passed" : "failed"): \(heldText)")
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(1500))
+            viewer.probeReleaseCube()
+            // Telegram's 0.4 s spring, and the faces' refresh after it.
+            try? await Task.sleep(for: .milliseconds(800))
+            let rest = viewer.probeCube
+            let turnsOn = abs(fraction) >= StoryCubeGeometry.commitFraction
+            let expected = turnsOn ? (towardsNext ? carol : alice) : bob
+            let shown = viewer.probeShownChatID
+            let rests = rest.fraction == 0 && !rest.showsPrevious && !rest.showsNext && !rest.turnsFocused
+            let passes = holds && rests && shown == expected
+            record(
+                "Story viewer UI probe \(name) \(passes ? "passed" : "failed"): held \(heldText); "
+                    + "released shown=\(title(of: shown)) expected=\(title(of: expected)) rest=\(rests)",
+            )
+        }
+
+        /// A tap on the area's center opens Telegram's tooltip for it, over Bob's story with its reaction and
+        /// weather drawn.
+        private static func runAreas(_ viewer: StoryViewerController, kind: String) async {
+            guard let spec = areaSpecs().first(where: { $0.kind == kind }) else {
+                record("Story viewer UI probe areas failed: no \(kind) area (location, venue, message, link, weather)")
+                return
+            }
+            let size = viewer.probeStorySize
+            let position = spec.area.position
+            let point = CGPoint(
+                x: CGFloat(position.xPercentage) / 100 * size.width,
+                y: CGFloat(position.yPercentage) / 100 * size.height,
+            )
+            viewer.probeTap(at: point)
+            try? await Task.sleep(for: .milliseconds(400))
+            let tooltip = viewer.probeTooltipText
+            let storyID = viewer.probeShownStory?.id
+            let drawn = viewer.probeDrawnAreaCount
+            let passes = storyID == areaStoryID && drawn == 2 && tooltip == spec.tooltip
+            record(
+                "Story viewer UI probe areas \(kind) \(passes ? "passed" : "failed"): story=\(storyID ?? 0) "
+                    + "drawn=\(drawn) tooltip=\(tooltip ?? "none") expected=\(spec.tooltip ?? "none")",
+            )
+        }
+
+        /// The More button opens Telegram's menu with a contact's six items in performOtherMoreAction's order.
+        private static func runMenu(_ viewer: StoryViewerController) async {
+            viewer.probeOpenMoreMenu()
+            try? await Task.sleep(for: .milliseconds(800))
+            let items = viewer.probeShownStory.map { StoryMoreMenu.items(story: $0, poster: menuPoster) } ?? []
+            let identifiers = items.map(StoryMoreMenu.identifier(of:))
+            let expected = ["notify-off", "copy-link", "share", "hide", "save", "report"]
+            let shows = viewer.probeShowsMoreMenu
+            let passes = shows && identifiers == expected
+            record(
+                "Story viewer UI probe menu \(passes ? "passed" : "failed"): shown=\(shows) "
+                    + "items=\(identifiers.joined(separator: ","))",
+            )
+        }
+
+        private static func title(of chatID: Int64) -> String {
+            switch chatID {
+            case alice: "Alice"
+            case bob: "Bob"
+            case carol: "Carol"
+            default: String(chatID)
+            }
+        }
+
+        private static func record(_ line: String) {
+            lines.append(line)
+            log(line)
+            guard let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            else { return }
+            try? Data(lines.joined(separator: "\n").utf8).write(
+                to: directory.appendingPathComponent("story-viewer-ui-probe.txt"),
+                options: .atomic,
+            )
+        }
+
+        // MARK: Fixtures
+
+        /// Alice's two stories, Bob's three with the second, his first unseen, carrying the areas, and Carol's one,
+        /// each a generated picture named after its poster and place.
+        private static func makeFixture() throws -> Fixture {
+            let now = Int(Foundation.Date().timeIntervalSince1970)
+            let run = UUID().uuidString
+            let posters: [(chatID: Int64, title: String, colors: [UIColor], storyIDs: [Int], maxRead: Int, age: Int)] =
+                [
+                    (alice, "Alice", [.systemPink, .systemOrange], [101, 102], 0, 120),
+                    (bob, "Bob", [.systemIndigo, .systemTeal], [201, 202, 203], 201, 40),
+                    (carol, "Carol", [.systemGreen, .systemYellow], [301], 0, 5),
+                ]
+            let areas = areaSpecs()
+            var fixture = Fixture()
+            for poster in posters {
+                var infos = [TDNativeStoryInfo]()
+                for (offset, storyID) in poster.storyIDs.enumerated() {
+                    let storyAreas = storyID == areaStoryID ? areas : []
+                    let date = now - (poster.age - offset * 5) * 60
+                    let url = try writeImage(
+                        storyID: storyID,
+                        title: "\(poster.title) \(offset + 1)/\(poster.storyIDs.count)",
+                        colors: poster.colors,
+                        areas: storyAreas,
+                    )
+                    let file = photoFile(id: fileIDBase + storyID, path: url.path, uniqueID: "\(run)-\(storyID)")
+                    fixture.stories.append(makeStory(
+                        id: storyID,
+                        chatID: poster.chatID,
+                        date: date,
+                        file: file,
+                        areas: storyAreas.map(\.area),
+                    ))
+                    infos.append(TDNativeStoryInfo(
+                        storyId: storyID,
+                        date: date,
+                        isForCloseFriends: false,
+                        isLive: false,
+                    ))
+                }
+                let position = ChatPosition(list: .chatListMain, order: 0, isPinned: false, source: nil)
+                fixture.chats.append(ProbeFixtures.chat(position, title: poster.title, id: poster.chatID).chat)
+                fixture.lists.append(ChatActiveStories(
+                    chatId: poster.chatID,
+                    list: .storyListMain,
+                    order: 0,
+                    canBeArchived: true,
+                    maxReadStoryId: poster.maxRead,
+                    stories: infos,
+                ))
+            }
+            return fixture
+        }
+
+        /// Every area kind the viewer shows: location, venue, message and link stickers baked into the picture as
+        /// Telegram's are, then the weather and a reaction with three reactions, which the overlay draws.
+        private static func areaSpecs() -> [AreaSpec] {
+            let bigBen = Location(latitude: 51.5007, longitude: -0.1246, horizontalAccuracy: 0)
+            let venue = TDNativeVenue(
+                location: bigBen,
+                title: "Big Ben",
+                address: "London SW1A 0AA",
+                provider: "",
+                id: "",
+                type: "",
+            )
+            let location = TDNativeStoryAreaTypeLocation(location: bigBen, address: nil)
+            let message = TDNativeStoryAreaTypeMessage(chatId: carol, messageId: 1 << 20)
+            let link = TDNativeStoryAreaTypeLink(url: "telegram.org")
+            let weather = TDNativeStoryAreaTypeWeather(temperature: 21.4, emoji: "☀️", backgroundColor: 0xFFFF_FFFF)
+            let heart = TDNativeReactionTypeEmoji(emoji: "❤")
+            let reaction = TDNativeStoryAreaTypeSuggestedReaction(
+                reactionType: .reactionTypeEmoji(heart),
+                totalCount: 3,
+                isDark: false,
+                isFlipped: false,
+            )
+            let viewLocation = L10n.telegram("Story.ViewLocation")
+            return [
+                AreaSpec(
+                    kind: "location",
+                    area: StoryArea(
+                        position: position(50, 26, 64, 6.5, -6, 12),
+                        type: .storyAreaTypeLocation(location),
+                    ),
+                    label: "📍 Westminster",
+                    tooltip: viewLocation,
+                ),
+                AreaSpec(
+                    kind: "venue",
+                    area: StoryArea(
+                        position: position(50, 37, 64, 6.5, 0, 12),
+                        type: .storyAreaTypeVenue(TDNativeStoryAreaTypeVenue(venue: venue)),
+                    ),
+                    label: "📍 Big Ben",
+                    tooltip: viewLocation,
+                ),
+                AreaSpec(
+                    kind: "message",
+                    area: StoryArea(position: position(50, 48, 64, 6.5, 5, 12), type: .storyAreaTypeMessage(message)),
+                    label: "💬 Carol's message",
+                    tooltip: L10n.telegram("Story.ViewMessage"),
+                ),
+                AreaSpec(
+                    kind: "link",
+                    area: StoryArea(position: position(50, 59, 64, 6.5, 0, 6), type: .storyAreaTypeLink(link)),
+                    label: "🔗 telegram.org",
+                    tooltip: L10n.telegram("Story.ViewLink") + ", telegram.org",
+                ),
+                AreaSpec(
+                    kind: "weather",
+                    area: StoryArea(position: position(32, 72, 34, 6, 0, 20), type: .storyAreaTypeWeather(weather)),
+                    label: nil,
+                    tooltip: nil,
+                ),
+                AreaSpec(
+                    kind: "reaction",
+                    area: StoryArea(
+                        position: position(70, 73, 24, 13.5, -10, 0),
+                        type: .storyAreaTypeSuggestedReaction(reaction),
+                    ),
+                    label: nil,
+                    tooltip: nil,
+                ),
+            ]
+        }
+
+        private static func position(
+            _ x: Double,
+            _ y: Double,
+            _ width: Double,
+            _ height: Double,
+            _ rotation: Double,
+            _ cornerRadius: Double,
+        ) -> StoryAreaPosition {
+            StoryAreaPosition(
+                xPercentage: x,
+                yPercentage: y,
+                widthPercentage: width,
+                heightPercentage: height,
+                rotationAngle: rotation,
+                cornerRadiusPercentage: cornerRadius,
+            )
+        }
+
+        /// A 9:16 picture filling the story exactly, so the areas' percentages land on their stickers.
+        private static func writeImage(storyID: Int, title: String, colors: [UIColor], areas: [AreaSpec]) throws
+            -> URL
+        {
+            let size = CGSize(width: 720, height: 1280)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            format.opaque = true
+            let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+                drawStory(in: context.cgContext, size: size, title: title, colors: colors, areas: areas)
+            }
+            guard let data = image.jpegData(compressionQuality: 0.85) else {
+                throw Failure(description: "story \(storyID)'s picture didn't encode")
+            }
+            let url = FileManager.default
+.temporaryDirectory
+                .appendingPathComponent("bettertg-story-ui-probe-\(storyID).jpg")
+            try data.write(to: url, options: .atomic)
+            return url
+        }
+
+        private static func drawStory(
+            in context: CGContext,
+            size: CGSize,
+            title: String,
+            colors: [UIColor],
+            areas: [AreaSpec],
+        ) {
+            if let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: colors.map(\.cgColor) as CFArray,
+                locations: nil,
+            ) {
+                context.drawLinearGradient(
+                    gradient,
+                    start: .zero,
+                    end: CGPoint(x: size.width, y: size.height),
+                    options: [],
+                )
+            }
+            let titleText = NSAttributedString(string: title, attributes: [
+                .font: UIFont.systemFont(ofSize: 72, weight: .heavy),
+                .foregroundColor: UIColor.white,
+            ])
+            let titleSize = titleText.size()
+            titleText.draw(at: CGPoint(
+                x: (size.width - titleSize.width) / 2,
+                y: size.height * 0.88 - titleSize.height / 2,
+            ))
+            for spec in areas {
+                guard let label = spec.label else { continue }
+                let position = spec.area.position
+                let width = CGFloat(position.widthPercentage) / 100 * size.width
+                let height = CGFloat(position.heightPercentage) / 100 * size.height
+                context.saveGState()
+                context.translateBy(
+                    x: CGFloat(position.xPercentage) / 100 * size.width,
+                    y: CGFloat(position.yPercentage) / 100 * size.height,
+                )
+                context.rotate(by: CGFloat(position.rotationAngle) * .pi / 180)
+                let rect = CGRect(x: -width / 2, y: -height / 2, width: width, height: height)
+                UIColor.white.withAlphaComponent(0.92).setFill()
+                UIBezierPath(roundedRect: rect, cornerRadius: CGFloat(position.cornerRadiusPercentage) / 100 * width)
+                    .fill()
+                let text = NSAttributedString(string: label, attributes: [
+                    .font: UIFont.systemFont(ofSize: 40, weight: .semibold),
+                    .foregroundColor: UIColor.black,
+                ])
+                let textSize = text.size()
+                text.draw(at: CGPoint(x: -textSize.width / 2, y: -textSize.height / 2))
+                context.restoreGState()
+            }
+        }
+    }
+#endif

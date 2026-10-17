@@ -109,9 +109,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private var didAppear = false
     private var cancellables = Set<AnyCancellable>()
     #if DEBUG
-        /// The UI probe's poster for the More menu, and where its choices go instead of TDLib.
+        /// The UI probe's poster for the More menu, and where its choices, a chat picked to share to among them, go
+        /// instead of TDLib.
         private var probeMenuPoster: StoryMoreMenu.Poster?
-        private var probeMenuActionHandler: ((StoryMoreMenu.Item) -> Void)?
+        private var probeMenuActionHandler: ((String) -> Void)?
     #endif
 
     /// Whether the shown video should play: every pause but buffering stops it.
@@ -997,8 +998,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             setCaptionExpanded(true)
             return
         }
-        // StoryItemSetContainerComponent.tapGesture: the left quarter goes back.
-        let point = gesture.location(in: contentView)
+        handleStoryTap(at: gesture.location(in: contentView))
+    }
+
+    /// StoryItemSetContainerComponent.tapGesture: an area under the finger takes the tap, otherwise the left quarter
+    /// goes back and the rest forward.
+    private func handleStoryTap(at point: CGPoint) {
         if let areas = shownStory?.areas,
            let index = StoryAreaGeometry.area(at: point, in: contentView.bounds.size, areas: areas)
         {
@@ -1170,9 +1175,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private func openAreaMessage(chatID: Int64, messageID: Int64) {
         guard session.isCurrent, !isClosing else { return }
         let client = session.client
+        // The UI probe's message is on no server.
+        let isOffline = session.isOffline
         areaMessageTask?.cancel()
         areaMessageTask = Task { [weak self] in
-            let message = try? await client.getMessage(chatId: chatID, messageId: messageID)
+            var message: Message?
+            if !isOffline { message = try? await client.getMessage(chatId: chatID, messageId: messageID) }
             guard let self, !Task.isCancelled, session.isCurrent, !isClosing else { return }
             guard message != nil else {
                 TelegramUndoToast.show(
@@ -1243,7 +1251,9 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private func performMoreItem(_ item: StoryMoreMenu.Item, story: Story, poster: StoryMoreMenu.Poster) {
         #if DEBUG
             if session.isOffline {
-                probeMenuActionHandler?(item)
+                probeMenuActionHandler?(StoryMoreMenu.identifier(of: item))
+                // Share opens its chat picker; the chat picked reaches only the probe.
+                if item == .share { share(story) }
                 return
             }
         #endif
@@ -1328,6 +1338,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         picker.onChosenChat = { [weak self] chat, topic in
             guard let self, TDLib.shared.activeAccountID == accountID, TDLib.shared.activeClient.id == client.id
             else { return }
+            #if DEBUG
+                if session.isOffline {
+                    probeMenuActionHandler?("share-to \(chat.chat.id)")
+                    return
+                }
+            #endif
             send(storyChatID: storyChatID, storyID: storyID, to: chat.chat, topic: topic)
         }
         let navigation = TelegramNavigationController(rootViewController: picker)
@@ -1652,6 +1668,124 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         return CGAffineTransform(translationX: translationX, y: translationY).scaledBy(x: scale, y: scale)
     }
 }
+
+#if DEBUG
+
+    // MARK: - StoryViewerController + UI probe
+
+    extension StoryViewerController {
+        /// The cube as the UI probe reads it: the turn's fraction, the neighbours' faces on screen with a preview,
+        /// and whether the shown face is turned away from rest.
+        struct ProbeCube {
+            let fraction: CGFloat
+            let showsPrevious: Bool
+            let showsNext: Bool
+            let turnsFocused: Bool
+        }
+
+        var probeShownChatID: Int64 {
+            state.currentChatID
+        }
+
+        var probeShownStory: Story? {
+            shownStory
+        }
+
+        var probeStorySize: CGSize {
+            contentView.bounds.size
+        }
+
+        /// The open area tooltip's title and subtitle.
+        var probeTooltipText: String? {
+            areaTooltip?.probeText
+        }
+
+        /// The reactions and weather the overlay draws; the other areas are part of the story's picture.
+        var probeDrawnAreaCount: Int {
+            areaOverlay.subviews.count
+        }
+
+        var probeShowsMoreMenu: Bool {
+            isPresentingTelegramContextMenu
+        }
+
+        var probeCube: ProbeCube {
+            ProbeCube(
+                fraction: cubeFraction,
+                showsPrevious: !previousFace.isHidden && previousFace.hasContent,
+                showsNext: !nextFace.isHidden && nextFace.hasContent,
+                turnsFocused: !CATransform3DIsIdentity(focusedFace.transform3D),
+            )
+        }
+
+        /// Opens the viewer at `initialChatID` on the UI probe's seeded stories, which never reach TDLib, and holds
+        /// the story still. The More menu reads `menuPoster`, and its choices go to `onMenuItem`.
+        static func presentProbe(
+            stories: [Story],
+            chats: [Chat],
+            activeStories: [ChatActiveStories],
+            initialChatID: Int64,
+            menuPoster: StoryMoreMenu.Poster,
+            onMenuItem: @escaping (String) -> Void,
+            client: TDLibClient,
+            from presenter: UIViewController,
+        ) -> StoryViewerController? {
+            guard let session = StoryViewerSession(client: client) else { return nil }
+            session.seedOffline(stories: stories, chats: chats, activeStories: activeStories)
+            let posters = activeStories.map { list in
+                StoryViewerState.Poster(
+                    chatID: list.chatId,
+                    storyIDs: list.stories.map(\.storyId),
+                    maxReadStoryID: list.maxReadStoryId,
+                )
+            }
+            guard let state = StoryViewerState(posters: posters, initialChatID: initialChatID) else {
+                session.invalidate()
+                return nil
+            }
+            let viewer = StoryViewerController(
+                session: session,
+                state: state,
+                followsActiveStories: false,
+                sourceView: nil,
+                sourceIsAvatar: false,
+            )
+            viewer.probeMenuPoster = menuPoster
+            viewer.probeMenuActionHandler = onMenuItem
+            viewer.state.setPaused(true, for: .probe)
+            presenter.present(viewer, animated: false)
+            return viewer
+        }
+
+        /// Holds the cube `fraction` of a turn towards the next poster, or the previous one when negative, as a
+        /// drag standing still there would.
+        func probeHoldCube(at fraction: CGFloat) {
+            guard !isClosing else { return }
+            areaTooltip?.dismiss()
+            panAxis = .poster
+            beginPosterPan()
+            setPaused(true, for: .drag)
+            updatePosterPan(-fraction * containerView.bounds.width)
+        }
+
+        /// Lets the held cube go as a drag that stops: past 30% of the width it turns on, short of it it springs back.
+        func probeReleaseCube() {
+            guard panAxis == .poster else { return }
+            panAxis = nil
+            finishPosterPan(velocity: 0)
+        }
+
+        /// A tap at `point` in the story, taken as the tap gesture takes it.
+        func probeTap(at point: CGPoint) {
+            guard !isClosing else { return }
+            handleStoryTap(at: point)
+        }
+
+        func probeOpenMoreMenu() {
+            morePressed()
+        }
+    }
+#endif
 
 // MARK: - StoryViewerDisplayLinkTarget
 

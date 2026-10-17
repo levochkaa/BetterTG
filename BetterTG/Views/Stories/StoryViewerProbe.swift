@@ -6,8 +6,8 @@ import UIKit
 #if DEBUG
     /// Drives the story viewer's state offline (no TDLib, no UI): the clock waiting for media, holding, auto-advance,
     /// tap navigation across posters, rewinding, lazily loaded posters, active-story updates and deletions, the
-    /// header's time, the cube's neighbouring posters and its geometry. Launch with `-ui-probe-story-viewer`; the
-    /// result goes to the log and to Documents/story-viewer-probe.txt.
+    /// header's time, the cube's neighbouring posters and its geometry, the story areas and the More menu's items.
+    /// Launch with `-ui-probe-story-viewer`; the result goes to the log and to Documents/story-viewer-probe.txt.
     @MainActor enum StoryViewerProbe {
         private struct Failure: Swift.Error, CustomStringConvertible {
             let description: String
@@ -26,12 +26,14 @@ import UIKit
                 try verifyNeighbors()
                 try verifyCube()
                 try verifyAreas()
+                try verifyMenuItems()
                 result = "Story viewer probe passed: first-unseen-entry/clock-waits-for-media/hold-pause=true; "
                     + "auto-advance/next-poster/resume/rewind/dismiss=true; single-story=true; "
                     + "lazy-posters/empty-poster-dropped=true; active-update/delete/current-poster-removed=true; "
                     + "timestamps=true; cube-neighbors/resume/unloaded=true; "
                     + "cube-rest-flat/half-turn-edges-meet/whole-turn-gap-40/rubber-band/spring=true; "
-                    + "area-placement/rotated-hit/side-inset/reaction-skipped/tooltip-source/temperature=true"
+                    + "area-placement/rotated-hit/side-inset/reaction-skipped/tooltip-source/temperature=true; "
+                    + "menu-contact/muted-hidden/non-contact/service/bot/private/protected/own=true"
             } catch {
                 result = "Story viewer probe failed: \(error)"
             }
@@ -338,6 +340,88 @@ import UIKit
             let celsius = StoryWeatherFormat.temperature(21.4, locale: Locale(identifier: "de_DE"))
             let fahrenheit = StoryWeatherFormat.temperature(21.4, locale: Locale(identifier: "en_US"))
             try require(celsius == "21°C" && fahrenheit == "71°F", "temperature: \(celsius), \(fahrenheit)")
+        }
+
+        /// performOtherMoreAction's items: notifications for contacts, Copy Link for a public story of a poster with
+        /// a username, Share for a public forwardable story, Hide for stories in the main list and Unhide for
+        /// hidden ones, Save for a forwardable story and Report for anyone but a service account; a bot's previews
+        /// have no menu, and the account's own or editable stories have no button.
+        private static func verifyMenuItems() throws {
+            func poster(
+                _ kind: StoryMoreMenu.Poster.Kind,
+                isService: Bool = false,
+                username: String? = "probe",
+                isMuted: Bool = false,
+                isHidden: Bool = false,
+                canBeArchived: Bool = true,
+            ) -> StoryMoreMenu.Poster {
+                StoryMoreMenu.Poster(
+                    chatID: 1,
+                    title: "Probe",
+                    compactTitle: "Probe",
+                    kind: kind,
+                    isService: isService,
+                    username: username,
+                    storiesMuted: isMuted,
+                    storiesHidden: isHidden,
+                    canBeArchived: canBeArchived,
+                    accountIsPremium: false,
+                )
+            }
+            func items(_ story: Story, _ poster: StoryMoreMenu.Poster) -> String {
+                StoryMoreMenu.items(story: story, poster: poster)
+.map(StoryMoreMenu.identifier(of:))
+                    .joined(separator: ",")
+            }
+            let file = StoryViewerUIProbe.photoFile(id: 1, path: "", uniqueID: "menu")
+            let open = StoryViewerUIProbe.makeStory(id: 1, chatID: 1, date: 0, file: file, areas: [])
+            let contacts = TDNativeStoryPrivacySettings.storyPrivacySettingsContacts(
+                TDNativeStoryPrivacySettingsContacts(exceptUserIds: []),
+            )
+            let contactsOnly = StoryViewerUIProbe.makeStory(
+                id: 2,
+                chatID: 1,
+                date: 0,
+                file: file,
+                areas: [],
+                privacy: contacts,
+            )
+            let protected = StoryViewerUIProbe.makeStory(
+                id: 3,
+                chatID: 1,
+                date: 0,
+                file: file,
+                areas: [],
+                canBeForwarded: false,
+            )
+            let own = StoryViewerUIProbe.makeStory(id: 4, chatID: 1, date: 0, file: file, areas: [], canBeEdited: true)
+            let contact = StoryMoreMenu.Poster.Kind.user(isContact: true, isBot: false)
+            let stranger = StoryMoreMenu.Poster.Kind.user(isContact: false, isBot: false)
+            try require(
+                items(open, poster(contact)) == "notify-off,copy-link,share,hide,save,report",
+                "a contact's menu: \(items(open, poster(contact)))",
+            )
+            try require(
+                items(open, poster(contact, isMuted: true, isHidden: true))
+                    == "notify-on,copy-link,share,unhide,save,report",
+                "a muted contact with hidden stories",
+            )
+            try require(
+                items(open, poster(stranger, username: nil)) == "share,hide,save,report",
+                "someone without a username who isn't a contact",
+            )
+            try require(items(open, poster(stranger, isService: true)) == "share,save", "a service account")
+            try require(items(open, poster(.user(isContact: true, isBot: true))).isEmpty, "a bot's menu")
+            try require(
+                items(contactsOnly, poster(.supergroup, canBeArchived: false)) == "save,report",
+                "a story for contacts in a channel that can't be hidden",
+            )
+            try require(items(protected, poster(.supergroup)) == "copy-link,hide,report", "a protected story")
+            try require(
+                StoryMoreMenu.showsButton(for: open) && !StoryMoreMenu.showsButton(for: own)
+                    && !StoryMoreMenu.showsButton(for: nil),
+                "the More button on the account's own story",
+            )
         }
     }
 #endif

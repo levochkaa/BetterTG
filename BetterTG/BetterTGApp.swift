@@ -193,6 +193,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             PollMediaGalleryProbe.runIfRequested(in: window)
             BotButtonsProbe.runIfRequested(in: window)
             VideoEditProbe.runIfRequested(in: window)
+            StoryViewerUIProbe.runIfRequested(in: window)
             WebAppProbe.runIfRequested(in: window)
             WebAppLaunchProbe.runIfRequested(in: window)
             ChecklistTaskMenuProbe.runIfRequested(in: window)

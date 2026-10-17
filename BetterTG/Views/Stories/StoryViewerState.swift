@@ -45,6 +45,10 @@ struct StoryViewerState: Equatable {
         case moreMenu
         /// A screen is presented over the viewer, such as a story area's location.
         case presentation
+        #if DEBUG
+            /// The UI probe holds the story still for its screenshots.
+            case probe
+        #endif
     }
 
     enum Transition: Equatable {
