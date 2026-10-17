@@ -87,6 +87,9 @@ final class PhotoCropViewController: UIViewController {
     /// The full photo's upright pixel size, which PGPhotoEditor gives the grain's scale (`_cropRect.size`).
     private let fullPixelSize: CGSize
     private let initialAdjustments: PhotoCropAdjustments?
+    /// The video cover's shape (MediaEditorScreen's `coverEditor`): the crop keeps it, and only Mirror stays in the
+    /// crop tab's toolbar, as a quarter turn or another ratio would change the shape.
+    private let fixedAspectRatio: CGFloat?
     private let cropView: PhotoCropView
     private let resetButton = UIButton(type: .system)
     private let tabBarView = UIView()
@@ -172,16 +175,21 @@ final class PhotoCropViewController: UIViewController {
     }
 
     /// `fullPixelSize` is the library photo's size, so the grain matches the sent photo; the editor's image size
-    /// when unknown. `initialToolsTab` is the tools tab's panel when it opens.
+    /// when unknown. `initialToolsTab` is the tools tab's panel when it opens. `fixedAspectRatio`, height over
+    /// width, starts a new edit filling the photo in that shape and keeps it.
     init(
         image: UIImage,
         adjustments: PhotoCropAdjustments?,
         fullPixelSize: CGSize? = nil,
         initialTab: PhotoEditorTab = .crop,
         initialToolsTab: PhotoToolsTab = .list,
+        fixedAspectRatio: CGFloat? = nil,
     ) {
         let pixelSize = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
-        let initial = adjustments?.scaled(to: pixelSize) ?? PhotoCropAdjustments(originalSize: pixelSize)
+        let fixedRatio = fixedAspectRatio.flatMap { $0 > 0 && $0.isFinite ? $0 : nil }
+        let initial = adjustments?.scaled(to: pixelSize)
+            ?? fixedRatio.map { PhotoCropAdjustments.filling(aspectRatio: $0, originalSize: pixelSize) }
+            ?? PhotoCropAdjustments(originalSize: pixelSize)
         var fullSize = pixelSize
         if let fullPixelSize, fullPixelSize.width > 0, fullPixelSize.height > 0 {
             let isTurned = (fullPixelSize.width >= fullPixelSize.height) != (pixelSize.width >= pixelSize.height)
@@ -190,13 +198,15 @@ final class PhotoCropViewController: UIViewController {
         self.image = image
         self.imagePixelSize = pixelSize
         self.fullPixelSize = fullSize
-        self.initialAdjustments = adjustments == nil ? nil : initial
+        self.initialAdjustments = adjustments == nil && fixedRatio == nil ? nil : initial
+        self.fixedAspectRatio = fixedRatio
         self.cropView = PhotoCropView(image: image, adjustments: initial)
         self.toolValues = initial.tools
         self.toolsListView = PhotoToolsListView(values: initial.tools)
         self.editorTab = initialTab
         self.toolsTab = initialToolsTab
         super.init(nibName: nil, bundle: nil)
+        cropView.fixedAspectRatio = fixedRatio ?? 0
         modalPresentationStyle = .fullScreen
         modalTransitionStyle = .crossDissolve
         modalPresentationCapturesStatusBarAppearance = true
@@ -589,7 +599,7 @@ final class PhotoCropViewController: UIViewController {
         Self.setVisible(blurView, toolsTab == .blur)
         Self.setVisible(curvesPanelView, toolsTab == .curves)
         for button in [rotateButton, mirrorButton, aspectRatioButton] {
-            Self.setVisible(button, isCrop)
+            Self.setVisible(button, isCrop && (fixedAspectRatio == nil || button === mirrorButton))
         }
         for button in [toolsListButton, tintButton, blurButton, curvesButton] {
             Self.setVisible(button, !isCrop)

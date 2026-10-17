@@ -87,6 +87,25 @@ struct PhotoCropAdjustments: Equatable {
         self.cropRect = CGRect(origin: .zero, size: originalSize)
     }
 
+    /// MediaEditorScreen's `coverEditor`: the photo fills the video's shape (`aspectFilled`), so the crop is the
+    /// largest centered rectangle of `aspectRatio` (height over width) inside the photo, locked to it.
+    static func filling(aspectRatio: CGFloat, originalSize: CGSize) -> PhotoCropAdjustments {
+        var adjustments = PhotoCropAdjustments(originalSize: originalSize)
+        guard aspectRatio > 0, originalSize.width > 0, originalSize.height > 0 else { return adjustments }
+        var size = CGSize(width: originalSize.width, height: originalSize.width * aspectRatio)
+        if size.height > originalSize.height {
+            size = CGSize(width: originalSize.height / aspectRatio, height: originalSize.height)
+        }
+        adjustments.cropRect = CGRect(
+            x: (originalSize.width - size.width) / 2,
+            y: (originalSize.height - size.height) / 2,
+            width: size.width,
+            height: size.height,
+        )
+        adjustments.lockedAspectRatio = aspectRatio
+        return adjustments
+    }
+
     static func boundingSize(of size: CGSize, rotation: CGFloat) -> CGSize {
         let cosine = abs(cos(rotation))
         let sine = abs(sin(rotation))

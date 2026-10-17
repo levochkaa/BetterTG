@@ -257,7 +257,17 @@ enum SelectedVideoLoader {
             let thumbnailURL = url.deletingPathExtension().appendingPathExtension("thumbnail.jpg")
             try data.write(to: thumbnailURL, options: .atomic)
             var coverURL: URL?
-            if let coverTime = edit?.coverTime {
+            if let coverImageURL = edit?.coverImageURL {
+                // A gallery cover is already the file Telegram sends (`requestCoverCompletion`), copied so the
+                // sent files go together.
+                let destination = url.deletingPathExtension().appendingPathExtension("cover.jpg")
+                try? FileManager.default.removeItem(at: destination)
+                if (try? FileManager.default.copyItem(at: coverImageURL, to: destination)) != nil {
+                    coverURL = destination
+                } else {
+                    log("Could not copy the picked video's gallery cover")
+                }
+            } else if let coverTime = edit?.coverTime {
                 let destination = url.deletingPathExtension().appendingPathExtension("cover.jpg")
                 if let cover = await VideoEditCover.image(at: coverTime, of: asset, edit: edit),
                    let coverData = VideoEditCover.jpegData(for: cover),

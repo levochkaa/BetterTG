@@ -3,7 +3,9 @@
 import AVFoundation
 import Combine
 import Photos
+import PhotosUI
 import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - VideoEditorTab
 
@@ -24,7 +26,8 @@ enum VideoEditorTab {
 /// Ratio; a tap plays or pauses, and moving the crop pauses the video until it settles. Done hands back the trim,
 /// mute and crop, or nothing for the video as it was; Cancel asks before it drops changes. Where the chat takes a
 /// cover, a video of a minute or more has TGMediaPickerGalleryInterfaceView's Edit Cover: Select Frame stops the
-/// video and swaps the trim for the cover picker, and Save Cover keeps the frame under its handle.
+/// video and swaps the trim for the cover picker, Save Cover keeps the frame under its handle, and Choose From Gallery
+/// takes a photo edited in the video's shape instead.
 final class VideoEditViewController: UIViewController {
     // MARK: Private
 
@@ -75,6 +78,8 @@ final class VideoEditViewController: UIViewController {
     private var sendsAsGIF: Bool
     /// TGMediaEditingContext's `coverPositionForItem:`.
     private var coverTime: Double?
+    /// TGMediaEditingContext's cover image without a position: a gallery photo's cover file.
+    private var coverImageURL: URL?
     private var editorTab: VideoEditorTab
     private let player = AVPlayer()
     /// The crop's box; the whole frame turns and mirrors inside it.
@@ -95,6 +100,8 @@ final class VideoEditViewController: UIViewController {
     private let aspectRatioButton = UIButton(type: .system)
     private let doneButton = UIButton(type: .system)
     private let coverButton = VideoCoverButton()
+    /// `_coverGalleryButton`, shown while the cover is chosen.
+    private let coverGalleryButton = VideoCoverButton(gallery: true)
     /// `_coverScrubberView`, read once the cover is first edited.
     private let coverScrubber = VideoScrubberView()
     private let coverTitleLabel = UILabel()
@@ -143,6 +150,7 @@ final class VideoEditViewController: UIViewController {
         adjustments.sendsAsGIF = sendsAsGIF
         adjustments.crop = currentCrop
         adjustments.coverTime = coverTime
+        adjustments.coverImageURL = coverImageURL
         return adjustments
     }
 
@@ -161,6 +169,11 @@ final class VideoEditViewController: UIViewController {
         allowsCover && duration >= VideoEditCover.minimumDuration
     }
 
+    /// The shape the video goes in: its frame cut and turned by the crop.
+    private var coverShape: CGSize {
+        currentCrop?.croppedSize ?? presentedSize
+    }
+
     /// `allowsTrimming` is false for slow-motion videos, which Telegram doesn't trim (`itemIsHighFramerateVideo`).
     /// `allowsCover` offers the cover where the chat takes one, and `initialTab` is the tab the editor opens in.
     init(
@@ -176,6 +189,7 @@ final class VideoEditViewController: UIViewController {
         self.allowsCover = allowsCover
         self.sendsAsGIF = adjustments?.sendsAsGIF ?? false
         self.coverTime = adjustments?.coverTime
+        self.coverImageURL = adjustments?.coverImageURL
         self.editorTab = initialTab
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
@@ -240,7 +254,15 @@ final class VideoEditViewController: UIViewController {
             height: Self.saveCoverHeight,
         )
         saveCoverButton.frame = saveCoverFrame
-        let videoBottom = isCoverEditing ? saveCoverFrame.minY - 8 : toolbarTop - 8
+        // `_coverGalleryButtonFrameForOrientation:`: centered over the bottom bar, here right above Save Cover.
+        let galleryWidth = max(Self.coverButtonWidth, coverGalleryButton.intrinsicContentSize.width)
+        coverGalleryButton.frame = CGRect(
+            x: ((bounds.width - galleryWidth) / 2).rounded(.down),
+            y: saveCoverFrame.minY - 8 - Self.muteButtonSide,
+            width: galleryWidth,
+            height: Self.muteButtonSide,
+        )
+        let videoBottom = isCoverEditing ? coverGalleryButton.frame.minY - 4 : toolbarTop - 8
         let videoTop = scrubber.frame.maxY + 8
         layoutPlayer(in: CGRect(
             x: safeArea.left,
@@ -469,6 +491,8 @@ final class VideoEditViewController: UIViewController {
         saveCoverButton.clipsToBounds = true
         saveCoverButton.addTarget(self, action: #selector(saveCoverPressed), for: .touchUpInside)
         view.addSubview(saveCoverButton)
+        coverGalleryButton.addTarget(self, action: #selector(coverGalleryPressed), for: .touchUpInside)
+        view.addSubview(coverGalleryButton)
     }
 
     /// The photo editor's tab strip with the Video and Crop tabs.
@@ -618,7 +642,9 @@ final class VideoEditViewController: UIViewController {
         Self.setVisible(scrubber, !isCrop && isLoaded && !isCover)
         Self.setVisible(muteButton, !isCrop && isLoaded && !isCover)
         Self.setVisible(coverButton, !isCrop && isLoaded && !isCover && canHaveCover)
-        for coverView in [coverScrubber, coverTitleLabel, coverCancelButton, saveCoverButton] as [UIView] {
+        for coverView in [coverScrubber, coverTitleLabel, coverCancelButton, saveCoverButton, coverGalleryButton]
+            as [UIView]
+        {
             Self.setVisible(coverView, isCover)
         }
         Self.setVisible(toolbarView, !isCover)
@@ -666,7 +692,7 @@ final class VideoEditViewController: UIViewController {
         case .video:
             scrubber.setCrop(currentCrop)
             // The cover goes cut as the video is, so its circle follows a changed crop.
-            if coverTime != nil {
+            if coverTime != nil, coverImageURL == nil {
                 updateCoverImage()
             }
         case .crop:
@@ -730,6 +756,7 @@ final class VideoEditViewController: UIViewController {
         // A video too short for a cover, or a chat without covers, keeps none.
         if !canHaveCover {
             coverTime = nil
+            coverImageURL = nil
         }
         updateCoverImage()
         loadedAdjustments = currentAdjustments
@@ -956,6 +983,7 @@ final class VideoEditViewController: UIViewController {
     @objc private func saveCoverPressed() {
         guard isCoverEditing, !coverScrubber.isScrubbing else { return }
         coverTime = coverScrubber.value
+        coverImageURL = nil
         updateCoverImage()
         endCoverEditing()
     }
@@ -977,8 +1005,72 @@ final class VideoEditViewController: UIViewController {
         }
     }
 
-    /// The pill's circle shows the saved cover as it will go, cut by the crop (`coverImageSignalForItem:`).
+    /// `coverGalleryButtonPressed` with ChatControllerOpenAttachmentMenu's `editCover`: a photo from the gallery
+    /// (`coverMediaPickerController`, here the system picker, which needs no library access) opens in the editor in
+    /// the video's shape (MediaEditorScreen's `coverEditor`), and its result becomes the cover without a position.
+    @objc private func coverGalleryPressed() {
+        guard isCoverEditing, !coverScrubber.isScrubbing, presentedViewController == nil else { return }
+        var configuration = PHPickerConfiguration()
+        configuration.filter = .images
+        configuration.selectionLimit = 1
+        configuration.preferredAssetRepresentationMode = .current
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = self
+        present(picker, animated: true)
+    }
+
+    /// MediaEditorScreen in `coverEditor(dimensions:)`: the photo fills the video's shape and can be moved,
+    /// zoomed, straightened, mirrored and adjusted with the tools inside it. The picker may still be leaving.
+    private func presentCoverEditor(for image: UIImage, attempt: Int = 0) {
+        let shape = coverShape
+        guard isCoverEditing, !isBeingDismissed, shape.width > 0, shape.height > 0 else { return }
+        guard presentedViewController == nil else {
+            guard attempt < 20 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                self?.presentCoverEditor(for: image, attempt: attempt + 1)
+            }
+            return
+        }
+        let ratio = shape.height / shape.width
+        let editor = PhotoCropViewController(image: image, adjustments: nil, fixedAspectRatio: ratio)
+        editor.onDone = { [weak self] edit in
+            let pixelSize = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+            let adjustments = edit?.adjustments ?? .filling(aspectRatio: ratio, originalSize: pixelSize)
+            self?.saveGalleryCover(image, adjustments: adjustments)
+        }
+        present(editor, animated: true)
+    }
+
+    /// `requestCoverCompletion`, then `setCoverImage:position:nil` and `coverEditorTransitionOut`.
+    private func saveGalleryCover(_ image: UIImage, adjustments: PhotoCropAdjustments) {
+        Task { [weak self] in
+            let url = await Task.detached(priority: .userInitiated) {
+                VideoEditCover.writeGalleryCover(image, adjustments: adjustments)
+            }.value
+            guard let self, let url, isCoverEditing else { return }
+            coverImageURL = url
+            coverTime = nil
+            updateCoverImage()
+            endCoverEditing()
+        }
+    }
+
+    /// The pill's circle shows the saved cover as it will go, cut by the crop (`coverImageSignalForItem:`), or the
+    /// gallery cover.
     private func updateCoverImage() {
+        if let coverImageURL {
+            let side = Self.coverThumbnailSide
+            Task { [weak self] in
+                let image = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+                    guard let data = try? Data(contentsOf: coverImageURL) else { return nil }
+                    return VideoEditCover.editorImage(from: data, maximumSide: side)
+                }.value
+                guard let self, self.coverImageURL == coverImageURL else { return }
+                coverButton.setImage(image)
+                view.setNeedsLayout()
+            }
+            return
+        }
         guard let coverTime else {
             coverButton.setImage(nil)
             view.setNeedsLayout()
@@ -1095,5 +1187,26 @@ final class VideoEditViewController: UIViewController {
         let adjustments = currentAdjustments
         onDone?(adjustments.isDefault ? nil : adjustments)
         dismiss(animated: true)
+    }
+}
+
+// MARK: PHPickerViewControllerDelegate
+
+extension VideoEditViewController: PHPickerViewControllerDelegate {
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard let provider = results.first?.itemProvider,
+              provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
+        else { return }
+        provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { [weak self] data, error in
+            let image = data.flatMap { VideoEditCover.editorImage(from: $0) }
+            DispatchQueue.main.async {
+                guard let image else {
+                    log("Could not read the gallery cover: \(String(describing: error))")
+                    return
+                }
+                self?.presentCoverEditor(for: image)
+            }
+        }
     }
 }

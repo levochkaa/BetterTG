@@ -29,10 +29,13 @@ struct VideoEditAdjustments: Equatable {
     /// nil sends no cover. It is chosen only where Telegram offers it (`hasCoverButton`), and it changes neither the
     /// conversion nor the grid's frame.
     var coverTime: Double?
+    /// TGMediaEditingContext's `setCoverImage:position:nil`: a gallery photo edited in the video's shape
+    /// (MediaEditorScreen's `coverEditor`) and stored as the cover's JPEG; it replaces `coverTime`.
+    var coverImageURL: URL?
 
     /// `isDefaultValues`: nothing to apply.
     var isDefault: Bool {
-        trimRange == nil && !sendsAsGIF && crop == nil && coverTime == nil
+        trimRange == nil && !sendsAsGIF && crop == nil && coverTime == nil && coverImageURL == nil
     }
 
     /// The sent length of a video `duration` seconds long.

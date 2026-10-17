@@ -2074,3 +2074,4 @@
 "MediaPicker.LivePhoto.LiveOff" = "Live Off";
 "MediaPicker.LivePhoto.Tooltip.Live" = "Live Photo turned on";
 "MediaPicker.LivePhoto.Tooltip.LiveOff" = "Live Photo turned off";
+"Media.ChooseFromGallery" = "Choose From Gallery";

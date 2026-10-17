@@ -4,8 +4,8 @@ import UIKit
 
 // MARK: - VideoCoverButton
 
-/// TGMediaPickerCoverButton: Edit Cover in bold white on a dark 26 pt pill with a faint chevron, led by the saved
-/// cover in a 24 pt circle once there is one, shrinking while held.
+/// TGMediaPickerCoverButton: Edit Cover, or Choose From Gallery for its `gallery` variant, in bold white on a dark
+/// 26 pt pill with a faint chevron, led by the saved cover in a 24 pt circle once there is one, shrinking while held.
 final class VideoCoverButton: UIControl {
     // MARK: Private
 
@@ -45,8 +45,8 @@ final class VideoCoverButton: UIControl {
         floor(label.intrinsicContentSize.width) + 28 + (hasImage ? Self.imageInset : 0)
     }
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    init(gallery: Bool = false) {
+        super.init(frame: .zero)
         isExclusiveTouch = true
         wrapperView.isUserInteractionEnabled = false
         addSubview(wrapperView)
@@ -61,7 +61,7 @@ final class VideoCoverButton: UIControl {
         wrapperView.addSubview(thumbnailView)
         label.font = .boldSystemFont(ofSize: 14)
         label.textColor = .white
-        label.text = L10n.telegram("Media.EditCover")
+        label.text = L10n.telegram(gallery ? "Media.ChooseFromGallery" : "Media.EditCover")
         wrapperView.addSubview(label)
         chevronView.image = UIImage(
             systemName: "chevron.right",

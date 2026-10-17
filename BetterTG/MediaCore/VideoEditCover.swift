@@ -1,6 +1,7 @@
 // VideoEditCover.swift
 
 import AVFoundation
+import ImageIO
 import UIKit
 
 // MARK: - VideoEditCover
@@ -17,6 +18,9 @@ enum VideoEditCover {
     static let maximumSide: CGFloat = 1280
     /// LegacyMediaPickers' `jpegData(compressionQuality: 0.87)`.
     static let quality: CGFloat = 0.87
+    /// MediaEditorScreen's `requestCoverCompletion`: a gallery cover comes out in the video's shape fitted into
+    /// 1080 × 1080.
+    static let galleryCoverSide: CGFloat = 1080
 
     /// The frame at `time` of `asset` with `edit`'s crop, its longer side at most `maximumSide`. A crop is read
     /// from a larger frame so the cut part keeps its detail.
@@ -58,5 +62,51 @@ enum VideoEditCover {
             image.draw(in: CGRect(origin: .zero, size: fitted))
         }
         return scaled.jpegData(compressionQuality: quality)
+    }
+
+    /// A gallery photo for the cover editor: upright, its longer side at most `maximumSide`. Call off the main
+    /// thread.
+    static func editorImage(
+        from data: Data,
+        maximumSide: CGFloat = CGFloat(PhotoCropAdjustments.toolsResultSide),
+    ) -> UIImage? {
+        let sourceOptions: [CFString: Any] = [kCGImageSourceShouldCache: false]
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions as CFDictionary) else {
+            return nil
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maximumSide,
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return UIImage(cgImage: image)
+    }
+
+    /// MediaEditorScreen's `requestCoverCompletion` for a gallery photo: the photo edited as `adjustments` say, in
+    /// the video's shape fitted into 1080 × 1080, written as the cover's JPEG in a temporary folder. Call off the main
+    /// thread.
+    static func writeGalleryCover(_ image: UIImage, adjustments: PhotoCropAdjustments) -> URL? {
+        let pixelSize = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+        guard let rendered = adjustments.renderEdited(
+            image,
+            sourcePixelSize: pixelSize,
+            maximumSide: galleryCoverSide,
+        ),
+            let data = jpegData(for: rendered)
+        else { return nil }
+        let directory = FileManager.default
+            .temporaryDirectory
+            .appendingPathComponent("bettertg-video-covers", isDirectory: true)
+        let url = directory.appendingPathComponent(UUID().uuidString).appendingPathExtension("jpg")
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(to: url, options: .atomic)
+        } catch {
+            log("Could not write the gallery cover: \(error)")
+            return nil
+        }
+        return url
     }
 }

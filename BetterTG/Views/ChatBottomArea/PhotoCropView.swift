@@ -44,6 +44,10 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
 
     private(set) var adjustments: PhotoCropAdjustments
 
+    /// A ratio the crop keeps through Reset and can't unlock, such as a video cover's shape (MediaEditorScreen's
+    /// `coverEditor`); zero for none.
+    var fixedAspectRatio: CGFloat = 0
+
     private var image: UIImage
     private var imagePixelSize: CGSize
     /// TGPhotoCropView's `hasArbitraryRotation`: the straightening dial, which a video's crop doesn't have.
@@ -329,12 +333,14 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
     }
 
     func unlockAspectRatio() {
+        guard fixedAspectRatio <= 0 else { return }
         adjustments.lockedAspectRatio = 0
         areaView.lockedAspectRatio = 0
         onCroppingChanged?()
     }
 
-    /// `resetAnimated`: the whole photo, upright, straight and unmirrored, without a locked ratio.
+    /// `resetAnimated`: the whole photo, upright, straight and unmirrored, without a locked ratio; a fixed ratio
+    /// comes back filling the photo.
     func reset(animated requestedAnimation: Bool) {
         guard !isAnimatingContent else { return }
         // POP replaces the dial's running animation, which ends the change it reported.
@@ -346,14 +352,16 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
         cropAreaChanged = false
         cancelConfirmCountdown()
         rotationStart = nil
-        areaView.lockedAspectRatio = 0
+        areaView.lockedAspectRatio = max(0, fixedAspectRatio)
         resetBackdrop(animated: false)
         if adjustments.isMirrored {
             // Telegram unmirrors at once; only the crop and the angle animate back.
             adjustments.isMirrored = false
             UIView.performWithoutAnimation { layoutContent() }
         }
-        adjustments = PhotoCropAdjustments(originalSize: adjustments.originalSize)
+        adjustments = fixedAspectRatio > 0
+            ? .filling(aspectRatio: fixedAspectRatio, originalSize: adjustments.originalSize)
+            : PhotoCropAdjustments(originalSize: adjustments.originalSize)
         rotationView.setAngle(0, animated: animated)
         areaView.setGridMode(.none, animated: animated)
         evenlyFillArea(animated: animated) { [weak self] in

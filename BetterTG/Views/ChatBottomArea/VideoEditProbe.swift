@@ -11,7 +11,8 @@
     /// (VideoEditThumbnail). It converts the video as it would be sent, with `VideoSendTranscoder` at Medium, then
     /// shows the converted file's length, size and sound; nothing is sent. `-ui-probe-video-edit cover` opens a
     /// 64-second video as a broadcast channel or Saved Messages would, with Edit Cover; Done also writes the cover as
-    /// the send path does (`SelectedVideoLoader`) and shows the file with its time and size.
+    /// the send path does (`SelectedVideoLoader`) and shows the file with its time and size. Choose From Gallery
+    /// there opens the system picker, then the cover editor in the video's shape.
     @MainActor enum VideoEditProbe {
         /// The edit, its grid thumbnail, the cover file and the converted file, closed by Close.
         private final class ResultViewController: UIViewController {
@@ -131,7 +132,7 @@
                             text += thumbnail.map { "\ngrid thumbnail \(Int($0.size.width))×\(Int($0.size.height))" }
                                 ?? "\nno grid thumbnail"
                         }
-                        if edit?.coverTime != nil {
+                        if edit?.coverTime != nil || edit?.coverImageURL != nil {
                             result.text = text + "\n\nwriting the cover…"
                             let cover = await writeCover(of: url, edit: edit)
                             result.cover = cover.image
@@ -162,6 +163,9 @@
             }
             if let coverTime = edit.coverTime {
                 lines.append(String(format: "cover at %.2f s", coverTime))
+            }
+            if edit.coverImageURL != nil {
+                lines.append("cover from the gallery")
             }
             lines.append(edit.conversion(for: .medium))
             return lines.joined(separator: "\n")
