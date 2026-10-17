@@ -190,6 +190,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             LocationViewerProbe.runIfRequested(in: window)
             PhotoCropProbe.runIfRequested(in: window)
             PollAttachProbe.runIfRequested(in: window)
+            ContactFormatProbe.runIfRequested(in: window)
             PollMediaGalleryProbe.runIfRequested(in: window)
             BotButtonsProbe.runIfRequested(in: window)
             VideoEditProbe.runIfRequested(in: window)
