@@ -2082,3 +2082,6 @@
 "WebApp.ShortcutsAdded" = "**%@** shortcut added in attachment menu.";
 "WebApp.ShortcutsSettingsAdded" = "**%@** shortcut added in attachment menu and Settings.";
 "Settings.New" = "NEW";
+"Story.ViewLocation" = "View Location";
+"Story.ViewLink" = "Open Link";
+"Conversation.MessageDoesntExist" = "Message doesn't exist";

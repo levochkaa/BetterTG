@@ -1,5 +1,6 @@
 // StoryViewerProbe.swift
 
+import TDLibKit
 import UIKit
 
 #if DEBUG
@@ -24,11 +25,13 @@ import UIKit
                 try verifyTimestamps()
                 try verifyNeighbors()
                 try verifyCube()
+                try verifyAreas()
                 result = "Story viewer probe passed: first-unseen-entry/clock-waits-for-media/hold-pause=true; "
                     + "auto-advance/next-poster/resume/rewind/dismiss=true; single-story=true; "
                     + "lazy-posters/empty-poster-dropped=true; active-update/delete/current-poster-removed=true; "
                     + "timestamps=true; cube-neighbors/resume/unloaded=true; "
-                    + "cube-rest-flat/half-turn-edges-meet/whole-turn-gap-40/rubber-band/spring=true"
+                    + "cube-rest-flat/half-turn-edges-meet/whole-turn-gap-40/rubber-band/spring=true; "
+                    + "area-placement/rotated-hit/side-inset/reaction-skipped/tooltip-source/temperature=true"
             } catch {
                 result = "Story viewer probe failed: \(error)"
             }
@@ -250,6 +253,91 @@ import UIKit
                     && StoryCubeGeometry.springProgress(0.5) > 0.97,
                 "spring curve",
             )
+        }
+
+        /// Story areas sit by their percentages, a tap hits a turned area a tenth larger than it, the story's sides
+        /// and reactions take no area taps, the tooltip points at the area's center, and weather reads in the
+        /// locale's unit.
+        private static func verifyAreas() throws {
+            let size = CGSize(width: 400, height: 800)
+            let centered = StoryAreaPosition(
+                xPercentage: 50,
+                yPercentage: 50,
+                widthPercentage: 20,
+                heightPercentage: 10,
+                rotationAngle: 30,
+                cornerRadiusPercentage: 10,
+            )
+            let placement = StoryAreaGeometry.placement(of: centered, in: size)
+            try require(
+                placement?.frame == CGRect(x: 160, y: 360, width: 80, height: 80)
+                    && placement.map { abs($0.rotation - .pi / 6) < 0.0001 && $0.cornerRadius == 8 } == true,
+                "an area's placement",
+            )
+            let tiny = StoryAreaPosition(
+                xPercentage: 50,
+                yPercentage: 50,
+                widthPercentage: 1,
+                heightPercentage: 1,
+                rotationAngle: 0,
+                cornerRadiusPercentage: 0,
+            )
+            try require(StoryAreaGeometry.placement(of: tiny, in: size) == nil, "an area under 5 pt was drawn")
+
+            let bar = StoryAreaPosition(
+                xPercentage: 50,
+                yPercentage: 50,
+                widthPercentage: 50,
+                heightPercentage: 2.5,
+                rotationAngle: 90,
+                cornerRadiusPercentage: 0,
+            )
+            try require(
+                StoryAreaGeometry.contains(CGPoint(x: 200, y: 505), position: bar, in: size)
+                    && !StoryAreaGeometry.contains(CGPoint(x: 280, y: 400), position: bar, in: size),
+                "a turned area's hit test",
+            )
+
+            let location = Location(latitude: 51.5, longitude: -0.12, horizontalAccuracy: 0)
+            let edge = StoryAreaPosition(
+                xPercentage: 5,
+                yPercentage: 50,
+                widthPercentage: 10,
+                heightPercentage: 10,
+                rotationAngle: 0,
+                cornerRadiusPercentage: 0,
+            )
+            let reaction = TDNativeStoryAreaTypeSuggestedReaction(
+                reactionType: .reactionTypeEmoji(TDNativeReactionTypeEmoji(emoji: "❤")),
+                totalCount: 3,
+                isDark: false,
+                isFlipped: false,
+            )
+            let areas = [
+                StoryArea(
+                    position: centered,
+                    type: .storyAreaTypeLocation(TDNativeStoryAreaTypeLocation(location: location, address: nil)),
+                ),
+                StoryArea(position: centered, type: .storyAreaTypeSuggestedReaction(reaction)),
+                StoryArea(position: edge, type: .storyAreaTypeLink(TDNativeStoryAreaTypeLink(url: "telegram.org"))),
+            ]
+            try require(
+                StoryAreaGeometry.area(at: CGPoint(x: 200, y: 400), in: size, areas: areas) == 0,
+                "a reaction over a location took the tap",
+            )
+            try require(
+                StoryAreaGeometry.area(at: CGPoint(x: 20, y: 400), in: size, areas: areas) == nil,
+                "an area at the story's side took a navigation tap",
+            )
+            let source = StoryAreaGeometry.tooltipSource(of: centered, in: size)
+            try require(
+                source.midX == 200 && source.width == 16 && abs(source.height - 88) < 0.001,
+                "the tooltip's source",
+            )
+
+            let celsius = StoryWeatherFormat.temperature(21.4, locale: Locale(identifier: "de_DE"))
+            let fahrenheit = StoryWeatherFormat.temperature(21.4, locale: Locale(identifier: "en_US"))
+            try require(celsius == "21°C" && fahrenheit == "71°F", "temperature: \(celsius), \(fahrenheit)")
         }
     }
 #endif

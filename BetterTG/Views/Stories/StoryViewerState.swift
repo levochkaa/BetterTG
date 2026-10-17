@@ -39,6 +39,10 @@ struct StoryViewerState: Equatable {
         case inactive
         /// A video waits for data.
         case buffering
+        /// A story area's tooltip is open (activateMediaArea's menu controller).
+        case menu
+        /// A screen is presented over the viewer, such as a story area's location.
+        case presentation
     }
 
     enum Transition: Equatable {

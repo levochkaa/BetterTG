@@ -143,6 +143,17 @@ import UIKit
         }
     #endif
 
+    /// A story's message area (StoryItemSetContainerViewSendMessage's openResolved .channelMessage): the message's
+    /// chat on the active client, at the message, once the story viewer over it closes.
+    func openMessage(chatID: Int64, messageID: Int64, from presenter: UIViewController?) {
+        guard TDLib.shared.isActiveAccountReady else { return }
+        resolveTask?.cancel()
+        let authority = ChatListActionAuthority()
+        resolveTask = Task { [weak self, weak presenter] in
+            await self?.openChat(chatID, authority: authority, presenter: presenter, messageID: messageID)
+        }
+    }
+
     private func openPendingLink() {
         guard TDLib.shared.isActiveAccountReady, let pending = pendingLink else { return }
         pendingLink = nil

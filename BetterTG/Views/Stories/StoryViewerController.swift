@@ -12,8 +12,9 @@ import UIKit
 /// back and anywhere else forward; holding pauses and hides the interface; dragging down closes the viewer and dragging
 /// sideways turns Telegram's cube to the neighbouring poster, whose face shows its story as the cube turns. A photo
 /// shows for five seconds and a video for its duration, then the next story opens, across posters, and the viewer
-/// closes after the last one. Telegram's reply field and reactions under the story are left out: BetterTG doesn't send
-/// story replies or reactions.
+/// closes after the last one. The story's areas draw their reactions and weather, and a tap on a location, message or
+/// link area offers to open it. Telegram's reply field and reactions under the story are left out: BetterTG doesn't
+/// send story replies or reactions.
 final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate {
     enum Subject {
         /// One story, as a shared story or a story mention opens it (SingleStoryContentContextImpl).
@@ -61,6 +62,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private let imageView = TDImageLoadingView()
     private let playerSurface = LocalVideoSurfaceView()
     private let player = LocalMediaPlayer()
+    private let areaOverlay = StoryAreaOverlayView()
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
     private let messageLabel = UILabel()
     private let topShade = StoryShadeView(fromTop: true)
@@ -83,6 +85,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private var preloadTask: Task<Void, Never>?
     private var neighborTask: Task<Void, Never>?
     private var headerTask: Task<Void, Never>?
+    private var areaMessageTask: Task<Void, Never>?
+    private var areaTooltip: StoryAreaTooltipView?
+    /// The area whose tooltip is up, or was just dismissed: a second tap on a message area opens the message.
+    private var selectedArea: (key: StoryViewerSession.StoryKey, index: Int)?
     private var mediaGeneration = UUID()
     private var shownKey: StoryViewerSession.StoryKey?
     private var shownStory: Story?
@@ -323,6 +329,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         lastTickTime = link.timestamp
         stepCubeTurn()
         guard !isClosing else { return }
+        let isCovered = presentedViewController != nil
+        if isCovered != state.pauseReasons.contains(.presentation) { setPaused(isCovered, for: .presentation) }
         if showsVideo {
             if state.duration != nil, player.hasItem { state.setElapsed(player.currentTime) }
         } else {
@@ -376,6 +384,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         playerSurface.isUserInteractionEnabled = false
         playerSurface.isHidden = true
         contentView.addSubview(playerSurface)
+
+        contentView.addSubview(areaOverlay)
 
         loadingIndicator.color = .white
         loadingIndicator.hidesWhenStopped = true
@@ -438,6 +448,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         let bounds = contentView.bounds
         imageView.frame = bounds
         playerSurface.frame = bounds
+        areaOverlay.frame = bounds
         loadingIndicator.center = CGPoint(x: bounds.midX, y: bounds.midY)
         let messageSize = messageLabel.sizeThatFits(CGSize(width: bounds.width - 48, height: bounds.height))
         messageLabel.frame = CGRect(
@@ -551,6 +562,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         mediaGeneration = UUID()
         mediaTask?.cancel()
         mediaTask = nil
+        areaTooltip?.dismiss()
+        areaOverlay.update(areas: [], client: session.client, loadsStickers: false)
         session.closeOpenedStory()
         imageView.onFullImage = nil
         imageView.cancel()
@@ -644,6 +657,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         captionView.attributedText = caption.text.isEmpty
             ? nil
             : NSAttributedString(getAttributedString(from: caption, .white))
+        areaOverlay.update(areas: story.areas, client: session.client, loadsStickers: true)
         updateAccessibilityLabel()
         view.setNeedsLayout()
     }
@@ -956,6 +970,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         }
         // StoryItemSetContainerComponent.tapGesture: the left quarter goes back.
         let point = gesture.location(in: contentView)
+        if let areas = shownStory?.areas,
+           let index = StoryAreaGeometry.area(at: point, in: contentView.bounds.size, areas: areas)
+        {
+            activateArea(at: index, point: point)
+            return
+        }
         apply(point.x < contentView.bounds.width * 0.25 ? state.previous() : state.next())
     }
 
@@ -978,6 +998,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         switch gesture.state {
         case .began:
             panAxis = abs(velocity.y) > abs(velocity.x) ? .dismissal : .poster
+            areaTooltip?.dismiss()
             if panAxis == .poster { beginPosterPan() }
             setPaused(true, for: .drag)
         case .changed:
@@ -1033,6 +1054,115 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         } completion: { [weak self] _ in
             self?.setPaused(false, for: .drag)
         }
+    }
+
+    // MARK: Areas
+
+    /// StoryItemSetContainerViewSendMessage.activateMediaArea: a location or venue offers View Location, a message
+    /// View Message under the finger (a second tap on it opens the message), and a link Open Link with its address.
+    /// Weather takes the tap without a tooltip.
+    private func activateArea(at index: Int, point: CGPoint) {
+        guard let key = shownKey, let areas = shownStory?.areas, areas.indices.contains(index) else { return }
+        let area = areas[index]
+        let title: String
+        var subtitle: String?
+        var anchorsAtTap = false
+        let action: () -> Void
+        switch area.type {
+        case .storyAreaTypeLocation(let location):
+            title = L10n.telegram("Story.ViewLocation")
+            action = { [weak self] in self?.openLocation(LocationViewSubject(location: location.location)) }
+        case .storyAreaTypeVenue(let venue):
+            title = L10n.telegram("Story.ViewLocation")
+            action = { [weak self] in self?.openLocation(LocationViewSubject(venue: venue.venue)) }
+        case .storyAreaTypeMessage(let message):
+            let open: () -> Void = { [weak self] in
+                self?.openAreaMessage(chatID: message.chatId, messageID: message.messageId)
+            }
+            if let selectedArea, selectedArea.key == key, selectedArea.index == index {
+                areaTooltip?.dismiss()
+                open()
+                return
+            }
+            title = L10n.telegram("Story.ViewMessage")
+            anchorsAtTap = true
+            action = open
+        case .storyAreaTypeLink(let link):
+            title = L10n.telegram("Story.ViewLink")
+            subtitle = link.url
+            action = { [weak self] in self?.openAreaLink(link.url) }
+        case .storyAreaTypeSuggestedReaction, .storyAreaTypeUpgradedGift, .storyAreaTypeWeather:
+            return
+        }
+        let size = contentView.bounds.size
+        let source = anchorsAtTap
+            ? CGRect(origin: CGPoint(x: point.x, y: point.y + 44), size: .zero)
+            : StoryAreaGeometry.tooltipSource(of: area.position, in: size)
+        areaTooltip?.dismiss()
+        let tooltip = StoryAreaTooltipView(title: title, subtitle: subtitle, action: action)
+        tooltip.onDismiss = { [weak self, weak tooltip] in
+            self?.areaTooltipDidDismiss(tooltip)
+        }
+        areaTooltip = tooltip
+        selectedArea = (key, index)
+        setPaused(true, for: .menu)
+        // The menu stays 64 pt clear of the story's top and bottom (ContextMenuControllerPresentationArguments).
+        tooltip.show(
+            in: view,
+            source: contentView.convert(source, to: view),
+            container: CGRect(origin: .zero, size: size).insetBy(dx: 0, dy: 64),
+        )
+    }
+
+    /// Telegram drops the menu 0.1 s after it starts to leave, when the story resumes; the area stays selected
+    /// while the tooltip fades, so a tap that dismissed it can still open its message.
+    private func areaTooltipDidDismiss(_ tooltip: StoryAreaTooltipView?) {
+        guard let tooltip, areaTooltip === tooltip else { return }
+        areaTooltip = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            guard let self, areaTooltip == nil else { return }
+            setPaused(false, for: .menu)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, areaTooltip == nil else { return }
+            selectedArea = nil
+        }
+    }
+
+    /// BetterTG opens a location or venue area in its location viewer, where Telegram lists the place's stories.
+    private func openLocation(_ subject: LocationViewSubject) {
+        guard session.isCurrent, !isClosing, presentedViewController == nil else { return }
+        let viewer = LocationViewController(subject: subject, client: session.client, source: session.source)
+        present(viewer.makeNavigationController(), animated: true)
+    }
+
+    /// The message loads from the server first; a deleted one gets Telegram's toast, and an existing one opens in
+    /// its chat once the viewer closes.
+    private func openAreaMessage(chatID: Int64, messageID: Int64) {
+        guard session.isCurrent, !isClosing else { return }
+        let client = session.client
+        areaMessageTask?.cancel()
+        areaMessageTask = Task { [weak self] in
+            let message = try? await client.getMessage(chatId: chatID, messageId: messageID)
+            guard let self, !Task.isCancelled, session.isCurrent, !isClosing else { return }
+            guard message != nil else {
+                TelegramUndoToast.show(
+                    text: L10n.telegram("Conversation.MessageDoesntExist"),
+                    in: view,
+                    bottomInset: 8,
+                    undo: nil,
+                )
+                return
+            }
+            TelegramLinkRouter.shared.openMessage(chatID: chatID, messageID: messageID, from: self)
+        }
+    }
+
+    /// openUserGeneratedUrl: an address without a scheme opens over http; Telegram links stay in the app.
+    private func openAreaLink(_ link: String) {
+        let string = link.contains("://") ? link : "http://" + link
+        guard let url = URL(string: string) else { return }
+        TelegramLinkRouter.shared.open(url, from: self)
     }
 
     // MARK: Cube
@@ -1194,6 +1324,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         guard !isClosing else { return }
         isClosing = true
         stopClock()
+        areaTooltip?.dismiss()
         player.pause()
         session.closeOpenedStory()
         containerView.isUserInteractionEnabled = false
@@ -1242,6 +1373,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         mediaTask?.cancel()
         preloadTask?.cancel()
         neighborTask?.cancel()
+        areaMessageTask?.cancel()
         headerTask?.cancel()
         mediaTask = nil
         preloadTask = nil
