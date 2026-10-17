@@ -33,6 +33,16 @@ import UIKit
         var newerBoundID: Int64
     }
 
+    /// What a vote turned out to be, for Telegram's feedback after requestSelectMessagePollOptions: a quiz answer is
+    /// right or wrong once TDLib reveals the right ones, and a poll hiding its results until it closes says so.
+    struct PollAnswerOutcome {
+        /// nil for a regular poll, or a quiz whose right answers stay hidden.
+        let quizAnswerIsRight: Bool?
+        /// The quiz has an explanation to open after a wrong answer.
+        let hasExplanation: Bool
+        let resultsHidden: Bool
+    }
+
     // MARK: Private
 
     private enum VoiceNoteFailure: Swift.Error {
@@ -2385,7 +2395,12 @@ import UIKit
         }
     }
 
-    func submitPollAnswer(messageID: Int64, optionIDs: [Int], submission: MessagePollInteractionStore.Submission) {
+    func submitPollAnswer(
+        messageID: Int64,
+        optionIDs: [Int],
+        submission: MessagePollInteractionStore.Submission,
+        onAnswered: @escaping @MainActor (PollAnswerOutcome) -> Void = { _ in },
+    ) {
         guard submission.messageID == messageID,
               pollInteractionStore.currentSubmission(messageID: messageID) == submission else { return }
         guard !isReadOnlyTopic,
@@ -2398,6 +2413,7 @@ import UIKit
             return
         }
         let client = client
+        let chatID = chatID
         Task {
             do {
                 guard pollInteractionStore.currentSubmission(messageID: messageID) == submission else { return }
@@ -2410,6 +2426,24 @@ import UIKit
                     messageId: messageID,
                     optionIds: optionIDs,
                 )
+                guard !optionIDs.isEmpty,
+                      let answered = try? await client.getMessage(chatId: chatID, messageId: messageID),
+                      case .messagePoll(let content) = answered.content,
+                      locationContextIsCurrent
+                else { return }
+                let poll = content.poll
+                var quizAnswerIsRight: Bool?
+                var hasExplanation = false
+                if case .pollTypeQuiz(let quiz) = poll.type, !quiz.correctOptionIds.isEmpty {
+                    let chosen = Set(poll.options.indices.filter { poll.options[$0].isChosen })
+                    quizAnswerIsRight = chosen == Set(quiz.correctOptionIds)
+                    hasExplanation = !quiz.explanation.text.isEmpty
+                }
+                onAnswered(PollAnswerOutcome(
+                    quizAnswerIsRight: quizAnswerIsRight,
+                    hasExplanation: hasExplanation,
+                    resultsHidden: !poll.canSeeResults,
+                ))
             } catch {
                 // Telegram rolls the choice back on a failed vote (requestSelectMessagePollOptions). A submission
                 // that already timed out or was replaced stays silent.

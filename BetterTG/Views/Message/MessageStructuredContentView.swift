@@ -18,6 +18,8 @@ enum MessageContentAction {
     case viewContact(Contact)
     /// A rolled die was tapped: Telegram's displayDiceTooltip offers to send the same emoji.
     case diceTapped(emoji: String)
+    /// The user's own throw reached its winning frame: Telegram's animateDiceSuccess plays a haptic and confetti.
+    case diceSucceeded
     /// A service row was tapped: open the message its action refers to.
     case openServiceTarget(messageID: Int64)
     /// A changed chat photo in a service row was tapped.
@@ -2650,6 +2652,13 @@ private final class StickerGlyphContentView: UIView, MessageSupplementView {
     private static let capacity = 512
     private static var rolling = Set<Key>()
     private static var rollStarts = [Key: CFTimeInterval]()
+    private static var celebrated = Set<Key>()
+
+    /// True the first time a roll asks to celebrate its win; rows rebuilt mid-roll schedule it again.
+    static func claimSuccess(clientID: Int32, chatID: Int64, messageID: Int64) -> Bool {
+        if celebrated.count >= capacity { celebrated.removeAll() }
+        return celebrated.insert(Key(clientID: clientID, chatID: chatID, messageID: messageID)).inserted
+    }
 
     static func mode(
         clientID: Int32,
@@ -2742,6 +2751,16 @@ private final class DiceMessageContentView: UIControl, MessageSupplementView {
             addSubview(layerView)
             pin(layerView)
         }
+        if content.isOutgoing, content.successFrame > 0, case .once(let startedAt) = mode,
+           let reference = stickerViews.first
+        {
+            scheduleSuccess(
+                frame: content.successFrame,
+                startedAt: startedAt,
+                reference: reference,
+                key: (client.id, chatID, messageID),
+            )
+        }
 
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: 184),
@@ -2777,6 +2796,31 @@ private final class DiceMessageContentView: UIControl, MessageSupplementView {
             view.trailingAnchor.constraint(equalTo: trailingAnchor),
             view.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    /// ManagedDiceAnimationNode's success callback fires when a live roll passes TDLib's success frame. The frame
+    /// rate is known once the roll's animation is decoded; a roll that already passed that moment stays quiet.
+    private func scheduleSuccess(
+        frame: Int,
+        startedAt: CFTimeInterval,
+        reference: TGSStickerView,
+        key: (clientID: Int32, chatID: Int64, messageID: Int64),
+    ) {
+        reference.onFirstFrameReady = { [weak self, weak reference] in
+            guard let framerate = reference?.framerate, framerate > 0 else { return }
+            let delay = startedAt + Double(frame) / framerate - CACurrentMediaTime()
+            guard delay > -0.25 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay)) { [weak self] in
+                guard let self, window != nil,
+                      DiceRollPlayback.claimSuccess(
+                          clientID: key.clientID,
+                          chatID: key.chatID,
+                          messageID: key.messageID,
+                      )
+                else { return }
+                onAction(.diceSucceeded)
+            }
+        }
     }
 
     /// Telegram's displayDiceTooltip returns early until the die has a value.
@@ -3338,6 +3382,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("contact-view")
                     case .diceTapped:
                         actions.append("dice")
+                    case .diceSucceeded:
+                        actions.append("dice-success")
                     case .openServiceTarget:
                         actions.append("service-target")
                     case .openChatPhoto:

@@ -347,6 +347,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pollAddOptionFocusMessageID: Int64?
     /// Set when the field takes the keyboard, until the poll has moved above it.
     private var pendingPollAddOptionScroll = false
+    /// ChatControllerNode's `previousConfettiAnimationTimestamp`: confetti starts at most once per 0.1 s.
+    private var lastConfettiTime: CFTimeInterval?
     #if DEBUG
         private var messageNavigationGeometry: ChatMessageNavigationGeometry?
         private var viewportCompletionProbe: ChatViewportCompletionProbe?
@@ -5496,7 +5498,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 ?? LocationViewSubject(location: location)
             presentLocationViewer(subject)
         case .submitPollAnswer(let messageID, let optionIDs, let submission):
-            chatVM.submitPollAnswer(messageID: messageID, optionIDs: optionIDs, submission: submission)
+            chatVM.submitPollAnswer(messageID: messageID, optionIDs: optionIDs, submission: submission) {
+                [weak self] outcome in
+                self?.pollAnswered(outcome, messageID: messageID)
+            }
+        case .diceSucceeded:
+            // ChatController's animateDiceSuccess: a haptic and confetti.
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            playConfettiAnimation()
         case .addPollOption(let messageID, let text, let submission):
             chatVM.addPollOption(messageID: messageID, text: text, submission: submission) {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -5963,6 +5972,42 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ? max(0, view.bounds.maxY - view.safeAreaInsets.bottom - composerView.frame.minY) + 8
             : 8
         TelegramUndoToast.show(text: text, in: view, bottomInset: bottomInset, actionTitle: actionTitle, undo: action)
+    }
+
+    /// ChatController's requestSelectMessagePollOptions result: a poll vote and a right quiz answer get the success
+    /// haptic, a right answer also confetti; a wrong one gets the error haptic, shakes the bubble and opens the
+    /// explanation. A poll that hides its results until it closes says so.
+    private func pollAnswered(_ outcome: ChatVM.PollAnswerOutcome, messageID: Int64) {
+        switch outcome.quizAnswerIsRight {
+        case false:
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            if let displayedMessageID = chatVM.displayedMessageID(containing: messageID),
+               let indexPath = dataSource.indexPath(for: .message(displayedMessageID)),
+               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+            {
+                cell.animateQuizInvalidOptionSelected()
+            }
+            if outcome.hasExplanation {
+                chatVM.pollInteractionStore.setExplanationVisible(true, messageID: messageID)
+            }
+        case true:
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            playConfettiAnimation()
+        case nil:
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
+        if outcome.resultsHidden {
+            showChatToast(L10n.telegram("Chat.Poll.HiddenResultsTooltip"))
+        }
+    }
+
+    /// ChatControllerNode.playConfettiAnimation: confetti over the history, at most once per 0.1 s.
+    private func playConfettiAnimation() {
+        guard view.bounds.width > 0 else { return }
+        let now = CACurrentMediaTime()
+        if let lastConfettiTime, now - lastConfettiTime < 0.1 { return }
+        lastConfettiTime = now
+        view.insertSubview(ConfettiView(frame: view.bounds), aboveSubview: historyContainerView)
     }
 
     /// Telegram's switch inline button for this chat puts "@bot query" into the composer (`activateSwitchInline`).

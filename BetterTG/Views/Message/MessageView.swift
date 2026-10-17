@@ -287,6 +287,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     )
 
     var contextPreviewView: UIView { bubbleContainerView }
+
     var contextQuoteTextView: MessageTextContentView { textView }
 
     /// The bubble's center in the cell's coordinates, where Telegram's removal animation shrinks a message.
@@ -351,6 +352,29 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             selectionTouchBindingID = nil
             resumeHistoryScrolling()
         }
+    }
+
+    /// ChatMessageBubbleItemNode.animateQuizInvalidOptionSelected: a wrong quiz answer makes the bubble shrink by 3 %
+    /// and back and wobble by 3° four times over half a second.
+    func animateQuizInvalidOptionSelected() {
+        guard !UIAccessibility.isReduceMotionEnabled else { return }
+        let layer = bubbleContainerView.layer
+        let duration: CFTimeInterval = 0.5
+        let scale = CAKeyframeAnimation(keyPath: "transform.scale")
+        scale.values = [0, -0.03, 0]
+        scale.keyTimes = [0, 0.5, 1]
+        scale.duration = duration
+        scale.isAdditive = true
+        layer.add(scale, forKey: "quizInvalidScale")
+
+        let amplitude = CGFloat.pi / 180 * 3
+        let values: [CGFloat] = [0, amplitude, -amplitude, amplitude, -amplitude, 0]
+        let rotation = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        rotation.values = values
+        rotation.keyTimes = values.indices.map { NSNumber(value: Double($0) / Double(values.count - 1)) }
+        rotation.duration = duration
+        rotation.isAdditive = true
+        layer.add(rotation, forKey: "quizInvalidRotation")
     }
 
     /// The album's tiles by message, in `coordinateSpace`; nil when the cell shows no media mosaic.

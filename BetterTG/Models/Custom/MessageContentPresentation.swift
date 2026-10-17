@@ -25,6 +25,10 @@ struct MessageContentPresentation {
         let value: Int
         /// Unix time of the message, or 0 when the presentation was built from content alone.
         let messageDate: Int
+        /// TDLib's success_animation_frame_number: the roll's frame after which a winning throw gets confetti, or 0.
+        let successFrame: Int
+        /// Telegram celebrates only the user's own throws (ChatMessageAnimatedStickerItemNode.setupNode).
+        let isOutgoing: Bool
     }
 
     struct ServiceContent {
@@ -95,7 +99,7 @@ struct MessageContentPresentation {
     static func make(_ message: Message) -> Self {
         switch message.content {
         case .messageDice:
-            make(message.content).dated(message.date)
+            make(message.content).dated(message)
         case .messageChecklist, .messageStory:
             make(message.content).attributed(to: message)
         case .messageLiveLocation(let liveLocation):
@@ -311,6 +315,8 @@ struct MessageContentPresentation {
                     stickers: diceStickers(state),
                     value: message.value,
                     messageDate: 0,
+                    successFrame: message.successAnimationFrameNumber,
+                    isOutgoing: false,
                 )),
             )
         case .messageGame(let message):
@@ -651,7 +657,7 @@ struct MessageContentPresentation {
         )
     }
 
-    private func dated(_ date: Int) -> Self {
+    private func dated(_ message: Message) -> Self {
         guard case .dice(let dice) = supplement else { return self }
         return Self(
             formattedText: formattedText,
@@ -661,7 +667,9 @@ struct MessageContentPresentation {
                 emoji: dice.emoji,
                 stickers: dice.stickers,
                 value: dice.value,
-                messageDate: date,
+                messageDate: message.date,
+                successFrame: dice.successFrame,
+                isOutgoing: message.isOutgoing,
             )),
         )
     }

@@ -89,6 +89,11 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     private var fileRequest: AnimatedFileDownload?
     private var decodeTask: Task<Void, Never>?
 
+    /// The decoded animation's frames per second, once it has loaded.
+    var framerate: Double? {
+        animationView.animation?.framerate
+    }
+
     private var playbackEnabled: Bool {
         UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
     }
