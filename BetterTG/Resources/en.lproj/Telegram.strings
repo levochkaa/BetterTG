@@ -2338,3 +2338,10 @@
 "InviteLink.InviteLinks_3_10" = "%@ invite links";
 "InviteLink.InviteLinks_many" = "%@ invite links";
 "InviteLink.InviteLinks_any" = "%@ invite links";
+"Group.Setup.ApproveNewMembersApplyToExistingInviteLinksTitle" = "Apply to existing invite links?";
+"Group.Setup.ApproveNewMembersApplyToExistingInviteLinksText.Links_1" = "%@ existing invite link";
+"Group.Setup.ApproveNewMembersApplyToExistingInviteLinksText.Links_any" = "%@ existing invite links";
+"Group.Setup.ApproveNewMembersApplyToExistingInviteLinksText.EnableGroup" = "Also enable **Approve New Members** for **%@** in this group?";
+"Group.Setup.ApproveNewMembersApplyToExistingInviteLinksText.DisableGroup" = "Also disable **Approve New Members** for **%@** in this group?";
+"Group.Setup.ApproveNewMembersApplyToExistingInviteLinksText.EnableChannel" = "Also enable **Approve New Subscribers** for **%@** in this group?";
+"Group.Setup.ApproveNewMembersApplyToExistingInviteLinksText.DisableChannel" = "Also disable **Approve New Subscribers** for **%@** in this group?";

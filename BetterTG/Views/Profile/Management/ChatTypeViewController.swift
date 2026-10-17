@@ -28,6 +28,10 @@ final class ChatTypeViewController: SettingsListViewController {
     private var inviteLink: String?
     private var joinToSend: Bool
     private var joinByRequest: Bool
+    /// Whether a changed Approve New Members also applies to the existing invite links.
+    private var appliesApprovalToInviteLinks = false
+    /// The user's active invite links, which Telegram offers to update along with Approve New Members.
+    private var activeInviteLinkCount = 0
     private var protectsContent: Bool
     private var isSaving = false
     private var checkTask: Task<Void, Never>?
@@ -81,6 +85,7 @@ final class ChatTypeViewController: SettingsListViewController {
             title: L10n.telegram("Common.Done"), style: .prominent, target: self, action: #selector(donePressed),
         )
         updateDoneButton()
+        loadInviteLinkCount()
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -166,7 +171,7 @@ final class ChatTypeViewController: SettingsListViewController {
                         : "Channel.Setup.ApproveNewSubscribers"),
                     accessory: .toggle(
                         isOn: joinByRequest,
-                        onChange: { [weak self] isOn in self?.joinByRequest = isOn },
+                        onChange: { [weak self] isOn in self?.approvalChanged(isOn) },
                     ),
                     isEnabled: !isSaving,
                 )],
@@ -310,6 +315,60 @@ final class ChatTypeViewController: SettingsListViewController {
         navigationController?.pushViewController(ChatInviteLinksViewController(target: target), animated: true)
     }
 
+    // MARK: Approval
+
+    /// ChannelVisibilityController counts the user's active links (peerExportedInvitations) to offer them the change.
+    private func loadInviteLinkCount() {
+        guard target.supergroupID != nil, contextIsCurrent else { return }
+        let client = client
+        let chatID = target.chatID
+        Task { [weak self] in
+            guard let userID = try? await client.getMe().id,
+                  let links = try? await client.send(TDNativeRequests.getChatInviteLinks(
+                      chatId: chatID,
+                      creatorUserId: userID,
+                      isRevoked: false,
+                      offsetDate: 0,
+                      offsetInviteLink: "",
+                      limit: 1,
+                  ))
+            else { return }
+            self?.activeInviteLinkCount = Int(links.totalCount)
+        }
+    }
+
+    /// Telegram's toggleApproveMembers: with active links it asks whether they follow the new setting.
+    private func approvalChanged(_ isOn: Bool) {
+        joinByRequest = isOn
+        appliesApprovalToInviteLinks = false
+        guard activeInviteLinkCount > 0 else { return }
+        let links = L10n.telegramPlural(
+            "Group.Setup.ApproveNewMembersApplyToExistingInviteLinksText.Links",
+            count: activeInviteLinkCount,
+            formattedCount: activeInviteLinkCount.formatted(.number),
+        )
+        let key =
+            switch (isGroup, isOn) {
+            case (true, true): "EnableGroup"
+            case (true, false): "DisableGroup"
+            case (false, true): "EnableChannel"
+            case (false, false): "DisableChannel"
+            }
+        let alert = UIAlertController(
+            title: L10n.telegram("Group.Setup.ApproveNewMembersApplyToExistingInviteLinksTitle"),
+            message: L10n.telegram("Group.Setup.ApproveNewMembersApplyToExistingInviteLinksText.\(key)", links)
+                .withoutTelegramMarkup,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.No"), style: .default))
+        let yes = UIAlertAction(title: L10n.telegram("Common.Yes"), style: .default) { [weak self] _ in
+            self?.appliesApprovalToInviteLinks = true
+        }
+        alert.addAction(yes)
+        alert.preferredAction = yes
+        chatListTopPresenter.present(alert, animated: true)
+    }
+
     // MARK: Done
 
     /// ChannelVisibilityController's Done: Telegram warns once before a private chat gets a public link.
@@ -343,6 +402,7 @@ final class ChatTypeViewController: SettingsListViewController {
         let protects = protectsContent != target.chat.hasProtectedContent ? protectsContent : nil
         let membersOnly = isDiscussion && joinToSend != supergroup?.joinToSendMessages ? joinToSend : nil
         let approval = offersApproval && joinByRequest != supergroup?.joinByRequest ? joinByRequest : nil
+        let appliesToInviteLinks = appliesApprovalToInviteLinks
         let hasOtherUsernames = (supergroup?.usernames?.activeUsernames ?? []).contains { $0 != savedUsername }
         let savedUsername = savedUsername
         Task { [weak self] in
@@ -372,7 +432,7 @@ final class ChatTypeViewController: SettingsListViewController {
                             supergroupId: supergroupID,
                             joinByRequest: approval,
                             guardBotUserId: 0,
-                            applyToInviteLinks: false,
+                            applyToInviteLinks: appliesToInviteLinks,
                         ))
                     }
                     if let newUsername {
