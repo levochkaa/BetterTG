@@ -1315,10 +1315,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     /// performShareAction: the Forward picker's chats a story can go to, then the story as a message there.
     private func share(_ story: Story) {
         let client = session.client
-        // The picker's request names a message; its story purpose never reads it.
         guard presentedViewController == nil, let accountID = TDLib.shared.activeAccountID,
-              TDLib.shared.activeClient.id == client.id,
-              let request = try? MessageForwardRequest(sourceChatID: story.posterChatId, messageIDs: [1])
+              TDLib.shared.activeClient.id == client.id
         else { return }
         var seen = Set<Int64>()
         let seedChats = RootVM.shared
@@ -1326,13 +1324,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             .flatMap(\.chats)
             .map(\.chat)
             .filter { seen.insert($0.id).inserted }
-        let picker = ForwardMessagesViewController(
-            request: request,
+        guard let picker = ForwardMessagesViewController(
+            choosingChatFor: .shareStory,
             client: client,
             accountID: accountID,
             seedChats: seedChats,
-            purpose: .shareStory,
-        )
+        ) else { return }
         let storyChatID = story.posterChatId
         let storyID = story.id
         picker.onChosenChat = { [weak self] chat, topic in

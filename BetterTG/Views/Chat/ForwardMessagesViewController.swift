@@ -67,7 +67,7 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private var allowedChatTypes: InlineTargetChatTypes? {
         switch purpose {
         case .attachmentMenuBot(let types), .switchInline(let types): types.isEmpty ? nil : types
-        case .forward, .replyInAnotherChat: nil
+        case .forward, .replyInAnotherChat, .shareStory: nil
         }
     }
 
