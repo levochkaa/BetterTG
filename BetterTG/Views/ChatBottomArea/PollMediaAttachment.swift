@@ -40,6 +40,14 @@ enum PollMediaSubject: Equatable {
         case .option: L10n.telegram("Location.PollSubtitle.PollOption")
         }
     }
+
+    /// AttachmentFileController's subtitle for its `.poll` source, which takes an option as a quiz answer.
+    var fileSubtitle: String {
+        switch self {
+        case .description: L10n.telegram("Attachment.File.PollSubtitle.Description")
+        case .explanation, .option: L10n.telegram("Attachment.File.PollSubtitle.Explanation")
+        }
+    }
 }
 
 // MARK: - PollDraftMediaPreview
@@ -139,6 +147,46 @@ struct PollDraftMedia {
             input: .inputPollMediaPhoto(TDNativeInputPollMediaPhoto(photo: photo)),
             preview: .image(preview, isVideo: false),
             fileURLs: [url],
+        )
+    }
+
+    /// The file list's gallery pick (MediaPickerScreen's `asFile`), sent as Send as File sends it: the photo's file,
+    /// or the video's with its first frame as the thumbnail.
+    static func galleryFile(_ image: SelectedImage) -> PollDraftMedia {
+        if let motion = image.livePhotoVideoURL { SelectedDocumentFileStore.remove([motion]) }
+        let url = image.video?.url ?? image.url
+        var thumbnail: TDNativeInputThumbnail?
+        if let video = image.video {
+            thumbnail = TDNativeInputThumbnail(
+                thumbnail: .inputFileLocal(TDNativeInputFileLocal(path: image.url.path(percentEncoded: false))),
+                width: Int(video.thumbnailSize.width),
+                height: Int(video.thumbnailSize.height),
+            )
+        }
+        let document = TDNativeInputDocument(
+            document: .inputFileLocal(TDNativeInputFileLocal(path: url.path(percentEncoded: false))),
+            thumbnail: thumbnail,
+            disableContentTypeDetection: true,
+        )
+        return PollDraftMedia(
+            input: .inputPollMediaDocument(TDNativeInputPollMediaDocument(document: document)),
+            preview: .image(image.image, isVideo: false),
+            fileURLs: image.fileURLs,
+        )
+    }
+
+    /// A recently sent file from the file list, attached by its uploaded file and previewed by its minithumbnail.
+    static func sentDocument(_ document: Document) -> PollDraftMedia {
+        let input = TDNativeInputDocument(
+            document: .inputFileId(TDNativeInputFileId(id: document.document.id)),
+            thumbnail: nil,
+            disableContentTypeDetection: true,
+        )
+        let image = document.minithumbnail.flatMap { UIImage(data: $0.data) }
+        return PollDraftMedia(
+            input: .inputPollMediaDocument(TDNativeInputPollMediaDocument(document: input)),
+            preview: image.map { .image($0, isVideo: false) } ?? .file,
+            fileURLs: [],
         )
     }
 
@@ -316,10 +364,12 @@ enum PollLinkEditor {
 
 // MARK: - PollMediaAttachmentFlow
 
-/// presentPollAttachmentScreen: the attachment sheet with the subject's buttons opens on the gallery, one item at a
-/// time; File opens the document picker, Location the location picker, Sticker the sticker tab and Link the link
-/// editor. Telegram switches its pickers inside one sheet; BetterTG's sheet closes and the chosen picker opens, as
-/// the chat's attachment menu does. The flow ends once with the picked media, or nil when every picker was closed.
+/// presentPollAttachmentScreen: one attachment sheet with the subject's buttons, opening on the gallery with one item
+/// at a time. The sheet's buttons switch its content in place, as AttachmentController.switchToController does with
+/// its crossfade: Gallery, File (AttachmentFileController's list), Location (the location picker) and Sticker (the
+/// sticker tab). Link closes the sheet and opens the link editor, and the file list's Select from Gallery and Select
+/// from Files close it for their pickers. The flow ends once with the picked media, or nil when everything was
+/// closed.
 @MainActor final class PollMediaAttachmentFlow: NSObject, UIDocumentPickerDelegate,
     UIAdaptivePresentationControllerDelegate
 {
@@ -333,6 +383,16 @@ enum PollLinkEditor {
     private var pickerID = 0
     /// A pick being read, whose picker has already closed.
     private var isLoading = false
+    /// The attachment sheet, whose root is the current tab's controller.
+    private weak var sheet: UINavigationController?
+    private var currentTab = AttachmentSheetTab.gallery
+
+    /// The subject's buttons; without an account there's no Sticker button.
+    private var tabs: [AttachmentSheetTab] {
+        var tabs = subject.tabs
+        if accountID == nil { tabs.removeAll { $0 == .sticker } }
+        return tabs
+    }
 
     /// - Parameters:
     ///   - accountID: The account whose stickers the Sticker button offers; without one there's no Sticker button.
@@ -358,7 +418,14 @@ enum PollLinkEditor {
 
     /// AttachmentController's `initialButton: .gallery`.
     func start() {
-        presentGallery()
+        guard let presenter else { return finish(nil) }
+        let id = nextPickerID()
+        currentTab = .gallery
+        let navigation = makeGallery(id: id).makeNavigationController()
+        // The sheet outlives the gallery once another tab takes its place, so the flow hears its swipe down.
+        navigation.presentationController?.delegate = self
+        sheet = navigation
+        presenter.present(navigation, animated: true)
     }
 
     func documentPicker(_: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
@@ -387,12 +454,94 @@ enum PollLinkEditor {
         pickerDidClose(pickerID)
     }
 
+    // MARK: Tabs
+
+    private func switchTab(to tab: AttachmentSheetTab, id: Int) {
+        guard id == pickerID, tab != currentTab, let sheet, sheet.presentingViewController != nil else { return }
+        let controller: UIViewController
+        switch tab {
+        case .gallery:
+            controller = makeGallery(id: id)
+        case .file:
+            controller = makeFileList(id: id)
+        case .location:
+            controller = makeLocationPicker(id: id)
+        case .sticker:
+            guard let picker = makeStickerPicker(id: id) else { return }
+            controller = picker
+        case .link:
+            // The Link button dismisses the sheet and opens chatTextLinkEditController.
+            return closeSheet { [self] in presentLinkEditor() }
+        case .app, .contact, .poll:
+            return
+        }
+        currentTab = tab
+        if tab != .gallery {
+            AttachmentPanelView.install(in: controller, tabs: tabs, current: tab) { [weak self] tab in
+                self?.switchTab(to: tab, id: id)
+            }
+        }
+        replaceContent(of: sheet, with: controller)
+    }
+
+    /// AttachmentController.animateSwitchTransition: the old content's snapshot fades out over 0.23 s while the sheet
+    /// dips 10 points for 0.2 s and springs back.
+    private func replaceContent(of sheet: UINavigationController, with controller: UIViewController) {
+        let snapshot = sheet.view.snapshotView(afterScreenUpdates: false)
+        sheet.setViewControllers([controller], animated: false)
+        guard let snapshot else { return }
+        snapshot.frame = sheet.view.bounds
+        snapshot.isUserInteractionEnabled = false
+        sheet.view.addSubview(snapshot)
+        UIView.animate(withDuration: 0.23) {
+            snapshot.alpha = 0
+        } completion: { _ in
+            snapshot.removeFromSuperview()
+        }
+        let layer = sheet.view.layer
+        let dip = CABasicAnimation(keyPath: "transform.translation.y")
+        dip.fromValue = 0
+        dip.toValue = 10
+        dip.duration = 0.2
+        dip.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        dip.fillMode = .forwards
+        dip.isRemovedOnCompletion = false
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak layer] in
+            // Display's animateSpring: CASpringAnimation's mass 5 and stiffness 900 with the damping, played in 0.3 s.
+            let spring = CASpringAnimation(keyPath: "transform.translation.y")
+            spring.mass = 5
+            spring.stiffness = 900
+            spring.damping = 70
+            spring.fromValue = 10
+            spring.toValue = 0
+            spring.duration = spring.settlingDuration
+            spring.speed = Float(spring.settlingDuration / 0.3)
+            layer?.add(spring, forKey: "attachmentSwitchSpring")
+            layer?.removeAnimation(forKey: "attachmentSwitchDip")
+        }
+        layer.add(dip, forKey: "attachmentSwitchDip")
+        CATransaction.commit()
+    }
+
+    private func closeSheet(then next: @escaping () -> Void) {
+        guard let sheet, sheet.presentingViewController != nil else { return next() }
+        sheet.dismiss(animated: true, completion: next)
+    }
+
     // MARK: Pickers
 
-    private func presentGallery() {
-        guard let presenter else { return finish(nil) }
-        var tabs = subject.tabs
-        if accountID == nil { tabs.removeAll { $0 == .sticker } }
+    /// MediaPickerScreen in its `.poll(mode:asFile: false)` mode, one item at a time.
+    private func makeGallery(id: Int) -> AttachmentSheetViewController {
+        let sheet = makeMediaPicker(tabs: tabs)
+        sheet.switchesTabsInPlace = true
+        sheet.onSelectTab = { [self] tab in switchTab(to: tab, id: id) }
+        sheet.onSend = { [self] request in load(request, asFile: false) }
+        sheet.onDismiss = { [self] in pickerDidClose(id) }
+        return sheet
+    }
+
+    private func makeMediaPicker(tabs: [AttachmentSheetTab]) -> AttachmentSheetViewController {
         let configuration = AttachmentSheetConfiguration(
             allowsPhotos: true,
             allowsVideos: true,
@@ -406,21 +555,75 @@ enum PollLinkEditor {
             let preset = await VideoSendPreset.uploadDefault(client: client)
             sheet?.setDefaultVideoPreset(preset)
         }
-        let id = nextPickerID()
-        sheet.onSelectTab = { [self] tab in openTab(tab) }
-        sheet.onSend = { [self] request in load(request) }
-        sheet.onDismiss = { [self] in pickerDidClose(id) }
-        presenter.present(sheet.makeNavigationController(), animated: true)
+        return sheet
     }
 
-    private func openTab(_ tab: AttachmentSheetTab) {
-        switch tab {
-        case .file: presentDocumentPicker()
-        case .location: presentLocationPicker()
-        case .sticker: presentStickerPicker()
-        case .link: presentLinkEditor()
-        case .app, .contact, .gallery, .poll: finish(nil)
+    /// AttachmentFileController's `.recent` list. Its pickers open once the sheet has gone, and a recent file is
+    /// attached as it was sent.
+    private func makeFileList(id: Int) -> PollFileAttachmentViewController {
+        let list = PollFileAttachmentViewController(client: client, subtitle: subject.fileSubtitle)
+        list.onDismiss = { [self] in pickerDidClose(id) }
+        list.onSelectFromGallery = { [self] in closeSheet { [self] in presentFileGallery() } }
+        list.onSelectFromFiles = { [self] in closeSheet { [self] in presentDocumentPicker() } }
+        list.onPick = { [self] document in
+            isLoading = true
+            closeSheet { [self] in
+                isLoading = false
+                finish(PollDraftMedia.sentDocument(document))
+            }
         }
+        return list
+    }
+
+    /// LocationPickerController in its `.poll` source: no live location, and the subject's subtitle.
+    private func makeLocationPicker(id: Int) -> LocationPickerViewController {
+        let picker = LocationPickerViewController(
+            peerName: nil,
+            allowsLiveLocation: false,
+            client: client,
+            chatID: chatID,
+        ) { [self] content in
+            finish(PollDraftMedia.location(content))
+        }
+        picker.pollSubtitle = subject.locationSubtitle
+        picker.onDismiss = { [self] in pickerDidClose(id) }
+        return picker
+    }
+
+    /// StickerAttachmentScreen with the `.stickers` content: the sticker tab, titled Sticker, "Add sticker to this
+    /// option".
+    private func makeStickerPicker(id: Int) -> ComposerMediaPickerViewController? {
+        guard let accountID else { return nil }
+        let picker = ComposerMediaPickerViewController(accountID: accountID, chatID: chatID, client: client)
+        picker.showsStickersOnly = true
+        picker.stickersSubtitle = L10n.telegram("StickerPicker.PollSubtitle.PollOption")
+        picker.onSticker = { [self, weak picker] sticker in
+            let media = PollDraftMedia.sticker(sticker)
+            isLoading = true
+            // The sheet and a pack it opened close together, from the poll creator's sheet.
+            let host = picker?.navigationController?.presentingViewController ?? presenter
+            guard let host else {
+                isLoading = false
+                return finish(media)
+            }
+            host.dismiss(animated: true) { [self] in
+                isLoading = false
+                finish(media)
+            }
+        }
+        picker.onDismiss = { [self] in pickerDidClose(id) }
+        return picker
+    }
+
+    /// AttachmentFileController's Select from Gallery: MediaPickerScreen in its `.poll(mode:asFile: true)` mode,
+    /// whose pick goes as a file.
+    private func presentFileGallery() {
+        guard let presenter else { return finish(nil) }
+        let id = nextPickerID()
+        let picker = makeMediaPicker(tabs: [])
+        picker.onSend = { [self] request in load(request, asFile: true) }
+        picker.onDismiss = { [self] in pickerDidClose(id) }
+        presenter.present(picker.makeNavigationController(), animated: true)
     }
 
     /// AttachmentFileController's Select from Files (`legacyICloudFilePicker` with "public.item"), one file.
@@ -434,58 +637,6 @@ enum PollLinkEditor {
         presenter.present(picker, animated: true)
     }
 
-    /// LocationPickerController in its `.poll` source: no live location, and the subject's subtitle.
-    private func presentLocationPicker() {
-        guard let presenter else { return finish(nil) }
-        let id = nextPickerID()
-        let picker = LocationPickerViewController(
-            peerName: nil,
-            allowsLiveLocation: false,
-            client: client,
-            chatID: chatID,
-        ) { [self] content in
-            finish(PollDraftMedia.location(content))
-        }
-        picker.pollSubtitle = subject.locationSubtitle
-        picker.onDismiss = { [self] in pickerDidClose(id) }
-        let navigation = TelegramNavigationController(rootViewController: picker)
-        navigation.modalPresentationStyle = .pageSheet
-        navigation.presentationController?.delegate = self
-        presenter.present(navigation, animated: true)
-    }
-
-    /// StickerAttachmentScreen with the `.stickers` content: the sticker tab, titled Sticker, "Add sticker to this
-    /// option".
-    private func presentStickerPicker() {
-        guard let presenter, let accountID else { return finish(nil) }
-        let id = nextPickerID()
-        let picker = ComposerMediaPickerViewController(accountID: accountID, chatID: chatID, client: client)
-        picker.showsStickersOnly = true
-        picker.stickersSubtitle = L10n.telegram("StickerPicker.PollSubtitle.PollOption")
-        picker.onSticker = { [self, weak picker] sticker in
-            let media = PollDraftMedia.sticker(sticker)
-            isLoading = true
-            // The picker and a pack it opened close together, from the poll creator's sheet.
-            let host = picker?.navigationController?.presentingViewController ?? self.presenter
-            guard let host else {
-                isLoading = false
-                return finish(media)
-            }
-            host.dismiss(animated: true) { [self] in
-                isLoading = false
-                finish(media)
-            }
-        }
-        picker.onDismiss = { [self] in pickerDidClose(id) }
-        let navigation = TelegramNavigationController(rootViewController: picker)
-        navigation.modalPresentationStyle = .pageSheet
-        navigation.sheetPresentationController?.detents = [.medium(), .large()]
-        navigation.sheetPresentationController?.prefersGrabberVisible = false
-        navigation.presentationController?.delegate = self
-        presenter.present(navigation, animated: true)
-    }
-
-    /// The Link button dismisses the sheet and opens chatTextLinkEditController.
     private func presentLinkEditor() {
         guard let presenter else { return finish(nil) }
         nextPickerID()
@@ -498,19 +649,21 @@ enum PollLinkEditor {
 
     // MARK: Picks
 
-    /// The gallery's item, read as the chat reads its attachment sheet's picks.
-    private func load(_ request: AttachmentMediaSendRequest) {
+    /// The gallery's item, read as the chat reads its attachment sheet's picks; a file goes as it is, as Send as File
+    /// sends a video (`LegacyMediaPickers`' `.passthrough`).
+    private func load(_ request: AttachmentMediaSendRequest, asFile: Bool) {
         isLoading = true
         PhotoAssetSelectionLoader.load(
             request.assets,
             cropAdjustments: request.cropAdjustments,
-            videoEdits: request.videoEdits,
+            videoEdits: asFile ? [:] : request.videoEdits,
             highQualityPhotos: request.highQualityPhotos,
             videoPreset: request.videoPreset,
         ) { [self] images in
             isLoading = false
             SelectedDocumentFileStore.remove(images.dropFirst().flatMap(\.fileURLs))
-            finish(images.first.map { PollDraftMedia.gallery($0) })
+            let media = images.first.map { asFile ? PollDraftMedia.galleryFile($0) : PollDraftMedia.gallery($0) }
+            finish(media)
         }
     }
 

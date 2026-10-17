@@ -143,6 +143,10 @@ struct AttachmentMediaSendRequest {
     var onCamera: (() -> Void)?
     var onSend: ((AttachmentMediaSendRequest) -> Void)?
     var onDismiss: (() -> Void)?
+    /// AttachmentController's `requestController` for a flow that switches the sheet's content in place
+    /// (presentPollAttachmentScreen): another tab is handed over while the sheet stays. Otherwise the sheet closes
+    /// before the tab opens.
+    var switchesTabsInPlace = false
 
     private let configuration: AttachmentSheetConfiguration
     private let imageManager = PHCachingImageManager()
@@ -470,6 +474,8 @@ struct AttachmentMediaSendRequest {
 
     private func configurePanel() {
         panel.configureTabs(configuration.tabs)
+        // A standalone single item picker (MediaPickerScreen outside AttachmentController) has no panel.
+        panel.isHidden = configuration.tabs.isEmpty && configuration.selectionLimit == 1
         panel.onSelectTab = { [weak self] tab in self?.selectTab(tab) }
         panel.onSend = { [weak self] in self?.send() }
         panel.onSendOptions = { [weak self] source in self?.showSendOptions(from: source) }
@@ -1002,6 +1008,10 @@ struct AttachmentMediaSendRequest {
 
     private func selectTab(_ tab: AttachmentSheetTab) {
         guard tab != .gallery else { return }
+        if switchesTabsInPlace {
+            onSelectTab?(tab)
+            return
+        }
         let onSelectTab = onSelectTab
         close { onSelectTab?(tab) }
     }
@@ -1358,9 +1368,9 @@ enum MediaPickerQualityIcon {
 
 // MARK: - AttachmentPanelView
 
-/// AttachmentPanel: the buttons for the chat's attachments with Gallery current. With items picked the send panel
-/// (AttachmentTextInputPanelNode) takes their place: the photo quality switch, the composer's caption and Send with
-/// the picked count, which holds for the send options.
+/// AttachmentPanel: the buttons for the chat's attachments with the shown one current. With items picked the send
+/// panel (AttachmentTextInputPanelNode) takes their place: the photo quality switch, the composer's caption and Send
+/// with the picked count, which holds for the send options.
 @MainActor final class AttachmentPanelView: UIView {
     static let barHeight: CGFloat = 49
 
@@ -1490,12 +1500,37 @@ enum MediaPickerQualityIcon {
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
 
-    func configureTabs(_ tabs: [AttachmentSheetTab]) {
+    /// AttachmentController keeps one panel under whichever tab's controller it shows. A controller shown in the
+    /// attachment sheet in place of the gallery gets its own panel with its tab current, over its bottom edge, and
+    /// its safe area ends above the buttons.
+    @discardableResult static func install(
+        in controller: UIViewController,
+        tabs: [AttachmentSheetTab],
+        current: AttachmentSheetTab,
+        onSelectTab: @escaping (AttachmentSheetTab) -> Void,
+    ) -> AttachmentPanelView {
+        controller.loadViewIfNeeded()
+        let panel = AttachmentPanelView()
+        panel.configureTabs(tabs, current: current)
+        panel.onSelectTab = onSelectTab
+        controller.additionalSafeAreaInsets.bottom += barHeight
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        controller.view.addSubview(panel)
+        NSLayoutConstraint.activate([
+            panel.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor),
+            panel.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor),
+            panel.bottomAnchor.constraint(equalTo: controller.view.bottomAnchor),
+            panel.topAnchor.constraint(equalTo: controller.view.safeAreaLayoutGuide.bottomAnchor),
+        ])
+        return panel
+    }
+
+    func configureTabs(_ tabs: [AttachmentSheetTab], current: AttachmentSheetTab = .gallery) {
         for view in tabsStack.arrangedSubviews {
             view.removeFromSuperview()
         }
         for tab in tabs {
-            let button = AttachmentTabButton(tab: tab, current: tab == .gallery)
+            let button = AttachmentTabButton(tab: tab, current: tab == current)
             button.addAction(UIAction { [weak self] _ in self?.onSelectTab?(tab) }, for: .touchUpInside)
             button.widthAnchor.constraint(greaterThanOrEqualToConstant: 60).isActive = true
             tabsStack.addArrangedSubview(button)
