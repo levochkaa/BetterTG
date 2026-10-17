@@ -189,8 +189,9 @@ final class MessageMediaView: UIView {
                     inlineView.configure(owner: videoPlaybackOwner, displaySize: displaySize) {
                         onTap([item], item.id)
                     }
-                    if onCancelSending != nil {
-                        inlineView.showUploadProgress(for: item, client: client)
+                    if let onCancelSending {
+                        let messageID = item.id
+                        inlineView.showUploadProgress(for: item, client: client) { onCancelSending(messageID) }
                     }
                     view = inlineView
                 } else {
@@ -905,7 +906,7 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
     }
 
     override func accessibilityActivate() -> Bool {
-        guard let onTap else { return false }
+        guard let onTap, !uploadProgress.isActive else { return false }
         onTap()
         return true
     }
@@ -942,8 +943,9 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
         uploadProgress.reset()
     }
 
-    func showUploadProgress(for message: Message, client: TDLibClient) {
-        uploadProgress.configure(message: message, client: client) {}
+    /// A sending video plays inline from its local file; its disc cancels the send as the other media's do.
+    func showUploadProgress(for message: Message, client: TDLibClient, onCancel: @escaping () -> Void) {
+        uploadProgress.configure(message: message, client: client, onCancel: onCancel)
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -976,6 +978,8 @@ private final class InlineVideoMediaView: UIControl, ReusableMediaView, UIGestur
     }
 
     @objc private func tapped() {
+        // While the video uploads only the disc reacts (ChatMessageInteractiveMediaNode.imageTap).
+        guard !uploadProgress.isActive else { return }
         onTap?()
     }
 }
