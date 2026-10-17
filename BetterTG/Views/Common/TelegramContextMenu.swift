@@ -5,7 +5,7 @@ import UIKit
 
 // MARK: - TelegramContextMenuLayout
 
-private enum TelegramContextMenuLayout {
+enum TelegramContextMenuLayout {
     static let actionFontSize = CGFloat(17)
     static let actionVerticalInset = CGFloat(11)
     static let actionHeight = ceil(UIFont.systemFont(ofSize: actionFontSize).lineHeight)
@@ -106,7 +106,7 @@ enum TelegramContextMenuPresentationStyle: Equatable {
 
 // MARK: - TelegramContextMenuKeyboardHost
 
-private enum TelegramContextMenuKeyboardHost {
+enum TelegramContextMenuKeyboardHost {
     // MARK: Internal
 
     static func visibleKeyboardWindow(for sourceWindow: UIWindow, sourceView: UIView?) -> UIWindow? {
@@ -1789,7 +1789,7 @@ private final class TelegramContextMenuSourceTabsView: UIView {
 
 // MARK: - TelegramContextMenuActionButton
 
-private final class TelegramContextMenuActionButton: UIControl {
+final class TelegramContextMenuActionButton: UIControl {
     // MARK: Internal
 
     let menuAction: TelegramContextMenuAction
