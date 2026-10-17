@@ -4327,6 +4327,15 @@ import UIKit
             return CGSize(width: width, height: height)
         }.value
         let input = InputFile.inputFileLocal(InputFileLocal(path: path))
+        // Telegram converts a Live Photo's motion while it uploads (LocalFileVideoMediaResource), so the motion
+        // goes as a generated file for `VideoSendGenerationCoordinator`.
+        let motion: InputFile? = livePhotoVideoURL.map { url in
+            .inputFileGenerated(InputFileGenerated(
+                originalPath: url.path(percentEncoded: false),
+                conversion: livePhotoConversion ?? VideoSendPreset.medium.conversion,
+                expectedSize: 0,
+            ))
+        }
         let photo = InputPhoto(
             addedStickerFileIds: [],
             height: Int(dimensions.height),
@@ -4336,15 +4345,7 @@ import UIKit
                 thumbnail: input,
                 width: Int(dimensions.width),
             ),
-            // Telegram converts a Live Photo's motion while it uploads (LocalFileVideoMediaResource), so the motion
-            // goes as a generated file for `VideoSendGenerationCoordinator`.
-            video: livePhotoVideoURL.map {
-                .inputFileGenerated(InputFileGenerated(
-                    originalPath: $0.path(percentEncoded: false),
-                    conversion: livePhotoConversion ?? VideoSendPreset.medium.conversion,
-                    expectedSize: 0,
-                ))
-            },
+            video: motion,
             width: Int(dimensions.width),
         )
         return .inputMessagePhoto(
