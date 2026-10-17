@@ -7,11 +7,14 @@ import UIKit
 
 /// Telegram's CreateGroupController in `.generic` mode: the group's photo and name, its auto-delete timer and the
 /// chosen members. Create (on its tap only) makes the basic group (createNewBasicGroupChat), sets the photo and opens
-/// the group in place of the compose screens.
+/// the group in place of the compose screens. In `.supergroup` mode, used for a channel's new discussion group, it
+/// makes an empty supergroup under a suggested name and hands it to `onSupergroupCreated`.
 final class CreateGroupViewController: SettingsListViewController, ComposeFlowScreen {
     private static let autoDeleteSection = 1
 
     private let members: [ComposeContact]
+    /// CreateGroupMode.supergroup's completion: it receives the new chat and finishes the flow.
+    private let onSupergroupCreated: (@MainActor (Int64) async -> Void)?
     private let photoHeader = ComposePhotoHeaderView(buttonTitle: L10n.telegram("GroupInfo.SetGroupPhoto"))
     private lazy var photoPicker = ComposePhotoPicker(host: self)
     private var groupTitle = ""
@@ -27,9 +30,18 @@ final class CreateGroupViewController: SettingsListViewController, ComposeFlowSc
         autoDeleteTime ?? defaultAutoDeleteTime
     }
 
-    init(members: [ComposeContact]) {
+    init(
+        members: [ComposeContact],
+        initialTitle: String? = nil,
+        onSupergroupCreated: (@MainActor (Int64) async -> Void)? = nil,
+    ) {
         // CreateGroupController lists the members by presence.
         self.members = members.sorted { UserPresenceText.rank($0.status) > UserPresenceText.rank($1.status) }
+        self.onSupergroupCreated = onSupergroupCreated
+        if let initialTitle {
+            self.groupTitle = initialTitle
+            self.titleWasEdited = true
+        }
         super.init()
     }
 
@@ -206,8 +218,27 @@ final class CreateGroupViewController: SettingsListViewController, ComposeFlowSc
         let userIDs = members.map(\.userID)
         let autoDelete = effectiveAutoDeleteTime
         let photo = photo
+        let onSupergroupCreated = onSupergroupCreated
         createTask = Task { [weak self] in
             do {
+                if let onSupergroupCreated {
+                    let chat = try await client.send(TDNativeRequests.createNewSupergroupChat(
+                        title: title,
+                        isForum: false,
+                        isChannel: false,
+                        description: "",
+                        location: nil,
+                        messageAutoDeleteTime: autoDelete,
+                        forImport: false,
+                    ))
+                    if let photo {
+                        _ = await ComposePhotoPicker.upload(photo, chatID: chat.id, client: client)
+                    }
+                    self?.createTask = nil
+                    guard self?.contextIsCurrent == true else { return }
+                    await onSupergroupCreated(chat.id)
+                    return
+                }
                 let created = try await client.send(TDNativeRequests.createNewBasicGroupChat(
                     userIds: userIDs, title: title, messageAutoDeleteTime: autoDelete,
                 ))

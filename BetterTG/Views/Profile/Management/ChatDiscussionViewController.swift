@@ -7,7 +7,8 @@ import UIKit
 
 /// Telegram's ChannelDiscussionGroupSetupController. A channel with a discussion group shows it with Unlink Group; a
 /// group shows its channel with Unlink Channel; a channel without one lists the groups that may host its comments
-/// (getSuitableDiscussionChats), and a picked group is linked after Telegram's confirmation (setChatDiscussionGroup).
+/// (getSuitableDiscussionChats) under Create New Group, and a picked group is linked after Telegram's confirmation
+/// (setChatDiscussionGroup); a new group is linked as soon as it exists.
 /// A basic group is upgraded first, and a group that hides its history from new members is opened to them after
 /// Telegram's warning, as TDLib requires.
 final class ChatDiscussionViewController: SettingsListViewController {
@@ -71,7 +72,11 @@ final class ChatDiscussionViewController: SettingsListViewController {
         return [SettingsSection(
             header: L10n.telegram("Channel.CommentsGroup.Header"),
             footer: L10n.telegram("Channel.DiscussionGroup.Info"),
-            rows: candidates.map { group in
+            rows: [SettingsRow(
+                title: L10n.telegram("Channel.DiscussionGroup.Create"),
+                style: .action(destructive: false),
+                symbol: "plus",
+            ) { [weak self] in self?.createGroup() }] + candidates.map { group in
                 SettingsRow(title: group.title, style: .peer(group)) { [weak self] in self?.confirmLink(group) }
             },
         )]
@@ -115,6 +120,31 @@ final class ChatDiscussionViewController: SettingsListViewController {
             actionTitle: L10n.telegram("Channel.DiscussionGroup.LinkGroup"),
             isDestructive: false,
         ) { [weak self] in self?.prepareLink(group.id) }
+    }
+
+    /// ChannelDiscussionGroupSetupController's createGroup: CreateGroupController in supergroup mode, named after the
+    /// channel, links the new group (updateGroupDiscussionForChannel); a failure returns here with Telegram's error.
+    private func createGroup() {
+        guard contextIsCurrent, isLoaded else { return }
+        let channelID = target.chatID
+        let controller = CreateGroupViewController(
+            members: [],
+            initialTitle: target.chat.title + " Chat",
+        ) { [weak self] groupChatID in
+            guard let self, contextIsCurrent else { return }
+            let linked = await (try? client.send(TDNativeRequests.setChatDiscussionGroup(
+                chatId: channelID, discussionChatId: groupChatID,
+            ))) != nil
+            guard contextIsCurrent, let navigationController else { return }
+            let stack = navigationController.viewControllers
+            if linked, let index = stack.firstIndex(of: self), index > 0 {
+                navigationController.popToViewController(stack[index - 1], animated: true)
+            } else {
+                navigationController.popToViewController(self, animated: true)
+                if !linked { presentAlert(title: nil, message: L10n.telegram("Login.UnknownError")) }
+            }
+        }
+        navigationController?.pushViewController(controller, animated: true)
     }
 
     /// TDLib links supergroups whose history new members can see: a basic group is upgraded, and hidden history is

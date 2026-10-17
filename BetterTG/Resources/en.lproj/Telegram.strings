@@ -2345,3 +2345,4 @@
 "Group.Setup.ApproveNewMembersApplyToExistingInviteLinksText.DisableGroup" = "Also disable **Approve New Members** for **%@** in this group?";
 "Group.Setup.ApproveNewMembersApplyToExistingInviteLinksText.EnableChannel" = "Also enable **Approve New Subscribers** for **%@** in this group?";
 "Group.Setup.ApproveNewMembersApplyToExistingInviteLinksText.DisableChannel" = "Also disable **Approve New Subscribers** for **%@** in this group?";
+"Channel.DiscussionGroup.Create" = "Create New Group";
