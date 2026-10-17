@@ -10,9 +10,10 @@ import UIKit
 /// Telegram's story viewer (StoryContainerScreen with StoryItemSetContainerComponent): a poster's stories full screen
 /// under the progress strip and the poster's header, with the caption at the bottom. A tap on the left quarter goes
 /// back and anywhere else forward; holding pauses and hides the interface; dragging down closes the viewer and dragging
-/// sideways changes poster. A photo shows for five seconds and a video for its duration, then the next story opens,
-/// across posters, and the viewer closes after the last one. Telegram's reply field and reactions under the story are
-/// left out: BetterTG doesn't send story replies or reactions.
+/// sideways turns Telegram's cube to the neighbouring poster, whose face shows its story as the cube turns. A photo
+/// shows for five seconds and a video for its duration, then the next story opens, across posters, and the viewer
+/// closes after the last one. Telegram's reply field and reactions under the story are left out: BetterTG doesn't send
+/// story replies or reactions.
 final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate {
     enum Subject {
         /// One story, as a shared story or a story mention opens it (SingleStoryContentContextImpl).
@@ -26,7 +27,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         case poster
     }
 
-    private static let contentCornerRadius = CGFloat(12)
+    private static let contentCornerRadius = StoryChromeLayout.cornerRadius
     /// The newest open request; an older one finishing later is dropped.
     private static var openRequest: UUID?
 
@@ -50,6 +51,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
     private let backdropView = UIView()
     private let containerView = UIView()
+    /// The cube's faces: the shown poster's in front, its neighbours' beside it while a drag or a turn shows them.
+    private let focusedFace = StoryCubeFaceView()
+    private let previousFace = StoryCubeFaceView()
+    private let nextFace = StoryCubeFaceView()
+    private let previousPreview = StoryCubePreviewView()
+    private let nextPreview = StoryCubePreviewView()
     private let contentView = UIView()
     private let imageView = TDImageLoadingView()
     private let playerSurface = LocalVideoSurfaceView()
@@ -74,6 +81,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private var lastTickTime: CFTimeInterval?
     private var mediaTask: Task<Void, Never>?
     private var preloadTask: Task<Void, Never>?
+    private var neighborTask: Task<Void, Never>?
     private var headerTask: Task<Void, Never>?
     private var mediaGeneration = UUID()
     private var shownKey: StoryViewerSession.StoryKey?
@@ -84,6 +92,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private var isChromeHidden = false
     private var dragChromeAlpha = CGFloat(1)
     private var panAxis: PanAxis?
+    /// Telegram's itemSetPanState.fraction: positive while the cube turns towards the next poster.
+    private var cubeFraction = CGFloat(0)
+    /// The running turn back to rest, from the fraction it started at.
+    private var cubeTurn: (from: CGFloat, start: CFTimeInterval)?
     private var isClosing = false
     private var didAppear = false
     private var cancellables = Set<AnyCancellable>()
@@ -91,6 +103,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     /// Whether the shown video should play: every pause but buffering stops it.
     private var shouldPlay: Bool {
         !isClosing && state.pauseReasons.subtracting([.buffering]).isEmpty
+    }
+
+    /// The side faces take part while a poster drag or a turn runs.
+    private var isCubeActive: Bool {
+        panAxis == .poster || cubeTurn != nil
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -179,6 +196,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         backdropView.frame = bounds
         containerView.bounds = CGRect(origin: .zero, size: bounds.size)
         containerView.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        for face in [previousFace, focusedFace, nextFace] {
+            face.bounds = containerView.bounds
+            face.center = CGPoint(x: containerView.bounds.midX, y: containerView.bounds.midY)
+        }
         // Telegram's 9:16 story under the status bar, narrowed when the screen is too short for it.
         let insets = view.safeAreaInsets
         let availableHeight = max(1, bounds.height - insets.top - insets.bottom)
@@ -192,7 +213,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             width: size.width,
             height: size.height,
         )
+        previousFace.layoutContent(frame: contentView.frame)
+        nextFace.layoutContent(frame: contentView.frame)
         layoutContent()
+        layoutCube()
     }
 
     // MARK: Presentation
@@ -281,7 +305,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         }
         let velocity = panGesture.velocity(in: view)
         if abs(velocity.y) > abs(velocity.x) { return velocity.y > 0 }
-        return state.posters.count > 1
+        // Telegram's horizontal pan runs with a single poster too: it bands at the ends, and a flick there closes.
+        return true
     }
 
     func gestureRecognizer(
@@ -296,6 +321,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     fileprivate func tick(_ link: CADisplayLink) {
         let interval = lastTickTime.map { link.timestamp - $0 } ?? 0
         lastTickTime = link.timestamp
+        stepCubeTurn()
         guard !isClosing else { return }
         if showsVideo {
             if state.duration != nil, player.hasItem { state.setElapsed(player.currentTime) }
@@ -315,12 +341,18 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         backdropView.backgroundColor = .black
         view.addSubview(backdropView)
         view.addSubview(containerView)
+        for face in [previousFace, nextFace] {
+            face.isUserInteractionEnabled = false
+            face.isHidden = true
+            containerView.addSubview(face)
+        }
+        containerView.addSubview(focusedFace)
 
         contentView.backgroundColor = UIColor(white: 0.1, alpha: 1)
         contentView.clipsToBounds = true
         contentView.layer.cornerRadius = Self.contentCornerRadius
         contentView.layer.cornerCurve = .continuous
-        containerView.addSubview(contentView)
+        focusedFace.contentHost.addSubview(contentView)
 
         imageView.contentMode = .scaleAspectFill
         imageView.clipsToBounds = true
@@ -417,13 +449,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         chromeView.frame = bounds
         topShade.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 96)
         // MediaNavigationStripComponent sits 8 pt from the story's top and sides.
-        progressStrip.frame = CGRect(x: 8, y: 8, width: bounds.width - 16, height: 2)
-        avatarView.frame = CGRect(x: 12, y: 22, width: 32, height: 32)
-        closeButton.frame = CGRect(x: bounds.width - 48, y: 16, width: 44, height: 44)
-        let textX = avatarView.frame.maxX + 10
-        let textWidth = max(0, closeButton.frame.minX - textX - 4)
-        titleLabel.frame = CGRect(x: textX, y: 21, width: textWidth, height: 18)
-        subtitleLabel.frame = CGRect(x: textX, y: 39, width: textWidth, height: 14)
+        progressStrip.frame = StoryChromeLayout.progressFrame(in: bounds)
+        avatarView.frame = StoryChromeLayout.avatarFrame
+        closeButton.frame = StoryChromeLayout.closeFrame(in: bounds)
+        let textFrames = StoryChromeLayout.textFrames(in: bounds, trailingLimit: closeButton.frame.minX)
+        titleLabel.frame = textFrames.title
+        subtitleLabel.frame = textFrames.subtitle
         layoutCaption()
     }
 
@@ -476,6 +507,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         let chatID = state.currentChatID
         progressStrip.configure(count: state.storyCount, index: state.storyIndex)
         renderPoster(chatID)
+        refreshNeighborFaces()
+        preloadNeighbors()
         guard let storyID = state.currentStoryID else {
             loadingIndicator.startAnimating()
             loadActiveStories(of: chatID)
@@ -783,6 +816,37 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         }
     }
 
+    /// The neighbouring posters' headers, story lists and shown stories, so their cube faces are ready before a drag
+    /// (StoryContainerScreen keeps the sets beside the focused one mounted).
+    private func preloadNeighbors() {
+        neighborTask?.cancel()
+        neighborTask = Task { [weak self] in
+            for forward in [true, false] {
+                guard let self, !Task.isCancelled, !isClosing,
+                      let neighbor = state.neighbor(forward: forward) else { continue }
+                _ = await session.chat(neighbor.chatID)
+                if neighbor.storyID == nil, let active = await session.activeStories(chatID: neighbor.chatID),
+                   !Task.isCancelled, !isClosing
+                {
+                    apply(state.updateStories(
+                        chatID: neighbor.chatID,
+                        storyIDs: active.stories.map(\.storyId),
+                        maxReadStoryID: active.maxReadStoryId,
+                    ))
+                }
+                guard !Task.isCancelled, !isClosing else { return }
+                if let loaded = state.neighbor(forward: forward), loaded.chatID == neighbor.chatID,
+                   let storyID = loaded.storyID,
+                   let story = await session.story(.init(chatID: loaded.chatID, storyID: storyID)),
+                   !Task.isCancelled
+                {
+                    session.preloadMedia(of: story)
+                }
+                refreshNeighborFaces()
+            }
+        }
+    }
+
     // MARK: TDLib
 
     private func bindSession() {
@@ -829,15 +893,14 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
     // MARK: Navigation
 
-    private func apply(_ transition: StoryViewerState.Transition, animatesPosterChange: Bool = true) {
+    private func apply(_ transition: StoryViewerState.Transition) {
         switch transition {
         case .none:
             break
         case .story:
             showCurrentStory()
         case .poster(let forward):
-            showCurrentStory()
-            if animatesPosterChange { animatePosterEntry(forward: forward) }
+            turnCube(forward: forward)
         case .rewind:
             if showsVideo, player.hasItem { player.seek(to: 0) }
             progressStrip.setProgress(0)
@@ -915,11 +978,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         switch gesture.state {
         case .began:
             panAxis = abs(velocity.y) > abs(velocity.x) ? .dismissal : .poster
+            if panAxis == .poster { beginPosterPan() }
             setPaused(true, for: .drag)
         case .changed:
             switch panAxis {
             case .dismissal: updateDismissalDrag(translation.y)
-            case .poster: updatePosterDrag(translation.x)
+            case .poster: updatePosterPan(translation.x)
             case nil: break
             }
         case .cancelled, .ended, .failed:
@@ -934,7 +998,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
                     cancelDrag()
                 }
             case .poster:
-                finishPosterDrag(offset: translation.x, velocity: velocity.x, ended: ended)
+                finishPosterPan(velocity: velocity.x)
             case nil:
                 setPaused(false, for: .drag)
             }
@@ -954,11 +1018,6 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         updateChromeAlpha()
     }
 
-    private func updatePosterDrag(_ offset: CGFloat) {
-        let canMove = offset < 0 ? state.posterIndex + 1 < state.posters.count : state.posterIndex > 0
-        containerView.transform = CGAffineTransform(translationX: canMove ? offset : offset * 0.25, y: 0)
-    }
-
     private func cancelDrag() {
         dragChromeAlpha = 1
         UIView.animate(
@@ -976,44 +1035,156 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         }
     }
 
-    private func finishPosterDrag(offset: CGFloat, velocity: CGFloat, ended: Bool) {
-        let forward = offset < 0
-        let width = view.bounds.width
-        let canMove = forward ? state.posterIndex + 1 < state.posters.count : state.posterIndex > 0
-        let travelled = abs(offset) > width * 0.3 || (abs(velocity) > 700 && (velocity < 0) == forward)
-        guard ended, canMove, travelled else {
-            cancelDrag()
+    // MARK: Cube
+
+    /// beginHorizontalPan: a running turn stops where it rests, and the neighbours' faces join.
+    private func beginPosterPan() {
+        if cubeTurn != nil { finishCubeTurn() }
+        cubeFraction = 0
+        refreshNeighborFaces()
+        setCubeFrameRate(isTurning: true)
+        layoutCube()
+    }
+
+    /// updateHorizontalPan: the cube follows the finger, banding where no poster lies ahead.
+    private func updatePosterPan(_ offset: CGFloat) {
+        var offset = offset
+        if offset > 0, state.neighbor(forward: false) == nil {
+            offset = StoryCubeGeometry.rubberBand(offset)
+        } else if offset < 0, state.neighbor(forward: true) == nil {
+            offset = -StoryCubeGeometry.rubberBand(-offset)
+        }
+        cubeFraction = -min(1, max(-1, offset / max(1, containerView.bounds.width)))
+        layoutCube()
+    }
+
+    /// commitHorizontalPan: past 30% of the width, or on a flick, the cube turns to the neighbour; a flick with no
+    /// neighbour that way closes the viewer. Otherwise the cube springs back.
+    private func finishPosterPan(velocity: CGFloat) {
+        let hasPrevious = state.neighbor(forward: false) != nil
+        let hasNext = state.neighbor(forward: true) != nil
+        var forward: Bool?
+        var mayDismiss = false
+        if cubeFraction <= -StoryCubeGeometry.commitFraction {
+            forward = hasPrevious ? false : nil
+        } else if cubeFraction >= StoryCubeGeometry.commitFraction {
+            forward = hasNext ? true : nil
+        } else if abs(velocity) >= StoryCubeGeometry.commitVelocity {
+            if velocity < 0 {
+                if hasNext { forward = true } else { mayDismiss = true }
+            } else {
+                if hasPrevious { forward = false } else { mayDismiss = true }
+            }
+        }
+        if let forward, case .poster = state.movePoster(forward: forward) {
+            turnCube(forward: forward)
             return
         }
-        UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
-            self.containerView.transform = CGAffineTransform(translationX: forward ? -width : width, y: 0)
-        } completion: { [weak self] _ in
-            guard let self, !isClosing else { return }
-            apply(state.movePoster(forward: forward), animatesPosterChange: false)
-            containerView.transform = CGAffineTransform(translationX: forward ? width : -width, y: 0)
-            UIView.animate(
-                withDuration: 0.3,
-                delay: 0,
-                usingSpringWithDamping: 0.9,
-                initialSpringVelocity: 0,
-                options: [.allowUserInteraction, .beginFromCurrentState],
-            ) {
-                self.containerView.transform = .identity
-            } completion: { [weak self] _ in
-                self?.setPaused(false, for: .drag)
+        startCubeTurn()
+        if mayDismiss { close() }
+    }
+
+    /// The state entered the neighbouring poster: the story left behind stays on the face turning away, the new
+    /// poster's story shows in front, and the cube turns from where it stood (a tap or the clock turns it whole).
+    private func turnCube(forward: Bool) {
+        // A turn still running rests first, as navigate's beginHorizontalPan drops it.
+        if cubeTurn != nil { finishCubeTurn() }
+        let leaving = contentView.snapshotView(afterScreenUpdates: false)
+            ?? imageView.makeImageSnapshot(contentMode: .scaleAspectFill)
+        leaving?.layer.cornerRadius = Self.contentCornerRadius
+        leaving?.layer.cornerCurve = .continuous
+        leaving?.clipsToBounds = true
+        leaving?.isUserInteractionEnabled = false
+        (forward ? previousFace : nextFace).setContent(leaving, frame: contentView.frame)
+        (forward ? nextFace : previousFace).setContent(nil, frame: contentView.frame)
+        cubeFraction = forward ? cubeFraction - 1 : cubeFraction + 1
+        startCubeTurn()
+        showCurrentStory()
+    }
+
+    /// Springs the cube back to rest over Telegram's 0.4 s, holding the story's clock meanwhile.
+    private func startCubeTurn() {
+        guard abs(cubeFraction) > 0.0001, !isClosing else {
+            finishCubeTurn()
+            return
+        }
+        cubeTurn = (from: cubeFraction, start: CACurrentMediaTime())
+        setPaused(true, for: .drag)
+        setCubeFrameRate(isTurning: true)
+        layoutCube()
+    }
+
+    private func stepCubeTurn() {
+        guard let turn = cubeTurn else { return }
+        let fraction = (CACurrentMediaTime() - turn.start) / StoryCubeGeometry.turnDuration
+        guard fraction < 1 else {
+            finishCubeTurn()
+            return
+        }
+        cubeFraction = turn.from * CGFloat(1 - StoryCubeGeometry.springProgress(fraction))
+        layoutCube()
+    }
+
+    private func finishCubeTurn() {
+        cubeTurn = nil
+        cubeFraction = 0
+        guard panAxis != .poster else {
+            layoutCube()
+            return
+        }
+        setCubeFrameRate(isTurning: false)
+        refreshNeighborFaces()
+        layoutCube()
+        setPaused(false, for: .drag)
+    }
+
+    /// Places every face at its rotation: the previous poster's at -1, the shown one's at 0 and the next one's at 1,
+    /// all shifted by the drag. A face turned a whole side away is off screen and hidden.
+    private func layoutCube() {
+        let width = containerView.bounds.width
+        guard width > 0 else { return }
+        let sideAngle = StoryCubeGeometry.sideAngle(
+            width: width,
+            sideDistance: StoryCubeGeometry
+                .sideDistance(isRegularWidth: traitCollection.horizontalSizeClass == .regular),
+        )
+        let reducesMotion = UIAccessibility.isReduceMotionEnabled
+        let isActive = isCubeActive
+        for (face, offset) in [(previousFace, CGFloat(-1)), (focusedFace, 0), (nextFace, 1)] {
+            let rotation = -cubeFraction + offset
+            if face !== focusedFace {
+                face.isHidden = !isActive || !face.hasContent || abs(rotation) >= 1
             }
+            face.setRotation(rotation, sideAngle: sideAngle, reducesMotion: reducesMotion)
         }
     }
 
-    private func animatePosterEntry(forward: Bool) {
-        guard panAxis == nil, !UIAccessibility.isReduceMotionEnabled, !isClosing else { return }
-        let offset = (forward ? 1 : -1) * min(80, view.bounds.width * 0.2)
-        containerView.transform = CGAffineTransform(translationX: offset, y: 0)
-        containerView.alpha = 0.4
-        UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-            self.containerView.transform = .identity
-            self.containerView.alpha = 1
+    /// The neighbouring posters' previews, from what the session has loaded; a turn's face keeps the story it left.
+    private func refreshNeighborFaces() {
+        guard cubeTurn == nil, !isClosing else { return }
+        for forward in [false, true] {
+            let face = forward ? nextFace : previousFace
+            guard let neighbor = state.neighbor(forward: forward) else {
+                face.setContent(nil, frame: contentView.frame)
+                continue
+            }
+            let preview = forward ? nextPreview : previousPreview
+            preview.configure(
+                neighbor: neighbor,
+                chat: session.cachedChat(neighbor.chatID),
+                story: neighbor.storyID.flatMap { session.cachedStory(.init(chatID: neighbor.chatID, storyID: $0)) },
+                client: session.client,
+            )
+            face.setContent(preview, frame: contentView.frame)
         }
+        layoutCube()
+    }
+
+    /// Telegram runs its story transitions at up to 120 Hz; the story's clock needs no more than the default.
+    private func setCubeFrameRate(isTurning: Bool) {
+        displayLink?.preferredFrameRateRange = isTurning
+            ? CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+            : .default
     }
 
     // MARK: Closing
@@ -1038,6 +1209,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         ) {
             self.backdropView.alpha = 0
             self.chromeView.alpha = 0
+            // A flick past the last poster closes while the cube springs back; it comes to rest as the story leaves.
+            if self.cubeTurn != nil { self.finishCubeTurn() }
             if let target, !UIAccessibility.isReduceMotionEnabled {
                 self.containerView.transform = self.containerTransform(matching: target)
                 self.contentView.layer.cornerRadius = self.sourceIsAvatar
@@ -1068,9 +1241,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         stopClock()
         mediaTask?.cancel()
         preloadTask?.cancel()
+        neighborTask?.cancel()
         headerTask?.cancel()
         mediaTask = nil
         preloadTask = nil
+        neighborTask = nil
         headerTask = nil
         imageView.onFullImage = nil
         imageView.cancel()

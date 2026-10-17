@@ -1,12 +1,12 @@
 // StoryViewerProbe.swift
 
-import Foundation
+import UIKit
 
 #if DEBUG
     /// Drives the story viewer's state offline (no TDLib, no UI): the clock waiting for media, holding, auto-advance,
-    /// tap navigation across posters, rewinding, lazily loaded posters, active-story updates and deletions, and the
-    /// header's time. Launch with `-ui-probe-story-viewer`; the result goes to the log and to
-    /// Documents/story-viewer-probe.txt.
+    /// tap navigation across posters, rewinding, lazily loaded posters, active-story updates and deletions, the
+    /// header's time, the cube's neighbouring posters and its geometry. Launch with `-ui-probe-story-viewer`; the
+    /// result goes to the log and to Documents/story-viewer-probe.txt.
     @MainActor enum StoryViewerProbe {
         private struct Failure: Swift.Error, CustomStringConvertible {
             let description: String
@@ -22,10 +22,13 @@ import Foundation
                 try verifyLazyPosters()
                 try verifyUpdates()
                 try verifyTimestamps()
+                try verifyNeighbors()
+                try verifyCube()
                 result = "Story viewer probe passed: first-unseen-entry/clock-waits-for-media/hold-pause=true; "
                     + "auto-advance/next-poster/resume/rewind/dismiss=true; single-story=true; "
                     + "lazy-posters/empty-poster-dropped=true; active-update/delete/current-poster-removed=true; "
-                    + "timestamps=true"
+                    + "timestamps=true; cube-neighbors/resume/unloaded=true; "
+                    + "cube-rest-flat/half-turn-edges-meet/whole-turn-gap-40/rubber-band/spring=true"
             } catch {
                 result = "Story viewer probe failed: \(error)"
             }
@@ -192,6 +195,60 @@ import Foundation
             try require(
                 yesterday.hasPrefix(L10n.telegram("Time.YesterdayAt", "").trimmingCharacters(in: .whitespaces)),
                 "yesterday: \(yesterday)",
+            )
+        }
+
+        private static func verifyNeighbors() throws {
+            var state = try make(
+                [
+                    .init(chatID: 1, storyIDs: [1, 2]),
+                    .init(chatID: 2, storyIDs: [5, 6, 7], maxReadStoryID: 5),
+                    .init(chatID: 3),
+                ],
+                initialChatID: 1,
+            )
+            try require(state.neighbor(forward: false) == nil, "a neighbour before the first poster")
+            try require(
+                state.neighbor(forward: true) == .init(chatID: 2, storyID: 6, storyIndex: 1, storyCount: 3),
+                "the next poster's face didn't show its first unseen story",
+            )
+            _ = state.movePoster(forward: true)
+            _ = state.next()
+            try require(
+                state.neighbor(forward: true) == .init(chatID: 3, storyID: nil, storyIndex: 0, storyCount: 0),
+                "an unloaded poster's face",
+            )
+            _ = state.movePoster(forward: false)
+            try require(state.neighbor(forward: true)?.storyID == 7, "a poster's face didn't resume where it was left")
+        }
+
+        /// The cube's faces meet at the center half way through a turn, and a whole turn leaves a face just past
+        /// the screen's edge with Telegram's 40 pt gap.
+        private static func verifyCube() throws {
+            let width = CGFloat(390)
+            let sideAngle = StoryCubeGeometry.sideAngle(width: width, sideDistance: 40)
+            func projectedX(_ x: CGFloat, rotation: CGFloat) -> CGFloat {
+                let m = StoryCubeGeometry.transform(rotation: rotation, sideAngle: sideAngle, width: width)
+                return (x * m.m11 + m.m41) / (x * m.m14 + m.m44)
+            }
+            try require(
+                CATransform3DIsIdentity(StoryCubeGeometry.transform(rotation: 0, sideAngle: sideAngle, width: width)),
+                "a face at rest isn't flat",
+            )
+            try require(
+                abs(projectedX(-width / 2, rotation: 0.5)) < 0.5 && abs(projectedX(width / 2, rotation: -0.5)) < 0.5,
+                "faces don't meet half way through a turn",
+            )
+            try require(
+                abs(projectedX(-width / 2, rotation: 1) - width / 2) < 0.5
+                    && abs(projectedX(width / 2, rotation: 1) - width / 2 - 40) < 0.5,
+                "a whole turn doesn't leave the face past the edge with a 40 pt gap",
+            )
+            try require(abs(StoryCubeGeometry.rubberBand(300) - 100) < 0.01, "rubber band")
+            try require(
+                StoryCubeGeometry.springProgress(0) == 0 && StoryCubeGeometry.springProgress(1) == 1
+                    && StoryCubeGeometry.springProgress(0.5) > 0.97,
+                "spring curve",
             )
         }
     }

@@ -52,6 +52,15 @@ struct StoryViewerState: Equatable {
         case dismiss
     }
 
+    /// A poster beside the current one and the story it would open at, which the cube's side face shows.
+    struct Neighbor: Equatable {
+        let chatID: Int64
+        /// Nil while the poster's stories load.
+        let storyID: Int?
+        let storyIndex: Int
+        let storyCount: Int
+    }
+
     static let photoDuration: TimeInterval = 5
 
     private(set) var posters: [Poster]
@@ -107,6 +116,24 @@ struct StoryViewerState: Equatable {
         self.posters = posters
         self.posterIndex = index
         self.storyIndex = posters[index].entryIndex
+    }
+
+    func neighbor(forward: Bool) -> Neighbor? {
+        let index = posterIndex + (forward ? 1 : -1)
+        guard posters.indices.contains(index) else { return nil }
+        let poster = posters[index]
+        guard let storyIDs = poster.storyIDs else {
+            return Neighbor(chatID: poster.chatID, storyID: nil, storyIndex: 0, storyCount: 0)
+        }
+        // enterPoster's choice: where the poster was left, or its first unseen story.
+        let resume = resumeIndices[poster.chatID].flatMap { storyIDs.indices.contains($0) ? $0 : nil }
+        let storyIndex = resume ?? poster.entryIndex
+        return Neighbor(
+            chatID: poster.chatID,
+            storyID: storyIDs.indices.contains(storyIndex) ? storyIDs[storyIndex] : nil,
+            storyIndex: storyIndex,
+            storyCount: storyIDs.count,
+        )
     }
 
     mutating func setPaused(_ isPaused: Bool, for reason: PauseReason) {

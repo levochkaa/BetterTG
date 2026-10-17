@@ -2,6 +2,30 @@
 
 import UIKit
 
+// MARK: - StoryChromeLayout
+
+/// The story's header (StoryItemSetContainerComponent): the progress strip 8 pt from the top and sides, the 32 pt
+/// avatar with the title and time beside it, and the close button at the trailing edge. The viewer and the cube's
+/// side faces share it, so a turn lands on the same layout.
+enum StoryChromeLayout {
+    static let cornerRadius = CGFloat(12)
+    static let avatarFrame = CGRect(x: 12, y: 22, width: 32, height: 32)
+
+    static func progressFrame(in bounds: CGRect) -> CGRect {
+        CGRect(x: 8, y: 8, width: bounds.width - 16, height: 2)
+    }
+
+    static func closeFrame(in bounds: CGRect) -> CGRect {
+        CGRect(x: bounds.width - 48, y: 16, width: 44, height: 44)
+    }
+
+    static func textFrames(in _: CGRect, trailingLimit: CGFloat) -> (title: CGRect, subtitle: CGRect) {
+        let x = avatarFrame.maxX + 10
+        let width = max(0, trailingLimit - x - 4)
+        return (CGRect(x: x, y: 21, width: width, height: 18), CGRect(x: x, y: 39, width: width, height: 14))
+    }
+}
+
 // MARK: - StoryProgressStripView
 
 /// Telegram's story progress strip (MediaNavigationStripComponent): one 2 pt segment per story, 3 pt apart, white at
