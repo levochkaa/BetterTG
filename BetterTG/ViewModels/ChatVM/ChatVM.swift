@@ -4147,6 +4147,7 @@ import UIKit
                         .isLivePhotoEnabled && canSendLivePhotos
                         ? image.livePhotoVideoURL
                         : nil,
+                    livePhotoConversion: image.livePhotoConversion,
                     hasSpoiler: image.hasSpoiler,
                     showCaptionAboveMedia: showsCaptionAbove,
                     selfDestructType: selfDestructType,
@@ -4311,6 +4312,7 @@ import UIKit
         for url: URL,
         caption: FormattedText,
         livePhotoVideoURL: URL? = nil,
+        livePhotoConversion: String? = nil,
         hasSpoiler: Bool = false,
         showCaptionAboveMedia: Bool = false,
         selfDestructType: TDNativeMessageSelfDestructType? = nil,
@@ -4334,7 +4336,15 @@ import UIKit
                 thumbnail: input,
                 width: Int(dimensions.width),
             ),
-            video: livePhotoVideoURL.map { .inputFileLocal(InputFileLocal(path: $0.path)) },
+            // Telegram converts a Live Photo's motion while it uploads (LocalFileVideoMediaResource), so the motion
+            // goes as a generated file for `VideoSendGenerationCoordinator`.
+            video: livePhotoVideoURL.map {
+                .inputFileGenerated(InputFileGenerated(
+                    originalPath: $0.path(percentEncoded: false),
+                    conversion: livePhotoConversion ?? VideoSendPreset.medium.conversion,
+                    expectedSize: 0,
+                ))
+            },
             width: Int(dimensions.width),
         )
         return .inputMessagePhoto(

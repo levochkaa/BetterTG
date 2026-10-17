@@ -6631,6 +6631,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             request.assets,
             cropAdjustments: request.cropAdjustments,
             videoEdits: request.videoEdits,
+            livePhotoAssetIDs: request.livePhotoAssetIDs,
             highQualityPhotos: request.highQualityPhotos,
             spoilerAssetIDs: request.spoilerAssetIDs,
             selfDestructTimer: request.selfDestructTimer,

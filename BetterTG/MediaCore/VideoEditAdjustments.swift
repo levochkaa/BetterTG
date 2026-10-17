@@ -21,8 +21,9 @@ struct VideoEditAdjustments: Equatable {
     /// `sendAsGif`: the video goes without sound as a GIF.
     var sendsAsGIF = false
     /// `cropRect`, `cropOrientation`, `cropMirrored` and `cropLockedAspectRatio`, measured in the displayed
-    /// video's pixels; nil leaves the frame as it is. The straightening angle stays zero: Telegram's video crop has
-    /// no dial (`hasArbitraryRotation`).
+    /// video's pixels; nil leaves the frame as it is. The straightening angle stays zero for a video: Telegram's
+    /// video crop has no dial (`hasArbitraryRotation`). A Live Photo's motion takes the still's angle
+    /// (MediaEditorValues' `cropRotation` from the patched Live Photo adjustments).
     var crop: PhotoCropAdjustments?
     /// TGMediaEditingContext's `coverPositionForItem:`: the frame chosen as the cover, in seconds of the original;
     /// nil sends no cover. It is chosen only where Telegram offers it (`hasCoverButton`), and it changes neither the
@@ -68,10 +69,12 @@ extension VideoEditAdjustments {
     private static let cropPrefix = "crop="
     private static let turnPrefix = "turn="
     private static let mirrorFlag = "mirror"
+    private static let rotationPrefix = "rot="
 
     /// TDLib restarts an unfinished generation with its original path and conversion, so the conversion carries the
     /// edit after the preset's name: `bettertg-video-medium-v1;trim=1.500-9.250;gif`, and a crop as its rectangle
-    /// and frame size, quarter turns and mirroring: `crop=0.00,140.00,720.00,720.00,1280.00,720.00;turn=1;mirror`.
+    /// and frame size, quarter turns, mirroring and a Live Photo's straightening in radians:
+    /// `crop=0.00,140.00,720.00,720.00,1280.00,720.00;turn=1;mirror;rot=0.13963`.
     func conversion(for preset: VideoSendPreset) -> String {
         var parts = [preset.conversion]
         if let trimRange {
@@ -97,6 +100,9 @@ extension VideoEditAdjustments {
             if crop.isMirrored {
                 parts.append(Self.mirrorFlag)
             }
+            if abs(crop.rotation) > .ulpOfOne {
+                parts.append(Self.rotationPrefix + String(format: "%.5f", crop.rotation))
+            }
         }
         return parts.joined(separator: ";")
     }
@@ -109,6 +115,7 @@ extension VideoEditAdjustments {
         var edit = VideoEditAdjustments()
         var orientation = PhotoCropOrientation.up
         var isMirrored = false
+        var rotation: CGFloat = 0
         for part in parts.dropFirst() {
             if part == gifFlag {
                 edit.sendsAsGIF = true
@@ -129,15 +136,21 @@ extension VideoEditAdjustments {
                       let turn = PhotoCropOrientation(rawValue: rawValue)
                 else { return nil }
                 orientation = turn
+            } else if part.hasPrefix(rotationPrefix) {
+                guard let value = Double(part.dropFirst(rotationPrefix.count)),
+                      abs(value) <= Double(PhotoCropAdjustments.maximumRotation) + 0.001
+                else { return nil }
+                rotation = CGFloat(value)
             } else {
                 return nil
             }
         }
-        if edit.crop == nil, orientation != .up || isMirrored {
+        if edit.crop == nil, orientation != .up || isMirrored || rotation != 0 {
             return nil
         }
         edit.crop?.orientation = orientation
         edit.crop?.isMirrored = isMirrored
+        edit.crop?.rotation = rotation
         return (preset, edit.isDefault ? nil : edit)
     }
 }
@@ -145,9 +158,10 @@ extension VideoEditAdjustments {
 // MARK: - PhotoCropAdjustments + Video
 
 extension PhotoCropAdjustments {
-    /// TGMediaVideoConverter's `CGRectIntegral(cropRect)` inside the frame, or the whole frame for an empty crop.
+    /// TGMediaVideoConverter's `CGRectIntegral(cropRect)` inside the frame, straightened for a Live Photo's motion,
+    /// or the whole frame for an empty crop.
     var videoCropRect: CGRect {
-        let frame = CGRect(origin: .zero, size: originalSize)
+        let frame = CGRect(origin: .zero, size: rotatedContentSize)
         let rect = cropRect.standardized.integral.intersection(frame)
         guard !rect.isNull, rect.width >= 1, rect.height >= 1 else { return frame }
         return rect
@@ -163,23 +177,32 @@ extension PhotoCropAdjustments {
     func videoCrop(inFrameOf size: CGSize) -> PhotoCropAdjustments {
         guard size.width > 0, size.height > 0 else { return self }
         var result = scaled(to: size)
-        let frame = CGRect(origin: .zero, size: size)
+        let frame = CGRect(origin: .zero, size: result.rotatedContentSize)
         let rect = result.cropRect.standardized.intersection(frame)
         result.cropRect = rect.isNull || rect.width < 1 || rect.height < 1 ? frame : rect
         return result
     }
 
     /// TGMediaVideoConverter's layer transform (`TGVideoTransformForOrientation` then `TGVideoTransformForCrop`):
-    /// the displayed frame, `originalSize` with its origin at the top left, mirrored, cut to `videoCropRect`,
-    /// turned a quarter at a time about the crop's center, and scaled to fill `renderSize`. The crop is measured in
-    /// the mirrored frame, as the crop view shows it.
+    /// the displayed frame, `originalSize` with its origin at the top left, mirrored, straightened about its center
+    /// into `rotatedContentSize` as `TGPhotoEditorCrop` draws a photo, cut to `videoCropRect`, turned a quarter at
+    /// a time about the crop's center, and scaled to fill `renderSize`. The crop is measured in the mirrored frame,
+    /// as the crop view shows it.
     func videoTransform(renderSize: CGSize) -> CGAffineTransform {
         let rect = videoCropRect
         let turned = videoCroppedSize
         let mirroring = isMirrored
             ? CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: originalSize.width, ty: 0)
             : .identity
+        var straightening = CGAffineTransform.identity
+        if abs(rotation) > .ulpOfOne {
+            let content = rotatedContentSize
+            straightening = CGAffineTransform(translationX: -originalSize.width / 2, y: -originalSize.height / 2)
+                .concatenating(CGAffineTransform(rotationAngle: rotation))
+                .concatenating(CGAffineTransform(translationX: content.width / 2, y: content.height / 2))
+        }
         return mirroring
+            .concatenating(straightening)
             .concatenating(CGAffineTransform(translationX: -rect.midX, y: -rect.midY))
             .concatenating(orientation.quarterTurn)
             .concatenating(CGAffineTransform(translationX: turned.width / 2, y: turned.height / 2))
@@ -262,5 +285,20 @@ extension SelectedVideo {
     var estimatedSize: Int64 {
         guard sendsAsGIF else { return preset.estimatedSize(duration: sentDuration, hasAudio: hasAudio) }
         return Int64(Double(VideoEditAdjustments.animationVideoBitrateKbps * 1000 / 8) * max(0, sentDuration))
+    }
+}
+
+// MARK: - SelectedImage + Live Photo
+
+extension SelectedImage {
+    /// The conversion of a Live Photo's motion, which TDLib hands back to `VideoSendGenerationCoordinator`.
+    /// LegacyMediaPickers converts the motion at CompressedMedium with its sound, and an edited still gives it the
+    /// still's crop, quarter turns, straightening and mirroring (`TGMediaAssetsPatchedLivePhotoAdjustments`).
+    var livePhotoConversion: String {
+        var edit = VideoEditAdjustments()
+        if let livePhotoCrop, !livePhotoCrop.hasDefaultCropping {
+            edit.crop = livePhotoCrop
+        }
+        return edit.conversion(for: .medium)
     }
 }

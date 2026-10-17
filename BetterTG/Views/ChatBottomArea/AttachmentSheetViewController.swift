@@ -108,6 +108,8 @@ struct AttachmentMediaSendRequest {
     var cropAdjustments = [String: PhotoCropAdjustments]()
     /// TGMediaEditingContext's trims and mutes of the picked videos, by asset.
     var videoEdits = [String: VideoEditAdjustments]()
+    /// The picked Live Photos that go live (`TGMediaAssetsResolvedLivePhotoMode`'s Live); the others go as stills.
+    var livePhotoAssetIDs = Set<String>()
     let mode: ComposerMediaSendMode
     let timing: Timing
     let highQualityPhotos: Bool

@@ -5,10 +5,10 @@ import UIKit
 
 /// Reads the attachment sheet's picked library items into composer items in pick order, as
 /// `legacyAssetPickerItemGenerator` reads Telegram's `TGMediaAsset`s: a photo's current version scaled to 1280 px, or
-/// 2560 px when sent in high quality (`LegacyMediaPickers`' `forceHd`), a Live Photo with its paired motion, and a
-/// video as the app's copy of its current file. Items keep the picker's spoiler, timer and video quality, the
-/// quality capped at each video's own size, and the editor's crop or trim and mute. Items that can't be read, such
-/// as an iCloud original while offline, are left out.
+/// 2560 px when sent in high quality (`LegacyMediaPickers`' `forceHd`), a Live Photo as its still unless the sheet
+/// sends it live, then with its paired motion, and a video as the app's copy of its current file. Items keep the
+/// picker's spoiler, timer and video quality, the quality capped at each video's own size, and the editor's crop or
+/// trim and mute. Items that can't be read, such as an iCloud original while offline, are left out.
 enum PhotoAssetSelectionLoader {
     /// Library reads running at once, so a pick of a hundred items doesn't decode them all together.
     private static let concurrentLoads = 4
@@ -18,6 +18,7 @@ enum PhotoAssetSelectionLoader {
         _ assets: [PHAsset],
         cropAdjustments: [String: PhotoCropAdjustments] = [:],
         videoEdits: [String: VideoEditAdjustments] = [:],
+        livePhotoAssetIDs: Set<String> = [],
         highQualityPhotos: Bool,
         spoilerAssetIDs: Set<String> = [],
         selfDestructTimer: MediaSelfDestructTimer? = nil,
@@ -42,6 +43,7 @@ enum PhotoAssetSelectionLoader {
                     maximumSide: maximumSide,
                     crop: cropAdjustments[asset.localIdentifier],
                     videoEdit: videoEdits[asset.localIdentifier],
+                    sendsLive: livePhotoAssetIDs.contains(asset.localIdentifier),
                 ) { image in
                     if var image {
                         image.hasSpoiler = hasSpoiler
@@ -68,20 +70,18 @@ enum PhotoAssetSelectionLoader {
         maximumSide: Int,
         crop: PhotoCropAdjustments?,
         videoEdit: VideoEditAdjustments?,
+        sendsLive: Bool,
         completion: @escaping (SelectedImage?) -> Void,
     ) {
         switch asset.mediaType {
         case .video:
             loadVideo(asset, edit: videoEdit, completion: completion)
-        case .image where crop != nil:
-            // An edited photo goes as the crop editor left it (TGPhotoEditorCrop), a Live Photo as its still.
-            loadPhoto(asset, maximumSide: maximumSide, crop: crop, completion: completion)
+        case .image where sendsLive && asset.mediaSubtypes.contains(.photoLive):
+            loadLivePhoto(asset, maximumSide: maximumSide, crop: crop, completion: completion)
         case .image:
-            if asset.mediaSubtypes.contains(.photoLive) {
-                loadLivePhoto(asset, maximumSide: maximumSide, completion: completion)
-            } else {
-                loadPhoto(asset, maximumSide: maximumSide, completion: completion)
-            }
+            // An edited photo goes as the editor left it (TGPhotoEditorCrop), and a Live Photo whose mode is Live
+            // Off as its still (`TGMediaAssetsResolvedLivePhotoMode`).
+            loadPhoto(asset, maximumSide: maximumSide, crop: crop, completion: completion)
         default:
             completion(nil)
         }
@@ -115,21 +115,23 @@ enum PhotoAssetSelectionLoader {
         }
     }
 
-    /// The still as a photo, with the paired motion the composer can send as a Live Photo. Without readable motion
-    /// the still goes alone.
+    /// TGMediaAssetsController's Live mode: the still as a photo, edited as the editor left it, with the paired
+    /// motion the composer sends as a Live Photo. The motion goes as the library keeps it, and TDLib converts it with
+    /// the still's crop when it uploads (`livePhotoConversion`). Without readable motion the still goes alone.
     private static func loadLivePhoto(
         _ asset: PHAsset,
         maximumSide: Int,
+        crop: PhotoCropAdjustments?,
         completion: @escaping (SelectedImage?) -> Void,
     ) {
         let resources = PHAssetResource.assetResources(for: asset)
         guard let motion = resources.first(where: { $0.type == .fullSizePairedVideo })
             ?? resources.first(where: { $0.type == .pairedVideo })
         else {
-            loadPhoto(asset, maximumSide: maximumSide, completion: completion)
+            loadPhoto(asset, maximumSide: maximumSide, crop: crop, completion: completion)
             return
         }
-        loadPhoto(asset, maximumSide: maximumSide) { image in
+        loadPhoto(asset, maximumSide: maximumSide, crop: crop) { image in
             guard let image, let motionURL = try? SelectedDocumentFileStore.makeFileURL(named: "motion.mov") else {
                 completion(image)
                 return
@@ -143,6 +145,7 @@ enum PhotoAssetSelectionLoader {
                     try? FileManager.default.removeItem(at: motionURL)
                 } else {
                     selected.livePhotoVideoURL = motionURL
+                    selected.livePhotoCrop = crop
                 }
                 completion(selected)
             }

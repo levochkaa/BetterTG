@@ -52,6 +52,8 @@ struct SelectedImage: Identifiable, Equatable, @unchecked Sendable {
     let url: URL
     var livePhotoVideoURL: URL?
     var isLivePhotoEnabled = true
+    /// The still's crop, which the Live Photo's motion is converted with (`livePhotoConversion`).
+    var livePhotoCrop: PhotoCropAdjustments?
     var video: SelectedVideo?
     /// Telegram's Hide With Spoiler for this item (`hasSpoiler`).
     var hasSpoiler = false
