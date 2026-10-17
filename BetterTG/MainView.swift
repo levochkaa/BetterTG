@@ -1244,6 +1244,15 @@ final class FolderPickerView: UIView {
         }
     }
 
+    /// Whether segments give up their padding to fit the capsule before it scrolls. The composer's media tabs fit
+    /// beside the globe and backspace keys, as Telegram's keyboard tabs do; the chat list's folders scroll instead.
+    var compressesSegmentsToFit = false {
+        didSet {
+            updateResolvedWidths()
+            layoutSelection(animated: false)
+        }
+    }
+
     // MARK: Private
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
@@ -1563,7 +1572,7 @@ final class FolderPickerView: UIView {
         guard !buttons.isEmpty, controlContainer.bounds.width > 0 else { return }
         let naturalTotal = naturalSegmentWidths.reduce(0, +)
         let availableWidth = controlContainer.bounds.width
-        let widths: [CGFloat]
+        var widths = naturalSegmentWidths
         if naturalTotal <= availableWidth {
             let regularWidth = floor(availableWidth / CGFloat(buttons.count))
             widths = buttons.indices.map { index in
@@ -1571,8 +1580,8 @@ final class FolderPickerView: UIView {
                     ? availableWidth - regularWidth * CGFloat(buttons.count - 1)
                     : regularWidth
             }
-        } else {
-            widths = naturalSegmentWidths
+        } else if compressesSegmentsToFit {
+            widths = compressedSegmentWidths(availableWidth: availableWidth)
         }
         guard widths != resolvedSegmentWidths else { return }
         resolvedSegmentWidths = widths
@@ -1585,6 +1594,23 @@ final class FolderPickerView: UIView {
         stripWidthConstraint.constant = widths.reduce(0, +)
         controlContainer.alwaysBounceHorizontal = widths.reduce(0, +) > availableWidth + 0.5
         controlContainer.layoutIfNeeded()
+    }
+
+    /// The natural widths shrunk toward the title with 8 pt a side, each in proportion to the padding it gives up;
+    /// when even that doesn't fit, the compact widths scroll.
+    private func compressedSegmentWidths(availableWidth: CGFloat) -> [CGFloat] {
+        let compact = items.indices.map { index in
+            ceil(FolderButton.contentWidth(title: items[index].title, unreadCount: unreadStates[index].count)) + 16
+        }
+        let compactTotal = compact.reduce(0, +)
+        let naturalTotal = naturalSegmentWidths.reduce(0, +)
+        guard compactTotal < availableWidth, naturalTotal > compactTotal else { return compact }
+        let ratio = (availableWidth - compactTotal) / (naturalTotal - compactTotal)
+        var widths = zip(compact, naturalSegmentWidths).map { compact, natural in
+            floor(compact + (natural - compact) * ratio)
+        }
+        widths[widths.count - 1] += availableWidth - widths.reduce(0, +)
+        return widths
     }
 
     private func segmentFrame(at index: Int) -> CGRect {
@@ -1869,8 +1895,9 @@ private final class FolderButton: UIButton {
         unreadHasUnmuted = unreadState.hasUnmuted
 
         let wasHidden = unreadBadgeView.isHidden
-        unreadBadgeView.text = "\(unreadState.count)"
         let shouldHide = unreadState.count == 0
+        // A badge fading out keeps its last count, and a folder without unread messages has no "0" to read.
+        if !shouldHide { unreadBadgeView.text = "\(unreadState.count)" }
         updateAppearance(titleColor: resolvedTitleColor)
 
         guard animated, wasHidden != shouldHide else {
@@ -1926,6 +1953,8 @@ private final class FolderButton: UIButton {
         unreadBadgeView.font = Self.badgeFont
         unreadBadgeView.isHidden = true
         unreadBadgeView.alpha = 0
+        // The button's accessibility value reads the count.
+        unreadBadgeView.accessibilityElementsHidden = true
 
         contentStack.addArrangedSubview(folderTitleLabel)
         contentStack.addArrangedSubview(unreadBadgeView)
