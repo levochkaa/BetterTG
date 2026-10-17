@@ -42,7 +42,7 @@ enum PhotoCropOrientation: Int {
 
 /// A photo's crop as TGMediaEditingContext keeps it (PGPhotoEditorValues): the crop rectangle inside the bounding box
 /// of the straightened photo, in `originalSize` units, the quarter turns, the straightening angle, the mirroring and
-/// the locked aspect ratio, with the photo tools applied over the crop.
+/// the locked aspect ratio, with the photo tools applied over the crop and the painting over them.
 struct PhotoCropAdjustments: Equatable {
     /// TGPhotoCropScrollView's `maximumZoomScale`.
     static let maximumZoomScale: CGFloat = 10
@@ -63,6 +63,13 @@ struct PhotoCropAdjustments: Equatable {
     var lockedAspectRatio: CGFloat = 0
     /// PGPhotoEditorValues' `toolValues`.
     var tools = PhotoToolValues()
+    /// PGPhotoEditorValues' `paintingData`: the strokes and entities over the whole photo.
+    var drawing: PhotoDrawing?
+
+    /// Whether the painting adds anything.
+    var hasDrawing: Bool {
+        !(drawing?.isEmpty ?? true)
+    }
 
     /// PGPhotoEditor's `hasDefaultCropping`: the whole photo, upright, straight and unmirrored.
     var hasDefaultCropping: Bool {
@@ -150,6 +157,7 @@ struct PhotoCropAdjustments: Equatable {
         result.isMirrored = isMirrored
         result.lockedAspectRatio = lockedAspectRatio
         result.tools = tools
+        result.drawing = drawing
         return result
     }
 
@@ -265,8 +273,9 @@ struct PhotoCropAdjustments: Equatable {
         }
     }
 
-    /// TGPhotoEditorController's result: the crop (`render`), then the tools over it. `fullPixelSize` is the full
-    /// photo's upright size for the grain's scale, `sourcePixelSize` when unknown. Without Metal the crop goes alone.
+    /// TGPhotoEditorController's result: the crop (`render`), then the tools over it, then the painting.
+    /// `fullPixelSize` is the full photo's upright size for the grain's scale, `sourcePixelSize` when unknown.
+    /// Without Metal the crop goes without its tools.
     func renderEdited(
         _ image: UIImage,
         sourcePixelSize: CGSize,
@@ -276,13 +285,30 @@ struct PhotoCropAdjustments: Equatable {
         guard let cropped = render(image, sourcePixelSize: sourcePixelSize, maximumSide: maximumSide) else {
             return nil
         }
-        guard !tools.isDefault, let croppedImage = cropped.cgImage else { return cropped }
-        let grainSize = toolsGrainSize(fullPixelSize: fullPixelSize ?? sourcePixelSize)
-        guard let rendered = PhotoToolsRenderer.shared.render(croppedImage, tools: tools, grainSize: grainSize) else {
-            log("Sending the photo without its tools")
-            return cropped
+        var edited = cropped
+        if !tools.isDefault, let croppedImage = cropped.cgImage {
+            let grainSize = toolsGrainSize(fullPixelSize: fullPixelSize ?? sourcePixelSize)
+            if let rendered = PhotoToolsRenderer.shared.render(croppedImage, tools: tools, grainSize: grainSize) {
+                edited = UIImage(cgImage: rendered)
+            } else {
+                log("Sending the photo without its tools")
+            }
         }
-        return UIImage(cgImage: rendered)
+        return paint(edited)
+    }
+
+    /// The painting over a rendered crop, unmirrored like TGPhotoEditorVideoExtCrop draws it.
+    func paint(_ image: UIImage) -> UIImage {
+        guard let drawing, !drawing.isEmpty, let cgImage = image.cgImage else { return image }
+        let transform = paintingTransform(
+            paintingSize: drawing.size,
+            outputSize: CGSize(width: cgImage.width, height: cgImage.height),
+        )
+        guard let painted = drawing.composited(over: cgImage, transform: transform) else {
+            log("Sending the photo without its painting")
+            return image
+        }
+        return UIImage(cgImage: painted)
     }
 }
 
@@ -309,7 +335,7 @@ func writeImage(data: Data, cropping adjustments: PhotoCropAdjustments, maximumS
         : CGSize(width: width, height: height)
     let crop = adjustments.cropRect.standardized
     guard crop.width > 0, crop.height > 0, adjustments.originalSize.width > 0 else { return nil }
-    let renderSide = adjustments.tools.isDefault
+    let renderSide = adjustments.tools.isDefault && !adjustments.hasDrawing
         ? maximumSide
         : max(maximumSide, PhotoCropAdjustments.toolsResultSide)
     let pixelsPerUnit = uprightSize.width / adjustments.originalSize.width
