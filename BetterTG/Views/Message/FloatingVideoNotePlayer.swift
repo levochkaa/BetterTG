@@ -144,6 +144,17 @@ import UIKit
         player.pause()
     }
 
+    /// Pauses or resumes the round video in the circle, as a tap on it does.
+    func togglePlayback() {
+        guard item != nil else { return }
+        if player.isPlaybackRequested {
+            player.pause()
+        } else {
+            backend?.takePlayback()
+            player.play()
+        }
+    }
+
     private func observe(_ backend: VideoNotePlaybackBackend, item: VideoNotePlaybackView.PlaylistItem) {
         bindings.removeAll()
         let accepts: (TdUpdateSource) -> Bool = { [weak self] source in
@@ -182,16 +193,6 @@ import UIKit
             tearDown(animated: true)
         default:
             break
-        }
-    }
-
-    private func togglePlayback() {
-        guard item != nil else { return }
-        if player.isPlaybackRequested {
-            player.pause()
-        } else {
-            backend?.takePlayback()
-            player.play()
         }
     }
 

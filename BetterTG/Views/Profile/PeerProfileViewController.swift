@@ -886,8 +886,11 @@ ClientRestorableNavigationEntry {
         case .messageVoiceNote(let value):
             openSharedFile(value.voiceNote.voice, of: message, isAudio: true, duration: value.voiceNote.duration)
             return true
-        case .messageVideoNote:
-            return false
+        case .messageVideoNote(let value):
+            // A self-destructing round video plays only in its chat.
+            guard !value.isSecret else { return false }
+            openSharedFile(value.videoNote.video, of: message, isAudio: true, duration: value.videoNote.duration)
+            return true
         default:
             guard let link = SharedLink(message: message) else { return false }
             open(link)
@@ -932,6 +935,10 @@ ClientRestorableNavigationEntry {
     }
 
     private func finishOpening(path: String, of message: Message, isAudio: Bool, duration: Int) {
+        if case .messageVideoNote(let value) = message.content {
+            playSharedVideoNote(path: path, of: message, content: value)
+            return
+        }
         if isAudio {
             playSharedAudio(path: path, of: message, duration: duration)
             return
@@ -983,6 +990,39 @@ ClientRestorableNavigationEntry {
         default:
             break
         }
+    }
+
+    /// PeerInfoScreen plays a round video through the voice playlist (openChatMessage's .voiceOrInstantVideo tag);
+    /// with no bubble on screen it shows in the floating circle (OverlayInstantVideoNode), and an incoming one is
+    /// marked viewed as PeerMessagesMediaPlaylist's onItemPlaybackStarted does. A second tap pauses or resumes it.
+    private func playSharedVideoNote(path: String, of message: Message, content: MessageVideoNote) {
+        guard contextIsCurrent,
+              let backend = VideoNotePlaybackBackend.captured(client: client, context: mediaPlaybackContext)
+        else { return }
+        let item = VideoNotePlaybackView.PlaylistItem(
+            source: backend.source, chatID: message.chatId, messageID: message.id,
+        )
+        let player = FloatingVideoNotePlayer.shared
+        if player.holds(item) {
+            player.togglePlayback()
+            return
+        }
+        let videoNote = content.videoNote
+        let thumbnail = videoNote.thumbnail.flatMap { thumbnail in
+            thumbnail.file.local.isDownloadingCompleted ? UIImage(contentsOfFile: thumbnail.file.local.path) : nil
+        } ?? videoNote.minithumbnail.flatMap { UIImage(data: $0.data) }
+        backend.takePlayback()
+        player.adopt(.init(
+            item: item,
+            url: URL(filePath: path),
+            time: 0,
+            duration: Double(videoNote.duration),
+            thumbnail: thumbnail,
+            backend: backend,
+        ))
+        guard !message.isOutgoing, !content.isViewed else { return }
+        let client = client
+        Task { _ = try? await client.openMessageContent(chatId: message.chatId, messageId: message.id) }
     }
 
     /// "Voice Message" in private chats and channels; a group's title in groups, as the chat's playback header has it.
