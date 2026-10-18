@@ -13,7 +13,8 @@
     ///   turns on to the neighbour, short of it it springs back to Bob;
     /// - `areas [location|venue|message|link|weather|reaction]` taps that area on Bob's story (location by
     ///   default) and opens its tooltip; weather takes the tap without one, and the reaction becomes the story's;
-    /// - `menu` opens the More menu as one of Bob's contacts sees it;
+    /// - `menu` opens the More menu as one of Bob's contacts sees it, and `menu-video` on a video story, where it
+    ///   starts with Playback Speed;
     /// - `reply [edit|like-options|send]` checks the reply panel under Bob's story and likes it and takes the like
     ///   back, then edits the empty field with the reactions over it (edit, by default), holds the like button for
     ///   the other reactions (like-options), or sends a reply (send).
@@ -25,7 +26,7 @@
         private enum Mode {
             case cube(fraction: CGFloat, commits: Bool)
             case areas(kind: String)
-            case menu
+            case menu(video: Bool)
             case reply(step: String)
         }
 
@@ -90,7 +91,15 @@
                 }
                 let fixture: Fixture
                 do {
-                    fixture = try makeFixture()
+                    var videoURL: URL?
+                    if case .menu(video: true) = mode {
+                        videoURL = try await ProbeVideo.make(
+                            seconds: 4,
+                            frameRate: 10,
+                            named: "bettertg-story-probe.mov",
+                        )
+                    }
+                    fixture = try makeFixture(videoURL: videoURL)
                 } catch {
                     record("Story viewer UI probe failed: \(error)")
                     return
@@ -117,8 +126,8 @@
                     await runCube(viewer, fraction: fraction, commits: commits)
                 case .areas(let kind):
                     await runAreas(viewer, kind: kind)
-                case .menu:
-                    await runMenu(viewer)
+                case .menu(let video):
+                    await runMenu(viewer, video: video)
                 case .reply(let step):
                     await runReply(viewer, step: step)
                 }
@@ -140,11 +149,12 @@
             canBeEdited: Bool = false,
             canBeReplied: Bool = true,
             content: TDNativeStoryContent? = nil,
+            caption: String = "",
         ) -> Story {
             let size = PhotoSize(type: "y", photo: file, width: 720, height: 1280, progressiveSizes: [])
             let photo = Photo(hasStickers: false, minithumbnail: nil, sizes: [size])
             let content = content ?? TDNativeStoryContent.storyContentPhoto(TDNativeStoryContentPhoto(photo: photo))
-            let caption = FormattedText(text: "", entities: [])
+            let caption = FormattedText(text: caption, entities: [])
             return Story(
                 id: id,
                 posterChatId: chatID,
@@ -211,8 +221,8 @@
                 return .cube(fraction: min(0.95, max(-0.95, fraction)), commits: name == "cube-commit")
             case "areas":
                 return .areas(kind: value ?? "location")
-            case "menu":
-                return .menu
+            case "menu", "menu-video":
+                return .menu(video: name == "menu-video")
             case "reply":
                 let step = value ?? "edit"
                 return ["edit", "like-options", "send"].contains(step) ? .reply(step: step) : nil
@@ -287,7 +297,7 @@
 
         /// The More button opens Telegram's menu with a contact's items in performOtherMoreAction's order, Share left
         /// to the reply panel's button.
-        private static func runMenu(_ viewer: StoryViewerController) async {
+        private static func runMenu(_ viewer: StoryViewerController, video: Bool) async {
             viewer.probeOpenMoreMenu()
             try? await Task.sleep(for: .milliseconds(800))
             let sharesFromPanel = viewer.probeReplyConfiguration?.showsForward == true
@@ -295,12 +305,12 @@
                 StoryMoreMenu.items(story: $0, poster: menuPoster, sharesFromPanel: sharesFromPanel)
             } ?? []
             let identifiers = items.map(StoryMoreMenu.identifier(of:))
-            let expected = ["notify-off", "copy-link", "hide", "save", "report"]
+            let expected = (video ? ["speed"] : []) + ["notify-off", "copy-link", "hide", "save", "report"]
             let shows = viewer.probeShowsMoreMenu
             let passes = shows && identifiers == expected
             record(
-                "Story viewer UI probe menu \(passes ? "passed" : "failed"): shown=\(shows) "
-                    + "items=\(identifiers.joined(separator: ","))",
+                "Story viewer UI probe \(video ? "menu-video" : "menu") \(passes ? "passed" : "failed"): "
+                    + "shown=\(shows) items=\(identifiers.joined(separator: ","))",
             )
         }
 
@@ -377,7 +387,7 @@
 
         /// Alice's two stories, Bob's three with the second, his first unseen, carrying the areas, and Carol's one,
         /// each a generated picture named after its poster and place.
-        private static func makeFixture() throws -> Fixture {
+        private static func makeFixture(videoURL: URL? = nil) throws -> Fixture {
             let now = Int(Foundation.Date().timeIntervalSince1970)
             let run = UUID().uuidString
             let posters: [(chatID: Int64, title: String, colors: [UIColor], storyIDs: [Int], maxRead: Int, age: Int)] =
@@ -400,12 +410,35 @@
                         areas: storyAreas,
                     )
                     let file = photoFile(id: fileIDBase + storyID, path: url.path, uniqueID: "\(run)-\(storyID)")
+                    // menu-video's story plays the movie from its local file, as a downloaded story video does.
+                    let content = videoURL.flatMap { videoURL -> TDNativeStoryContent? in
+                        guard storyID == areaStoryID else { return nil }
+                        let movie = photoFile(
+                            id: fileIDBase + 900 + storyID,
+                            path: videoURL.path,
+                            uniqueID: "\(run)-video-\(storyID)",
+                        )
+                        let video = TDNativeStoryVideo(
+                            duration: 4,
+                            width: Int(ProbeVideo.size.width),
+                            height: Int(ProbeVideo.size.height),
+                            hasStickers: false,
+                            isAnimation: false,
+                            minithumbnail: nil,
+                            thumbnail: nil,
+                            preloadPrefixSize: 0,
+                            coverFrameTimestamp: 0,
+                            video: movie,
+                        )
+                        return .storyContentVideo(TDNativeStoryContentVideo(video: video, alternativeVideo: nil))
+                    }
                     fixture.stories.append(makeStory(
                         id: storyID,
                         chatID: poster.chatID,
                         date: date,
                         file: file,
                         areas: storyAreas.map(\.area),
+                        content: content,
                     ))
                     infos.append(TDNativeStoryInfo(
                         storyId: storyID,

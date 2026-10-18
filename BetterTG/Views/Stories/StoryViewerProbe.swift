@@ -35,7 +35,8 @@ import UIKit
                     + "timestamps=true; cube-neighbors/resume/unloaded=true; "
                     + "cube-rest-flat/half-turn-edges-meet/whole-turn-gap-40/rubber-band/spring=true; "
                     + "area-placement/rotated-hit/side-inset/reaction-skipped/tooltip-source/temperature=true; "
-                    + "menu-contact/muted-hidden/non-contact/service/bot/private/protected/own/panel-share=true; "
+                    + "menu-contact/muted-hidden/non-contact/service/bot/private/protected/own/panel-share/speed/"
+                    + "translate=true; "
                     + "reply-user/private/closed/service/bot/self/group/read-only-group/channel/live/reaction-text=true"
             } catch {
                 result = "Story viewer probe failed: \(error)"
@@ -424,6 +425,50 @@ import UIKit
                 StoryMoreMenu.items(story: open, poster: poster(contact), sharesFromPanel: true)
                     .map(StoryMoreMenu.identifier(of:)) == ["notify-off", "copy-link", "hide", "save", "report"],
                 "Share stayed in the menu beside the reply panel's share button",
+            )
+            let size = PhotoSize(type: "y", photo: file, width: 720, height: 1280, progressiveSizes: [])
+            let video = TDNativeStoryVideo(
+                duration: 5,
+                width: 720,
+                height: 1280,
+                hasStickers: false,
+                isAnimation: false,
+                minithumbnail: nil,
+                thumbnail: nil,
+                preloadPrefixSize: 0,
+                coverFrameTimestamp: 0,
+                video: size.photo,
+            )
+            let videoStory = StoryViewerUIProbe.makeStory(
+                id: 5,
+                chatID: 1,
+                date: 0,
+                file: file,
+                areas: [],
+                content: .storyContentVideo(TDNativeStoryContentVideo(video: video, alternativeVideo: nil)),
+            )
+            let speedItems = StoryMoreMenu.items(story: videoStory, poster: poster(stranger), baseRate: 1.5)
+            try require(
+                speedItems.first == .speed(rate: 1.5) && StoryMoreMenu.speedTitle(1.5) == "1.5x"
+                    && StoryMoreMenu.speedTitle(1) == L10n.telegram("PlaybackSpeed.Normal"),
+                "a video story's speed: \(items(videoStory, poster(stranger)))",
+            )
+            let captioned = StoryViewerUIProbe.makeStory(
+                id: 6,
+                chatID: 1,
+                date: 0,
+                file: file,
+                areas: [],
+                caption: "Hola, ¿cómo estás?",
+            )
+            let translated = StoryMoreMenu.items(story: captioned, poster: poster(contact)) { _ in "es" }
+                .map(StoryMoreMenu.identifier(of:))
+            let untranslated = StoryMoreMenu.items(story: captioned, poster: poster(contact)) { _ in nil }
+                .map(StoryMoreMenu.identifier(of:))
+            try require(
+                translated.suffix(2) == ["translate", "report"] && !untranslated.contains("translate")
+                    && !items(open, poster(contact)).contains("translate"),
+                "a caption to translate: \(translated)",
             )
             try require(
                 StoryMoreMenu.showsButton(for: open) && !StoryMoreMenu.showsButton(for: own)

@@ -114,6 +114,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private var replyReactionsMode: ReplyReactionsMode?
     /// How far the keyboard covers the viewer.
     private var keyboardOverlap = CGFloat(0)
+    /// storyItemSharedState.baseRate: the videos' speed while the viewer is open.
+    private var baseRate = 1.0
     /// Story replies sent from the viewer, by the id sendMessage returned, under the id TDLib sent them with.
     private var sentReplyIDs = [Int64: Int64]()
     private var areaTooltip: StoryAreaTooltipView?
@@ -806,6 +808,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     /// A video streams through the gallery's TDLib range loader, or plays from disk once downloaded.
     private func startVideo(_ video: StoryVideo, origin: TDImageOrigin?) {
         showsVideo = true
+        player.setRate(Float(baseRate))
         loadingIndicator.startAnimating()
         if let thumbnail = video.thumbnail {
             imageView.load(
@@ -1312,13 +1315,33 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private func presentMoreMenu(story: Story, poster: StoryMoreMenu.Poster) -> Bool {
         // The reply panel's share button stands in for the menu's Share, as in Telegram.
         let sharesFromPanel = !replyPanel.isHidden && replyPanel.configuration?.showsForward == true
-        let actions = StoryMoreMenu.items(story: story, poster: poster, sharesFromPanel: sharesFromPanel).map { item in
-            TelegramContextMenuAction(
+        let items = StoryMoreMenu.items(
+            story: story,
+            poster: poster,
+            sharesFromPanel: sharesFromPanel,
+            baseRate: baseRate,
+        )
+        var actions = items.map { item in
+            var children = [TelegramContextMenuAction]()
+            if case .speed(let current) = item {
+                // contextMenuSpeedItems: the speeds with a check on the current one.
+                children = StoryMoreMenu.speeds.map { rate in
+                    TelegramContextMenuAction(
+                        title: StoryMoreMenu.speedTitle(rate),
+                        image: abs(rate - current) < 0.01 ? UIImage(systemName: "checkmark") : UIImage(),
+                        handler: { [weak self] in self?.setBaseRate(rate) },
+                    )
+                }
+            }
+            return TelegramContextMenuAction(
                 title: StoryMoreMenu.title(of: item),
                 image: StoryMoreMenu.image(of: item),
+                children: children,
                 handler: { [weak self] in self?.performMoreItem(item, story: story, poster: poster) },
             )
         }
+        // A separator follows the speed, as in Telegram.
+        if case .speed = items.first, actions.count > 1 { actions[1].startsNewSection = true }
         return presentTelegramContextMenu(
             sourceView: moreButton,
             actions: actions,
@@ -1338,6 +1361,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         #endif
         guard session.isCurrent, !isClosing else { return }
         switch item {
+        case .speed:
+            break
         case .notify(let isMuted):
             toggleStoryNotifications(of: poster, wereMuted: isMuted)
         case .copyLink:
@@ -1348,9 +1373,26 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             setStoriesHidden(!isHidden, of: poster, offersUndo: true)
         case .save:
             save(story, poster: poster)
+        case .translate(let language):
+            MessageTranslationViewController.present(
+                text: story.caption,
+                sourceLanguage: language,
+                canCopy: true,
+                from: self,
+                onCopied: { [weak self] in self?.showMenuToast(L10n.telegram("Conversation.TextCopied")) },
+            )
         case .report:
             report(story)
         }
+    }
+
+    /// The speed picked under Playback Speed, for this video and the next ones while the viewer is open.
+    private func setBaseRate(_ rate: Double) {
+        #if DEBUG
+            if session.isOffline { probeMenuActionHandler?("speed \(rate)") }
+        #endif
+        baseRate = rate
+        player.setRate(Float(rate))
     }
 
     private func showMenuToast(_ text: String, undo: (() -> Void)? = nil) {

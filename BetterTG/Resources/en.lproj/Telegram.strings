@@ -2361,3 +2361,5 @@
 "Story.ToastViewInChat" = "View in Chat";
 "Story.SendReactionAsMessage" = "Send reaction as a private message";
 "Story.SendReactionAsGroupMessage" = "Send reaction as a message";
+"PlaybackSpeed.Title" = "Playback Speed";
+"PlaybackSpeed.Normal" = "Normal";

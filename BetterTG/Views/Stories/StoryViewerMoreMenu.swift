@@ -7,13 +7,17 @@ import UniformTypeIdentifiers
 
 // MARK: - StoryMoreMenu
 
-/// StoryItemSetContainerComponent.performOtherMoreAction: the More menu on someone else's story. A contact offers
-/// to notify about their stories, a public story with a username copies its link, a poster's stories hide to the
-/// archive and back, a forwardable story saves to the gallery (for Premium) and anyone but a service account can be
-/// reported. Telegram's playback speed, HD, stealth mode, statistics and translation are left out, and the footer's
-/// share button, which BetterTG has no footer for, joins the menu after Copy Link.
+/// StoryItemSetContainerComponent.performOtherMoreAction: the More menu on someone else's story. A video story
+/// starts with the playback speed, a contact offers to notify about their stories, a public story with a username
+/// copies its link, a poster's stories hide to the archive and back, a forwardable story saves to the gallery (for
+/// Premium), a caption in a language the user doesn't read translates, and anyone but a service account can be
+/// reported. Telegram's HD (TDLib offers stories in one quality), stealth mode (Premium) and statistics are left out.
+/// Where the reply panel has no share button, as under a channel's story, whose footer BetterTG doesn't have, Share
+/// joins the menu after Copy Link.
 enum StoryMoreMenu {
     enum Item: Equatable {
+        /// Playback Speed with the viewer's rate, and Telegram's speeds a level down.
+        case speed(rate: Double)
         /// togglePeerStoriesMuted: Notify About Stories while they're muted, Do Not Notify otherwise.
         case notify(isMuted: Bool)
         case copyLink
@@ -22,6 +26,8 @@ enum StoryMoreMenu {
         /// updatePeerStoriesHidden: Hide Stories moves them to the archive, Unhide Stories back.
         case archive(isHidden: Bool)
         case save
+        /// performTranslateTextAction: the caption's translation from its language.
+        case translate(language: String)
         case report
     }
 
@@ -49,6 +55,9 @@ enum StoryMoreMenu {
         let accountIsPremium: Bool
     }
 
+    /// speedList: Telegram's story speeds.
+    static let speeds: [Double] = [0.5, 1, 1.5, 2]
+
     /// EnginePeer.isService: Telegram's notifications, support and replies accounts and the verification codes bot.
     static let serviceUserIDs: Set<Int64> = [777_000, 333_000, 708_513, 1_271_266_957, 489_000]
 
@@ -67,11 +76,20 @@ enum StoryMoreMenu {
 
     /// The menu's items in performOtherMoreAction's order; a bot's previews have no menu.
     /// With sharesFromPanel set, the reply panel's share button stands in for Share, as in Telegram's menu.
-    static func items(story: Story, poster: Poster, sharesFromPanel: Bool = false) -> [Item] {
+    static func items(
+        story: Story,
+        poster: Poster,
+        sharesFromPanel: Bool = false,
+        baseRate: Double = 1,
+        translatableLanguage: (String) -> String? = MessageTranslation.translatableLanguage(of:),
+    ) -> [Item] {
         if case .user(isContact: _, isBot: true) = poster.kind { return [] }
         var isLive = false
         if case .storyContentLive = story.content { isLive = true }
         var items = [Item]()
+        if case .storyContentVideo = story.content {
+            items.append(.speed(rate: baseRate))
+        }
         if !poster.isService, case .user(isContact: true, isBot: _) = poster.kind {
             items.append(.notify(isMuted: poster.storiesMuted))
         }
@@ -96,14 +114,57 @@ enum StoryMoreMenu {
         if !isLive, story.canBeForwarded {
             items.append(.save)
         }
+        if !story.caption.text.isEmpty, let language = translatableLanguage(story.caption.text) {
+            items.append(.translate(language: language))
+        }
         if !poster.isService {
             items.append(.report)
         }
         return items
     }
 
+    /// The speed's name in speedList: Normal at 1x.
+    static func speedTitle(_ rate: Double) -> String {
+        if abs(rate - 1) < 0.01 { return L10n.telegram("PlaybackSpeed.Normal") }
+        return speedText(rate)
+    }
+
+    /// optionsRateImage: the rate in Telegram's rounded type inside the speed gauge.
+    static func speedImage(_ rate: Double) -> UIImage {
+        let size = CGSize(width: 24, height: 24)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in
+            let gauge = UIBezierPath(
+                arcCenter: CGPoint(x: 12, y: 12),
+                radius: 10.5,
+                startAngle: .pi * 0.75,
+                endAngle: .pi * 2.25,
+                clockwise: true,
+            )
+            gauge.lineWidth = 1.33
+            gauge.lineCapStyle = .round
+            UIColor.black.setStroke()
+            gauge.stroke()
+            let text = speedText(rate)
+            let base = UIFont.systemFont(ofSize: 10, weight: .semibold)
+            let font = base.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: 10) } ?? base
+            let kern: CGFloat = text.count >= 3 ? (text == "0.5x" ? -0.8 : -0.5) : 0
+            let string = NSAttributedString(
+                string: text,
+                attributes: [.font: font, .foregroundColor: UIColor.black, .kern: kern],
+            )
+            let bounds = string.boundingRect(with: size, options: [], context: nil)
+            string.draw(at: CGPoint(
+                x: floor((size.width - bounds.width) / 2),
+                y: floor((size.height - bounds.height) / 2),
+            ))
+        }
+        return image.withRenderingMode(.alwaysTemplate)
+    }
+
     static func title(of item: Item) -> String {
         switch item {
+        case .speed:
+            L10n.telegram("PlaybackSpeed.Title")
         case .notify(let isMuted):
             L10n.telegram(isMuted ? "StoryFeed.ContextNotifyOn" : "StoryFeed.ContextNotifyOff")
         case .copyLink:
@@ -114,6 +175,8 @@ enum StoryMoreMenu {
             L10n.telegram(isHidden ? "StoryFeed.ContextUnarchive" : "StoryFeed.ContextArchive")
         case .save:
             L10n.telegram("Story.Context.SaveToGallery")
+        case .translate:
+            L10n.telegram("Conversation.ContextMenuTranslate")
         case .report:
             L10n.telegram("Story.Context.Report")
         }
@@ -121,13 +184,16 @@ enum StoryMoreMenu {
 
     /// Telegram's Chat/Context Menu glyphs as their SF Symbols.
     static func image(of item: Item) -> UIImage? {
+        if case .speed(let rate) = item { return speedImage(rate) }
         let name =
             switch item {
+            case .speed: "gauge.with.needle"
             case .notify(let isMuted): isMuted ? "bell" : "bell.slash"
             case .copyLink: "link"
             case .share: "arrowshape.turn.up.right"
             case .archive(let isHidden): isHidden ? "tray.and.arrow.up" : "archivebox"
             case .save: "square.and.arrow.down"
+            case .translate: "translate"
             case .report: "exclamationmark.bubble"
             }
         return UIImage(systemName: name)
@@ -136,11 +202,13 @@ enum StoryMoreMenu {
     /// The probe's name for an item.
     static func identifier(of item: Item) -> String {
         switch item {
+        case .speed: "speed"
         case .notify(let isMuted): isMuted ? "notify-on" : "notify-off"
         case .copyLink: "copy-link"
         case .share: "share"
         case .archive(let isHidden): isHidden ? "unhide" : "hide"
         case .save: "save"
+        case .translate: "translate"
         case .report: "report"
         }
     }
@@ -228,6 +296,11 @@ enum StoryMoreMenu {
             options.uniformTypeIdentifier = isVideo ? UTType.mpeg4Movie.identifier : UTType.jpeg.identifier
             request.addResource(with: isVideo ? .video : .photo, fileURL: url, options: options)
         }
+    }
+
+    private static func speedText(_ rate: Double) -> String {
+        if abs(rate - rate.rounded()) < 0.01 { return "\(Int(rate.rounded()))x" }
+        return String(format: "%.1fx", rate)
     }
 
     /// resolvedAreStoriesMuted: the chat's own setting, else the private chats' default, and by default (TDLib's
