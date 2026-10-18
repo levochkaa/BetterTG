@@ -432,7 +432,7 @@ From `codex/parity-groups` (cherry-picked; build fix `12f1b2ce`).
 | G-11 | P3 | No chat history, topics, hide members toggles | fixed `8c775528` |
 | G-12 | P3 | Auto-delete missing from Edit | not a defect: Telegram keeps it in the More menu (S-7) |
 | G-13 | P3 | No Recent Actions | fixed `91d5d6ef`: `getChatEventLog` by day with Telegram's sentences. Simulator: Telegram's empty state for the last 48 h |
-| G-14 | P3 | No discussion group link setup | fixed `d7acd743`, `96e9dd60`: the discussion screen adds Create New Group above the candidates; it opens New Group with the channel name plus ' Chat', creates a supergroup and links it with `setChatDiscussionGroup`. The row and the prefilled New Group screen were checked; the final Create was not run in the Simulator because it creates a real group |
+| G-14 | P3 | No discussion group link setup | fixed `d7acd743`, `96e9dd60`: the discussion screen adds Create New Group above the candidates; it opens New Group with the channel name plus ' Chat', creates a supergroup and links it with `setChatDiscussionGroup`. Xcode MCP 10-18 (with the user's approval): Create on the private BetterTG parity channel made 'BetterTG parity channel Chat', returned to the channel's edit screen with Discussion showing it, and the discussion screen shows it selected with Unlink Group |
 
 Approve New Members asks whether to apply the change to existing invite links (`27bb1653`, `toggleSupergroupJoinByRequest` with `applyToInviteLinks`); verified 2026-10-18 on BetterTG test with one link, both on and off. Not ported: collectible link ordering, Recent Actions filters and bubbles. Switches in these screens apply on tap, so the Simulator check stayed on list and detail screens.
 
