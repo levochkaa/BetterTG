@@ -11,17 +11,22 @@
     ///   turns towards Alice), with the neighbour's face beside Bob's;
     /// - `cube-commit [fraction]` holds it for 1.5 s, then lets go as a drag that stops: past 0.3 the cube
     ///   turns on to the neighbour, short of it it springs back to Bob;
-    /// - `areas [location|venue|message|link|weather]` taps that area on Bob's story (location by default)
-    ///   and opens its tooltip; weather takes the tap without one;
-    /// - `menu` opens the More menu as one of Bob's contacts sees it.
-    /// The viewer reads only the seeded stories and chats and nothing reaches TDLib: a menu choice, and the chat picked
-    /// to share to, are only recorded. The story stays still until the viewer closes. Results go to the log and to
+    /// - `areas [location|venue|message|link|weather|reaction]` taps that area on Bob's story (location by
+    ///   default) and opens its tooltip; weather takes the tap without one, and the reaction becomes the story's;
+    /// - `menu` opens the More menu as one of Bob's contacts sees it;
+    /// - `reply [edit|like-options|send]` checks the reply panel under Bob's story and likes it and takes the like
+    ///   back, then edits the empty field with the reactions over it (edit, by default), holds the like button for
+    ///   the other reactions (like-options), or sends a reply (send).
+    /// The viewer reads only the seeded stories and chats and nothing reaches TDLib: a menu choice, the chat picked
+    /// to share to, a like and a reply are only recorded. The story stays still until the viewer closes. Results go to
+    /// the log and to
     /// Documents/story-viewer-ui-probe.txt.
     @MainActor enum StoryViewerUIProbe {
         private enum Mode {
             case cube(fraction: CGFloat, commits: Bool)
             case areas(kind: String)
             case menu
+            case reply(step: String)
         }
 
         /// One of the areas on Bob's story, with the sticker its picture shows where the overlay draws nothing, and
@@ -114,6 +119,8 @@
                     await runAreas(viewer, kind: kind)
                 case .menu:
                     await runMenu(viewer)
+                case .reply(let step):
+                    await runReply(viewer, step: step)
                 }
             }
         }
@@ -131,10 +138,12 @@
             ),
             canBeForwarded: Bool = true,
             canBeEdited: Bool = false,
+            canBeReplied: Bool = true,
+            content: TDNativeStoryContent? = nil,
         ) -> Story {
             let size = PhotoSize(type: "y", photo: file, width: 720, height: 1280, progressiveSizes: [])
             let photo = Photo(hasStickers: false, minithumbnail: nil, sizes: [size])
-            let content = TDNativeStoryContent.storyContentPhoto(TDNativeStoryContentPhoto(photo: photo))
+            let content = content ?? TDNativeStoryContent.storyContentPhoto(TDNativeStoryContentPhoto(photo: photo))
             let caption = FormattedText(text: "", entities: [])
             return Story(
                 id: id,
@@ -150,7 +159,7 @@
                 canBeDeleted: false,
                 canBeEdited: canBeEdited,
                 canBeForwarded: canBeForwarded,
-                canBeReplied: false,
+                canBeReplied: canBeReplied,
                 canSetPrivacySettings: false,
                 canToggleIsPostedToChatPage: false,
                 canGetStatistics: false,
@@ -204,6 +213,9 @@
                 return .areas(kind: value ?? "location")
             case "menu":
                 return .menu
+            case "reply":
+                let step = value ?? "edit"
+                return ["edit", "like-options", "send"].contains(step) ? .reply(step: step) : nil
             default:
                 return nil
             }
@@ -262,25 +274,82 @@
             let tooltip = viewer.probeTooltipText
             let storyID = viewer.probeShownStory?.id
             let drawn = viewer.probeDrawnAreaCount
-            let passes = storyID == areaStoryID && drawn == 2 && tooltip == spec.tooltip
+            // The suggested reaction becomes the story's, as activateInlineReaction sets it.
+            let reaction = viewer.probeLikeReaction?.standardEmoji ?? "none"
+            let reacts = kind != "reaction" || reaction.unicodeScalars.first?.value == 0x2764
+            let passes = storyID == areaStoryID && drawn == 2 && tooltip == spec.tooltip && reacts
             record(
                 "Story viewer UI probe areas \(kind) \(passes ? "passed" : "failed"): story=\(storyID ?? 0) "
-                    + "drawn=\(drawn) tooltip=\(tooltip ?? "none") expected=\(spec.tooltip ?? "none")",
+                    + "drawn=\(drawn) tooltip=\(tooltip ?? "none") expected=\(spec.tooltip ?? "none") "
+                    + "reaction=\(reaction)",
             )
         }
 
-        /// The More button opens Telegram's menu with a contact's six items in performOtherMoreAction's order.
+        /// The More button opens Telegram's menu with a contact's items in performOtherMoreAction's order, Share left
+        /// to the reply panel's button.
         private static func runMenu(_ viewer: StoryViewerController) async {
             viewer.probeOpenMoreMenu()
             try? await Task.sleep(for: .milliseconds(800))
-            let items = viewer.probeShownStory.map { StoryMoreMenu.items(story: $0, poster: menuPoster) } ?? []
+            let sharesFromPanel = viewer.probeReplyConfiguration?.showsForward == true
+            let items = viewer.probeShownStory.map {
+                StoryMoreMenu.items(story: $0, poster: menuPoster, sharesFromPanel: sharesFromPanel)
+            } ?? []
             let identifiers = items.map(StoryMoreMenu.identifier(of:))
-            let expected = ["notify-off", "copy-link", "share", "hide", "save", "report"]
+            let expected = ["notify-off", "copy-link", "hide", "save", "report"]
             let shows = viewer.probeShowsMoreMenu
             let passes = shows && identifiers == expected
             record(
                 "Story viewer UI probe menu \(passes ? "passed" : "failed"): shown=\(shows) "
                     + "items=\(identifiers.joined(separator: ","))",
+            )
+        }
+
+        /// Bob's story takes a private reply beside the like and share buttons; a tap likes it with Telegram's heart
+        /// and a second one takes the like back. Then the step's state is left on screen.
+        private static func runReply(_ viewer: StoryViewerController, step: String) async {
+            let expectedPlaceholder = L10n.telegram("Story.InputPlaceholderReplyPrivately")
+            let configuration = viewer.probeReplyConfiguration
+            let panel = viewer.probeReplyPanelFrame
+            let story = viewer.probeStorySize
+            let laidOut = panel.height == StoryReplyPanelView.height && panel.width > 0
+            let shows = configuration?.field == .input(placeholder: expectedPlaceholder)
+                && configuration?.showsLike == true && configuration?.showsForward == true
+                && configuration?.offersLikeOptions == true
+            viewer.probeLike()
+            let liked = viewer.probeLikeReaction?.standardEmoji?.unicodeScalars.first?.value == 0x2764
+            viewer.probeLike()
+            let unliked = viewer.probeLikeReaction == nil
+            var stepPasses = true
+            var stepText = ""
+            switch step {
+            case "like-options":
+                viewer.probeHoldLike()
+                try? await Task.sleep(for: .milliseconds(500))
+                let reactions = viewer.probeReplyReactions
+                stepPasses = reactions?.mode == "like" && reactions?.title == nil && reactions?.count == 8
+                    && viewer.probeIsPausedForReply
+                stepText = "reactions=\(reactions?.mode ?? "none") title=\(reactions?.title ?? "none") "
+                    + "count=\(reactions?.count ?? 0) paused=\(viewer.probeIsPausedForReply)"
+            case "send":
+                viewer.probeSendReply("Nice story")
+                try? await Task.sleep(for: .milliseconds(500))
+                stepPasses = !viewer.probeReplyIsEditing && !viewer.probeIsPausedForReply
+                stepText = "editing=\(viewer.probeReplyIsEditing) paused=\(viewer.probeIsPausedForReply)"
+            default:
+                viewer.probeBeginReply()
+                try? await Task.sleep(for: .milliseconds(1200))
+                let reactions = viewer.probeReplyReactions
+                let title = L10n.telegram("Story.SendReactionAsMessage")
+                stepPasses = viewer.probeReplyIsEditing && reactions?.mode == "message" && reactions?.title == title
+                    && viewer.probeIsPausedForReply
+                stepText = "editing=\(viewer.probeReplyIsEditing) reactions=\(reactions?.mode ?? "none") "
+                    + "title=\(reactions?.title ?? "none") paused=\(viewer.probeIsPausedForReply)"
+            }
+            let passes = laidOut && shows && liked && unliked && stepPasses
+            record(
+                "Story viewer UI probe reply \(step) \(passes ? "passed" : "failed"): "
+                    + "panel=\(Int(panel.minY))+\(Int(panel.height)) story-height=\(Int(story.height)) "
+                    + "input=\(shows) liked=\(liked) unliked=\(unliked) \(stepText)",
             )
         }
 

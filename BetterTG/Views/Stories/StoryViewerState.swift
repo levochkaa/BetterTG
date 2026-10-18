@@ -45,6 +45,9 @@ struct StoryViewerState: Equatable {
         case moreMenu
         /// A screen is presented over the viewer, such as a story area's location.
         case presentation
+        /// The reply field edits, or reactions show over the story (updateIsProgressPaused's input and reaction
+        /// context).
+        case reply
         #if DEBUG
             /// The UI probe holds the story still for its screenshots.
             case probe

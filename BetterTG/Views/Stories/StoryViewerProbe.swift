@@ -6,7 +6,8 @@ import UIKit
 #if DEBUG
     /// Drives the story viewer's state offline (no TDLib, no UI): the clock waiting for media, holding, auto-advance,
     /// tap navigation across posters, rewinding, lazily loaded posters, active-story updates and deletions, the
-    /// header's time, the cube's neighbouring posters and its geometry, the story areas and the More menu's items.
+    /// header's time, the cube's neighbouring posters and its geometry, the story areas, the More menu's items and
+    /// the reply panel's rules.
     /// Launch with `-ui-probe-story-viewer`; the result goes to the log and to Documents/story-viewer-probe.txt.
     @MainActor enum StoryViewerProbe {
         private struct Failure: Swift.Error, CustomStringConvertible {
@@ -27,13 +28,15 @@ import UIKit
                 try verifyCube()
                 try verifyAreas()
                 try verifyMenuItems()
+                try verifyReplyPanel()
                 result = "Story viewer probe passed: first-unseen-entry/clock-waits-for-media/hold-pause=true; "
                     + "auto-advance/next-poster/resume/rewind/dismiss=true; single-story=true; "
                     + "lazy-posters/empty-poster-dropped=true; active-update/delete/current-poster-removed=true; "
                     + "timestamps=true; cube-neighbors/resume/unloaded=true; "
                     + "cube-rest-flat/half-turn-edges-meet/whole-turn-gap-40/rubber-band/spring=true; "
                     + "area-placement/rotated-hit/side-inset/reaction-skipped/tooltip-source/temperature=true; "
-                    + "menu-contact/muted-hidden/non-contact/service/bot/private/protected/own=true"
+                    + "menu-contact/muted-hidden/non-contact/service/bot/private/protected/own/panel-share=true; "
+                    + "reply-user/private/closed/service/bot/self/group/read-only-group/channel/live/reaction-text=true"
             } catch {
                 result = "Story viewer probe failed: \(error)"
             }
@@ -418,9 +421,89 @@ import UIKit
             )
             try require(items(protected, poster(.supergroup)) == "copy-link,hide,report", "a protected story")
             try require(
+                StoryMoreMenu.items(story: open, poster: poster(contact), sharesFromPanel: true)
+                    .map(StoryMoreMenu.identifier(of:)) == ["notify-off", "copy-link", "hide", "save", "report"],
+                "Share stayed in the menu beside the reply panel's share button",
+            )
+            try require(
                 StoryMoreMenu.showsButton(for: open) && !StoryMoreMenu.showsButton(for: own)
                     && !StoryMoreMenu.showsButton(for: nil),
                 "the More button on the account's own story",
+            )
+        }
+
+        /// StoryItemSetContainerComponent's input panel: a private reply under a user's story and a comment under a
+        /// group's where the account may write, Telegram's disabled placeholder for a service account's story and one
+        /// that takes no reply, and none under the account's own, a bot's or a channel's story.
+        private static func verifyReplyPanel() throws {
+            let file = StoryViewerUIProbe.photoFile(id: 1, path: "", uniqueID: "reply")
+            let open = StoryViewerUIProbe.makeStory(id: 1, chatID: 1, date: 0, file: file, areas: [])
+            let contactsOnly = StoryViewerUIProbe.makeStory(
+                id: 2,
+                chatID: 1,
+                date: 0,
+                file: file,
+                areas: [],
+                privacy: .storyPrivacySettingsContacts(TDNativeStoryPrivacySettingsContacts(exceptUserIds: [])),
+            )
+            let closed = StoryViewerUIProbe.makeStory(
+                id: 3,
+                chatID: 1,
+                date: 0,
+                file: file,
+                areas: [],
+                canBeReplied: false,
+            )
+            let live = StoryViewerUIProbe.makeStory(
+                id: 4,
+                chatID: 1,
+                date: 0,
+                file: file,
+                areas: [],
+                content: .storyContentLive(TDNativeStoryContentLive(groupCallId: 1, isRtmpStream: false)),
+            )
+            func panel(_ story: Story, _ poster: StoryReplyPanel.Poster) -> StoryReplyPanel.Configuration? {
+                StoryReplyPanel.configuration(story: story, poster: poster)
+            }
+            let user = StoryReplyPanel.Poster.user(isBot: false, isService: false, isSelf: false)
+            let privately = StoryReplyPanel.Configuration.Field
+                .input(placeholder: L10n.telegram("Story.InputPlaceholderReplyPrivately"))
+            let unavailable = StoryReplyPanel.Configuration.Field
+                .disabled(L10n.telegram("Story.FooterReplyUnavailable"))
+            let userPanel = panel(open, user)
+            try require(
+                userPanel?.field == privately && userPanel?.showsLike == true && userPanel?.offersLikeOptions == true
+                    && userPanel?.showsForward == true && userPanel?.isGroup == false,
+                "a user's public story: \(String(describing: userPanel))",
+            )
+            try require(panel(contactsOnly, user)?.showsForward == false, "a story for contacts offered sharing")
+            try require(panel(closed, user)?.field == unavailable, "a story that takes no reply took one")
+            let service = panel(open, .user(isBot: false, isService: true, isSelf: false))
+            try require(
+                service?.field == unavailable && service?.showsLike == false && service?.offersLikeOptions == false,
+                "a service account's story",
+            )
+            try require(panel(open, .user(isBot: true, isService: false, isSelf: false)) == nil, "a bot's story")
+            try require(panel(open, .user(isBot: false, isService: false, isSelf: true)) == nil, "the account's story")
+            let group = panel(open, .group(canWrite: true))
+            try require(
+                group?.field == .input(placeholder: L10n.telegram("Story.InputPlaceholderReplyInGroup"))
+                    && group?.isGroup == true && group?.showsLike == true && group?.offersLikeOptions == false,
+                "a group's story: \(String(describing: group))",
+            )
+            try require(panel(open, .group(canWrite: false)) == nil, "a group the account can't write to")
+            try require(panel(open, .channel) == nil, "a channel's story")
+            let livePanel = panel(live, user)
+            try require(
+                livePanel?.field == unavailable && livePanel?.showsLike == false && livePanel?.showsForward == false,
+                "a live stream",
+            )
+            let heart = ReactionType.reactionTypeEmoji(ReactionTypeEmoji(emoji: "❤"))
+            let custom = ReactionType.reactionTypeCustomEmoji(TDNativeReactionTypeCustomEmoji(customEmojiId: 5))
+            try require(
+                StoryReplyPanel.messageText(for: heart, sticker: nil) == FormattedText(entities: [], text: "❤")
+                    && StoryReplyPanel.messageText(for: custom, sticker: nil) == nil,
+                "a reaction's message text",
             )
         }
     }

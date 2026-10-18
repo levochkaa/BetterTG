@@ -2353,3 +2353,11 @@
 "GroupInfo.AddRank" = "Add Tag";
 "Bot.GroupStatusReadsHistory" = "has access to messages";
 "Bot.GroupStatusDoesNotReadHistory" = "has no access to messages";
+"Story.InputPlaceholderReplyPrivately" = "Reply Privately...";
+"Story.InputPlaceholderReplyInGroup" = "Comment Story...";
+"Story.FooterReplyUnavailable" = "You can't reply to this story";
+"Story.TooltipMessageSent" = "Message Sent";
+"Story.ToastReactionSent" = "Reaction Sent.";
+"Story.ToastViewInChat" = "View in Chat";
+"Story.SendReactionAsMessage" = "Send reaction as a private message";
+"Story.SendReactionAsGroupMessage" = "Send reaction as a message";

@@ -609,6 +609,7 @@
 "Story.Unsupported" = "Эту историю нельзя показать в BetterTG.";
 "Story.PlaybackFailed" = "Не удалось воспроизвести эту историю.";
 "Accessibility.NextStory" = "Следующая история";
+"Accessibility.StoryLike" = "Нравится";
 "Accessibility.PreviousStory" = "Предыдущая история";
 "Accessibility.OpenStoriesHint" = "Открывает истории";
 "Emoji.Category.People" = "Смайлики и люди";

@@ -21,16 +21,38 @@ typealias TelegramContextReactionsProvider = @MainActor () async -> [TelegramCon
 /// The collapsed reaction row from Telegram's ReactionContextNode: 46-point
 /// cloud, 36-point items, 8-point spacing. The user's recent items come first.
 final class TelegramReactionStripView: UIView {
+    private static let rowHeight = CGFloat(46)
+    private static let titleHeight = CGFloat(22)
+
     var onSelect: ((TelegramContextMenuReaction) -> Void)?
+
+    /// ReactionContextNode's title: a line above the reactions, such as the story viewer's Send Reaction as a
+    /// Private Message.
+    var title: String? {
+        didSet {
+            titleLabel.text = title
+            titleLabel.isHidden = title == nil
+            setNeedsLayout()
+        }
+    }
 
     private let effect = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
     private let scroll = UIScrollView()
     private let stack = UIStackView()
     private let spinner = UIActivityIndicatorView(style: .medium)
+    private let titleLabel = UILabel()
     private var buttons = [TelegramReactionStripButton]()
     private weak var trackedButton: TelegramReactionStripButton?
 
-    var preferredWidth: CGFloat { buttons.isEmpty ? 180 : min(320, CGFloat(buttons.count) * 44 + 4) }
+    var preferredWidth: CGFloat {
+        let rowWidth = buttons.isEmpty ? 180 : min(320, CGFloat(buttons.count) * 44 + 4)
+        guard title != nil else { return rowWidth }
+        return min(320, max(rowWidth, ceil(titleLabel.intrinsicContentSize.width) + 32))
+    }
+
+    var preferredHeight: CGFloat {
+        title == nil ? Self.rowHeight : Self.rowHeight + Self.titleHeight
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -55,6 +77,11 @@ final class TelegramReactionStripView: UIView {
         ])
         effect.contentView.addSubview(spinner)
         spinner.startAnimating()
+        titleLabel.font = .systemFont(ofSize: 13)
+        titleLabel.textColor = .secondaryLabel
+        titleLabel.textAlignment = .center
+        titleLabel.isHidden = true
+        effect.contentView.addSubview(titleLabel)
         accessibilityIdentifier = "message-context-reactions"
     }
 
@@ -63,8 +90,10 @@ final class TelegramReactionStripView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         effect.frame = bounds
-        scroll.frame = bounds
-        spinner.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let top = title == nil ? 0 : Self.titleHeight
+        titleLabel.frame = CGRect(x: 12, y: 8, width: max(0, bounds.width - 24), height: 16)
+        scroll.frame = CGRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
+        spinner.center = CGPoint(x: scroll.frame.midX, y: scroll.frame.midY)
     }
 
     func configure(_ reactions: [TelegramContextMenuReaction]) {

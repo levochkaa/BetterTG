@@ -610,6 +610,7 @@
 "Story.Unsupported" = "This story can't be shown in BetterTG.";
 "Story.PlaybackFailed" = "This story couldn't be played.";
 "Accessibility.NextStory" = "Next story";
+"Accessibility.StoryLike" = "Like";
 "Accessibility.PreviousStory" = "Previous story";
 "Accessibility.OpenStoriesHint" = "Opens the stories";
 "Emoji.Category.People" = "Smileys & People";

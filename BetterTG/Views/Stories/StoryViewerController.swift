@@ -13,8 +13,9 @@ import UIKit
 /// sideways turns Telegram's cube to the neighbouring poster, whose face shows its story as the cube turns. A photo
 /// shows for five seconds and a video for its duration, then the next story opens, across posters, and the viewer
 /// closes after the last one. The story's areas draw their reactions and weather, and a tap on a location, message or
-/// link area offers to open it. Someone else's story has Telegram's More menu beside the close button. Telegram's reply
-/// field and reactions under the story are left out: BetterTG doesn't send story replies or reactions.
+/// link area offers to open it. Someone else's story has Telegram's More menu beside the close button, and under a
+/// user's or group's story Telegram's reply panel: a private reply or comment, a reaction sent as a message while the
+/// field is empty, the like button that holds another reaction, and the share button.
 final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate {
     enum Subject {
         /// One story, as a shared story or a story mention opens it (SingleStoryContentContextImpl).
@@ -26,6 +27,14 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private enum PanAxis {
         case dismissal
         case poster
+    }
+
+    /// What the reactions above the reply panel do.
+    private enum ReplyReactionsMode {
+        /// The empty field edits: a reaction goes to the poster as a message replying to the story.
+        case message
+        /// The like button is held: the reaction picked becomes the story's.
+        case like
     }
 
     private static let contentCornerRadius = StoryChromeLayout.cornerRadius
@@ -75,6 +84,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private let moreButton = UIButton(type: .system)
     private let closeButton = UIButton(type: .system)
     private let captionView = UITextView()
+    private let replyPanel = StoryReplyPanelView()
+    /// Telegram dims the story to black at 0.8 while the reply field edits; it also takes the tap that closes the
+    /// reactions over the story.
+    private let replyDimView = UIView()
+    private let replyReactions = TelegramReactionStripView()
 
     private lazy var tapGesture = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
     private lazy var holdGesture = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
@@ -89,6 +103,19 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private var areaMessageTask: Task<Void, Never>?
     private var moreTask: Task<Void, Never>?
     private var menuActionTask: Task<Void, Never>?
+    private var replyPosterTask: Task<Void, Never>?
+    private var replyReactionsTask: Task<Void, Never>?
+    /// The reply panel's posters, each resolved once while the viewer is open.
+    private var replyPosters = [Int64: StoryReplyPanel.Poster]()
+    /// The story the panel shows, so an update to it animates the like button and a new poster's story clears it.
+    private var replyPanelKey: StoryViewerSession.StoryKey?
+    /// getStoryAvailableReactions with the custom emoji among them, loaded once.
+    private var storyReactions: (types: [ReactionType], stickers: [Int64: Sticker])?
+    private var replyReactionsMode: ReplyReactionsMode?
+    /// How far the keyboard covers the viewer.
+    private var keyboardOverlap = CGFloat(0)
+    /// Story replies sent from the viewer, by the id sendMessage returned, under the id TDLib sent them with.
+    private var sentReplyIDs = [Int64: Int64]()
     private var areaTooltip: StoryAreaTooltipView?
     /// The area whose tooltip is up, or was just dismissed: a second tap on a message area opens the message.
     private var selectedArea: (key: StoryViewerSession.StoryKey, index: Int)?
@@ -113,6 +140,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         /// instead of TDLib.
         private var probeMenuPoster: StoryMoreMenu.Poster?
         private var probeMenuActionHandler: ((String) -> Void)?
+        /// The UI probe's poster for the reply panel; its likes, replies and reactions go to the menu's handler.
+        private var probeReplyPoster: StoryReplyPanel.Poster?
     #endif
 
     /// Whether the shown video should play: every pause but buffering stops it.
@@ -123,6 +152,13 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     /// The side faces take part while a poster drag or a turn runs.
     private var isCubeActive: Bool {
         panAxis == .poster || cubeTurn != nil
+    }
+
+    /// Toasts rise above the reply panel's resting place while it shows; the keyboard closes as one appears.
+    private var toastBottomInset: CGFloat {
+        guard !replyPanel.isHidden else { return 8 }
+        let insets = view.safeAreaInsets
+        return max(8, Self.panelBottomInset(insets) - insets.bottom + StoryReplyPanelView.height + 8)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -164,6 +200,19 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             .publisher(for: UIApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in self?.setPaused(false, for: .inactive) }
             .store(in: &cancellables)
+        NotificationCenter.default
+            .publisher(for: UIResponder.keyboardWillChangeFrameNotification)
+            .sink { [weak self] in self?.keyboardWillChangeFrame($0, hides: false) }
+            .store(in: &cancellables)
+        NotificationCenter.default
+            .publisher(for: UIResponder.keyboardWillHideNotification)
+            .sink { [weak self] in self?.keyboardWillChangeFrame($0, hides: true) }
+            .store(in: &cancellables)
+        nc.scopedPublisher(&cancellables, for: .updateMessageSendSucceeded) { [weak self] event in
+            guard let self, event.source.clientID == session.client.id,
+                  sentReplyIDs[event.value.oldMessageId] != nil else { return }
+            sentReplyIDs[event.value.oldMessageId] = event.value.message.id
+        }
         showCurrentStory()
     }
 
@@ -217,9 +266,13 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             face.bounds = containerView.bounds
             face.center = CGPoint(x: containerView.bounds.midX, y: containerView.bounds.midY)
         }
-        // Telegram's 9:16 story under the status bar, narrowed when the screen is too short for it.
+        // Telegram's 9:16 story under the status bar, above the reply panel's place (bottomContentInset), narrowed
+        // when the screen is too short for it.
         let insets = view.safeAreaInsets
-        let availableHeight = max(1, bounds.height - insets.top - insets.bottom)
+        let availableHeight = max(
+            1,
+            bounds.height - insets.top - Self.panelBottomInset(insets) - StoryReplyPanelView.height,
+        )
         var size = CGSize(width: bounds.width, height: (bounds.width * 16 / 9).rounded())
         if size.height > availableHeight {
             size = CGSize(width: (availableHeight * 9 / 16).rounded(), height: availableHeight)
@@ -233,6 +286,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         previousFace.layoutContent(frame: contentView.frame)
         nextFace.layoutContent(frame: contentView.frame)
         layoutContent()
+        layoutReplyPanel()
         layoutCube()
     }
 
@@ -311,8 +365,18 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         }
     }
 
+    // MARK: Reply panel
+
+    /// The reply panel's bottom inset: Telegram's safe area plus a point, where the screen has one.
+    private static func panelBottomInset(_ insets: UIEdgeInsets) -> CGFloat {
+        insets.bottom > 0 ? insets.bottom + 1 : 0
+    }
+
     func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        !(touch.view is UIControl) && !isClosing
+        guard !(touch.view is UIControl), !isClosing else { return false }
+        // The reply panel, the reactions above it and the dimmed story under the keyboard keep their touches.
+        guard let touched = touch.view else { return true }
+        return ![replyPanel, replyReactions, replyDimView].contains { touched.isDescendant(of: $0) }
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -460,6 +524,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         captionView.isAccessibilityElement = false
         captionView.isHidden = true
         chromeView.addSubview(captionView)
+
+        configureReplyPanel()
     }
 
     private func layoutContent() {
@@ -538,6 +604,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private func showCurrentStory() {
         resetMedia()
         let chatID = state.currentChatID
+        if replyPanelKey?.chatID != chatID { applyReplyPanel(nil, key: nil) }
         progressStrip.configure(count: state.storyCount, index: state.storyIndex)
         renderPoster(chatID)
         refreshNeighborFaces()
@@ -593,6 +660,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             state.setPaused(false, for: .moreMenu)
         }
         moreButton.isHidden = true
+        hideReplyReactions()
+        if replyPanel.isEditing { replyPanel.endEditing() }
         session.closeOpenedStory()
         imageView.onFullImage = nil
         imageView.cancel()
@@ -688,6 +757,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             : NSAttributedString(getAttributedString(from: caption, .white))
         areaOverlay.update(areas: story.areas, client: session.client, loadsStickers: !session.isOffline)
         moreButton.isHidden = !StoryMoreMenu.showsButton(for: story)
+        renderReplyPanel(story)
         updateAccessibilityLabel()
         view.setNeedsLayout()
     }
@@ -970,6 +1040,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         chromeView.alpha = alpha
         topShade.alpha = alpha
         bottomShade.alpha = alpha
+        replyPanel.alpha = alpha
     }
 
     private func setCaptionExpanded(_ expanded: Bool) {
@@ -1001,9 +1072,15 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         handleStoryTap(at: gesture.location(in: contentView))
     }
 
-    /// StoryItemSetContainerComponent.tapGesture: an area under the finger takes the tap, otherwise the left quarter
-    /// goes back and the rest forward.
+    /// StoryItemSetContainerComponent.tapGesture: a suggested reaction or another area under the finger takes the tap,
+    /// otherwise the left quarter goes back and the rest forward.
     private func handleStoryTap(at point: CGPoint) {
+        if let story = shownStory,
+           let reaction = StoryAreaGeometry.reaction(at: point, in: contentView.bounds.size, areas: story.areas)
+        {
+            activateInlineReaction(reaction, on: story)
+            return
+        }
         if let areas = shownStory?.areas,
            let index = StoryAreaGeometry.area(at: point, in: contentView.bounds.size, areas: areas)
         {
@@ -1186,7 +1263,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
                 TelegramUndoToast.show(
                     text: L10n.telegram("Conversation.MessageDoesntExist"),
                     in: view,
-                    bottomInset: 8,
+                    bottomInset: toastBottomInset,
                     undo: nil,
                 )
                 return
@@ -1233,7 +1310,9 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     }
 
     private func presentMoreMenu(story: Story, poster: StoryMoreMenu.Poster) -> Bool {
-        let actions = StoryMoreMenu.items(story: story, poster: poster).map { item in
+        // The reply panel's share button stands in for the menu's Share, as in Telegram.
+        let sharesFromPanel = !replyPanel.isHidden && replyPanel.configuration?.showsForward == true
+        let actions = StoryMoreMenu.items(story: story, poster: poster, sharesFromPanel: sharesFromPanel).map { item in
             TelegramContextMenuAction(
                 title: StoryMoreMenu.title(of: item),
                 image: StoryMoreMenu.image(of: item),
@@ -1275,7 +1354,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     }
 
     private func showMenuToast(_ text: String, undo: (() -> Void)? = nil) {
-        TelegramUndoToast.show(text: text, in: view, bottomInset: 8, undo: undo)
+        TelegramUndoToast.show(text: text, in: view, bottomInset: toastBottomInset, undo: undo)
     }
 
     /// togglePeerStoriesMuted, with Telegram's tooltip naming the poster.
@@ -1576,6 +1655,428 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             : .default
     }
 
+    private func configureReplyPanel() {
+        replyDimView.backgroundColor = UIColor(white: 0, alpha: 0.001)
+        replyDimView.isHidden = true
+        replyDimView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(replyDimTapped)))
+        focusedFace.contentHost.addSubview(replyDimView)
+
+        replyPanel.isHidden = true
+        replyPanel.onSend = { [weak self] text in self?.sendReplyText(text) }
+        replyPanel.onLike = { [weak self] in self?.likePressed() }
+        replyPanel.onLikeOptions = { [weak self] gesture in self?.likeHeld(gesture) }
+        replyPanel.onForward = { [weak self] in
+            guard let self, let story = shownStory, !isClosing else { return }
+            share(story)
+        }
+        replyPanel.onEditingChanged = { [weak self] editing in self?.replyEditingChanged(editing) }
+        replyPanel.onTextChanged = { [weak self] in self?.replyTextChanged() }
+        focusedFace.contentHost.addSubview(replyPanel)
+
+        replyReactions.isHidden = true
+        replyReactions.accessibilityIdentifier = "story-reply-reactions"
+        replyReactions.onSelect = { [weak self] reaction in self?.selectReplyReaction(reaction) }
+        focusedFace.contentHost.addSubview(replyReactions)
+    }
+
+    /// MessageInputPanelComponent's place: its bottom on the safe area, or on the keyboard while the field edits.
+    private func layoutReplyPanel() {
+        let bounds = view.bounds
+        replyDimView.frame = bounds
+        let height = replyPanel.preferredHeight(width: bounds.width)
+        let restingBottom = bounds.height - Self.panelBottomInset(view.safeAreaInsets)
+        let bottom = keyboardOverlap > 0 ? min(restingBottom, bounds.height - keyboardOverlap) : restingBottom
+        replyPanel.frame = CGRect(x: 0, y: bottom - height, width: bounds.width, height: height)
+        replyPanel.layoutIfNeeded()
+        layoutReplyReactions()
+    }
+
+    /// ReactionContextNode's anchor: the field's send slot while it edits, the like button while it's held.
+    private func layoutReplyReactions() {
+        guard let mode = replyReactionsMode else { return }
+        let bounds = view.bounds
+        let width = min(bounds.width - 16, replyReactions.preferredWidth)
+        let height = replyReactions.preferredHeight
+        let anchor: CGRect =
+            switch mode {
+            case .message:
+                CGRect(
+                    x: replyPanel.frame.maxX - 40,
+                    y: replyPanel.frame.minY + StoryReplyPanelView.topInset - 5,
+                    width: 32,
+                    height: 32,
+                )
+            case .like:
+                replyPanel.likeButton.convert(replyPanel.likeButton.bounds, to: focusedFace.contentHost)
+            }
+        let x = min(bounds.width - 8 - width, max(8, anchor.maxX + 8 - width))
+        replyReactions.frame = CGRect(x: x, y: anchor.minY - 8 - height, width: width, height: height)
+    }
+
+    /// The panel for the shown story once its poster is known; another poster's story hides it until then.
+    private func renderReplyPanel(_ story: Story) {
+        let key = StoryViewerSession.StoryKey(chatID: story.posterChatId, storyID: story.id)
+        if let poster = replyPosters[key.chatID] {
+            applyReplyPanel(StoryReplyPanel.configuration(story: story, poster: poster), key: key, story: story)
+            return
+        }
+        applyReplyPanel(nil, key: nil)
+        replyPosterTask?.cancel()
+        replyPosterTask = Task { [weak self] in
+            guard let self, let poster = await replyPoster(chatID: key.chatID), !Task.isCancelled else { return }
+            replyPosters[key.chatID] = poster
+            guard shownKey == key, let story = shownStory, !isClosing else { return }
+            applyReplyPanel(StoryReplyPanel.configuration(story: story, poster: poster), key: key, story: story)
+        }
+    }
+
+    private func replyPoster(chatID: Int64) async -> StoryReplyPanel.Poster? {
+        #if DEBUG
+            if session.isOffline { return probeReplyPoster }
+        #endif
+        return await StoryReplyPanel.resolvePoster(chatID: chatID, client: session.client)
+    }
+
+    private func applyReplyPanel(
+        _ configuration: StoryReplyPanel.Configuration?,
+        key: StoryViewerSession.StoryKey?,
+        story: Story? = nil,
+    ) {
+        let isSameStory = key != nil && key == replyPanelKey
+        if configuration?.acceptsInput != true, replyPanel.isEditing { replyPanel.endEditing() }
+        if key?.chatID != replyPanelKey?.chatID { replyPanel.clearText() }
+        replyPanelKey = configuration == nil ? nil : key
+        replyPanel.configure(configuration)
+        replyPanel.isHidden = configuration == nil
+        if let story, configuration?.showsLike == true {
+            replyPanel.setReaction(
+                story.chosenReactionType,
+                client: session.client,
+                loadsSticker: !session.isOffline,
+                animated: isSameStory,
+            )
+        }
+        if configuration != nil { loadStoryReactions() }
+        view.setNeedsLayout()
+    }
+
+    private func replyEditingChanged(_ editing: Bool) {
+        if editing {
+            areaTooltip?.dismiss()
+            if replyPanel.text.isEmpty { showReplyReactions(.message) }
+        } else if replyReactionsMode == .message {
+            hideReplyReactions()
+        }
+        updateReplyState()
+    }
+
+    private func replyTextChanged() {
+        if replyPanel.isEditing {
+            if replyPanel.text.isEmpty, replyReactionsMode == nil {
+                showReplyReactions(.message)
+            } else if !replyPanel.text.isEmpty, replyReactionsMode == .message {
+                hideReplyReactions()
+            }
+        }
+        view.setNeedsLayout()
+    }
+
+    /// The story waits while the field edits or reactions show over it, dimmed under the keyboard.
+    private func updateReplyState() {
+        let isEditing = replyPanel.isEditing
+        let isActive = isEditing || replyReactionsMode != nil
+        setPaused(isActive, for: .reply)
+        if isActive { replyDimView.isHidden = false }
+        UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.replyDimView.backgroundColor = UIColor(white: 0, alpha: isEditing ? 0.8 : 0.001)
+        } completion: { [weak self] _ in
+            guard let self else { return }
+            replyDimView.isHidden = !(replyPanel.isEditing || replyReactionsMode != nil)
+        }
+    }
+
+    @objc private func replyDimTapped() {
+        if replyPanel.isEditing {
+            replyPanel.endEditing()
+        } else {
+            hideReplyReactions()
+            updateReplyState()
+        }
+    }
+
+    private func keyboardWillChangeFrame(_ notification: Notification, hides: Bool) {
+        guard isViewLoaded, view.window != nil, hides || replyPanel.isEditing || keyboardOverlap > 0 else { return }
+        var overlap = CGFloat(0)
+        if !hides, let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+            overlap = max(0, view.bounds.maxY - view.convert(frame, from: nil).minY)
+        }
+        guard overlap != keyboardOverlap else { return }
+        keyboardOverlap = overlap
+        let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        let curve = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt ?? 7
+        view.setNeedsLayout()
+        UIView.animate(
+            withDuration: duration,
+            delay: 0,
+            options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState, .allowUserInteraction],
+        ) {
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    /// ReactionContextNode over the story: titled Send Reaction as a Message while the empty field edits, untitled
+    /// over the held like button.
+    private func showReplyReactions(_ mode: ReplyReactionsMode) {
+        guard shownStory != nil, replyPanel.configuration != nil else { return }
+        let wasShown = replyReactionsMode != nil
+        replyReactionsMode = mode
+        replyReactions.title =
+            switch mode {
+            case .message:
+                L10n.telegram(
+                    replyPanel.configuration?.isGroup == true
+                        ? "Story.SendReactionAsGroupMessage"
+                        : "Story.SendReactionAsMessage",
+                )
+            case .like:
+                nil
+            }
+        configureReplyReactions()
+        layoutReplyPanel()
+        replyReactions.isHidden = false
+        if !wasShown {
+            replyReactions.alpha = 0
+            replyReactions.transform = CGAffineTransform(scaleX: 0.9, y: 0.9)
+            UIView.animate(
+                withDuration: UIAccessibility.isReduceMotionEnabled ? 0.15 : 0.3,
+                delay: 0,
+                usingSpringWithDamping: 0.85,
+                initialSpringVelocity: 0,
+                options: [.beginFromCurrentState, .allowUserInteraction],
+            ) {
+                self.replyReactions.alpha = 1
+                self.replyReactions.transform = .identity
+            }
+        }
+        updateReplyState()
+    }
+
+    private func hideReplyReactions() {
+        guard replyReactionsMode != nil else { return }
+        replyReactionsMode = nil
+        replyReactions.updateTracking(at: nil)
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState]) {
+            self.replyReactions.alpha = 0
+        } completion: { [weak self] _ in
+            guard let self, replyReactionsMode == nil else { return }
+            replyReactions.isHidden = true
+            replyReactions.prepareForReuse()
+        }
+    }
+
+    /// The reactions offered, with the story's own reaction marked as chosen.
+    private func configureReplyReactions() {
+        guard let reactions = storyReactions else { return }
+        let client = session.client
+        let chosen = replyPanel.likeButton.reaction
+        replyReactions.configure(reactions.types.map { type in
+            TelegramContextMenuReaction(
+                type: type,
+                isChosen: type == chosen,
+                sticker: type.customEmojiID.flatMap { reactions.stickers[$0] },
+                client: client,
+                handler: {},
+            )
+        })
+        layoutReplyReactions()
+    }
+
+    /// getStoryAvailableReactions in Telegram's order, without the ones that need Premium for an account without it.
+    private func loadStoryReactions() {
+        guard storyReactions == nil, replyReactionsTask == nil else { return }
+        #if DEBUG
+            if session.isOffline {
+                storyReactions = (
+                    ["❤", "👍", "🔥", "🥰", "👏", "😁", "🤔", "🤯"].map {
+                        ReactionType.reactionTypeEmoji(ReactionTypeEmoji(emoji: $0))
+                    },
+                    [:],
+                )
+                return
+            }
+        #endif
+        let client = session.client
+        replyReactionsTask = Task { [weak self] in
+            async let availableRequest = client.send(TDNativeRequests.getStoryAvailableReactions(rowSize: 7))
+            async let meRequest = client.send(TDNativeRequests.getMe())
+            let available = try? await availableRequest
+            let isPremium = await (try? meRequest)?.isPremium ?? false
+            let types = available.map { Array($0.contextReactionTypes(isPremium: isPremium).prefix(24)) } ?? []
+            let stickers = await CustomEmojiStickerRepository.shared.stickers(
+                for: types.compactMap(\.customEmojiID),
+                client: client,
+            )
+            guard let self, !Task.isCancelled else { return }
+            replyReactionsTask = nil
+            guard !types.isEmpty else { return }
+            storyReactions = (types, stickers)
+            if replyReactionsMode != nil {
+                configureReplyReactions()
+            }
+        }
+    }
+
+    private func selectReplyReaction(_ reaction: TelegramContextMenuReaction) {
+        guard let mode = replyReactionsMode, let story = shownStory, !isClosing else { return }
+        hideReplyReactions()
+        switch mode {
+        case .like:
+            // Picking the story's own reaction again takes it back.
+            setStoryReaction(reaction.type == replyPanel.likeButton.reaction ? nil : reaction.type, on: story)
+            updateReplyState()
+        case .message:
+            replyPanel.endEditing()
+            guard let text = StoryReplyPanel.messageText(for: reaction.type, sticker: reaction.sticker) else { return }
+            sendStoryReply(text, to: story, toast: L10n.telegram("Story.ToastReactionSent"))
+        }
+    }
+
+    /// activateInlineReaction: someone else's story takes the reaction area's reaction; the account's own story only
+    /// answers the tap.
+    private func activateInlineReaction(_ reaction: ReactionType, on story: Story) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        guard !reaction.isPaid, story.posterChatId != TDLib.shared.activeAccount?.userID, !isClosing else { return }
+        setStoryReaction(reaction, on: story)
+    }
+
+    /// performLikeAction: Telegram's heart, or no reaction once the story has one.
+    private func likePressed() {
+        guard let story = shownStory, replyPanel.configuration?.showsLike == true, !isClosing else { return }
+        let heart = ReactionType.reactionTypeEmoji(ReactionTypeEmoji(emoji: "❤"))
+        setStoryReaction(replyPanel.likeButton.reaction == nil ? heart : nil, on: story)
+    }
+
+    /// performLikeOptionsAction: the reactions open over the held like button and follow the finger; letting go on
+    /// one picks it, elsewhere it leaves them open.
+    private func likeHeld(_ gesture: UILongPressGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            guard replyPanel.configuration?.offersLikeOptions == true, shownStory != nil, !isClosing else { return }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            if replyPanel.isEditing { replyPanel.endEditing() }
+            showReplyReactions(.like)
+        case .changed:
+            guard replyReactionsMode == .like else { return }
+            replyReactions.updateTracking(at: gesture.location(in: replyReactions))
+        case .ended:
+            guard replyReactionsMode == .like else { return }
+            replyReactions.updateTracking(at: gesture.location(in: replyReactions))
+            if !replyReactions.selectTrackedReaction() { replyReactions.updateTracking(at: nil) }
+        case .cancelled, .failed:
+            replyReactions.updateTracking(at: nil)
+        default:
+            break
+        }
+    }
+
+    /// setStoryReaction, shown on the like button at once and taken back if TDLib refuses it.
+    private func setStoryReaction(_ type: ReactionType?, on story: Story) {
+        let previous = replyPanel.likeButton.reaction
+        let client = session.client
+        replyPanel.setReaction(type, client: client, loadsSticker: !session.isOffline, animated: true)
+        #if DEBUG
+            if session.isOffline {
+                probeMenuActionHandler?("like \(type?.accessibilityIdentifierComponent ?? "none")")
+                return
+            }
+        #endif
+        let key = StoryViewerSession.StoryKey(chatID: story.posterChatId, storyID: story.id)
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.setStoryReaction(
+                    storyPosterChatId: key.chatID,
+                    storyId: key.storyID,
+                    reactionType: type,
+                    updateRecentReactions: true,
+                ))
+            } catch {
+                guard let self, shownKey == key, !isClosing else { return }
+                replyPanel.setReaction(previous, client: client, loadsSticker: true, animated: false)
+                presentChatListActionFailure()
+            }
+        }
+    }
+
+    // MARK: Replies
+
+    private func sendReplyText(_ text: String) {
+        guard let story = shownStory, replyPanel.configuration?.acceptsInput == true, !isClosing else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        replyPanel.clearText()
+        replyPanel.endEditing()
+        sendStoryReply(
+            FormattedText(entities: [], text: trimmed),
+            to: story,
+            toast: L10n.telegram("Story.TooltipMessageSent"),
+        )
+    }
+
+    /// The text as a message to the poster replying to the story (replyToStoryId), then Telegram's toast with View in
+    /// Chat, which opens the message.
+    private func sendStoryReply(_ text: FormattedText, to story: Story, toast: String) {
+        let chatID = story.posterChatId
+        #if DEBUG
+            if session.isOffline {
+                probeMenuActionHandler?("reply \(text.text)")
+                showReplyToast(toast, chatID: chatID, messageID: nil)
+                return
+            }
+        #endif
+        let client = session.client
+        let replyTo = InputMessageReplyTo.inputMessageReplyToStory(
+            TDNativeInputMessageReplyToStory(storyPosterChatId: chatID, storyId: story.id),
+        )
+        let content = InputMessageContent.inputMessageText(
+            InputMessageText(clearDraft: false, linkPreviewOptions: nil, text: text),
+        )
+        Task { [weak self] in
+            do {
+                let message = try await client.send(TDNativeRequests.sendMessage(
+                    chatId: chatID,
+                    topicId: nil,
+                    replyTo: replyTo,
+                    options: nil,
+                    replyMarkup: nil,
+                    inputMessageContent: content,
+                ))
+                guard let self, !isClosing else { return }
+                sentReplyIDs[message.id] = message.id
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                showReplyToast(toast, chatID: chatID, messageID: message.id)
+            } catch {
+                guard let self, !isClosing else { return }
+                presentChatListActionFailure()
+            }
+        }
+    }
+
+    private func showReplyToast(_ text: String, chatID: Int64, messageID: Int64?) {
+        TelegramUndoToast.show(
+            text: text,
+            in: view,
+            bottomInset: toastBottomInset,
+            actionTitle: messageID == nil ? nil : L10n.telegram("Story.ToastViewInChat"),
+            undo: messageID.map { messageID in
+                { [weak self] in
+                    guard let self, session.isCurrent, !isClosing else { return }
+                    let sentID = sentReplyIDs[messageID] ?? messageID
+                    TelegramLinkRouter.shared.openMessage(chatID: chatID, messageID: sentID, from: self)
+                }
+            },
+        )
+    }
+
     // MARK: Closing
 
     /// Telegram returns the story to the avatar or bubble it opened from, or lets it fall away.
@@ -1584,6 +2085,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         isClosing = true
         stopClock()
         areaTooltip?.dismiss()
+        hideReplyReactions()
+        if replyPanel.isEditing { replyPanel.endEditing() }
         player.pause()
         session.closeOpenedStory()
         containerView.isUserInteractionEnabled = false
@@ -1636,6 +2139,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         moreTask?.cancel()
         menuActionTask?.cancel()
         headerTask?.cancel()
+        replyPosterTask?.cancel()
+        replyReactionsTask?.cancel()
         mediaTask = nil
         preloadTask = nil
         neighborTask = nil
@@ -1723,6 +2228,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             activeStories: [ChatActiveStories],
             initialChatID: Int64,
             menuPoster: StoryMoreMenu.Poster,
+            replyPoster: StoryReplyPanel.Poster = .user(isBot: false, isService: false, isSelf: false),
             onMenuItem: @escaping (String) -> Void,
             client: TDLibClient,
             from presenter: UIViewController,
@@ -1748,6 +2254,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
                 sourceIsAvatar: false,
             )
             viewer.probeMenuPoster = menuPoster
+            viewer.probeReplyPoster = replyPoster
             viewer.probeMenuActionHandler = onMenuItem
             viewer.state.setPaused(true, for: .probe)
             presenter.present(viewer, animated: false)
@@ -1780,6 +2287,52 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
         func probeOpenMoreMenu() {
             morePressed()
+        }
+
+        /// The reply panel as shown, or nil while it's hidden.
+        var probeReplyConfiguration: StoryReplyPanel.Configuration? {
+            replyPanel.isHidden ? nil : replyPanel.configuration
+        }
+
+        var probeReplyPanelFrame: CGRect {
+            replyPanel.frame
+        }
+
+        var probeLikeReaction: ReactionType? {
+            replyPanel.likeButton.reaction
+        }
+
+        var probeReplyIsEditing: Bool {
+            replyPanel.isEditing
+        }
+
+        /// The reactions over the story: whether they're for a message or the like button, their title and count.
+        var probeReplyReactions: (mode: String, title: String?, count: Int)? {
+            guard let mode = replyReactionsMode, !replyReactions.isHidden else { return nil }
+            return (mode == .message ? "message" : "like", replyReactions.title, storyReactions?.types.count ?? 0)
+        }
+
+        var probeIsPausedForReply: Bool {
+            state.pauseReasons.contains(.reply)
+        }
+
+        func probeLike() {
+            likePressed()
+        }
+
+        func probeBeginReply() {
+            replyPanel.beginEditing()
+        }
+
+        /// Holding the like button, as its long press's start does.
+        func probeHoldLike() {
+            guard replyPanel.configuration?.offersLikeOptions == true, shownStory != nil else { return }
+            showReplyReactions(.like)
+        }
+
+        func probeSendReply(_ text: String) {
+            replyPanel.probeSetText(text)
+            sendReplyText(text)
         }
     }
 #endif

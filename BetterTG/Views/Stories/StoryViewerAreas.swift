@@ -52,6 +52,16 @@ enum StoryAreaGeometry {
         return nil
     }
 
+    /// The suggested reaction under the finger, which StoryItemOverlaysView's reaction takes before the story does.
+    static func reaction(at point: CGPoint, in size: CGSize, areas: [StoryArea]) -> ReactionType? {
+        for area in areas.reversed() {
+            guard case .storyAreaTypeSuggestedReaction(let reaction) = area.type,
+                  contains(point, position: area.position, in: size) else { continue }
+            return reaction.reactionType
+        }
+        return nil
+    }
+
     static func contains(_ point: CGPoint, position: StoryAreaPosition, in size: CGSize) -> Bool {
         let tx = point.x - CGFloat(position.xPercentage) / 100 * size.width
         let ty = point.y - CGFloat(position.yPercentage) / 100 * size.height

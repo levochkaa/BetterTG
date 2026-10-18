@@ -66,7 +66,8 @@ enum StoryMoreMenu {
     }
 
     /// The menu's items in performOtherMoreAction's order; a bot's previews have no menu.
-    static func items(story: Story, poster: Poster) -> [Item] {
+    /// With sharesFromPanel set, the reply panel's share button stands in for Share, as in Telegram's menu.
+    static func items(story: Story, poster: Poster, sharesFromPanel: Bool = false) -> [Item] {
         if case .user(isContact: _, isBot: true) = poster.kind { return [] }
         var isLive = false
         if case .storyContentLive = story.content { isLive = true }
@@ -77,7 +78,7 @@ enum StoryMoreMenu {
         if !poster.isService, isPublic(story), poster.username != nil {
             items.append(.copyLink)
         }
-        if !isLive, isPublic(story), story.canBeForwarded {
+        if !sharesFromPanel, !isLive, isPublic(story), story.canBeForwarded {
             items.append(.share)
         }
         var canArchive = poster.storiesHidden
