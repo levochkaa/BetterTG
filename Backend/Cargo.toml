@@ -1,0 +1,67 @@
+[package]
+name = "bettertg-backend"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "BetterTG rich push relay backend"
+license = "UNLICENSED"
+publish = false
+default-run = "bettertg-backend"
+
+[dependencies]
+aes-gcm = "0.10"
+anyhow = "1"
+axum = { version = "0.8", features = ["macros"] }
+base64 = "0.22"
+bytes = "1"
+ciborium = "0.2"
+clap = { version = "4", features = ["derive", "env"] }
+der = { version = "0.7", features = ["oid", "std"] }
+dotenvy = "0.15"
+futures-util = "0.3"
+h2 = "0.4"
+hex = "0.4"
+hkdf = "0.12"
+hmac = "0.12"
+http = "1"
+opentelemetry = { version = "0.31", features = ["metrics", "trace"] }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["http-proto", "metrics", "trace", "reqwest-blocking-client", "reqwest-rustls-webpki-roots"] }
+opentelemetry_sdk = { version = "0.31", features = ["metrics", "trace", "rt-tokio"] }
+p256 = { version = "0.13", features = ["ecdh", "ecdsa", "pem", "pkcs8"] }
+p384 = { version = "0.13", features = ["ecdsa", "pkcs8"] }
+rand = "0.8"
+redis = { version = "1", default-features = false, features = ["aio", "tokio-comp", "connection-manager", "script", "tokio-rustls-comp", "tls-rustls-webpki-roots"] }
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+socket2 = { version = "0.6", features = ["all"] }
+spki = { version = "0.7", features = ["pem", "std"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "uuid", "time", "macros"] }
+subtle = "2"
+thiserror = "2"
+time = { version = "0.3", features = ["formatting", "macros"] }
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["limit", "set-header", "trace"] }
+tracing = "0.1"
+tracing-opentelemetry = "0.32"
+tracing-subscriber = { version = "0.3", features = ["registry"] }
+url = "2"
+utoipa = { version = "5", features = ["uuid"] }
+utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+webpki-roots = "1"
+x509-cert = { version = "0.2", features = ["pem", "std"] }
+
+[dev-dependencies]
+rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
+tower = { version = "0.5", features = ["util"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = "symbols"

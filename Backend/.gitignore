@@ -4,3 +4,4 @@ coverage/
 .env
 .data/
 *.log
+target/
