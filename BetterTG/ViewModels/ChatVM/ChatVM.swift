@@ -86,6 +86,52 @@ import UIKit
         case deleteChat
     }
 
+    /// ChatReportPeerTitlePanelNode's buttons (`peerButtons`).
+    enum ActionBarButton: Equatable {
+        case block
+        /// The person's name when only Add Contact shows and their number is known, else "Add to Contacts".
+        case addContact(name: String?, long: Bool)
+        case shareMyPhoneNumber
+        /// A group or channel: Report Spam and Leave.
+        case reportSpam
+        /// Report Spam, for an archived group or channel or a deleted account.
+        case reportUserSpam
+        case unarchive
+        case addMembers
+
+        var title: String {
+            switch self {
+            case .block: L10n.telegram("Conversation.BlockUser")
+            case .addContact(let name?, _): L10n.telegram("Conversation.AddNameToContacts", name)
+            case .addContact(nil, let long):
+                L10n.telegram(long ? "Conversation.AddToContactsLong" : "Conversation.AddToContacts")
+            case .shareMyPhoneNumber: L10n.telegram("Conversation.ShareMyPhoneNumber")
+            case .reportSpam: L10n.telegram("Conversation.ReportSpamAndLeave")
+            case .reportUserSpam: L10n.telegram("Conversation.ReportSpam")
+            case .unarchive: L10n.telegram("Conversation.Unarchive")
+            case .addMembers: L10n.telegram("Conversation.AddMembers")
+            }
+        }
+
+        var isDestructive: Bool {
+            switch self {
+            case .block,
+                 .reportSpam,
+                 .reportUserSpam: true
+            case .addContact,
+                 .addMembers,
+                 .shareMyPhoneNumber,
+                 .unarchive: false
+            }
+        }
+    }
+
+    /// What the action bar shows: buttons, or the join request notice (`requestChatTitle`).
+    enum ActionBarContent: Equatable {
+        case buttons([ActionBarButton])
+        case joinRequest(title: String, isChannel: Bool, date: Int)
+    }
+
     // MARK: Private
 
     private enum VoiceNoteFailure: Swift.Error {
@@ -196,6 +242,8 @@ import UIKit
     @Published private(set) var isJoiningChat = false
     /// ChatUnblockInputPanelNode's `unblockingPeer`.
     @Published private(set) var isUnblockingChat = false
+    /// TDLib's `chat.action_bar`: what ChatReportPeerTitlePanelNode offers a chat from someone new.
+    @Published private(set) var chatActionBar: TDNativeChatActionBar?
 
     @Published var replyMessage: CustomMessage? {
         didSet {
@@ -1105,6 +1153,14 @@ import UIKit
         return (option, content.poll.allowsMultipleAnswers)
     }
 
+    /// ChatInterfaceTitlePanelNodes: the bar shows in the chat itself, not in threads or topics, and not while the
+    /// person is blocked (the Unblock panel takes over).
+    var actionBarContent: ActionBarContent? {
+        guard !previewing, location.messageThreadID == nil, location.forumTopicID == nil, !isChatBlocked,
+              let chatActionBar else { return nil }
+        return Self.actionBarContent(chatActionBar, user: customChat.user)
+    }
+
     /// ChatUnblockInputPanelNode replaces the composer of a person the user blocked; a blocked bot's composer offers
     /// Restart Bot instead, and a secret chat keeps its own.
     private var showsUnblockPanel: Bool {
@@ -1533,6 +1589,38 @@ import UIKit
         }
     }
 
+    /// `peerButtons` over TDLib's action bar, which folds Telegram's peer status flags into one case.
+    static func actionBarContent(_ bar: TDNativeChatActionBar, user: User?) -> ActionBarContent? {
+        let isDeleted =
+            if case .userTypeDeleted = user?.type {
+                true
+            } else {
+                false
+            }
+        let blockOrReport: ActionBarButton = isDeleted ? .reportUserSpam : .block
+        switch bar {
+        case .chatActionBarReportSpam(let value):
+            if user != nil {
+                return .buttons(value.canUnarchive ? [blockOrReport, .unarchive] : [blockOrReport])
+            }
+            return .buttons(value.canUnarchive ? [.reportUserSpam, .unarchive] : [.reportSpam])
+        case .chatActionBarInviteMembers:
+            return .buttons([.addMembers])
+        case .chatActionBarReportAddBlock(let value):
+            return .buttons(value.canUnarchive
+                ? [blockOrReport, .unarchive]
+                : [.block, .addContact(name: nil, long: false)])
+        case .chatActionBarAddContact:
+            guard let user else { return nil }
+            let name = user.phoneNumber.isEmpty ? nil : user.compactDisplayTitle
+            return .buttons([.addContact(name: name, long: true)])
+        case .chatActionBarSharePhoneNumber:
+            return .buttons([.shareMyPhoneNumber])
+        case .chatActionBarJoinRequest(let value):
+            return .joinRequest(title: value.title, isChannel: value.isChannel, date: value.requestDate)
+        }
+    }
+
     /// ChatRestrictedInputPanelNode's text from `hasBannedPermission(.banSendText)`: the member's own restriction,
     /// with its end date unless it is forever, else the group's.
     static func restrictionText(status: ChatMemberStatus) -> String {
@@ -1691,6 +1779,18 @@ import UIKit
         return video.url.pathExtension.lowercased() == "mp4"
     }
 
+    /// ChatController.dismissPeerContactOptions: `removeChatActionBar`, with the bar leaving at once.
+    func dismissChatActionBar() {
+        guard locationContextIsCurrent else { return }
+        chatActionBar = nil
+        #if DEBUG
+            if ChatActionBarProbe.fixture != nil { return }
+        #endif
+        let client = client
+        let chatID = chatID
+        Task { _ = try? await client.send(TDNativeRequests.removeChatActionBar(chatId: chatID)) }
+    }
+
     /// `updateChatNotificationSettings` for this chat.
     func updateChatNotificationSettings(_ settings: ChatNotificationSettings) {
         chatNotificationSettings = settings
@@ -1738,22 +1838,98 @@ import UIKit
         }
     }
 
-    /// ChatController.deleteChat's removePeerChat for a group the user left or a chat they were removed from, as the
-    /// chat list's Delete does: a basic group's history goes with the chat from the lists, a supergroup is left.
+    /// ChatController.deleteChat's removePeerChat, as the chat list's Delete does: a person's chat and a basic
+    /// group's history go from the lists (a basic group is left first while the user is in it), a supergroup or
+    /// channel is left. `reportingSpam` reports the chat first, as the action bar allows with an empty option.
     /// Telegram's accompanying block of the peer is left out.
-    func removeChatFromList() {
+    func removeChatFromList(reportingSpam: Bool = false) {
         guard locationContextIsCurrent else { return }
         let client = client
         let chatID = chatID
-        let isBasicGroup = customChat.group != nil
+        let type = customChat.type
         Task {
-            _ =
-                if isBasicGroup {
-                    try? await client.deleteChatHistory(chatId: chatID, removeFromChatList: true, revoke: false)
-                } else {
-                    try? await client.send(TDNativeRequests.leaveChat(chatId: chatID))
+            if reportingSpam {
+                _ = try? await client.send(TDNativeRequests.reportChat(
+                    chatId: chatID, optionId: Data(), messageIds: [], text: "",
+                ))
+            }
+            switch type {
+            case .bot,
+                 .user:
+                _ = try? await client.deleteChatHistory(chatId: chatID, removeFromChatList: true, revoke: false)
+            case .group(let group):
+                if group.isActive, group.status.isChatMember {
+                    _ = try? await client.send(TDNativeRequests.leaveChat(chatId: chatID))
                 }
+                _ = try? await client.deleteChatHistory(chatId: chatID, removeFromChatList: true, revoke: false)
+            case .supergroup:
+                _ = try? await client.send(TDNativeRequests.leaveChat(chatId: chatID))
+            }
         }
+    }
+
+    /// ChatControllerReport.reportPeer's Block: the person goes on the block list, a secret chat closes, and the
+    /// chat is deleted (reported first) or only reported as the choices say.
+    func blockChatPeer(reportingSpam: Bool, deletingChat: Bool) {
+        guard locationContextIsCurrent, let userID = customChat.user?.id else { return }
+        let client = client
+        let chatID = chatID
+        let secretChatID = customChat.secretChatID
+        Task {
+            _ = try? await client.send(TDNativeRequests.setMessageSenderBlockList(
+                senderId: .messageSenderUser(MessageSenderUser(userId: userID)),
+                blockList: .blockListMain,
+            ))
+            if let secretChatID {
+                _ = try? await client.send(TDNativeRequests.closeSecretChat(secretChatId: secretChatID))
+            }
+        }
+        if deletingChat {
+            removeChatFromList(reportingSpam: reportingSpam)
+        } else if reportingSpam {
+            Task {
+                _ = try? await client.send(TDNativeRequests.reportChat(
+                    chatId: chatID, optionId: Data(), messageIds: [], text: "",
+                ))
+            }
+        }
+    }
+
+    /// The action bar's Unarchive (unarchiveAutomaticallyArchivedPeer): back to the main list with the chat's
+    /// notification settings at their defaults, as TDLib asks for `can_unarchive`.
+    func unarchiveChat() async -> Bool {
+        guard locationContextIsCurrent else { return false }
+        let client = client
+        let chatID = chatID
+        do {
+            _ = try await client.send(TDNativeRequests.addChatToList(chatId: chatID, chatList: .chatListMain))
+            _ = try? await client.setChatNotificationSettings(
+                chatId: chatID,
+                notificationSettings: .defaultSettings,
+            )
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// The action bar's Add Contact, reduced to the name as a contact message's Add Contact is: the person is added
+    /// without sharing the account's number.
+    func addChatPeerToContacts(firstName: String, lastName: String) async -> Bool {
+        guard locationContextIsCurrent, let user = customChat.user else { return false }
+        let contact = ImportedContact(
+            firstName: firstName,
+            lastName: lastName,
+            note: FormattedText(entities: [], text: ""),
+            phoneNumber: user.phoneNumber,
+        )
+        return await (try? client.addContact(contact: contact, sharePhoneNumber: false, userId: user.id)) != nil
+    }
+
+    /// ChatController.shareAccountContact's request: `sharePhoneNumber` with a mutual contact.
+    func shareAccountPhoneNumber() async -> Bool {
+        guard locationContextIsCurrent, let userID = customChat.user?.id else { return false }
+        return await (try? client.send(TDNativeRequests.sharePhoneNumber(userId: userID))) != nil
     }
 
     /// An album this chat is still announcing: show it once every member arrived, or a moment after the send call.
@@ -2188,7 +2364,13 @@ import UIKit
              .group:
             break
         }
+        loadChatActionBar()
         loadBotInfo()
+    }
+
+    /// `updateChatActionBar` for this chat.
+    func updateChatActionBar(_ actionBar: TDNativeChatActionBar?) {
+        chatActionBar = actionBar
     }
 
     func updateSlowMode(expiresIn seconds: Double) {
@@ -5736,6 +5918,24 @@ import UIKit
         return messageThread.messages.contains { $0.id == message.id }
     }
 
+    /// The chat's action bar as TDLib has it now; a chat hydrated for navigation may carry an older one.
+    private func loadChatActionBar() {
+        #if DEBUG
+            if let fixture = ChatActionBarProbe.fixture {
+                chatActionBar = fixture
+                return
+            }
+        #endif
+        chatActionBar = customChat.chat.actionBar
+        let client = client
+        let chatID = chatID
+        Task { [weak self] in
+            guard let chat = try? await client.getChat(chatId: chatID),
+                  let self, locationContextIsCurrent, chat.id == chatID else { return }
+            chatActionBar = chat.actionBar
+        }
+    }
+
     /// ChatControllerReport's unblockPeer for a bot: the bot is unblocked (setMessageSenderBlockList), then started
     /// with the link's parameter or a plain "/start", only after the user's tap.
     private func restartBot() {
@@ -8722,5 +8922,29 @@ private extension ChatMemberStatus {
         case .chatMemberStatusBanned,
              .chatMemberStatusLeft: false
         }
+    }
+}
+
+private extension ChatNotificationSettings {
+    /// Every setting following its scope, as TDLib asks when a chat leaves the archive through the action bar.
+    static var defaultSettings: ChatNotificationSettings {
+        ChatNotificationSettings(
+            disableMentionNotifications: false,
+            disablePinnedMessageNotifications: false,
+            muteFor: 0,
+            muteStories: false,
+            showPreview: true,
+            showStoryPoster: true,
+            soundId: 0,
+            storySoundId: 0,
+            useDefaultDisableMentionNotifications: true,
+            useDefaultDisablePinnedMessageNotifications: true,
+            useDefaultMuteFor: true,
+            useDefaultMuteStories: true,
+            useDefaultShowPreview: true,
+            useDefaultShowStoryPoster: true,
+            useDefaultSound: true,
+            useDefaultStorySound: true,
+        )
     }
 }

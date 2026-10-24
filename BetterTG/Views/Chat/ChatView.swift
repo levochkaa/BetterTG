@@ -174,6 +174,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pinnedMessageBannerHeightConstraint: NSLayoutConstraint!
     private let topicReopenBar = TopicReopenBarView()
     private var topicReopenBarHeightConstraint: NSLayoutConstraint!
+    /// ChatReportPeerTitlePanelNode for a chat from someone new (TDLib's action bar).
+    private let chatActionBarView = ChatActionBarView()
+    private var chatActionBarHeightConstraint: NSLayoutConstraint!
     /// In place of the composer where the user can't write: Join, Mute or Unmute (ChatChannelSubscriberInputPanelNode).
     private let statusPanel = ChatStatusPanelView()
     private var statusPanelTopConstraint: NSLayoutConstraint?
@@ -2149,15 +2152,26 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         topicReopenBar.onReopen = { [weak self] in self?.reopenTopic() }
         view.addSubview(topicReopenBar)
         topicReopenBarHeightConstraint = topicReopenBar.heightAnchor.constraint(equalToConstant: 0)
+        chatActionBarView.translatesAutoresizingMaskIntoConstraints = false
+        chatActionBarView.isHidden = true
+        chatActionBarView.onButton = { [weak self] button in self?.performActionBarButton(button) }
+        chatActionBarView.onNotice = { [weak self] in self?.presentJoinRequestInfo() }
+        chatActionBarView.onClose = { [weak self] in self?.chatVM.dismissChatActionBar() }
+        view.addSubview(chatActionBarView)
+        chatActionBarHeightConstraint = chatActionBarView.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             topicReopenBar.topAnchor.constraint(equalTo: pinnedMessageBanner.bottomAnchor),
             topicReopenBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             topicReopenBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             topicReopenBarHeightConstraint,
+            chatActionBarView.topAnchor.constraint(equalTo: topicReopenBar.bottomAnchor),
+            chatActionBarView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            chatActionBarView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            chatActionBarHeightConstraint,
             navigationBackground.topAnchor.constraint(equalTo: view.topAnchor),
             navigationBackground.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             navigationBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            navigationBackground.bottomAnchor.constraint(equalTo: topicReopenBar.bottomAnchor),
+            navigationBackground.bottomAnchor.constraint(equalTo: chatActionBarView.bottomAnchor),
         ])
         if let cover = restoredPinnedBannerCover {
             cover.isUserInteractionEnabled = false
@@ -3952,6 +3966,232 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
     }
 
+    private func updateChatActionBar(_ content: ChatVM.ActionBarContent?, animated: Bool) {
+        guard chatActionBarHeightConstraint != nil else { return }
+        if let content {
+            chatActionBarView.update(content: barContent(content))
+        }
+        let desiredHeight = chatActionBarView.content.map {
+            content == nil ? 0 : chatActionBarView.height(for: $0, width: view.bounds.width)
+        } ?? 0
+        guard abs(chatActionBarHeightConstraint.constant - desiredHeight) > 0.5 else { return }
+        if desiredHeight > 0 { chatActionBarView.isHidden = false }
+        view.layoutIfNeeded()
+        chatActionBarHeightConstraint.constant = desiredHeight
+        let completion: (Bool) -> Void = { [weak self] _ in
+            guard let self else { return }
+            chatActionBarView.isHidden = chatActionBarHeightConstraint.constant == 0
+            updateHistoryInsets()
+        }
+        guard animated, !UIAccessibility.isReduceMotionEnabled else {
+            view.layoutIfNeeded()
+            completion(true)
+            return
+        }
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+            animations: { self.view.layoutIfNeeded() },
+            completion: completion,
+        )
+    }
+
+    /// ChatReportPeerTitlePanelNode's join request notice: "… is an admin of …" with both names in bold.
+    private func barContent(_ content: ChatVM.ActionBarContent) -> ChatActionBarView.Content {
+        switch content {
+        case .buttons(let buttons):
+            return .buttons(buttons)
+        case .joinRequest(let title, let isChannel, _):
+            let name = chatVM.customChat.user?.compactDisplayTitle ?? chatVM.customChat.displayTitle
+            let format = L10n.telegram(
+                isChannel ? "Conversation.InviteRequestAdminChannel" : "Conversation.InviteRequestAdminGroup",
+                "\u{1}",
+                "\u{2}",
+            )
+            let text = NSMutableAttributedString(
+                string: format,
+                attributes: [.font: UIFont.systemFont(ofSize: 15), .foregroundColor: UIColor.label],
+            )
+            for (marker, value) in [("\u{1}", name), ("\u{2}", title)] {
+                let range = (text.string as NSString).range(of: marker)
+                guard range.location != NSNotFound else { continue }
+                text.replaceCharacters(in: range, with: NSAttributedString(
+                    string: value,
+                    attributes: [.font: UIFont.boldSystemFont(ofSize: 15), .foregroundColor: UIColor.label],
+                ))
+            }
+            return .notice(text)
+        }
+    }
+
+    /// ChatReportPeerTitlePanelNode.buttonPressed.
+    private func performActionBarButton(_ button: ChatVM.ActionBarButton) {
+        guard presentationMode == .full, routeIsRetained, !clientOwnerRetired, chatVM.locationContextIsCurrent
+        else { return }
+        switch button {
+        case .block,
+             .reportSpam,
+             .reportUserSpam:
+            reportChatPeer()
+        case .unarchive:
+            Task { [weak self] in
+                guard let self, await chatVM.unarchiveChat() else { return }
+                showChatToast(L10n.telegram("Conversation.UnarchiveDone"))
+            }
+        case .addMembers:
+            let isBasicGroup = chatVM.customChat.group != nil
+            navigationController?.pushViewController(
+                ComposeContactPickerViewController(mode: .addMembers(
+                    chatID: location.chatID,
+                    isBasicGroup: isBasicGroup,
+                )),
+                animated: true,
+            )
+        case .addContact:
+            presentAddChatPeerContact()
+        case .shareMyPhoneNumber:
+            shareAccountPhoneNumber()
+        }
+    }
+
+    /// ChatControllerReport.reportPeer: a person gets the Block sheet; a public channel or supergroup Report Spam
+    /// and Leave alone; another group or channel the same with Telegram's question.
+    private func reportChatPeer() {
+        guard presentedViewController == nil else { return }
+        view.endEditing(true)
+        let chat = chatVM.customChat
+        if let user = chat.user {
+            let isDeleted =
+                if case .userTypeDeleted = user.type {
+                    true
+                } else {
+                    false
+                }
+            ChatBlockPeerSheetViewController.present(name: user.compactDisplayTitle, isDeleted: isDeleted, from: self) {
+                [weak self] reportingSpam, deletingChat in
+                guard let self, routeIsRetained, chatVM.locationContextIsCurrent else { return }
+                chatVM.blockChatPeer(reportingSpam: reportingSpam, deletingChat: deletingChat)
+                if deletingChat { navigationController?.popToRootViewController(animated: true) }
+            }
+            return
+        }
+        let message: String? =
+            if let supergroup = chat.supergroup {
+                supergroup.usernames?.activeUsernames.isEmpty == false
+                    ? nil
+                    : L10n.telegram(supergroup.isChannel
+                        ? "Conversation.ReportSpamChannelConfirmation"
+                        : "Conversation.ReportSpamGroupConfirmation")
+            } else {
+                L10n.telegram("Conversation.ReportSpamGroupConfirmation")
+            }
+        let sheet = UIAlertController(title: nil, message: message, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Conversation.ReportSpamAndLeave"), style: .destructive) {
+            [weak self] _ in
+            guard let self, routeIsRetained, chatVM.locationContextIsCurrent else { return }
+            chatVM.removeChatFromList(reportingSpam: true)
+            navigationController?.popToRootViewController(animated: true)
+        })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        sheet.popoverPresentationController?.sourceView = chatActionBarView
+        present(sheet, animated: true)
+    }
+
+    /// The action bar's Add Contact with the person's names filled in.
+    private func presentAddChatPeerContact() {
+        guard presentedViewController == nil, let user = chatVM.customChat.user else { return }
+        let alert = UIAlertController(title: L10n.telegram("AddContact.Title"), message: nil, preferredStyle: .alert)
+        alert.addTextField { field in
+            field.placeholder = L10n.telegram("UserInfo.FirstNamePlaceholder")
+            field.text = user.firstName
+            field.autocapitalizationType = .words
+        }
+        alert.addTextField { field in
+            field.placeholder = L10n.telegram("UserInfo.LastNamePlaceholder")
+            field.text = user.lastName
+            field.autocapitalizationType = .words
+        }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        let done = UIAlertAction(title: L10n.telegram("Common.Done"), style: .default) { [weak self, weak alert] _ in
+            let firstName = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let lastName = alert?.textFields?.last?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard let self, !firstName.isEmpty || !lastName.isEmpty else { return }
+            Task { [weak self] in
+                guard let self else { return }
+                if await chatVM.addChatPeerToContacts(firstName: firstName, lastName: lastName) {
+                    let name = [firstName, lastName].filter { !$0.isEmpty }.joined(separator: " ")
+                    showChatToast(L10n.telegram("AddContact.StatusSuccess", name))
+                } else {
+                    presentUnknownErrorAlert()
+                }
+            }
+        }
+        alert.addAction(done)
+        alert.preferredAction = done
+        present(alert, animated: true)
+    }
+
+    /// ChatController.shareAccountContact: asks with the account's formatted number, then `sharePhoneNumber`.
+    private func shareAccountPhoneNumber() {
+        guard presentedViewController == nil, let user = chatVM.customChat.user else { return }
+        let client = chatVM.client
+        Task { [weak self] in
+            guard let me = try? await client.getMe(), !me.phoneNumber.isEmpty else { return }
+            let phone = await PhoneNumberFormat.international(me.phoneNumber, client: client) ?? "+" + me.phoneNumber
+            guard let self, routeIsRetained, chatVM.locationContextIsCurrent, presentedViewController == nil else {
+                return
+            }
+            let name = user.compactDisplayTitle
+            let alert = UIAlertController(
+                title: nil,
+                message: L10n.telegram("Conversation.ShareMyPhoneNumberConfirmation", phone, name),
+                preferredStyle: .alert,
+            )
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+            let share = UIAlertAction(title: L10n.telegram("Conversation.ShareMyPhoneNumber"), style: .default) {
+                [weak self] _ in
+                Task { [weak self] in
+                    guard let self else { return }
+                    if await chatVM.shareAccountPhoneNumber() {
+                        showChatToast(L10n.telegram("Conversation.ShareMyPhoneNumber.StatusSuccess", name))
+                    } else {
+                        presentUnknownErrorAlert()
+                    }
+                }
+            }
+            alert.addAction(share)
+            alert.preferredAction = share
+            present(alert, animated: true)
+        }
+    }
+
+    private func presentUnknownErrorAlert() {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(title: nil, message: L10n.telegram("Login.UnknownError"), preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        present(alert, animated: true)
+    }
+
+    /// ChatController.presentChatRequestAdminInfo: when and where the join request went, and I understand, which
+    /// removes the bar.
+    private func presentJoinRequestInfo() {
+        guard presentedViewController == nil, case .joinRequest(let title, _, let date) = chatVM.actionBarContent
+        else { return }
+        let dateText = Date(timeIntervalSince1970: TimeInterval(date)).formatted(date: .abbreviated, time: .omitted)
+        let sheet = UIAlertController(
+            title: nil,
+            message: L10n.telegram("Conversation.InviteRequestInfo", title, dateText),
+            preferredStyle: .actionSheet,
+        )
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Conversation.InviteRequestInfoConfirm"), style: .default) {
+            [weak self] _ in self?.chatVM.dismissChatActionBar()
+        })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        sheet.popoverPresentationController?.sourceView = chatActionBarView
+        present(sheet, animated: true)
+    }
+
     /// Telegram's Restart Topic action (ChatControllerLoadDisplayNode, restartTopic). TDLib's updateForumTopicInfo
     /// then reports the topic open and the bar leaves.
     private func reopenTopic() {
@@ -4004,11 +4244,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let showsReopenBar = presentationMode == .full && !messageSearchActive && !isSelectingMessages
             && chatVM.canReopenTopic
         updateTopicReopenBar(visible: showsReopenBar, animated: animated)
+        // The action bar comes before the pinned message (titlePanelForChatPresentationInterfaceState).
+        let actionBar = presentationMode == .full && !messageSearchActive && !isSelectingMessages
+            ? chatVM.actionBarContent
+            : nil
+        updateChatActionBar(actionBar, animated: animated)
         let message: Message? =
             if presentationMode == .full,
             !messageSearchActive,
             !isSelectingMessages,
-            !showsReopenBar {
+            !showsReopenBar,
+            actionBar == nil {
                 chatVM.visiblePinnedMessage
             } else {
                 nil
@@ -4959,7 +5205,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             || (voicePlaybackHeaderHeightConstraint?.constant ?? 0) > 0
             || (liveLocationPanelHeightConstraint?.constant ?? 0) > 0
             || (topicReopenBarHeightConstraint?.constant ?? 0) > 0
-            ? topicReopenBar.frame.maxY + 8
+            || (chatActionBarHeightConstraint?.constant ?? 0) > 0
+            ? chatActionBarView.frame.maxY + 8
             : customNavigationBar.frame.maxY + 8
         let updatedInsets = UIEdgeInsets(top: visualBottomInset, left: 0, bottom: visualTopInset, right: 0)
         guard abs(collectionView.contentInset.top - updatedInsets.top) > 0.5
