@@ -174,6 +174,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pinnedMessageBannerHeightConstraint: NSLayoutConstraint!
     private let topicReopenBar = TopicReopenBarView()
     private var topicReopenBarHeightConstraint: NSLayoutConstraint!
+    /// In place of the composer where the user can't write: Join, Mute or Unmute (ChatChannelSubscriberInputPanelNode).
+    private let subscriberPanel = ChatSubscriberPanelView()
+    private var subscriberPanelHeightConstraint: NSLayoutConstraint?
+    private var subscriberPanelBottomConstraint: NSLayoutConstraint?
+    private var subscriberPanelVisible: Bool?
+    private var scrollToLatestBottomConstraint: NSLayoutConstraint?
     private let voicePlaybackHeader = VoicePlaybackHeaderView()
     private var voicePlaybackHeaderHeightConstraint: NSLayoutConstraint!
     private let liveLocationPanel = LiveLocationPanelView()
@@ -486,6 +492,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
               location.topic == nil, location.messageThreadID == nil,
               let info = chatVM.botInfo, !info.description.isEmpty else { return false }
         return true
+    }
+
+    private var subscriberPanelShowsContent: Bool {
+        subscriberPanelVisible == true
     }
 
     convenience init(
@@ -2068,6 +2078,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             if active { abandonRestoredViewport() }
             else { retryClientRestoration() }
             composerView.setHiddenForSearch(active)
+            updateSubscriberPanel(animated: true)
             updateScrollToLatestButtonVisibility(animated: true)
             if !active {
                 resetMessageSearch()
@@ -2590,106 +2601,274 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             collectionView.bottomAnchor.constraint(equalTo: historyContainerView.bottomAnchor),
         ]
         if showsComposer {
-            view.keyboardLayoutGuide.usesBottomSafeArea = false
-            composerView.onOpenAttachments = { [weak self] in self?.showAttachmentSheet() }
-            composerView.onExpandMediaSearch = { [weak self] mode in
-                self?.showComposerMediaPicker(mode: mode, expandedSearch: true)
-            }
-            composerView.onPasteImages = { [weak self] in self?.importImages($0) }
-            composerView.onInteractionSettled = { [weak self] in self?.retryClientRestoration() }
-            composerView.onUserInteraction = { [weak self] in self?.abandonRestoredViewport() }
-            composerView.onNavigateToMessage = { [weak self] target in self?.navigate(to: target) }
-            composerView.onChangeForwardRecipient = { [weak self] forward in
-                self?.presentForwardPicker(
-                    request: forward.prepared.request,
-                    initialMode: forward.mode,
-                    replacingForwardID: forward.id,
-                )
-            }
-            composerView.onOpenReplyOptions = { [weak self] source in self?.presentReplyOptions(from: source) }
-            composerView.onScheduleMessage = { [weak self] in self?.presentScheduleMessagePicker() }
-            composerView.suggestedStickerPeekActions = { [weak self] sticker in
-                self?.suggestedStickerPeekActions(sticker) ?? []
-            }
-            composerView.stickerPeekSendActions = { [weak self] sticker in
-                guard let self else { return [] }
-                let chatVM = chatVM
-                return stickerPeekSendActions(sticker) { sticker, options in
-                    Task { await chatVM.sendSticker(sticker, options: options) }
-                }
-            }
-            composerView.onOpenScheduledMessages = { [weak self] in self?.openScheduledMessages() }
-            composerView.onOpenBotMenuWebApp = { [weak self] button in self?.openBotMenuWebApp(button) }
-            composerView.onVoiceGestureActivityChange = { [weak self] active in
-                guard let self, voiceGestureDefersSystemGestures != active else { return }
-                voiceGestureDefersSystemGestures = active
-                setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
-                if !active { retryClientRestoration() }
-            }
-            composerView.onConfirmVoiceTrimResume = { [weak self] in
-                self?.confirmVoiceTrimAndResume()
-            }
-            composerView.onStartVideoNoteRecording = { [weak self] in
-                await self?.beginVideoNoteRecording() ?? false
-            }
-            composerView.onCancelVideoNoteRecording = { [weak self] in
-                self?.videoNoteRecorder?.cancel()
-            }
-            composerView.onLockVideoNoteRecording = { [weak self] in
-                self?.videoNoteRecorder?.lockRecording()
-            }
-            composerView.onPauseVideoNoteRecording = { [weak self] in
-                self?.videoNoteRecorder?.finishForPreview()
-            }
-            composerView.onRecordMoreVideoNoteRecording = { [weak self] in
-                self?.videoNoteRecorder?.recordMore()
-            }
-            composerView.onSendVideoNoteRecording = { [weak self] in
-                self?.videoNoteRecorder?.finishForSend()
-            }
-            composerView.onToggleVideoNotePreview = { [weak self] in
-                self?.videoNoteRecorder?.togglePreviewPlayback()
-            }
-            composerView.onViewOnceEnabled = { [weak self] text in self?.showChatToast(text) }
-            composerView.onUpdateVideoNoteTrim = { [weak self] start, end, updatedEnd, finished in
-                self?.videoNoteRecorder?.updateTrim(
-                    start: start,
-                    end: end,
-                    updatedEnd: updatedEnd,
-                    finished: finished,
-                )
-            }
-            composerView.onReplyKeyboardButton = { [weak self] button, messageID in
-                guard let self, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
-                handleReplyKeyboardButton(button, keyboardMessageID: messageID)
-            }
-            view.addSubview(composerKeyboardEdgeView)
-            view.addSubview(composerView)
-            let leadingConstraint = composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
-            let trailingConstraint = composerView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
-            let bottomConstraint = composerView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
-            composerLeadingConstraint = leadingConstraint
-            composerTrailingConstraint = trailingConstraint
-            composerBottomConstraint = bottomConstraint
-            constraints.append(contentsOf: [
-                leadingConstraint,
-                trailingConstraint,
-                bottomConstraint,
-                composerKeyboardEdgeView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                composerKeyboardEdgeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                composerKeyboardEdgeView.topAnchor.constraint(equalTo: composerView.topAnchor, constant: -20),
-                // Telegram extends the edge material behind the keyboard, through its rounded corners.
-                composerKeyboardEdgeView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            ])
+            constraints.append(contentsOf: installComposer())
+        }
+        if presentationMode == .full, !showsComposer {
+            configureSubscriberPanel()
         }
         if presentationMode == .full {
             configureScrollToLatestButton(bottomAnchor: showsComposer
                 ? composerView.topAnchor
-                : view.safeAreaLayoutGuide.bottomAnchor)
+                : subscriberPanel.topAnchor)
             configureMessageSelectionToolbar()
             configureMessageSearchPanel()
         }
         NSLayoutConstraint.activate(constraints)
+    }
+
+    /// The composer's callbacks, views and constraints. A chat the user may write to only later, such as a group joined
+    /// from the subscriber panel, gets it then in the panel's place.
+    private func installComposer() -> [NSLayoutConstraint] {
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
+        composerView.onOpenAttachments = { [weak self] in self?.showAttachmentSheet() }
+        composerView.onExpandMediaSearch = { [weak self] mode in
+            self?.showComposerMediaPicker(mode: mode, expandedSearch: true)
+        }
+        composerView.onPasteImages = { [weak self] in self?.importImages($0) }
+        composerView.onInteractionSettled = { [weak self] in self?.retryClientRestoration() }
+        composerView.onUserInteraction = { [weak self] in self?.abandonRestoredViewport() }
+        composerView.onNavigateToMessage = { [weak self] target in self?.navigate(to: target) }
+        composerView.onChangeForwardRecipient = { [weak self] forward in
+            self?.presentForwardPicker(
+                request: forward.prepared.request,
+                initialMode: forward.mode,
+                replacingForwardID: forward.id,
+            )
+        }
+        composerView.onOpenReplyOptions = { [weak self] source in self?.presentReplyOptions(from: source) }
+        composerView.onScheduleMessage = { [weak self] in self?.presentScheduleMessagePicker() }
+        composerView.suggestedStickerPeekActions = { [weak self] sticker in
+            self?.suggestedStickerPeekActions(sticker) ?? []
+        }
+        composerView.stickerPeekSendActions = { [weak self] sticker in
+            guard let self else { return [] }
+            let chatVM = chatVM
+            return stickerPeekSendActions(sticker) { sticker, options in
+                Task { await chatVM.sendSticker(sticker, options: options) }
+            }
+        }
+        composerView.onOpenScheduledMessages = { [weak self] in self?.openScheduledMessages() }
+        composerView.onOpenBotMenuWebApp = { [weak self] button in self?.openBotMenuWebApp(button) }
+        composerView.onVoiceGestureActivityChange = { [weak self] active in
+            guard let self, voiceGestureDefersSystemGestures != active else { return }
+            voiceGestureDefersSystemGestures = active
+            setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
+            if !active { retryClientRestoration() }
+        }
+        composerView.onConfirmVoiceTrimResume = { [weak self] in
+            self?.confirmVoiceTrimAndResume()
+        }
+        composerView.onStartVideoNoteRecording = { [weak self] in
+            await self?.beginVideoNoteRecording() ?? false
+        }
+        composerView.onCancelVideoNoteRecording = { [weak self] in
+            self?.videoNoteRecorder?.cancel()
+        }
+        composerView.onLockVideoNoteRecording = { [weak self] in
+            self?.videoNoteRecorder?.lockRecording()
+        }
+        composerView.onPauseVideoNoteRecording = { [weak self] in
+            self?.videoNoteRecorder?.finishForPreview()
+        }
+        composerView.onRecordMoreVideoNoteRecording = { [weak self] in
+            self?.videoNoteRecorder?.recordMore()
+        }
+        composerView.onSendVideoNoteRecording = { [weak self] in
+            self?.videoNoteRecorder?.finishForSend()
+        }
+        composerView.onToggleVideoNotePreview = { [weak self] in
+            self?.videoNoteRecorder?.togglePreviewPlayback()
+        }
+        composerView.onViewOnceEnabled = { [weak self] text in self?.showChatToast(text) }
+        composerView.onUpdateVideoNoteTrim = { [weak self] start, end, updatedEnd, finished in
+            self?.videoNoteRecorder?.updateTrim(
+                start: start,
+                end: end,
+                updatedEnd: updatedEnd,
+                finished: finished,
+            )
+        }
+        composerView.onReplyKeyboardButton = { [weak self] button, messageID in
+            guard let self, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
+            handleReplyKeyboardButton(button, keyboardMessageID: messageID)
+        }
+        // Under the controls added after it, as at load, when the composer arrives later.
+        if subscriberPanel.superview != nil {
+            view.insertSubview(composerKeyboardEdgeView, belowSubview: subscriberPanel)
+            view.insertSubview(composerView, belowSubview: subscriberPanel)
+        } else {
+            view.addSubview(composerKeyboardEdgeView)
+            view.addSubview(composerView)
+        }
+        let leadingConstraint = composerView.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+        let trailingConstraint = composerView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        let bottomConstraint = composerView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor)
+        composerLeadingConstraint = leadingConstraint
+        composerTrailingConstraint = trailingConstraint
+        composerBottomConstraint = bottomConstraint
+        return [
+            leadingConstraint,
+            trailingConstraint,
+            bottomConstraint,
+            composerKeyboardEdgeView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            composerKeyboardEdgeView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            composerKeyboardEdgeView.topAnchor.constraint(equalTo: composerView.topAnchor, constant: -20),
+            // Telegram extends the edge material behind the keyboard, through its rounded corners.
+            composerKeyboardEdgeView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ]
+    }
+
+    /// Once a chat opened without the composer may be written to, the composer takes the subscriber panel's place.
+    private func installComposerIfNeeded() {
+        guard presentationMode == .full, showsComposer, composerView.superview == nil,
+              subscriberPanel.superview != nil else { return }
+        NSLayoutConstraint.activate(installComposer())
+        scrollToLatestBottomConstraint?.isActive = false
+        scrollToLatestBottomConstraint = scrollToLatestButton.bottomAnchor.constraint(
+            equalTo: composerView.topAnchor,
+            constant: -12,
+        )
+        scrollToLatestBottomConstraint?.isActive = true
+        composerView.update(from: chatVM)
+        view.layoutIfNeeded()
+        composerView.setHiddenForSearch(messageSearchActive || isSelectingMessages)
+    }
+
+    /// ChatControllerNode places an input panel 8 pt above the safe area, the subscriber panel 8 pt from the sides.
+    /// Without an action it collapses onto the safe area, where the scroll-to-latest button rests.
+    private func configureSubscriberPanel() {
+        subscriberPanel.translatesAutoresizingMaskIntoConstraints = false
+        subscriberPanel.isHidden = true
+        subscriberPanel.onAction = { [weak self] in self?.performSubscriberPanelAction() }
+        subscriberPanel.onSearch = { [weak self] in self?.beginMessageSearch() }
+        subscriberPanel.onHelp = { [weak self] in
+            self?.showChatToast(L10n.telegram("Conversation.GigagroupDescription"))
+        }
+        view.addSubview(subscriberPanel)
+        let height = subscriberPanel.heightAnchor.constraint(equalToConstant: 0)
+        let bottom = subscriberPanel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+        subscriberPanelHeightConstraint = height
+        subscriberPanelBottomConstraint = bottom
+        NSLayoutConstraint.activate([
+            subscriberPanel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
+            subscriberPanel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+            height,
+            bottom,
+        ])
+        RootVM.shared
+            .$scopeNotificationSettings
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateSubscriberPanel(animated: true) }
+            .store(in: &cancellables)
+        updateSubscriberPanel(animated: false)
+    }
+
+    /// The panel steps aside for search and selection as the composer does, and goes once the user may write.
+    private func updateSubscriberPanel(animated: Bool) {
+        guard subscriberPanel.superview != nil else { return }
+        let action = composerView.superview == nil && !clientOwnerRetired && chatVM.locationContextIsCurrent
+            ? chatVM.subscriberPanelAction
+            : nil
+        if let action {
+            subscriberPanel.update(
+                content: .init(
+                    title: action.title,
+                    isAccent: action.isJoin,
+                    showsHelp: !action.isJoin && chatVM.customChat.supergroup?.isBroadcastGroup == true,
+                ),
+                animated: animated && subscriberPanelShowsContent,
+            )
+        }
+        let hasPanel = action != nil
+        let visible = hasPanel && !messageSearchActive && !isSelectingMessages
+        let height = hasPanel ? ChatSubscriberPanelView.contentHeight : 0
+        let layoutChanged = subscriberPanelHeightConstraint?.constant != height
+        let visibilityChanged = subscriberPanelVisible != visible
+        guard layoutChanged || visibilityChanged else { return }
+        let wasVisible = subscriberPanelVisible == true
+        subscriberPanelVisible = visible
+        subscriberPanelHeightConstraint?.constant = height
+        subscriberPanelBottomConstraint?.constant = hasPanel ? -8 : 0
+        subscriberPanel.isUserInteractionEnabled = visible
+        let hiddenTransform = CGAffineTransform(translationX: 0, y: ChatSubscriberPanelView.contentHeight + 20)
+        let changes = {
+            self.subscriberPanel.alpha = visible ? 1 : 0
+            self.subscriberPanel.transform = visible ? .identity : hiddenTransform
+            if layoutChanged { self.view.layoutIfNeeded() }
+        }
+        guard animated, view.window != nil else {
+            subscriberPanel.isHidden = !visible
+            changes()
+            view.setNeedsLayout()
+            return
+        }
+        if visible, !wasVisible {
+            subscriberPanel.isHidden = false
+            subscriberPanel.transform = hiddenTransform
+        }
+        UIView.animate(
+            withDuration: visible ? 0.24 : 0.28,
+            delay: 0,
+            usingSpringWithDamping: visible ? 0.9 : 1,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+            animations: changes,
+        ) { _ in
+            guard self.subscriberPanelVisible == false else { return }
+            self.subscriberPanel.isHidden = true
+        }
+        view.setNeedsLayout()
+    }
+
+    /// ChatChannelSubscriberInputPanelNode.buttonPressed: Join sends `joinChat`; Mute and Unmute toggle the chat's
+    /// mute.
+    private func performSubscriberPanelAction() {
+        guard presentationMode == .full, routeIsRetained, !clientOwnerRetired, chatVM.locationContextIsCurrent,
+              let action = chatVM.subscriberPanelAction else { return }
+        guard action.isJoin else {
+            chatVM.toggleSubscriberMute()
+            return
+        }
+        let isChannel = chatVM.customChat.supergroup?.isChannel == true
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let result = try await chatVM.joinSubscribedChat()
+                if case .chatJoinResultRequestSent = result { presentJoinRequestSent() }
+            } catch {
+                guard routeIsRetained, chatVM.locationContextIsCurrent else { return }
+                presentJoinError(error, isChannel: isChannel)
+            }
+        }
+    }
+
+    /// UndoOverlayController's `.inviteRequestSent` with the group's description, as the panel shows it for both.
+    private func presentJoinRequestSent() {
+        showChatToast(
+            L10n.telegram("Group.RequestToJoinSentDescriptionGroup"),
+            title: L10n.telegram("Group.RequestToJoinSent"),
+        )
+    }
+
+    /// The panel's join errors: a request sent, too many channels or users, else the private chat's alert.
+    private func presentJoinError(_ error: Swift.Error, isChannel: Bool) {
+        let message = (error as? TDLibError)?.message ?? ""
+        if message.contains("INVITE_REQUEST_SENT") {
+            presentJoinRequestSent()
+            return
+        }
+        let text =
+            if message.contains("CHANNELS_TOO_MUCH") {
+                L10n.telegram("Join.ChannelsTooMuch")
+            } else if message.contains("USERS_TOO_MUCH") {
+                L10n.telegram("Conversation.UsersTooMuchError")
+            } else {
+                L10n.telegram(isChannel ? "Channel.ErrorAccessDenied" : "Group.ErrorAccessDenied")
+            }
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(title: nil, message: text, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        present(alert, animated: true)
     }
 
     private func configureMessageSearchPanel() {
@@ -3065,9 +3244,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         unreadBadgeLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
         scrollToLatestButton.addSubview(unreadBadgeLabel)
         view.addSubview(scrollToLatestButton)
+        let scrollToLatestBottom = scrollToLatestButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12)
+        scrollToLatestBottomConstraint = scrollToLatestBottom
         NSLayoutConstraint.activate([
             scrollToLatestButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
-            scrollToLatestButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            scrollToLatestBottom,
             scrollToLatestButton.widthAnchor.constraint(equalToConstant: 36),
             scrollToLatestButton.heightAnchor.constraint(equalToConstant: 36),
             unreadBadgeLabel.topAnchor.constraint(equalTo: scrollToLatestButton.topAnchor, constant: -7),
@@ -3540,6 +3721,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     retryClientRestoration()
                     guard !clientOwnerRetired, chatVM.locationContextIsCurrent else { return }
                     updateStatus()
+                    installComposerIfNeeded()
                     if showsComposer {
                         let voiceDestinationUnavailable = (chatVM.recordingVoiceNote || chatVM.startingVoiceNote)
                             && !chatVM.canContinueVoiceRecording
@@ -3550,6 +3732,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         }
                         if !composerAwaitsSentMediaInsertion { composerView.update(from: chatVM) }
                     }
+                    updateSubscriberPanel(animated: true)
                     updateHighlightState()
                     updatePinnedMessageBanner(animated: true)
                     presentMicrophoneErrorIfNeeded()
@@ -4731,6 +4914,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 ) + 8
             } else if showsComposer, composerView.frame.minY > 0 {
                 max(view.safeAreaInsets.bottom, view.bounds.maxY - composerView.frame.minY) + 10
+            } else if subscriberPanelShowsContent, subscriberPanel.frame.minY > 0 {
+                view.bounds.maxY - subscriberPanel.frame.minY + 8
             } else {
                 view.safeAreaInsets.bottom + 8
             }
@@ -6091,9 +6276,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         actionTitle: String? = nil,
         action: (() -> Void)? = nil,
     ) {
-        let bottomInset = showsComposer && composerView.frame.minY > 0
-            ? max(0, view.bounds.maxY - view.safeAreaInsets.bottom - composerView.frame.minY) + 8
-            : 8
+        let bottomInset =
+            if showsComposer, composerView.frame.minY > 0 {
+                max(0, view.bounds.maxY - view.safeAreaInsets.bottom - composerView.frame.minY) + 8
+            } else if subscriberPanelShowsContent {
+                max(0, view.bounds.maxY - view.safeAreaInsets.bottom - subscriberPanel.frame.minY) + 8
+            } else {
+                CGFloat(8)
+            }
         TelegramUndoToast.show(
             title: title,
             text: text,
@@ -8696,6 +8886,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.isEditing = true
         messageContextGesture.isEnabled = false
         composerView.setHiddenForSearch(true)
+        updateSubscriberPanel(animated: true)
         updateScrollToLatestButtonVisibility(animated: true)
         messageSelectionToolbar.isHidden = false
         messageSelectionToolbar.alpha = 0
@@ -8775,6 +8966,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         messageContextGesture.isEnabled = presentationMode == .full
         customNavigationBar.setSelectionCount(nil)
         composerView.setHiddenForSearch(messageSearchActive)
+        updateSubscriberPanel(animated: true)
         updatePinnedMessageBanner(animated: true)
         UIView.animate(
             withDuration: 0.2,

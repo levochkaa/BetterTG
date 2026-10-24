@@ -279,6 +279,10 @@ extension ChatVM {
             guard let self, locationContextIsCurrent, update.chatId == chatID else { return }
             updateChatBlocked(update.blockList != nil)
         }
+        observeCurrentUpdate(.updateChatNotificationSettings) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.chatId == chatID else { return }
+            updateChatNotificationSettings(update.notificationSettings)
+        }
         observeCurrentUpdate(.updateUser) { [weak self] update, authority in
             guard let self, locationContextIsCurrent else { return }
             metadataResolver.update(user: update.user)

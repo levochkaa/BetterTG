@@ -2407,3 +2407,12 @@
 "Chat.MessageSeenTimestamp.Date" = "%@";
 "Story.Footer.ViewCount_1" = "|%d| View";
 "Story.Footer.ViewCount_any" = "|%d| Views";
+"Group.JoinGroup" = "Join Group";
+"Group.ApplyToJoin" = "Apply to Join Group";
+"Conversation.Mute" = "Mute";
+"Conversation.Unmute" = "Unmute";
+"Group.RequestToJoinSent" = "Request to join sent";
+"Group.RequestToJoinSentDescriptionGroup" = "You will be able to send messages once the admins approve your request.";
+"Channel.ErrorAccessDenied" = "Sorry, this channel is private.";
+"Group.ErrorAccessDenied" = "Sorry, this group is private.";
+"Conversation.GigagroupDescription" = "Only admins can send messages in this group.";

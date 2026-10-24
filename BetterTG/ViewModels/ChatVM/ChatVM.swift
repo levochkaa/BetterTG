@@ -43,6 +43,35 @@ import UIKit
         let resultsHidden: Bool
     }
 
+    /// ChatChannelSubscriberInputPanelNode's actions (`actionForPeer`).
+    enum SubscriberPanelAction: Equatable {
+        case join
+        case joinGroup
+        case applyToJoin
+        case mute
+        case unmute
+
+        var title: String {
+            switch self {
+            case .join: L10n.telegram("Channel.JoinChannel")
+            case .joinGroup: L10n.telegram("Group.JoinGroup")
+            case .applyToJoin: L10n.telegram("Group.ApplyToJoin")
+            case .mute: L10n.telegram("Conversation.Mute")
+            case .unmute: L10n.telegram("Conversation.Unmute")
+            }
+        }
+
+        var isJoin: Bool {
+            switch self {
+            case .applyToJoin,
+                 .join,
+                 .joinGroup: true
+            case .mute,
+                 .unmute: false
+            }
+        }
+    }
+
     // MARK: Private
 
     private enum VoiceNoteFailure: Swift.Error {
@@ -147,6 +176,10 @@ import UIKit
     @Published private(set) var stickerSuggestions = [Sticker]()
     /// The user blocked this chat's person or bot (`chat.block_list`); a blocked bot offers Restart Bot.
     @Published private(set) var isChatBlocked = false
+    /// The chat's latest `updateChatNotificationSettings`; a navigation-hydrated chat isn't updated by the chat list.
+    @Published private(set) var chatNotificationSettings: ChatNotificationSettings?
+    /// ChatChannelSubscriberInputPanelNode's `isJoining`: from the Join tap until TDLib answers, a channel shows Mute.
+    @Published private(set) var isJoiningChat = false
 
     @Published var replyMessage: CustomMessage? {
         didSet {
@@ -657,6 +690,27 @@ import UIKit
 
     var canShowComposer: Bool {
         !previewing && (canWriteAnyMessage || pendingForward != nil)
+    }
+
+    /// inputPanelForChatPresentationIntefaceState's subscriber panel in place of the composer: a channel the user may
+    /// not post to or hasn't joined, a broadcast group the user can't write to, and a group the user hasn't joined.
+    /// A channel or group the user was banned from (DeleteChatInputPanelNode), a restricted member
+    /// (ChatRestrictedInputPanelNode), threads, topics and direct messages chats are left to their own panels.
+    var subscriberPanelAction: SubscriberPanelAction? {
+        guard !previewing, !canShowComposer, location.messageThreadID == nil, location.forumTopicID == nil,
+              let supergroup = customChat.supergroup else { return nil }
+        return Self.subscriberPanelAction(for: supergroup, isJoining: isJoiningChat, isMuted: isNotificationMuted)
+    }
+
+    /// RootVM.isMuted for the chat's latest settings: its own mute, else its scope's.
+    var isNotificationMuted: Bool {
+        let settings = chatNotificationSettings ?? customChat.chat.notificationSettings
+        if settings.useDefaultMuteFor,
+           let scope = RootVM.shared.scopeNotificationSettings[customChat.notificationSettingsScope]
+        {
+            return scope.muteFor > 0
+        }
+        return settings.muteFor > 0
     }
 
     /// Telegram offers play-once voice only in a cloud chat with another user that isn't a bot.
@@ -1427,6 +1481,41 @@ import UIKit
         }
     }
 
+    /// `actionForPeer` for a supergroup the user can't write to: a channel offers Join until joined (or while joining),
+    /// then Mute or Unmute; a group the user isn't in offers Apply to Join, Join for a forum, or Join Group; a
+    /// broadcast
+    /// group's member gets Mute or Unmute.
+    static func subscriberPanelAction(
+        for supergroup: Supergroup,
+        isJoining: Bool,
+        isMuted: Bool,
+    ) -> SubscriberPanelAction? {
+        guard !supergroup.isDirectMessagesGroup else { return nil }
+        let isMember: Bool
+        switch supergroup.status {
+        case .chatMemberStatusCreator(let creator):
+            isMember = creator.isMember
+        case .chatMemberStatusAdministrator,
+             .chatMemberStatusMember:
+            isMember = true
+        case .chatMemberStatusRestricted(let restricted):
+            isMember = restricted.isMember
+        case .chatMemberStatusLeft:
+            isMember = false
+        case .chatMemberStatusBanned:
+            return nil
+        }
+        if supergroup.isChannel {
+            guard isMember || isJoining else { return .join }
+        } else if !isMember {
+            if supergroup.joinByRequest { return .applyToJoin }
+            return supergroup.isForum ? .join : .joinGroup
+        } else if !supergroup.isBroadcastGroup {
+            return nil
+        }
+        return isMuted ? .unmute : .mute
+    }
+
     /// The send-button menu's choice as TDLib send options.
     static func sendOptions(
         silent: Bool = false,
@@ -1536,6 +1625,38 @@ import UIKit
     private nonisolated static func sendsAsAnimation(_ image: SelectedImage) -> Bool {
         guard let video = image.video, video.sendsAsGIF, image.selfDestructTimer == nil else { return false }
         return video.url.pathExtension.lowercased() == "mp4"
+    }
+
+    /// `updateChatNotificationSettings` for this chat.
+    func updateChatNotificationSettings(_ settings: ChatNotificationSettings) {
+        chatNotificationSettings = settings
+    }
+
+    /// TelegramEngine.togglePeerMuted: a muted chat is unmuted, any other is muted forever; the panel turns at once and
+    /// turns back if TDLib refuses.
+    func toggleSubscriberMute() {
+        guard locationContextIsCurrent else { return }
+        let previous = chatNotificationSettings ?? customChat.chat.notificationSettings
+        let updated = previous.replacingMuteFor(isNotificationMuted ? 0 : Int(Int32.max))
+        chatNotificationSettings = updated
+        let client = client
+        let chatID = chatID
+        Task { [weak self] in
+            do {
+                _ = try await client.setChatNotificationSettings(chatId: chatID, notificationSettings: updated)
+            } catch {
+                guard let self, locationContextIsCurrent, chatNotificationSettings == updated else { return }
+                chatNotificationSettings = previous
+            }
+        }
+    }
+
+    /// ChatChannelSubscriberInputPanelNode's join: `joinChat`, with the channel showing Mute meanwhile.
+    func joinSubscribedChat() async throws -> TDNativeChatJoinResult? {
+        guard locationContextIsCurrent, !isJoiningChat else { return nil }
+        isJoiningChat = true
+        defer { isJoiningChat = false }
+        return try await client.send(TDNativeRequests.joinChat(chatId: chatID))
     }
 
     /// An album this chat is still announcing: show it once every member arrived, or a moment after the send call.
