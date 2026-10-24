@@ -3587,6 +3587,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                             message: row.canonical, cell: cell, source: row.source, location: row.location,
                             selected: row.inputs.selected, renderValue: row.value,
                         )
+                        cell.showsThreadStatus = location.messageThreadID == nil && !location.isTopicScoped
                         cell.configure(
                             message: message,
                             chat: chatVM.customChat,

@@ -224,6 +224,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         didSet { quickReactionRecognizer.isEnabled = onQuickReaction != nil }
     }
 
+    /// ChatMessageBubbleItemNode's `.peer` location: a chat's own history shows reply counts and pins in the status;
+    /// set before `configure`, off in threads and topics.
+    var showsThreadStatus = true
+
     private var selectionTouchBindingID: UUID?
     private let rowStack = UIStackView()
     private let bubbleContainerView = TelegramContextMenuExtractableView()
@@ -890,6 +894,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         let statusLine = MessageStatusLine.make(
             statusSource,
             isChannel: chat.isBroadcastChannel,
+            isGroup: chat.supergroup.map { !$0.isChannel } ?? false,
+            showsThreadInfo: showsThreadStatus,
+            isPinned: message.isPinned,
             time: timestamp,
             deliverySymbol: delivery.symbol,
         )
@@ -904,6 +911,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 statusText: previewBelowText ? "" : statusLine.text,
                 statusColor: timestampColor,
                 statusViewCount: previewBelowText ? nil : statusLine.viewCount,
+                statusLine: previewBelowText ? nil : statusLine,
                 maximumWidth: maximumTextWidth(for: bounds.width),
                 spoilersRevealed: message.spoilersRevealed,
                 spoilerState: textSpoilers.states[textSourceID],

@@ -13,16 +13,27 @@ struct MessageStatusLine: Equatable {
     let viewCount: String?
     /// "edited", the signature, the time and the delivery symbol.
     let text: String
+    /// ChatMessageDateAndStatusNode's replies icon with the thread's reply count, first in the line.
+    var replyCount: String?
+    /// The pin icon there for a pinned message without replies.
+    var isPinned = false
 
-    init(viewCount: String? = nil, text: String) {
+    init(viewCount: String? = nil, text: String, replyCount: String? = nil, isPinned: Bool = false) {
         self.viewCount = viewCount
         self.text = text
+        self.replyCount = replyCount
+        self.isPinned = isPinned
     }
 
-    /// `isChannel` is true when the message belongs to a broadcast channel.
+    /// `isChannel` is true when the message belongs to a broadcast channel. `showsThreadInfo` is
+    /// ChatMessageBubbleItemNode's
+    /// `.peer` chat location: a group's own history shows reply counts and pins, a thread or topic neither.
     static func make(
         _ message: Message,
         isChannel: Bool,
+        isGroup: Bool = false,
+        showsThreadInfo: Bool = true,
+        isPinned: Bool = false,
         time: String,
         deliverySymbol: String,
     ) -> MessageStatusLine {
@@ -37,9 +48,13 @@ struct MessageStatusLine: Equatable {
         }
         // ViewCountMessageAttribute: TDLib reports views only for posts that have them.
         let views = message.interactionInfo?.viewCount ?? 0
+        // ReplyThreadMessageAttribute's count in a group's history (dateReplies), else the pin.
+        let replies = isGroup && showsThreadInfo ? message.interactionInfo?.replyInfo?.replyCount ?? 0 : 0
         return MessageStatusLine(
             viewCount: views > 0 ? compactNumericCountString(views) : nil,
             text: [date, deliverySymbol].filter { !$0.isEmpty }.joined(separator: " "),
+            replyCount: replies > 0 ? compactNumericCountString(replies) : nil,
+            isPinned: replies == 0 && isPinned && showsThreadInfo,
         )
     }
 
@@ -71,6 +86,32 @@ struct MessageStatusLine: Equatable {
     func attributedText(font: UIFont, color: UIColor) -> NSAttributedString {
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
         let result = NSMutableAttributedString()
+        func icon(_ name: String, kern: CGFloat) -> NSAttributedString? {
+            let configuration = UIImage.SymbolConfiguration(font: font, scale: .small)
+            guard let image = UIImage(systemName: name, withConfiguration: configuration)?
+                .withTintColor(color, renderingMode: .alwaysOriginal) else { return nil }
+            let attachment = NSTextAttachment()
+            attachment.image = image
+            attachment.bounds = CGRect(
+                x: 0,
+                y: round((font.capHeight - image.size.height) / 2),
+                width: image.size.width,
+                height: image.size.height,
+            )
+            let text = NSMutableAttributedString(attachment: attachment)
+            text.addAttributes(
+                attributes.merging([.kern: kern]) { current, _ in current },
+                range: NSRange(location: 0, length: text.length),
+            )
+            return text
+        }
+        if let replyCount {
+            // Telegram leaves 3 pt after the replies icon and 4 pt after the count.
+            if let replies = icon("arrowshape.turn.up.left.fill", kern: 3) { result.append(replies) }
+            result.append(NSAttributedString(string: replyCount + " ", attributes: attributes))
+        } else if isPinned, let pin = icon("pin.fill", kern: 4) {
+            result.append(pin)
+        }
         if let viewCount {
             let configuration = UIImage.SymbolConfiguration(font: font, scale: .small)
             if let icon = UIImage(systemName: "eye.fill", withConfiguration: configuration)?

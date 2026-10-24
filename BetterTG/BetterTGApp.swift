@@ -68,6 +68,7 @@ import UIKit
             MessageTextBlocksProbe.runIfRequested()
             ChatListRowIconsProbe.runIfRequested()
             ChatTitleIconsProbe.runIfRequested()
+            MessageStatusLineProbe.runIfRequested()
             TDLibVODRangeSource.runDebugProbeIfRequested()
             TDLibVODFFmpegLookahead.runDebugProbeIfRequested()
             TDLibVODFFmpegDecoder.runDebugProbeIfRequested()

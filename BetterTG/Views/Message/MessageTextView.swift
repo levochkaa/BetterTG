@@ -209,6 +209,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         statusText: String,
         statusColor: UIColor,
         statusViewCount: String? = nil,
+        statusLine: MessageStatusLine? = nil,
         maximumWidth: CGFloat = Utils.maxMessageContentWidth,
         spoilersRevealed: Bool = false,
         spoilerState: MessageTextSpoilerState? = nil,
@@ -226,7 +227,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         configurePresentation(
             state: state,
             client: client,
-            status: MessageStatusLine(viewCount: statusViewCount, text: statusText),
+            status: statusLine ?? MessageStatusLine(viewCount: statusViewCount, text: statusText),
             statusColor: statusColor,
             maximumWidth: maximumWidth,
             richAttributedText: richAttributedText,
