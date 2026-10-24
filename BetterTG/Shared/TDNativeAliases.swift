@@ -54,6 +54,7 @@ public typealias ChatTypeSecret = TDNativeChatTypeSecret
 public typealias Chats = TDNativeChats
 public typealias Checklist = TDNativeChecklist
 public typealias ChecklistTask = TDNativeChecklistTask
+public typealias ConnectionState = TDNativeConnectionState
 public typealias Contact = TDNativeContact
 public typealias Count = TDNativeCount
 public typealias DateTimeFormattingTypeAbsolute = TDNativeDateTimeFormattingTypeAbsolute

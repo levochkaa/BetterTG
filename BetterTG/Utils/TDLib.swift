@@ -64,6 +64,7 @@ final class TDLib: @unchecked Sendable {
     private var cancellables = Set<AnyCancellable>()
     private var mediaUpdates = TDLibMediaUpdateStreams(source: nil)
     private let activeClientChangesSubject = PassthroughSubject<TdUpdateSource, Never>()
+    private let connectionStateSubject = CurrentValueSubject<ConnectionState?, Never>(nil)
     private let clientReadiness = TDLibClientReadiness()
     private let authorizationState = TDLibAuthorizationState()
     private var activeVODRanges: TDLibVODRangeCoordinator?
@@ -91,6 +92,12 @@ final class TDLib: @unchecked Sendable {
 
     var activeClientChanges: AnyPublisher<TdUpdateSource, Never> {
         activeClientChangesSubject.eraseToAnyPublisher()
+    }
+
+    /// The active client's `updateConnectionState`, as Telegram's `Account.networkState`. A new client publishes
+    /// nothing until TDLib reports its state.
+    var connectionStates: AnyPublisher<ConnectionState, Never> {
+        connectionStateSubject.compactMap(\.self).removeDuplicates().eraseToAnyPublisher()
     }
 
     var readyClientChanges: AnyPublisher<TdUpdateSource?, Never> {
@@ -428,6 +435,7 @@ final class TDLib: @unchecked Sendable {
             }
             let source = TdUpdateSource(accountID: accountID, clientID: client.id)
             setActiveClient(client, accountID: accountID)
+            connectionStateSubject.send(nil)
             authorizationState.activate(source)
             clientReadiness.activate(source)
             let mediaUpdates = TDLibMediaUpdateStreams(source: source)
@@ -495,6 +503,9 @@ final class TDLib: @unchecked Sendable {
         }
 
         guard isActive(client: client, accountID: accountID) else { return }
+        if case .updateConnectionState(let update) = incomingUpdate {
+            connectionStateSubject.send(update.state)
+        }
         TelegramChatListStore.shared.consume(incomingUpdate, accountID: accountID, clientID: client.id)
         let source = TdUpdateSource(accountID: accountID, clientID: client.id)
         mediaUpdates.publish(incomingUpdate, source: source)

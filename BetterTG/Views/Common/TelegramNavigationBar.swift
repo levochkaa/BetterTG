@@ -28,6 +28,10 @@ final class TelegramListNavigationBar: UIView {
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let titleControl = TelegramNavigationTitleControl()
     private let titleStack = UIStackView()
+    /// The title with ChatListTitleView's activity indicator to its left while a network status replaces it.
+    private let titleRow = UIStackView()
+    private let networkActivityContainer = UIView()
+    private let networkActivityIndicator = UIActivityIndicatorView(style: .large)
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let leftButton = UIButton(type: .system)
@@ -37,8 +41,11 @@ final class TelegramListNavigationBar: UIView {
     /// Telegram's Done while a list edits (ChatListControllerImpl.editPressed outside the root list).
     private let doneButton = UIButton(type: .system)
     private var doneAction: (() -> Void)?
-    /// The title shown outside editing while a selection count replaces it.
-    private var regularTitle: String?
+    private var title: String
+    /// A selection count such as "2 Topics Selected" replacing the title while editing.
+    private var editingTitle: String?
+    /// "Connecting..." and the like, replacing any title (ChatListControllerImpl's NetworkStatusTitle).
+    private var networkStatus: String?
     private let searchView: ChatListNavigationSearchView
     private let leftAction: (() -> Void)?
     private let rightAction: (() -> Void)?
@@ -73,6 +80,7 @@ final class TelegramListNavigationBar: UIView {
         self.rightAction = rightAction
         self.secondaryRightAction = secondaryRightAction
         self.showsBackButton = showsBackButton
+        self.title = title
         super.init(frame: .zero)
         titleLabel.text = title
         leftButton.setImage(leftImage, for: .normal)
@@ -119,8 +127,15 @@ final class TelegramListNavigationBar: UIView {
     /// A secondary line under the title, as Telegram shows a forum's member status.
     func setSubtitle(_ text: String?) {
         subtitleLabel.text = text
-        subtitleLabel.isHidden = text?.isEmpty != false || regularTitle != nil
-        updateTitleInteraction()
+        updateTitle()
+    }
+
+    /// Telegram's chat list network status: "Connecting..." or the like with an activity indicator in place of the
+    /// title; nil restores the title.
+    func setNetworkStatus(_ status: String?) {
+        guard status != networkStatus else { return }
+        networkStatus = status
+        updateTitle()
     }
 
     /// Telegram's editing state outside the root list: Done replaces the right buttons, and a selection title such as
@@ -129,17 +144,25 @@ final class TelegramListNavigationBar: UIView {
     func setEditing(title: String?, done: (() -> Void)?) {
         let editing = done != nil
         doneAction = done
-        if let title, editing {
-            if regularTitle == nil { regularTitle = titleLabel.text ?? "" }
-            titleLabel.text = title
-        } else if let regularTitle {
-            titleLabel.text = regularTitle
-            self.regularTitle = nil
-        }
-        subtitleLabel.isHidden = subtitleLabel.text?.isEmpty != false || regularTitle != nil
+        editingTitle = editing ? title : nil
         rightButton.isHidden = editing
         secondaryRightButton.isHidden = editing || secondaryRightButton.image(for: .normal) == nil
         doneButton.isHidden = !editing
+        updateTitle()
+    }
+
+    private func updateTitle() {
+        titleLabel.text = networkStatus ?? editingTitle ?? title
+        subtitleLabel.isHidden = subtitleLabel.text?.isEmpty != false || editingTitle != nil
+        let showsActivity = networkStatus != nil
+        networkActivityContainer.isHidden = !showsActivity
+        if showsActivity {
+            networkActivityIndicator.startAnimating()
+        } else {
+            networkActivityIndicator.stopAnimating()
+        }
+        // ChatListTitleView pads the title by the indicator plus 6 and sets the indicator 4 left of the title.
+        titleRow.directionalLayoutMargins.leading = showsActivity ? 2 : 0
         updateTitleInteraction()
     }
 
@@ -192,11 +215,27 @@ final class TelegramListNavigationBar: UIView {
         subtitleLabel.textAlignment = .center
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.isHidden = true
+        // ActivityIndicator `.custom(primaryTextColor, 22, 1.5, false)`: the large system spinner scaled into 22 pt,
+        // gray for black text.
+        networkActivityIndicator.color = UIColor { $0.userInterfaceStyle == .dark ? .white : .gray }
+        networkActivityIndicator.transform = CGAffineTransform(scaleX: 22 / 37, y: 22 / 37)
+        networkActivityIndicator.hidesWhenStopped = false
+        networkActivityIndicator.translatesAutoresizingMaskIntoConstraints = false
+        networkActivityContainer.translatesAutoresizingMaskIntoConstraints = false
+        networkActivityContainer.isHidden = true
+        networkActivityContainer.addSubview(networkActivityIndicator)
+        titleRow.axis = .horizontal
+        titleRow.alignment = .center
+        titleRow.spacing = 4
+        titleRow.isLayoutMarginsRelativeArrangement = true
+        titleRow.directionalLayoutMargins = .zero
+        titleRow.addArrangedSubview(networkActivityContainer)
+        titleRow.addArrangedSubview(titleLabel)
         titleStack.translatesAutoresizingMaskIntoConstraints = false
         titleStack.axis = .vertical
         titleStack.alignment = .center
         titleStack.isUserInteractionEnabled = false
-        titleStack.addArrangedSubview(titleLabel)
+        titleStack.addArrangedSubview(titleRow)
         titleStack.addArrangedSubview(subtitleLabel)
         titleControl.translatesAutoresizingMaskIntoConstraints = false
         titleControl.highlightedContentView = titleStack
@@ -256,6 +295,10 @@ final class TelegramListNavigationBar: UIView {
             titleStack.leadingAnchor.constraint(equalTo: titleControl.leadingAnchor),
             titleStack.trailingAnchor.constraint(equalTo: titleControl.trailingAnchor),
             titleStack.centerYAnchor.constraint(equalTo: titleControl.centerYAnchor),
+            networkActivityContainer.widthAnchor.constraint(equalToConstant: 22),
+            networkActivityContainer.heightAnchor.constraint(equalToConstant: 22),
+            networkActivityIndicator.centerXAnchor.constraint(equalTo: networkActivityContainer.centerXAnchor),
+            networkActivityIndicator.centerYAnchor.constraint(equalTo: networkActivityContainer.centerYAnchor),
 
             searchView.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: Self.titleHeight),
             searchView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),

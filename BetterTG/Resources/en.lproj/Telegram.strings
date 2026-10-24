@@ -2559,3 +2559,9 @@
 "DialogList.RecentTitlePeople" = "People";
 "ChatList.ClearSearchHistory" = "Are you sure you want to clear your search history?";
 "ChatList.ClearSearchHistory.Confirm" = "Clear";
+"State.Connecting" = "Connecting...";
+"State.Updating" = "Updating...";
+"State.WaitingForNetwork" = "Waiting for network";
+"ChatState.Connecting" = "connecting...";
+"ChatState.Updating" = "updating...";
+"ChatState.WaitingForNetwork" = "waiting for network...";

@@ -553,6 +553,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         customNavigationBar.onVisibleHeightChange = { [weak self] contentHeight in
             self?.updateNavigationBarHeight(contentHeight: contentHeight)
         }
+        TDLib.shared
+            .chatListNetworkStatus
+            .sink { [weak self] status in self?.customNavigationBar.setNetworkStatus(status) }
+            .store(in: &cancellables)
         view.addSubview(customNavigationBar)
         navigationBarHeightConstraint = customNavigationBar.heightAnchor.constraint(
             equalToConstant: currentNavigationContentHeight + view.safeAreaInsets.top,

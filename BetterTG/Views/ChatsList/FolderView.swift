@@ -96,6 +96,10 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             currentNavigationContentHeight = contentHeight
             navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + contentHeight
         }
+        TDLib.shared
+            .chatListNetworkStatus
+            .sink { [weak self] status in self?.navigationBarView.setNetworkStatus(status) }
+            .store(in: &cancellables)
         view.addSubview(navigationBarView)
         navigationBarHeightConstraint = navigationBarView.heightAnchor.constraint(
             equalToConstant: view.safeAreaInsets.top + TelegramListNavigationBar.expandedContentHeight,

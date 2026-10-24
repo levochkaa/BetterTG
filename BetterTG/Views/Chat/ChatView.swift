@@ -366,6 +366,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var preparedClient: (source: TdUpdateSource, client: TDLibClient, chat: CustomChat, topic: ForumTopic?)?
     private var clientRetryScheduled = false
     private var clientOwnerRetired = false
+    /// ChatTitleView's "connecting..." and the like, replacing the status while the client isn't online.
+    private var networkStatus: String?
     private var restoredViewport: ChatClientRestorationViewport?
     private var restoredComposerState: ChatComposerView.ClientViewState?
     /// The replaced controller's last history frame. It covers this history until the restored viewport lands, so
@@ -424,10 +426,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// The header's title and status, with ChatTitleActivityNode's indicator when the status words an activity.
     private var headerContent: (title: String, status: String, activity: ChatActivityIndicatorView.Kind?) {
         if let title = chatVM.messageThreadTitle {
+            if let networkStatus { return (title, networkStatus, nil) }
             let status = chatVM.actionStatus
             return (title, status, status.isEmpty ? nil : chatVM.actionIndicator)
         }
         let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
+        if let networkStatus { return (title, networkStatus, nil) }
         if let activity = chatVM.topicActivityStatus {
             return (title, activity, chatVM.topicActivityIndicator)
         }
@@ -4000,6 +4004,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in DispatchQueue.main.async { self?.updateStatus() } }
             .store(in: &cancellables)
+        tdlib.connectionStates
+            .map(\.chatTitleStatus)
+            .sink { [weak self] status in
+                guard let self, status != networkStatus else { return }
+                networkStatus = status
+                updateStatus()
+            }
+            .store(in: &cancellables)
         NotificationCenter.default
             .publisher(for: UIApplication.significantTimeChangeNotification)
             .merge(with: NotificationCenter.default.publisher(for: NSLocale.currentLocaleDidChangeNotification))
@@ -4030,7 +4042,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             lock: ownTitle && chatVM.customChat.secretChatID != nil,
             mute: ownTitle && chatVM.isExplicitlyMuted && badge != .verified,
         )
-        let statusColor: UIColor = chatVM.headerStatusIsActive ? .systemBlue : .secondaryLabel
+        let statusColor: UIColor = chatVM.headerStatusIsActive && networkStatus == nil ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
             title: title,
             status: status,
@@ -4069,7 +4081,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateStatus() {
         let (title, status, activity) = headerContent
-        let statusColor: UIColor = chatVM.headerStatusIsActive ? .systemBlue : .secondaryLabel
+        let statusColor: UIColor = chatVM.headerStatusIsActive && networkStatus == nil ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
             title: title,
             status: status,
