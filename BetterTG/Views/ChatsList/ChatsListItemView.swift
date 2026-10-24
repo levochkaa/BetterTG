@@ -55,6 +55,8 @@ final class ChatListCell: UITableViewCell {
     private var mediaPreviews: ChatListMediaPreviews?
     /// ChatListItem's forwardedIconNode, showing whichever messageTypeIcon the last message has.
     private let messageTypeIconView = UIImageView()
+    /// ChatListItem's dustNode over the text's spoilers.
+    private var spoilerViews = [TelegramSpoilerView]()
     private var messageTypeIcon: ChatListMessageTypeIcon?
     /// Telegram's mention or reaction badge, left of the unread count (ChatListItem, mentionBadgeNode).
     private let mentionBadgeView = UIImageView()
@@ -102,6 +104,7 @@ final class ChatListCell: UITableViewCell {
     override func layoutSubviews() {
         super.layoutSubviews()
         layoutMediaPreview()
+        layoutSpoilers()
     }
 
     override func prepareForReuse() {
@@ -209,6 +212,21 @@ final class ChatListCell: UITableViewCell {
         }
     }
 
+    /// The width of part of the row's text as the label lays it out, its default font filling unstyled runs.
+    private static func width(of text: NSAttributedString, range: NSRange, font: UIFont) -> CGFloat {
+        guard range.length > 0 else { return 0 }
+        let part = NSMutableAttributedString(attributedString: text.attributedSubstring(from: range))
+        part.enumerateAttribute(.font, in: NSRange(location: 0, length: part.length)) { value, range, _ in
+            if value == nil { part.addAttribute(.font, value: font, range: range) }
+        }
+        return ceil(part.boundingRect(
+            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin],
+            context: nil,
+        )
+        .width)
+    }
+
     /// `showsAvatarBadges` is off for a found message, as Telegram shows no presence or timer on those rows.
     func configure(
         chat: CustomChat,
@@ -309,7 +327,7 @@ final class ChatListCell: UITableViewCell {
         updateStoryInteraction()
         accessibilityLabel = [
             chat.displayTitle,
-            messageLabel.text?.replacing("\u{FFFC}", with: ""),
+            messageLabel.attributedText.map(ChatListPreviewText.accessibilityText),
             dateLabel.text,
             delivery?.accessibilityText,
             pinned ? L10n.betterTG("Accessibility.Pinned") : nil,
@@ -374,7 +392,12 @@ final class ChatListCell: UITableViewCell {
             result.append(NSAttributedString(string: service, attributes: [.foregroundColor: UIColor.secondaryLabel]))
             return result
         }
-        guard let summary = ChatSummary.attributedText(for: chat, icon: messageTypeIcon, previews: mediaPreviews)
+        guard let summary = ChatSummary.attributedText(
+            for: chat,
+            icon: messageTypeIcon,
+            previews: mediaPreviews,
+            font: messageLabel.font,
+        )
         else { return nil }
         let isGroup =
             switch chat.type {
@@ -525,8 +548,7 @@ final class ChatListCell: UITableViewCell {
         }
         guard let gapLocation else { return hide() }
         rowView.layoutIfNeeded()
-        let prefix = text.attributedSubstring(from: NSRange(location: 0, length: gapLocation)).string
-        let prefixWidth = ceil((prefix as NSString).size(withAttributes: [.font: font]).width)
+        let prefixWidth = Self.width(of: text, range: NSRange(location: 0, length: gapLocation), font: font)
         let side = ChatListMediaPreview.side
         let frame = messageLabel.frame
         var origin = CGPoint(x: frame.minX + prefixWidth + 1, y: frame.minY + 1 + floor((font.lineHeight - side) / 2))
@@ -548,6 +570,41 @@ final class ChatListCell: UITableViewCell {
             guard index < count else { continue }
             view.frame = CGRect(origin: origin, size: CGSize(width: side, height: side))
             origin.x += side + ChatListMediaPreviews.spacing
+        }
+    }
+
+    /// Dust over each spoiler on the visible line, as far as the label shows it.
+    private func layoutSpoilers() {
+        var ranges = [NSRange]()
+        if let text = messageLabel.attributedText {
+            text.enumerateAttribute(.chatListSpoiler, in: NSRange(
+                location: 0,
+                length: text.length,
+            )) { value, range, _ in
+                if value != nil { ranges.append(range) }
+            }
+        }
+        guard let text = messageLabel.attributedText, let font = messageLabel.font, !ranges.isEmpty else {
+            spoilerViews.forEach { $0.isHidden = true }
+            return
+        }
+        rowView.layoutIfNeeded()
+        let frame = messageLabel.frame
+        while spoilerViews.count < ranges.count {
+            let view = TelegramSpoilerView(frame: .zero)
+            rowView.addSubview(view)
+            spoilerViews.append(view)
+        }
+        for (index, view) in spoilerViews.enumerated() {
+            guard index < ranges.count else {
+                view.isHidden = true
+                continue
+            }
+            let range = ranges[index]
+            let x = frame.minX + Self.width(of: text, range: NSRange(location: 0, length: range.location), font: font)
+            let width = min(Self.width(of: text, range: range, font: font), frame.maxX - x)
+            view.isHidden = width <= 0
+            view.frame = CGRect(x: x, y: frame.minY, width: max(0, width), height: frame.height)
         }
     }
 

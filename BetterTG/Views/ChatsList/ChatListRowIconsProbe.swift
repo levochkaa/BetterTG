@@ -46,6 +46,15 @@ import UIKit
             source: nil,
         )
 
+        private static let spoilerText = FormattedText(
+            entities: [
+                TextEntity(length: 6, offset: 0, type: .textEntityTypeItalic),
+                TextEntity(length: 6, offset: 22, type: .textEntityTypeSpoiler),
+                TextEntity(length: 4, offset: 36, type: .textEntityTypeStrikethrough),
+            ],
+            text: "Plans for tonight:\n\n  secret place, then home",
+        )
+
         private static var minithumbnail: Minithumbnail {
             let image = UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8)).image { context in
                 UIColor.systemTeal.setFill()
@@ -65,10 +74,12 @@ import UIKit
                     try verifyIcons()
                     try verifyPreviews()
                     try verifyAlbum()
+                    try verifyText()
                     try render()
                     result = "Row icons probe passed: forward/story/voice/location/caption-text/assets=true; "
                         + "photo-caption/video-play/round/spoiler-mini/secret-none=true; "
-                        + "album-three/first-caption/last-label/width=true; rendered=true"
+                        + "album-three/first-caption/last-label/width=true; "
+                        + "folded/italic/spoiler/strikethrough/accessibility=true; rendered=true"
                 } catch {
                     result = "Row icons probe failed: \(error)"
                 }
@@ -191,7 +202,7 @@ import UIKit
             )
             let voiceMessage = message(3, voice("hello"))
             try require(ChatListMessageTypeIcon.make(for: voiceMessage) == .voiceMessage, "voice")
-            try require(ChatListMessageTypeIcon.text(for: voiceMessage) == "hello", "voice caption")
+            try require(ChatListMessageTypeIcon.text(for: voiceMessage)?.text == "hello", "voice caption")
             try require(
                 ChatListMessageTypeIcon.text(for: message(3, voice("")))
                     == nil,
@@ -225,12 +236,15 @@ import UIKit
                 for: message(5, photo("sunset")),
                 inSecretChat: false,
             )
-            try require(captioned?.text == "sunset" && captioned?.file != nil && captioned?.showsPlay == false, "photo")
+            try require(
+                captioned?.text?.text == "sunset" && captioned?.file != nil && captioned?.showsPlay == false,
+                "photo",
+            )
             let bare = ChatListMediaPreview.make(
                 for: message(5, photo("")),
                 inSecretChat: false,
             )
-            try require(bare?.text == L10n.telegram("Message.Photo"), "photo label")
+            try require(bare?.text?.text == L10n.telegram("Message.Photo"), "photo label")
             let video = ChatListMediaPreview.make(
                 for: message(6, video("")),
                 inSecretChat: false,
@@ -255,6 +269,23 @@ import UIKit
             )
         }
 
+        private static func verifyText() throws {
+            let font = UIFont.systemFont(ofSize: 15)
+            let text = ChatListPreviewText.attributed(spoilerText, font: font, color: .secondaryLabel)
+            try require(text.string == "Plans for tonight: secret place, then home", "folded \(text.string)")
+            let italic = text.attribute(.font, at: 0, effectiveRange: nil) as? UIFont
+            try require(italic?.fontDescriptor.symbolicTraits.contains(.traitItalic) == true, "italic")
+            var spoiler = NSRange()
+            try require(text.attribute(.chatListSpoiler, at: 19, effectiveRange: &spoiler) != nil, "spoiler")
+            try require(spoiler == NSRange(location: 19, length: 6), "spoiler range \(spoiler)")
+            try require(text.attribute(.strikethroughStyle, at: 33, effectiveRange: nil) != nil, "strikethrough")
+            try require(
+                ChatListPreviewText.accessibilityText(text)
+                    == "Plans for tonight: \(L10n.betterTG("Message.Spoiler")) place, then home",
+                "accessibility",
+            )
+        }
+
         private static func verifyAlbum() throws {
             let album = [
                 message(20, photo("trip")),
@@ -264,12 +295,12 @@ import UIKit
             ]
             let previews = ChatListMediaPreviews.make(for: album, inSecretChat: false)
             try require(previews?.items.count == 3 && previews?.items[1].showsPlay == true, "album items")
-            try require(previews?.text == "trip", "album caption \(previews?.text ?? "nil")")
+            try require(previews?.text?.text == "trip", "album caption")
             let bare = ChatListMediaPreviews.make(
                 for: [message(24, photo("")), message(25, video(""))],
                 inSecretChat: false,
             )
-            try require(bare?.text == L10n.telegram("Message.Video"), "album label")
+            try require(bare?.text?.text == L10n.telegram("Message.Video"), "album label")
             try require(previews.map { $0.width == 18 * 3 + 2 * 2 } == true, "album width")
         }
 
@@ -281,6 +312,10 @@ import UIKit
                 ("Location", message(12, location)),
                 ("Video", message(13, video("Clip caption"))),
                 ("Round", message(14, videoNote())),
+                (
+                    "Spoiler",
+                    message(15, .messageText(.init(linkPreview: nil, linkPreviewOptions: nil, text: spoilerText))),
+                ),
             ]
             let width = CGFloat(402)
             let height = ChatListCell.cardRowHeight

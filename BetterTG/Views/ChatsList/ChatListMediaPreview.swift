@@ -22,7 +22,7 @@ struct ChatListMediaPreview: Equatable {
     let showsPlay: Bool
     /// The row's text in place of "Photo: caption", as the thumbnail names the media (chatListItemStrings with
     /// `enableMediaEmoji` off): the caption alone, or the kind's name without one.
-    let text: String?
+    let text: FormattedText?
 
     static func make(for message: Message, inSecretChat: Bool) -> Self? {
         guard !inSecretChat, message.selfDestructType == nil else { return nil }
@@ -53,7 +53,7 @@ struct ChatListMediaPreview: Equatable {
                 minithumbnail: content.animation.minithumbnail?.data,
                 isRound: false,
                 showsPlay: false,
-                text: L10n.telegram("Message.Animation"),
+                text: plain(L10n.telegram("Message.Animation")),
             )
         case .messageVideoNote(let content):
             guard !content.isSecret else { return nil }
@@ -62,13 +62,17 @@ struct ChatListMediaPreview: Equatable {
                 minithumbnail: content.videoNote.minithumbnail?.data,
                 isRound: true,
                 showsPlay: false,
-                text: L10n.telegram("Message.VideoMessage"),
+                text: plain(L10n.telegram("Message.VideoMessage")),
             )
         case .messageText(let content):
             return content.linkPreview.flatMap { linkPreview($0.type) }
         default:
             return nil
         }
+    }
+
+    static func plain(_ text: String) -> FormattedText {
+        FormattedText(entities: [], text: text)
     }
 
     /// Telegram's web page image for the types it previews (photo, video, embed, gif, document, telegram_album);
@@ -123,9 +127,8 @@ struct ChatListMediaPreview: Equatable {
         }
     }
 
-    private static func caption(_ caption: FormattedText, label: String) -> String {
-        let text = caption.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? label : MessageTextSpoilerPresentation(caption).accessibilityText()
+    private static func caption(_ caption: FormattedText, label: String) -> FormattedText {
+        caption.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? plain(label) : caption
     }
 
     /// mediaGridMessagePhoto at a 36 px fit: the smallest size still covering the thumbnail at 3×.
@@ -158,7 +161,7 @@ struct ChatListMediaPreviews: Equatable {
     static let spacing = CGFloat(2)
 
     let items: [ChatListMediaPreview]
-    let text: String?
+    let text: FormattedText?
 
     var width: CGFloat {
         CGFloat(items.count) * ChatListMediaPreview.side + CGFloat(max(0, items.count - 1)) * Self.spacing
@@ -171,15 +174,14 @@ struct ChatListMediaPreviews: Equatable {
         return Self(items: Array(previews.prefix(limit)), text: caption ?? last.text)
     }
 
-    private static func captionText(_ message: Message) -> String? {
+    private static func captionText(_ message: Message) -> FormattedText? {
         let caption: FormattedText
         switch message.content {
         case .messagePhoto(let content): caption = content.caption
         case .messageVideo(let content): caption = content.caption
         default: return nil
         }
-        guard !caption.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return MessageTextSpoilerPresentation(caption).accessibilityText()
+        return caption.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : caption
     }
 }
 
@@ -313,10 +315,10 @@ enum ChatListMessageTypeIcon: Equatable {
 
     /// chatListItemStrings with `enableMediaEmoji` off, where the icon names the kind: a poll's question alone, and a
     /// voice message's or music's caption alone.
-    static func text(for message: Message) -> String? {
+    static func text(for message: Message) -> FormattedText? {
         switch message.content {
         case .messagePoll(let content):
-            content.poll.question.text
+            content.poll.question
         case .messageVoiceNote(let content):
             captionText(content.caption)
         case .messageAudio(let content):
@@ -346,12 +348,8 @@ enum ChatListMessageTypeIcon: Equatable {
         return result
     }
 
-    private static func captionText(_ caption: FormattedText) -> String? {
-        if caption.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            nil
-        } else {
-            MessageTextSpoilerPresentation(caption).accessibilityText()
-        }
+    private static func captionText(_ caption: FormattedText) -> FormattedText? {
+        caption.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : caption
     }
 
     private static func asset(_ name: String) -> UIImage? {
@@ -443,4 +441,71 @@ final class ChatListMediaPreviewView: UIView {
         imageView.cancel()
         imageView.image = nil
     }
+}
+
+// MARK: - ChatListPreviewText
+
+/// ChatListItem's message text: stringWithAppliedEntities with bold, code and links left plain, italic, underline and
+/// strikethrough kept, spoilers hidden under dust, and line breaks folded into spaces (foldLineBreaks).
+enum ChatListPreviewText {
+    static func attributed(_ text: FormattedText, font: UIFont, color: UIColor) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: text.text, attributes: [.foregroundColor: color])
+        let length = result.length
+        let italicFont = font.fontDescriptor.withSymbolicTraits(.traitItalic).map { UIFont(descriptor: $0, size: 0) }
+        for entity in text.entities {
+            guard entity.offset >= 0, entity.length > 0, entity.offset < length else { continue }
+            let range = NSRange(location: entity.offset, length: min(entity.length, length - entity.offset))
+            switch entity.type {
+            case .textEntityTypeItalic:
+                if let italicFont { result.addAttribute(.font, value: italicFont, range: range) }
+            case .textEntityTypeUnderline:
+                result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+            case .textEntityTypeStrikethrough:
+                result.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
+            case .textEntityTypeSpoiler:
+                result.addAttributes([.chatListSpoiler: true, .foregroundColor: UIColor.clear], range: range)
+            default:
+                break
+            }
+        }
+        return folded(result)
+    }
+
+    /// The text VoiceOver reads: each spoiler as the word, without the gap's attachment character.
+    static func accessibilityText(_ text: NSAttributedString) -> String {
+        let result = NSMutableString(string: text.string)
+        var spoilers = [NSRange]()
+        text.enumerateAttribute(.chatListSpoiler, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            if value != nil { spoilers.append(range) }
+        }
+        for range in spoilers.reversed() {
+            result.replaceCharacters(in: range, with: L10n.betterTG("Message.Spoiler"))
+        }
+        return (result as String).replacing("\u{FFFC}", with: "")
+    }
+
+    /// foldLineBreaks: each run of line breaks and the spaces around it becomes one space, and the ends are trimmed.
+    private static func folded(_ text: NSMutableAttributedString) -> NSAttributedString {
+        guard let expression = try? NSRegularExpression(pattern: "[ \\t]*[\\r\\n\\u2028\\u2029]+[\\s]*")
+        else { return text }
+        let matches = expression.matches(in: text.string, range: NSRange(location: 0, length: text.length))
+        for match in matches.reversed() {
+            text.replaceCharacters(in: match.range, with: " ")
+        }
+        let string = text.string as NSString
+        var start = 0
+        var end = string.length
+        while start < end, string.character(at: start) == 32 {
+            start += 1
+        }
+        while end > start, string.character(at: end - 1) == 32 {
+            end -= 1
+        }
+        return text.attributedSubstring(from: NSRange(location: start, length: end - start))
+    }
+}
+
+extension NSAttributedString.Key {
+    /// Text the row hides under spoiler dust.
+    static let chatListSpoiler = NSAttributedString.Key("BetterTGChatListSpoiler")
 }

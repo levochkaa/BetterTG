@@ -9,6 +9,7 @@ import UIKit
         for chat: CustomChat,
         icon: ChatListMessageTypeIcon? = nil,
         previews: ChatListMediaPreviews? = nil,
+        font: UIFont,
     ) -> NSAttributedString? {
         if let draft = chat.draftMessage {
             let result = NSMutableAttributedString(
@@ -43,17 +44,32 @@ import UIKit
             return result
         }
         guard let message = chat.lastMessage else { return nil }
-        let attributes: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.secondaryLabel]
         let result = NSMutableAttributedString()
         if icon != nil || previews != nil {
             result.append(ChatListMessageTypeIcon.gap(icon: icon, previews: previews))
         }
-        let text = previews?.text ?? ChatListMessageTypeIcon.text(for: message) ?? summary(for: message)
-        result.append(NSAttributedString(string: text, attributes: attributes))
+        let text = previews?.text
+            ?? ChatListMessageTypeIcon.text(for: message)
+            ?? formattedText(of: message)
+            ?? ChatListMediaPreview.plain(summary(for: message))
+        result.append(ChatListPreviewText.attributed(text, font: font, color: .secondaryLabel))
         return result
     }
 
     static func summary(for message: Message) -> String {
         MessageTextSpoilerPresentation.summary(for: message)
+    }
+
+    /// chatListItemStrings' message text with its entities: a text message's, or a file's caption alone, which
+    /// Telegram shows without the file's name.
+    private static func formattedText(of message: Message) -> FormattedText? {
+        switch message.content {
+        case .messageText(let content):
+            content.text
+        case .messageDocument(let content):
+            content.caption.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : content.caption
+        default:
+            nil
+        }
     }
 }
