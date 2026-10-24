@@ -1,0 +1,17 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "scripts": [
+    {
+      "name": "Run iPhone",
+      "command": "./build.sh run --device",
+      "icon": "play"
+    },
+    {
+      "name": "Setup worktree",
+      "command": "./script/prepare_worktree.sh",
+      "icon": "configure",
+      "runOnWorktreeCreate": true,
+      "async": false
+    }
+  ]
+}
