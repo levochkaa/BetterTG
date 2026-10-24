@@ -4,7 +4,7 @@
 
 ## Build And Test
 
-- Build and run through ./build.sh as described below. Xcode MCP tools, including device interaction, may be used for Simulator validation such as UI inspection, taps, gestures and screenshots.
+- Build and run through ./build.sh as described below. T3 Code's Device panel (DeviceHub), idb, XcodeBuildMCP and Xcode MCP tools, including device interaction, may be used for Simulator validation such as UI inspection, taps, gestures and screenshots.
 - Read Simulator and device screenshots as reduced copies: downscale before viewing (for example `sips -Z 1000 -s format jpeg shot.png --out shot.jpg`) and crop to the region of interest when only part of the screen matters. Full-size screenshots hit the image limit and cost more tokens.
 - Build through the root multiplexer: `./build.sh build` (or `./build.sh`, which defaults to build).
 - Run through the root multiplexer: `./build.sh run`. BetterTG currently has no dedicated test target, so build is the repository-level validation.
@@ -30,7 +30,7 @@
 - Codex worktree setup and T3 Code's Setup worktree script (`t3.json`, run on worktree creation) run `./script/prepare_worktree.sh`. Project generation also runs it so existing worktrees self-heal. The script copies a missing ignored `BetterTG/Secret/Secret.swift` from the primary checkout and never overwrites an existing file.
 - Use `./build.sh clean-intermediates` to remove compilation/index/module/SDK-stat intermediates while preserving app products, complete logs, and the separate Swift package cache. `./build.sh run --skip-build` reuses the compatible product for the selected Xcode, configuration, and platform without running XcodeGen, package preparation, TD generation, or xcodebuild.
 - Simulator runs wait for bounded `simctl bootstatus` readiness before install. Do not close or shut down the booted Simulator when finishing a task unless the user explicitly asks.
-- Simulator runs open the Simulator app in the background, preserving the user's current application focus. Do not activate it separately during automated smoke.
+- Simulators run headless: `build.sh` never opens Simulator.app, and agents must not launch it. Watch a Simulator in T3 Code's Device panel (DeviceHub) and drive it with idb or XcodeBuildMCP.
 
 ## Project Notes
 

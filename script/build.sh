@@ -760,7 +760,7 @@ launch_on_simulator() {
   "$ROOT_DIR/script/simulator_boot_status.sh" \
     --simulator-id "$SIMULATOR_ID" \
     --timeout-seconds "$SIMULATOR_BOOT_TIMEOUT_SECONDS"
-  open -g -a Simulator
+  # Headless: the Simulator is watched through T3 Code's Device panel, idb or XcodeBuildMCP, never Simulator.app.
   xcrun simctl install "$SIMULATOR_ID" "$APP_BUNDLE"
 
   if [[ "$HAS_LAUNCH_ARGUMENTS" == "1" ]]; then
