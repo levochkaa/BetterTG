@@ -536,7 +536,7 @@ import UIKit
             availability: .resolved,
             body: .init(entities: [], text: "quote"),
             navigationTarget: .message(chatID: 100, messageID: target, quote: nil),
-            quote: .init(isManual: true, position: 0, text: .init(entities: [], text: "quote")),
+            quote: .init(text: .init(entities: [], text: "quote"), richTexts: [], position: 0, isManual: true),
             referencedChatID: 100,
             referencedUserID: nil,
             targetChatID: 100,

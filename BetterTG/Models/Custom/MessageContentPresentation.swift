@@ -527,7 +527,8 @@ struct MessageContentPresentation {
             return excludedPaidContent(title: L10n.betterTG("Message.GiftOffer"))
         case .messageDirectMessagePriceChanged,
              .messagePaidMessagePriceChanged,
-             .messagePaidMessagesRefunded:
+             .messagePaidMessagesRefunded,
+             .messageUnpaidMessagesAllowedByLink:
             return excludedPaidContent(title: L10n.betterTG("Message.PaidMessages"))
         case .messageChecklistTasksDone(let message):
             return service(

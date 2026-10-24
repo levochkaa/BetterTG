@@ -334,8 +334,10 @@ struct MediaDraftInputTextQuote: Codable, Hashable {
     let text: MediaDraftFormattedText
 
     var native: TDNativeInputTextQuote {
+        // Drafts keep plain quotes; rich-message quote parts are not stored.
         TDNativeInputTextQuote(
             text: text.native,
+            richTexts: [],
             position: position,
         )
     }

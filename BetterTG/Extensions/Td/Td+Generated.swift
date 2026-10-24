@@ -288,6 +288,12 @@ func update(
             notificationCenter.postTdUpdate(name: .updateLanguagePackStrings, object: updateLanguagePackStrings, source: source)
         case .updateConnectionState(let updateConnectionState):
             notificationCenter.postTdUpdate(name: .updateConnectionState, object: updateConnectionState, source: source)
+        case .updateWebProxyCarrierOpened(let updateWebProxyCarrierOpened):
+            notificationCenter.postTdUpdate(name: .updateWebProxyCarrierOpened, object: updateWebProxyCarrierOpened, source: source)
+        case .updateWebProxyCarrierData(let updateWebProxyCarrierData):
+            notificationCenter.postTdUpdate(name: .updateWebProxyCarrierData, object: updateWebProxyCarrierData, source: source)
+        case .updateWebProxyCarrierClosed(let updateWebProxyCarrierClosed):
+            notificationCenter.postTdUpdate(name: .updateWebProxyCarrierClosed, object: updateWebProxyCarrierClosed, source: source)
         case .updateFreezeState(let updateFreezeState):
             notificationCenter.postTdUpdate(name: .updateFreezeState, object: updateFreezeState, source: source)
         case .updateAgeVerificationParameters(let updateAgeVerificationParameters):
@@ -542,6 +548,9 @@ extension TdNotification {
     static var updateWebBrowserSettings: TdNotification<TDNativeUpdateWebBrowserSettings> { .init(.updateWebBrowserSettings) }
     static var updateLanguagePackStrings: TdNotification<TDNativeUpdateLanguagePackStrings> { .init(.updateLanguagePackStrings) }
     static var updateConnectionState: TdNotification<TDNativeUpdateConnectionState> { .init(.updateConnectionState) }
+    static var updateWebProxyCarrierOpened: TdNotification<TDNativeUpdateWebProxyCarrierOpened> { .init(.updateWebProxyCarrierOpened) }
+    static var updateWebProxyCarrierData: TdNotification<TDNativeUpdateWebProxyCarrierData> { .init(.updateWebProxyCarrierData) }
+    static var updateWebProxyCarrierClosed: TdNotification<TDNativeUpdateWebProxyCarrierClosed> { .init(.updateWebProxyCarrierClosed) }
     static var updateFreezeState: TdNotification<TDNativeUpdateFreezeState> { .init(.updateFreezeState) }
     static var updateAgeVerificationParameters: TdNotification<TDNativeUpdateAgeVerificationParameters> { .init(.updateAgeVerificationParameters) }
     static var updateTermsOfService: TdNotification<TDNativeUpdateTermsOfService> { .init(.updateTermsOfService) }
@@ -739,6 +748,9 @@ extension Foundation.Notification.Name {
     static let updateWebBrowserSettings = Self("updateWebBrowserSettings")
     static let updateLanguagePackStrings = Self("updateLanguagePackStrings")
     static let updateConnectionState = Self("updateConnectionState")
+    static let updateWebProxyCarrierOpened = Self("updateWebProxyCarrierOpened")
+    static let updateWebProxyCarrierData = Self("updateWebProxyCarrierData")
+    static let updateWebProxyCarrierClosed = Self("updateWebProxyCarrierClosed")
     static let updateFreezeState = Self("updateFreezeState")
     static let updateAgeVerificationParameters = Self("updateAgeVerificationParameters")
     static let updateTermsOfService = Self("updateTermsOfService")

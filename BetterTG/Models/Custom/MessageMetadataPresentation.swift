@@ -124,8 +124,9 @@ enum MessageQuoteBuilder {
             return TextEntity(length: overlap.length, offset: overlap.location - range.location, type: entity.type)
         }
         return InputTextQuote(
-            position: range.location,
             text: FormattedText(entities: entities, text: nativeText.substring(with: range)),
+            richTexts: [],
+            position: range.location,
         )
     }
 
@@ -338,7 +339,9 @@ extension MessageReplyPresentation {
             targetChatID = nil
             targetMessageID = nil
         }
-        let textQuote = quote.map { TextQuote(isManual: true, position: $0.position, text: $0.text) }
+        let textQuote = quote.map {
+            TextQuote(text: $0.text, richTexts: $0.richTexts, position: $0.position, isManual: true)
+        }
         return Self(
             availability: quote == nil ? .unavailable : .inline,
             body: quote?.text ?? FormattedText(entities: [], text: L10n.betterTG("Chat.OriginalMessageUnavailable")),

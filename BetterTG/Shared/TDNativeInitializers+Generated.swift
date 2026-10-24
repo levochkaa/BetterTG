@@ -354,7 +354,7 @@ extension TDNativeGame {
 }
 
 extension TDNativeImportedContact {
-    init(firstName: String, lastName: String, note: TDNativeFormattedText, phoneNumber: String) {
+    init(firstName: String, lastName: String, note: TDNativeFormattedText?, phoneNumber: String) {
         self.init(phoneNumber: phoneNumber, firstName: firstName, lastName: lastName, note: note)
     }
 }
@@ -484,12 +484,6 @@ extension TDNativeInputPhoto {
 extension TDNativeInputSticker {
     init(height: Int, sticker: TDNativeInputFile, thumbnail: TDNativeInputThumbnail?, width: Int) {
         self.init(sticker: sticker, thumbnail: thumbnail, width: width, height: height)
-    }
-}
-
-extension TDNativeInputTextQuote {
-    init(position: Int, text: TDNativeFormattedText) {
-        self.init(text: text, position: position)
     }
 }
 
@@ -1076,12 +1070,6 @@ extension TDNativeScopeNotificationSettings {
 extension TDNativeTextEntity {
     init(length: Int, offset: Int, type: TDNativeTextEntityType) {
         self.init(offset: offset, length: length, type: type)
-    }
-}
-
-extension TDNativeTextQuote {
-    init(isManual: Bool, position: Int, text: TDNativeFormattedText) {
-        self.init(text: text, position: position, isManual: isManual)
     }
 }
 

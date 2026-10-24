@@ -241,7 +241,7 @@
                 replyMessage: .init(message),
                 replyTo: .inputMessageReplyToExternalMessage(.init(
                     chatId: 200, checklistTaskId: 0, messageId: 42, pollOptionId: "",
-                    quote: .init(position: 3, text: formatted),
+                    quote: .init(text: formatted, richTexts: [], position: 3),
                 )),
                 images: [.init(image: UIImage(), url: root.appendingPathComponent("selected.jpg"))],
                 documents: [.init(id: UUID(), name: "document.txt", size: 27, url: file)],

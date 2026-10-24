@@ -19,7 +19,7 @@ enum StoryAreaGeometry {
     static let tapSafeInset = CGFloat(48)
 
     /// The area's frame before its rotation; areas under 5 pt aren't drawn.
-    static func placement(of position: StoryAreaPosition, in size: CGSize, scale: CGFloat = 1) -> Placement? {
+    static func placement(of position: AreaPosition, in size: CGSize, scale: CGFloat = 1) -> Placement? {
         let width = CGFloat(position.widthPercentage) / 100 * size.width * scale
         let height = CGFloat(position.heightPercentage) / 100 * size.height * scale
         let frame = CGRect(
@@ -66,7 +66,7 @@ enum StoryAreaGeometry {
         return nil
     }
 
-    static func contains(_ point: CGPoint, position: StoryAreaPosition, in size: CGSize) -> Bool {
+    static func contains(_ point: CGPoint, position: AreaPosition, in size: CGSize) -> Bool {
         let tx = point.x - CGFloat(position.xPercentage) / 100 * size.width
         let ty = point.y - CGFloat(position.yPercentage) / 100 * size.height
         let angle = -CGFloat(position.rotationAngle) * .pi / 180
@@ -78,7 +78,7 @@ enum StoryAreaGeometry {
     }
 
     /// activateMediaArea's tooltip source: a 16 pt column through the area's center, a tenth taller than the area.
-    static func tooltipSource(of position: StoryAreaPosition, in size: CGSize) -> CGRect {
+    static func tooltipSource(of position: AreaPosition, in size: CGSize) -> CGRect {
         let height = CGFloat(position.heightPercentage) / 100 * size.height * 1.1
         return CGRect(
             x: CGFloat(position.xPercentage) / 100 * size.width - 8,

@@ -267,7 +267,7 @@
 
             let reply = ReplySnippetView()
             var replyTaps = 0
-            let quote = TextQuote(isManual: true, position: 0, text: text)
+            let quote = TextQuote(text: text, richTexts: [], position: 0, isManual: true)
             let presentation = MessageReplyPresentation(
                 availability: .inline, body: text, navigationTarget: .message(chatID: 10, messageID: 1, quote: nil),
                 quote: quote, referencedChatID: nil, referencedUserID: nil, targetChatID: 10, targetMessageID: 1,
@@ -277,7 +277,7 @@
             try require(reply.accessibilityLabel?.contains("HIDDEN") == false, "reply AX leaked")
             reply.sendActions(for: .touchUpInside)
             try require(replyTaps == 1, "reply navigation consumed by reveal")
-            reply.configure(title: "Quote", quote: .init(position: 0, text: text)) { replyTaps += 1 }
+            reply.configure(title: "Quote", quote: .init(text: text, richTexts: [], position: 0)) { replyTaps += 1 }
             try require(reply.accessibilityLabel?.contains("HIDDEN") == false, "composer quote AX leaked")
             let message = message(text: text)
             try require(ChatSummary.summary(for: message).contains("HIDDEN") == false, "summary fallback leaked")

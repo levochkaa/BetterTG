@@ -644,8 +644,8 @@
             _ height: Double,
             _ rotation: Double,
             _ cornerRadius: Double,
-        ) -> StoryAreaPosition {
-            StoryAreaPosition(
+        ) -> AreaPosition {
+            AreaPosition(
                 xPercentage: x,
                 yPercentage: y,
                 widthPercentage: width,

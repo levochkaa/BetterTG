@@ -268,7 +268,7 @@ import UIKit
         /// locale's unit.
         private static func verifyAreas() throws {
             let size = CGSize(width: 400, height: 800)
-            let centered = StoryAreaPosition(
+            let centered = AreaPosition(
                 xPercentage: 50,
                 yPercentage: 50,
                 widthPercentage: 20,
@@ -282,7 +282,7 @@ import UIKit
                     && placement.map { abs($0.rotation - .pi / 6) < 0.0001 && $0.cornerRadius == 8 } == true,
                 "an area's placement",
             )
-            let tiny = StoryAreaPosition(
+            let tiny = AreaPosition(
                 xPercentage: 50,
                 yPercentage: 50,
                 widthPercentage: 1,
@@ -292,7 +292,7 @@ import UIKit
             )
             try require(StoryAreaGeometry.placement(of: tiny, in: size) == nil, "an area under 5 pt was drawn")
 
-            let bar = StoryAreaPosition(
+            let bar = AreaPosition(
                 xPercentage: 50,
                 yPercentage: 50,
                 widthPercentage: 50,
@@ -307,7 +307,7 @@ import UIKit
             )
 
             let location = Location(latitude: 51.5, longitude: -0.12, horizontalAccuracy: 0)
-            let edge = StoryAreaPosition(
+            let edge = AreaPosition(
                 xPercentage: 5,
                 yPercentage: 50,
                 widthPercentage: 10,

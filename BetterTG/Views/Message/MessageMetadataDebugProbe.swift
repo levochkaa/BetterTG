@@ -122,7 +122,7 @@
                 origin: .messageOriginHiddenUser(MessageOriginHiddenUser(senderName: "Inline Author")),
                 originSendDate: 1,
                 pollOptionId: "",
-                quote: TextQuote(isManual: true, position: 7, text: quoteText),
+                quote: TextQuote(text: quoteText, richTexts: [], position: 7, isManual: true),
             ))
             let parent = makeMessage(id: 700, chatID: 1, content: .messageText(MessageText(
                 linkPreview: nil,
@@ -207,7 +207,7 @@
                     checklistTaskId: 5,
                     messageId: 43,
                     pollOptionId: "option",
-                    quote: InputTextQuote(position: 3, text: FormattedText(entities: [], text: "kept")),
+                    quote: InputTextQuote(text: FormattedText(entities: [], text: "kept"), richTexts: [], position: 3),
                 ))
             let externalTarget = makeMessage(
                 id: 43,

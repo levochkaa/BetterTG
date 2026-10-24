@@ -5244,8 +5244,8 @@ extension TDNativeInternalLinkTypeProxy: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypePublicChat: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.chatUsername == rhs.chatUsername, lhs.draftText == rhs.draftText,
-              lhs.openProfile == rhs.openProfile else { return false }
+        guard lhs.chatUsername == rhs.chatUsername, lhs.draftText == rhs.draftText, lhs.openProfile == rhs.openProfile,
+              lhs.unpaidMessagesToken == rhs.unpaidMessagesToken else { return false }
         return true
     }
 
@@ -5253,6 +5253,7 @@ extension TDNativeInternalLinkTypePublicChat: @retroactive Hashable {
         hasher.combine(chatUsername)
         hasher.combine(draftText)
         hasher.combine(openProfile)
+        hasher.combine(unpaidMessagesToken)
     }
 }
 
@@ -5434,8 +5435,8 @@ extension TDNativeInternalLinkTypeUpgradedGift: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeUserPhoneNumber: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.phoneNumber == rhs.phoneNumber, lhs.draftText == rhs.draftText,
-              lhs.openProfile == rhs.openProfile else { return false }
+        guard lhs.phoneNumber == rhs.phoneNumber, lhs.draftText == rhs.draftText, lhs.openProfile == rhs.openProfile,
+              lhs.unpaidMessagesToken == rhs.unpaidMessagesToken else { return false }
         return true
     }
 
@@ -5443,6 +5444,7 @@ extension TDNativeInternalLinkTypeUserPhoneNumber: @retroactive Hashable {
         hasher.combine(phoneNumber)
         hasher.combine(draftText)
         hasher.combine(openProfile)
+        hasher.combine(unpaidMessagesToken)
     }
 }
 
@@ -5450,12 +5452,13 @@ extension TDNativeInternalLinkTypeUserPhoneNumber: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeUserToken: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.token == rhs.token else { return false }
+        guard lhs.token == rhs.token, lhs.unpaidMessagesToken == rhs.unpaidMessagesToken else { return false }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(token)
+        hasher.combine(unpaidMessagesToken)
     }
 }
 
@@ -7151,6 +7154,8 @@ extension TDNativeMessageContent: @retroactive Hashable {
             lhs == rhs
         case (.messageDirectMessagePriceChanged(let lhs), .messageDirectMessagePriceChanged(let rhs)):
             lhs == rhs
+        case (.messageUnpaidMessagesAllowedByLink, .messageUnpaidMessagesAllowedByLink):
+            true
         case (.messageChecklistTasksDone(let lhs), .messageChecklistTasksDone(let rhs)):
             lhs == rhs
         case (.messageChecklistTasksAdded(let lhs), .messageChecklistTasksAdded(let rhs)):
@@ -7453,55 +7458,57 @@ extension TDNativeMessageContent: @retroactive Hashable {
         case .messageDirectMessagePriceChanged(let value):
             hasher.combine(89)
             hasher.combine(value)
-        case .messageChecklistTasksDone(let value):
+        case .messageUnpaidMessagesAllowedByLink:
             hasher.combine(90)
-            hasher.combine(value)
-        case .messageChecklistTasksAdded(let value):
+        case .messageChecklistTasksDone(let value):
             hasher.combine(91)
             hasher.combine(value)
-        case .messageSuggestedPostApprovalFailed(let value):
+        case .messageChecklistTasksAdded(let value):
             hasher.combine(92)
             hasher.combine(value)
-        case .messageSuggestedPostApproved(let value):
+        case .messageSuggestedPostApprovalFailed(let value):
             hasher.combine(93)
             hasher.combine(value)
-        case .messageSuggestedPostDeclined(let value):
+        case .messageSuggestedPostApproved(let value):
             hasher.combine(94)
             hasher.combine(value)
-        case .messageSuggestedPostPaid(let value):
+        case .messageSuggestedPostDeclined(let value):
             hasher.combine(95)
             hasher.combine(value)
-        case .messageSuggestedPostRefunded(let value):
+        case .messageSuggestedPostPaid(let value):
             hasher.combine(96)
             hasher.combine(value)
-        case .messageContactRegistered:
+        case .messageSuggestedPostRefunded(let value):
             hasher.combine(97)
-        case .messageUsersShared(let value):
-            hasher.combine(98)
             hasher.combine(value)
-        case .messageChatShared(let value):
+        case .messageContactRegistered:
+            hasher.combine(98)
+        case .messageUsersShared(let value):
             hasher.combine(99)
             hasher.combine(value)
-        case .messageBotWriteAccessAllowed(let value):
+        case .messageChatShared(let value):
             hasher.combine(100)
             hasher.combine(value)
-        case .messageWebAppDataSent(let value):
+        case .messageBotWriteAccessAllowed(let value):
             hasher.combine(101)
             hasher.combine(value)
-        case .messageWebAppDataReceived(let value):
+        case .messageWebAppDataSent(let value):
             hasher.combine(102)
             hasher.combine(value)
-        case .messagePassportDataSent(let value):
+        case .messageWebAppDataReceived(let value):
             hasher.combine(103)
             hasher.combine(value)
-        case .messagePassportDataReceived(let value):
+        case .messagePassportDataSent(let value):
             hasher.combine(104)
             hasher.combine(value)
-        case .messageProximityAlertTriggered(let value):
+        case .messagePassportDataReceived(let value):
             hasher.combine(105)
             hasher.combine(value)
-        case .messageUnsupported:
+        case .messageProximityAlertTriggered(let value):
             hasher.combine(106)
+            hasher.combine(value)
+        case .messageUnsupported:
+            hasher.combine(107)
         }
     }
 }
@@ -7697,8 +7704,9 @@ extension TDNativeMessageGift: @retroactive Hashable {
               lhs.isUpgradeSeparate == rhs.isUpgradeSeparate,
               lhs.isFromAuction == rhs.isFromAuction, lhs.isPrivate == rhs.isPrivate, lhs.isSaved == rhs.isSaved,
               lhs.isPrepaidUpgrade == rhs.isPrepaidUpgrade, lhs.canBeUpgraded == rhs.canBeUpgraded,
-              lhs.wasConverted == rhs.wasConverted, lhs.wasUpgraded == rhs.wasUpgraded,
-              lhs.wasRefunded == rhs.wasRefunded, lhs.upgradedReceivedGiftId == rhs.upgradedReceivedGiftId,
+              lhs.canBeDeleted == rhs.canBeDeleted, lhs.wasConverted == rhs.wasConverted,
+              lhs.wasUpgraded == rhs.wasUpgraded, lhs.wasRefunded == rhs.wasRefunded,
+              lhs.upgradedReceivedGiftId == rhs.upgradedReceivedGiftId,
               lhs.prepaidUpgradeHash == rhs.prepaidUpgradeHash else { return false }
         return true
     }
@@ -7718,6 +7726,7 @@ extension TDNativeMessageGift: @retroactive Hashable {
         hasher.combine(isSaved)
         hasher.combine(isPrepaidUpgrade)
         hasher.combine(canBeUpgraded)
+        hasher.combine(canBeDeleted)
         hasher.combine(wasConverted)
         hasher.combine(wasUpgraded)
         hasher.combine(wasRefunded)
@@ -10390,6 +10399,8 @@ extension TDNativeProxyType: @retroactive Hashable {
             lhs == rhs
         case (.proxyTypeMtproto(let lhs), .proxyTypeMtproto(let rhs)):
             lhs == rhs
+        case (.proxyTypeWeb(let lhs), .proxyTypeWeb(let rhs)):
+            lhs == rhs
         default:
             false
         }
@@ -10405,6 +10416,9 @@ extension TDNativeProxyType: @retroactive Hashable {
             hasher.combine(value)
         case .proxyTypeMtproto(let value):
             hasher.combine(2)
+            hasher.combine(value)
+        case .proxyTypeWeb(let value):
+            hasher.combine(3)
             hasher.combine(value)
         }
     }
@@ -10450,6 +10464,20 @@ extension TDNativeProxyTypeSocks5: @retroactive Hashable {
     public func hash(into hasher: inout Hasher) {
         hasher.combine(username)
         hasher.combine(password)
+    }
+}
+
+// MARK: - TDNativeProxyTypeWeb + @retroactive Hashable
+
+extension TDNativeProxyTypeWeb: @retroactive Hashable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        guard lhs.path == rhs.path, lhs.secret == rhs.secret else { return false }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(path)
+        hasher.combine(secret)
     }
 }
 
@@ -11880,12 +11908,14 @@ extension TDNativeTermsOfService: @retroactive Hashable {
 
 extension TDNativeTextQuote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text, lhs.position == rhs.position, lhs.isManual == rhs.isManual else { return false }
+        guard lhs.text == rhs.text, lhs.richTexts == rhs.richTexts, lhs.position == rhs.position,
+              lhs.isManual == rhs.isManual else { return false }
         return true
     }
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(text)
+        hasher.combine(richTexts)
         hasher.combine(position)
         hasher.combine(isManual)
     }
@@ -12156,7 +12186,8 @@ extension TDNativeUpgradedGift: @retroactive Hashable {
               lhs.isBurned == rhs.isBurned, lhs.isCrafted == rhs.isCrafted, lhs.isPremium == rhs.isPremium,
               lhs.isThemeAvailable == rhs.isThemeAvailable, lhs.usedThemeChatId == rhs.usedThemeChatId,
               lhs.hostId == rhs.hostId, lhs.ownerId == rhs.ownerId, lhs.ownerAddress == rhs.ownerAddress,
-              lhs.ownerName == rhs.ownerName, lhs.giftAddress == rhs.giftAddress, lhs.model == rhs.model,
+              lhs.ownerName == rhs.ownerName, lhs.giftAddress == rhs.giftAddress,
+              lhs.canBeTonWalletCardBackground == rhs.canBeTonWalletCardBackground, lhs.model == rhs.model,
               lhs.symbol == rhs.symbol, lhs.backdrop == rhs.backdrop, lhs.originalDetails == rhs.originalDetails,
               lhs.colors == rhs.colors, lhs.resaleParameters == rhs.resaleParameters,
               lhs.canSendPurchaseOffer == rhs.canSendPurchaseOffer,
@@ -12184,6 +12215,7 @@ extension TDNativeUpgradedGift: @retroactive Hashable {
         hasher.combine(ownerAddress)
         hasher.combine(ownerName)
         hasher.combine(giftAddress)
+        hasher.combine(canBeTonWalletCardBackground)
         hasher.combine(model)
         hasher.combine(symbol)
         hasher.combine(backdrop)
