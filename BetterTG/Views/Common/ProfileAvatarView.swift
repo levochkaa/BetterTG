@@ -19,6 +19,14 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         didSet { contextMenuGesture.isEnabled = showsContextMenu }
     }
 
+    /// AvatarNode's badgeView: the timer badge takes the avatar's picture or, without one, its placeholder's last
+    /// gradient colour.
+    var badgeView: AvatarTimerBadgeView? {
+        didSet {
+            if badgeView !== oldValue { updateBadgeContent() }
+        }
+    }
+
     // MARK: Private
 
     private lazy var contextMenuGesture = ContextMenuPressGestureRecognizer(
@@ -43,6 +51,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
     private var representedFile: File?
     private var representedMinithumbnailData: Data?
     private var representedIcon: TelegramAvatarIcon?
+    private var placeholderColors = [UIColor]()
     private var cancellables = Set<AnyCancellable>()
 
     override init(frame: CGRect) {
@@ -55,6 +64,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         extractedContentView.addSubview(placeholderView)
         extractedContentView.addSubview(imageView)
         isUserInteractionEnabled = true
+        imageView.onImageChange = { [weak self] in self?.updateBadgeContent() }
 
         addGestureRecognizer(contextMenuGesture)
 
@@ -183,6 +193,17 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
             icon: icon,
         )
         placeholderView.configure(colors: colors, letters: placeholder.letters, icon: icon)
+        placeholderColors = colors
+        updateBadgeContent()
+    }
+
+    private func updateBadgeContent() {
+        guard let badgeView else { return }
+        if let image = imageView.image {
+            badgeView.update(content: .image(image))
+        } else {
+            badgeView.update(content: .color(placeholderColors.last ?? .white))
+        }
     }
 
     private func updateImageIfNeeded() {

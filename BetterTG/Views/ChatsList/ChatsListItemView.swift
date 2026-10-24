@@ -43,6 +43,8 @@ final class ChatListCell: UITableViewCell {
     /// corner.
     private let onlineMarker = ChatListOnlineMarkerView()
     private var onlineMarkerConstraints = [NSLayoutConstraint]()
+    /// ChatListItem's avatarTimerBadge: the chat's auto-delete period at the avatar's corner.
+    private var timerBadge: AvatarTimerBadgeView?
     /// Telegram's story ring around the avatar (ChatListItem: 2.33 pt, 1.33 pt once seen).
     private let storyRingView = StoryAvatarRingView(activeLineWidth: 2.33, inactiveLineWidth: 1.33)
     private lazy var storyTapGesture = UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
@@ -195,12 +197,12 @@ final class ChatListCell: UITableViewCell {
         }
     }
 
-    /// `showsOnlineMarkers` is off for a found message, as Telegram marks no presence on those rows.
+    /// `showsAvatarBadges` is off for a found message, as Telegram shows no presence or timer on those rows.
     func configure(
         chat: CustomChat,
         isMuted: Bool,
         isArchived: Bool = false,
-        showsOnlineMarkers: Bool = true,
+        showsAvatarBadges: Bool = true,
         client: TDLibClient,
     ) {
         // A presence change on the same chat animates the marker; a reused row snaps to its new chat.
@@ -260,7 +262,15 @@ final class ChatListCell: UITableViewCell {
                 client: client,
             )
         }
-        updateOnlineMarker(chat: chat, enabled: showsOnlineMarkers, animated: sameChat && window != nil)
+        updateOnlineMarker(chat: chat, enabled: showsAvatarBadges, animated: sameChat && window != nil)
+        var autoDeleteTime = chat.chat.messageAutoDeleteTime
+        #if DEBUG
+            // `-ui-probe-timer-badge` gives every chat a day, a week, a month or a year, to look at the badge.
+            if ProcessInfo.processInfo.arguments.contains("-ui-probe-timer-badge"), !chat.isSavedMessages {
+                autoDeleteTime = [86400, 604_800, 2_678_400, 31_536_000][Int((chat.id % 4 + 4) % 4)]
+            }
+        #endif
+        updateTimerBadge(seconds: showsAvatarBadges ? autoDeleteTime : 0, animated: sameChat && window != nil)
         let storyStyle = chat.activeStoryState?.ringStyle
         storyRingView.style = storyStyle
         let avatarScale = StoryAvatarRingView.avatarScale(diameter: 60, lineWidth: 2.33)
@@ -476,6 +486,46 @@ final class ChatListCell: UITableViewCell {
         let kindChanged = kind != onlineMarker.kind
         onlineMarker.setVisible(visible, kind: kind, animated: animated && !kindChanged)
         layoutOnlineMarker()
+    }
+
+    /// The badge sits flush in the avatar's corner and shrinks away while either online marker shows there.
+    private func updateTimerBadge(seconds: Int, animated: Bool) {
+        guard seconds > 0 else {
+            avatarView.badgeView = nil
+            timerBadge?.removeFromSuperview()
+            timerBadge = nil
+            return
+        }
+        let badge: AvatarTimerBadgeView
+        var animated = animated
+        if let timerBadge {
+            badge = timerBadge
+        } else {
+            animated = false
+            badge = AvatarTimerBadgeView(frame: .zero)
+            timerBadge = badge
+            avatarView.addSubview(badge)
+        }
+        let avatarSize = CGSize(width: 60, height: 60)
+        let size = CGSize(width: 24, height: 24)
+        badge.update(size: size, avatarSize: avatarSize, text: AvatarTimerBadgeView.text(seconds: seconds))
+        badge.bounds = CGRect(origin: .zero, size: size)
+        badge.center = CGPoint(x: avatarSize.width - size.width / 2, y: avatarSize.height - size.height / 2)
+        avatarView.badgeView = badge
+        let scale: CGFloat = onlineMarker.isVisible ? 0.00001 : 1
+        let changes = { badge.transform = CGAffineTransform(scaleX: scale, y: scale) }
+        guard animated else {
+            changes()
+            return
+        }
+        UIView.animate(
+            withDuration: 0.3,
+            delay: 0,
+            usingSpringWithDamping: 0.78,
+            initialSpringVelocity: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction],
+            animations: changes,
+        )
     }
 
     private func layoutOnlineMarker() {

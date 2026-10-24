@@ -1197,11 +1197,19 @@ final class TDImageLoadingView: UIImageView {
         }
     }
 
+    override var image: UIImage? {
+        didSet {
+            if image !== oldValue { onImageChange?() }
+        }
+    }
+
     // MARK: Internal
 
     private(set) var loadedPath: String?
     /// Runs each time the full image (not its placeholder) is shown, as the story viewer starts a photo's clock then.
     var onFullImage: (() -> Void)?
+    /// Runs whenever the shown picture changes, placeholder or full; an avatar feeds its timer badge from it.
+    var onImageChange: (() -> Void)?
 
     #if DEBUG
         var debugDecode: ((String, Int) async -> UIImage?)?
