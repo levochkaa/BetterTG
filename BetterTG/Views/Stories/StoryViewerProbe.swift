@@ -30,6 +30,7 @@ import UIKit
                 try verifyMenuItems()
                 try verifyOwnStory()
                 try verifyViewList()
+                try verifyChannelFooter()
                 try verifyReplyPanel()
                 result = "Story viewer probe passed: first-unseen-entry/clock-waits-for-media/hold-pause=true; "
                     + "auto-advance/next-poster/resume/rewind/dismiss=true; single-story=true; "
@@ -42,6 +43,7 @@ import UIKit
                     + "own-menu/expired/live/button/footer/no-views/view-label/count-text=true; "
                     + "view-list-title/tabs-at-20/private-no-tabs/sort-at-10/expired-no-header/empty-texts/"
                     + "subtitles/page-kinds/layout/drag-outcomes/row-menus=true; "
+                    + "channel-footer/private-no-share/closed-group/writable-group-none=true; "
                     + "reply-user/private/closed/service/bot/self/group/read-only-group/channel/live/reaction-text=true"
             } catch {
                 result = "Story viewer probe failed: \(error)"
@@ -718,6 +720,38 @@ import UIKit
             )
         }
 
+        /// StoryFooterPanelComponent's channel footer: a channel's or a closed group's story, at least one view, the
+        /// account's reaction counted, Share for a public channel's forwardable story, none for a live stream.
+        private static func verifyChannelFooter() throws {
+            let file = StoryViewerUIProbe.photoFile(id: 1, path: "", uniqueID: "channel-footer")
+            let story = StoryViewerUIProbe.makeStory(id: 1, chatID: -1001, date: 0, file: file, areas: [])
+            let channel = StoryFooterPanel.channelConfiguration(story: story, poster: .channel(isPublic: true))
+            try require(
+                channel?.isChannel == true && channel?.viewCount == 1 && channel?.canShare == true
+                    && channel?.canDelete == false && channel?.recentViewerIDs == [],
+                "a public channel's footer: \(String(describing: channel))",
+            )
+            try require(
+                StoryFooterPanel.channelConfiguration(story: story, poster: .channel(isPublic: false))?
+                    .canShare == false,
+                "a private channel's story isn't shared",
+            )
+            try require(
+                StoryFooterPanel.channelConfiguration(story: story, poster: .group(canWrite: false, isPublic: true))?
+                    .isChannel == true,
+                "a group the account can't write to",
+            )
+            try require(
+                StoryFooterPanel.channelConfiguration(story: story, poster: .group(canWrite: true, isPublic: true))
+                    == nil
+                    && StoryFooterPanel.channelConfiguration(
+                        story: story,
+                        poster: .user(isBot: false, isService: false, isSelf: false),
+                    ) == nil,
+                "a writable group and a user have the reply panel instead",
+            )
+        }
+
         private static func verifyOwnStory() throws {
             let me = Int64(7)
             func poster(username: String? = "me", active: Set<Int> = [1, 2]) -> StoryMoreMenu.Poster {
@@ -893,14 +927,17 @@ import UIKit
             )
             try require(panel(open, .user(isBot: true, isService: false, isSelf: false)) == nil, "a bot's story")
             try require(panel(open, .user(isBot: false, isService: false, isSelf: true)) == nil, "the account's story")
-            let group = panel(open, .group(canWrite: true))
+            let group = panel(open, .group(canWrite: true, isPublic: false))
             try require(
                 group?.field == .input(placeholder: L10n.telegram("Story.InputPlaceholderReplyInGroup"))
                     && group?.isGroup == true && group?.showsLike == true && group?.offersLikeOptions == false,
                 "a group's story: \(String(describing: group))",
             )
-            try require(panel(open, .group(canWrite: false)) == nil, "a group the account can't write to")
-            try require(panel(open, .channel) == nil, "a channel's story")
+            try require(
+                panel(open, .group(canWrite: false, isPublic: false)) == nil,
+                "a group the account can't write to",
+            )
+            try require(panel(open, .channel(isPublic: true)) == nil, "a channel's story")
             let livePanel = panel(live, user)
             try require(
                 livePanel?.field == unavailable && livePanel?.showsLike == false && livePanel?.showsForward == false,

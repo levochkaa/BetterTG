@@ -13,9 +13,10 @@ enum StoryReplyPanel {
     /// What the panel reads about the story's poster.
     enum Poster: Equatable {
         case user(isBot: Bool, isService: Bool, isSelf: Bool)
-        /// A supergroup that isn't a channel, and whether the account may send text there.
-        case group(canWrite: Bool)
-        case channel
+        /// A supergroup that isn't a channel, whether the account may send text there and whether it has a username.
+        case group(canWrite: Bool, isPublic: Bool)
+        /// A channel, and whether it has a username (Telegram's addressName).
+        case channel(isPublic: Bool)
         case other
     }
 
@@ -68,8 +69,8 @@ enum StoryReplyPanel {
                 offersLikeOptions: !isService && !isLive,
                 showsForward: showsForward,
             )
-        case .group(let canWrite):
-            // Where the account can't write, Telegram's footer takes the panel's place; BetterTG has none yet.
+        case .group(let canWrite, _):
+            // Where the account can't write, Telegram's channel footer takes the panel's place.
             guard canWrite else { return nil }
             return Configuration(
                 field: isUnsupported || isLive
@@ -102,9 +103,10 @@ enum StoryReplyPanel {
                 isSelf: me?.id == info.userId,
             )
         case .chatTypeSupergroup(let info):
-            if info.isChannel { return .channel }
             let group = try? await client.send(TDNativeRequests.getSupergroup(supergroupId: info.supergroupId))
-            return .group(canWrite: canWrite(status: group?.status, permissions: chat.permissions))
+            let isPublic = group?.usernames?.activeUsernames.isEmpty == false
+            if info.isChannel { return .channel(isPublic: isPublic) }
+            return .group(canWrite: canWrite(status: group?.status, permissions: chat.permissions), isPublic: isPublic)
         case .chatTypeBasicGroup,
              .chatTypeSecret:
             return .other

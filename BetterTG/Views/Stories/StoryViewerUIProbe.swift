@@ -18,6 +18,8 @@
     /// - `reply [edit|like-options|send]` checks the reply panel under Bob's story and likes it and takes the like
     ///   back, then edits the empty field with the reactions over it (edit, by default), holds the like button for
     ///   the other reactions (like-options), or sends a reply (send);
+    /// - `channel` shows Bob as a public channel: the channel footer with the views, like and Share instead of the
+    ///   reply panel, and a tap on its like;
     /// - `own [footer|menu|delete|viewers|viewers-full]` opens the account's own stories instead, before Alice's: the
     ///   viewers list at half the screen from the footer's counts, with Alice's heart, Bob's view and Carol's
     ///   commented repost, then a tap on Bob (viewers), or the list fully open and closed again (viewers-full), or the
@@ -36,6 +38,7 @@
             case menu(video: Bool)
             case reply(step: String)
             case own(step: String)
+            case channel
         }
 
         /// One of the areas on Bob's story, with the sticker its picture shows where the overlay draws nothing, and
@@ -140,7 +143,10 @@
                           activeStories: fixture.lists,
                           initialChatID: isOwn ? me : bob,
                           menuPoster: isOwn ? ownMenuPoster : menuPoster,
-                          replyPoster: .user(isBot: false, isService: false, isSelf: isOwn),
+                          replyPoster: {
+                              if case .channel = mode { return .channel(isPublic: true) }
+                              return .user(isBot: false, isService: false, isSelf: isOwn)
+                          }(),
                           accountUserID: isOwn ? me : nil,
                           interactions: isOwn ? ownInteractions() : [:],
                           onMenuItem: { record("Story viewer UI probe menu chose \($0)") },
@@ -162,6 +168,8 @@
                     await runMenu(viewer, video: video)
                 case .reply(let step):
                     await runReply(viewer, step: step)
+                case .channel:
+                    await runChannel(viewer)
                 case .own(let step):
                     await runOwn(viewer, step: step)
                 }
@@ -264,6 +272,8 @@
             case "reply":
                 let step = value ?? "edit"
                 return ["edit", "like-options", "send"].contains(step) ? .reply(step: step) : nil
+            case "channel":
+                return .channel
             case "own":
                 let step = value ?? "footer"
                 return ["footer", "menu", "delete", "viewers", "viewers-full", "viewers-menu"].contains(step)
@@ -408,6 +418,23 @@
 
         /// The account's first story has the footer with its views, reactions and repost and the More button, and no
         /// reply panel. Then the step's state is left on screen.
+        /// Bob as a public channel: the channel footer in the reply panel's place, with one view, the like button and
+        /// Share; a tap on the like sets Telegram's heart.
+        private static func runChannel(_ viewer: StoryViewerController) async {
+            try? await Task.sleep(for: .milliseconds(400))
+            let footer = viewer.probeFooterConfiguration
+            let liked = viewer.probePressFooterLike()
+            try? await Task.sleep(for: .milliseconds(300))
+            let passes = footer?.isChannel == true && footer?.canShare == true && footer?.viewCount == 1
+                && footer?.recentViewerIDs == [] && viewer.probeReplyConfiguration == nil
+                && liked?.standardEmoji == "❤"
+            record(
+                "Story viewer UI probe channel \(passes ? "passed" : "failed"): "
+                    + "footer=\(footer.map { "views \($0.viewCount) share \($0.canShare)" } ?? "none") "
+                    + "reply-panel=\(viewer.probeReplyConfiguration != nil) liked=\(liked?.standardEmoji ?? "none")",
+            )
+        }
+
         private static func runOwn(_ viewer: StoryViewerController, step: String) async {
             let footer = viewer.probeFooterConfiguration
             let frame = viewer.probeFooterFrame

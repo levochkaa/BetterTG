@@ -93,6 +93,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private let replyDimView = UIView()
     private let replyReactions = TelegramReactionStripView()
     private let footerPanel = StoryFooterPanelView()
+    /// The story the channel footer shows, so its like animates only when it changes in place.
+    private var footerStoryKey: StoryViewerSession.StoryKey?
     /// StoryItemSetContainerComponent's viewListDisplayState for the account's own story.
     private var viewListDisplay = StoryViewListLayout.Display.hidden
     private var viewListPanel: StoryViewListPanel?
@@ -195,7 +197,17 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
     /// Only the account's own story has viewers to list; its footer shows then.
     private var showsViewList: Bool {
-        !footerPanel.isHidden && shownStory != nil && !isClosing
+        !footerPanel.isHidden && footerPanel.configuration?.isChannel == false && shownStory != nil && !isClosing
+    }
+
+    /// The like button shown: the channel footer's, or the reply panel's.
+    private var likeButton: StoryLikeButton {
+        if footerPanel.configuration?.isChannel == true, !footerPanel.isHidden {
+            footerPanel.likeButton
+        } else {
+            replyPanel
+                .likeButton
+        }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -823,11 +835,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             : NSAttributedString(getAttributedString(from: caption, .white))
         areaOverlay.update(areas: story.areas, client: session.client, loadsStickers: !session.isOffline)
         moreButton.isHidden = !StoryMoreMenu.showsButton(for: story, accountUserID: session.accountUserID)
+        // The own story's footer shows at once; a channel's waits for the poster's kind with the reply panel.
+        if StoryMoreMenu.isOwn(story, accountUserID: session.accountUserID) {
+            applyFooter(StoryFooterPanel.configuration(story: story, isOwn: true))
+        }
         renderReplyPanel(story)
-        applyFooter(StoryFooterPanel.configuration(
-            story: story,
-            isOwn: StoryMoreMenu.isOwn(story, accountUserID: session.accountUserID),
-        ))
         updateAccessibilityLabel()
         view.setNeedsLayout()
     }
@@ -1994,6 +2006,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         footerPanel.isHidden = true
         footerPanel.onDelete = { [weak self] in self?.deletePressed() }
         footerPanel.onOpenViews = { [weak self] in self?.setViewListDisplay(.half) }
+        footerPanel.onLike = { [weak self] in self?.likePressed() }
+        footerPanel.onShare = { [weak self] in
+            guard let self, let story = shownStory, !isClosing else { return }
+            share(story)
+        }
         focusedFace.contentHost.addSubview(footerPanel)
     }
 
@@ -2281,16 +2298,41 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         let key = StoryViewerSession.StoryKey(chatID: story.posterChatId, storyID: story.id)
         if let poster = replyPosters[key.chatID] {
             applyReplyPanel(StoryReplyPanel.configuration(story: story, poster: poster), key: key, story: story)
+            applyChannelFooter(story: story, poster: poster, key: key)
             return
         }
         applyReplyPanel(nil, key: nil)
+        applyChannelFooter(story: story, poster: nil, key: key)
         replyPosterTask?.cancel()
         replyPosterTask = Task { [weak self] in
             guard let self, let poster = await replyPoster(chatID: key.chatID), !Task.isCancelled else { return }
             replyPosters[key.chatID] = poster
             guard shownKey == key, let story = shownStory, !isClosing else { return }
             applyReplyPanel(StoryReplyPanel.configuration(story: story, poster: poster), key: key, story: story)
+            applyChannelFooter(story: story, poster: poster, key: key)
         }
+    }
+
+    /// StoryFooterPanelComponent's channel footer in the reply panel's place under someone else's story, once the
+    /// poster turns out to be a channel or a group the account can't write to.
+    private func applyChannelFooter(
+        story: Story,
+        poster: StoryReplyPanel.Poster?,
+        key: StoryViewerSession.StoryKey,
+    ) {
+        guard !StoryMoreMenu.isOwn(story, accountUserID: session.accountUserID) else { return }
+        let configuration = poster.flatMap { StoryFooterPanel.channelConfiguration(story: story, poster: $0) }
+        let isSameStory = configuration != nil && footerStoryKey == key
+        footerStoryKey = configuration == nil ? nil : key
+        applyFooter(configuration)
+        guard configuration != nil else { return }
+        footerPanel.likeButton.setReaction(
+            story.chosenReactionType,
+            client: session.client,
+            loadsSticker: !session.isOffline,
+            animated: isSameStory,
+        )
+        footerPanel.setNeedsLayout()
     }
 
     private func replyPoster(chatID: Int64) async -> StoryReplyPanel.Poster? {
@@ -2514,9 +2556,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
     /// performLikeAction: Telegram's heart, or no reaction once the story has one.
     private func likePressed() {
-        guard let story = shownStory, replyPanel.configuration?.showsLike == true, !isClosing else { return }
+        let showsLike = replyPanel.configuration?.showsLike == true
+            || (footerPanel.configuration?.isChannel == true && !footerPanel.isHidden)
+        guard let story = shownStory, showsLike, !isClosing else { return }
         let heart = ReactionType.reactionTypeEmoji(ReactionTypeEmoji(emoji: "❤"))
-        setStoryReaction(replyPanel.likeButton.reaction == nil ? heart : nil, on: story)
+        setStoryReaction(likeButton.reaction == nil ? heart : nil, on: story)
     }
 
     /// performLikeOptionsAction: the reactions open over the held like button and follow the finger; letting go on
@@ -2545,9 +2589,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
     /// setStoryReaction, shown on the like button at once and taken back if TDLib refuses it.
     private func setStoryReaction(_ type: ReactionType?, on story: Story) {
-        let previous = replyPanel.likeButton.reaction
+        let previous = likeButton.reaction
         let client = session.client
         replyPanel.setReaction(type, client: client, loadsSticker: !session.isOffline, animated: true)
+        footerPanel.likeButton.setReaction(type, client: client, loadsSticker: !session.isOffline, animated: true)
+        footerPanel.setNeedsLayout()
         #if DEBUG
             if session.isOffline {
                 probeMenuActionHandler?("like \(type?.accessibilityIdentifierComponent ?? "none")")
@@ -2566,6 +2612,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             } catch {
                 guard let self, shownKey == key, !isClosing else { return }
                 replyPanel.setReaction(previous, client: client, loadsSticker: true, animated: false)
+                footerPanel.likeButton.setReaction(previous, client: client, loadsSticker: true, animated: false)
+                footerPanel.setNeedsLayout()
                 presentChatListActionFailure()
             }
         }
@@ -2877,6 +2925,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
         var probeFooterFrame: CGRect {
             footerPanel.frame
+        }
+
+        /// The channel footer's like button, as a tap on it, and the reaction it shows then.
+        func probePressFooterLike() -> ReactionType? {
+            footerPanel.onLike?()
+            return footerPanel.likeButton.reaction
         }
 
         /// The footer's counts, as a tap on them.
