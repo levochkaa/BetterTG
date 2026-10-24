@@ -41,8 +41,10 @@ import UIKit
                     try await ProbeFixtures.waitForActiveAccount()
                     try verifyBlocks()
                     try verifyLayout()
+                    try verifyCollapse()
                     result = "Text blocks probe passed: paragraph-ranges/quote/code-title/plain-pre/expandable=true; "
-                        + "layout-indent/frames-ordered/status-below=true"
+                        + "layout-indent/frames-ordered/status-below=true; "
+                        + "collapsed-three-lines/expanded-taller/short-open/tap-toggles=true"
                 } catch {
                     result = "Text blocks probe failed: \(error)"
                 }
@@ -81,6 +83,89 @@ import UIKit
                 plainBlocks.map(\.kind) == [.code(title: nil), .quote] && !plainBlocks[0].reservesIcon,
                 "plain \(plainBlocks)",
             )
+        }
+
+        /// An expandable quote of six lines folds to three with the arrow, opens taller, and one of two lines stays
+        /// open without an arrow; a tap on the folded quote opens it. Both states go to Documents/text-collapse.png.
+        private static func verifyCollapse() throws {
+            let lines = (1...6).lazy.map { "Quoted line number \($0) of the expandable quote" }.joined(separator: "\n")
+            let text = "Before\n\(lines)\nAfter"
+            let range = (text as NSString).range(of: lines)
+            let formatted = FormattedText(
+                entities: [TextEntity(
+                    length: range.length,
+                    offset: range.location,
+                    type: .textEntityTypeExpandableBlockQuote,
+                )],
+                text: text,
+            )
+            func make(expanded: Set<Int>) -> MessageTextContentView {
+                let view = MessageTextContentView(frame: .zero, textContainer: nil)
+                view.overrideUserInterfaceStyle = .dark
+                view.configure(
+                    formattedText: formatted,
+                    client: TDLib.shared.activeClient,
+                    statusText: "20:00",
+                    statusColor: .secondaryLabel,
+                    maximumWidth: 280,
+                    expandedQuoteBlocks: expanded,
+                )
+                view.frame = CGRect(origin: .zero, size: view.intrinsicContentSize)
+                view.layoutIfNeeded()
+                return view
+            }
+            let collapsed = make(expanded: [])
+            let expanded = make(expanded: [0])
+            try require(collapsed.probeBlockCollapse == [.collapsed], "collapsed state \(collapsed.probeBlockCollapse)")
+            try require(expanded.probeBlockCollapse == [.expanded], "expanded state")
+            let foldedHeight = collapsed.probeBlockFrames.first?.height ?? 0
+            let openHeight = expanded.probeBlockFrames.first?.height ?? 0
+            let lineHeight = UIFont.preferredFont(forTextStyle: .body).lineHeight
+            try require(
+                foldedHeight < lineHeight * 4 && openHeight > lineHeight * 5.5,
+                "heights \(foldedHeight) \(openHeight)",
+            )
+            try require(collapsed.bounds.height < expanded.bounds.height, "view heights")
+            let short = FormattedText(
+                entities: [TextEntity(length: 9, offset: 0, type: .textEntityTypeExpandableBlockQuote)],
+                text: "One\nTwo ok\nTail",
+            )
+            let shortView = MessageTextContentView(frame: .zero, textContainer: nil)
+            shortView.configure(
+                formattedText: short,
+                client: TDLib.shared.activeClient,
+                statusText: "",
+                statusColor: .secondaryLabel,
+                maximumWidth: 280,
+            )
+            try require(shortView.probeBlockCollapse == [nil], "short quote")
+            var toggled: Int?
+            collapsed.onToggleQuoteBlock = { toggled = $0 }
+            if let frame = collapsed.probeBlockFrames.first {
+                collapsed.probeTap(at: CGPoint(x: frame.midX, y: frame.midY))
+            }
+            try require(toggled == 0, "tap toggles")
+            let canvas = UIView(frame: CGRect(
+                x: 0,
+                y: 0,
+                width: collapsed.bounds.width + expanded.bounds.width + 36,
+                height: max(collapsed.bounds.height, expanded.bounds.height) + 24,
+            ))
+            canvas.backgroundColor = .secondarySystemBackground
+            canvas.overrideUserInterfaceStyle = .dark
+            collapsed.frame.origin = CGPoint(x: 12, y: 12)
+            expanded.frame.origin = CGPoint(x: collapsed.frame.maxX + 12, y: 12)
+            canvas.addSubview(collapsed)
+            canvas.addSubview(expanded)
+            canvas.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: canvas.bounds).image { context in
+                canvas.layer.render(in: context.cgContext)
+            }
+            if let data = image.pngData(),
+               let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            {
+                try? data.write(to: directory.appendingPathComponent("text-collapse.png"), options: .atomic)
+            }
         }
 
         private static func verifyLayout() throws {

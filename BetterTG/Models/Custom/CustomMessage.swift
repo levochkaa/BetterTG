@@ -33,6 +33,9 @@ import TDLibKit
     @Published private(set) var deliveryState = MessageDeliveryState.none
 
     @Published var spoilersRevealed = false
+    /// The expandable quotes opened in this message's text, by block index (ChatMessageTextBubbleContentNode's
+    /// expandedBlockIds).
+    @Published var expandedQuoteBlocks = Set<Int>()
 
     var isReplyQuoteExpanded = false {
         didSet { renderRevision &+= 1 }
@@ -105,6 +108,7 @@ import TDLibKit
         self.deliveryState = value.deliveryState
         self.reactionMutationInFlight = value.reactionMutationInFlight
         self.isReplyQuoteExpanded = value.isReplyQuoteExpanded
+        self.expandedQuoteBlocks = value.expandedQuoteBlocks
         self.serviceText = value.serviceText
     }
 

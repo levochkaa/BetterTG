@@ -20,6 +20,7 @@ struct ChatMessageRenderValue: Equatable {
     let isPinned: Bool
     let deliveryState: MessageDeliveryState
     let isReplyQuoteExpanded: Bool
+    let expandedQuoteBlocks: Set<Int>
 
     var displayedID: DisplayedMessageID {
         message.mediaAlbumId == 0 ? .message(message.id) : .album(message.mediaAlbumId)
@@ -45,6 +46,7 @@ struct ChatMessageRenderValue: Equatable {
         self.isPinned = value.isPinned
         self.deliveryState = value.deliveryState
         self.isReplyQuoteExpanded = value.isReplyQuoteExpanded
+        self.expandedQuoteBlocks = value.expandedQuoteBlocks
     }
 
     /// Materialize only for a renderer that needs CustomMessage. Never insert

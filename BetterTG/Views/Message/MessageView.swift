@@ -875,6 +875,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         if let formatted = displayedFormattedText {
             textView.isHidden = false
             textView.onRevealSpoilers = { [weak message] in message?.spoilersRevealed = true }
+            textView.onToggleQuoteBlock = { index in onContentAction(.toggleTextQuote(blockIndex: index)) }
             textView.configure(
                 formattedText: formatted,
                 client: client,
@@ -884,6 +885,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 maximumWidth: maximumTextWidth(for: bounds.width),
                 spoilersRevealed: message.spoilersRevealed,
                 spoilerState: textSpoilers.states[textSourceID],
+                expandedQuoteBlocks: message.expandedQuoteBlocks,
             )
         } else {
             textView.prepareForReuse()

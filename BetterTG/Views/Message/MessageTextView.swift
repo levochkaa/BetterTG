@@ -52,6 +52,9 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     /// selection, so the reply options' Quote Selected Part reads it from here.
     private(set) var lastQuoteSelection: NSRange?
 
+    /// ChatMessageTextBubbleContentNode's requestToggleBlockCollapsed; without it the view toggles on its own.
+    var onToggleQuoteBlock: ((Int) -> Void)?
+
     private var contextQuoteAction: ((NSRange) -> Void)?
     /// Copy-protected text stays selectable for Quote; Copy, Share and dragging the text out stay unavailable.
     private var contextQuoteAllowsCopy = true
@@ -87,6 +90,9 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
 
     /// The text's quotes and code blocks, drawn behind it (TextNode's block quotes).
     private var textBlocks = [MessageTextBlock]()
+    /// The expandable quotes the reader opened, by block index.
+    private var expandedQuoteBlocks = Set<Int>()
+    private lazy var collapsedLayout = MessageCollapsedTextLayout(next: layoutManager.delegate)
     private let blockDecorationView = MessageTextBlockDecorationView()
 
     #if DEBUG
@@ -95,6 +101,12 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     #endif
 
     #if DEBUG
+        var probeBlockCollapse: [MessageTextBlock.Collapse?] { textBlocks.map(\.collapse) }
+
+        func probeTap(at point: CGPoint) {
+            _ = toggleQuoteBlock(at: point)
+        }
+
         var probeBlockFrames: [CGRect] {
             layoutManager.ensureLayout(for: textContainer)
             return textBlocks.compactMap { $0.frame(layoutManager: layoutManager, textContainer: textContainer) }
@@ -136,6 +148,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         statusLabel.isUserInteractionEnabled = false
         addSubview(statusLabel)
         insertSubview(blockDecorationView, at: 0)
+        layoutManager.delegate = collapsedLayout
 
         entityTapGesture.delegate = entityTapDelegate
         addGestureRecognizer(entityTapGesture)
@@ -200,7 +213,9 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         spoilersRevealed: Bool = false,
         spoilerState: MessageTextSpoilerState? = nil,
         richAttributedText: NSAttributedString? = nil,
+        expandedQuoteBlocks: Set<Int> = [],
     ) {
+        self.expandedQuoteBlocks = expandedQuoteBlocks
         // A scoped store owns the reveal. Without one, the caller records it and passes it in.
         let state = spoilerState ?? MessageTextSpoilerState(
             text: formattedText,
@@ -259,6 +274,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         let resolvedWidth = max(1, width)
         guard abs(maximumLayoutWidth - resolvedWidth) > 0.5 else { return }
         maximumLayoutWidth = resolvedWidth
+        // A folded quote's cut depends on the width.
+        if textBlocks.contains(where: \.isCollapsible) { renderText() }
         invalidateIntrinsicContentSize()
     }
 
@@ -274,6 +291,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         formattedText = nil
         richAttributedText = nil
         onRevealSpoilers = nil
+        onToggleQuoteBlock = nil
+        expandedQuoteBlocks = []
         onUnhandledTap = nil
         onOpenRichURL = nil
         spoilerViews.forEach { $0.removeFromSuperview() }
@@ -551,6 +570,12 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         )
         textBlocks = richAttributedText == nil ? MessageTextBlock.blocks(in: text) : []
         MessageTextBlock.applyStyles(textBlocks, to: result)
+        textBlocks = MessageTextBlock.applyCollapse(
+            textBlocks,
+            to: result,
+            width: maximumLayoutWidth,
+            expanded: expandedQuoteBlocks,
+        )
         for range in state.presentation.ranges where NSMaxRange(range) <= result.length {
             result.removeAttribute(.backgroundColor, range: range)
             guard !state.revealed else { continue }
@@ -609,11 +634,14 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         container.lineFragmentPadding = 0
         container.lineBreakMode = textContainer.lineBreakMode
         container.maximumNumberOfLines = textContainer.maximumNumberOfLines
+        let collapsed = MessageCollapsedTextLayout(next: nil)
+        manager.delegate = collapsed
         manager.addTextContainer(container)
         storage.addLayoutManager(manager)
         manager.ensureLayout(for: container)
 
         let usedRect = manager.usedRect(for: container)
+        withExtendedLifetime(collapsed) {}
         // A block reaches past its widest line by the icon's room.
         let blockWidth = textBlocks.compactMap { $0.frame(layoutManager: manager, textContainer: container)?.maxX }
             .max() ?? 0
@@ -834,7 +862,32 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
                 break
             }
         }
+        if !handled, toggleQuoteBlock(at: gesture.location(in: self)) { handled = true }
         if !handled { onUnhandledTap?() }
+    }
+
+    /// InteractiveTextNode's tap on a folded or opened quote: it opens or folds again.
+    private func toggleQuoteBlock(at point: CGPoint) -> Bool {
+        layoutManager.ensureLayout(for: textContainer)
+        let inset = textContainerInset
+        guard let index = textBlocks.indices.first(where: { index in
+            textBlocks[index].collapse != nil
+                && textBlocks[index]
+                .frame(layoutManager: layoutManager, textContainer: textContainer)?
+                .offsetBy(dx: inset.left, dy: inset.top)
+                .contains(point) == true
+        }) else { return false }
+        if let onToggleQuoteBlock {
+            onToggleQuoteBlock(index)
+        } else {
+            if expandedQuoteBlocks.contains(index) {
+                expandedQuoteBlocks.remove(index)
+            } else {
+                expandedQuoteBlocks.insert(index)
+            }
+            renderText()
+        }
+        return true
     }
 
     private func layoutSpoilers() {

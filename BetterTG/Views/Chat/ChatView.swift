@@ -6099,6 +6099,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         switch action {
         case .richContentLayoutChanged:
             collectionView.collectionViewLayout.invalidateLayout()
+        case .toggleTextQuote(let index):
+            // ChatMessageTextBubbleContentNode's expandedBlockIds; the published change reconfigures the row.
+            if message.expandedQuoteBlocks.contains(index) {
+                message.expandedQuoteBlocks.remove(index)
+            } else {
+                message.expandedQuoteBlocks.insert(index)
+            }
         case .openContact(let contact):
             // ChatMessageContactBubbleContentNode.contactTap: a Telegram user opens their profile.
             if contact.userId != 0 {

@@ -7269,6 +7269,7 @@ import UIKit
 
     private func preservePresentationState(from previous: CustomMessage, in replacement: CustomMessage) {
         replacement.isReplyQuoteExpanded = previous.isReplyQuoteExpanded
+        replacement.expandedQuoteBlocks = previous.expandedQuoteBlocks
         if let forward = previous.forwardPresentation,
            forward.navigationTarget == nil, forward.targetMessageID != nil,
            forward.targetChatID == replacement.forwardPresentation?.targetChatID,

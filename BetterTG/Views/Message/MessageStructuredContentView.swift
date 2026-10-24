@@ -43,6 +43,8 @@ enum MessageContentAction {
     /// A poll's own media, an answer's or a quiz explanation's was tapped (ChatControllerInteraction.openPollMedia).
     case openPollMedia(messageID: Int64, media: TDNativePollMedia)
     case richContentLayoutChanged
+    /// An expandable quote in the text was tapped (requestToggleBlockCollapsed): it opens or folds again.
+    case toggleTextQuote(blockIndex: Int)
     /// The disc over an uploading photo or video was tapped: delete the sending message, as Telegram does.
     case cancelSending(messageID: Int64)
     /// An inline keyboard button under the message or inside one of its rich message blocks.
@@ -3767,7 +3769,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                     pollInteractionStore: pollInteractionStore,
                 ) { action in
                     switch action {
-                    case .richContentLayoutChanged:
+                    case .richContentLayoutChanged,
+                         .toggleTextQuote:
                         break
                     case .openContact:
                         actions.append("contact")
