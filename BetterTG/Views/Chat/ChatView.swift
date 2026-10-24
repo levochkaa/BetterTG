@@ -177,6 +177,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// ChatReportPeerTitlePanelNode for a chat from someone new (TDLib's action bar).
     private let chatActionBarView = ChatActionBarView()
     private var cachedEmptyStateView: ChatEmptyStateView?
+    /// The date stuck to the top while the history is dragged, and ListView's flashing state behind it.
+    private let floatingDateView = ChatFloatingDateView()
+    private var floatingDateFlashes = false
+    private var floatingDateFlashEnd: DispatchWorkItem?
     /// The pin the banner last jumped to (ChatController's scrolledToMessageId) and the pin it shows.
     private var pinnedScrollTarget: Int64?
     private var displayedPinnedSelection: PinnedMessageState.Selection?
@@ -510,6 +514,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var currentStatusPanel: ChatVM.StatusPanel? {
         guard statusPanel.superview != nil, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return nil }
         return chatVM.statusPanel
+    }
+
+    /// Where the history shows under the navigation bar and the panels below it.
+    private var historyTopChromeMaxY: CGFloat {
+        if (pinnedMessageBannerHeightConstraint?.constant ?? 0) > 0
+            || (voicePlaybackHeaderHeightConstraint?.constant ?? 0) > 0
+            || (liveLocationPanelHeightConstraint?.constant ?? 0) > 0
+            || (topicReopenBarHeightConstraint?.constant ?? 0) > 0
+            || (chatActionBarHeightConstraint?.constant ?? 0) > 0
+        {
+            chatActionBarView.frame.maxY
+        } else {
+            customNavigationBar.frame.maxY
+        }
     }
 
     convenience init(
@@ -1100,6 +1118,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         updateScrollToLatestButtonVisibility(animated: true)
         updateInlineVideoPlaybackVisibility()
         updatePinnedMessageSelectionForScroll()
+        updateFloatingDate(animated: true)
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -1109,6 +1128,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         #endif
         recordMessageNavigationGeometry("drag-begin")
         pinnedScrollTarget = nil
+        setFloatingDateFlashing(true)
         viewportRestorationAuthority.invalidate()
         if hasPendingMessageNavigation { didPerformInitialScroll = true }
         cancelMessageNavigation()
@@ -1119,6 +1139,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     func scrollViewDidEndDragging(_: UIScrollView, willDecelerate decelerate: Bool) {
         recordMessageNavigationGeometry("drag-end", settled: true)
         if !decelerate {
+            endFloatingDateFlashingSoon()
             applyPendingMessageNavigation()
             retryClientRestoration()
         }
@@ -1126,6 +1147,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func scrollViewDidEndDecelerating(_: UIScrollView) {
         recordMessageNavigationGeometry("deceleration-end", settled: true)
+        endFloatingDateFlashingSoon()
         applyPendingMessageNavigation()
         retryClientRestoration()
     }
@@ -2573,6 +2595,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         historyContainerView.translatesAutoresizingMaskIntoConstraints = false
         historyContainerView.transform = CGAffineTransform(scaleX: 1, y: -1)
         view.addSubview(historyContainerView)
+        if presentationMode == .full { view.addSubview(floatingDateView) }
 
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .systemBackground
@@ -9545,6 +9568,63 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 title: L10n.telegram("Chat.PinnedMessagesHiddenTitle"),
                 actionTitle: L10n.telegram("Undo.Undo"),
             ) { [weak self] in self?.chatVM.showPinnedMessageBanner() }
+        }
+    }
+
+    private func setFloatingDateFlashing(_ flashes: Bool) {
+        floatingDateFlashEnd?.cancel()
+        floatingDateFlashEnd = nil
+        floatingDateFlashes = flashes
+        updateFloatingDate(animated: true)
+    }
+
+    /// ListView.resetHeaderItemsFlashTimer: the headers keep flashing 0.3 s after the scroll ends.
+    private func endFloatingDateFlashingSoon() {
+        floatingDateFlashEnd?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.setFloatingDateFlashing(false) }
+        floatingDateFlashEnd = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    /// ChatMessageDateHeaderNode.updateFlashing for the header of the message at the top edge: hidden while that
+    /// day's own header rests in view, else shown while flashing, pushed up by the next day's header.
+    private func updateFloatingDate(animated: Bool) {
+        guard floatingDateView.superview != nil else { return }
+        let restTop = historyTopChromeMaxY + 6
+        let width = view.bounds.width
+        var topMessage: (minY: CGFloat, day: Int)?
+        var headers = [Int: CGRect]()
+        for cell in collectionView.visibleCells {
+            guard let indexPath = collectionView.indexPath(for: cell),
+                  let item = dataSource.itemIdentifier(for: indexPath) else { continue }
+            let frame = cell.convert(cell.bounds, to: view)
+            switch item {
+            case .message(let id):
+                guard frame.maxY > restTop + ChatFloatingDateView.pillHeight / 2, let message = message(for: id),
+                      frame.minY < (topMessage?.minY ?? .greatestFiniteMagnitude) else { continue }
+                topMessage = (frame.minY, message.dayTimestamp)
+            case .dateHeader(let header):
+                headers[header.dayTimestamp] = frame.insetBy(dx: 0, dy: 6)
+            default:
+                continue
+            }
+        }
+        var visible = false
+        if let topMessage, headers[topMessage.day].map({ $0.minY < restTop - 0.5 }) ?? true {
+            // The next (newer) day's header pushes the stuck one up.
+            let nextHeaderTop = headers.values.map(\.minY).filter { $0 > restTop }.min()
+            let top = min(restTop, (nextHeaderTop ?? .greatestFiniteMagnitude) - ChatFloatingDateView.pillHeight - 4)
+            floatingDateView.place(dayTimestamp: topMessage.day, top: top, width: width)
+            visible = floatingDateFlashes
+        }
+        let alpha: CGFloat = visible ? 1 : 0
+        guard floatingDateView.alpha != alpha else { return }
+        guard animated else {
+            floatingDateView.alpha = alpha
+            return
+        }
+        UIView.animate(withDuration: visible ? 0.3 : 0.4, delay: 0, options: [.beginFromCurrentState]) {
+            self.floatingDateView.alpha = alpha
         }
     }
 

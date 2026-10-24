@@ -2,6 +2,8 @@
 
 import UIKit
 
+// MARK: - ChatDateHeaderCell
+
 final class ChatDateHeaderCell: UICollectionViewCell {
     static let reuseIdentifier = "ChatDateHeaderCell"
 
@@ -87,5 +89,49 @@ final class ChatDateHeaderCell: UICollectionViewCell {
         pillView.accessibilityLabel = nil
         pillView.accessibilityIdentifier = nil
         onTap = nil
+    }
+}
+
+// MARK: - ChatFloatingDateView
+
+/// The date header Telegram's list sticks to the top while the history is dragged (ChatMessageDateHeaderNode with
+/// its stick distance factor and ListView's header flashing): the date pill of the message at the top edge, shown
+/// while the user scrolls and for 0.3 s after, fading in over 0.3 s and out over 0.4 s.
+final class ChatFloatingDateView: UIView {
+    static let pillHeight = CGFloat(22)
+
+    private(set) var dayTimestamp: Int?
+
+    private let titleLabel = UILabel()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .secondarySystemBackground
+        layer.cornerCurve = .continuous
+        layer.cornerRadius = 11
+        clipsToBounds = true
+        alpha = 0
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        titleLabel.textColor = .secondaryLabel
+        titleLabel.textAlignment = .center
+        addSubview(titleLabel)
+        isAccessibilityElement = false
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Lays the pill out centred at `top` within `width` for the day.
+    func place(dayTimestamp: Int, top: CGFloat, width: CGFloat) {
+        if self.dayTimestamp != dayTimestamp {
+            self.dayTimestamp = dayTimestamp
+            titleLabel.text = ChatDateHeaderCell.title(for: ChatDateHeaderID(dayTimestamp: dayTimestamp))
+        }
+        let textWidth = ceil(titleLabel.intrinsicContentSize.width)
+        let pillWidth = min(width - 32, textWidth + 20)
+        frame = CGRect(x: floor((width - pillWidth) / 2), y: top, width: pillWidth, height: Self.pillHeight)
+        titleLabel.frame = bounds.insetBy(dx: 10, dy: 0)
     }
 }
