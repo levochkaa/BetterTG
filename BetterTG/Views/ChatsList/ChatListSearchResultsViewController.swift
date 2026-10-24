@@ -279,7 +279,7 @@ import UIKit
                   ) as? ChatListCell
             else { return UITableViewCell() }
             cell.usesCardStyle = false
-            cell.configure(chat: chat, isMuted: false, client: client)
+            cell.configure(chat: chat, isMuted: false, showsOnlineMarkers: false, client: client)
             return cell
         case .messagesLoading:
             return table.dequeueReusableCell(withIdentifier: ChatListSearchLoadingCell.reuseIdentifier, for: indexPath)

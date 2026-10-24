@@ -273,16 +273,12 @@ extension User {
     /// ChatListItem's online marker: a person (not a service account, support or a bot) whose presence is online
     /// right now.
     var showsOnlineMarker: Bool {
-        #if DEBUG
-            // `-ui-probe-online-marker` marks every person, to look at the marker without anyone online.
-            if ProcessInfo.processInfo.arguments.contains("-ui-probe-online-marker") {
-                if isSupport || isServicePeer { return false }
-                if case .userTypeRegular = type { return true }
-                return false
-            }
-        #endif
-        guard !isSupport, !isServicePeer, case .userTypeRegular = type,
-              case .userStatusOnline(let online) = status else { return false }
+        guard canShowOnlineMarker, case .userStatusOnline(let online) = status else { return false }
         return TimeInterval(online.expires) > Date().timeIntervalSince1970
+    }
+
+    var canShowOnlineMarker: Bool {
+        guard !isSupport, !isServicePeer, case .userTypeRegular = type else { return false }
+        return true
     }
 }

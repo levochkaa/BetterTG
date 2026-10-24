@@ -42,6 +42,7 @@ final class ChatListCell: UITableViewCell {
     /// ChatListItem's PeerOnlineMarkerNode: a 14 pt dot, its 2 pt ring in the row's colour, 2 pt inside the avatar's
     /// corner.
     private let onlineMarker = ChatListOnlineMarkerView()
+    private var onlineMarkerConstraints = [NSLayoutConstraint]()
     /// Telegram's story ring around the avatar (ChatListItem: 2.33 pt, 1.33 pt once seen).
     private let storyRingView = StoryAvatarRingView(activeLineWidth: 2.33, inactiveLineWidth: 1.33)
     private lazy var storyTapGesture = UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
@@ -194,7 +195,14 @@ final class ChatListCell: UITableViewCell {
         }
     }
 
-    func configure(chat: CustomChat, isMuted: Bool, isArchived: Bool = false, client: TDLibClient) {
+    /// `showsOnlineMarkers` is off for a found message, as Telegram marks no presence on those rows.
+    func configure(
+        chat: CustomChat,
+        isMuted: Bool,
+        isArchived: Bool = false,
+        showsOnlineMarkers: Bool = true,
+        client: TDLibClient,
+    ) {
         // A presence change on the same chat animates the marker; a reused row snaps to its new chat.
         let sameChat = configuredChat?.id == chat.id
         configuredChat = chat
@@ -252,8 +260,7 @@ final class ChatListCell: UITableViewCell {
                 client: client,
             )
         }
-        let showsOnline = !chat.isSavedMessages && chat.user?.showsOnlineMarker == true
-        onlineMarker.setVisible(showsOnline, animated: sameChat && window != nil)
+        updateOnlineMarker(chat: chat, enabled: showsOnlineMarkers, animated: sameChat && window != nil)
         let storyStyle = chat.activeStoryState?.ringStyle
         storyRingView.style = storyStyle
         let avatarScale = StoryAvatarRingView.avatarScale(diameter: 60, lineWidth: 2.33)
@@ -441,7 +448,53 @@ final class ChatListCell: UITableViewCell {
         unreadLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
     }
 
+    /// ChatListItem's online flag: a person online right now, or a group or channel whose video chat has people in
+    /// it.
+    private func updateOnlineMarker(chat: CustomChat, enabled: Bool, animated: Bool) {
+        let kind: ChatListOnlineMarkerView.Kind
+        let visible: Bool
+        #if DEBUG
+            // `-ui-probe-online-marker` marks every row that can carry a marker, to look at both without anyone
+            // online or in a video chat.
+            let marksAll = ProcessInfo.processInfo.arguments.contains("-ui-probe-online-marker")
+        #else
+            let marksAll = false
+        #endif
+        switch chat.type {
+        case .bot,
+             .user:
+            kind = .person
+            let user = chat.user
+            visible = enabled && !chat.isSavedMessages
+                && (marksAll ? user?.canShowOnlineMarker == true : user?.showsOnlineMarker == true)
+        case .group,
+             .supergroup:
+            kind = .videoChat
+            let videoChat = chat.chat.videoChat
+            visible = enabled && (marksAll || videoChat.groupCallId != 0 && videoChat.hasParticipants)
+        }
+        let kindChanged = kind != onlineMarker.kind
+        onlineMarker.setVisible(visible, kind: kind, animated: animated && !kindChanged)
+        layoutOnlineMarker()
+    }
+
+    private func layoutOnlineMarker() {
+        let kind = onlineMarker.kind
+        let outset = kind.outset(scale: traitCollection.displayScale)
+        onlineMarkerConstraints[0].constant = outset
+        onlineMarkerConstraints[1].constant = outset
+        onlineMarkerConstraints[2].constant = kind.size
+        onlineMarkerConstraints[3].constant = kind.size
+    }
+
     private func configureConstraints() {
+        onlineMarkerConstraints = [
+            onlineMarker.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor),
+            onlineMarker.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor),
+            onlineMarker.widthAnchor.constraint(equalToConstant: 0),
+            onlineMarker.heightAnchor.constraint(equalToConstant: 0),
+        ]
+        NSLayoutConstraint.activate(onlineMarkerConstraints)
         accessoryWidthConstraint = trailingStatusView.widthAnchor.constraint(equalToConstant: 0)
         // The stack collapses a hidden slot or badge to zero width.
         accessoryWidthConstraint.priority = .required - 1
@@ -452,10 +505,6 @@ final class ChatListCell: UITableViewCell {
             avatarView.centerYAnchor.constraint(equalTo: rowView.centerYAnchor),
             avatarView.widthAnchor.constraint(equalToConstant: 60),
             avatarView.heightAnchor.constraint(equalToConstant: 60),
-            onlineMarker.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: -2),
-            onlineMarker.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor, constant: -2),
-            onlineMarker.widthAnchor.constraint(equalToConstant: ChatListOnlineMarkerView.size),
-            onlineMarker.heightAnchor.constraint(equalToConstant: ChatListOnlineMarkerView.size),
             storyRingView.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
             storyRingView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
             storyRingView.widthAnchor.constraint(equalToConstant: 60),
@@ -716,51 +765,126 @@ final class ChatListCell: UITableViewCell {
 
 // MARK: - ChatListOnlineMarkerView
 
-/// PresentationResourcesChatList.recentStatusOnlineIcon: a 10 pt green dot inside a 2 pt ring of the row's colour,
-/// scaling in and out as PeerOnlineMarkerNode does.
+/// ChatListItem's PeerOnlineMarkerNode with PresentationResourcesChatList.recentStatusOnlineIcon: a green dot inside a
+/// 2 pt ring of the row's colour, 14 pt for a person who is online and 22 pt with VoiceChatIndicatorNode's three
+/// moving bars for a group or channel with people in its video chat; it scales in and out over 0.2 s.
 final class ChatListOnlineMarkerView: UIView {
-    static let size = CGFloat(14)
+    enum Kind {
+        case person
+        case videoChat
+
+        var size: CGFloat {
+            self == .person ? 14 : 22
+        }
+
+        /// How far the marker's edges sit outside the avatar's: a person's 2 pt inside, a video chat's 1 pt out less a
+        /// pixel.
+        func outset(scale: CGFloat) -> CGFloat {
+            self == .person ? -2 : 1 - 1 / max(scale, 1)
+        }
+    }
 
     var ringColor = UIColor.secondarySystemGroupedBackground {
         didSet { backgroundColor = ringColor }
     }
 
+    private(set) var kind = Kind.person
     private(set) var isVisible = false
 
     private let dot = UIView()
+    /// VoiceChatIndicatorNode's lines: x, y and height at rest.
+    private let barLayout: [(x: CGFloat, y: CGFloat, height: CGFloat, values: [CGFloat])] = [
+        (6, 6, 10, [10, 4, 8, 4, 10]),
+        (10, 5, 12, [6, 10, 4, 12, 6]),
+        (14, 6, 10, [10, 4, 8, 4, 10]),
+    ]
+    private lazy var bars = barLayout.map { _ in
+        let bar = CALayer()
+        bar.backgroundColor = UIColor.white.cgColor
+        bar.cornerRadius = 1
+        return bar
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         translatesAutoresizingMaskIntoConstraints = false
         isUserInteractionEnabled = false
         backgroundColor = ringColor
-        layer.cornerRadius = Self.size / 2
         dot.backgroundColor = .systemGreen
-        dot.layer.cornerRadius = (Self.size - 4) / 2
-        dot.frame = CGRect(x: 2, y: 2, width: Self.size - 4, height: Self.size - 4)
         addSubview(dot)
-        alpha = 0
-        transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
+        applyKind()
+        isHidden = true
+        transform = CGAffineTransform(scaleX: 0.001, y: 0.001)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func setVisible(_ visible: Bool, animated: Bool) {
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateBarAnimations()
+    }
+
+    func setVisible(_ visible: Bool, kind: Kind, animated: Bool) {
+        if kind != self.kind {
+            self.kind = kind
+            applyKind()
+        }
         guard visible != isVisible else { return }
         isVisible = visible
-        let changes = {
-            self.alpha = visible ? 1 : 0
-            self.transform = visible ? .identity : CGAffineTransform(scaleX: 0.01, y: 0.01)
-        }
+        updateBarAnimations()
         guard animated else {
-            changes()
+            layer.removeAllAnimations()
+            isHidden = !visible
+            transform = visible ? .identity : CGAffineTransform(scaleX: 0.001, y: 0.001)
             return
         }
-        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.75, initialSpringVelocity: 0, options: [
-            .beginFromCurrentState,
-            .allowUserInteraction,
-        ], animations: changes)
+        isHidden = false
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut]) {
+            self.transform = visible ? .identity : CGAffineTransform(scaleX: 0.001, y: 0.001)
+        } completion: { finished in
+            guard finished, !self.isVisible else { return }
+            self.isHidden = true
+        }
+    }
+
+    private func applyKind() {
+        let size = kind.size
+        let saved = transform
+        transform = .identity
+        layer.cornerRadius = size / 2
+        dot.frame = CGRect(x: 2, y: 2, width: size - 4, height: size - 4)
+        dot.layer.cornerRadius = (size - 4) / 2
+        transform = saved
+        for (bar, item) in zip(bars, barLayout) {
+            bar.frame = CGRect(x: item.x, y: item.y, width: 2, height: item.height)
+            if kind == .videoChat {
+                if bar.superlayer == nil { layer.addSublayer(bar) }
+            } else {
+                bar.removeFromSuperlayer()
+            }
+        }
+        updateBarAnimations()
+    }
+
+    /// VoiceChatIndicatorNode's animation: each line's height through five values every 2.2 s, all rows in step,
+    /// running only while the marker is on screen.
+    private func updateBarAnimations() {
+        let running = kind == .videoChat && isVisible && window != nil
+        for (bar, item) in zip(bars, barLayout) {
+            guard running else {
+                bar.removeAnimation(forKey: "height")
+                continue
+            }
+            guard bar.animation(forKey: "height") == nil else { continue }
+            let animation = CAKeyframeAnimation(keyPath: "bounds.size.height")
+            animation.values = item.values.map { NSNumber(value: Double($0)) }
+            animation.timingFunctions = item.values.map { _ in CAMediaTimingFunction(name: .easeInEaseOut) }
+            animation.duration = 2.2
+            animation.repeatCount = .infinity
+            animation.beginTime = 1
+            bar.add(animation, forKey: "height")
+        }
     }
 }
