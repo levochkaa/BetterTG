@@ -19,7 +19,7 @@ scope. None of the states below claims complete Telegram parity.
   mechanics; classic pre-Liquid chrome baseline `8e7e5fefb1b0aba8335d8c28b62138183d61dc3d`; context-menu liquid morph
   `58ce7d6688`, `f44a25a649`, `11a469d1f8`, `7c2cfd6a1f`; system context-menu gesture reconstruction in
   `/Users/lev/Developer/CustomContextMenu` (UIKitCore iOS 27.0, 24A434).
-- Toolchain: Xcode 27.1 (27A9275) since `57cd9507`, before it 27.0 (27A266a); iOS deployment target 26.0, TDLibKit `2.0.0-tdlib-1.8.68-c15d3f5a` from
+- Toolchain: Xcode 27.1 (27A9275) since `57cd9507`, before it 27.0 (27A266a); iOS deployment target 26.0, TDLibKit `2.0.1-tdlib-1.8.69-ea3f69ce` (since `74531c64`; before it `2.0.0-tdlib-1.8.68-c15d3f5a`) from
   levochkaa/TDLibKit (native models plus the generated compat layer in `BetterTG/Shared`), Lottie 4.6.1, libwebp 1.6.0,
   FFmpeg 9.0 through `Packages/FFmpegBridge`, SwiftMath 1.7.3. Production code has no MobileVLCKit, TDLibKitDynamic or
   SwiftUI/hosting/representable UI.
@@ -39,7 +39,8 @@ scope. None of the states below claims complete Telegram parity.
   - Chat-list rows are BetterTG cards in the Settings style with all of Telegram's row content (`484c9fb5`).
   - Clang compilation caching is shared across worktrees; `clean-cache` and a disk preflight were added (`43271279`). Swift caching stays off because of Xcode's libcxxshim warning.
   - Submenus open as the system's stacked card (`5b83af40`). The geometry and springs were read from `_UIContextMenuStackedHierarchyLayout` on iOS 26.5 and 27.2, which match. Delete offers Telegram's presentDeleteMessageOptions choices. Long action titles wrap to two lines.
-  - TDLibKit 1.8.69 (`ea3f69ce`) is generated and committed in the fork (`eb313259b1`). It is not yet released or adopted here.
+  - A closing submenu's glass blends into the menu while the card shrinks, as the system's does (`8b37f80a`). The chevron takes the row's color.
+  - TDLibKit is on TDLib 1.8.69 (`74531c64`). The release `2.0.0-tdlib-1.8.69-ea3f69ce` had a generator bug: it missed TDLib's `//-` continued field docs, which made `forwardInfo.source` required. The fork fixes it in `275f35b7ec` and released `2.0.1-tdlib-1.8.69-ea3f69ce`. `-ui-probe-story-viewer` and `-ui-probe-message-metadata` pass, and Saved Messages shows its forwards.
 - Runtime smoke after the merge (2026-10-12, Simulator iPhone 18 Pro, Xcode device interaction and idb, evidence `/tmp/rs2-*`; every test message deleted): PASS for photo gallery close (button and swipe), video close by Back, voice record/send/play/delete, sticker/emoji/GIF panel tabs, GIF in a bubble, photo attachment with caption, camera absence alert, forum reply and forward into a topic, deletion in a forum topic. Open defects:
   - D1: fixed as F39.
   - D2: fixed as F40. The cause was the chat under the gallery, not the video.
