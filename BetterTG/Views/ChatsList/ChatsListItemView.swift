@@ -39,6 +39,9 @@ final class ChatListCell: UITableViewCell {
     private let pinView = UIImageView(image: UIImage(systemName: "pin.fill"))
     private let muteView = UIImageView(image: UIImage(systemName: "speaker.slash.fill"))
     private let avatarView = ProfileAvatarView()
+    /// ChatListItem's PeerOnlineMarkerNode: a 14 pt dot, its 2 pt ring in the row's colour, 2 pt inside the avatar's
+    /// corner.
+    private let onlineMarker = ChatListOnlineMarkerView()
     /// Telegram's story ring around the avatar (ChatListItem: 2.33 pt, 1.33 pt once seen).
     private let storyRingView = StoryAvatarRingView(activeLineWidth: 2.33, inactiveLineWidth: 1.33)
     private lazy var storyTapGesture = UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
@@ -192,6 +195,8 @@ final class ChatListCell: UITableViewCell {
     }
 
     func configure(chat: CustomChat, isMuted: Bool, isArchived: Bool = false, client: TDLibClient) {
+        // A presence change on the same chat animates the marker; a reused row snaps to its new chat.
+        let sameChat = configuredChat?.id == chat.id
         configuredChat = chat
         configuredMuted = isMuted
         configuredArchived = isArchived
@@ -247,6 +252,8 @@ final class ChatListCell: UITableViewCell {
                 client: client,
             )
         }
+        let showsOnline = !chat.isSavedMessages && chat.user?.showsOnlineMarker == true
+        onlineMarker.setVisible(showsOnline, animated: sameChat && window != nil)
         let storyStyle = chat.activeStoryState?.ringStyle
         storyRingView.style = storyStyle
         let avatarScale = StoryAvatarRingView.avatarScale(diameter: 60, lineWidth: 2.33)
@@ -352,6 +359,7 @@ final class ChatListCell: UITableViewCell {
                 highlighted ? .tertiarySystemFill : (pinned ? .secondarySystemBackground : .systemBackground)
             }
         backgroundColor = usesCardStyle ? .clear : (pinned ? .secondarySystemBackground : .systemBackground)
+        onlineMarker.ringColor = color
         guard animated else {
             rowView.backgroundColor = color
             return
@@ -375,6 +383,7 @@ final class ChatListCell: UITableViewCell {
             item.translatesAutoresizingMaskIntoConstraints = false
             rowView.addSubview(item)
         }
+        rowView.addSubview(onlineMarker)
         avatarView.addGestureRecognizer(storyTapGesture)
         storyTapGesture.isEnabled = false
         separatorView.backgroundColor = .separator
@@ -443,6 +452,10 @@ final class ChatListCell: UITableViewCell {
             avatarView.centerYAnchor.constraint(equalTo: rowView.centerYAnchor),
             avatarView.widthAnchor.constraint(equalToConstant: 60),
             avatarView.heightAnchor.constraint(equalToConstant: 60),
+            onlineMarker.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: -2),
+            onlineMarker.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor, constant: -2),
+            onlineMarker.widthAnchor.constraint(equalToConstant: ChatListOnlineMarkerView.size),
+            onlineMarker.heightAnchor.constraint(equalToConstant: ChatListOnlineMarkerView.size),
             storyRingView.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
             storyRingView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
             storyRingView.widthAnchor.constraint(equalToConstant: 60),
@@ -698,5 +711,56 @@ final class ChatListCell: UITableViewCell {
         waiters.removeAll()
         serviceTexts.removeAll()
         serviceWaiters.removeAll()
+    }
+}
+
+// MARK: - ChatListOnlineMarkerView
+
+/// PresentationResourcesChatList.recentStatusOnlineIcon: a 10 pt green dot inside a 2 pt ring of the row's colour,
+/// scaling in and out as PeerOnlineMarkerNode does.
+final class ChatListOnlineMarkerView: UIView {
+    static let size = CGFloat(14)
+
+    var ringColor = UIColor.secondarySystemGroupedBackground {
+        didSet { backgroundColor = ringColor }
+    }
+
+    private(set) var isVisible = false
+
+    private let dot = UIView()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        translatesAutoresizingMaskIntoConstraints = false
+        isUserInteractionEnabled = false
+        backgroundColor = ringColor
+        layer.cornerRadius = Self.size / 2
+        dot.backgroundColor = .systemGreen
+        dot.layer.cornerRadius = (Self.size - 4) / 2
+        dot.frame = CGRect(x: 2, y: 2, width: Self.size - 4, height: Self.size - 4)
+        addSubview(dot)
+        alpha = 0
+        transform = CGAffineTransform(scaleX: 0.01, y: 0.01)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setVisible(_ visible: Bool, animated: Bool) {
+        guard visible != isVisible else { return }
+        isVisible = visible
+        let changes = {
+            self.alpha = visible ? 1 : 0
+            self.transform = visible ? .identity : CGAffineTransform(scaleX: 0.01, y: 0.01)
+        }
+        guard animated else {
+            changes()
+            return
+        }
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.75, initialSpringVelocity: 0, options: [
+            .beginFromCurrentState,
+            .allowUserInteraction,
+        ], animations: changes)
     }
 }

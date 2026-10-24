@@ -4,6 +4,8 @@ import Combine
 import Foundation
 import TDLibKit
 
+// MARK: - TelegramChatListStore
+
 /// Consumes TDLib's ordered update stream before UI notifications are dispatched.
 /// No list membership is inferred from getChats or from a later getChat response.
 @MainActor final class TelegramChatListStore {
@@ -51,6 +53,13 @@ import TDLibKit
             ChatListSenderNames.shared.receive(value.user, clientID: clientID)
             changedPeers { record in
                 if case .chatTypePrivate(let peer) = record.type { peer.userId == value.user.id } else { false }
+            }
+        case .updateUserStatus(let value):
+            // ChatListItem's online marker follows the person's presence.
+            guard let user = users[value.userId] else { break }
+            users[value.userId] = user.replacingStatus(value.status)
+            changedPeers { record in
+                if case .chatTypePrivate(let peer) = record.type { peer.userId == value.userId } else { false }
             }
         case .updateBasicGroup(let value):
             groups[value.basicGroup.id] = value.basicGroup
@@ -236,5 +245,44 @@ import TDLibKit
     private func changedPeers(where matches: (ChatListRecord) -> Bool) {
         let ids = Set(records.values.filter(matches).map(\.id))
         if !ids.isEmpty { changes.send(.chats(ids)) }
+    }
+}
+
+extension User {
+    /// The same person with another presence, as `updateUserStatus` reports it.
+    func replacingStatus(_ status: UserStatus) -> User {
+        User(
+            accentColorId: accentColorId, activeStoryState: activeStoryState,
+            addedToAttachmentMenu: addedToAttachmentMenu, backgroundCustomEmojiId: backgroundCustomEmojiId,
+            emojiStatus: emojiStatus, firstName: firstName, haveAccess: haveAccess, id: id,
+            isCloseFriend: isCloseFriend, isContact: isContact, isMutualContact: isMutualContact, isPremium: isPremium,
+            isSupport: isSupport, languageCode: languageCode, lastName: lastName,
+            paidMessageStarCount: paidMessageStarCount, phoneNumber: phoneNumber,
+            profileAccentColorId: profileAccentColorId, profileBackgroundCustomEmojiId: profileBackgroundCustomEmojiId,
+            profilePhoto: profilePhoto, restrictionInfo: restrictionInfo, restrictsNewChats: restrictsNewChats,
+            status: status, type: type, upgradedGiftColors: upgradedGiftColors, usernames: usernames,
+            verificationStatus: verificationStatus,
+        )
+    }
+
+    /// PeerUtils' isServicePeer: Telegram's notifications, Replies and Verification Codes accounts.
+    var isServicePeer: Bool {
+        [777_000, 333_000, 708_513, 1_271_266_957, 489_000].contains(id)
+    }
+
+    /// ChatListItem's online marker: a person (not a service account, support or a bot) whose presence is online
+    /// right now.
+    var showsOnlineMarker: Bool {
+        #if DEBUG
+            // `-ui-probe-online-marker` marks every person, to look at the marker without anyone online.
+            if ProcessInfo.processInfo.arguments.contains("-ui-probe-online-marker") {
+                if isSupport || isServicePeer { return false }
+                if case .userTypeRegular = type { return true }
+                return false
+            }
+        #endif
+        guard !isSupport, !isServicePeer, case .userTypeRegular = type,
+              case .userStatusOnline(let online) = status else { return false }
+        return TimeInterval(online.expires) > Date().timeIntervalSince1970
     }
 }
