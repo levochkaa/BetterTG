@@ -1600,6 +1600,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         setHighlight(nil)
         // A card still closing would leave its header over the new one.
         for closing in submenuViews where !submenus.contains(closing) {
+            closing.sourceButton?.alpha = 1
             closing.removeFromSuperview()
         }
         let parentView: UIView = submenus.last ?? menuView
@@ -1629,6 +1630,9 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         ) {
             self.layoutSubmenus()
             submenu.headerButton.setSubmenuExpanded(true)
+            // The header starts on the source row and takes its place; left under the translucent card, the row
+            // would read as a second copy of it.
+            button.alpha = 0
         }
         updateSubmenuAccessibility(focus: submenu.headerButton)
     }
@@ -1660,8 +1664,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             submenu.center = CGPoint(x: collapsed.midX, y: collapsed.midY)
             submenu.layoutIfNeeded()
             submenu.headerButton.setSubmenuExpanded(false)
-        } completion: {
-            _ in submenu.removeFromSuperview()
+        } completion: { _ in
+            // The header has landed on the source row by now and looks the same; it hands the row back. A card
+            // that a reopening already removed has handed it back itself.
+            guard submenu.superview != nil else { return }
+            submenu.sourceButton?.alpha = 1
+            submenu.removeFromSuperview()
         }
         updateSubmenuAccessibility(focus: submenu.sourceButton)
     }
@@ -1669,8 +1677,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// Another source's actions replace the menu, and its submenus go at once.
     private func removeSubmenus() {
         guard !submenus.isEmpty else { return }
+        for submenu in submenuViews {
+            submenu.sourceButton?.alpha = 1
+            submenu.removeFromSuperview()
+        }
         submenus.removeAll()
-        submenuViews.forEach { $0.removeFromSuperview() }
         layoutSubmenus()
         updateSubmenuAccessibility(focus: nil)
     }
