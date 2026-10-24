@@ -195,6 +195,8 @@ import UIKit
     private(set) var userLastSeenIsKnown = false
     /// TDLib's `hasScheduledMessages`: the composer then offers the chat's Scheduled Messages.
     @Published var hasScheduledMessages = false
+    /// ChatInterfaceState's `silentPosting`: a channel's posts go out without a sound, kept for each account's chat.
+    @Published private(set) var silentPosting = false
     /// A composer send that only scheduled its message; the chat opens Scheduled Messages, as Telegram does.
     let scheduledComposerSend = PassthroughSubject<Void, Never>()
     @Published var memberCount = 0
@@ -835,6 +837,11 @@ import UIKit
         {
             return placeholder
         }
+        if isBroadcastChannel {
+            return L10n.telegram(silentPosting
+                ? "Conversation.InputTextSilentBroadcastPlaceholder"
+                : "Conversation.InputTextBroadcastPlaceholder")
+        }
         if location.messageThreadID != nil {
             return L10n.telegram(messageThreadShowsComments
                 ? "Conversation.InputTextPlaceholderComment"
@@ -1188,6 +1195,16 @@ import UIKit
         return Self.actionBarContent(chatActionBar, user: customChat.user)
     }
 
+    var isBroadcastChannel: Bool {
+        customChat.supergroup?.isChannel == true
+    }
+
+    /// Sends without a menu choice in a channel with silent posting on go out without a sound
+    /// (ChatControllerLoadDisplayNode's `effectiveSilentPosting`).
+    var defaultSendOptions: TDNativeMessageSendOptions? {
+        isBroadcastChannel && silentPosting ? Self.sendOptions(silent: true) : nil
+    }
+
     /// ChatUnblockInputPanelNode replaces the composer of a person the user blocked; a blocked bot's composer offers
     /// Restart Bot instead, and a secret chat keeps its own.
     private var showsUnblockPanel: Bool {
@@ -1316,6 +1333,10 @@ import UIKit
         case .group,
              .supergroup: true
         }
+    }
+
+    private var silentPostingKey: String? {
+        location.accountID.map { "silentPosting.\($0.uuidString).\(location.chatID)" }
     }
 
     convenience init(
@@ -1820,6 +1841,21 @@ import UIKit
     private nonisolated static func sendsAsAnimation(_ image: SelectedImage) -> Bool {
         guard let video = image.video, video.sendsAsGIF, image.selfDestructTimer == nil else { return false }
         return video.url.pathExtension.lowercased() == "mp4"
+    }
+
+    func loadSilentPosting() {
+        silentPosting = silentPostingKey.map { UserDefaults.standard.bool(forKey: $0) } ?? false
+    }
+
+    /// toggleSilentPost: flips the setting and keeps it for the chat.
+    func toggleSilentPosting() {
+        silentPosting.toggle()
+        guard let key = silentPostingKey else { return }
+        if silentPosting {
+            UserDefaults.standard.set(true, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     /// Telegram's `isReplyThreadHead`: the message is the root this thread's history starts with.
@@ -3834,7 +3870,7 @@ import UIKit
     ) async {
         guard !sendingComposerMessage else { return }
         sendingComposerMessage = true
-        composerSendOptions = options
+        composerSendOptions = options ?? defaultSendOptions
         composerMediaSendMode = mediaMode
         defer {
             sendingComposerMessage = false
@@ -4185,7 +4221,7 @@ import UIKit
                         width: sticker.width,
                     ),
                 )),
-                options: options,
+                options: options ?? defaultSendOptions,
                 replyMarkup: nil,
                 replyTo: context.replyTo,
                 topicId: context.destinationTopic,
@@ -4227,7 +4263,7 @@ import UIKit
             let message = try await client.sendMessage(
                 chatId: context.chatID,
                 inputMessageContent: .inputMessageDice(InputMessageDice(clearDraft: false, emoji: emoji)),
-                options: nil,
+                options: defaultSendOptions,
                 replyMarkup: nil,
                 replyTo: context.replyTo,
                 topicId: context.destinationTopic,
@@ -4265,7 +4301,7 @@ import UIKit
                 let message = try await client.sendMessage(
                     chatId: context.chatID,
                     inputMessageContent: content,
-                    options: nil,
+                    options: defaultSendOptions,
                     replyMarkup: nil,
                     replyTo: context.replyTo,
                     topicId: context.destinationTopic,
@@ -4308,7 +4344,7 @@ import UIKit
                     hasSpoiler: false,
                     showCaptionAboveMedia: false,
                 )),
-                options: nil,
+                options: defaultSendOptions,
                 replyMarkup: nil,
                 replyTo: context.replyTo,
                 topicId: context.destinationTopic,
@@ -4325,7 +4361,7 @@ import UIKit
                 chatId: context.chatID,
                 topicId: context.destinationTopic,
                 replyTo: context.replyTo,
-                options: nil,
+                options: defaultSendOptions,
                 queryId: queryID,
                 resultId: resultID,
                 hideViaBot: true,
@@ -4517,7 +4553,7 @@ import UIKit
                     linkPreviewOptions: nil,
                     text: FormattedText(entities: [], text: command),
                 )),
-                options: nil,
+                options: defaultSendOptions,
                 replyMarkup: nil,
                 replyTo: context.replyTo,
                 topicId: context.destinationTopic,
@@ -4528,13 +4564,14 @@ import UIKit
     /// A tapped inline result goes with the current reply (sendInlineQueryResultMessage); the input is cleared.
     func sendInlineBotResult(_ item: InlineBotResult) {
         guard inlineBotQuery != nil else { return }
+        let options = defaultSendOptions
         Task { [weak self] in
             await self?.sendClearingComposer(for: .text) { client, context in
                 try await client.send(TDNativeRequests.sendInlineQueryResultMessage(
                     chatId: context.chatID,
                     topicId: context.destinationTopic,
                     replyTo: context.replyTo,
-                    options: nil,
+                    options: options,
                     queryId: item.queryID,
                     resultId: item.resultID,
                     hideViaBot: false,
@@ -4616,7 +4653,7 @@ import UIKit
             let message = try await client.sendMessage(
                 chatId: context.chatID,
                 inputMessageContent: content,
-                options: nil,
+                options: defaultSendOptions,
                 replyMarkup: nil,
                 replyTo: .inputMessageReplyToMessage(TDNativeInputMessageReplyToMessage(
                     messageId: keyboardMessageID,
@@ -4673,7 +4710,7 @@ import UIKit
                     linkPreviewOptions: nil,
                     text: FormattedText(entities: [], text: button.text),
                 )),
-                options: nil,
+                options: defaultSendOptions,
                 replyMarkup: nil,
                 replyTo: context.replyTo,
                 topicId: context.destinationTopic,
@@ -7828,7 +7865,7 @@ import UIKit
             inputMessageContent: .inputMessageVideoNote(
                 InputMessageVideoNote(videoNote: inputVideoNote, selfDestructType: nil),
             ),
-            options: nil,
+            options: defaultSendOptions,
             replyMarkup: nil,
             replyTo: draft.replyTo,
             topicId: context.destinationTopic,
@@ -8480,7 +8517,7 @@ import UIKit
                     selfDestructType: draft.isViewOnce == true ? .messageSelfDestructTypeImmediately : nil,
                 ),
             ),
-            options: nil,
+            options: defaultSendOptions,
             replyMarkup: nil,
             replyTo: draft.replyTo,
             topicId: context.destinationTopic,

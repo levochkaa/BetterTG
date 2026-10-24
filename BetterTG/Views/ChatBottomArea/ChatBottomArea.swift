@@ -112,6 +112,9 @@ final class ChatComposerView: UIView {
     private let replyKeyboardButton = UIButton(type: .system)
     /// ChatTextInputPanelNode's scheduled messages accessory, shown while the input is empty.
     private let scheduledMessagesButton = UIButton(type: .system)
+    /// ChatTextInputAccessoryItem's `.silentPost`: a channel's bell, slashed while posts go out silently.
+    private let silentPostButton = UIButton(type: .system)
+    private var canPostSilently = false
     /// ChatTextInputPanelNode's `.input` accessory: stickers or emoji open the media panel, the keyboard closes it.
     private let mediaInputButton = UIButton(type: .system)
     private let replyKeyboardResponder = ComposerInputResponder()
@@ -541,6 +544,7 @@ final class ChatComposerView: UIView {
             selectedMediaRecordingMode = .voice
         }
         textView.setPlaceholder(chatVM.composerPlaceholder)
+        canPostSilently = chatVM.isBroadcastChannel && canWrite && canWriteText
         textView.customEmojiClient = chatVM.client
         textView.setAttributedText(targetText)
         // ChatTextInputPanelNode's contextPlaceholder: an inline bot's placeholder follows "@bot " inside the input.
@@ -733,6 +737,7 @@ final class ChatComposerView: UIView {
         if showsBotMenu { updateBotMenuButton(expanded: targetText.characters.isEmpty) }
         updateSuggestions(enabled: canWrite && canWriteText)
         updateScheduledMessagesButton()
+        updateSilentPostButton()
         mediaInputCanWriteText = canWriteText
         mediaInputStickersEnabled = chatVM.canSendStickersAndAnimations
         mediaInputIsAvailable = canWrite
@@ -975,6 +980,7 @@ final class ChatComposerView: UIView {
         inputRow.addArrangedSubview(attachmentButton)
         inputRow.addArrangedSubview(textView)
         inputRow.addArrangedSubview(scheduledMessagesButton)
+        inputRow.addArrangedSubview(silentPostButton)
         inputRow.addArrangedSubview(mediaInputButton)
         inputRow.addArrangedSubview(replyKeyboardButton)
         inputRow.addArrangedSubview(actionButton)
@@ -990,6 +996,8 @@ final class ChatComposerView: UIView {
             attachmentButton.heightAnchor.constraint(equalToConstant: 36),
             scheduledMessagesButton.widthAnchor.constraint(equalToConstant: 34),
             scheduledMessagesButton.heightAnchor.constraint(equalToConstant: 36),
+            silentPostButton.widthAnchor.constraint(equalToConstant: 34),
+            silentPostButton.heightAnchor.constraint(equalToConstant: 36),
             mediaInputButton.widthAnchor.constraint(equalToConstant: 34),
             mediaInputButton.heightAnchor.constraint(equalToConstant: 36),
             replyKeyboardButton.widthAnchor.constraint(equalToConstant: 34),
@@ -1005,6 +1013,12 @@ final class ChatComposerView: UIView {
         scheduledMessagesButton.tintColor = .secondaryLabel
         scheduledMessagesButton.accessibilityLabel = L10n.telegram("ScheduledMessages.Title")
         scheduledMessagesButton.isHidden = true
+        silentPostButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 19, weight: .regular),
+            forImageIn: .normal,
+        )
+        silentPostButton.tintColor = .secondaryLabel
+        silentPostButton.isHidden = true
         replyKeyboardButton.setPreferredSymbolConfiguration(
             UIImage.SymbolConfiguration(pointSize: 20, weight: .regular),
             forImageIn: .normal,
@@ -1189,6 +1203,7 @@ final class ChatComposerView: UIView {
             UIAction { [weak self] _ in self?.onOpenScheduledMessages?() },
             for: .touchUpInside,
         )
+        silentPostButton.addAction(UIAction { [weak self] _ in self?.toggleSilentPost() }, for: .touchUpInside)
         closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)
         botMenuButton.addAction(
             UIAction { [weak self] _ in
@@ -1336,6 +1351,34 @@ final class ChatComposerView: UIView {
         }
     }
 
+    /// ChatInterfaceInputContexts' `.silentPost` item: in a channel the user posts to, while the input is empty
+    /// outside editing and the media panel.
+    private func updateSilentPostButton() {
+        let shows = canPostSilently && chatVM.editCustomMessage == nil && chatVM.text.characters.isEmpty
+            && !mediaInputResponder.isFirstResponder
+        if silentPostButton.isHidden == shows { silentPostButton.isHidden = !shows }
+        let silent = chatVM.silentPosting
+        silentPostButton.setImage(UIImage(systemName: silent ? "bell.slash" : "bell"), for: .normal)
+        silentPostButton.accessibilityLabel = L10n.telegram(silent
+            ? "VoiceOver.SilentPostOn"
+            : "VoiceOver.SilentPostOff")
+    }
+
+    /// toggleSilentPost: the setting flips and a tooltip over the bell says what posts do now.
+    private func toggleSilentPost() {
+        chatVM.toggleSilentPosting()
+        guard let host = window else { return }
+        let text = L10n.telegram(chatVM.silentPosting
+            ? "Conversation.SilentBroadcastTooltipOff"
+            : "Conversation.SilentBroadcastTooltipOn")
+        TelegramTextTooltipView.show(
+            text,
+            source: silentPostButton.convert(silentPostButton.bounds, to: host),
+            in: host,
+            topInset: host.safeAreaInsets.top,
+        )
+    }
+
     /// ChatTextInputPanelNode's scheduled messages accessory, while the input is empty outside the media panel.
     private func updateScheduledMessagesButton() {
         let showsScheduledMessages = chatVM.hasScheduledMessages && chatVM.canScheduleMessages
@@ -1389,6 +1432,7 @@ final class ChatComposerView: UIView {
         updateMediaInputButton()
         updateReplyKeyboardButton()
         updateScheduledMessagesButton()
+        updateSilentPostButton()
     }
 
     /// The keyboard icon returns to text input (`.text`); stickers and emoji open the panel on that tab, as

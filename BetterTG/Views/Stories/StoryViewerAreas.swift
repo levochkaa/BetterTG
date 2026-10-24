@@ -466,10 +466,6 @@ private final class StoryWeatherAreaView: UIView {
 /// optional grey subtitle and a chevron. A tap on it runs the action; a touch anywhere else dismisses it and goes on
 /// to the story, as the menu doesn't catch outside taps.
 final class StoryAreaTooltipView: UIView {
-    private static let cornerRadius = CGFloat(10)
-    private static let arrowWidth = CGFloat(18)
-    private static let verticalInset = CGFloat(9)
-
     /// Runs as the tooltip starts to leave, whether it was used or dismissed.
     var onDismiss: (() -> Void)?
 
@@ -544,59 +540,6 @@ final class StoryAreaTooltipView: UIView {
         return nil
     }
 
-    /// ContextMenuContainerNode's mask: a rounded rectangle 9 pt in from the top and bottom, with the arrow in the
-    /// inset on the source's side, kept clear of the corners.
-    private static func path(size: CGSize, arrowPosition: CGFloat, arrowOnBottom: Bool) -> UIBezierPath {
-        let radius = cornerRadius
-        let inset = verticalInset
-        let arrow = max(radius + arrowWidth / 2, min(size.width - radius - arrowWidth / 2, arrowPosition))
-        let path = UIBezierPath()
-        path.move(to: CGPoint(x: 0, y: inset + radius))
-        path.addArc(
-            withCenter: CGPoint(x: radius, y: inset + radius),
-            radius: radius,
-            startAngle: .pi,
-            endAngle: 3 * .pi / 2,
-            clockwise: true,
-        )
-        if !arrowOnBottom {
-            path.addLine(to: CGPoint(x: arrow - arrowWidth / 2, y: inset))
-            path.addLine(to: CGPoint(x: arrow, y: 0))
-            path.addLine(to: CGPoint(x: arrow + arrowWidth / 2, y: inset))
-        }
-        path.addLine(to: CGPoint(x: size.width - radius, y: inset))
-        path.addArc(
-            withCenter: CGPoint(x: size.width - radius, y: inset + radius),
-            radius: radius,
-            startAngle: 3 * .pi / 2,
-            endAngle: 0,
-            clockwise: true,
-        )
-        path.addLine(to: CGPoint(x: size.width, y: size.height - radius - inset))
-        path.addArc(
-            withCenter: CGPoint(x: size.width - radius, y: size.height - radius - inset),
-            radius: radius,
-            startAngle: 0,
-            endAngle: .pi / 2,
-            clockwise: true,
-        )
-        if arrowOnBottom {
-            path.addLine(to: CGPoint(x: arrow + arrowWidth / 2, y: size.height - inset))
-            path.addLine(to: CGPoint(x: arrow, y: size.height))
-            path.addLine(to: CGPoint(x: arrow - arrowWidth / 2, y: size.height - inset))
-        }
-        path.addLine(to: CGPoint(x: radius, y: size.height - inset))
-        path.addArc(
-            withCenter: CGPoint(x: radius, y: size.height - radius - inset),
-            radius: radius,
-            startAngle: .pi / 2,
-            endAngle: .pi,
-            clockwise: true,
-        )
-        path.close()
-        return path
-    }
-
     /// Lays the tooltip out against `source` inside `container` (ContextMenuNode.containerLayoutUpdated with
     /// centerHorizontally) and springs it in from the arrow.
     func show(in host: UIView, source: CGRect, container: CGRect) {
@@ -647,7 +590,11 @@ final class StoryAreaTooltipView: UIView {
             height: iconSize.height,
         )
 
-        let path = Self.path(size: bubble.bounds.size, arrowPosition: source.midX - x, arrowOnBottom: arrowOnBottom)
+        let path = TelegramTooltipShape.path(
+            size: bubble.bounds.size,
+            arrowPosition: source.midX - x,
+            arrowOnBottom: arrowOnBottom,
+        )
         maskLayer.path = path.cgPath
         bubble.layer.shadowPath = path.cgPath
 

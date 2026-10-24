@@ -2581,3 +2581,9 @@
 "Conversation.ForwardTooltip.SavedMessages.Many" = "Messages forwarded to **Saved Messages**";
 "Conversation.ReplyMessagePanelTitle" = "Reply to %@";
 "Chat.ReplyPanel.ReplyToQuoteBy" = "Reply to Quote by %@";
+"Conversation.InputTextBroadcastPlaceholder" = "Broadcast";
+"Conversation.InputTextSilentBroadcastPlaceholder" = "Silent Broadcast";
+"Conversation.SilentBroadcastTooltipOn" = "Members will be notified when you post";
+"Conversation.SilentBroadcastTooltipOff" = "Members will not be notified when you post";
+"VoiceOver.SilentPostOn" = "Silent Broadcast On";
+"VoiceOver.SilentPostOff" = "Silent Broadcast Off";
