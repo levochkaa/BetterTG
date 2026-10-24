@@ -2565,3 +2565,7 @@
 "ChatState.Connecting" = "connecting...";
 "ChatState.Updating" = "updating...";
 "ChatState.WaitingForNetwork" = "waiting for network...";
+"Conversation.LinkDialogOpen" = "Open";
+"Conversation.ContextMenuCopyEmail" = "Copy Email";
+"Conversation.EmailCopied" = "Email copied to clipboard";
+"Conversation.AddToReadingList" = "Add to Reading List";

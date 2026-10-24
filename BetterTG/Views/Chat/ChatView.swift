@@ -382,6 +382,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pollAddOptionFocusMessageID: Int64?
     /// Set when the field takes the keyboard, until the poll has moved above it.
     private var pendingPollAddOptionScroll = false
+    /// The highlight of a link under a long press, and the empty view the press grows in its place.
+    private var linkPress: (anchor: UIView, highlight: UIView)?
     /// ChatControllerNode's `previousConfettiAnimationTimestamp`: confetti starts at most once per 0.1 s.
     private var lastConfettiTime: CFTimeInterval?
     #if DEBUG
@@ -404,9 +406,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 if (current as? MessageReactionStripView)?.handlesLongPress == true { return nil }
                 touched = current.superview
             }
+            // ChatMessageBubbleItemNode: a long press on a link highlights the link, not the bubble.
+            if let (link, textView) = cell.contextLink(at: gesture.location(in: cell)) {
+                gesture.castsShadow = false
+                return beginLinkPress(link, in: textView)
+            }
+            gesture.castsShadow = true
             return cell.contextPreviewView
         }
-        gesture.onPressCancelled = { [weak self] in self?.retryClientRestoration() }
+        gesture.onPressCancelled = { [weak self] in
+            self?.endLinkPress()
+            self?.retryClientRestoration()
+        }
         return gesture
     }()
 
@@ -8563,6 +8574,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
               let message = message(for: displayedMessageID),
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
         else { return }
+        if let (link, textView) = cell.contextLink(at: gesture.location(in: cell)) {
+            presentLinkMenu(link, in: textView, cell: cell, gesture: gesture)
+            return
+        }
         // A file or music album quotes the caption of the file under the finger, replying to that file.
         let quoteTarget = cell.contextQuoteTarget(at: gesture.location(in: cell))
         let albumItemID = cell.contextAlbumItemID(at: gesture.location(in: cell))
@@ -8611,6 +8626,56 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             sources: taskSources,
             onDismiss: { [weak self] in self?.retryClientRestoration() },
         )
+    }
+
+    private func beginLinkPress(_ link: MessageTextLink, in textView: MessageTextContentView) -> UIView {
+        endLinkPress()
+        let highlight = textView.addLinkHighlight(link.rects)
+        // The press grows this empty view, so the message stays still.
+        let anchor = UIView(frame: highlight.frame)
+        anchor.isUserInteractionEnabled = false
+        textView.addSubview(anchor)
+        linkPress = (anchor, highlight)
+        return anchor
+    }
+
+    private func endLinkPress() {
+        linkPress?.anchor.removeFromSuperview()
+        linkPress?.highlight.removeFromSuperview()
+        linkPress = nil
+    }
+
+    /// ChatControllerOpenLinkContextMenu: the menu lifts the link alone, on a card at its first line, with the link's
+    /// own actions and no reactions.
+    private func presentLinkMenu(
+        _ link: MessageTextLink,
+        in textView: MessageTextContentView,
+        cell: MessageCell,
+        gesture: ContextMenuPressGestureRecognizer,
+    ) {
+        endLinkPress()
+        guard let firstRect = link.rects.first else { return }
+        let menu = MessageLinkMenu(url: link.url)
+        let chip = MessageLinkContextChipView(text: menu.previewText, maximumTextWidth: cell.bounds.width - 32)
+        chip.frame.origin = textView.convert(firstRect.origin, to: cell.contentView)
+        cell.contentView.addSubview(chip)
+        let url = link.url
+        let presented = presentTelegramContextMenu(
+            sourceView: chip,
+            actions: menu.actions(
+                open: { [weak self] in
+                    guard let self, let target = menu.isEmail ? URL(string: url) : getUrl(from: url) else { return }
+                    TelegramLinkRouter.shared.open(target, from: self)
+                },
+                copied: { [weak self] text in self?.showChatToast(text) },
+            ),
+            tracking: gesture,
+            onDismiss: { [weak self, weak chip] in
+                chip?.removeFromSuperview()
+                self?.retryClientRestoration()
+            },
+        )
+        if !presented { chip.removeFromSuperview() }
     }
 
     /// ChatControllerOpenTodoContextMenu for a task of a checklist, or nil where the message's menu shows alone.

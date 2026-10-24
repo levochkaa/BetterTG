@@ -513,6 +513,50 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         perform(action)
     }
 
+    /// The link a long press at `point` is on, for Telegram's link menu (ChatControllerOpenLinkContextMenu).
+    func link(at point: CGPoint) -> MessageTextLink? {
+        guard let state = spoilerState else { return nil }
+        layoutManager.ensureLayout(for: textContainer)
+        let inset = textContainerInset
+        let location = CGPoint(x: point.x - inset.left, y: point.y - inset.top)
+        var fraction = CGFloat.zero
+        let index = layoutManager.characterIndex(
+            for: location,
+            in: textContainer,
+            fractionOfDistanceBetweenInsertionPoints: &fraction,
+        )
+        guard index < state.presentation.text.text.utf16.count else { return nil }
+        let glyphs = layoutManager.glyphRange(
+            forCharacterRange: NSRange(location: index, length: 1),
+            actualCharacterRange: nil,
+        )
+        guard layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer).contains(location),
+              let link = state.presentation.link(at: index, revealed: state.revealed),
+              NSMaxRange(link.range) <= textStorage.length
+        else { return nil }
+        // Each line's glyphs, as InteractiveTextNode's attributeRects: selection rects would run on to the line's end.
+        let linkGlyphs = layoutManager.glyphRange(forCharacterRange: link.range, actualCharacterRange: nil)
+        var rects = [CGRect]()
+        layoutManager.enumerateLineFragments(forGlyphRange: linkGlyphs) { [
+            layoutManager,
+            textContainer,
+        ] _, _, _, lineGlyphs, _ in
+            let glyphs = NSIntersectionRange(lineGlyphs, linkGlyphs)
+            guard glyphs.length > 0 else { return }
+            let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+            if !rect.isEmpty, !rect.isNull { rects.append(rect.offsetBy(dx: inset.left, dy: inset.top)) }
+        }
+        guard !rects.isEmpty else { return nil }
+        return MessageTextLink(url: link.url, rects: rects)
+    }
+
+    /// LinkHighlightingNode over `rects` below the text, in the link highlight color.
+    func addLinkHighlight(_ rects: [CGRect]) -> UIView {
+        let highlight = MessageLinkHighlightView(rects: rects, color: UIColor.systemBlue.withAlphaComponent(0.3))
+        insertSubview(highlight, aboveSubview: blockDecorationView)
+        return highlight
+    }
+
     private func scheduleQuoteMenu() {
         quoteMenuTask?.cancel()
         let range = selectedRange

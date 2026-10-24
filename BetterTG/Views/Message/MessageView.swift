@@ -435,6 +435,15 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         return (caption, only.messageID)
     }
 
+    /// The link a long press at `point` (in the cell's coordinates) is on, in the message text or the caption under
+    /// it, with the text view showing it.
+    func contextLink(at point: CGPoint) -> (link: MessageTextLink, textView: MessageTextContentView)? {
+        guard let textView = contextQuoteTarget(at: point)?.textView, !textView.isHidden, textView.window != nil,
+              let link = textView.link(at: convert(point, to: textView))
+        else { return nil }
+        return (link, textView)
+    }
+
     /// The caption a quote of `messageID` is in: an album item's, or the message text.
     func contextQuoteTextView(forMessageID messageID: Int64) -> MessageTextContentView? {
         guard structuredContentView.handlesAlbumCaptions else { return textView }
