@@ -50,6 +50,9 @@ final class ChatListCell: UITableViewCell {
     private lazy var storyTapGesture = UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
     private let titleLabel = UILabel()
     private let messageLabel = UILabel()
+    /// ChatListMediaPreviewNode before the text, in the gap the text leaves for it.
+    private let mediaPreviewView = ChatListMediaPreviewView()
+    private var mediaPreview: ChatListMediaPreview?
     /// Telegram's mention or reaction badge, left of the unread count (ChatListItem, mentionBadgeNode).
     private let mentionBadgeView = UIImageView()
     private let trailingBadges = UIStackView()
@@ -68,6 +71,7 @@ final class ChatListCell: UITableViewCell {
     private weak var configuredChat: CustomChat?
     private var configuredMuted = false
     private var configuredArchived = false
+    private var configuredShowsAvatarBadges = true
     private var configuredClient: TDLibClient?
     private var activityCancellable: AnyCancellable?
     private var rowInsetConstraints = [NSLayoutConstraint]()
@@ -90,6 +94,11 @@ final class ChatListCell: UITableViewCell {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layoutMediaPreview()
     }
 
     override func prepareForReuse() {
@@ -210,10 +219,17 @@ final class ChatListCell: UITableViewCell {
         configuredChat = chat
         configuredMuted = isMuted
         configuredArchived = isArchived
+        configuredShowsAvatarBadges = showsAvatarBadges
         configuredClient = client
         pinned = chat.position.isPinned
         titleLabel.attributedText = Self.title(for: chat, font: titleLabel.font)
+        mediaPreview = chat.draftMessage == nil
+            ? chat.lastMessage.flatMap { ChatListMediaPreview.make(for: $0, inSecretChat: chat.secretChatID != nil) }
+            : nil
+        if let mediaPreview { mediaPreviewView.configure(mediaPreview, client: client) }
+        else { mediaPreviewView.reset() }
         messageLabel.attributedText = activityText(for: chat, client: client) ?? summaryText(for: chat, client: client)
+        setNeedsLayout()
         let chatID = chat.id
         activityCancellable = ChatListActivities.shared
             .changes
@@ -223,6 +239,7 @@ final class ChatListCell: UITableViewCell {
                       let client = configuredClient else { return }
                 messageLabel.attributedText = activityText(for: chat, client: client)
                     ?? summaryText(for: chat, client: client)
+                setNeedsLayout()
             }
         let hasUnread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
         let mentionBadge = Self.mentionBadgeImage(for: chat, isMuted: isMuted, isArchived: isArchived)
@@ -278,7 +295,7 @@ final class ChatListCell: UITableViewCell {
         updateStoryInteraction()
         accessibilityLabel = [
             chat.displayTitle,
-            messageLabel.text,
+            messageLabel.text?.replacing("\u{FFFC}", with: ""),
             dateLabel.text,
             delivery?.accessibilityText,
             pinned ? L10n.betterTG("Accessibility.Pinned") : nil,
@@ -338,7 +355,7 @@ final class ChatListCell: UITableViewCell {
         ) {
             return NSAttributedString(string: service, attributes: [.foregroundColor: UIColor.secondaryLabel])
         }
-        guard let summary = ChatSummary.attributedText(for: chat) else { return nil }
+        guard let summary = ChatSummary.attributedText(for: chat, preview: mediaPreview) else { return nil }
         let isGroup =
             switch chat.type {
             case .group: true
@@ -365,7 +382,13 @@ final class ChatListCell: UITableViewCell {
     /// Configures the row again once a name or a service message's wording lands, while it still shows that chat.
     private func reconfigure(chatID: Int64) {
         guard let chat = configuredChat, chat.id == chatID, let client = configuredClient else { return }
-        configure(chat: chat, isMuted: configuredMuted, isArchived: configuredArchived, client: client)
+        configure(
+            chat: chat,
+            isMuted: configuredMuted,
+            isArchived: configuredArchived,
+            showsAvatarBadges: configuredShowsAvatarBadges,
+            client: client,
+        )
     }
 
     private func updateBackground(highlighted: Bool, animated: Bool) {
@@ -401,6 +424,7 @@ final class ChatListCell: UITableViewCell {
             rowView.addSubview(item)
         }
         rowView.addSubview(onlineMarker)
+        rowView.addSubview(mediaPreviewView)
         avatarView.addGestureRecognizer(storyTapGesture)
         storyTapGesture.isEnabled = false
         separatorView.backgroundColor = .separator
@@ -456,6 +480,45 @@ final class ChatListCell: UITableViewCell {
         unreadLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
         unreadLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         unreadLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    }
+
+    /// ChatListItem places the thumbnail a point into the text's gap, on the first line; a gap truncated away hides
+    /// it, as does any text without one (an activity, a draft, a service message).
+    private func layoutMediaPreview() {
+        guard mediaPreview != nil, let text = messageLabel.attributedText, let font = messageLabel.font else {
+            mediaPreviewView.isHidden = true
+            return
+        }
+        var gapLocation: Int?
+        text.enumerateAttribute(
+            .chatListMediaPreviewGap,
+            in: NSRange(location: 0, length: text.length),
+        ) { value, range, stop in
+            guard value != nil else { return }
+            gapLocation = range.location
+            stop.pointee = true
+        }
+        guard let gapLocation else {
+            mediaPreviewView.isHidden = true
+            return
+        }
+        rowView.layoutIfNeeded()
+        let prefix = text.attributedSubstring(from: NSRange(location: 0, length: gapLocation)).string
+        let prefixWidth = ceil((prefix as NSString).size(withAttributes: [.font: font]).width)
+        let side = ChatListMediaPreview.side
+        let frame = messageLabel.frame
+        let x = frame.minX + prefixWidth + 1
+        guard x + side <= frame.maxX else {
+            mediaPreviewView.isHidden = true
+            return
+        }
+        mediaPreviewView.frame = CGRect(
+            x: x,
+            y: frame.minY + 1 + floor((font.lineHeight - side) / 2),
+            width: side,
+            height: side,
+        )
+        mediaPreviewView.isHidden = false
     }
 
     /// ChatListItem's online flag: a person online right now, or a group or channel whose video chat has people in

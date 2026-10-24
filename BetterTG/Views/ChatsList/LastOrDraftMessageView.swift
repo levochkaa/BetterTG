@@ -4,7 +4,8 @@ import TDLibKit
 import UIKit
 
 @MainActor enum ChatSummary {
-    static func attributedText(for chat: CustomChat) -> NSAttributedString? {
+    /// With a media thumbnail the text leaves its gap after any forward mark and names the media as Telegram does.
+    static func attributedText(for chat: CustomChat, preview: ChatListMediaPreview? = nil) -> NSAttributedString? {
         if let draft = chat.draftMessage {
             let result = NSMutableAttributedString(
                 string: L10n.telegram("DialogList.Draft") + ": ",
@@ -38,10 +39,11 @@ import UIKit
             return result
         }
         guard let message = chat.lastMessage else { return nil }
-        let prefix = message.forwardInfo == nil ? "" : "↗︎ "
-        return NSAttributedString(string: prefix + summary(for: message), attributes: [
-            .foregroundColor: UIColor.secondaryLabel,
-        ])
+        let attributes: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.secondaryLabel]
+        let result = NSMutableAttributedString(string: message.forwardInfo == nil ? "" : "↗︎ ", attributes: attributes)
+        if preview != nil { result.append(ChatListMediaPreviewView.gap()) }
+        result.append(NSAttributedString(string: preview?.text ?? summary(for: message), attributes: attributes))
+        return result
     }
 
     static func summary(for message: Message) -> String {
