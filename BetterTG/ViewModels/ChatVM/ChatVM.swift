@@ -324,6 +324,11 @@ import UIKit
     @Published private(set) var canAddReactions = false
     @Published private(set) var maximumChosenReactionCount = 1
     @Published private(set) var pinnedMessage: Message?
+    /// The chat's (or topic's) pins, newest first, up to 100, and how many there are: the banner steps through them.
+    @Published private(set) var pinnedMessageList = [Message]()
+    @Published private(set) var pinnedMessageTotalCount = 0
+    /// ChatHistoryNode's pendingUnpinnedAllMessages: the banner stays away while Unpin All waits behind its Undo.
+    @Published private(set) var pinnedBannerSuppressed = false
     @Published private(set) var locallyHiddenPinnedMessageID: Int64?
     @Published var pinErrorMessage: String?
     /// A failed poll vote, Retract Vote, Stop Poll or Stop Sharing, shown once by the chat.
@@ -432,6 +437,7 @@ import UIKit
     private var reactionMutationTasks = [Int64: Task<Void, Never>]()
     private var reactionMutationGenerations = [Int64: UUID]()
     private var pinnedMessageTask: Task<Void, Never>?
+    private var pinnedMessageListTask: Task<Void, Never>?
     private var pinnedMessageGeneration = UInt64.zero
     private var pinMutationTasks = [Int64: Task<Void, Never>]()
     private var pinMutationGenerations = [Int64: UUID]()
@@ -560,7 +566,7 @@ import UIKit
         PinnedMessageState.visibleMessage(
             newest: pinnedMessage,
             locallyHiddenMessageID: locallyHiddenPinnedMessageID,
-            supported: supportsPinnedMessages,
+            supported: supportsPinnedMessages && !pinnedBannerSuppressed,
         )
     }
 
@@ -3185,6 +3191,7 @@ import UIKit
 
     func refreshPinnedMessages() {
         guard supportsPinnedMessages else { return }
+        refreshPinnedMessageList()
         pinnedMessageGeneration &+= 1
         let generation = pinnedMessageGeneration
         pinnedMessageTask?.cancel()
@@ -3240,6 +3247,37 @@ import UIKit
 
     func hidePinnedMessageBanner() {
         locallyHiddenPinnedMessageID = pinnedMessage?.id
+    }
+
+    /// Undo of Don't Show Pinned Messages.
+    func showPinnedMessageBanner() {
+        locallyHiddenPinnedMessageID = nil
+    }
+
+    func setPinnedBannerSuppressed(_ suppressed: Bool) {
+        pinnedBannerSuppressed = suppressed
+    }
+
+    /// TelegramEngine.requestUnpinAllMessages: the chat's or the topic's pins.
+    func unpinAllMessages() {
+        guard supportsPinnedMessages, locationContextIsCurrent else { return }
+        let client = client
+        let chatID = chatID
+        let topicID = location.forumTopicID
+        Task { [weak self] in
+            _ =
+                if let topicID {
+                    try? await client.send(TDNativeRequests.unpinAllForumTopicMessages(
+                        chatId: chatID,
+                        forumTopicId: topicID,
+                    ))
+                } else {
+                    try? await client.send(TDNativeRequests.unpinAllChatMessages(chatId: chatID))
+                }
+            guard let self, locationContextIsCurrent else { return }
+            pinnedBannerSuppressed = false
+            refreshPinnedMessages()
+        }
     }
 
     func applyPinnedMessageUpdate(messageID: Int64, isPinned: Bool) {
@@ -5953,6 +5991,30 @@ import UIKit
         guard location.messageThreadID != nil, let messageThread,
               message.chatId == location.chatID else { return false }
         return messageThread.messages.contains { $0.id == message.id }
+    }
+
+    /// ChatController.topPinnedMessageSignal's pinned history: the newest 100 pins with TDLib's count.
+    private func refreshPinnedMessageList() {
+        pinnedMessageListTask?.cancel()
+        let client = client
+        let chatID = chatID
+        let topic = location.forumTopicID == nil ? nil : location.topic
+        pinnedMessageListTask = Task { [weak self] in
+            guard let found = try? await client.searchChatMessages(
+                chatId: chatID,
+                filter: .searchMessagesFilterPinned,
+                fromMessageId: 0,
+                limit: 100,
+                offset: 0,
+                query: "",
+                senderId: nil,
+                topicId: topic,
+            ), !Task.isCancelled, let self, locationContextIsCurrent else { return }
+            let pins = found.messages.filter { self.acceptsChatLevelPin($0) }
+            pinnedMessageList = pins
+            pinnedMessageTotalCount = max(found.totalCount, pins.count)
+            pinnedMessageListTask = nil
+        }
     }
 
     /// The chat's action bar as TDLib has it now; a chat hydrated for navigation may carry an older one.

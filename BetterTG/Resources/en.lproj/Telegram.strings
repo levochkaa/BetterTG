@@ -2465,3 +2465,13 @@
 "EmptyGroupInfo.Line4" = "Admins with different rights";
 "DialogList.AwaitingEncryption" = "Waiting for %@ to get online...";
 "Conversation.EncryptionProcessing" = "Exchanging encryption keys...";
+"Chat.TitlePinnedMessages_1" = "Pinned Message";
+"Chat.TitlePinnedMessages_any" = "%@ Pinned Messages";
+"Chat.PanelHidePinnedMessages" = "Don't Show Pinned Messages";
+"Chat.PanelUnpinAllMessages" = "Unpin All Messages";
+"Chat.MessagesUnpinned_1" = "Message Unpinned";
+"Chat.MessagesUnpinned_any" = "%@ Messages Unpinned";
+"Chat.PinnedMessagesHiddenTitle" = "Pinned Messages Hidden";
+"Chat.PinnedMessagesHiddenText" = "You will see the bar with pinned messages only if a new message is pinned.";
+"Chat.PinnedListPreview.ShowAllMessages" = "Show All Messages";
+"Conversation.PinnedPreviousMessage" = "Previous Message";

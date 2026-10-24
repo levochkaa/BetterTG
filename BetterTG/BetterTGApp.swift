@@ -63,6 +63,7 @@ import UIKit
             ChatStatusPanelProbe.runIfRequested()
             ChatActionBarProbe.runIfRequested()
             ChatEmptyStateProbe.runIfRequested()
+            PinnedMessageSelectionProbe.runIfRequested()
             TDLibVODRangeSource.runDebugProbeIfRequested()
             TDLibVODFFmpegLookahead.runDebugProbeIfRequested()
             TDLibVODFFmpegDecoder.runDebugProbeIfRequested()

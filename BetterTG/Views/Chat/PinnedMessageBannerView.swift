@@ -14,11 +14,13 @@ final class PinnedMessageBannerView: UIView {
         let file: File?
         let minithumbnailData: Data?
         let isRound: Bool
+        let index: Int
+        let totalCount: Int
     }
 
     static let contentHeight = CGFloat(50)
 
-    private let accentView = UIView()
+    private let accentView = PinnedNavigationStripeView()
     private let thumbnailView = TDImageLoadingView()
     private let titleLabel = UILabel()
     private let bodyLabel = UILabel()
@@ -41,8 +43,6 @@ final class PinnedMessageBannerView: UIView {
         addSubview(separator)
 
         accentView.translatesAutoresizingMaskIntoConstraints = false
-        accentView.backgroundColor = .systemBlue
-        accentView.layer.cornerRadius = 1
         addSubview(accentView)
 
         thumbnailView.translatesAutoresizingMaskIntoConstraints = false
@@ -103,8 +103,8 @@ final class PinnedMessageBannerView: UIView {
             separator.bottomAnchor.constraint(equalTo: bottomAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
             accentView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 10),
-            accentView.topAnchor.constraint(equalTo: topAnchor, constant: 7),
-            accentView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7),
+            accentView.topAnchor.constraint(equalTo: topAnchor),
+            accentView.bottomAnchor.constraint(equalTo: bottomAnchor),
             accentView.widthAnchor.constraint(equalToConstant: 2),
             thumbnailView.leadingAnchor.constraint(equalTo: accentView.trailingAnchor, constant: 6),
             thumbnailView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -136,6 +136,18 @@ final class PinnedMessageBannerView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// ChatPinnedMessageTitlePanelNode's title: Previous Message for the older of two pins, the number for any but
+    /// the newest of more.
+    static func title(index: Int, totalCount: Int) -> String {
+        if totalCount == 2 {
+            return L10n.telegram(index == 0 ? "Conversation.PinnedPreviousMessage" : "Conversation.PinnedMessage")
+        }
+        if totalCount > 2, index != totalCount - 1 {
+            return L10n.telegram("Conversation.PinnedMessage") + " #\(index + 1)"
+        }
+        return L10n.telegram("Conversation.PinnedMessage")
+    }
+
     private static func previewText(for message: Message) -> String {
         let presentation = MessageContentPresentation.make(message)
         guard let formattedText = presentation.formattedText else {
@@ -157,8 +169,12 @@ final class PinnedMessageBannerView: UIView {
         return redacted.length == 0 ? L10n.betterTG("Message.Spoiler") : String(redacted)
     }
 
+    /// `index` counts from the oldest of `totalCount` pins.
     func configure(
         message: Message,
+        index: Int = 0,
+        totalCount: Int = 1,
+        showsListButton: Bool = false,
         client: TDLibClient?,
         onOpen: @escaping () -> Void,
         onHide: @escaping () -> Void,
@@ -173,15 +189,24 @@ final class PinnedMessageBannerView: UIView {
             file: thumbnail?.file,
             minithumbnailData: thumbnail?.minithumbnailData,
             isRound: thumbnail?.isRound ?? false,
+            index: index,
+            totalCount: totalCount,
         )
         if renderedContent == content {
             self.onOpen = onOpen
             self.onHide = onHide
             return
         }
+        let animatesStripe = renderedContent?.totalCount == totalCount && window != nil
         prepareForReuse()
         renderedContent = content
-        titleLabel.text = L10n.telegram("Conversation.PinnedMessage")
+        // ChatPinnedMessageTitlePanelNode: several pins swap the close button for the list button.
+        actionButton.setImage(UIImage(systemName: showsListButton ? "list.bullet" : "xmark"), for: .normal)
+        actionButton.accessibilityLabel = showsListButton
+            ? L10n.telegram("Chat.PinnedListPreview.ShowAllMessages")
+            : L10n.betterTG("Accessibility.HidePinnedMessage")
+        titleLabel.text = Self.title(index: index, totalCount: totalCount)
+        accentView.update(index: index, count: totalCount, animated: animatesStripe)
         bodyLabel.text = preview
         if let thumbnail {
             thumbnailWidthConstraint.constant = 35
@@ -199,15 +224,10 @@ final class PinnedMessageBannerView: UIView {
             textLeadingConstraint.constant = 0
             thumbnailView.isHidden = true
         }
-        actionButton.setImage(
-            UIImage(systemName: "xmark"),
-            for: .normal,
-        )
-        actionButton.accessibilityLabel = L10n.betterTG("Accessibility.HidePinnedMessage")
         self.onOpen = onOpen
         self.onHide = onHide
         openControl.isAccessibilityElement = true
-        openControl.accessibilityLabel = "\(L10n.telegram("Conversation.PinnedMessage")), \(bodyLabel.text ?? "")"
+        openControl.accessibilityLabel = "\(titleLabel.text ?? ""), \(bodyLabel.text ?? "")"
         openControl.accessibilityHint = L10n.betterTG("Accessibility.OpenPinnedMessageHint")
         openControl.accessibilityTraits = [.button]
     }
@@ -255,5 +275,100 @@ final class PinnedMessageBannerView: UIView {
 
     @objc private func actionPressed() {
         onHide?()
+    }
+}
+
+// MARK: - PinnedNavigationStripeView
+
+/// Telegram's AnimatedNavigationStripeNode: a 2 pt line of one segment per pin, the shown pin's in the accent and the
+/// others at half strength, scrolled so the shown one stays in view; one pin is a single line 7 pt from the edges.
+final class PinnedNavigationStripeView: UIView {
+    private static let segmentSpacing = CGFloat(2)
+    private static let verticalInset = CGFloat(7)
+    private static let minSegmentHeight = CGFloat(8)
+
+    private var index = 0
+    private var count = 1
+    private var segments = [CALayer]()
+
+    #if DEBUG
+        var probeSegmentFrames: [CGRect] {
+            segments.map(\.frame)
+        }
+    #endif
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = true
+        isUserInteractionEnabled = false
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layoutSegments()
+        CATransaction.commit()
+    }
+
+    override func tintColorDidChange() {
+        super.tintColorDidChange()
+        layoutSegments()
+    }
+
+    func update(index: Int, count: Int, animated: Bool) {
+        let count = max(1, count)
+        let index = min(max(0, index), count - 1)
+        guard index != self.index || count != self.count || segments.count != count else { return }
+        self.index = index
+        self.count = count
+        while segments.count < count {
+            let segment = CALayer()
+            segment.cornerRadius = 1
+            layer.addSublayer(segment)
+            segments.append(segment)
+        }
+        while segments.count > count {
+            segments.removeLast().removeFromSuperlayer()
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(!animated)
+        CATransaction.setAnimationDuration(0.18)
+        layoutSegments()
+        CATransaction.commit()
+    }
+
+    /// AnimatedNavigationStripeNode.update's geometry.
+    private func layoutSegments() {
+        let height = bounds.height
+        guard height > 0, !segments.isEmpty else { return }
+        let spacing = Self.segmentSpacing
+        let available = height - Self.verticalInset * 2
+        let proposed = (available - spacing * CGFloat(count) + spacing) / CGFloat(count)
+        let segmentHeight = max(proposed, Self.minSegmentHeight)
+        let allHeight = CGFloat(count) * segmentHeight + CGFloat(max(0, count - 1)) * spacing
+        var inset = Self.verticalInset
+        if allHeight > available, allHeight - 2 <= available { inset -= 2 }
+        let topHeight = CGFloat(index) * (segmentHeight + spacing)
+        let bottomHeight = allHeight - topHeight - segmentHeight
+        var offset = floor((height - segmentHeight) / 2)
+        if offset - topHeight > inset { offset = topHeight + inset }
+        if offset + segmentHeight + bottomHeight < height - inset {
+            offset = height - inset - (segmentHeight + bottomHeight)
+        }
+        let accent = tintColor.resolvedColor(with: traitCollection)
+        for (position, segment) in segments.enumerated() {
+            segment.frame = CGRect(
+                x: 0,
+                y: offset + CGFloat(position - index) * (segmentHeight + spacing),
+                width: 2,
+                height: segmentHeight,
+            )
+            segment.backgroundColor = (position == index ? accent : accent.withAlphaComponent(0.5)).cgColor
+        }
     }
 }

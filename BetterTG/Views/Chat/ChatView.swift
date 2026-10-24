@@ -177,6 +177,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// ChatReportPeerTitlePanelNode for a chat from someone new (TDLib's action bar).
     private let chatActionBarView = ChatActionBarView()
     private var cachedEmptyStateView: ChatEmptyStateView?
+    /// The pin the banner last jumped to (ChatController's scrolledToMessageId) and the pin it shows.
+    private var pinnedScrollTarget: Int64?
+    private var displayedPinnedSelection: PinnedMessageState.Selection?
+    /// Unpin All waiting behind its Undo toast.
+    private var pendingUnpinAll: DispatchWorkItem?
     private var chatActionBarHeightConstraint: NSLayoutConstraint!
     /// In place of the composer where the user can't write: Join, Mute or Unmute (ChatChannelSubscriberInputPanelNode).
     private let statusPanel = ChatStatusPanelView()
@@ -1094,6 +1099,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         messageNavigationScroll.didScroll()
         updateScrollToLatestButtonVisibility(animated: true)
         updateInlineVideoPlaybackVisibility()
+        updatePinnedMessageSelectionForScroll()
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -1102,6 +1108,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             viewportCompletionProbe?.dragBegan()
         #endif
         recordMessageNavigationGeometry("drag-begin")
+        pinnedScrollTarget = nil
         viewportRestorationAuthority.invalidate()
         if hasPendingMessageNavigation { didPerformInitialScroll = true }
         cancelMessageNavigation()
@@ -4291,15 +4298,36 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 )
             }
         }
-        if let message {
+        if let newest = message {
+            // Among several pins the banner follows the history (topPinnedMessageSignal).
+            let selection = PinnedMessageState.selection(
+                pinnedIDs: chatVM.pinnedMessageList.map(\.id),
+                totalCount: chatVM.pinnedMessageTotalCount,
+                reference: pinnedMessageReference(),
+            )
+            let message = selection.flatMap { selection in
+                chatVM.pinnedMessageList.first { $0.id == selection.messageID }
+            } ?? newest
+            displayedPinnedSelection = selection
             pinnedMessageBanner.configure(
                 message: message,
+                index: selection?.index ?? 0,
+                totalCount: selection?.totalCount ?? 1,
+                showsListButton: (selection?.totalCount ?? 1) > 1,
                 client: chatVM.client,
                 onOpen: { [weak self] in
+                    // ChatController sets scrolledToMessageId, so the banner moves on to the previous pin.
+                    self?.pinnedScrollTarget = message.id
                     self?.scrollToMessage(id: message.id)
+                    self?.updatePinnedMessageBanner(animated: true)
                 },
                 onHide: { [weak self] in
-                    self?.closePinnedMessageBanner()
+                    guard let self else { return }
+                    if chatVM.pinnedMessageTotalCount > 1 {
+                        openPinnedMessageList()
+                    } else {
+                        closePinnedMessageBanner()
+                    }
                 },
             )
             pinnedMessageBanner.isHidden = false
@@ -9428,6 +9456,95 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     /// Telegram's pinned-panel close: those who may unpin are asked to unpin (Conversation.UnpinMessageAlert);
     /// everyone else hides the banner for themselves.
+    /// ChatController.openPinnedMessages: the pins in a list, with Unpin All Messages when the account may manage
+    /// them (the newest pin's `can_be_pinned`).
+    private func openPinnedMessageList() {
+        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
+              let newest = chatVM.pinnedMessageList.first, presentedViewController == nil else { return }
+        let messages = chatVM.pinnedMessageList
+        let totalCount = chatVM.pinnedMessageTotalCount
+        Task { [weak self] in
+            guard let self else { return }
+            let canUnpinAll = await chatVM.canUnpinMessage(id: newest.id)
+            guard routeIsRetained, chatVM.locationContextIsCurrent,
+                  navigationController?.topViewController === self else { return }
+            let list = PinnedMessagesViewController(
+                messages: messages,
+                totalCount: totalCount,
+                canUnpinAll: canUnpinAll,
+                client: chatVM.client,
+                accountID: location.accountID,
+            ) { [weak self] outcome in
+                self?.performPinnedListOutcome(outcome, count: totalCount)
+            }
+            navigationController?.pushViewController(list, animated: true)
+        }
+    }
+
+    /// ChatController.performRequestedUnpinAllMessages and performUpdatedClosedPinnedMessageId: the banner leaves
+    /// behind an Undo toast; Unpin All reaches TDLib only once the toast is gone.
+    private func performPinnedListOutcome(_ outcome: PinnedMessagesViewController.Outcome, count: Int) {
+        guard routeIsRetained, chatVM.locationContextIsCurrent else { return }
+        switch outcome {
+        case .open(let messageID):
+            pinnedScrollTarget = messageID
+            scrollToMessage(id: messageID)
+        case .unpinAll:
+            chatVM.setPinnedBannerSuppressed(true)
+            let commit = DispatchWorkItem { [weak self] in self?.chatVM.unpinAllMessages() }
+            pendingUnpinAll = commit
+            showChatToast(
+                L10n.telegramPlural("Chat.MessagesUnpinned", count: count),
+                actionTitle: L10n.telegram("Undo.Undo"),
+            ) { [weak self] in
+                guard let self else { return }
+                pendingUnpinAll?.cancel()
+                pendingUnpinAll = nil
+                chatVM.setPinnedBannerSuppressed(false)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: commit)
+        case .hide:
+            chatVM.hidePinnedMessageBanner()
+            showChatToast(
+                L10n.telegram("Chat.PinnedMessagesHiddenText"),
+                title: L10n.telegram("Chat.PinnedMessagesHiddenTitle"),
+                actionTitle: L10n.telegram("Undo.Undo"),
+            ) { [weak self] in self?.chatVM.showPinnedMessageBanner() }
+        }
+    }
+
+    /// ChatController.topPinnedScrollReferenceMessage: the pin jumped to from the banner until the user scrolls above
+    /// it or drags, else the newest message on screen.
+    private func pinnedMessageReference() -> PinnedMessageState.Reference? {
+        let newestVisible = newestVisibleMessageID()
+        if let target = pinnedScrollTarget {
+            if let newestVisible, newestVisible < target {
+                return .visible(newestVisible)
+            }
+            return .scrolled(target)
+        }
+        return newestVisible.map { .visible($0) }
+    }
+
+    private func newestVisibleMessageID() -> Int64? {
+        collectionView.indexPathsForVisibleItems
+            .compactMap { dataSource.itemIdentifier(for: $0)?.displayedMessageID }
+            .compactMap { message(for: $0)?.sourceMessages.map(\.id).max() }
+            .max()
+    }
+
+    /// Scrolling moves the banner to the pin above the newest visible message once that changes.
+    private func updatePinnedMessageSelectionForScroll() {
+        guard chatVM.pinnedMessageTotalCount > 1, pinnedMessageBannerHeightConstraint?.constant ?? 0 > 0 else { return }
+        let selection = PinnedMessageState.selection(
+            pinnedIDs: chatVM.pinnedMessageList.map(\.id),
+            totalCount: chatVM.pinnedMessageTotalCount,
+            reference: pinnedMessageReference(),
+        )
+        guard selection != displayedPinnedSelection else { return }
+        updatePinnedMessageBanner(animated: true)
+    }
+
     private func closePinnedMessageBanner() {
         guard let pinned = chatVM.visiblePinnedMessage, presentedViewController == nil else {
             chatVM.hidePinnedMessageBanner()
