@@ -513,7 +513,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         perform(action)
     }
 
-    /// The link a long press at `point` is on, for Telegram's link menu (ChatControllerOpenLinkContextMenu).
+    /// The link, mention or bot command a long press at `point` is on, which opens its own menu.
     func link(at point: CGPoint) -> MessageTextLink? {
         guard let state = spoilerState else { return nil }
         layoutManager.ensureLayout(for: textContainer)
@@ -531,7 +531,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             actualCharacterRange: nil,
         )
         guard layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer).contains(location),
-              let link = state.presentation.link(at: index, revealed: state.revealed),
+              let link = state.presentation.longPressTarget(at: index, revealed: state.revealed),
               NSMaxRange(link.range) <= textStorage.length
         else { return nil }
         // Each line's glyphs, as InteractiveTextNode's attributeRects: selection rects would run on to the line's end.
@@ -547,7 +547,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             if !rect.isEmpty, !rect.isNull { rects.append(rect.offsetBy(dx: inset.left, dy: inset.top)) }
         }
         guard !rects.isEmpty else { return nil }
-        return MessageTextLink(url: link.url, rects: rects)
+        return MessageTextLink(target: link.target, rects: rects)
     }
 
     /// LinkHighlightingNode over `rects` below the text, in the link highlight color.

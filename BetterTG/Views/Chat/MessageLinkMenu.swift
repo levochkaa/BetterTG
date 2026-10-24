@@ -1,17 +1,36 @@
 // MessageLinkMenu.swift
 
 import SafariServices
+import TDLibKit
 import UIKit
 
 // MARK: - MessageTextLink
 
-/// A link of a message's text under a long press.
+/// A link, mention or bot command of a message's text under a long press, which opens its own menu.
 struct MessageTextLink: Equatable {
-    /// The link as Telegram's `TelegramTextAttributes.URL` holds it: the address, a text link's URL, or `mailto:` and
-    /// the email address.
-    let url: String
-    /// The link's line rects in its text view.
+    enum Target: Equatable {
+        /// `TelegramTextAttributes.URL`: the address, a text link's URL, or `mailto:` and the email address.
+        case url(String)
+        /// An @username as written.
+        case mention(String)
+        /// A text mention of a user, with its text.
+        case userMention(Int64, text: String)
+        case botCommand(String)
+    }
+
+    let target: Target
+    /// The entity's line rects in its text view.
     let rects: [CGRect]
+
+    /// What the menu's card shows: an email address without `mailto:`, anything else as written.
+    var previewText: String {
+        switch target {
+        case .url(let url): url.replacing("mailto:", with: "")
+        case .botCommand(let text),
+             .mention(let text): text
+        case .userMention(_, let text): text
+        }
+    }
 }
 
 // MARK: - MessageLinkMenu
@@ -72,6 +91,147 @@ struct MessageLinkMenu {
             ))
         }
         return actions
+    }
+}
+
+// MARK: - MessageMentionMenu
+
+/// Telegram's menu for a mention in a message (ChatControllerOpenUsernameContextMenu): Send Message for a user, or
+/// Open Group or Open Channel, Copy Username, and under them the peer with View Profile, or that nobody has the name.
+struct MessageMentionMenu {
+    enum Destination: Equatable {
+        case user(Int64)
+        case chat(Int64)
+    }
+
+    struct Peer {
+        enum Kind {
+            case user
+            case group
+            case channel
+        }
+
+        let kind: Kind
+        let name: String
+        let avatar: UIImage?
+        let destination: Destination
+    }
+
+    /// The mention as written, which Copy puts on the pasteboard.
+    let text: String
+    let peer: Peer?
+
+    /// The peer a mention names: an @username through searchPublicChat, a text mention's user by its ID, with the
+    /// avatar once its small photo is downloaded.
+    nonisolated static func peer(for target: MessageTextLink.Target, client: TDLibClient) async -> Peer? {
+        switch target {
+        case .mention(let text):
+            let username = text.hasPrefix("@") ? String(text.dropFirst()) : text
+            guard let chat = try? await client.send(TDNativeRequests.searchPublicChat(username: username))
+            else { return nil }
+            let kind: Peer.Kind
+            let destination: Destination
+            switch chat.type {
+            case .chatTypePrivate(let value):
+                (kind, destination) = (.user, .user(value.userId))
+            case .chatTypeSecret(let value):
+                (kind, destination) = (.user, .user(value.userId))
+            case .chatTypeBasicGroup:
+                (kind, destination) = (.group, .chat(chat.id))
+            case .chatTypeSupergroup(let value):
+                (kind, destination) = (value.isChannel ? .channel : .group, .chat(chat.id))
+            }
+            let avatar = await avatar(chat.photo?.small, client: client)
+            return Peer(kind: kind, name: chat.title, avatar: avatar, destination: destination)
+        case .userMention(let userID, _):
+            guard let user = try? await client.getUser(userId: userID) else { return nil }
+            let avatar = await avatar(user.profilePhoto?.small, client: client)
+            return Peer(
+                kind: .user,
+                name: ServiceMessageText.displayTitle(user),
+                avatar: avatar,
+                destination: .user(userID),
+            )
+        case .botCommand,
+             .url:
+            return nil
+        }
+    }
+
+    private nonisolated static func avatar(_ file: TDNativeFile?, client: TDLibClient) async -> UIImage? {
+        guard let file else { return nil }
+        if file.local.isDownloadingCompleted { return PollOptionMenu.avatar(path: file.local.path) }
+        guard let downloaded = try? await client.downloadFile(
+            fileId: file.id,
+            priority: 1,
+            offset: 0,
+            limit: 0,
+            synchronous: true,
+        ), downloaded.local.isDownloadingCompleted else { return nil }
+        return PollOptionMenu.avatar(path: downloaded.local.path)
+    }
+
+    func actions(
+        open: @escaping (Destination) -> Void,
+        openProfile: @escaping (Destination) -> Void,
+        copied: @escaping (String) -> Void,
+    ) -> [TelegramContextMenuAction] {
+        var actions = [TelegramContextMenuAction]()
+        if let peer {
+            let (title, image) =
+                switch peer.kind {
+                case .user: ("Chat.Context.Username.SendMessage", "bubble.left")
+                case .group: ("Chat.Context.Username.OpenGroup", "person.2")
+                case .channel: ("Chat.Context.Username.OpenChannel", "megaphone")
+                }
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram(title),
+                image: UIImage(systemName: image),
+                handler: { open(peer.destination) },
+            ))
+        }
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("Chat.Context.Username.Copy"),
+            image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
+            handler: { [text] in
+                UIPasteboard.general.string = text
+                copied(L10n.telegram("Conversation.UsernameCopied"))
+            },
+        ))
+        if let peer {
+            var row = TelegramContextMenuAction(
+                title: peer.name,
+                image: peer.avatar ?? UIImage(systemName: "person.crop.circle"),
+                startsNewSection: true,
+                handler: { openProfile(peer.destination) },
+            )
+            row.secondLine = (L10n.telegram("Chat.Context.Phone.ViewProfile"), true)
+            actions.append(row)
+        } else {
+            var row = TelegramContextMenuAction(
+                title: L10n.telegram("Chat.Context.Username.NotOnTelegram"),
+                startsNewSection: true,
+            )
+            row.isInformational = true
+            actions.append(row)
+        }
+        return actions
+    }
+}
+
+// MARK: - MessageCommandMenu
+
+/// Telegram's menu for a bot command in a message (ChatControllerOpenCommandContextMenu): Copy Command.
+enum MessageCommandMenu {
+    static func actions(command: String, copied: @escaping (String) -> Void) -> [TelegramContextMenuAction] {
+        [TelegramContextMenuAction(
+            title: L10n.telegram("Chat.Context.Command.Copy"),
+            image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
+            handler: {
+                UIPasteboard.general.string = command
+                copied(L10n.telegram("Conversation.TextCopied"))
+            },
+        )]
     }
 }
 

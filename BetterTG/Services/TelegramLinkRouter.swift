@@ -130,14 +130,25 @@ import UIKit
     }
 
     /// A text mention of a user (`textEntityTypeMentionName`) opens the user's chat on the active client, as
-    /// ChatMessageBubbleItemNode's peerMention tap does.
-    func openUser(_ userID: Int64, from presenter: UIViewController?) {
+    /// ChatMessageBubbleItemNode's peerMention tap does, or with `profile` the user's profile.
+    func openUser(_ userID: Int64, profile: Bool = false, from presenter: UIViewController?) {
         guard TDLib.shared.isActiveAccountReady else { return }
         presenter?.viewIfLoaded?.endEditing(true)
         resolveTask?.cancel()
         let authority = ChatListActionAuthority()
         resolveTask = Task { [weak self, weak presenter] in
-            await self?.openUser(userID, authority: authority, presenter: presenter, profile: false)
+            await self?.openUser(userID, authority: authority, presenter: presenter, profile: profile)
+        }
+    }
+
+    /// A group or channel a message's menu names, such as a mention's Open Group, or with `profile` its profile.
+    func openChat(_ chatID: Int64, profile: Bool, from presenter: UIViewController?) {
+        guard TDLib.shared.isActiveAccountReady else { return }
+        presenter?.viewIfLoaded?.endEditing(true)
+        resolveTask?.cancel()
+        let authority = ChatListActionAuthority()
+        resolveTask = Task { [weak self, weak presenter] in
+            await self?.openChat(chatID, authority: authority, presenter: presenter, profile: profile)
         }
     }
 

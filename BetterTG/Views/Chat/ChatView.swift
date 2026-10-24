@@ -8645,8 +8645,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         linkPress = nil
     }
 
-    /// ChatControllerOpenLinkContextMenu: the menu lifts the link alone, on a card at its first line, with the link's
-    /// own actions and no reactions.
+    /// ChatControllerOpenLinkContextMenu, OpenUsernameContextMenu and OpenCommandContextMenu: the menu lifts the
+    /// link, mention or command alone, on a card at its first line, with its own actions and no reactions. A mention's
+    /// menu waits for its peer.
     private func presentLinkMenu(
         _ link: MessageTextLink,
         in textView: MessageTextContentView,
@@ -8654,21 +8655,63 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         gesture: ContextMenuPressGestureRecognizer,
     ) {
         endLinkPress()
-        guard let firstRect = link.rects.first else { return }
-        let menu = MessageLinkMenu(url: link.url)
-        let chip = MessageLinkContextChipView(text: menu.previewText, maximumTextWidth: cell.bounds.width - 32)
-        chip.frame.origin = textView.convert(firstRect.origin, to: cell.contentView)
-        cell.contentView.addSubview(chip)
-        let url = link.url
-        let presented = presentTelegramContextMenu(
-            sourceView: chip,
-            actions: menu.actions(
+        let copied: (String) -> Void = { [weak self] text in self?.showChatToast(text) }
+        switch link.target {
+        case .url(let url):
+            let menu = MessageLinkMenu(url: url)
+            let actions = menu.actions(
                 open: { [weak self] in
                     guard let self, let target = menu.isEmail ? URL(string: url) : getUrl(from: url) else { return }
                     TelegramLinkRouter.shared.open(target, from: self)
                 },
-                copied: { [weak self] text in self?.showChatToast(text) },
-            ),
+                copied: copied,
+            )
+            showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
+        case .botCommand(let command):
+            let actions = MessageCommandMenu.actions(command: command, copied: copied)
+            showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
+        case .mention(let text),
+             .userMention(_, let text):
+            let client = chatVM.client
+            Task { [weak self, weak textView, weak cell] in
+                let peer = await MessageMentionMenu.peer(for: link.target, client: client)
+                guard let self, let textView, let cell, chatVM.locationContextIsCurrent, !isSelectingMessages,
+                      textView.window != nil else { return }
+                let actions = MessageMentionMenu(text: text, peer: peer).actions(
+                    open: { [weak self] destination in
+                        switch destination {
+                        case .user(let userID): TelegramLinkRouter.shared.openUser(userID, from: self)
+                        case .chat(let chatID): TelegramLinkRouter.shared.openChat(chatID, profile: false, from: self)
+                        }
+                    },
+                    openProfile: { [weak self] destination in
+                        switch destination {
+                        case .user(let userID): TelegramLinkRouter.shared.openUser(userID, profile: true, from: self)
+                        case .chat(let chatID): TelegramLinkRouter.shared.openChat(chatID, profile: true, from: self)
+                        }
+                    },
+                    copied: copied,
+                )
+                showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
+            }
+        }
+    }
+
+    private func showLinkMenu(
+        _ link: MessageTextLink,
+        actions: [TelegramContextMenuAction],
+        textView: MessageTextContentView,
+        cell: MessageCell,
+        gesture: ContextMenuPressGestureRecognizer,
+    ) {
+        guard let firstRect = link.rects.first else { return }
+        // contextContentNodeForLink: at most the row less 32 pt wide.
+        let chip = MessageLinkContextChipView(text: link.previewText, maximumTextWidth: cell.bounds.width - 32)
+        chip.frame.origin = textView.convert(firstRect.origin, to: cell.contentView)
+        cell.contentView.addSubview(chip)
+        let presented = presentTelegramContextMenu(
+            sourceView: chip,
+            actions: actions,
             tracking: gesture,
             onDismiss: { [weak self, weak chip] in
                 chip?.removeFromSuperview()

@@ -129,18 +129,22 @@ struct MessageTextSpoilerPresentation {
         return .none
     }
 
-    /// The URL, text link or email address at `index` with its range, as Telegram's `TelegramTextAttributes.URL`
-    /// holds it: the address, a text link's URL, or `mailto:` and the email address. Nil under a hidden spoiler.
-    func link(at index: Int, revealed: Bool) -> (url: String, range: NSRange)? {
+    /// The entity at `index` that a long press opens its own menu for, with its range (ChatMessageBubbleItemNode's
+    /// long tap actions); nil under a hidden spoiler.
+    func longPressTarget(at index: Int, revealed: Bool) -> (target: MessageTextLink.Target, range: NSRange)? {
         guard index >= 0, index < text.text.utf16.count else { return nil }
         for entity in text.entities {
             let range = NSRange(location: entity.offset, length: entity.length)
             guard NSLocationInRange(index, range), !conceals(range, revealed: revealed) else { continue }
             let raw = (text.text as NSString).substring(with: range)
             switch entity.type {
-            case .textEntityTypeUrl: return (raw, range)
-            case .textEntityTypeTextUrl(let value): return (value.url, range)
-            case .textEntityTypeEmailAddress: return ("mailto:" + raw, range)
+            // `TelegramTextAttributes.URL`: the address, a text link's URL, or `mailto:` and the email address.
+            case .textEntityTypeUrl: return (.url(raw), range)
+            case .textEntityTypeTextUrl(let value): return (.url(value.url), range)
+            case .textEntityTypeEmailAddress: return (.url("mailto:" + raw), range)
+            case .textEntityTypeMention: return (.mention(raw), range)
+            case .textEntityTypeMentionName(let value): return (.userMention(value.userId, text: raw), range)
+            case .textEntityTypeBotCommand: return (.botCommand(raw), range)
             default: continue
             }
         }

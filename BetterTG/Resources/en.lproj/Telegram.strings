@@ -2569,3 +2569,11 @@
 "Conversation.ContextMenuCopyEmail" = "Copy Email";
 "Conversation.EmailCopied" = "Email copied to clipboard";
 "Conversation.AddToReadingList" = "Add to Reading List";
+"Chat.Context.Username.SendMessage" = "Send Message";
+"Chat.Context.Username.OpenGroup" = "Open Group";
+"Chat.Context.Username.OpenChannel" = "Open Channel";
+"Chat.Context.Username.Copy" = "Copy Username";
+"Conversation.UsernameCopied" = "Username copied to clipboard";
+"Chat.Context.Phone.ViewProfile" = "View Profile";
+"Chat.Context.Username.NotOnTelegram" = "This user doesn't exist on Telegram.";
+"Chat.Context.Command.Copy" = "Copy Command";

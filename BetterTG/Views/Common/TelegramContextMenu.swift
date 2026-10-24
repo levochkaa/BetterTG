@@ -50,7 +50,7 @@ enum TelegramContextMenuLayout {
 
     static func height(of action: TelegramContextMenuAction) -> CGFloat {
         if action.isHeader { return headerHeight }
-        return action.subtitleUpdates == nil ? actionHeight : subtitledActionHeight
+        return action.subtitleUpdates == nil && action.secondLine == nil ? actionHeight : subtitledActionHeight
     }
 
     /// Telegram's `.twoLinesMax` action text: a title too long for the menu wraps onto a second line and the row
@@ -72,7 +72,7 @@ enum TelegramContextMenuLayout {
     }
 
     static func wrapsTitle(of action: TelegramContextMenuAction) -> Bool {
-        !action.isHeader && action.titleUpdates == nil && action.subtitleUpdates == nil
+        !action.isHeader && action.titleUpdates == nil && action.subtitleUpdates == nil && action.secondLine == nil
     }
 
     static func titleFontSize(of action: TelegramContextMenuAction) -> CGFloat {
@@ -120,6 +120,9 @@ struct TelegramContextMenuAction {
     /// ChatDeleteMessageContextItem's status: a line under the title in the row's colour after a small timer, such as
     /// when an auto-deleting message goes.
     var subtitleUpdates: AnyPublisher<String, Never>?
+    /// ContextMenuActionItem's `.secondLineWithAttributedValue`: a fixed line under the title in the secondary colour,
+    /// such as a peer row's "View Profile" with its arrow.
+    var secondLine: (text: String, showsArrow: Bool)?
 
     init(
         title: String,
@@ -2511,7 +2514,27 @@ final class TelegramContextMenuActionButton: UIControl {
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
         var constraints = [NSLayoutConstraint]()
-        if action.subtitleUpdates != nil {
+        if let secondLine = action.secondLine {
+            subtitleLabel.attributedText = Self.secondLineText(secondLine.text, showsArrow: secondLine.showsArrow)
+            subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(subtitleLabel)
+            let spacing = TelegramContextMenuLayout.subtitleSpacing
+            constraints.append(contentsOf: [
+                titleLabel.centerYAnchor.constraint(
+                    equalTo: centerYAnchor,
+                    constant: -(TelegramContextMenuLayout.subtitleLineHeight + spacing) / 2,
+                ),
+                subtitleLabel.centerYAnchor.constraint(
+                    equalTo: centerYAnchor,
+                    constant: (TelegramContextMenuLayout.titleLineHeight + spacing) / 2,
+                ),
+                subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+                subtitleLabel.trailingAnchor.constraint(
+                    lessThanOrEqualTo: trailingAnchor,
+                    constant: -TelegramContextMenuLayout.contentSideInset,
+                ),
+            ])
+        } else if action.subtitleUpdates != nil {
             // The title and the status are centred as a pair; the timer sits 1 pt below the status's centre. The
             // status runs on below a submenu's chevron, which keeps to the title's line, and shrinks to fit.
             let timerView = UIImageView(image: UIImage(
@@ -2647,6 +2670,7 @@ final class TelegramContextMenuActionButton: UIControl {
         NSLayoutConstraint.activate(constraints)
         isAccessibilityElement = true
         accessibilityLabel = action.title
+        accessibilityValue = action.secondLine?.text
         accessibilityTraits = acceptsSelection ? .button : .staticText
         if let updates = action.selectableUpdates {
             self.selectableCancellable = updates
@@ -2707,6 +2731,24 @@ final class TelegramContextMenuActionButton: UIControl {
     override func accessibilityActivate() -> Bool {
         onActivate?()
         return onActivate != nil
+    }
+
+    /// The second line in the secondary colour, with Telegram's InlineTextRightArrow as a small chevron after it.
+    private static func secondLineText(_ text: String, showsArrow: Bool) -> NSAttributedString {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: TelegramContextMenuLayout.subtitleFontSize),
+            .foregroundColor: UIColor.secondaryLabel,
+        ]
+        let result = NSMutableAttributedString(string: text, attributes: attributes)
+        guard showsArrow, let arrow = UIImage(
+            systemName: "chevron.right",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 9, weight: .semibold),
+        )?.withTintColor(.secondaryLabel, renderingMode: .alwaysOriginal) else { return result }
+        let attachment = NSTextAttachment(image: arrow)
+        attachment.bounds = CGRect(origin: CGPoint(x: 0, y: 0.5), size: arrow.size)
+        result.append(NSAttributedString(string: " ", attributes: attributes))
+        result.append(NSAttributedString(attachment: attachment))
+        return result
     }
 
     /// The header of a submenu as it opens or closes: the title turns semibold and the chevron turns to point down.
