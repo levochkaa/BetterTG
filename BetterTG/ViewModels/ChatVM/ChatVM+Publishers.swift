@@ -268,7 +268,7 @@ extension ChatVM {
         }
         observeCurrentUpdate(.updateSecretChat) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.secretChat.id == customChat.secretChatID else { return }
-            updateSecretChatState(update.secretChat.state)
+            updateSecretChat(update.secretChat)
         }
         observeCurrentUpdate(.updateUserFullInfo) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.userId == customChat.user?.id else { return }

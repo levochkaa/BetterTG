@@ -82,8 +82,10 @@ import UIKit
         /// ChatRestrictedInputPanelNode with its text.
         case restricted(String)
         /// DeleteChatInputPanelNode: a group the user left or was removed from, a channel or group they were banned
-        /// from.
+        /// from, a closed secret chat.
         case deleteChat
+        /// SecretChatHandshakeStatusInputPanelNode: the secret chat waiting for its keys.
+        case secretHandshake(String)
     }
 
     /// ChatReportPeerTitlePanelNode's buttons (`peerButtons`).
@@ -366,6 +368,9 @@ import UIKit
     private(set) var recipientRestrictsVoiceAndVideoNotes = false
     /// A secret chat sends nothing until TDLib reports its state ready; nil until the state is known.
     private(set) var secretChatIsReady: Bool?
+    /// The secret chat's state and whether this account started it, for its handshake and closed panels.
+    private(set) var secretChatState: TDNativeSecretChatState?
+    private(set) var secretChatIsOutbound = false
 
     private var timerCountStorage = 0.0
     private var voiceFinalizationGeneration = UInt64.zero
@@ -760,6 +765,13 @@ import UIKit
     var statusPanel: StatusPanel? {
         guard !previewing, location.messageThreadID == nil, location.forumTopicID == nil else { return nil }
         if showsUnblockPanel { return .unblock }
+        if customChat.secretChatID != nil, let secretChatState {
+            return Self.secretChatPanel(
+                state: secretChatState,
+                isOutbound: secretChatIsOutbound,
+                name: customChat.user?.compactDisplayTitle ?? customChat.displayTitle,
+            )
+        }
         return Self.statusPanel(
             for: customChat.type,
             canWrite: canShowComposer,
@@ -1562,6 +1574,22 @@ import UIKit
         }
     }
 
+    /// inputPanelForChatPresentationIntefaceState for a secret chat: the handshake panel while the keys are exchanged
+    /// (DialogList.AwaitingEncryption for the side that started it, Conversation.EncryptionProcessing for the other),
+    /// Delete and Exit once it is closed.
+    static func secretChatPanel(state: TDNativeSecretChatState, isOutbound: Bool, name: String) -> StatusPanel? {
+        switch state {
+        case .secretChatStatePending:
+            .secretHandshake(isOutbound
+                ? L10n.telegram("DialogList.AwaitingEncryption", name)
+                : L10n.telegram("Conversation.EncryptionProcessing"))
+        case .secretChatStateClosed:
+            .deleteChat
+        case .secretChatStateReady:
+            nil
+        }
+    }
+
     /// The panel a group or channel shows where the user can't write: Delete and Exit once they left or were removed,
     /// the restriction for a member of an ordinary group, else the subscriber panel.
     static func statusPanel(
@@ -2354,7 +2382,7 @@ import UIKit
                    let secret = try? await client.send(TDNativeRequests.getSecretChat(secretChatId: secretChatID))
                 {
                     guard !Task.isCancelled, let self, locationContextIsCurrent else { return }
-                    updateSecretChatState(secret.state)
+                    updateSecretChat(secret)
                 }
                 guard let info = try? await client.getUserFullInfo(userId: user.id),
                       !Task.isCancelled, let self, locationContextIsCurrent else { return }
@@ -2375,6 +2403,15 @@ import UIKit
 
     func updateSlowMode(expiresIn seconds: Double) {
         slowModeExpiresAt = seconds > 0 ? Date().addingTimeInterval(seconds) : nil
+    }
+
+    /// `updateSecretChat` or `getSecretChat` for this chat.
+    func updateSecretChat(_ secretChat: TDNativeSecretChat) {
+        let changed = secretChatState != secretChat.state || secretChatIsOutbound != secretChat.isOutbound
+        secretChatState = secretChat.state
+        secretChatIsOutbound = secretChat.isOutbound
+        updateSecretChatState(secretChat.state)
+        if changed { objectWillChange.send() }
     }
 
     /// Telegram's secret chat accepts messages only once the other side has joined, and none once it is closed.

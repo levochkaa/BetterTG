@@ -15,7 +15,10 @@ final class ChatStatusPanelView: UIView {
             /// Join spans the bar; Mute and Unmute keep their title's width.
             case action(spansWidth: Bool)
             case button
+            /// ChatRestrictedInputPanelNode's 13 pt secondary text.
             case text
+            /// SecretChatHandshakeStatusInputPanelNode's 15 pt primary text.
+            case status
             case destructive
         }
 
@@ -145,7 +148,8 @@ final class ChatStatusPanelView: UIView {
                 width: width,
                 height: available.height,
             )
-        case .text:
+        case .status,
+             .text:
             break
         }
         // ChatRestrictedInputPanelNode: up to two lines, 16 pt in from each side.
@@ -174,10 +178,12 @@ final class ChatStatusPanelView: UIView {
         self.content = content
         searchButton.isHidden = !content.showsSearch
         helpButton.isHidden = !content.showsHelp
-        let isText = content.style == .text
+        let isText = content.style == .text || content.style == .status
         actionButton.isHidden = isText
         textLabel.isHidden = !isText
         textLabel.text = isText ? content.title : nil
+        textLabel.font = .systemFont(ofSize: content.style == .status ? 15 : 13)
+        textLabel.textColor = content.style == .status ? .label : .secondaryLabel
         actionButton.accessibilityLabel = content.title
         applyColors()
         let offset = Self.titleSlideOffset(from: previous, to: content)

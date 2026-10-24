@@ -19,6 +19,7 @@ import UIKit
                 try verifyActions()
                 try verifyPanels()
                 try verifyRestrictionTexts()
+                try verifySecretChatPanels()
                 try verifyGeometry()
                 result = "Status panel probe passed: channel-member-mute/unmute/left-join/joining-mute/"
                     + "creator-left-join/admin-mute/banned-none/direct-messages-none=true; "
@@ -27,6 +28,7 @@ import UIKit
                     + "panel-writable-none/banned-delete/restricted-text/channel-subscriber/basic-left-delete/"
                     + "basic-creator-left-delete/basic-read-only-restricted/user-none=true; "
                     + "restricted-default/personal/timed=true; "
+                    + "secret-pending-outbound/inbound/closed-delete/ready-none=true; "
                     + "geometry-mute-centred/search-right/join-spans/help-left/unblock-centred/"
                     + "restricted-text/delete=true"
             } catch {
@@ -115,6 +117,24 @@ import UIKit
             ]
             for (name, type, canWrite, expected) in cases {
                 let panel = ChatVM.statusPanel(for: type, canWrite: canWrite, isJoining: false, isMuted: false)
+                try require(panel == expected, "\(name): \(String(describing: panel))")
+            }
+        }
+
+        private static func verifySecretChatPanels() throws {
+            typealias Panel = ChatVM.StatusPanel
+            let cases: [(String, TDNativeSecretChatState, Bool, Panel?)] = [
+                ("pending outbound", .secretChatStatePending, true, .secretHandshake(
+                    L10n.telegram("DialogList.AwaitingEncryption", "Alice"),
+                )),
+                ("pending inbound", .secretChatStatePending, false, .secretHandshake(
+                    L10n.telegram("Conversation.EncryptionProcessing"),
+                )),
+                ("closed", .secretChatStateClosed, true, .deleteChat),
+                ("ready", .secretChatStateReady, true, nil),
+            ]
+            for (name, state, isOutbound, expected) in cases {
+                let panel = ChatVM.secretChatPanel(state: state, isOutbound: isOutbound, name: "Alice")
                 try require(panel == expected, "\(name): \(String(describing: panel))")
             }
         }

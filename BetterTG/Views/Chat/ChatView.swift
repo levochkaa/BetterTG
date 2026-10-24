@@ -2797,6 +2797,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .init(title: text, style: .text)
         case .deleteChat:
             .init(title: L10n.telegram("GroupInfo.DeleteAndExit"), style: .destructive)
+        case .secretHandshake(let text):
+            .init(title: text, style: .status)
         }
     }
 
@@ -2885,7 +2887,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             chatVM.toggleSubscriberMute()
         case .unblock:
             chatVM.unblockChat()
-        case .restricted:
+        case .restricted,
+             .secretHandshake:
             break
         case .deleteChat:
             chatVM.removeChatFromList()

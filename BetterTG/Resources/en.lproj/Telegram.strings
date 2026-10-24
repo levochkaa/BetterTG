@@ -2463,3 +2463,5 @@
 "EmptyGroupInfo.Line2" = "Persistent chat history";
 "EmptyGroupInfo.Line3" = "Public links such as t.me/title";
 "EmptyGroupInfo.Line4" = "Admins with different rights";
+"DialogList.AwaitingEncryption" = "Waiting for %@ to get online...";
+"Conversation.EncryptionProcessing" = "Exchanging encryption keys...";
