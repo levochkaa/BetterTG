@@ -41,6 +41,7 @@ import UIKit
     @objc(_setFlexVariant:) func setFlexVariant(_ value: Int)
     @objc(_setEnabledWithoutSolarium:) func setEnabledWithoutSolarium(_ value: Bool)
     @objc(setAllowsGrouping:) func setAllowsGrouping(_ value: Bool)
+    @objc(_identityGlass) func identityGlass() -> AnyObject
 }
 
 // MARK: - ContextMenuMaterialHost
@@ -76,19 +77,27 @@ import UIKit
     private static let setsEnabledWithoutSolarium = glassClass?
         .instancesRespond(to: NSSelectorFromString("_setEnabledWithoutSolarium:")) == true
 
+    private static let makesIdentityGlass = glassClass?
+        .instancesRespond(to: NSSelectorFromString("_identityGlass")) == true
+
     // MARK: Internal
 
-    /// `_updateGlassBackgroundIfNeeded` (0x1c482b0a8) puts the material on a plain view. Returns false when the
-    /// private material is unavailable; the caller then uses interactive `UIGlassEffect`.
-    static func applyMenuGlass(to view: UIView) -> Bool {
-        guard let glassClass, view.responds(to: NSSelectorFromString("_setBackground:")) else { return false }
+    /// `_updateGlassBackgroundIfNeeded` (0x1c482b0a8) puts the material on a plain view. With `suppressed`, as for a
+    /// list view under `setSuppressGlassBackground:YES`, it puts the material's `_identityGlass` there instead, which
+    /// shows nothing; switching between the two inside an animation materializes or dematerializes the glass. Returns
+    /// false when the private material is unavailable; the caller then uses interactive `UIGlassEffect`.
+    static func applyMenuGlass(to view: UIView, suppressed: Bool = false) -> Bool {
+        guard let glassClass, !suppressed || makesIdentityGlass,
+              view.responds(to: NSSelectorFromString("_setBackground:"))
+        else { return false }
         let glass = unsafeBitCast(glassClass, to: ContextMenuGlassMaterial.Type.self).init(variant: 0)
         glass.setAdaptive(false)
         glass.setFlexible(true)
         glass.setFlexVariant(5)
         if setsEnabledWithoutSolarium { glass.setEnabledWithoutSolarium(true) }
         glass.setAllowsGrouping(false)
-        unsafeBitCast(view, to: ContextMenuMaterialHost.self).setMaterialBackground(glass)
+        unsafeBitCast(view, to: ContextMenuMaterialHost.self)
+            .setMaterialBackground(suppressed ? glass.identityGlass() : glass)
         return true
     }
 }

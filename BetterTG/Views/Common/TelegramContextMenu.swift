@@ -560,8 +560,9 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private let panBehavior = ContextMenuNativeAnimation.makePanBehavior()
     private let highlightFrameBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.12)
     private let highlightAlphaBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.3)
-    /// `navigateDownFromNode:` opens on 0.85 / 0.4 s; `navigateUpFromNode:` closes on 1 / 0.4 s and fades the
-    /// submenu's actions on 1 / 0.5 s.
+    /// `navigateDownFromNode:` turns the header over on 1 / 0.2 s and opens on 0.85 / 0.4 s; `navigateUpFromNode:`
+    /// fades the submenu's actions and turns the header back on 1 / 0.5 s and closes on 1 / 0.4 s.
+    private let submenuHeaderBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.2)
     private let submenuOpenBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 0.85, response: 0.4)
     private let submenuCloseBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.4)
     private let submenuFadeBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.5)
@@ -1679,11 +1680,23 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         UIView.performWithoutAnimation {
             submenu.bounds = CGRect(origin: .zero, size: geometry.collapsed.size)
             submenu.center = CGPoint(x: geometry.collapsed.midX, y: geometry.collapsed.midY)
+            submenu.clipsToBounds = true
             contentContainer.insertSubview(submenu, aboveSubview: parentView)
             submenu.layoutIfNeeded()
         }
         submenus.append(submenu)
         holdAnimatedEmoji(for: Self.motionHoldDuration)
+        // The header turns over on the first spring, and the card draws past its bounds once that one settles.
+        ContextMenuNativeAnimation.animate(
+            behavior: submenuHeaderBehavior,
+            tracking: false,
+            fallbackDampingRatio: 1,
+            fallbackResponse: 0.2,
+        ) {
+            submenu.headerButton.setSubmenuExpanded(true)
+        } completion: { _ in
+            if submenu.isExpanded { submenu.clipsToBounds = false }
+        }
         submenu.isExpanded = true
         ContextMenuNativeAnimation.animate(
             behavior: submenuOpenBehavior,
@@ -1692,7 +1705,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             fallbackResponse: 0.4,
         ) {
             self.layoutSubmenus()
-            submenu.headerButton.setSubmenuExpanded(true)
+            submenu.setGlassSuppressed(false)
             // The header starts on the source row and takes its place; left under the translucent card, the row
             // would read as a second copy of it.
             button.alpha = 0
@@ -1700,7 +1713,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         updateSubmenuAccessibility(focus: submenu.headerButton)
     }
 
-    /// `navigateUpFromNode:`: the card shrinks back into its row, its actions fading, and the parent returns.
+    /// `navigateUpFromNode:`: the card shrinks back into its row, its actions fading and its glass dematerializing,
+    /// and the parent returns.
     private func closeSubmenu() {
         guard let submenu = submenus.last else { return }
         touchSession?.highlighted = nil
@@ -1709,6 +1723,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         submenus.removeLast()
         holdAnimatedEmoji(for: Self.motionHoldDuration)
         submenu.isExpanded = false
+        submenu.clipsToBounds = true
         submenu.isUserInteractionEnabled = false
         submenu.accessibilityElementsHidden = true
         ContextMenuNativeAnimation.animate(
@@ -1716,7 +1731,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             tracking: false,
             fallbackDampingRatio: 1,
             fallbackResponse: 0.5,
-        ) { submenu.setClosingAlpha(0) }
+        ) {
+            submenu.setClosingAlpha(0)
+            submenu.headerButton.setSubmenuExpanded(false)
+        }
         ContextMenuNativeAnimation.animate(
             behavior: submenuCloseBehavior,
             tracking: false,
@@ -1724,10 +1742,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             fallbackResponse: 0.4,
         ) {
             self.layoutSubmenus()
+            submenu.setGlassSuppressed(true)
             submenu.bounds = CGRect(origin: .zero, size: collapsed.size)
             submenu.center = CGPoint(x: collapsed.midX, y: collapsed.midY)
             submenu.layoutIfNeeded()
-            submenu.headerButton.setSubmenuExpanded(false)
         } completion: { _ in
             // The header has landed on the source row by now and looks the same; it hands the row back. A card
             // that a reopening already removed has handed it back itself.
@@ -2150,9 +2168,10 @@ private final class TelegramContextMenuSectionDivider: UIView {
 /// card of its own that grows out of the chosen row over the dimmed parent. Its header repeats that row and closes
 /// the card; a divider separates it from the submenu's actions.
 ///
-/// Like `_UIContextMenuListView`, the card's glass is a separate background that is never smaller than the header
-/// with the menu's insets around it. Closed, the card is the row inset like its highlight and clips that background,
-/// so only the flat middle of the glass shows, with no rim or shadow, and the glass blends into the menu under it.
+/// Like `_UIContextMenuListView`, the card carries the glass itself, while its rows sit in a clipping view that is
+/// never smaller than the header with the menu's insets around it. Closed, the card is the row inset like its
+/// highlight, and its glass is suppressed to the material's `_identityGlass`, which shows nothing: the glass
+/// materializes on the opening spring and dematerializes on the closing one (`setSuppressGlassBackground:`).
 private final class TelegramContextSubmenuView: UIView {
     // MARK: Internal
 
@@ -2179,7 +2198,9 @@ private final class TelegramContextSubmenuView: UIView {
     private let divider = UIView()
     /// Carries the menu glass, which draws past its bounds while it stretches under a finger.
     private let backgroundView = UIView()
+    /// Without the private material, the public glass, whose effect the card clears to suppress it.
     private let fallbackGlassView = UIVisualEffectView(effect: nil)
+    private var usesNativeGlass = false
     private var expandedWidth = CGFloat.zero
 
     var buttons: [TelegramContextMenuActionButton] {
@@ -2198,8 +2219,8 @@ private final class TelegramContextSubmenuView: UIView {
         }
     }
 
-    /// The glass and the rows: the card's bounds when open; closed, the header with the menu's insets around it.
-    private var glassFrame: CGRect {
+    /// The rows' clipping view: the card's bounds when open; closed, the header with the menu's insets around it.
+    private var contentFrame: CGRect {
         if isExpanded {
             bounds
         } else {
@@ -2216,14 +2237,11 @@ private final class TelegramContextSubmenuView: UIView {
         super.init(frame: .zero)
         layer.cornerCurve = .continuous
         let menuCornerRadius = TelegramContextMenuLayout.menuCornerRadius
-        backgroundView.layer.cornerRadius = menuCornerRadius
         backgroundView.layer.cornerCurve = .continuous
-        if !ContextMenuNativeGlass.applyMenuGlass(to: backgroundView) {
-            let glass = UIGlassEffect(style: .regular)
-            glass.isInteractive = true
-            fallbackGlassView.effect = glass
-            fallbackGlassView.cornerConfiguration = .corners(radius: .fixed(Double(menuCornerRadius)))
-            fallbackGlassView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // The card opens with its glass suppressed, as `navigateDownFromNode:` adds the list view.
+        self.usesNativeGlass = ContextMenuNativeGlass.applyMenuGlass(to: backgroundView, suppressed: true)
+        if !usesNativeGlass {
+            fallbackGlassView.cornerConfiguration = .capsule(maximumRadius: Double(menuCornerRadius))
             backgroundView.addSubview(fallbackGlassView)
         }
         addSubview(backgroundView)
@@ -2248,12 +2266,11 @@ private final class TelegramContextSubmenuView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        // As in the system, the card clips only while it closes: opening, the glass grows freely out of the row.
-        clipsToBounds = !isExpanded
         layer.cornerRadius = cornerRadius
-        backgroundView.frame = glassFrame
+        backgroundView.frame = bounds
+        backgroundView.layer.cornerRadius = cornerRadius
         fallbackGlassView.frame = backgroundView.bounds
-        contentView.frame = glassFrame
+        contentView.frame = contentFrame
         rowsView.frame = CGRect(x: 0, y: 0, width: expandedWidth, height: expandedHeight)
     }
 
@@ -2282,13 +2299,23 @@ private final class TelegramContextSubmenuView: UIView {
         setNeedsLayout()
     }
 
-    /// `navigateUpFromNode:` fades the submenu's actions out while the card shrinks back into its row. The glass fades
-    /// with them, so it has blended into the menu by the time the card stops, as the system's does (iOS 27.2, dark
-    /// appearance), rather than staying until the card is removed.
+    /// `navigateUpFromNode:` fades the submenu's actions out on its first spring, while the divider stays with the
+    /// header, as `_UIContextMenuSubmenuTitleView`'s separator does.
     func setClosingAlpha(_ alpha: CGFloat) {
-        divider.alpha = alpha
         childButtons.forEach { $0.alpha = alpha }
-        backgroundView.alpha = alpha
+    }
+
+    /// `setSuppressGlassBackground:`. Inside a spring, the glass materializes or dematerializes along with it.
+    func setGlassSuppressed(_ suppressed: Bool) {
+        if usesNativeGlass {
+            _ = ContextMenuNativeGlass.applyMenuGlass(to: backgroundView, suppressed: suppressed)
+        } else if suppressed {
+            fallbackGlassView.effect = nil
+        } else {
+            let glass = UIGlassEffect(style: .regular)
+            glass.isInteractive = true
+            fallbackGlassView.effect = glass
+        }
     }
 }
 
