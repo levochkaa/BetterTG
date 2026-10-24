@@ -1409,6 +1409,13 @@
 "Conversation.ContextMenuNoViews" = "Nobody Viewed";
 "Conversation.ContextMenuSeen_1" = "1 Seen";
 "Conversation.ContextMenuSeen_any" = "%@ Seen";
+"Conversation.ContextMenuListened_1" = "1 Listened";
+"Conversation.ContextMenuListened_any" = "%@ Listened";
+"Conversation.ContextMenuWatched_1" = "1 Watched";
+"Conversation.ContextMenuWatched_any" = "%@ Watched";
+"Conversation.ContextMenuNobodyListened" = "Nobody Listened";
+"Conversation.ContextMenuNobodyWatched" = "Nobody Watched";
+"Chat.OutgoingContextMixedReactionCount" = "%1$@/%2$@ reacted";
 "Time.TodayAt" = "today at %@";
 "Conversation.MessageOptionsLinkMoveUp" = "Move Up";
 "Conversation.MessageOptionsLinkMoveDown" = "Move Down";
@@ -1438,6 +1445,10 @@
 "Chat.PrivateMessageSeenTimestamp.TodayAt" = "read today at %@";
 "Chat.PrivateMessageSeenTimestamp.YesterdayAt" = "read yesterday at %@";
 "Chat.PrivateMessageSeenTimestamp.Date" = "read %@";
+"Chat.PrivateMessageEditTimestamp.TodayAt" = "edited today at %@";
+"Chat.PrivateMessageEditTimestamp.YesterdayAt" = "edited yesterday at %@";
+"Chat.PrivateMessageEditTimestamp.Date" = "edited %@";
+"Time.MediumDate" = "%1$@ at %2$@";
 "PrivacyInfo.ShowReadTime.Title" = "Show Your Read Time";
 "PrivacyInfo.ShowReadTime.Text" = "To see when **%@** read the message, either start showing your own read time:";
 "PrivacyInfo.ShowReadTime.ButtonTitle" = "Show My Read Time";

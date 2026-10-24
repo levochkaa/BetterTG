@@ -1,6 +1,7 @@
 // TelegramContextMenu.swift
 
 import Combine
+import TDLibKit
 import UIKit
 
 // MARK: - TelegramContextMenuLayout
@@ -95,10 +96,14 @@ struct TelegramContextMenuAction {
     /// `.small` text and an action).
     var usesSmallText = false
     /// ChatReadReportContextItem in a private chat: a compact line of text at the top of the menu, such as when the
-    /// message was read. It is never highlighted or selected unless `headerSelectableUpdates` says so.
+    /// message was read. It is never highlighted or selected unless `selectableUpdates` says so.
     var isHeader = false
-    /// Makes a header tappable while it shows something to act on, such as Telegram's "show when".
-    var headerSelectableUpdates: AnyPublisher<Bool, Never>?
+    /// Whether the row can be chosen while it shows something to act on, such as Telegram's "show when" or a group's
+    /// viewers. An ordinary row that can't be chosen dims its title, as Telegram's "Nobody Viewed".
+    var selectableUpdates: AnyPublisher<Bool, Never>?
+    /// ChatReadReportContextItem's AnimatedAvatarSetNode: up to three people at the trailing edge, with placeholder
+    /// circles until the first value arrives.
+    var avatarUpdates: AnyPublisher<TelegramContextMenuAvatars, Never>?
 
     init(
         title: String,
@@ -115,6 +120,13 @@ struct TelegramContextMenuAction {
         self.children = children
         self.handler = handler
     }
+}
+
+// MARK: - TelegramContextMenuAvatars
+
+struct TelegramContextMenuAvatars {
+    let peers: [SettingsPeer]
+    let client: TDLibClient
 }
 
 // MARK: - TelegramContextMenuSource
@@ -2407,6 +2419,10 @@ final class TelegramContextMenuActionButton: UIControl {
     private let submenuIndicator = UIImageView()
     private var titleCancellable: AnyCancellable?
     private var selectableCancellable: AnyCancellable?
+    private var avatarsCancellable: AnyCancellable?
+    /// ChatReadReportContextItem's shimmer where the title will show until it arrives.
+    private var titlePlaceholder: TelegramContextMenuShimmerView?
+    private var avatarsView: TelegramContextMenuAvatarsView?
 
     init(action: TelegramContextMenuAction, role: Role = .action) {
         self.menuAction = action
@@ -2427,7 +2443,21 @@ final class TelegramContextMenuActionButton: UIControl {
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
         var constraints = [titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)]
-        if action.children.isEmpty {
+        if action.avatarUpdates != nil {
+            // The avatar set ends 4 pt inside the side inset; the text keeps 8 pt clear of it.
+            let avatarsView = TelegramContextMenuAvatarsView()
+            avatarsView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(avatarsView)
+            self.avatarsView = avatarsView
+            constraints.append(contentsOf: [
+                avatarsView.trailingAnchor.constraint(
+                    equalTo: trailingAnchor,
+                    constant: -TelegramContextMenuLayout.contentSideInset - 4,
+                ),
+                avatarsView.centerYAnchor.constraint(equalTo: centerYAnchor),
+                titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: avatarsView.leadingAnchor, constant: -8),
+            ])
+        } else if action.children.isEmpty {
             constraints.append(titleLabel.trailingAnchor.constraint(
                 lessThanOrEqualTo: trailingAnchor,
                 constant: -TelegramContextMenuLayout.contentSideInset,
@@ -2493,16 +2523,36 @@ final class TelegramContextMenuActionButton: UIControl {
                 constant: TelegramContextMenuLayout.contentSideInset,
             ))
         }
+        if action.title.isEmpty, action.titleUpdates != nil {
+            // The shimmer is as wide as "11 Seen" would be, 8 pt tall.
+            let placeholder = TelegramContextMenuShimmerView()
+            placeholder.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(placeholder)
+            self.titlePlaceholder = placeholder
+            let width = ceil((L10n.telegramPlural("Conversation.ContextMenuSeen", count: 11) as NSString)
+                .size(withAttributes: [.font: titleLabel.font as Any])
+                .width)
+            constraints.append(contentsOf: [
+                placeholder.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+                placeholder.centerYAnchor.constraint(equalTo: centerYAnchor),
+                placeholder.widthAnchor.constraint(equalToConstant: width),
+                placeholder.heightAnchor.constraint(equalToConstant: 8),
+            ])
+        }
         NSLayoutConstraint.activate(constraints)
         isAccessibilityElement = true
         accessibilityLabel = action.title
         accessibilityTraits = acceptsSelection ? .button : .staticText
-        if action.isHeader, let updates = action.headerSelectableUpdates {
+        if let updates = action.selectableUpdates {
             self.selectableCancellable = updates
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] selectable in
-                    self?.acceptsSelection = selectable
-                    self?.accessibilityTraits = selectable ? .button : .staticText
+                    guard let self else { return }
+                    self.acceptsSelection = selectable
+                    accessibilityTraits = selectable ? .button : .staticText
+                    if !menuAction.isHeader, !menuAction.isDestructive {
+                        titleLabel.textColor = selectable ? .label : .secondaryLabel
+                    }
                 }
         }
         if let updates = action.titleUpdates {
@@ -2511,8 +2561,27 @@ final class TelegramContextMenuActionButton: UIControl {
             self.titleCancellable = updates
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] title in
-                    self?.titleLabel.text = title
-                    self?.accessibilityLabel = title
+                    guard let self else { return }
+                    titleLabel.text = title
+                    accessibilityLabel = title
+                    if let placeholder = titlePlaceholder {
+                        // The shimmer and the text cross-fade over 0.2 s.
+                        self.titlePlaceholder = nil
+                        titleLabel.alpha = 0
+                        UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseInOut) {
+                            self.titleLabel.alpha = 1
+                            placeholder.alpha = 0
+                        } completion: { _ in
+                            placeholder.removeFromSuperview()
+                        }
+                    }
+                }
+        }
+        if let updates = action.avatarUpdates {
+            self.avatarsCancellable = updates
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] avatars in
+                    self?.avatarsView?.show(avatars)
                 }
         }
     }
@@ -2532,6 +2601,137 @@ final class TelegramContextMenuActionButton: UIControl {
         expandedTitleLabel.alpha = expanded ? 1 : 0
         let angle = CGFloat.pi / 2 * (effectiveUserInterfaceLayoutDirection == .rightToLeft ? -1 : 1)
         submenuIndicator.transform = expanded ? CGAffineTransform(rotationAngle: angle) : .identity
+    }
+}
+
+// MARK: - TelegramContextMenuShimmerView
+
+/// ShimmerEffectNode in a menu row: a rounded bar with a highlight sweeping across it every 1.3 s.
+private final class TelegramContextMenuShimmerView: UIView {
+    private let highlight = CAGradientLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = true
+        backgroundColor = UIColor.label.withAlphaComponent(0.1)
+        highlight.startPoint = CGPoint(x: 0, y: 0.5)
+        highlight.endPoint = CGPoint(x: 1, y: 0.5)
+        layer.addSublayer(highlight)
+        isAccessibilityElement = false
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        layer.cornerRadius = bounds.height / 2
+        let peak = UIColor.systemBackground.withAlphaComponent(0.3).resolvedColor(with: traitCollection)
+        highlight.colors = [peak.withAlphaComponent(0).cgColor, peak.cgColor, peak.withAlphaComponent(0).cgColor]
+        // ShimmerEffectNode's 320-point gradient travels from before the bar to past its end.
+        let gradientWidth = CGFloat(320)
+        highlight.frame = CGRect(x: -gradientWidth, y: 0, width: gradientWidth, height: bounds.height)
+        guard highlight.animation(forKey: "shimmer") == nil, !UIAccessibility.isReduceMotionEnabled else { return }
+        let animation = CABasicAnimation(keyPath: "position.x")
+        animation.fromValue = 0
+        animation.toValue = bounds.width + gradientWidth
+        animation.isAdditive = true
+        animation.duration = 1.3
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        animation.repeatCount = .infinity
+        highlight.add(animation, forKey: "shimmer")
+    }
+}
+
+// MARK: - TelegramContextMenuAvatarsView
+
+/// AnimatedAvatarSetNode with 24-point avatars 10 pt apart's overlap: the first sits on top and each one after it is
+/// cut 1.5 pt around its left neighbour. It holds the room of three and keeps the avatars at its trailing edge.
+private final class TelegramContextMenuAvatarsView: UIView {
+    private static let avatarSize = CGFloat(24)
+    private static let overlap = CGFloat(10)
+    private static let maximumCount = 3
+
+    override var intrinsicContentSize: CGSize {
+        let count = CGFloat(Self.maximumCount)
+        return CGSize(width: Self.avatarSize * count - Self.overlap * (count - 1), height: Self.avatarSize)
+    }
+
+    private var avatarViews = [UIView]()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        isAccessibilityElement = false
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        showPlaceholders()
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let step = Self.avatarSize - Self.overlap
+        let start = bounds.width - (Self.avatarSize + step * CGFloat(max(0, avatarViews.count - 1)))
+        for (index, view) in avatarViews.enumerated() {
+            view.frame = CGRect(
+                x: start + step * CGFloat(index),
+                y: (bounds.height - Self.avatarSize) / 2,
+                width: Self.avatarSize,
+                height: Self.avatarSize,
+            )
+            view.layer.zPosition = CGFloat(Self.maximumCount - index)
+            if index > 0 { applyCutout(to: view) }
+        }
+    }
+
+    func show(_ avatars: TelegramContextMenuAvatars) {
+        avatarViews.forEach { $0.removeFromSuperview() }
+        avatarViews = avatars.peers.prefix(Self.maximumCount).map { peer in
+            let view = ProfileAvatarView()
+            view.showsContextMenu = false
+            view.isUserInteractionEnabled = false
+            view.isAccessibilityElement = false
+            // The account's own avatar, not Saved Messages.
+            view.configure(
+                file: peer.file,
+                minithumbnail: peer.minithumbnail,
+                placeholder: peer.placeholder,
+                accountUserID: 0,
+                client: avatars.client,
+            )
+            return view
+        }
+        avatarViews.forEach(addSubview)
+        setNeedsLayout()
+    }
+
+    /// AnimatedAvatarSetContext's placeholder: three circles in the shimmer's colour while the people load.
+    private func showPlaceholders() {
+        avatarViews = (0..<Self.maximumCount).map { _ in
+            let view = UIView()
+            view.backgroundColor = UIColor.label.withAlphaComponent(0.1)
+            view.layer.cornerRadius = Self.avatarSize / 2
+            return view
+        }
+        avatarViews.forEach(addSubview)
+    }
+
+    private func applyCutout(to view: UIView) {
+        let bounds = CGRect(origin: .zero, size: CGSize(width: Self.avatarSize, height: Self.avatarSize))
+        let path = UIBezierPath(rect: bounds)
+        path.append(UIBezierPath(ovalIn: bounds
+                .offsetBy(dx: Self.overlap - Self.avatarSize, dy: 0)
+                .insetBy(dx: -1.5, dy: -1.5)))
+        let mask = (view.layer.mask as? CAShapeLayer) ?? CAShapeLayer()
+        mask.fillRule = .evenOdd
+        mask.frame = bounds
+        mask.path = path.cgPath
+        view.layer.mask = mask
     }
 }
 

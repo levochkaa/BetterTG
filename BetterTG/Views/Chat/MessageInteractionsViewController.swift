@@ -5,15 +5,16 @@ import UIKit
 
 // MARK: - MessageInteractionsViewController
 
-/// Telegram's read receipts and reactions lists from the message menu (ChatMessageContextMenu's "N Seen" and
-/// "N reactions" items): who saw a message in a small group (`getMessageViewers`) with the time, or who reacted
-/// (`getMessageAddedReactions`, in pages) with the reaction and the time.
+/// Telegram's read receipts and reactions lists from the message menu (ChatReadReportContextItem's "N Seen" and
+/// "N reactions"): who saw a message in a small group (`getMessageViewers`) with the time, or who reacted
+/// (`getMessageAddedReactions`, in pages) with the reaction and the time, followed by the other viewers as
+/// ReactionListContextMenuContent's merged items.
 final class MessageInteractionsViewController: SettingsListViewController {
     enum Kind {
         case viewers
         /// `count` is the message's reaction total, the title until TDLib returns its own. `type` lists one reaction,
-        /// as a long press on its chip does.
-        case reactions(isOutgoing: Bool, count: Int, type: ReactionType? = nil)
+        /// as a long press on its chip does. `includesViewers` adds the people who saw it without reacting.
+        case reactions(isOutgoing: Bool, count: Int, type: ReactionType? = nil, includesViewers: Bool = false)
     }
 
     private struct Entry {
@@ -27,6 +28,8 @@ final class MessageInteractionsViewController: SettingsListViewController {
     private let chatID: Int64
     private let messageID: Int64
     private var entries = [Entry]()
+    /// The viewers listed after the reactions, which the reactions' title doesn't count.
+    private var mergedViewerCount = 0
     private var totalCount: Int?
     private var nextOffset: String?
     private var isLoading = false
@@ -115,7 +118,7 @@ final class MessageInteractionsViewController: SettingsListViewController {
             case .viewers:
                 totalCount.map { L10n.telegramPlural("Conversation.ContextMenuSeen", count: $0) }
                     ?? L10n.betterTG("Message.SeenBy")
-            case .reactions(let isOutgoing, let count, _):
+            case .reactions(let isOutgoing, let count, _, _):
                 L10n.telegramPlural(
                     isOutgoing ? "Chat.OutgoingContextReactionCount" : "Chat.ContextReactionCount",
                     count: totalCount ?? count,
@@ -141,6 +144,7 @@ final class MessageInteractionsViewController: SettingsListViewController {
             var loaded = [Entry]()
             var count = 0
             var next: String?
+            var viewerCount = 0
             switch kind {
             case .viewers:
                 let viewers = try? await client.send(TDNativeRequests.getMessageViewers(
@@ -153,7 +157,7 @@ final class MessageInteractionsViewController: SettingsListViewController {
                     }
                 }
                 count = viewers?.viewers.count ?? 0
-            case .reactions(_, _, let reactionType):
+            case .reactions(_, _, let reactionType, let includesViewers):
                 let page = try? await client.send(TDNativeRequests.getMessageAddedReactions(
                     chatId: chatID,
                     messageId: messageID,
@@ -171,11 +175,27 @@ final class MessageInteractionsViewController: SettingsListViewController {
                 }
                 count = page?.totalCount ?? 0
                 next = page?.nextOffset ?? ""
+                if includesViewers, page != nil, next?.isEmpty != false {
+                    let viewers = try? await client.send(TDNativeRequests.getMessageViewers(
+                        chatId: chatID,
+                        messageId: messageID,
+                    ))
+                    guard let self else { return }
+                    var listed = Set((entries + loaded).map(\.peer.id))
+                    for viewer in viewers?.viewers ?? [] where !listed.contains(viewer.userId) {
+                        listed.insert(viewer.userId)
+                        if let peer = await SettingsPeer.user(viewer.userId, client: client) {
+                            loaded.append(Entry(peer: peer, detail: Self.timeText(viewer.viewDate)))
+                            viewerCount += 1
+                        }
+                    }
+                }
             }
             guard let self, contextIsCurrent else { return }
             isLoading = false
             entries += loaded
-            totalCount = max(count, entries.count)
+            mergedViewerCount += viewerCount
+            totalCount = max(count, entries.count - mergedViewerCount)
             nextOffset = next
             updateTitle()
             reload()

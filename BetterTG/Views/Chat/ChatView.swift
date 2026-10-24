@@ -901,24 +901,30 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private static func readDateTitle(_ readDate: TDNativeMessageReadDate) -> String {
         switch readDate {
         case .messageReadDateRead(let read):
-            let date = Date(timeIntervalSince1970: TimeInterval(read.readDate))
-            let time = date.formatted(date: .omitted, time: .shortened)
-            if Calendar.current.isDateInToday(date) {
-                return L10n.telegram("Chat.PrivateMessageSeenTimestamp.TodayAt", time)
-            }
-            if Calendar.current.isDateInYesterday(date) {
-                return L10n.telegram("Chat.PrivateMessageSeenTimestamp.YesterdayAt", time)
-            }
-            return L10n.telegram(
-                "Chat.PrivateMessageSeenTimestamp.Date",
-                date.formatted(date: .abbreviated, time: .shortened),
-            )
+            menuTimestamp(read.readDate, key: "Chat.PrivateMessageSeenTimestamp")
         case .messageReadDateMyPrivacyRestricted:
-            return L10n.telegram("Chat.ContextMenuReadDate.ReadAvailablePrefix") + " · "
+            L10n.telegram("Chat.ContextMenuReadDate.ReadAvailablePrefix") + " · "
                 + L10n.telegram("Chat.ContextMenuReadDate.ReadAvailableBadge")
         default:
-            return L10n.telegram("Chat.ContextMenuReadDate.ReadAvailablePrefix")
+            L10n.telegram("Chat.ContextMenuReadDate.ReadAvailablePrefix")
         }
+    }
+
+    /// humanReadableStringForTimestamp with `alwaysShowTime` and `allowYesterday` in one of Telegram's
+    /// TodayAt/YesterdayAt/Date phrasings under `key`, such as "read today at 12:30"; an older date is
+    /// stringForMediumDate's numeric one with a two-digit year, "edited 10/17/26 at 21:22".
+    private static func menuTimestamp(_ timestamp: Int, key: String) -> String {
+        let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
+        let time = date.formatted(date: .omitted, time: .shortened)
+        if Calendar.current.isDateInToday(date) {
+            return L10n.telegram("\(key).TodayAt", time)
+        }
+        if Calendar.current.isDateInYesterday(date) {
+            return L10n.telegram("\(key).YesterdayAt", time)
+        }
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("MMddyy")
+        return L10n.telegram("\(key).Date", L10n.telegram("Time.MediumDate", formatter.string(from: date), time))
     }
 
     /// The message as TDLib has it now, if it still lets its media be saved (the gallery's export rules).
@@ -9169,15 +9175,31 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 children: deleteActions,
             ))
         }
-        elements.append(contentsOf: interactionActions(for: message))
         if let saveSoundIndex, elements.indices.contains(saveSoundIndex + 1) {
             elements[saveSoundIndex + 1].startsNewSection = true
         }
-        if let readDateAction = readDateAction(for: message) {
+        if let readDateAction = readDateAction(for: message) ?? readReportAction(for: message) {
             if !elements.isEmpty { elements[0].startsNewSection = true }
             elements.insert(readDateAction, at: 0)
         }
+        if let editDateAction = editDateAction(for: message) {
+            if !elements.isEmpty { elements[0].startsNewSection = true }
+            elements.insert(editDateAction, at: 0)
+        }
         return elements
+    }
+
+    /// ChatReadReportContextItem's `isEdit`: an edited message's menu opens with when it was last edited. TDLib
+    /// reports a hidden edit, such as a bot's keyboard-only one, with an edit date of 0.
+    private func editDateAction(for message: CustomMessage) -> TelegramContextMenuAction? {
+        let editDate = message.message.editDate
+        guard editDate > 0 else { return nil }
+        var action = TelegramContextMenuAction(
+            title: Self.menuTimestamp(editDate, key: "Chat.PrivateMessageEditTimestamp"),
+            image: UIImage(systemName: "pencil"),
+        )
+        action.isHeader = true
+        return action
     }
 
     /// presentDeleteMessageOptions: the submenu of Delete, with no icons, offers deleting for everyone first (for the
@@ -9234,7 +9256,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         action.isHeader = true
         action.titleUpdates = readDate.compactMap { $0.map(Self.readDateTitle) }.eraseToAnyPublisher()
-        action.headerSelectableUpdates = readDate
+        action.selectableUpdates = readDate
             .map { readDate in
                 if case .messageReadDateMyPrivacyRestricted? = readDate { return true }
                 return false
@@ -9320,45 +9342,68 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
     }
 
-    /// ChatMessageContextMenu's read receipts and reactions below the actions: who saw the message in a small group
-    /// (canGetViewers) and who reacted to it (canGetAddedReactions).
-    private func interactionActions(for message: CustomMessage) -> [TelegramContextMenuAction] {
-        var actions = [TelegramContextMenuAction]()
-        if message.properties.canGetViewers {
-            actions.append(TelegramContextMenuAction(
-                title: L10n.betterTG("Message.SeenBy"),
-                image: UIImage(systemName: "eye"),
-            ) { [weak self, weak message] in
-                guard let self, let message else { return }
-                MessageInteractionsViewController.present(
-                    .viewers,
-                    chatID: message.message.chatId,
-                    messageID: message.id,
-                    from: self,
-                )
-            })
+    /// ChatReadReportContextItem in a group: atop the menu, how many saw the message (canGetViewers,
+    /// `getMessageViewers`) or reacted to it (canGetAddedReactions), with up to three of them; it opens the list of
+    /// the reactions, followed by the other viewers, or of the viewers. A channel's or private chat's reactions aren't
+    /// listed.
+    private func readReportAction(for message: CustomMessage) -> TelegramContextMenuAction? {
+        let isGroup =
+            switch chatVM.customChat.type {
+            case .group: true
+            case .supergroup(let supergroup): !supergroup.isChannel
+            case .bot,
+                 .user: false
+            }
+        let reactions = MessageReadReport.listedReactions(of: message)
+        let reactionCount = reactions.reduce(0) { $0 + $1.totalCount }
+        let canListViewers = message.properties.canGetViewers
+        guard isGroup, canListViewers || reactionCount > 0 else { return nil }
+        var initial = MessageReadReport(
+            reactionCount: reactionCount,
+            media: MessageReadReport.Media(message.message.content),
+            canListViewers: canListViewers,
+        )
+        initial.recentReactors = reactions.flatMap(\.recentSenderIds)
+        let report = CurrentValueSubject<MessageReadReport, Never>(initial)
+        let isOutgoing = message.message.isOutgoing
+        let chatID = message.message.chatId
+        let messageID = message.id
+        var action = TelegramContextMenuAction(
+            title: initial.title ?? "",
+            image: UIImage(systemName: reactionCount > 0 ? "heart" : "eye"),
+        ) { [weak self] in
+            guard let self, report.value.isEnabled else { return }
+            let kind: MessageInteractionsViewController.Kind =
+                if reactionCount > 0 {
+                    .reactions(isOutgoing: isOutgoing, count: reactionCount, includesViewers: canListViewers)
+                } else {
+                    .viewers
+                }
+            MessageInteractionsViewController.present(kind, chatID: chatID, messageID: messageID, from: self)
         }
-        let reactionCount = message.reactions?.reactions.reduce(0) { $0 + $1.totalCount } ?? 0
-        if message.reactions?.canGetAddedReactions == true, reactionCount > 0 {
-            let isOutgoing = message.message.isOutgoing
-            actions.append(TelegramContextMenuAction(
-                title: L10n.telegramPlural(
-                    isOutgoing ? "Chat.OutgoingContextReactionCount" : "Chat.ContextReactionCount",
-                    count: reactionCount,
-                ),
-                image: UIImage(systemName: "heart"),
-            ) { [weak self, weak message] in
-                guard let self, let message else { return }
-                MessageInteractionsViewController.present(
-                    .reactions(isOutgoing: isOutgoing, count: reactionCount),
-                    chatID: message.message.chatId,
-                    messageID: message.id,
-                    from: self,
-                )
-            })
+        action.titleUpdates = report.compactMap(\.title).removeDuplicates().eraseToAnyPublisher()
+        action.selectableUpdates = report.map(\.isEnabled).removeDuplicates().eraseToAnyPublisher()
+        let avatars = PassthroughSubject<TelegramContextMenuAvatars, Never>()
+        action.avatarUpdates = avatars.eraseToAnyPublisher()
+        let client = chatVM.client
+        Task { [weak self] in
+            var loaded = report.value
+            if loaded.viewerIDs == nil {
+                let viewers = try? await client.send(TDNativeRequests.getMessageViewers(
+                    chatId: chatID,
+                    messageId: messageID,
+                ))
+                loaded.viewerIDs = viewers?.viewers.map(\.userId) ?? []
+            }
+            var peers = [SettingsPeer]()
+            for sender in loaded.avatarSenders {
+                if let peer = await SettingsPeer.resolve(sender, client: client) { peers.append(peer) }
+            }
+            guard let self, chatVM.locationContextIsCurrent else { return }
+            avatars.send(TelegramContextMenuAvatars(peers: peers, client: client))
+            report.send(loaded)
         }
-        if !actions.isEmpty { actions[0].startsNewSection = true }
-        return actions
+        return action
     }
 
     /// Telegram's Copy Link (getMessageLink): an album's link, or a thread's or topic's in one, and the toast that
