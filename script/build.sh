@@ -9,7 +9,7 @@ PROJECT_NAME="BetterTG"
 APP_NAME="BetterTG"
 BUNDLE_ID="com.levochkaaa.BetterTG"
 SCHEME="BetterTG"
-DEFAULT_XCODE_PATH="/Applications/Xcode-27.0.0.app"
+DEFAULT_XCODE_PATH="/Applications/Xcode-27.1.0.app"
 XCODE_PATH="$DEFAULT_XCODE_PATH"
 CONFIGURATION="Debug"
 DERIVED_DATA_PATH=""
@@ -59,7 +59,7 @@ Options:
   --ios VERSION|latest
             Simulator iOS runtime. Default: latest existing runtime for the simulator.
   --xcode PATH
-            Xcode .app or Developer directory. Default: /Applications/Xcode-27.0.0.app.
+            Xcode .app or Developer directory. Default: /Applications/Xcode-27.1.0.app.
   --derived-data PATH
             DerivedData path. Default: .build/xcodebuild-derived-data/<Xcode version>.
   --cloned-source-packages-dir-path PATH
