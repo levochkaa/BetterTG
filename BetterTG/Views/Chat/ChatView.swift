@@ -3740,6 +3740,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 retryClientRestoration()
             }
             .store(in: &cancellables)
+        chatVM.$historyLoadedEmpty
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    updateEmptyState(isEmpty: dataSource.snapshot().itemIdentifiers.isEmpty)
+                }
+            }
+            .store(in: &cancellables)
         // ChatBotInfoItem arrives with the bot's full info; an empty bot chat shows it in place of the placeholder.
         chatVM.$botInfo
             .dropFirst()
@@ -4587,7 +4598,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
             performAlbumRegroupTransition(regroup)
         }
-        collectionView.backgroundView = batch.content.ids.isEmpty ? emptyStateView() : nil
+        updateEmptyState(isEmpty: batch.content.ids.isEmpty)
     }
 
     /// Telegram builds a group entry only for two or more messages, so an album that becomes one message, or one
@@ -5139,6 +5150,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 recordMessageNavigationGeometry("highlight-after", command: true)
             }
         #endif
+    }
+
+    /// ChatEmptyNode shows once the history is known to be empty, not while it loads.
+    private func updateEmptyState(isEmpty: Bool) {
+        collectionView.backgroundView = isEmpty && chatVM.historyLoadedEmpty ? emptyStateView() : nil
     }
 
     /// ChatBotInfoItem in a bot chat without messages, otherwise Telegram's ChatEmptyNode. The empty state is kept
