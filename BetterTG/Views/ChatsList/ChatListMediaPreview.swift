@@ -150,8 +150,136 @@ struct ChatListMediaPreview: Equatable {
 }
 
 extension NSAttributedString.Key {
-    /// Marks the gap ChatListItem's textLeftCutout leaves in a row's text for its media thumbnail.
+    /// Marks the gap ChatListItem's textLeftCutout leaves in a row's text for its type icon and media thumbnail.
     static let chatListMediaPreviewGap = NSAttributedString.Key("BetterTGChatListMediaPreviewGap")
+}
+
+// MARK: - ChatListMessageTypeIcon
+
+/// ChatListItem's messageTypeIcon before the text: a forward, a story reply, or the kind of a voice message, music,
+/// poll, checklist, game, location or call, in the mute icon's grey.
+enum ChatListMessageTypeIcon: Equatable {
+    case forward
+    case story
+    case voiceMessage
+    case audio
+    case poll
+    case todo
+    case game
+    case location
+    case call(video: Bool, incoming: Bool)
+
+    /// ChatListItem's forwardedIconSpacing before a thumbnail, and the 4 pt before the text without one.
+    static let spacingBeforePreview = CGFloat(6)
+    static let spacingBeforeText = CGFloat(4)
+
+    /// PresentationResourcesChatList's icons; the poll and location ones fit a 20 pt square as Telegram draws them.
+    var image: UIImage? {
+        switch self {
+        case .forward: Self.asset("ForwardedIcon")
+        case .story: Self.asset("StoryReplyIcon")
+        case .voiceMessage: Self.asset("VoiceMessageIcon")
+        case .audio: Self.asset("AudioIcon")
+        case .poll: Self.fitted("PollBadgeIcon", inset: 2)
+        case .todo: Self.asset("TodoIcon")
+        case .game: Self.asset("GameIcon")
+        case .location: Self.fitted("LocationIcon", inset: 0)
+        case .call(let video, let incoming):
+            Self.asset(video
+                ? (incoming ? "CallVideoIncomingIcon" : "CallVideoOutgoingIcon")
+                : (incoming ? "CallIncomingIcon" : "CallOutgoingIcon"))
+        }
+    }
+
+    /// ChatListItem's currentMessageTypeIconOffset.
+    var offsetY: CGFloat {
+        switch self {
+        case .forward: 3
+        case .location: -1 - 1 / 3
+        case .audio,
+             .game,
+             .poll,
+             .todo,
+             .voiceMessage: -1
+        case .call,
+             .story: 0
+        }
+    }
+
+    static func make(for message: Message) -> Self? {
+        // The Verification Codes account forwards every code; Telegram marks none of them.
+        if message.forwardInfo != nil, message.chatId != 489_000 { return .forward }
+        if case .messageReplyToStory = message.replyTo { return .story }
+        switch message.content {
+        case .messageVoiceNote: return .voiceMessage
+        case .messageAudio: return .audio
+        case .messagePoll: return .poll
+        case .messageChecklist: return .todo
+        case .messageGame: return .game
+        case .messageLiveLocation,
+             .messageLocation,
+             .messageVenue: return .location
+        case .messageCall(let call): return .call(video: call.isVideo, incoming: !message.isOutgoing)
+        default: return nil
+        }
+    }
+
+    /// chatListItemStrings with `enableMediaEmoji` off, where the icon names the kind: a poll's question alone, and a
+    /// voice message's or music's caption alone.
+    static func text(for message: Message) -> String? {
+        switch message.content {
+        case .messagePoll(let content):
+            content.poll.question.text
+        case .messageVoiceNote(let content):
+            captionText(content.caption)
+        case .messageAudio(let content):
+            captionText(content.caption)
+        default:
+            nil
+        }
+    }
+
+    /// The width the icon and its spacing take from the start of the text.
+    static func gapWidth(icon: Self?, hasPreview: Bool) -> CGFloat {
+        var width = CGFloat.zero
+        if let image = icon?.image {
+            width += image.size.width + (hasPreview ? spacingBeforePreview : spacingBeforeText)
+        }
+        if hasPreview { width += ChatListMediaPreview.side + ChatListMediaPreview.spacingAfter }
+        return width
+    }
+
+    /// The gap in the text, after which the row's text continues.
+    static func gap(icon: Self?, hasPreview: Bool) -> NSAttributedString {
+        let attachment = NSTextAttachment(image: UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { _ in
+        })
+        attachment.bounds = CGRect(x: 0, y: 0, width: gapWidth(icon: icon, hasPreview: hasPreview), height: 1)
+        let result = NSMutableAttributedString(attachment: attachment)
+        result.addAttribute(.chatListMediaPreviewGap, value: true, range: NSRange(location: 0, length: result.length))
+        return result
+    }
+
+    private static func captionText(_ caption: FormattedText) -> String? {
+        if caption.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            nil
+        } else {
+            MessageTextSpoilerPresentation(caption).accessibilityText()
+        }
+    }
+
+    private static func asset(_ name: String) -> UIImage? {
+        UIImage(named: "ChatList/\(name)")?.withRenderingMode(.alwaysTemplate)
+    }
+
+    private static func fitted(_ name: String, inset: CGFloat) -> UIImage? {
+        guard let source = UIImage(named: "ChatList/\(name)") else { return nil }
+        let size = CGSize(width: 20, height: 20)
+        return UIGraphicsImageRenderer(size: size)
+            .image { _ in
+                source.draw(in: CGRect(origin: .zero, size: size).insetBy(dx: inset, dy: inset))
+            }
+            .withRenderingMode(.alwaysTemplate)
+    }
 }
 
 // MARK: - ChatListMediaPreviewView

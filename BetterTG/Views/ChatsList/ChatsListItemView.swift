@@ -53,6 +53,9 @@ final class ChatListCell: UITableViewCell {
     /// ChatListMediaPreviewNode before the text, in the gap the text leaves for it.
     private let mediaPreviewView = ChatListMediaPreviewView()
     private var mediaPreview: ChatListMediaPreview?
+    /// ChatListItem's forwardedIconNode, showing whichever messageTypeIcon the last message has.
+    private let messageTypeIconView = UIImageView()
+    private var messageTypeIcon: ChatListMessageTypeIcon?
     /// Telegram's mention or reaction badge, left of the unread count (ChatListItem, mentionBadgeNode).
     private let mentionBadgeView = UIImageView()
     private let trailingBadges = UIStackView()
@@ -223,9 +226,11 @@ final class ChatListCell: UITableViewCell {
         configuredClient = client
         pinned = chat.position.isPinned
         titleLabel.attributedText = Self.title(for: chat, font: titleLabel.font)
-        mediaPreview = chat.draftMessage == nil
-            ? chat.lastMessage.flatMap { ChatListMediaPreview.make(for: $0, inSecretChat: chat.secretChatID != nil) }
-            : nil
+        let shownMessage = chat.draftMessage == nil ? chat.lastMessage : nil
+        mediaPreview = shownMessage
+            .flatMap { ChatListMediaPreview.make(for: $0, inSecretChat: chat.secretChatID != nil) }
+        messageTypeIcon = shownMessage.flatMap(ChatListMessageTypeIcon.make)
+        messageTypeIconView.image = messageTypeIcon?.image
         if let mediaPreview { mediaPreviewView.configure(mediaPreview, client: client) }
         else { mediaPreviewView.reset() }
         messageLabel.attributedText = activityText(for: chat, client: client) ?? summaryText(for: chat, client: client)
@@ -353,9 +358,17 @@ final class ChatListCell: UITableViewCell {
             client: client, missing: &missing,
             onResolved: { [weak self] in self?.reconfigure(chatID: chat.id) },
         ) {
-            return NSAttributedString(string: service, attributes: [.foregroundColor: UIColor.secondaryLabel])
+            // A call's icon leads its wording.
+            let result = NSMutableAttributedString()
+            if messageTypeIcon != nil { result.append(ChatListMessageTypeIcon.gap(
+                icon: messageTypeIcon,
+                hasPreview: false,
+            )) }
+            result.append(NSAttributedString(string: service, attributes: [.foregroundColor: UIColor.secondaryLabel]))
+            return result
         }
-        guard let summary = ChatSummary.attributedText(for: chat, preview: mediaPreview) else { return nil }
+        guard let summary = ChatSummary.attributedText(for: chat, icon: messageTypeIcon, preview: mediaPreview)
+        else { return nil }
         let isGroup =
             switch chat.type {
             case .group: true
@@ -425,6 +438,8 @@ final class ChatListCell: UITableViewCell {
         }
         rowView.addSubview(onlineMarker)
         rowView.addSubview(mediaPreviewView)
+        rowView.addSubview(messageTypeIconView)
+        messageTypeIconView.tintColor = .secondaryLabel
         avatarView.addGestureRecognizer(storyTapGesture)
         storyTapGesture.isEnabled = false
         separatorView.backgroundColor = .separator
@@ -482,13 +497,16 @@ final class ChatListCell: UITableViewCell {
         unreadLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
     }
 
-    /// ChatListItem places the thumbnail a point into the text's gap, on the first line; a gap truncated away hides
-    /// it, as does any text without one (an activity, a draft, a service message).
+    /// ChatListItem places the type icon and then the thumbnail a point into the text's gap, on the first line; a gap
+    /// truncated away hides them, as does any text without one (an activity or a draft).
     private func layoutMediaPreview() {
-        guard mediaPreview != nil, let text = messageLabel.attributedText, let font = messageLabel.font else {
+        func hide() {
             mediaPreviewView.isHidden = true
-            return
+            messageTypeIconView.isHidden = true
         }
+        guard mediaPreview != nil || messageTypeIcon != nil,
+              let text = messageLabel.attributedText, let font = messageLabel.font
+        else { return hide() }
         var gapLocation: Int?
         text.enumerateAttribute(
             .chatListMediaPreviewGap,
@@ -498,27 +516,31 @@ final class ChatListCell: UITableViewCell {
             gapLocation = range.location
             stop.pointee = true
         }
-        guard let gapLocation else {
-            mediaPreviewView.isHidden = true
-            return
-        }
+        guard let gapLocation else { return hide() }
         rowView.layoutIfNeeded()
         let prefix = text.attributedSubstring(from: NSRange(location: 0, length: gapLocation)).string
         let prefixWidth = ceil((prefix as NSString).size(withAttributes: [.font: font]).width)
         let side = ChatListMediaPreview.side
         let frame = messageLabel.frame
-        let x = frame.minX + prefixWidth + 1
-        guard x + side <= frame.maxX else {
-            mediaPreviewView.isHidden = true
-            return
+        var origin = CGPoint(x: frame.minX + prefixWidth + 1, y: frame.minY + 1 + floor((font.lineHeight - side) / 2))
+        let gapWidth = ChatListMessageTypeIcon.gapWidth(icon: messageTypeIcon, hasPreview: mediaPreview != nil)
+        guard origin.x + gapWidth - 1 <= frame.maxX else { return hide() }
+        if let icon = messageTypeIcon, let image = messageTypeIconView.image {
+            messageTypeIconView.frame = CGRect(
+                origin: CGPoint(x: origin.x, y: origin.y + icon.offsetY),
+                size: image.size,
+            )
+            messageTypeIconView.isHidden = false
+            origin.x += image.size.width + ChatListMessageTypeIcon.spacingBeforePreview
+        } else {
+            messageTypeIconView.isHidden = true
         }
-        mediaPreviewView.frame = CGRect(
-            x: x,
-            y: frame.minY + 1 + floor((font.lineHeight - side) / 2),
-            width: side,
-            height: side,
-        )
-        mediaPreviewView.isHidden = false
+        if mediaPreview != nil {
+            mediaPreviewView.frame = CGRect(origin: origin, size: CGSize(width: side, height: side))
+            mediaPreviewView.isHidden = false
+        } else {
+            mediaPreviewView.isHidden = true
+        }
     }
 
     /// ChatListItem's online flag: a person online right now, or a group or channel whose video chat has people in

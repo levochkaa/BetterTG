@@ -4,8 +4,12 @@ import TDLibKit
 import UIKit
 
 @MainActor enum ChatSummary {
-    /// With a media thumbnail the text leaves its gap after any forward mark and names the media as Telegram does.
-    static func attributedText(for chat: CustomChat, preview: ChatListMediaPreview? = nil) -> NSAttributedString? {
+    /// With a type icon or a media thumbnail the text starts after their gap and names the media as Telegram does.
+    static func attributedText(
+        for chat: CustomChat,
+        icon: ChatListMessageTypeIcon? = nil,
+        preview: ChatListMediaPreview? = nil,
+    ) -> NSAttributedString? {
         if let draft = chat.draftMessage {
             let result = NSMutableAttributedString(
                 string: L10n.telegram("DialogList.Draft") + ": ",
@@ -40,9 +44,12 @@ import UIKit
         }
         guard let message = chat.lastMessage else { return nil }
         let attributes: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.secondaryLabel]
-        let result = NSMutableAttributedString(string: message.forwardInfo == nil ? "" : "↗︎ ", attributes: attributes)
-        if preview != nil { result.append(ChatListMediaPreviewView.gap()) }
-        result.append(NSAttributedString(string: preview?.text ?? summary(for: message), attributes: attributes))
+        let result = NSMutableAttributedString()
+        if icon != nil || preview != nil {
+            result.append(ChatListMessageTypeIcon.gap(icon: icon, hasPreview: preview != nil))
+        }
+        let text = preview?.text ?? ChatListMessageTypeIcon.text(for: message) ?? summary(for: message)
+        result.append(NSAttributedString(string: text, attributes: attributes))
         return result
     }
 
