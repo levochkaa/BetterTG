@@ -2386,6 +2386,14 @@
 "Story.Views.NoViews" = "Nobody has viewed\nyour story yet.";
 "Story.Views.ViewsExpired" = "List of viewers becomes unavailable **24 hours** after the story expires.";
 "Story.Views.Commented" = " • commented";
+"Conversation.ContextMenuBlock" = "Block User";
+"Story.ContextShowStoriesTo" = "Show My Stories To %@";
+"Story.ContextHideStoriesFrom" = "Hide My Stories From %@";
+"Story.ToastShowStoriesTo" = "**%@** will now see your stories.";
+"Story.ToastHideStoriesFrom" = "**%@** will not see your stories anymore.";
+"Story.ContextDeleteContact" = "Delete Contact";
+"Story.ToastDeletedContact" = "**%@** has been removed from your contacts.";
+"Story.ToastUserBlocked" = "**%@** has been blocked.";
 "Chat.MessageSeenTimestamp.TodayAt" = "today at %@";
 "Chat.MessageSeenTimestamp.YesterdayAt" = "yesterday at %@";
 "Chat.MessageSeenTimestamp.Date" = "%@";

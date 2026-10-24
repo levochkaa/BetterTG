@@ -41,7 +41,7 @@ import UIKit
                     + "translate=true; "
                     + "own-menu/expired/live/button/footer/no-views/view-label/count-text=true; "
                     + "view-list-title/tabs-at-20/private-no-tabs/sort-at-10/expired-no-header/empty-texts/"
-                    + "subtitles/page-kinds/layout/drag-outcomes=true; "
+                    + "subtitles/page-kinds/layout/drag-outcomes/row-menus=true; "
                     + "reply-user/private/closed/service/bot/self/group/read-only-group/channel/live/reaction-text=true"
             } catch {
                 result = "Story viewer probe failed: \(error)"
@@ -701,6 +701,21 @@ import UIKit
             try require(outcome(.half, 480, 57, 200) == .hidden, "a flick down closes")
             try require(outcome(.half, 600, -63, -20, list: true) == .full, "pulled up from the list opens fully")
             try require(outcome(.full, 700, 114, 0) == .half, "pulled down from full settles at half")
+
+            typealias Menu = StoryViewList.MenuItem
+            try require(
+                StoryViewList.menuItems(isContact: true, blockList: nil) == [Menu.hideStories, .deleteContact],
+                "a contact's menu",
+            )
+            try require(StoryViewList.menuItems(isContact: false, blockList: nil) == [Menu.block], "a stranger's menu")
+            try require(
+                StoryViewList.menuItems(isContact: false, blockList: .blockListMain).isEmpty,
+                "a blocked stranger has no menu",
+            )
+            try require(
+                StoryViewList.menuItems(isContact: false, blockList: .blockListStories) == [Menu.showStories, .block],
+                "a stranger kept from the stories",
+            )
         }
 
         private static func verifyOwnStory() throws {

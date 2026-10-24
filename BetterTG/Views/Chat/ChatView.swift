@@ -9340,7 +9340,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 }
 
-private extension User {
+extension User {
     /// Telegram's EnginePeer.compactDisplayTitle for users: the first name, else the last name.
     var compactDisplayTitle: String {
         let first = firstName.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -25,6 +25,8 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
     static let rowHeight = CGFloat(60)
 
     var onSelect: ((StoryViewList.Item) -> Void)?
+    /// A row held for its menu (peerContextAction), with the row to lift and the press that keeps tracking.
+    var onContextMenu: ((StoryViewList.Item, UIView, ContextMenuPressGestureRecognizer) -> Void)?
     /// The search field took or gave up the keyboard; Telegram expands the list for it.
     var onSearchActiveChanged: ((Bool) -> Void)?
 
@@ -88,6 +90,11 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
             }
         }
 
+        func probeItem(at index: Int) -> StoryViewList.Item? {
+            guard let loader, loader.items.indices.contains(index) else { return nil }
+            return loader.items[index]
+        }
+
         func probeSelectRow(_ index: Int) {
             guard let loader, loader.items.indices.contains(index) else { return }
             onSelect?(loader.items[index])
@@ -147,6 +154,14 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
         tableView.dataSource = self
         tableView.delegate = self
         tableView.register(StoryViewListCell.self, forCellReuseIdentifier: StoryViewListCell.reuseIdentifier)
+        let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(rowPressed(_:)))
+        press.pressedViewProvider = { [weak self] gesture in
+            guard let self, let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+                  loader?.items.indices.contains(path.row) == true
+            else { return nil }
+            return tableView.cellForRow(at: path)?.contentView
+        }
+        tableView.addGestureRecognizer(press)
         addSubview(tableView)
         addSubview(navigationView)
 
@@ -250,6 +265,11 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
 
     func endSearch() {
         searchField.resignFirstResponder()
+    }
+
+    /// The viewer's place after a menu choice, so the next menu offers the opposite.
+    func setBlockList(_ blockList: BlockList?, for actorID: Int64) {
+        loader?.setBlockList(blockList, for: actorID)
     }
 
     func numberOfSections(in _: UITableView) -> Int {
@@ -414,6 +434,16 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
                 UIView.animate(withDuration: 0.25) { self?.sortButton.alpha = 1 }
             },
         )
+    }
+
+    @objc private func rowPressed(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard gesture.state == .began, let loader,
+              let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+              loader.items.indices.contains(path.row), let cell = tableView.cellForRow(at: path)
+        else { return }
+        // The row's content lifts without the press's highlight, which lies under it.
+        cell.setHighlighted(false, animated: false)
+        onContextMenu?(loader.items[path.row], cell.contentView, gesture)
     }
 
     private func resolvePeer(_ item: StoryViewList.Item) {

@@ -40,6 +40,8 @@ enum StoryViewList {
         let actor: MessageSender
         let date: Int
         let kind: Kind
+        /// Where the account has put the viewer: blocked, or kept from its stories.
+        var blockList: BlockList?
 
         var actorID: Int64 {
             switch actor {
@@ -64,8 +66,45 @@ enum StoryViewList {
         let showsSort: Bool
     }
 
+    /// peerContextAction's items for a person in the list.
+    enum MenuItem: Equatable {
+        case showStories
+        case hideStories
+        case deleteContact
+        case block
+    }
+
     /// EngineStoryViewListContext's page size.
     static let pageSize = 50
+
+    /// peerContextAction: someone kept from the account's stories can see them again, a contact can be kept from
+    /// them; a contact can be deleted, anyone else not yet blocked can be blocked.
+    static func menuItems(isContact: Bool, blockList: BlockList?) -> [MenuItem] {
+        var items = [MenuItem]()
+        let isBlockedFromStories =
+            if case .blockListStories = blockList {
+                true
+            } else {
+                false
+            }
+        let isBlocked =
+            if case .blockListMain = blockList {
+                true
+            } else {
+                false
+            }
+        if isBlockedFromStories {
+            items.append(.showStories)
+        } else if isContact {
+            items.append(.hideStories)
+        }
+        if isContact {
+            items.append(.deleteContact)
+        } else if !isBlocked {
+            items.append(.block)
+        }
+        return items
+    }
 
     static func page(_ interactions: StoryInteractions) -> Page {
         Page(
@@ -85,7 +124,12 @@ enum StoryViewList {
                             hasCaption: !repost.story.caption.text.isEmpty,
                         )
                     }
-                return Item(actor: interaction.actorId, date: interaction.interactionDate, kind: kind)
+                return Item(
+                    actor: interaction.actorId,
+                    date: interaction.interactionDate,
+                    kind: kind,
+                    blockList: interaction.blockList,
+                )
             },
             nextOffset: interactions.nextOffset,
         )
@@ -191,6 +235,12 @@ enum StoryViewList {
         isLoaded = false
         onChange?()
         loadMore()
+    }
+
+    func setBlockList(_ blockList: BlockList?, for actorID: Int64) {
+        for index in items.indices where items[index].actorID == actorID {
+            items[index].blockList = blockList
+        }
     }
 
     func loadMore() {

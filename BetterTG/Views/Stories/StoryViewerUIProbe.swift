@@ -20,7 +20,8 @@
     ///   the other reactions (like-options), or sends a reply (send);
     /// - `own [footer|menu|delete|viewers|viewers-full]` opens the account's own stories instead, before Alice's: the
     ///   viewers list at half the screen from the footer's counts, with Alice's heart, Bob's view and Carol's
-    ///   commented repost, then a tap on Bob (viewers), or the list fully open and closed again (viewers-full); the
+    ///   commented repost, then a tap on Bob (viewers), or the list fully open and closed again (viewers-full), or the
+    ///   rows' menus, hiding the stories from Alice (viewers-menu); the
     ///   footer with three
     ///   views from Alice, Bob and Carol, two reactions and a repost (footer, by default), the own More menu (menu),
     ///   or Delete's sheet, then the deletion, after which the second story, without views, shows (delete).
@@ -265,7 +266,9 @@
                 return ["edit", "like-options", "send"].contains(step) ? .reply(step: step) : nil
             case "own":
                 let step = value ?? "footer"
-                return ["footer", "menu", "delete", "viewers", "viewers-full"].contains(step) ? .own(step: step) : nil
+                return ["footer", "menu", "delete", "viewers", "viewers-full", "viewers-menu"].contains(step)
+                    ? .own(step: step)
+                    : nil
             default:
                 return nil
             }
@@ -469,6 +472,24 @@
                     stepText += " full=\(Int(full.frame.minY)) footer-alpha=\(String(format: "%.2f", full.footerAlpha)) "
                         + "closed-scale=\(String(format: "%.2f", hidden.storyScale)) paused=\(hidden.isPaused)"
                 }
+            case "viewers-menu":
+                viewer.probeSeedViewerUsers([
+                    viewerUser(alice, "Alice", isContact: true),
+                    viewerUser(bob, "Bob", isContact: false),
+                    viewerUser(carol, "Carol", isContact: true),
+                ])
+                viewer.probeOpenViewList()
+                try? await Task.sleep(for: .milliseconds(1200))
+                let aliceItems = await viewer.probeViewerMenu(row: 0, choose: .hideStories)
+                let aliceAfter = await viewer.probeViewerMenu(row: 0, choose: nil)
+                let bobItems = await viewer.probeViewerMenu(row: 1, choose: nil)
+                let carolItems = await viewer.probeViewerMenu(row: 2, choose: nil)
+                stepPasses = aliceItems == [.hideStories, .deleteContact] && aliceAfter == [
+                    .showStories,
+                    .deleteContact,
+                ]
+                    && bobItems == [.block] && carolItems == [.showStories, .deleteContact]
+                stepText = "alice=\(aliceItems) then \(aliceAfter) bob=\(bobItems) carol=\(carolItems)"
             case "delete":
                 viewer.probePressDelete()
                 try? await Task.sleep(for: .milliseconds(1200))
@@ -488,7 +509,21 @@
             record("Story viewer UI probe own \(step) \(passes ? "passed" : "failed"): \(footerText) \(stepText)")
         }
 
-        /// Who saw the account's first story: Alice with a heart, then Bob, then Carol's repost with a caption.
+        /// A viewer as TDLib's user, a contact or not.
+        private static func viewerUser(_ id: Int64, _ name: String, isContact: Bool) -> User {
+            User(
+                accentColorId: -1, activeStoryState: nil, addedToAttachmentMenu: false, backgroundCustomEmojiId: 0,
+                emojiStatus: nil, firstName: name, haveAccess: true, id: id, isCloseFriend: false,
+                isContact: isContact, isMutualContact: false, isPremium: false, isSupport: false, languageCode: "",
+                lastName: "", paidMessageStarCount: 0, phoneNumber: "", profileAccentColorId: -1,
+                profileBackgroundCustomEmojiId: 0, profilePhoto: nil, restrictionInfo: nil, restrictsNewChats: false,
+                status: .userStatusEmpty, type: .userTypeRegular, upgradedGiftColors: nil, usernames: nil,
+                verificationStatus: nil,
+            )
+        }
+
+        /// Who saw the account's first story: Alice with a heart, then Bob, then Carol's repost with a caption;
+        /// Carol is kept from the account's stories.
         private static func ownInteractions() -> [Int: [StoryInteraction]] {
             let now = Int(Foundation.Date().timeIntervalSince1970)
             let repost = makeStory(
@@ -517,7 +552,7 @@
                 StoryInteraction(
                     actorId: .messageSenderUser(MessageSenderUser(userId: carol)),
                     interactionDate: now - 120,
-                    blockList: nil,
+                    blockList: .blockListStories,
                     type: .storyInteractionTypeRepost(TDNativeStoryInteractionTypeRepost(story: repost)),
                 ),
             ]]

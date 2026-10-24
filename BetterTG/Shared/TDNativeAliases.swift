@@ -16,6 +16,7 @@ public typealias AvailableReactions = TDNativeAvailableReactions
 public typealias Background = TDNativeBackground
 public typealias BasicGroup = TDNativeBasicGroup
 public typealias BasicGroupFullInfo = TDNativeBasicGroupFullInfo
+public typealias BlockList = TDNativeBlockList
 public typealias BotInfo = TDNativeBotInfo
 public typealias Call = TDNativeCall
 public typealias CallDiscardReason = TDNativeCallDiscardReason

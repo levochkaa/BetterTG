@@ -106,6 +106,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private var viewListFooterAlpha = CGFloat(1)
     /// Whether the list last set the story's corners.
     private var viewListShapesStory = false
+    private var viewerMenuTask: Task<Void, Never>?
+    #if DEBUG
+        /// The UI probe's viewers, as TDLib's users, for their menus.
+        private var probeViewerUsers = [Int64: User]()
+    #endif
 
     private lazy var tapGesture = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
     private lazy var holdGesture = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
@@ -1706,6 +1711,9 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         } else {
             panel = StoryViewListPanel()
             panel.onSelect = { [weak self] item in self?.openViewer(item) }
+            panel.onContextMenu = { [weak self] item, row, gesture in
+                self?.openViewerMenu(item, row: row, gesture: gesture)
+            }
             panel.onSearchActiveChanged = { [weak self] isActive in
                 if isActive { self?.setViewListDisplay(.full) }
             }
@@ -1772,6 +1780,110 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
                 sourceView: nil,
             )
         }
+    }
+
+    /// peerContextAction for a person in the list: once TDLib says whether they're a contact, the row lifts with
+    /// Show or Hide My Stories, Delete Contact or Block below it. The account itself and chats have no menu.
+    private func openViewerMenu(_ item: StoryViewList.Item, row: UIView, gesture: ContextMenuPressGestureRecognizer) {
+        guard case .messageSenderUser(let sender) = item.actor, sender.userId != session.accountUserID,
+              !isClosing else { return }
+        viewerMenuTask?.cancel()
+        viewerMenuTask = Task { [weak self, weak row, weak gesture] in
+            guard let self else { return }
+            let user = await viewerUser(sender.userId)
+            guard !Task.isCancelled, let user, let row, let gesture, row.window != nil,
+                  [.began, .changed].contains(gesture.state) else { return }
+            let name = user.compactDisplayTitle
+            let actions = StoryViewList.menuItems(isContact: user.isContact, blockList: item.blockList)
+                .map { menuItem in
+                    let (title, symbol, isDestructive): (String, String, Bool) =
+                        switch menuItem {
+                        case .showStories: (L10n.telegram("Story.ContextShowStoriesTo", name), "eye", false)
+                        case .hideStories: (L10n.telegram("Story.ContextHideStoriesFrom", name), "eye.slash", false)
+                        case .deleteContact: (L10n.telegram("Story.ContextDeleteContact"), "trash", true)
+                        case .block: (L10n.telegram("Conversation.ContextMenuBlock"), "hand.raised", true)
+                        }
+                    return TelegramContextMenuAction(
+                        title: title,
+                        image: UIImage(systemName: symbol),
+                        isDestructive: isDestructive,
+                    ) { [weak self] in self?.performViewerMenuItem(menuItem, user: user) }
+                }
+            guard !actions.isEmpty else { return }
+            presentTelegramContextMenu(
+                sourceView: row,
+                actions: actions,
+                tracking: gesture,
+                presentationStyle: .message,
+            )
+        }
+    }
+
+    /// The viewer's user for their menu; the UI probe's come from its fixture.
+    private func viewerUser(_ id: Int64) async -> User? {
+        #if DEBUG
+            if session.isOffline { return probeViewerUsers[id] }
+        #endif
+        guard session.isCurrent, let user = try? await session.client.getUser(userId: id), session.isCurrent
+        else { return nil }
+        return user
+    }
+
+    /// The menu's choice, with Telegram's toast: the block and the contact's deletion can be undone.
+    private func performViewerMenuItem(_ item: StoryViewList.MenuItem, user: User) {
+        let sender = MessageSender.messageSenderUser(MessageSenderUser(userId: user.id))
+        let name = user.compactDisplayTitle
+        let blockList: BlockList?? =
+            switch item {
+            case .showStories: .some(nil)
+            case .hideStories: .some(.blockListStories)
+            case .block: .some(.blockListMain)
+            case .deleteContact: nil
+            }
+        if let blockList { viewListPanel?.setBlockList(blockList, for: user.id) }
+        #if DEBUG
+            if session.isOffline {
+                probeMenuActionHandler?("viewer-menu-\(item)-\(user.id)")
+                return
+            }
+        #endif
+        guard session.isCurrent else { return }
+        let client = session.client
+        let text: String
+        var undo: (() -> Void)?
+        switch item {
+        case .showStories:
+            Task { _ = try? await client.setMessageSenderBlockList(blockList: nil, senderId: sender) }
+            text = L10n.telegram("Story.ToastShowStoriesTo", name)
+        case .hideStories:
+            Task { _ = try? await client.setMessageSenderBlockList(blockList: .blockListStories, senderId: sender) }
+            text = L10n.telegram("Story.ToastHideStoriesFrom", name)
+        case .block:
+            Task { _ = try? await client.setMessageSenderBlockList(blockList: .blockListMain, senderId: sender) }
+            text = L10n.telegram("Story.ToastUserBlocked", name)
+            undo = { [weak self] in
+                self?.viewListPanel?.setBlockList(nil, for: user.id)
+                Task { _ = try? await client.setMessageSenderBlockList(blockList: nil, senderId: sender) }
+            }
+        case .deleteContact:
+            Task { _ = try? await client.removeContacts(userIds: [user.id]) }
+            text = L10n.telegram("Story.ToastDeletedContact", name)
+            undo = {
+                let contact = ImportedContact(
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    note: nil,
+                    phoneNumber: user.phoneNumber,
+                )
+                Task { _ = try? await client.addContact(contact: contact, sharePhoneNumber: false, userId: user.id) }
+            }
+        }
+        TelegramUndoToast.show(
+            text: text.replacing("**", with: ""),
+            in: view,
+            bottomInset: 8,
+            undo: undo,
+        )
     }
 
     /// Applies the list's height: the story shrinks above it, the footer gathers its counts over the story's bottom,
@@ -2594,6 +2706,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         areaMessageTask?.cancel()
         moreTask?.cancel()
         menuActionTask?.cancel()
+        viewerMenuTask?.cancel()
         headerTask?.cancel()
         replyPosterTask?.cancel()
         replyReactionsTask?.cancel()
@@ -2801,6 +2914,24 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
         func probeSelectViewListRow(_ index: Int) {
             viewListPanel?.probeSelectRow(index)
+        }
+
+        /// The probe's viewers as TDLib's users, for their menus.
+        func probeSeedViewerUsers(_ users: [User]) {
+            for user in users {
+                probeViewerUsers[user.id] = user
+            }
+        }
+
+        /// The menu's items for a row and a choice among them, as a press and a tap would make it.
+        func probeViewerMenu(row index: Int, choose item: StoryViewList.MenuItem?) async -> [StoryViewList.MenuItem] {
+            guard let row = viewListPanel?.probeItem(at: index),
+                  case .messageSenderUser(let sender) = row.actor,
+                  let user = await viewerUser(sender.userId)
+            else { return [] }
+            let items = StoryViewList.menuItems(isContact: user.isContact, blockList: row.blockList)
+            if let item, items.contains(item) { performViewerMenuItem(item, user: user) }
+            return items
         }
 
         /// The footer's delete button, as a tap on it.

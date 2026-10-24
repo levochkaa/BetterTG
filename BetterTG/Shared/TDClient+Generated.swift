@@ -784,6 +784,10 @@ extension TDClient {
         ))
     }
 
+    func removeContacts(userIds: [Int64]) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.removeContacts(userIds: userIds))
+    }
+
     func removeMessageReaction(
         chatId: Int64,
         messageId: Int64,
@@ -1004,6 +1008,13 @@ extension TDClient {
 
     func setChatTitle(chatId: Int64, title: String) async throws -> TDNativeOk {
         try await send(TDNativeRequests.setChatTitle(chatId: chatId, title: title))
+    }
+
+    func setMessageSenderBlockList(
+        blockList: TDNativeBlockList?,
+        senderId: TDNativeMessageSender,
+    ) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.setMessageSenderBlockList(senderId: senderId, blockList: blockList))
     }
 
     func setName(firstName: String, lastName: String) async throws -> TDNativeOk {
