@@ -23,6 +23,15 @@ enum TelegramContextMenuLayout {
     /// The shared highlight is inset like the system's largeItemContentShape: 10 pt on each side, with the
     /// menu radius less that inset, capped at half the row height.
     static let highlightInset = CGFloat(10)
+    /// ChatReadReportContextItem in a private chat: 0.8 of the 17-point list font, 7 pt above and below.
+    static let headerFontSize = CGFloat(13)
+    static let headerVerticalInset = CGFloat(7)
+    static let headerHeight = ceil(UIFont.systemFont(ofSize: headerFontSize).lineHeight) + headerVerticalInset * 2
+    static let headerIconSize = CGFloat(20)
+
+    static func height(of action: TelegramContextMenuAction) -> CGFloat {
+        action.isHeader ? headerHeight : actionHeight
+    }
 }
 
 // MARK: - TelegramContextMenuAction
@@ -44,6 +53,11 @@ struct TelegramContextMenuAction {
     /// A selectable row in the smaller 14-point font, such as who added a poll answer (ContextMenuActionItem with
     /// `.small` text and an action).
     var usesSmallText = false
+    /// ChatReadReportContextItem in a private chat: a compact line of text at the top of the menu, such as when the
+    /// message was read. It is never highlighted or selected unless `headerSelectableUpdates` says so.
+    var isHeader = false
+    /// Makes a header tappable while it shows something to act on, such as Telegram's "show when".
+    var headerSelectableUpdates: AnyPublisher<Bool, Never>?
 
     init(
         title: String,
@@ -824,7 +838,9 @@ private final class TelegramContextMenuController: UIViewController {
                 guard let self, let button else { return }
                 perform(button)
             }
-            button.heightAnchor.constraint(equalToConstant: TelegramContextMenuLayout.actionHeight).isActive = true
+            button.heightAnchor
+                .constraint(equalToConstant: TelegramContextMenuLayout.height(of: action))
+                .isActive = true
             menuStack.addArrangedSubview(button)
             actionButtons.append(button)
         }
@@ -840,7 +856,7 @@ private final class TelegramContextMenuController: UIViewController {
             $0 + ($1.startsNewSection ? TelegramContextMenuLayout.sectionSeparatorHeight : 0)
         }
         let menuHeight = TelegramContextMenuLayout.contentVerticalInset * 2
-            + CGFloat(actions.count) * TelegramContextMenuLayout.actionHeight
+            + actions.reduce(CGFloat.zero) { $0 + TelegramContextMenuLayout.height(of: $1) }
             + separatorHeight
         let menuWidth = menuWidth(availableWidth: availableWidth)
         let bottomInset = max(view.safeAreaInsets.bottom, CGFloat(12))
@@ -1359,7 +1375,7 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     private func perform(_ button: TelegramContextMenuActionButton) {
-        guard !isPerformingAction, !button.menuAction.isInformational else { return }
+        guard !isPerformingAction, button.acceptsSelection else { return }
         if !button.menuAction.children.isEmpty {
             parentActions.append(actions)
             let back = TelegramContextMenuAction(
@@ -1506,7 +1522,7 @@ private final class TelegramContextMenuController: UIViewController {
     private func actionIndex(at point: CGPoint) -> Int? {
         guard menuView.frame.contains(point) else { return nil }
         return actionButtons.firstIndex { button in
-            !button.menuAction.isInformational && button.convert(button.bounds, to: view).contains(point)
+            button.acceptsSelection && button.convert(button.bounds, to: view).contains(point)
         }
     }
 
@@ -1814,22 +1830,29 @@ final class TelegramContextMenuActionButton: UIControl {
 
     let menuAction: TelegramContextMenuAction
     var onActivate: (() -> Void)?
+    /// Whether a touch may highlight and choose the row: never for informational rows, and for a header only while
+    /// it offers something.
+    private(set) var acceptsSelection: Bool
 
     // MARK: Private
 
     private let titleLabel = UILabel()
     private let iconView = UIImageView()
     private var titleCancellable: AnyCancellable?
+    private var selectableCancellable: AnyCancellable?
 
     init(action: TelegramContextMenuAction) {
         self.menuAction = action
+        self.acceptsSelection = !action.isInformational && !action.isHeader
         super.init(frame: .zero)
 
         let color: UIColor = action.isDestructive ? .systemRed : .label
         titleLabel.text = action.title
         titleLabel.textColor = color
         titleLabel.font = .systemFont(
-            ofSize: action.isInformational || action.usesSmallText ? 14 : TelegramContextMenuLayout.actionFontSize,
+            ofSize: action.isHeader
+                ? TelegramContextMenuLayout.headerFontSize
+                : action.isInformational || action.usesSmallText ? 14 : TelegramContextMenuLayout.actionFontSize,
         )
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
@@ -1848,15 +1871,18 @@ final class TelegramContextMenuActionButton: UIControl {
         ]
         if action.image != nil {
             addSubview(iconView)
+            let iconSize = action.isHeader
+                ? TelegramContextMenuLayout.headerIconSize
+                : TelegramContextMenuLayout.iconSize
             constraints.append(contentsOf: [
                 iconView.leadingAnchor.constraint(
                     equalTo: leadingAnchor,
                     constant: TelegramContextMenuLayout.iconSideInset
-                        + (TelegramContextMenuLayout.iconSlotWidth - TelegramContextMenuLayout.iconSize) / 2,
+                        + (TelegramContextMenuLayout.iconSlotWidth - iconSize) / 2,
                 ),
                 iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-                iconView.widthAnchor.constraint(equalToConstant: TelegramContextMenuLayout.iconSize),
-                iconView.heightAnchor.constraint(equalToConstant: TelegramContextMenuLayout.iconSize),
+                iconView.widthAnchor.constraint(equalToConstant: iconSize),
+                iconView.heightAnchor.constraint(equalToConstant: iconSize),
                 titleLabel.leadingAnchor.constraint(
                     equalTo: leadingAnchor,
                     constant: TelegramContextMenuLayout.iconSideInset
@@ -1873,7 +1899,15 @@ final class TelegramContextMenuActionButton: UIControl {
         NSLayoutConstraint.activate(constraints)
         isAccessibilityElement = true
         accessibilityLabel = action.title
-        accessibilityTraits = action.isInformational ? .staticText : .button
+        accessibilityTraits = acceptsSelection ? .button : .staticText
+        if action.isHeader, let updates = action.headerSelectableUpdates {
+            self.selectableCancellable = updates
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] selectable in
+                    self?.acceptsSelection = selectable
+                    self?.accessibilityTraits = selectable ? .button : .staticText
+                }
+        }
         if let updates = action.titleUpdates {
             titleLabel.adjustsFontSizeToFitWidth = true
             titleLabel.minimumScaleFactor = 0.7

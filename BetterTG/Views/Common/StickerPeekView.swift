@@ -675,7 +675,7 @@ private final class StickerPeekMenuView: UIView {
     func highlightItem(at point: CGPoint) {
         layoutIfNeeded()
         let index = bounds.contains(point)
-            ? buttons.firstIndex { !$0.menuAction.isInformational && $0.frame.contains(point) }
+            ? buttons.firstIndex { $0.acceptsSelection && $0.frame.contains(point) }
             : nil
         setHighlight(index)
     }

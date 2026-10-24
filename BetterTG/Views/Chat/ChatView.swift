@@ -8469,9 +8469,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return elements
     }
 
-    /// ChatReadReportContextItem in a private chat: when the other person read an outgoing message
-    /// (`getMessageReadDate`), at the top of the menu, or Telegram's "show when" when the user hides their own read
-    /// time; tapping that one offers to show it.
+    /// ChatReadReportContextItem in a private chat: a compact line at the top of the menu with when the other person
+    /// read an outgoing message (`getMessageReadDate`), or Telegram's "show when" when the user hides their own read
+    /// time, the only case the line can be tapped, to offer showing it.
     private func readDateAction(for message: CustomMessage) -> TelegramContextMenuAction? {
         guard case .user(let user) = chatVM.customChat.type, !chatVM.customChat.isSavedMessages,
               message.message.isOutgoing, message.properties.canGetReadDate, message.deliveryState == .read
@@ -8484,7 +8484,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             guard case .messageReadDateMyPrivacyRestricted? = readDate.value else { return }
             self?.presentShowReadTimeHint(name: user.firstName.isEmpty ? user.lastName : user.firstName)
         }
+        action.isHeader = true
         action.titleUpdates = readDate.compactMap { $0.map(Self.readDateTitle) }.eraseToAnyPublisher()
+        action.headerSelectableUpdates = readDate
+            .map { readDate in
+                if case .messageReadDateMyPrivacyRestricted? = readDate { return true }
+                return false
+            }
+            .eraseToAnyPublisher()
         let client = chatVM.client
         let chatID = message.message.chatId
         let messageID = message.id
