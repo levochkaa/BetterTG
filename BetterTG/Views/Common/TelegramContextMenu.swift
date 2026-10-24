@@ -1598,6 +1598,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         guard !isDismissing else { return }
         touchSession?.highlighted = nil
         setHighlight(nil)
+        // A card still closing would leave its header over the new one.
+        for closing in submenuViews where !submenus.contains(closing) {
+            closing.removeFromSuperview()
+        }
         let parentView: UIView = submenus.last ?? menuView
         let submenu = TelegramContextSubmenuView(action: button.menuAction)
         submenu.sourceButton = button
@@ -1644,7 +1648,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             tracking: false,
             fallbackDampingRatio: 1,
             fallbackResponse: 0.5,
-        ) { submenu.setActionsAlpha(0) }
+        ) { submenu.setClosingAlpha(0) }
         ContextMenuNativeAnimation.animate(
             behavior: submenuCloseBehavior,
             tracking: false,
@@ -2068,14 +2072,18 @@ private final class TelegramContextMenuSectionDivider: UIView {
 // MARK: - TelegramContextSubmenuView
 
 /// The system submenu (`_UIContextMenuStackedHierarchyLayout navigateDownFromNode:`, iOS 26.5 and 27.2): a glass
-/// card of its own that grows out of the chosen row's highlight over the dimmed parent. Its header repeats that row
-/// and closes the card; a divider separates it from the submenu's actions.
+/// card of its own that grows out of the chosen row over the dimmed parent. Its header repeats that row and closes
+/// the card; a divider separates it from the submenu's actions.
+///
+/// Like `_UIContextMenuListView`, the card's glass is a separate background that is never smaller than the header
+/// with the menu's insets around it. Closed, the card is the row inset like its highlight and clips that background,
+/// so only the flat middle of the glass shows, with no rim or shadow, and the glass blends into the menu under it.
 private final class TelegramContextSubmenuView: UIView {
     // MARK: Internal
 
     let headerButton: TelegramContextMenuActionButton
     let childButtons: [TelegramContextMenuActionButton]
-    /// Clips the rows to the card while it grows and dims them behind a deeper submenu.
+    /// Clips the rows to the glass while it grows and dims them behind a deeper submenu.
     let contentView = UIView()
     let highlightView = UIView()
     weak var sourceButton: TelegramContextMenuActionButton?
@@ -2094,6 +2102,8 @@ private final class TelegramContextSubmenuView: UIView {
     /// header lies exactly on the source row.
     private let rowsView = UIView()
     private let divider = UIView()
+    /// Carries the menu glass, which draws past its bounds while it stretches under a finger.
+    private let backgroundView = UIView()
     private let fallbackGlassView = UIVisualEffectView(effect: nil)
     private var expandedWidth = CGFloat.zero
 
@@ -2101,7 +2111,7 @@ private final class TelegramContextSubmenuView: UIView {
         [headerButton] + childButtons
     }
 
-    /// Open, the menu's radius; closed, the radius of the row highlight it grows out of.
+    /// Open, the menu's radius; closed, the radius of the row highlight the card clips the glass to.
     private var cornerRadius: CGFloat {
         if isExpanded {
             TelegramContextMenuLayout.menuCornerRadius
@@ -2113,18 +2123,37 @@ private final class TelegramContextSubmenuView: UIView {
         }
     }
 
+    /// The glass and the rows: the card's bounds when open; closed, the header with the menu's insets around it.
+    private var glassFrame: CGRect {
+        if isExpanded {
+            bounds
+        } else {
+            bounds.insetBy(
+                dx: -TelegramContextMenuLayout.highlightInset,
+                dy: -TelegramContextMenuLayout.contentVerticalInset,
+            )
+        }
+    }
+
     init(action: TelegramContextMenuAction) {
         self.headerButton = TelegramContextMenuActionButton(action: action, role: .submenuHeader)
         self.childButtons = action.children.map { TelegramContextMenuActionButton(action: $0) }
         super.init(frame: .zero)
         layer.cornerCurve = .continuous
-        if !ContextMenuNativeGlass.applyMenuGlass(to: self) {
+        let menuCornerRadius = TelegramContextMenuLayout.menuCornerRadius
+        backgroundView.layer.cornerRadius = menuCornerRadius
+        backgroundView.layer.cornerCurve = .continuous
+        if !ContextMenuNativeGlass.applyMenuGlass(to: backgroundView) {
             let glass = UIGlassEffect(style: .regular)
             glass.isInteractive = true
             fallbackGlassView.effect = glass
-            addSubview(fallbackGlassView)
+            fallbackGlassView.cornerConfiguration = .corners(radius: .fixed(Double(menuCornerRadius)))
+            fallbackGlassView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            backgroundView.addSubview(fallbackGlassView)
         }
+        addSubview(backgroundView)
         contentView.clipsToBounds = true
+        contentView.layer.cornerRadius = menuCornerRadius
         contentView.layer.cornerCurve = .continuous
         addSubview(contentView)
         highlightView.backgroundColor = .contextMenuSelectionHighlight
@@ -2144,18 +2173,13 @@ private final class TelegramContextSubmenuView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let radius = cornerRadius
-        layer.cornerRadius = radius
-        contentView.layer.cornerRadius = radius
-        contentView.frame = bounds
-        fallbackGlassView.frame = bounds
-        fallbackGlassView.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
-        rowsView.frame = CGRect(
-            x: isExpanded ? 0 : -TelegramContextMenuLayout.highlightInset,
-            y: isExpanded ? 0 : -TelegramContextMenuLayout.contentVerticalInset,
-            width: expandedWidth,
-            height: expandedHeight,
-        )
+        // As in the system, the card clips only while it closes: opening, the glass grows freely out of the row.
+        clipsToBounds = !isExpanded
+        layer.cornerRadius = cornerRadius
+        backgroundView.frame = glassFrame
+        fallbackGlassView.frame = backgroundView.bounds
+        contentView.frame = glassFrame
+        rowsView.frame = CGRect(x: 0, y: 0, width: expandedWidth, height: expandedHeight)
     }
 
     /// Lays the rows out for an open card as wide as the parent menu.
@@ -2183,10 +2207,13 @@ private final class TelegramContextSubmenuView: UIView {
         setNeedsLayout()
     }
 
-    /// `navigateUpFromNode:` fades the submenu's actions out while the card shrinks back into its row.
-    func setActionsAlpha(_ alpha: CGFloat) {
+    /// `navigateUpFromNode:` fades the submenu's actions out while the card shrinks back into its row. The glass fades
+    /// with them, so it has blended into the menu by the time the card stops, as the system's does (iOS 27.2, dark
+    /// appearance), rather than staying until the card is removed.
+    func setClosingAlpha(_ alpha: CGFloat) {
         divider.alpha = alpha
         childButtons.forEach { $0.alpha = alpha }
+        backgroundView.alpha = alpha
     }
 }
 
@@ -2347,7 +2374,7 @@ final class TelegramContextMenuActionButton: UIControl {
                 systemName: "chevron.forward",
                 withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold),
             )
-            submenuIndicator.tintColor = .label
+            submenuIndicator.tintColor = color
             submenuIndicator.translatesAutoresizingMaskIntoConstraints = false
             addSubview(submenuIndicator)
             constraints.append(contentsOf: [
