@@ -2514,3 +2514,16 @@
 "MessageTimer.LargeShortMonths_any" = "%@m";
 "MessageTimer.LargeShortYears_1" = "%@y";
 "MessageTimer.LargeShortYears_any" = "%@y";
+"ChatList.Search.FilterChats" = "Chats";
+"ChatList.Search.FilterMedia" = "Media";
+"ChatList.Search.FilterLinks" = "Links";
+"ChatList.Search.FilterFiles" = "Files";
+"ChatList.Search.FilterMusic" = "Music";
+"ChatList.Search.FilterVoice" = "Voice";
+"ChatList.Search.NoResultsDescription" = "There were no results.\nTry a new search.";
+"ChatList.Search.NoResultsFilter" = "Nothing Yet";
+"ChatList.Search.NoResultsFitlerMedia" = "Photos and videos from all your chats will be shown here.";
+"ChatList.Search.NoResultsFitlerLinks" = "Links from all your chats will be shown here.";
+"ChatList.Search.NoResultsFitlerFiles" = "Files from all your chats will be shown here.";
+"ChatList.Search.NoResultsFitlerMusic" = "Music from all your chats will be shown here.";
+"ChatList.Search.NoResultsFitlerVoice" = "Voice and video messages from all your chats will be shown here.";

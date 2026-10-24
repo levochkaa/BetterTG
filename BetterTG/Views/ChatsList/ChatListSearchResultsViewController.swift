@@ -41,6 +41,10 @@ import UIKit
     private let chatList: ChatList
     private let actionAuthority: ChatListActionAuthority
     private let tableView = UITableView(frame: .zero, style: .plain)
+    /// ChatListSearchFiltersContainerNode's tabs, in BetterTG's folder strip.
+    private let filterPicker = FolderPickerView()
+    private let filterResults = ChatListSearchFilterResultsView()
+    private var filter = ChatListSearchFilter.chats
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
     private let emptyView = ChatListSearchEmptyView()
     private var dataSource: UITableViewDiffableDataSource<Section, Item>!
@@ -140,6 +144,7 @@ import UIKit
         }
         guard isViewLoaded else { return }
         startSearch()
+        applyFilter()
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -211,6 +216,30 @@ import UIKit
         loadMoreMessages()
     }
 
+    /// The Chats tab shows the chats and messages found; another tab its kind of message from all chats.
+    private func applyFilter() {
+        let showsMessages = filter != .chats
+        tableView.isHidden = showsMessages
+        filterResults.isHidden = !showsMessages
+        guard showsMessages, !query.isEmpty, actionAuthority.scope(owner: self).isCurrent else {
+            if !showsMessages { filterResults.reset() }
+            return
+        }
+        filterResults.show(filter: filter, query: query, client: actionAuthority.client, chatList: chatList)
+    }
+
+    private func openFilteredMessage(_ message: Message) {
+        let scope = actionAuthority.scope(owner: self)
+        guard scope.isCurrent else { return }
+        let client = actionAuthority.client
+        Task { [weak self] in
+            guard let self,
+                  let chat = await rootVM.getCustomChatForNavigation(from: message.chatId, client: client),
+                  scope.isCurrent, chat.id == message.chatId else { return }
+            NavigationStorage.shared.push(.customChat(chat, targetMessageID: message.id))
+        }
+    }
+
     private func configureTableView() {
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.backgroundColor = .systemBackground
@@ -230,11 +259,34 @@ import UIKit
             forHeaderFooterViewReuseIdentifier: ChatListSearchSectionHeaderView.reuseIdentifier,
         )
         view.addSubview(tableView)
+        filterPicker.translatesAutoresizingMaskIntoConstraints = false
+        filterPicker.configure(
+            items: ChatListSearchFilter.allCases.map { .init(id: $0.rawValue, title: $0.title) },
+            selectedID: filter.rawValue,
+        )
+        filterPicker.onSelection = { [weak self] id in
+            guard let self, let filter = ChatListSearchFilter(rawValue: id), filter != self.filter else { return }
+            self.filter = filter
+            applyFilter()
+        }
+        view.addSubview(filterPicker)
+        filterResults.translatesAutoresizingMaskIntoConstraints = false
+        filterResults.isHidden = true
+        filterResults.onOpen = { [weak self] message in self?.openFilteredMessage(message) }
+        view.addSubview(filterResults)
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: view.topAnchor),
+            filterPicker.topAnchor.constraint(equalTo: view.topAnchor),
+            filterPicker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            filterPicker.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            filterPicker.heightAnchor.constraint(equalToConstant: 58),
+            tableView.topAnchor.constraint(equalTo: filterPicker.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            filterResults.topAnchor.constraint(equalTo: filterPicker.bottomAnchor),
+            filterResults.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            filterResults.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            filterResults.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         dataSource = UITableViewDiffableDataSource<
             Section,
