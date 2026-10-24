@@ -464,6 +464,8 @@ enum ChatListPreviewText {
                 result.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
             case .textEntityTypeSpoiler:
                 result.addAttributes([.chatListSpoiler: true, .foregroundColor: UIColor.clear], range: range)
+            case .textEntityTypeCustomEmoji(let emoji):
+                result.addAttribute(.chatListCustomEmoji, value: NSNumber(value: emoji.customEmojiId), range: range)
             default:
                 break
             }
@@ -508,6 +510,8 @@ enum ChatListPreviewText {
 extension NSAttributedString.Key {
     /// Text the row hides under spoiler dust.
     static let chatListSpoiler = NSAttributedString.Key("BetterTGChatListSpoiler")
+    /// A custom emoji's identifier over the emoji TDLib gives in its place.
+    static let chatListCustomEmoji = NSAttributedString.Key("BetterTGChatListCustomEmoji")
     /// Marks the room an activity's text leaves for its indicator.
     static let chatListActivityGap = NSAttributedString.Key("BetterTGChatListActivityGap")
 }

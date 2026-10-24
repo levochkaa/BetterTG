@@ -76,10 +76,12 @@ import UIKit
                     try verifyAlbum()
                     try verifyText()
                     try render()
+                    try await renderCustomEmoji()
                     result = "Row icons probe passed: forward/story/voice/location/caption-text/assets=true; "
                         + "photo-caption/video-play/round/spoiler-mini/secret-none=true; "
                         + "album-three/first-caption/last-label/width=true; "
-                        + "folded/italic/spoiler/strikethrough/accessibility=true; activity-kinds=true; rendered=true"
+                        + "folded/italic/spoiler/strikethrough/accessibility=true; activity-kinds=true; rendered=true; "
+                        + "custom-emoji=true"
                 } catch {
                     result = "Row icons probe failed: \(error)"
                 }
@@ -302,6 +304,70 @@ import UIKit
             )
             try require(bare?.text?.text == L10n.telegram("Message.Video"), "album label")
             try require(previews.map { $0.width == 18 * 3 + 2 * 2 } == true, "album width")
+        }
+
+        /// A row whose text carries a custom emoji from TDLib's emoji stickers, shown in a window for 3 s and
+        /// rendered to Documents/row-emoji.png.
+        private static func renderCustomEmoji() async throws {
+            let client = TDLib.shared.activeClient
+            let stickers = try await client.getStickers(
+                chatId: 0,
+                limit: 20,
+                query: "",
+                stickerType: .stickerTypeCustomEmoji,
+            )
+.stickers
+            guard let sticker = stickers.first(where: {
+                if case .stickerFullTypeCustomEmoji = $0.fullType {
+                    true
+                } else {
+                    false
+                }
+            }), case .stickerFullTypeCustomEmoji(let full) = sticker.fullType
+            else { throw Failure(description: "no custom emoji") }
+            let emoji = sticker.emoji.isEmpty ? "🙂" : sticker.emoji
+            let text = FormattedText(
+                entities: [TextEntity(
+                    length: (emoji as NSString).length,
+                    offset: 5,
+                    type: .textEntityTypeCustomEmoji(.init(customEmojiId: full.customEmojiId)),
+                )],
+                text: "Look \(emoji) at this",
+            )
+            let position = ChatPosition(isPinned: false, list: .chatListMain, order: 1, source: nil)
+            let cell = ChatListCell(style: .default, reuseIdentifier: ChatListCell.reuseIdentifier)
+            cell.frame = CGRect(x: 0, y: 0, width: 402, height: ChatListCell.cardRowHeight)
+            cell.overrideUserInterfaceStyle = .dark
+            guard let window = UIApplication.shared
+.connectedScenes
+                .compactMap({ ($0 as? UIWindowScene)?.keyWindow })
+.first
+            else { throw Failure(description: "window") }
+            let host = UIView(frame: CGRect(x: 0, y: -400, width: 402, height: ChatListCell.cardRowHeight))
+            host.backgroundColor = .black
+            host.addSubview(cell)
+            window.addSubview(host)
+            defer { host.removeFromSuperview() }
+            // The cell holds its chat weakly, as the store keeps rows' chats; the probe keeps this one.
+            let chat = ProbeFixtures.chat(
+                position,
+                title: "Custom emoji",
+                id: 9600,
+                last: message(40, .messageText(.init(linkPreview: nil, linkPreviewOptions: nil, text: text))),
+            )
+            cell.configure(chat: chat, isMuted: false, client: client)
+            try await Task.sleep(for: .seconds(3))
+            withExtendedLifetime(chat) {}
+            cell.layoutIfNeeded()
+            try require(cell.probeShownCustomEmojiCount == 1, "custom emoji views \(cell.probeShownCustomEmojiCount)")
+            let image = UIGraphicsImageRenderer(bounds: cell.bounds).image { _ in
+                cell.drawHierarchy(in: cell.bounds, afterScreenUpdates: true)
+            }
+            if let data = image.pngData(),
+               let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            {
+                try? data.write(to: directory.appendingPathComponent("row-emoji.png"), options: .atomic)
+            }
         }
 
         private static func render() throws {

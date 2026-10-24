@@ -60,6 +60,11 @@ final class ChatListCell: UITableViewCell {
         origin: .zero,
         size: ChatActivityIndicatorView.size,
     ))
+    /// TextNodeWithEntities' inline custom emoji over the text, with the stickers loaded for its identifiers.
+    private var customEmojiViews = [(id: Int64, view: CustomEmojiInlineView)]()
+    private var customEmojiStickers = [Int64: Sticker]()
+    private var customEmojiRequest = [Int64]()
+    private var customEmojiTask: Task<Void, Never>?
     /// ChatListItem's dustNode over the text's spoilers.
     private var spoilerViews = [TelegramSpoilerView]()
     private var messageTypeIcon: ChatListMessageTypeIcon?
@@ -90,6 +95,13 @@ final class ChatListCell: UITableViewCell {
 
     var contextPreviewView: UIView { rowView }
 
+    #if DEBUG
+        /// The custom emoji views laid over the text, for `-ui-probe-row-icons`.
+        var probeShownCustomEmojiCount: Int {
+            customEmojiViews.count { !$0.view.isHidden && $0.view.frame.width > 0 }
+        }
+    #endif
+
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .systemBackground
@@ -111,6 +123,12 @@ final class ChatListCell: UITableViewCell {
         layoutMediaPreview()
         layoutSpoilers()
         layoutActivityIndicator()
+        layoutCustomEmoji()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        customEmojiViews.forEach { $0.view.setPlaybackVisible(window != nil) }
     }
 
     override func prepareForReuse() {
@@ -266,7 +284,11 @@ final class ChatListCell: UITableViewCell {
                 view.reset()
             }
         }
-        messageLabel.attributedText = activityText(for: chat, client: client) ?? summaryText(for: chat, client: client)
+        messageLabel.attributedText = withCustomEmoji(
+            activityText(for: chat, client: client) ?? summaryText(for: chat, client: client),
+            chatID: chat.id,
+            client: client,
+        )
         setNeedsLayout()
         let chatID = chat.id
         activityCancellable = ChatListActivities.shared
@@ -275,8 +297,11 @@ final class ChatListCell: UITableViewCell {
             .sink { [weak self] _ in
                 guard let self, let chat = configuredChat, chat.id == chatID,
                       let client = configuredClient else { return }
-                messageLabel.attributedText = activityText(for: chat, client: client)
-                    ?? summaryText(for: chat, client: client)
+                messageLabel.attributedText = withCustomEmoji(
+                    activityText(for: chat, client: client) ?? summaryText(for: chat, client: client),
+                    chatID: chatID,
+                    client: client,
+                )
                 setNeedsLayout()
             }
         let hasUnread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
@@ -591,6 +616,96 @@ final class ChatListCell: UITableViewCell {
             guard index < count else { continue }
             view.frame = CGRect(origin: origin, size: CGSize(width: side, height: side))
             origin.x += side + ChatListMediaPreviews.spacing
+        }
+    }
+
+    /// The text with its custom emoji loading: once TDLib gives a sticker, its stand-in emoji turns clear under
+    /// the sticker's view, as the message text does.
+    private func withCustomEmoji(
+        _ text: NSAttributedString?,
+        chatID: Int64,
+        client: TDLibClient,
+    ) -> NSAttributedString? {
+        var ranges = [(range: NSRange, id: Int64)]()
+        if let text {
+            text.enumerateAttribute(.chatListCustomEmoji, in: NSRange(
+                location: 0,
+                length: text.length,
+            )) { value, range, _ in
+                guard let id = (value as? NSNumber)?.int64Value,
+                      text.attribute(.chatListSpoiler, at: range.location, effectiveRange: nil) == nil
+                else { return }
+                ranges.append((range, id))
+            }
+        }
+        let ids = ranges.map(\.id)
+        if ids != customEmojiRequest {
+            customEmojiRequest = ids
+            customEmojiStickers = [:]
+            customEmojiTask?.cancel()
+            customEmojiTask = nil
+            if !ids.isEmpty {
+                customEmojiTask = Task { [weak self] in
+                    let stickers = await CustomEmojiStickerRepository.shared.stickers(for: ids, client: client)
+                    guard !Task.isCancelled, let self, customEmojiRequest == ids, !stickers.isEmpty else { return }
+                    customEmojiStickers = stickers
+                    reconfigure(chatID: chatID)
+                }
+            }
+        }
+        guard let text, ranges.contains(where: { customEmojiStickers[$0.id] != nil }) else { return text }
+        let result = NSMutableAttributedString(attributedString: text)
+        for item in ranges where customEmojiStickers[item.id] != nil {
+            result.addAttribute(.foregroundColor, value: UIColor.clear, range: item.range)
+        }
+        return result
+    }
+
+    /// Each loaded custom emoji as a square on its stand-in's place, as far as the label shows the line.
+    private func layoutCustomEmoji() {
+        var placements = [(range: NSRange, sticker: Sticker, id: Int64)]()
+        if let text = messageLabel.attributedText {
+            text.enumerateAttribute(.chatListCustomEmoji, in: NSRange(
+                location: 0,
+                length: text.length,
+            )) { value, range, _ in
+                guard let id = (value as? NSNumber)?.int64Value, let sticker = customEmojiStickers[id],
+                      text.attribute(.chatListSpoiler, at: range.location, effectiveRange: nil) == nil
+                else { return }
+                placements.append((range, sticker, id))
+            }
+        }
+        while customEmojiViews.count > placements.count {
+            let removed = customEmojiViews.removeLast()
+            removed.view.prepareForReuse()
+            removed.view.removeFromSuperview()
+        }
+        guard let text = messageLabel.attributedText, let font = messageLabel.font, !placements.isEmpty else { return }
+        rowView.layoutIfNeeded()
+        let client = configuredClient
+        let frame = messageLabel.frame
+        for (index, placement) in placements.enumerated() {
+            if index >= customEmojiViews.count {
+                let view = CustomEmojiInlineView()
+                view.isUserInteractionEnabled = false
+                rowView.addSubview(view)
+                customEmojiViews.append((0, view))
+            }
+            var entry = customEmojiViews[index]
+            if entry.id != placement.id, let client {
+                entry.view.configure(sticker: placement.sticker, client: client)
+                entry.id = placement.id
+                customEmojiViews[index] = entry
+            }
+            entry.view.setPlaybackVisible(window != nil)
+            let x = frame.minX + Self.width(
+                of: text,
+                range: NSRange(location: 0, length: placement.range.location),
+                font: font,
+            )
+            let side = Self.width(of: text, range: placement.range, font: font)
+            entry.view.isHidden = x + side > frame.maxX
+            entry.view.frame = CGRect(x: x, y: frame.midY - side / 2, width: side, height: side)
         }
     }
 
