@@ -563,11 +563,6 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// `navigateDownFromNode:` turns the header over on 1 / 0.2 s and opens on 0.85 / 0.4 s; `navigateUpFromNode:`
     /// fades the submenu's actions and turns the header back on 1 / 0.5 s and closes on 1 / 0.4 s.
     private let submenuHeaderBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.2)
-    /// BetterTG's departure from `navigateUpFromNode:`, which dematerializes the glass on the 1 / 0.4 s spring that
-    /// shrinks the card. A spring's slow tail lies at its target, so the glass that materialized visibly while the card
-    /// grew seemed to vanish at once on closing, with the card already small. On the 1 / 0.3 s spring that fades a row
-    /// highlight out (`unHighlightItemAtIndexPath:`) it fades while the card is still large.
-    private let submenuGlassOutBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.3)
     private let submenuOpenBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 0.85, response: 0.4)
     private let submenuCloseBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.4)
     private let submenuFadeBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.5)
@@ -1685,13 +1680,13 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         UIView.performWithoutAnimation {
             submenu.bounds = CGRect(origin: .zero, size: geometry.collapsed.size)
             submenu.center = CGPoint(x: geometry.collapsed.midX, y: geometry.collapsed.midY)
-            submenu.clipsToBounds = true
+            submenu.clipsContent = true
             contentContainer.insertSubview(submenu, aboveSubview: parentView)
             submenu.layoutIfNeeded()
         }
         submenus.append(submenu)
         holdAnimatedEmoji(for: Self.motionHoldDuration)
-        // The header turns over on the first spring, and the card draws past its bounds once that one settles.
+        // The header turns over on the first spring, and the rows draw past the card once that one settles.
         ContextMenuNativeAnimation.animate(
             behavior: submenuHeaderBehavior,
             tracking: false,
@@ -1700,7 +1695,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         ) {
             submenu.headerButton.setSubmenuExpanded(true)
         } completion: { _ in
-            if submenu.isExpanded { submenu.clipsToBounds = false }
+            if submenu.isExpanded { submenu.clipsContent = false }
         }
         submenu.isExpanded = true
         ContextMenuNativeAnimation.animate(
@@ -1728,7 +1723,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         submenus.removeLast()
         holdAnimatedEmoji(for: Self.motionHoldDuration)
         submenu.isExpanded = false
-        submenu.clipsToBounds = true
+        submenu.clipsContent = true
         submenu.isUserInteractionEnabled = false
         submenu.accessibilityElementsHidden = true
         ContextMenuNativeAnimation.animate(
@@ -1741,18 +1736,13 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             submenu.headerButton.setSubmenuExpanded(false)
         }
         ContextMenuNativeAnimation.animate(
-            behavior: submenuGlassOutBehavior,
-            tracking: false,
-            fallbackDampingRatio: 1,
-            fallbackResponse: 0.3,
-        ) { submenu.setGlassSuppressed(true) }
-        ContextMenuNativeAnimation.animate(
             behavior: submenuCloseBehavior,
             tracking: false,
             fallbackDampingRatio: 1,
             fallbackResponse: 0.4,
         ) {
             self.layoutSubmenus()
+            submenu.setGlassSuppressed(true)
             submenu.bounds = CGRect(origin: .zero, size: collapsed.size)
             submenu.center = CGPoint(x: collapsed.midX, y: collapsed.midY)
             submenu.layoutIfNeeded()
@@ -2197,6 +2187,13 @@ private final class TelegramContextSubmenuView: UIView {
         didSet { setNeedsLayout() }
     }
 
+    /// The system clips the card while it opens, until its first spring settles, and at once when it closes
+    /// (`setClipsToBounds:` in `navigateDownFromNode:` and `navigateUpFromNode:`). BetterTG clips only the rows: the
+    /// system's clip also cuts off the glass's soft edge past the card, which then vanishes in a close's first frame.
+    var clipsContent = false {
+        didSet { clipView.clipsToBounds = clipsContent }
+    }
+
     /// The open card: the header, a divider and the actions, within the menu's vertical insets.
     private(set) var expandedHeight = CGFloat.zero
 
@@ -2208,6 +2205,8 @@ private final class TelegramContextSubmenuView: UIView {
     private let divider = UIView()
     /// Carries the menu glass, which draws past its bounds while it stretches under a finger.
     private let backgroundView = UIView()
+    /// The card's bounds, which clip the rows while the card opens and closes.
+    private let clipView = UIView()
     /// Without the private material, the public glass, whose effect the card clears to suppress it.
     private let fallbackGlassView = UIVisualEffectView(effect: nil)
     private var usesNativeGlass = false
@@ -2217,7 +2216,7 @@ private final class TelegramContextSubmenuView: UIView {
         [headerButton] + childButtons
     }
 
-    /// Open, the menu's radius; closed, the radius of the row highlight the card clips the glass to.
+    /// Open, the menu's radius; closed, the radius of the row highlight.
     private var cornerRadius: CGFloat {
         if isExpanded {
             TelegramContextMenuLayout.menuCornerRadius
@@ -2245,7 +2244,6 @@ private final class TelegramContextSubmenuView: UIView {
         self.headerButton = TelegramContextMenuActionButton(action: action, role: .submenuHeader)
         self.childButtons = action.children.map { TelegramContextMenuActionButton(action: $0) }
         super.init(frame: .zero)
-        layer.cornerCurve = .continuous
         let menuCornerRadius = TelegramContextMenuLayout.menuCornerRadius
         backgroundView.layer.cornerCurve = .continuous
         // The card opens with its glass suppressed, as `navigateDownFromNode:` adds the list view.
@@ -2255,10 +2253,12 @@ private final class TelegramContextSubmenuView: UIView {
             backgroundView.addSubview(fallbackGlassView)
         }
         addSubview(backgroundView)
+        clipView.layer.cornerCurve = .continuous
+        addSubview(clipView)
         contentView.clipsToBounds = true
         contentView.layer.cornerRadius = menuCornerRadius
         contentView.layer.cornerCurve = .continuous
-        addSubview(contentView)
+        clipView.addSubview(contentView)
         highlightView.backgroundColor = .contextMenuSelectionHighlight
         highlightView.layer.cornerCurve = .continuous
         highlightView.alpha = 0
@@ -2276,10 +2276,11 @@ private final class TelegramContextSubmenuView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        layer.cornerRadius = cornerRadius
         backgroundView.frame = bounds
         backgroundView.layer.cornerRadius = cornerRadius
         fallbackGlassView.frame = backgroundView.bounds
+        clipView.frame = bounds
+        clipView.layer.cornerRadius = cornerRadius
         contentView.frame = contentFrame
         rowsView.frame = CGRect(x: 0, y: 0, width: expandedWidth, height: expandedHeight)
     }
