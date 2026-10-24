@@ -63,6 +63,7 @@ public typealias Document = TDNativeDocument
 public typealias DraftMessage = TDNativeDraftMessage
 public typealias DraftMessageContent = TDNativeDraftMessageContent
 public typealias DraftMessageContentText = TDNativeDraftMessageContentText
+public typealias EmojiReaction = TDNativeEmojiReaction
 public typealias File = TDNativeFile
 public typealias FormattedText = TDNativeFormattedText
 public typealias ForumTopic = TDNativeForumTopic
