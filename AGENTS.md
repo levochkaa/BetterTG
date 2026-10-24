@@ -4,7 +4,7 @@
 
 ## Build And Test
 
-- Build and run through ./build.sh as described below. Xcode MCP tools, including device interaction, may be used for Simulator validation such as UI inspection, taps, gestures and screenshots.
+- Build and run through ./build.sh as described below. T3 Code's Device panel (DeviceHub), idb, XcodeBuildMCP and Xcode MCP tools, including device interaction, may be used for Simulator validation such as UI inspection, taps, gestures and screenshots.
 - Read Simulator and device screenshots as reduced copies: downscale before viewing (for example `sips -Z 1000 -s format jpeg shot.png --out shot.jpg`) and crop to the region of interest when only part of the screen matters. Full-size screenshots hit the image limit and cost more tokens.
 - Build through the root multiplexer: `./build.sh build` (or `./build.sh`, which defaults to build).
 - Run through the root multiplexer: `./build.sh run`. BetterTG currently has no dedicated test target, so build is the repository-level validation.
