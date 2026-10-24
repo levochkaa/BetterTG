@@ -2475,3 +2475,4 @@
 "Chat.PinnedMessagesHiddenText" = "You will see the bar with pinned messages only if a new message is pinned.";
 "Chat.PinnedListPreview.ShowAllMessages" = "Show All Messages";
 "Conversation.PinnedPreviousMessage" = "Previous Message";
+"Conversation.UnreadMessages" = "Unread Messages";

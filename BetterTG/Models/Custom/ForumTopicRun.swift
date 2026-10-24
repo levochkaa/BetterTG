@@ -33,6 +33,8 @@ enum ChatTimelineItemID: Hashable {
     case threadStart
     /// Telegram's ChatBotInfoItem, above a bot chat's first message once the history reaches its start.
     case botInfo
+    /// Telegram's ChatUnreadItem, above the first message that was unread when the chat opened.
+    case unreadDivider
 
     var displayedMessageID: DisplayedMessageID? {
         guard case .message(let id) = self else { return nil }
@@ -48,6 +50,7 @@ enum ChatTimelineItemID: Hashable {
         includesTopicHeaders: Bool,
         threadHeadID: DisplayedMessageID? = nil,
         includesBotInfo: Bool = false,
+        unreadAfterMessageID: Int64? = nil,
     ) -> [ChatTimelineItemID] {
         var result = [ChatTimelineItemID]()
         result.reserveCapacity(messages.count * (includesTopicHeaders ? 3 : 2))
@@ -57,6 +60,13 @@ enum ChatTimelineItemID: Hashable {
             // ReplyCountEntry right after the thread head (ChatHistoryEntriesForView).
             if message.displayedID == threadHeadID { result.append(.threadStart) }
             result.append(.message(message.displayedID))
+            // ChatHistoryEntriesForView's UnreadEntry at the read state the chat opened with: above the oldest
+            // message past it, whose older neighbour (if loaded) was read.
+            if let lastRead = unreadAfterMessageID, message.newestSourceMessage.id > lastRead,
+               messages.indices.contains(index + 1), messages[index + 1].newestSourceMessage.id <= lastRead
+            {
+                result.append(.unreadDivider)
+            }
             if includesTopicHeaders, let topicID = message.forumTopicID {
                 let olderTopicID = messages.indices.contains(index + 1)
                     ? messages[index + 1].forumTopicID

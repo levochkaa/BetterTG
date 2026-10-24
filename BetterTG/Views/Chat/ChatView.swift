@@ -3480,7 +3480,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     },
                     unavailable: { $0.resetUnavailableContent() },
                 )
-            case .threadStart:
+            case .threadStart,
+                 .unreadDivider:
                 ChatTimelineCellProvider.dequeue(
                     ChatReplyCountCell.self, from: collectionView, at: indexPath,
                     reuseIdentifier: ChatReplyCountCell.reuseIdentifier,
@@ -3748,6 +3749,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                       case .connectionStateReady = update.value.state else { return }
                 if preparedClient == nil { clientPreparationSource = nil }
                 retryClientRestoration()
+            }
+            .store(in: &cancellables)
+        // The Unread Messages divider arrives with the read state the chat opened with.
+        chatVM.$unreadDividerAfterMessageID
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { [weak self] in self?.updateSnapshot(animated: false) }
             }
             .store(in: &cancellables)
         chatVM.$historyLoadedEmpty
@@ -4428,6 +4438,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 includesTopicHeaders: chatVM.isAllMessagesForum,
                 threadHeadID: threadHead?.id,
                 includesBotInfo: showsBotInfoRow,
+                unreadAfterMessageID: chatVM.unreadDividerAfterMessageID,
             )
             : timelineSnapshots.committed.ids
         let models = Dictionary(chatVM.messages.map { ($0.displayedID, $0) }, uniquingKeysWith: { _, latest in latest })
@@ -4446,6 +4457,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             case .topicHeader(let id):
                 rows[item] = .topic(id, chatVM.forumTopic(id: id.topicID)?.info, chatVM.client, navigationClientSource)
                 changed.insert(item)
+            case .unreadDivider:
+                rows[item] = .notice(L10n.telegram("Conversation.UnreadMessages"))
             case .threadStart:
                 let text = ChatReplyCountCell.text(hasReplies: threadHead?.hasReplies ?? true)
                 rows[item] = .notice(text)

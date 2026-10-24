@@ -246,6 +246,9 @@ import UIKit
     @Published private(set) var isUnblockingChat = false
     /// TDLib's `chat.action_bar`: what ChatReportPeerTitlePanelNode offers a chat from someone new.
     @Published private(set) var chatActionBar: TDNativeChatActionBar?
+    /// The last message read when the chat opened with unread messages (fixedCombinedReadStates): the Unread
+    /// Messages divider stays above the next one until the chat closes.
+    @Published private(set) var unreadDividerAfterMessageID: Int64?
 
     @Published var replyMessage: CustomMessage? {
         didSet {
@@ -2399,6 +2402,7 @@ import UIKit
             break
         }
         loadChatActionBar()
+        loadUnreadDivider()
         loadBotInfo()
     }
 
@@ -5991,6 +5995,22 @@ import UIKit
         guard location.messageThreadID != nil, let messageThread,
               message.chatId == location.chatID else { return false }
         return messageThread.messages.contains { $0.id == message.id }
+    }
+
+    /// The read state the chat opened with, from TDLib's current chat; the whole chat only, as threads and topics
+    /// keep their own.
+    private func loadUnreadDivider() {
+        guard !previewing, location.messageThreadID == nil, location.forumTopicID == nil,
+              unreadDividerAfterMessageID == nil else { return }
+        let client = client
+        let chatID = chatID
+        Task { [weak self] in
+            guard let chat = try? await client.getChat(chatId: chatID),
+                  let self, locationContextIsCurrent, chat.id == chatID,
+                  chat.unreadCount > 0, chat.lastReadInboxMessageId > 0, unreadDividerAfterMessageID == nil
+            else { return }
+            unreadDividerAfterMessageID = chat.lastReadInboxMessageId
+        }
     }
 
     /// ChatController.topPinnedMessageSignal's pinned history: the newest 100 pins with TDLib's count.
