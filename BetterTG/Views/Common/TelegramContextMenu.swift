@@ -563,6 +563,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// `navigateDownFromNode:` turns the header over on 1 / 0.2 s and opens on 0.85 / 0.4 s; `navigateUpFromNode:`
     /// fades the submenu's actions and turns the header back on 1 / 0.5 s and closes on 1 / 0.4 s.
     private let submenuHeaderBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.2)
+    /// BetterTG's departure from `navigateUpFromNode:`, which dematerializes the glass on the 1 / 0.4 s spring that
+    /// shrinks the card. A spring's slow tail lies at its target, so the glass that materialized visibly while the card
+    /// grew seemed to vanish at once on closing, with the card already small. On the 1 / 0.3 s spring that fades a row
+    /// highlight out (`unHighlightItemAtIndexPath:`) it fades while the card is still large.
+    private let submenuGlassOutBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.3)
     private let submenuOpenBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 0.85, response: 0.4)
     private let submenuCloseBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.4)
     private let submenuFadeBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.5)
@@ -1736,13 +1741,18 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             submenu.headerButton.setSubmenuExpanded(false)
         }
         ContextMenuNativeAnimation.animate(
+            behavior: submenuGlassOutBehavior,
+            tracking: false,
+            fallbackDampingRatio: 1,
+            fallbackResponse: 0.3,
+        ) { submenu.setGlassSuppressed(true) }
+        ContextMenuNativeAnimation.animate(
             behavior: submenuCloseBehavior,
             tracking: false,
             fallbackDampingRatio: 1,
             fallbackResponse: 0.4,
         ) {
             self.layoutSubmenus()
-            submenu.setGlassSuppressed(true)
             submenu.bounds = CGRect(origin: .zero, size: collapsed.size)
             submenu.center = CGPoint(x: collapsed.midX, y: collapsed.midY)
             submenu.layoutIfNeeded()
