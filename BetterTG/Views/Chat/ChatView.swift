@@ -6125,7 +6125,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// ChatController's reaction selection: once the chosen reaction's chip shows, StandaloneReactionAnimation plays
     /// over it.
     private func playReactionEffect(_ type: ReactionType, displayedID: DisplayedMessageID) {
-        guard let emoji = type.standardEmoji, !UIAccessibility.isReduceMotionEnabled else { return }
+        guard !UIAccessibility.isReduceMotionEnabled, type.standardEmoji != nil || type.customEmojiID != nil
+        else { return }
         let client = chatVM.client
         // The optimistic reaction reaches the chip on the next timeline pass.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
@@ -6133,7 +6134,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                   let cell = collectionView.cellForItem(at: path) as? MessageCell,
                   let icon = cell.reactionIconView(for: type)
             else { return }
-            ReactionEffectOverlay.play(emoji: emoji, iconView: icon, client: client)
+            if let emoji = type.standardEmoji {
+                ReactionEffectOverlay.play(emoji: emoji, iconView: icon, client: client)
+            } else if let customEmojiID = type.customEmojiID {
+                Task { [weak icon] in
+                    guard let sticker = await CustomEmojiStickerRepository.shared
+                        .stickers(for: [customEmojiID], client: client)[customEmojiID], let icon
+                    else { return }
+                    ReactionEffectOverlay.play(customEmoji: sticker, iconView: icon, client: client)
+                }
+            }
         }
     }
 
