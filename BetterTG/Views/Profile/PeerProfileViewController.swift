@@ -1056,9 +1056,10 @@ ClientRestorableNavigationEntry {
 
     private func setSharedItemProgress(_ progress: Float?, for messageID: Int64) {
         sharedItemProgress[messageID] = progress
-        guard isViewLoaded, let path = dataSource.indexPath(for: messageID),
-              let cell = collectionView.cellForItem(at: path) as? SharedMediaRowCell else { return }
-        cell.setDownloadProgress(progress)
+        guard isViewLoaded, let path = dataSource.indexPath(for: messageID) else { return }
+        let cell = collectionView.cellForItem(at: path)
+        (cell as? SharedMediaRowCell)?.setDownloadProgress(progress)
+        (cell as? SharedFileRowCell)?.setDownloadProgress(progress)
     }
 
     private func open(_ link: SharedLink) {
@@ -1340,6 +1341,7 @@ ClientRestorableNavigationEntry {
         )
         collectionView.register(SharedMediaRowCell.self, forCellWithReuseIdentifier: SharedMediaRowCell.reuseIdentifier)
         collectionView.register(SharedLinkRowCell.self, forCellWithReuseIdentifier: SharedLinkRowCell.reuseIdentifier)
+        collectionView.register(SharedFileRowCell.self, forCellWithReuseIdentifier: SharedFileRowCell.reuseIdentifier)
         collectionView.register(
             SharedMediaPendingCell.self,
             forCellWithReuseIdentifier: SharedMediaPendingCell.reuseIdentifier,
@@ -1476,6 +1478,16 @@ ClientRestorableNavigationEntry {
                     permit: mediaRevealSession?.permit(for: message),
                 )
                 return cell ?? UICollectionViewCell()
+            }
+            if currentSharedTab == .files, case .messageDocument = message.content,
+               let cell = collectionView.dequeueReusableCell(
+                   withReuseIdentifier: SharedFileRowCell.reuseIdentifier,
+                   for: indexPath,
+               ) as? SharedFileRowCell
+            {
+                cell.configure(message: message, isGlobalSearch: false, client: client)
+                cell.setDownloadProgress(sharedItemProgress[message.id])
+                return cell
             }
             if currentSharedTab == .links,
                let snippet = SharedLinkSnippet(message: message, includesDescription: true),
