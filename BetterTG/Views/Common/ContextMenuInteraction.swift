@@ -53,7 +53,9 @@ import UIKit
 
 /// The system menu's glass, ported from CustomContextMenu App/NativeUIKit.swift. The flexible material installs
 /// UIKit's `_UIFlexInteraction` (activation 2/0, sources 3, variant 5, pan on the window), so the menu stretches
-/// toward a finger dragged across it, as the system menu does.
+/// toward a finger dragged across it, as the system menu does. iOS 26 has every call but
+/// `_setEnabledWithoutSolarium:`; without the material, the public interactive glass doesn't bend under a touch
+/// that begins on the menu's rows, which sit beside it.
 @MainActor enum ContextMenuNativeGlass {
     // MARK: Private
 
@@ -64,12 +66,15 @@ import UIKit
                   "setAdaptive:",
                   "setFlexible:",
                   "_setFlexVariant:",
-                  "_setEnabledWithoutSolarium:",
                   "setAllowsGrouping:",
               ].allSatisfy({ glassClass.instancesRespond(to: NSSelectorFromString($0)) })
         else { return nil }
         return glassClass
     }()
+
+    /// iOS 27 adds `_setEnabledWithoutSolarium:`; iOS 26 glass is always enabled and lacks the selector.
+    private static let setsEnabledWithoutSolarium = glassClass?
+        .instancesRespond(to: NSSelectorFromString("_setEnabledWithoutSolarium:")) == true
 
     // MARK: Internal
 
@@ -81,7 +86,7 @@ import UIKit
         glass.setAdaptive(false)
         glass.setFlexible(true)
         glass.setFlexVariant(5)
-        glass.setEnabledWithoutSolarium(true)
+        if setsEnabledWithoutSolarium { glass.setEnabledWithoutSolarium(true) }
         glass.setAllowsGrouping(false)
         unsafeBitCast(view, to: ContextMenuMaterialHost.self).setMaterialBackground(glass)
         return true
