@@ -8,11 +8,14 @@ import UIKit
 /// mode): a day picker whose Done jumps to the first message sent on that day or later.
 final class ChatSearchDatePickerViewController: UIViewController {
     private let onSelect: (Date) -> Void
+    private let initialDate: Date
     private let datePicker = UIDatePicker()
     private let doneButton = UIButton(configuration: .filled())
 
-    init(onSelect: @escaping (Date) -> Void) {
+    /// `initialDate` is the day the calendar opens on, as a date header's tap opens it on its day.
+    init(initialDate: Date = Date(), onSelect: @escaping (Date) -> Void) {
         self.onSelect = onSelect
+        self.initialDate = min(initialDate, Date())
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -32,7 +35,7 @@ final class ChatSearchDatePickerViewController: UIViewController {
         datePicker.datePickerMode = .date
         datePicker.preferredDatePickerStyle = .inline
         datePicker.maximumDate = Date()
-        datePicker.date = Date()
+        datePicker.date = initialDate
         view.addSubview(datePicker)
 
         doneButton.translatesAutoresizingMaskIntoConstraints = false

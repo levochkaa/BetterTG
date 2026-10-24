@@ -5,8 +5,11 @@ import UIKit
 final class ChatDateHeaderCell: UICollectionViewCell {
     static let reuseIdentifier = "ChatDateHeaderCell"
 
+    /// ChatMessageDateHeaderNode's tap: a header resting at its day opens the calendar.
+    var onTap: (() -> Void)?
+
     private let titleLabel = UILabel()
-    private let pillView = UIView()
+    private let pillView = UIControl()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -20,8 +23,11 @@ final class ChatDateHeaderCell: UICollectionViewCell {
         pillView.layer.cornerCurve = .continuous
         pillView.layer.cornerRadius = 11
         pillView.clipsToBounds = true
-        titleLabel.isAccessibilityElement = true
-        titleLabel.accessibilityTraits = .header
+        titleLabel.isAccessibilityElement = false
+        pillView.isAccessibilityElement = true
+        pillView.accessibilityTraits = [.header, .button]
+        titleLabel.isUserInteractionEnabled = false
+        pillView.addAction(UIAction { [weak self] _ in self?.onTap?() }, for: .touchUpInside)
         contentView.addSubview(pillView)
         pillView.addSubview(titleLabel)
         NSLayoutConstraint.activate([
@@ -71,14 +77,15 @@ final class ChatDateHeaderCell: UICollectionViewCell {
         isUserInteractionEnabled = true
         let text = Self.title(for: id)
         titleLabel.text = text
-        titleLabel.accessibilityLabel = text
-        titleLabel.accessibilityIdentifier = "chat-date-\(id.dayTimestamp)"
+        pillView.accessibilityLabel = text
+        pillView.accessibilityIdentifier = "chat-date-\(id.dayTimestamp)"
         return text
     }
 
     func resetUnavailableContent() {
         titleLabel.text = nil
-        titleLabel.accessibilityLabel = nil
-        titleLabel.accessibilityIdentifier = nil
+        pillView.accessibilityLabel = nil
+        pillView.accessibilityIdentifier = nil
+        onTap = nil
     }
 }

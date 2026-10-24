@@ -3476,6 +3476,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         guard let self, timelineSourceIsCurrent,
                               case .date = timelineSnapshots.row(for: itemID) else { return false }
                         dateHeaderTitles[headerID] = cell.configure(id: headerID)
+                        cell.onTap = { [weak self] in self?.presentDateCalendar(dayTimestamp: headerID.dayTimestamp) }
                         return true
                     },
                     unavailable: { $0.resetUnavailableContent() },
@@ -7158,6 +7159,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     /// ChatControllerOpenCalendarSearch with isMedia false: pick a day, then the search closes and the chat jumps to
     /// the first message sent on that day or later.
+    /// ChatMessageDateHeader's action at a header resting at its day (navigateToFirstDateMessage's `alreadyThere`):
+    /// the calendar opens on that day, and a chosen day opens at its first message. BetterTG's headers don't float,
+    /// so a visible header always rests at its day.
+    private func presentDateCalendar(dayTimestamp: Int) {
+        guard presentationMode == .full, !isSelectingMessages, presentedViewController == nil,
+              chatVM.locationContextIsCurrent else { return }
+        let picker = ChatSearchDatePickerViewController(
+            initialDate: Date(timeIntervalSince1970: TimeInterval(dayTimestamp)),
+        ) { [weak self] date in self?.jumpToMessageSearchDate(date) }
+        let navigation = UINavigationController(rootViewController: picker)
+        if let sheet = navigation.sheetPresentationController {
+            sheet.detents = [.large()]
+            sheet.prefersGrabberVisible = true
+        }
+        present(navigation, animated: true)
+    }
+
     private func presentMessageSearchCalendar() {
         guard messageSearchActive, presentedViewController == nil, chatVM.locationContextIsCurrent else { return }
         customNavigationBar.dismissSearchKeyboard()
@@ -7175,7 +7193,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let start = Int(Calendar.current.startOfDay(for: date).timeIntervalSince1970)
         let client = chatVM.client
         let location = chatVM.location
-        customNavigationBar.cancelSearch()
+        if messageSearchActive { customNavigationBar.cancelSearch() }
         messageDateJumpTask?.cancel()
         messageDateJumpTask = Task { [weak self] in
             let id = await ChatMessageSearch.firstMessageID(sentSince: start, in: location, client: client)
