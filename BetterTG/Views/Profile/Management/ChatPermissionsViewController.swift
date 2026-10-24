@@ -118,7 +118,7 @@ final class ChatPermissionsViewController: SettingsListViewController {
     static func summary(_ permissions: ChatPermissions, isForum: Bool) -> String {
         let set = PermissionSet(permissions)
         let items = PermissionSet.items(isForum: isForum, isDefault: true)
-        let enabled = items.filter { set[keyPath: $0.key] }.count
+        let enabled = items.count(where: { set[keyPath: $0.key] })
         return "\(enabled)/\(items.count)"
     }
 
@@ -214,10 +214,13 @@ final class ChatPermissionsViewController: SettingsListViewController {
             title: L10n.telegram("GroupInfo.Permissions.AddException"),
         ) { member in
             switch member.status {
-            case .chatMemberStatusAdministrator, .chatMemberStatusBanned, .chatMemberStatusCreator,
+            case .chatMemberStatusAdministrator,
+                 .chatMemberStatusBanned,
+                 .chatMemberStatusCreator,
                  .chatMemberStatusLeft:
                 true
-            case .chatMemberStatusMember, .chatMemberStatusRestricted:
+            case .chatMemberStatusMember,
+                 .chatMemberStatusRestricted:
                 false
             }
         }

@@ -95,7 +95,9 @@
                         + "overlapping-loads/late-success/late-failure/new-load-after-update=true; "
                         + "account/client/epoch/cancellation=fenced; failure-preserves-values=true; "
                         + "RootVM/TDLib-RPC/visible-mute-badges=source-reviewed-only; server-calls=0"
-                } catch { result = "Root scope settings probe failed: \(error)" }
+                } catch {
+                    result = "Root scope settings probe failed: \(error)"
+                }
                 if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                     try? Data(result.utf8).write(
                         to: documents.appendingPathComponent("root-scope-settings-probe.txt"), options: .atomic,

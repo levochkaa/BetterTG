@@ -188,7 +188,11 @@
             for (route, sendTopic) in [(topicRoute, MessageTopic?.none), (base, Optional(otherTopic))] {
                 let conflicting = try await gateStore.probeAdopt(route: route, sendTopic: sendTopic, root: root)
                 var rejected = false
-                do { _ = try await gateStore.beginEnqueue(conflicting) } catch { rejected = true }
+                do {
+                    _ = try await gateStore.beginEnqueue(conflicting)
+                } catch {
+                    rejected = true
+                }
                 try require(rejected, "\(Store.self): route or delivery enqueue gate missing")
             }
             let otherAccount = ChatDraftKey(accountID: UUID(), chatID: chatID, topic: topic)

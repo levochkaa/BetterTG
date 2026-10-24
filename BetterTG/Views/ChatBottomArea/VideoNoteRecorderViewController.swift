@@ -19,9 +19,15 @@ enum VideoNoteComposerState: Equatable {
 
     var isActive: Bool {
         switch self {
-        case .failed, .idle:
+        case .failed,
+             .idle:
             false
-        case .holding, .locked, .preparing, .preview, .sending, .stopping:
+        case .holding,
+             .locked,
+             .preparing,
+             .preview,
+             .sending,
+             .stopping:
             true
         }
     }
@@ -339,9 +345,14 @@ enum VideoNoteSubmissionResult {
         switch state {
         case .preview:
             submitPreview()
-        case .holding, .locked:
+        case .holding,
+             .locked:
             finishRecording(submitAfterCapture: true)
-        case .failed, .idle, .preparing, .sending, .stopping:
+        case .failed,
+             .idle,
+             .preparing,
+             .sending,
+             .stopping:
             break
         }
     }
@@ -354,8 +365,8 @@ enum VideoNoteSubmissionResult {
     }
 
     func togglePreviewPlayback() {
-        guard !isInBackground, trimBaseDraft == nil else { return }
-        guard case .preview(let duration, let isPlaying, let canRecordMore) = state else { return }
+        guard !isInBackground, trimBaseDraft == nil,
+              case .preview(let duration, let isPlaying, let canRecordMore) = state else { return }
         if isPlaying {
             previewPlayer.pause()
             state = .preview(duration: duration, isPlaying: false, canRecordMore: canRecordMore)
@@ -928,7 +939,11 @@ enum VideoNoteSubmissionResult {
                         canRecordMore: canRecordMore,
                     )
                     onError?(L10n.betterTG("VideoNote.PreviewPlaybackFailed"))
-                case .buffering, .ended, .idle, .paused, .preparing:
+                case .buffering,
+                     .ended,
+                     .idle,
+                     .paused,
+                     .preparing:
                     state = .preview(
                         duration: duration,
                         isPlaying: false,
@@ -1004,7 +1019,12 @@ enum VideoNoteSubmissionResult {
             if duration - recordingDurationBaseline < 0.5 {
                 return
             }
-        case .failed, .idle, .preparing, .preview, .sending, .stopping:
+        case .failed,
+             .idle,
+             .preparing,
+             .preview,
+             .sending,
+             .stopping:
             return
         }
         let generation = operationGeneration
@@ -1465,9 +1485,15 @@ enum VideoNoteSubmissionResult {
     private func acceptAutomaticFinish(generation: UUID) -> Bool {
         let acceptsResult: Bool =
             switch state {
-            case .holding, .locked, .preparing, .stopping:
+            case .holding,
+                 .locked,
+                 .preparing,
+                 .stopping:
                 generation == operationGeneration && !didRequestDismiss && exitDisposition == .none
-            case .failed, .idle, .preview, .sending:
+            case .failed,
+                 .idle,
+                 .preview,
+                 .sending:
                 false
             }
         guard acceptsResult else { return false }
@@ -1703,7 +1729,9 @@ enum VideoNoteSubmissionResult {
         case .changed:
             currentZoomFactor = min(6, max(1, pinchStartZoomFactor * gesture.scale))
             captureSession.setZoomFactor(currentZoomFactor)
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             currentZoomFactor = 1
             captureSession.setZoomFactor(1, rampRate: 8)
         case .possible:
@@ -1961,13 +1989,20 @@ enum VideoNoteSubmissionResult {
             )
             var automaticTask: Task<Void, Never>?
             switch scenario {
-            case .automaticBeforeDelivery, .automaticBeforeFinish, .navigationThenBackground:
+            case .automaticBeforeDelivery,
+                 .automaticBeforeFinish,
+                 .navigationThenBackground:
                 automaticTask = recorder.captureSession.requestAutomaticPreservationProbe()
-            case .appendBeforeSave, .appendFailure, .expireDuringSave, .manualBeforeFinish:
+            case .appendBeforeSave,
+                 .appendFailure,
+                 .expireDuringSave,
+                 .manualBeforeFinish:
                 recorder.finishForSend()
             case .cameraInterruption:
                 recorder.captureSession.interruptPreservationProbe()
-            case .background, .expireBeforeFinish, .explicitCancel:
+            case .background,
+                 .expireBeforeFinish,
+                 .explicitCancel:
                 recorder.preserveForLifecycle(background: true)
             }
             let manualTask = recorder.operationTask
@@ -2250,9 +2285,14 @@ enum VideoNoteSubmissionResult {
             switch scenario {
             case .navigation:
                 recorder.teardownForNavigation()
-            case .appendBeforeSave, .appendFailure, .explicitCancel, .manualBeforeFinish:
+            case .appendBeforeSave,
+                 .appendFailure,
+                 .explicitCancel,
+                 .manualBeforeFinish:
                 recorder.finishForSend()
-            case .automaticBeforeDelivery, .automaticBeforeFinish, .navigationThenCaptureFailure:
+            case .automaticBeforeDelivery,
+                 .automaticBeforeFinish,
+                 .navigationThenCaptureFailure:
                 automaticTask = recorder.captureSession.requestAutomaticPreservationProbe()
             }
             let activeOperation = recorder.operationTask

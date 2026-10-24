@@ -49,7 +49,8 @@ enum StoryReplyPanel {
         switch story.content {
         case .storyContentLive: isLive = true
         case .storyContentUnsupported: isUnsupported = true
-        case .storyContentPhoto, .storyContentVideo: break
+        case .storyContentPhoto,
+             .storyContentVideo: break
         }
         // BetterTG shows a live stream as unsupported, without Telegram's live chat input.
         let showsForward = !isLive && StoryMoreMenu.isPublic(story) && story.canBeForwarded
@@ -79,7 +80,8 @@ enum StoryReplyPanel {
                 offersLikeOptions: false,
                 showsForward: showsForward,
             )
-        case .channel, .other:
+        case .channel,
+             .other:
             return nil
         }
     }
@@ -103,20 +105,24 @@ enum StoryReplyPanel {
             if info.isChannel { return .channel }
             let group = try? await client.send(TDNativeRequests.getSupergroup(supergroupId: info.supergroupId))
             return .group(canWrite: canWrite(status: group?.status, permissions: chat.permissions))
-        case .chatTypeBasicGroup, .chatTypeSecret:
+        case .chatTypeBasicGroup,
+             .chatTypeSecret:
             return .other
         }
     }
 
     static func canWrite(status: ChatMemberStatus?, permissions: ChatPermissions) -> Bool {
         switch status {
-        case .chatMemberStatusAdministrator, .chatMemberStatusCreator:
+        case .chatMemberStatusAdministrator,
+             .chatMemberStatusCreator:
             true
         case .chatMemberStatusRestricted(let restricted):
             restricted.permissions.canSendBasicMessages && permissions.canSendBasicMessages
         case .chatMemberStatusBanned:
             false
-        case .chatMemberStatusLeft, .chatMemberStatusMember, nil:
+        case .chatMemberStatusLeft,
+             .chatMemberStatusMember,
+             nil:
             permissions.canSendBasicMessages
         }
     }
@@ -372,7 +378,8 @@ final class StoryReplyPanelView: UIView, UITextViewDelegate {
             trailing =
                 switch (showsLike, showsForward) {
                 case (true, true): 90
-                case (false, true), (true, false): 41
+                case (false, true),
+                     (true, false): 41
                 case (false, false): Self.sideInset
                 }
         }

@@ -109,7 +109,9 @@ struct InlineBotQueryState {
     var isMediaGallery: Bool {
         !results.isEmpty && results.allSatisfy { item in
             switch item.result {
-            case .inlineQueryResultAnimation, .inlineQueryResultPhoto, .inlineQueryResultSticker: true
+            case .inlineQueryResultAnimation,
+                 .inlineQueryResultPhoto,
+                 .inlineQueryResultSticker: true
             default: false
             }
         }

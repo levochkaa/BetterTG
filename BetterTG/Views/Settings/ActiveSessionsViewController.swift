@@ -75,8 +75,8 @@ final class ActiveSessionsViewController: SettingsListViewController {
     /// Telegram trims the store and build tags from the version: "Telegram iOS 11.2".
     fileprivate static func applicationText(_ session: TDNativeSession) -> String {
         var version = session.applicationVersion
-            .replacingOccurrences(of: "APPSTORE", with: "")
-            .replacingOccurrences(of: "BETA", with: "Beta")
+            .replacing("APPSTORE", with: "")
+            .replacing("BETA", with: "Beta")
             .trimmingCharacters(in: .whitespaces)
         if let open = version.range(of: " ("), let close = version.range(
             of: ")",
@@ -92,14 +92,19 @@ final class ActiveSessionsViewController: SettingsListViewController {
         switch type {
         case .sessionDeviceTypeIphone: ("iphone", .systemBlue)
         case .sessionDeviceTypeIpad: ("ipad", .systemBlue)
-        case .sessionDeviceTypeApple, .sessionDeviceTypeMac: ("laptopcomputer", .systemBlue)
+        case .sessionDeviceTypeApple,
+             .sessionDeviceTypeMac: ("laptopcomputer", .systemBlue)
         case .sessionDeviceTypeAndroid: ("candybarphone", .systemGreen)
         case .sessionDeviceTypeWindows: ("pc", .systemBlue)
-        case .sessionDeviceTypeLinux, .sessionDeviceTypeUbuntu: ("desktopcomputer", .systemOrange)
+        case .sessionDeviceTypeLinux,
+             .sessionDeviceTypeUbuntu: ("desktopcomputer", .systemOrange)
         case .sessionDeviceTypeChrome: ("globe", .systemGreen)
-        case .sessionDeviceTypeBrave, .sessionDeviceTypeFirefox: ("globe", .systemOrange)
-        case .sessionDeviceTypeEdge, .sessionDeviceTypeSafari: ("globe", .systemBlue)
-        case .sessionDeviceTypeOpera, .sessionDeviceTypeVivaldi: ("globe", .systemRed)
+        case .sessionDeviceTypeBrave,
+             .sessionDeviceTypeFirefox: ("globe", .systemOrange)
+        case .sessionDeviceTypeEdge,
+             .sessionDeviceTypeSafari: ("globe", .systemBlue)
+        case .sessionDeviceTypeOpera,
+             .sessionDeviceTypeVivaldi: ("globe", .systemRed)
         case .sessionDeviceTypeXbox: ("gamecontroller", .systemGreen)
         case .sessionDeviceTypeUnknown: ("questionmark.app", .systemGray)
         }

@@ -468,8 +468,7 @@ import UIKit
                     }
                 } catch {
                     self?.lookaheadScanInProgress = false
-                    guard !Task.isCancelled, let self else { return }
-                    guard operation == operationGeneration,
+                    guard !Task.isCancelled, let self, operation == operationGeneration,
                           rendererGeneration == self.rendererGeneration
                     else { return }
                     await handleDecodeFailure(error, operation: operation)
@@ -605,11 +604,15 @@ import UIKit
             switch rangeError {
             case .offline:
                 transitionToFailure(.offline, status: .offline)
-            case .missingLocalPath, .readFailed, .timedOut:
+            case .missingLocalPath,
+                 .readFailed,
+                 .timedOut:
                 transitionToFailure(.retryable(String(describing: rangeError)), status: .retrying)
-            case .invalidRange, .unknownSize:
+            case .invalidRange,
+                 .unknownSize:
                 transitionToFailure(.terminal(String(describing: rangeError)), status: .failed)
-            case .cancelled, .staleRequest:
+            case .cancelled,
+                 .staleRequest:
                 break
             }
             return
@@ -626,7 +629,8 @@ import UIKit
             transitionToFailure(.terminal(details), status: .failed)
         case .buffering:
             transitionToFailure(.retryable(String(describing: error)), status: .retrying)
-        case .cachedReady, .idle:
+        case .cachedReady,
+             .idle:
             transitionToFailure(.decoding(String(describing: error)), status: .failed)
         case .cancelled:
             if error as? TDLibVODFFmpegDecoder.DecodeError != .cancelled {
@@ -858,14 +862,7 @@ import UIKit
             return
         }
 
-        guard isPlaybackVisible else {
-            cancelBufferingTransition()
-            renderer.pause()
-            isStalledForBuffering = false
-            stateSubject.send(.paused)
-            return
-        }
-        guard isPlaybackRequested else {
+        guard isPlaybackVisible, isPlaybackRequested else {
             cancelBufferingTransition()
             renderer.pause()
             isStalledForBuffering = false

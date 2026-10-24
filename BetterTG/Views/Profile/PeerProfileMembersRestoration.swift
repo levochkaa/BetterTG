@@ -25,7 +25,7 @@ struct PeerProfileMemberAnchor {
     let offset: CGFloat
 
     @MainActor static func capture(_ table: UITableView, id: (IndexPath) -> PeerProfileMemberID?) -> Self? {
-        guard let path = table.indexPathsForVisibleRows?.sorted().first, let member = id(path) else { return nil }
+        guard let path = table.indexPathsForVisibleRows?.min(), let member = id(path) else { return nil }
         return Self(id: member, offset: table.rectForRow(at: path).minY - table.contentOffset.y)
     }
 

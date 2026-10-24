@@ -143,7 +143,9 @@ import UIKit
                     + "forward-picker-order=unchanged; "
                     + "head-merge-keeps-later-pages/silent-head-failure/delete-single-read/deleted-topic-404=true; "
                     + "full-controller/real-RPC=unverified; server-writes=0"
-            } catch { result = "Forum updates probe failed: \(error)" }
+            } catch {
+                result = "Forum updates probe failed: \(error)"
+            }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
                     to: directory.appendingPathComponent("forum-updates-probe.txt"),

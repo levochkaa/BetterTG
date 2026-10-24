@@ -99,7 +99,10 @@ UICollectionViewDelegateFlowLayout {
         case .stickers: .stickers
         case .emojis: .emojis
         case .inline: inlineState?.isMediaGallery == true && inlineButton == nil ? .gallery : .list
-        case .commands, .hashtags, .hidden, .mentions: .list
+        case .commands,
+             .hashtags,
+             .hidden,
+             .mentions: .list
         }
     }
 
@@ -188,7 +191,8 @@ UICollectionViewDelegateFlowLayout {
         switch (lhs, rhs) {
         case (.inline(let lhsState), .inline(let rhsState)):
             lhsState.botUserID == rhsState.botUserID && lhsState.query == rhsState.query
-        case (.commands, .commands), (.mentions, .mentions):
+        case (.commands, .commands),
+             (.mentions, .mentions):
             true
         default:
             false
@@ -216,7 +220,8 @@ UICollectionViewDelegateFlowLayout {
         let height: CGFloat =
             switch content {
             case .hidden: 0
-            case .commands, .mentions: min(CGFloat(rows), 4.5) * Self.rowHeight
+            case .commands,
+                 .mentions: min(CGFloat(rows), 4.5) * Self.rowHeight
             case .inline: display == .gallery ? Self.galleryHeight : min(CGFloat(rows), 3.5) * Self.rowHeight
             case .hashtags: min(CGFloat(rows), 4.5) * Self.hashtagRowHeight
             case .emojis(let emoji, _): emoji.isEmpty ? 0 : Self.emojiBubbleHeight
@@ -248,7 +253,9 @@ UICollectionViewDelegateFlowLayout {
 
     func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
         switch content {
-        case .emojis, .hidden, .stickers: 0
+        case .emojis,
+             .hidden,
+             .stickers: 0
         case .commands(let commands, _): commands.count
         case .mentions(let mentions): mentions.count
         case .inline(let state):
@@ -268,7 +275,9 @@ UICollectionViewDelegateFlowLayout {
             for: indexPath,
         ) as? ChatInputSuggestionCell else { return UITableViewCell() }
         switch content {
-        case .emojis, .hidden, .stickers:
+        case .emojis,
+             .hidden,
+             .stickers:
             break
         case .commands(let commands, let showsBotNames):
             guard let command = commands[safe: indexPath.row] else { break }
@@ -303,7 +312,9 @@ UICollectionViewDelegateFlowLayout {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         switch content {
-        case .emojis, .hidden, .stickers:
+        case .emojis,
+             .hidden,
+             .stickers:
             break
         case .commands(let commands, _):
             if let command = commands[safe: indexPath.row] { onSendCommand?(command) }
@@ -513,7 +524,10 @@ private struct InlineResultPreview {
         guard let thumbnail else { return }
         if pixelSize == .zero { pixelSize = CGSize(width: CGFloat(thumbnail.width), height: CGFloat(thumbnail.height)) }
         switch thumbnail.format {
-        case .thumbnailFormatGif, .thumbnailFormatJpeg, .thumbnailFormatPng, .thumbnailFormatWebp:
+        case .thumbnailFormatGif,
+             .thumbnailFormatJpeg,
+             .thumbnailFormatPng,
+             .thumbnailFormatWebp:
             file = thumbnail.file
         default:
             break

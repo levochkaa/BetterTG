@@ -64,7 +64,8 @@ struct WebAppLaunch {
     /// The `openWebApp` launch that `closeWebApp` ends and `updateWebAppMessageSent` names.
     var launchID: Int64? {
         switch source {
-        case .attachMenu(let launchID), .button(let launchID): launchID
+        case .attachMenu(let launchID),
+             .button(let launchID): launchID
         case .menu(let launchID): launchID
         default: nil
         }
@@ -199,7 +200,9 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     private var canRemoveBot: Bool {
         guard let source = launch.updateSource else { return false }
         switch launch.source {
-        case .attachMenu, .main, .settings:
+        case .attachMenu,
+             .main,
+             .settings:
             return AttachmentMenuBotStore.shared.isAdded(botUserID: launch.botUserID, source: source)
         default:
             return false
@@ -670,7 +673,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         let alert = UIAlertController(
             title: L10n.telegram("WebApp.RemoveConfirmationTitle"),
             message: String(format: L10n.telegram("WebApp.RemoveAllConfirmationText"), launch.botName)
-                .replacingOccurrences(of: "**", with: ""),
+                .replacing("**", with: ""),
             preferredStyle: .alert,
         )
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
@@ -785,7 +788,9 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
             close(completion: nil)
         case "web_app_request_theme":
             sendThemeChanged()
-        case "web_app_request_content_safe_area", "web_app_request_safe_area", "web_app_request_viewport":
+        case "web_app_request_content_safe_area",
+             "web_app_request_safe_area",
+             "web_app_request_viewport":
             sendViewport(force: true)
         case "web_app_setup_main_button":
             if let state = buttonState(json, current: mainButtonState) { mainButtonState = state
@@ -855,9 +860,13 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
             shareAccountContact()
         case "web_app_invoke_custom_method":
             invokeCustomMethod(json)
-        case "web_app_device_storage_clear", "web_app_device_storage_get_key", "web_app_device_storage_save_key":
+        case "web_app_device_storage_clear",
+             "web_app_device_storage_get_key",
+             "web_app_device_storage_save_key":
             handleDeviceStorage(eventName, json: json)
-        case "web_app_secure_storage_clear", "web_app_secure_storage_get_key", "web_app_secure_storage_restore_key",
+        case "web_app_secure_storage_clear",
+             "web_app_secure_storage_get_key",
+             "web_app_secure_storage_restore_key",
              "web_app_secure_storage_save_key":
             handleSecureStorage(eventName, json: json)
         case "web_app_request_fullscreen":
@@ -1069,7 +1078,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
             let alert = UIAlertController(
                 title: L10n.telegram("WebApp.AllowWriteTitle"),
                 message: L10n.telegram("WebApp.AllowWriteConfirmation", launch.botName)
-                    .replacingOccurrences(of: "**", with: ""),
+                    .replacing("**", with: ""),
                 preferredStyle: .alert,
             )
             alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel) { [weak self] _ in
@@ -1102,7 +1111,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
             let key = isBlocked ? "WebApp.SharePhoneConfirmationUnblock" : "WebApp.SharePhoneConfirmation"
             let alert = UIAlertController(
                 title: L10n.telegram("WebApp.SharePhoneTitle"),
-                message: L10n.telegram(key, launch.botName).replacingOccurrences(of: "**", with: ""),
+                message: L10n.telegram(key, launch.botName).replacing("**", with: ""),
                 preferredStyle: .alert,
             )
             alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel) { [weak self] _ in
@@ -1360,7 +1369,10 @@ extension UIColor {
     }
 
     fileprivate var rgbValue: Int {
-        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
         getRed(&red, green: &green, blue: &blue, alpha: &alpha)
         let clamp = { (value: CGFloat) in Int((min(max(value, 0), 1) * 255).rounded()) }
         return clamp(red) << 16 | clamp(green) << 8 | clamp(blue)
@@ -1371,7 +1383,10 @@ extension UIColor {
     }
 
     fileprivate var isLight: Bool {
-        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
         getRed(&red, green: &green, blue: &blue, alpha: &alpha)
         return 0.299 * red + 0.587 * green + 0.114 * blue > 0.6
     }

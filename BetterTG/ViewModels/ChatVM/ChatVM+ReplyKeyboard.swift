@@ -42,7 +42,8 @@ extension ChatVM {
         switch customChat.type {
         case .group: true
         case .supergroup(let supergroup): !supergroup.isChannel
-        case .bot, .user: false
+        case .bot,
+             .user: false
         }
     }
 }

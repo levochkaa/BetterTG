@@ -60,7 +60,9 @@ import UIKit
         switch peer {
         case .basicGroup(let group): group.status.isCreator
         case .supergroup(let group): group.status.isCreator
-        case .bot, .savedMessages, .user: false
+        case .bot,
+             .savedMessages,
+             .user: false
         }
     }
 
@@ -130,12 +132,14 @@ import UIKit
         case .bot(let user):
             canStop = !user.isSupport
             deleteTitle = L10n.telegram("ChatList.DeleteChat")
-        case .savedMessages, .user:
+        case .savedMessages,
+             .user:
             break
         }
 
         switch peer {
-        case .basicGroup, .supergroup:
+        case .basicGroup,
+             .supergroup:
             guard canRemoveGlobally else { break }
             let sheet = makeSheet(L10n.telegram("ChatList.DeleteAndLeaveGroupConfirmation", title))
             sheet.addAction(destructive(L10n.telegram("ChatList.DeleteForCurrentUser")) { $0.leave() })
@@ -148,15 +152,19 @@ import UIKit
             })
             present(sheet)
             return
-        case .bot, .savedMessages, .user:
+        case .bot,
+             .savedMessages,
+             .user:
             break
         }
 
         let message =
             switch peer {
             case .savedMessages: L10n.telegram("ChatList.DeleteSavedMessagesConfirmation")
-            case .basicGroup, .supergroup: L10n.telegram("ChatList.LeaveGroupConfirmation", title)
-            case .bot, .user: L10n.telegram("ChatList.DeleteChatConfirmation", title)
+            case .basicGroup,
+                 .supergroup: L10n.telegram("ChatList.LeaveGroupConfirmation", title)
+            case .bot,
+                 .user: L10n.telegram("ChatList.DeleteChatConfirmation", title)
             }
         let sheet = makeSheet(message)
         if canStop, case .bot(let bot) = peer {
@@ -203,8 +211,11 @@ import UIKit
     private func askClearHistory() {
         let isPrivate =
             switch peer {
-            case .bot, .user: true
-            case .basicGroup, .savedMessages, .supergroup: false
+            case .bot,
+                 .user: true
+            case .basicGroup,
+                 .savedMessages,
+                 .supergroup: false
             }
         guard isPrivate, chat.chat.canBeDeletedForAllUsers else {
             confirmSavedMessagesWarning { $0.clearHistory(revoke: false) }
@@ -229,9 +240,11 @@ import UIKit
         switch peer {
         case .savedMessages:
             confirmSavedMessagesWarning { $0.deletePrivateChat(revoke: false) }
-        case .bot, .user:
+        case .bot,
+             .user:
             deletePrivateChat(revoke: false)
-        case .basicGroup, .supergroup:
+        case .basicGroup,
+             .supergroup:
             leave()
         }
     }
@@ -352,7 +365,9 @@ import UIKit
                 }
             case .supergroup:
                 _ = try await scope.perform { try await client.send(TDNativeRequests.leaveChat(chatId: chatID)) }
-            case .bot, .savedMessages, .user:
+            case .bot,
+                 .savedMessages,
+                 .user:
                 return
             }
         }
@@ -498,10 +513,12 @@ private extension ChatMemberStatus {
 
     var isMember: Bool {
         switch self {
-        case .chatMemberStatusAdministrator, .chatMemberStatusMember: true
+        case .chatMemberStatusAdministrator,
+             .chatMemberStatusMember: true
         case .chatMemberStatusCreator(let creator): creator.isMember
         case .chatMemberStatusRestricted(let restricted): restricted.isMember
-        case .chatMemberStatusBanned, .chatMemberStatusLeft: false
+        case .chatMemberStatusBanned,
+             .chatMemberStatusLeft: false
         }
     }
 }

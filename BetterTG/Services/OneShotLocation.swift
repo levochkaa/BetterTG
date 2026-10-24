@@ -65,7 +65,8 @@ import CoreLocation
         switch manager.authorizationStatus {
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
-        case .authorizedAlways, .authorizedWhenInUse:
+        case .authorizedAlways,
+             .authorizedWhenInUse:
             guard !requestedLocation else { return }
             requestedLocation = true
             manager.requestLocation()

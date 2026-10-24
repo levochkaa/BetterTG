@@ -636,7 +636,8 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
             adjustments.cropRect.origin.x -= translation.x / scale
             adjustments.cropRect.origin.y -= translation.y / scale
             layoutContent()
-        case .cancelled, .ended:
+        case .cancelled,
+             .ended:
             contentGestureEnded()
         default:
             break
@@ -654,7 +655,8 @@ final class PhotoCropView: UIView, UIGestureRecognizerDelegate {
             updatePinch(recognizer)
         case .changed:
             updatePinch(recognizer)
-        case .cancelled, .ended:
+        case .cancelled,
+             .ended:
             contentGestureEnded()
         default:
             break
@@ -1189,7 +1191,10 @@ final class PhotoCropAreaView: UIView, UIGestureRecognizerDelegate {
             isTracking = true
             didBeginResizing?()
             switch handleView.handle {
-            case .bottom, .left, .right, .top:
+            case .bottom,
+                 .left,
+                 .right,
+                 .top:
                 activeEdge = handleView.handle
             default:
                 activeEdge = nil
@@ -1199,7 +1204,8 @@ final class PhotoCropAreaView: UIView, UIGestureRecognizerDelegate {
             let translation = recognizer.translation(in: container)
             recognizer.setTranslation(.zero, in: container)
             didResize?(handleView.handle, translation)
-        case .cancelled, .ended:
+        case .cancelled,
+             .ended:
             isTracking = false
             activeEdge = nil
             updateEdgeHighlights()
@@ -1513,7 +1519,8 @@ final class PhotoCropRotationView: UIView, UIGestureRecognizerDelegate {
         switch recognizer.state {
         case .began:
             beginInteraction()
-        case .cancelled, .ended:
+        case .cancelled,
+             .ended:
             endInteraction()
         default:
             break
@@ -1533,7 +1540,8 @@ final class PhotoCropRotationView: UIView, UIGestureRecognizerDelegate {
             guard abs(newDegrees - degrees) > .ulpOfOne else { return }
             setAngle(newDegrees * .pi / 180, animated: false)
             angleChanged?(angle)
-        case .cancelled, .ended:
+        case .cancelled,
+             .ended:
             endInteraction()
         default:
             break

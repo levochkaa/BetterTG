@@ -219,7 +219,7 @@ import UIKit
         if options.count >= maximumOptionCount { return L10n.telegram("CreatePoll.AllOptionsAdded") }
         let remaining = maximumOptionCount - options.count(where: { !$0.isEmpty })
         return L10n.telegramPlural("CreatePoll.OptionCountFooterFormat", count: remaining)
-            .replacingOccurrences(of: "{count}", with: "\(remaining)")
+            .replacing("{count}", with: "\(remaining)")
     }
 
     /// - Parameters:
@@ -918,7 +918,8 @@ import UIKit
 
     private func refreshMediaCell(for target: MediaTarget) {
         switch target {
-        case .explanation, .poll:
+        case .explanation,
+             .poll:
             guard let indexPath = rowIndexPath(for: target.field),
                   let cell = tableView.cellForRow(at: indexPath) as? CreatePollTextCell else { break }
             cell.configure(target == .poll ? descriptionConfiguration() : explanationConfiguration())
@@ -1717,7 +1718,8 @@ final class CreatePollTextCell: UITableViewCell, UITextViewDelegate {
             switch configuration.indicator {
             case .reorder: UIImage(systemName: "line.3.horizontal")
             case .add: UIImage(systemName: "plus")
-            case .blank, nil: nil
+            case .blank,
+                 nil: nil
             }
         setHidden(checkButton, configuration.check == nil)
         if let check = configuration.check {

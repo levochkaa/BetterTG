@@ -1326,7 +1326,8 @@ final class PhotoDrawingEyedropperView: UIView {
             )
             recognizer.setTranslation(.zero, in: self)
             updateColor()
-        case .cancelled, .ended:
+        case .cancelled,
+             .ended:
             guard let currentColor else { return }
             animateOut()
             onComplete?(currentColor)

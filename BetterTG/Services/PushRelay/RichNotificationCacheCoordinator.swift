@@ -234,8 +234,7 @@ struct RichNotificationAvatarReferences {
         placeholder: Data?,
         context: Context,
     ) {
-        guard isCurrent(context) else { return }
-        guard let revision = avatarReferences.replace(
+        guard isCurrent(context), let revision = avatarReferences.replace(
             reference,
             fileIDs: files.map(\.id),
             source: context.source,

@@ -245,13 +245,15 @@
             let name = arguments[safe: flagIndex + 1].flatMap { $0.hasPrefix("-") ? nil : $0 } ?? "cube"
             let value = arguments[safe: flagIndex + 2].flatMap { $0.hasPrefix("-") && Double($0) == nil ? nil : $0 }
             switch name {
-            case "cube", "cube-commit":
+            case "cube",
+                 "cube-commit":
                 let fraction = value.flatMap(Double.init).map { CGFloat($0) } ?? 0.5
                 guard abs(fraction) > 0.01 else { return nil }
                 return .cube(fraction: min(0.95, max(-0.95, fraction)), commits: name == "cube-commit")
             case "areas":
                 return .areas(kind: value ?? "location")
-            case "menu", "menu-video":
+            case "menu",
+                 "menu-video":
                 return .menu(video: name == "menu-video")
             case "reply":
                 let step = value ?? "edit"

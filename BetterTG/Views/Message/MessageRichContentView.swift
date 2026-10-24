@@ -646,7 +646,9 @@ final class MessageRichContentView: UIView, MessageSupplementView {
                     controller.player = AVPlayer(url: url)
                     nearestViewController?.present(controller, animated: true) { controller.player?.play() }
                 } else { onAction(.openDocument(url)) }
-            } catch { showError(error.localizedDescription) }
+            } catch {
+                showError(error.localizedDescription)
+            }
         })
     }
 

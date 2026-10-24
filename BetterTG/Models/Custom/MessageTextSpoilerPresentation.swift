@@ -108,7 +108,9 @@ struct MessageTextSpoilerPresentation {
             let raw = (text.text as NSString).substring(with: range)
             let url: URL?
             switch entity.type {
-            case .textEntityTypeCode, .textEntityTypePre, .textEntityTypePreCode:
+            case .textEntityTypeCode,
+                 .textEntityTypePre,
+                 .textEntityTypePreCode:
                 return conceals(range, revealed: revealed) ? .reveal : .copy(raw)
             case .textEntityTypeUrl: url = getUrl(from: raw)
             case .textEntityTypeTextUrl(let value): url = getUrl(from: value.url)

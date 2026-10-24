@@ -178,7 +178,9 @@ import UIKit
                     + "all-messages-forum/shared-reader/canonical-topic/targeted-cell/seed-reset=true; "
                     + "final-self/whole-ChatVM/live-peer-read/real-deletion-window/snapshot-ownership=unverified; "
                     + "loaded-media/suspended-pan/context-menu-actions/physical-selection-touch=unverified; RPC/sends=0"
-            } catch { result = "Message delivery probe failed: \(error)" }
+            } catch {
+                result = "Message delivery probe failed: \(error)"
+            }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
                     to: directory.appendingPathComponent("message-delivery-probe.txt"),

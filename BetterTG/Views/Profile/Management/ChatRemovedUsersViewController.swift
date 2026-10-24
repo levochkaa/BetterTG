@@ -151,8 +151,12 @@ final class ChatRemovedUsersViewController: SettingsListViewController {
         guard contextIsCurrent else { return }
         let picker = ChatMemberPickerViewController(target: target, title: L10n.telegram("GroupRemoved.Remove")) {
             switch $0.status {
-            case .chatMemberStatusBanned, .chatMemberStatusCreator, .chatMemberStatusLeft: true
-            case .chatMemberStatusAdministrator, .chatMemberStatusMember, .chatMemberStatusRestricted: false
+            case .chatMemberStatusBanned,
+                 .chatMemberStatusCreator,
+                 .chatMemberStatusLeft: true
+            case .chatMemberStatusAdministrator,
+                 .chatMemberStatusMember,
+                 .chatMemberStatusRestricted: false
             }
         }
         let chatID = target.chatID

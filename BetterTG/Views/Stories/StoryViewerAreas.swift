@@ -42,9 +42,13 @@ enum StoryAreaGeometry {
         guard point.x > tapSafeInset, point.x < size.width - tapSafeInset else { return nil }
         for index in areas.indices.reversed() {
             switch areas[index].type {
-            case .storyAreaTypeSuggestedReaction, .storyAreaTypeUpgradedGift:
+            case .storyAreaTypeSuggestedReaction,
+                 .storyAreaTypeUpgradedGift:
                 continue
-            case .storyAreaTypeLink, .storyAreaTypeLocation, .storyAreaTypeMessage, .storyAreaTypeVenue,
+            case .storyAreaTypeLink,
+                 .storyAreaTypeLocation,
+                 .storyAreaTypeMessage,
+                 .storyAreaTypeVenue,
                  .storyAreaTypeWeather:
                 if contains(point, position: areas[index].position, in: size) { return index }
             }
@@ -184,7 +188,10 @@ final class StoryAreaOverlayView: UIView {
             return "reaction:\(place):\(type):\(reaction.totalCount):\(reaction.isDark):\(reaction.isFlipped)"
         case .storyAreaTypeWeather(let weather):
             return "weather:\(place):\(weather.emoji):\(weather.temperature):\(weather.backgroundColor)"
-        case .storyAreaTypeLink, .storyAreaTypeLocation, .storyAreaTypeMessage, .storyAreaTypeUpgradedGift,
+        case .storyAreaTypeLink,
+             .storyAreaTypeLocation,
+             .storyAreaTypeMessage,
+             .storyAreaTypeUpgradedGift,
              .storyAreaTypeVenue:
             return "area:\(place)"
         }
@@ -210,7 +217,10 @@ final class StoryAreaOverlayView: UIView {
                 let view = StoryWeatherAreaView(weather: weather, client: client, loadsSticker: loadsStickers)
                 addSubview(view)
                 return (index, view)
-            case .storyAreaTypeLink, .storyAreaTypeLocation, .storyAreaTypeMessage, .storyAreaTypeUpgradedGift,
+            case .storyAreaTypeLink,
+                 .storyAreaTypeLocation,
+                 .storyAreaTypeMessage,
+                 .storyAreaTypeUpgradedGift,
                  .storyAreaTypeVenue:
                 return nil
             }

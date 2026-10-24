@@ -294,7 +294,8 @@ final class ChatListCell: UITableViewCell {
             switch chat.type {
             case .group: true
             case .supergroup(let supergroup): !supergroup.isChannel
-            case .bot, .user: false
+            case .bot,
+                 .user: false
             }
         let author = isGroup
             ? lastMessage.flatMap { ChatPreviewText.authorPrefix(for: $0, client: client, missing: &missing) }

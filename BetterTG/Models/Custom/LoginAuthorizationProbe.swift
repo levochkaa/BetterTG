@@ -41,7 +41,9 @@
                         + "input-free-states-denied=true; email/sign-up/qr-stages=true; "
                         + "wrong-number/resend/password-recovery=true; "
                         + "real-auth/account-stores/clipboard=0; server/device-auth=pending"
-                } catch { result = "Login authorization probe failed: \(error)" }
+                } catch {
+                    result = "Login authorization probe failed: \(error)"
+                }
                 log(result)
                 if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                     try? Data(result.utf8).write(

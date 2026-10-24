@@ -889,7 +889,7 @@ enum MediaGallerySaveError: LocalizedError {
         fallbackStem: String,
         fileExtension: String,
     ) -> String {
-        let normalized = filename.replacingOccurrences(of: "\\", with: "/")
+        let normalized = filename.replacing("\\", with: "/")
         let lastComponent = URL(filePath: normalized).lastPathComponent
         let rawStem = URL(filePath: lastComponent).deletingPathExtension().lastPathComponent
         let sanitized = rawStem.filter { character in
@@ -1317,7 +1317,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         self.transitionSourceProvider = transitionSourceProvider
         let galleryMessages = messages.filter { message in
             switch message.content {
-            case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo:
+            case .messageAnimation,
+                 .messagePhoto,
+                 .messageSticker,
+                 .messageVideo:
                 true
             default:
                 false
@@ -1592,14 +1595,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     ) {
         guard hasCurrentContext, !didReleasePlaybackOwners,
               let playbackContext, owner.playbackContext.matches(playbackContext),
-              owner.canReturnToPresentation
+              owner.canReturnToPresentation, let index = messages.firstIndex(where: {
+                  owner.matches(message: $0) && playbackContext.location.matches(message: $0)
+              })
         else {
-            completion(false)
-            return
-        }
-        guard let index = messages.firstIndex(where: {
-            owner.matches(message: $0) && playbackContext.location.matches(message: $0)
-        }) else {
             completion(false)
             return
         }
@@ -1654,7 +1653,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             // A pending item the gallery never showed waits for its revision.
             guard !pendingIDs.contains(message.id) || shownIDs.contains(message.id) else { return false }
             return switch message.content {
-            case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo:
+            case .messageAnimation,
+                 .messagePhoto,
+                 .messageSticker,
+                 .messageVideo:
                 true
             default:
                 false
@@ -1897,8 +1899,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     fileprivate func currentTransitionTarget() -> MediaGalleryTransitionTarget? {
-        guard !forcesFadeDismissal else { return nil }
-        guard let selectedMessageID else { return nil }
+        guard !forcesFadeDismissal, let selectedMessageID else { return nil }
         if openInChatDismissalGeneration != nil, let openInChatTransitionSourceProvider {
             return openInChatTransitionSourceProvider(selectedMessageID)
         }
@@ -2796,7 +2797,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             } else {
                 mediaTransitionController.cancelInteractiveDismissal()
             }
-        case .cancelled, .failed:
+        case .cancelled,
+             .failed:
             mediaTransitionController.cancelInteractiveDismissal()
         case .possible:
             break
@@ -3936,10 +3938,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                     properties: properties,
                     asset: exportAsset(resolved, pageID: pageID),
                 )
-                guard let asset = exportAsset(resolved, pageID: pageID) else {
-                    throw MediaGallerySaveError.messageUnavailable
-                }
-                guard action == .share || asset.photosKind != nil else {
+                guard let asset = exportAsset(resolved, pageID: pageID),
+                      action == .share || asset.photosKind != nil
+                else {
                     throw MediaGallerySaveError.messageUnavailable
                 }
                 let localURL = try await MediaGalleryExport.resolvedURL(for: asset, client: client)
@@ -4400,7 +4401,7 @@ extension MediaGalleryViewController: UICollectionViewDataSource {
                 guard let self, selectedMessageID == message.id,
                       messages.indices.contains(selectedIndex),
                       MediaRevealSession.Key(message: messages[selectedIndex]) == MediaRevealSession
-                          .Key(message: message)
+                        .Key(message: message)
                 else { return }
                 revealSelectedMedia()
             },
@@ -5135,8 +5136,8 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         deferPlaybackUntilVisible: Bool = false,
     ) {
         guard let source = GalleryPlayableMessage(message: message, revealPermit: revealPermit),
-              revealPermit?.matches(playbackContext) != false else { return nil }
-        guard playbackContext.isCurrent, playbackContext.location.matches(message: message)
+              revealPermit?.matches(playbackContext) != false, playbackContext.isCurrent,
+              playbackContext.location.matches(message: message)
         else { return nil }
         self.tdlib = tdlib
         self.playbackContext = playbackContext
@@ -6298,14 +6299,10 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         }
         guard allowsPictureInPicture,
               AVPictureInPictureController.isPictureInPictureSupported()
-              || pictureInPictureController != nil
+              || pictureInPictureController != nil, let contentSource = mediaView.makePictureInPictureContentSource(
+                  playbackDelegate: sampleBufferPictureInPictureAdapter,
+              )
         else {
-            updatePictureInPictureControl()
-            return
-        }
-        guard let contentSource = mediaView.makePictureInPictureContentSource(
-            playbackDelegate: sampleBufferPictureInPictureAdapter,
-        ) else {
             updatePictureInPictureControl()
             return
         }
@@ -6425,8 +6422,7 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
     }
 
     private func togglePictureInPicture() {
-        guard let pictureInPictureController else { return }
-        guard !isPictureInPictureStopRequested else { return }
+        guard let pictureInPictureController, !isPictureInPictureStopRequested else { return }
         if isPictureInPictureStartRequested {
             cancelPendingPictureInPictureStart(rejectLateStart: true)
             return
@@ -6539,12 +6535,10 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         let workItem = DispatchWorkItem { [weak self, weak controller] in
             guard let self,
                   pictureInPictureController === controller,
-                  pictureInPictureSourceIdentity == sourceIdentity
-            else { return }
-            guard isPictureInPictureActive
-                || controller?.isPictureInPictureActive == true
-                || isPictureInPictureStopRequested
-                || pendingInvalidationAfterPictureInPicture
+                  pictureInPictureSourceIdentity == sourceIdentity, isPictureInPictureActive
+                  || controller?.isPictureInPictureActive == true
+                  || isPictureInPictureStopRequested
+                  || pendingInvalidationAfterPictureInPicture
             else { return }
             controller?.stopPictureInPicture()
             if controller?.isPictureInPictureActive == true {
@@ -6940,11 +6934,9 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         retriesRemaining: Int,
         request: RestoreRequest,
     ) {
-        guard requestIsCurrent(request, owner: owner) else {
-            complete(request, result: false)
-            return
-        }
-        guard presenter.viewIfLoaded?.window != nil, !presenter.isBeingDismissed else {
+        guard requestIsCurrent(request, owner: owner), presenter.viewIfLoaded?.window != nil,
+              !presenter.isBeingDismissed
+        else {
             complete(request, result: false)
             return
         }
@@ -7911,9 +7903,11 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     }
 
     var pictureInPictureSourceKind: GalleryPictureInPictureSourceKind {
-        usesFFmpegVOD && ffmpegPlayer?.pictureInPictureDisplayLayer != nil
-            ? .sampleBufferDisplayLayer
-            : .playerLayer
+        if usesFFmpegVOD, ffmpegPlayer?.pictureInPictureDisplayLayer != nil {
+            .sampleBufferDisplayLayer
+        } else {
+            .playerLayer
+        }
     }
 
     var pictureInPictureSourceIdentity: GalleryPictureInPictureSourceIdentity {
@@ -7970,9 +7964,14 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             else { return false }
         }
         return switch currentPlaybackState {
-        case .buffering, .ended, .paused, .playing:
+        case .buffering,
+             .ended,
+             .paused,
+             .playing:
             true
-        case .failed, .idle, .preparing:
+        case .failed,
+             .idle,
+             .preparing:
             false
         }
     }
@@ -8136,9 +8135,13 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
 
     private var currentFFmpegFailureIsRetryable: Bool {
         switch currentFFmpegFailure {
-        case .offline, .retryable:
+        case .offline,
+             .retryable:
             true
-        case .decoding, nil, .renderer, .terminal:
+        case .decoding,
+             nil,
+             .renderer,
+             .terminal:
             false
         }
     }
@@ -9157,11 +9160,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         task?.cancel()
         task = Task { @MainActor [weak self] in
             let lease = await rangeCoordinator.acquire(file: file)
-            guard !Task.isCancelled else {
-                await lease.invalidate()
-                return
-            }
-            guard let self,
+            guard !Task.isCancelled, let self,
                   !Task.isCancelled,
                   loadIdentifier == identifier,
                   fileID == file.id
@@ -9288,9 +9287,14 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         // for a moment whenever playback resumed, e.g. when a closed gallery handed the video back to its bubble.
         let canShowSurface: Bool =
             switch currentPlaybackState {
-            case .buffering, .ended, .paused, .playing:
+            case .buffering,
+                 .ended,
+                 .paused,
+                 .playing:
                 isSurfaceReady
-            case .failed, .idle, .preparing:
+            case .failed,
+                 .idle,
+                 .preparing:
                 false
             }
         videoSurface.isHidden = usesFFmpegVOD || !canShowSurface
@@ -9339,9 +9343,12 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         switch state {
         case .idle:
             spinner.stopAnimating()
-        case .buffering, .preparing:
+        case .buffering,
+             .preparing:
             spinner.startAnimating()
-        case .ended, .paused, .playing:
+        case .ended,
+             .paused,
+             .playing:
             break
         case .failed:
             spinner.stopAnimating()
@@ -9376,7 +9383,11 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         switch state {
         case .playing:
             scheduleControlsAutoHideIfNeeded()
-        case .buffering, .ended, .failed, .paused, .preparing:
+        case .buffering,
+             .ended,
+             .failed,
+             .paused,
+             .preparing:
             cancelControlsAutoHide()
             setControlsVisible(true, animated: true)
         case .idle:
@@ -9741,7 +9752,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                     } else {
                         ""
                     }
-                case .idle, .ready:
+                case .idle,
+                     .ready:
                     currentPlaybackState == .buffering ? L10n.betterTG("Gallery.StatusBuffering") : ""
                 }
             }
@@ -9813,7 +9825,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
                 fileName: vodConfiguration.fileName,
                 startTimestamp: vodConfiguration.startTimestamp,
             )
-        case .fullDownload, nil:
+        case .fullDownload,
+             nil:
             startLegacyDownload(file: sourceFile)
         }
     }

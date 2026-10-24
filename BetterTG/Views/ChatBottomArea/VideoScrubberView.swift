@@ -804,7 +804,9 @@ final class VideoScrubberView: UIView {
         switch gesture.state {
         case .began:
             beginTrimInteraction(atStart: gesture.view === trimView.leftHandle)
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             endTrimInteraction()
         default:
             break
@@ -823,7 +825,9 @@ final class VideoScrubberView: UIView {
             } else {
                 endHandleMoved(by: translation.x)
             }
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             endTrimInteraction()
         default:
             break
@@ -954,7 +958,9 @@ final class VideoScrubberView: UIView {
         switch gesture.state {
         case .began:
             beginScrubInteraction(schedulesZoom: true)
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             endScrubInteraction()
         default:
             break
@@ -993,7 +999,9 @@ final class VideoScrubberView: UIView {
             value = min(max(0, position), duration)
             onScrub?(value)
             scheduleZoomIn(from: .handle)
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             endScrubInteraction()
         default:
             break

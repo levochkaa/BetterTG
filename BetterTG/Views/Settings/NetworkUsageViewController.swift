@@ -104,16 +104,34 @@ final class NetworkUsageViewController: SettingsListViewController {
         switch usage.fileType {
         case nil:
             return .messages
-        case .fileTypePhoto, .fileTypePhotoStory, .fileTypeProfilePhoto, .fileTypeSecretThumbnail,
-             .fileTypeSelfDestructingPhoto, .fileTypeThumbnail, .fileTypeWallpaper:
+        case .fileTypePhoto,
+             .fileTypePhotoStory,
+             .fileTypeProfilePhoto,
+             .fileTypeSecretThumbnail,
+             .fileTypeSelfDestructingPhoto,
+             .fileTypeThumbnail,
+             .fileTypeWallpaper:
             return .photos
-        case .fileTypeAnimation, .fileTypeLivePhotoVideo, .fileTypeSelfDestructingLivePhotoVideo,
-             .fileTypeSelfDestructingVideo, .fileTypeSelfDestructingVideoNote, .fileTypeVideo, .fileTypeVideoNote,
+        case .fileTypeAnimation,
+             .fileTypeLivePhotoVideo,
+             .fileTypeSelfDestructingLivePhotoVideo,
+             .fileTypeSelfDestructingVideo,
+             .fileTypeSelfDestructingVideoNote,
+             .fileTypeVideo,
+             .fileTypeVideoNote,
              .fileTypeVideoStory:
             return .videos
-        case .fileTypeAudio, .fileTypeNotificationSound, .fileTypeSelfDestructingVoiceNote, .fileTypeVoiceNote:
+        case .fileTypeAudio,
+             .fileTypeNotificationSound,
+             .fileTypeSelfDestructingVoiceNote,
+             .fileTypeVoiceNote:
             return .audio
-        case .fileTypeDocument, .fileTypeNone, .fileTypeSecret, .fileTypeSecure, .fileTypeSticker, .fileTypeUnknown:
+        case .fileTypeDocument,
+             .fileTypeNone,
+             .fileTypeSecret,
+             .fileTypeSecure,
+             .fileTypeSticker,
+             .fileTypeUnknown:
             return .documents
         }
     }
@@ -177,8 +195,10 @@ struct NetworkUsageEntry {
         }
         self.isWifi =
             switch networkType {
-            case .networkTypeMobile, .networkTypeMobileRoaming: false
-            case .networkTypeOther, .networkTypeWiFi: true
+            case .networkTypeMobile,
+                 .networkTypeMobileRoaming: false
+            case .networkTypeOther,
+                 .networkTypeWiFi: true
             case .networkTypeNone: nil
             }
     }

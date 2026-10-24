@@ -249,7 +249,7 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
         guard section == 0, recentFiles?.isEmpty == true else { return nil }
         return Self.emptyFooter(
             title: nil,
-            text: L10n.telegram("Attachment.FilesIntro").replacingOccurrences(of: "\n", with: " "),
+            text: L10n.telegram("Attachment.FilesIntro").replacing("\n", with: " "),
             top: 40,
         )
     }

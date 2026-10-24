@@ -138,7 +138,8 @@ final class StoryMessageContentView: UIView, MessageSupplementView {
         case .storyContentVideo(let video):
             guard video.video.width > 0, video.video.height > 0 else { return defaultStoryPixelSize }
             return CGSize(width: video.video.width, height: video.video.height)
-        case .storyContentLive, .storyContentUnsupported:
+        case .storyContentLive,
+             .storyContentUnsupported:
             return defaultStoryPixelSize
         }
     }
@@ -462,7 +463,7 @@ final class StoryMessageContentView: UIView, MessageSupplementView {
         }
         if case .available(let story) = state { loadMediaOnce(of: story) }
         isAccessibilityElement = true
-        accessibilityLabel = text.replacingOccurrences(of: "\n", with: " ")
+        accessibilityLabel = text.replacing("\n", with: " ")
         accessibilityTraits =
             if case .available = state {
                 .button
@@ -491,7 +492,8 @@ final class StoryMessageContentView: UIView, MessageSupplementView {
             } else {
                 mediaView.loadPlaceholder(data: video.video.minithumbnail?.data, client: client)
             }
-        case .storyContentLive, .storyContentUnsupported:
+        case .storyContentLive,
+             .storyContentUnsupported:
             playIconView.isHidden = true
             mediaView.cancel()
         }

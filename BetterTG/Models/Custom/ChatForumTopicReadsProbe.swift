@@ -81,7 +81,9 @@ import TDLibKit
                     + "terminal-retire/ABA/weak-lifetime/late-cleanup=true; "
                     + "shared-read/per-topic-receipt/direct-before-metadata/late-baseline/re-demand=true; "
                     + "source-subscription/whole-ChatVM/pop-draft/receipt-UI/live-RPC=unverified; injected-reads-only"
-            } catch { result = "Forum topic reads probe failed: \(error)" }
+            } catch {
+                result = "Forum topic reads probe failed: \(error)"
+            }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
                     to: directory.appendingPathComponent("forum-topic-reads-probe.txt"),

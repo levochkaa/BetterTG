@@ -205,11 +205,11 @@ final class ChecklistMessageContentView: UIView, MessageSupplementView {
         let total = String(checklist.tasks.count)
         if !isGroup, foreignAuthor != nil, let authorName {
             return L10n.telegramPlural("Chat.Todo.Message.CompletedBy", count: completedCount)
-                .replacingOccurrences(of: "{count}", with: total)
-                .replacingOccurrences(of: "{name}", with: authorName)
+                .replacing("{count}", with: total)
+                .replacing("{name}", with: authorName)
         }
         return L10n.telegramPlural("Chat.Todo.Message.Completed", count: completedCount)
-            .replacingOccurrences(of: "{count}", with: total)
+            .replacing("{count}", with: total)
     }
 
     private func completerUser(_ sender: MessageSender?) -> User? {

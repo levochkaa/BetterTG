@@ -306,9 +306,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var bubbleView: UIView { bubbleContainerView.extractedContentView }
 
     private var selectionRowTransform: CGAffineTransform {
-        selectionActive && !selectionOutgoing && !selectionCentered
-            ? CGAffineTransform(translationX: 42, y: 0)
-            : .identity
+        if selectionActive, !selectionOutgoing, !selectionCentered {
+            CGAffineTransform(translationX: 42, y: 0)
+        } else {
+            .identity
+        }
     }
 
     override init(frame: CGRect) {
@@ -727,7 +729,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
         let isUnframedMediaMessage =
             switch message.message.content {
-            case .messageAnimation, .messageSticker, .messageVideoNote: true
+            case .messageAnimation,
+                 .messageSticker,
+                 .messageVideoNote: true
             default: false
             }
         let isStandaloneUnframedMedia =
@@ -744,7 +748,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         // and round videos get a separate button there instead, and service messages none.
         let hasSeparateCommentButton =
             switch message.message.content {
-            case .messageSticker, .messageVideoNote: true
+            case .messageSticker,
+                 .messageVideoNote: true
             default: false
             }
         let commentSource: Message? =
@@ -828,8 +833,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             }
         if let textIndex = bubbleStack.arrangedSubviews.firstIndex(of: arrangedBubbleView(for: textView)),
            let structuredIndex = bubbleStack.arrangedSubviews
-               .firstIndex(of: arrangedBubbleView(for: structuredContentView)),
-               (structuredIndex > textIndex) != previewBelowText
+            .firstIndex(of: arrangedBubbleView(for: structuredContentView)),
+           (structuredIndex > textIndex) != previewBelowText
         {
             bubbleStack.removeArrangedSubview(arrangedBubbleView(for: structuredContentView))
             let updatedTextIndex = bubbleStack.arrangedSubviews.firstIndex(of: arrangedBubbleView(for: textView)) ?? 3
@@ -1327,7 +1332,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 swipeToReplyIndicator.playThresholdAnimation()
                 swipeReplyFeedback?.impactOccurred(intensity: 0.8)
             }
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             let shouldReply = swipeReplyBindingID != nil && swipeReplyBindingID == actionBindingID
                 && recognizer.state == .ended
                 && recognizer.translation(in: contentView).x < -swipeReplyThreshold
@@ -1516,8 +1523,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     }
 
     private func updateBubbleWidth(for cellWidth: CGFloat) {
-        guard cellWidth > 0 else { return }
-        guard bubbleContentNeedsMeasurement || abs(measuredCellWidth - cellWidth) > 0.5 else { return }
+        guard cellWidth > 0, bubbleContentNeedsMeasurement || abs(measuredCellWidth - cellWidth) > 0.5 else { return }
         let maximumBubbleWidth = maximumBubbleWidth(for: cellWidth)
         if !mediaView.isHidden {
             mediaView.updateMaximumWidth(maximumBubbleWidth)
@@ -1565,6 +1571,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     private func reactionAccessibilityDescription(_ reactions: [MessageReaction]) -> String {
         reactions
+            .lazy
             .map { "\($0.type.accessibilityName), \($0.totalCount)" }
             .joined(separator: ", ")
     }

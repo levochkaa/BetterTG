@@ -517,8 +517,8 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
     #endif
 
     private static func isH264HighCABAC(_ format: CMFormatDescription) -> Bool {
-        guard CMFormatDescriptionGetMediaSubType(format) == kCMVideoCodecType_H264 else { return false }
-        guard let rawExtensions = CMFormatDescriptionGetExtensions(format) else { return false }
+        guard CMFormatDescriptionGetMediaSubType(format) == kCMVideoCodecType_H264,
+              let rawExtensions = CMFormatDescriptionGetExtensions(format) else { return false }
         let extensions = rawExtensions as NSDictionary
         guard let atoms = extensions[kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms] as? NSDictionary,
               let configuration = atoms["avcC"] as? Data

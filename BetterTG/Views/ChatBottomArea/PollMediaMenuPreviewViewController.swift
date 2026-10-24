@@ -42,7 +42,10 @@ final class PollMediaMenuPreviewViewController: UIViewController, MKMapViewDeleg
                 width: image.size.width * image.scale,
                 height: image.size.height * image.scale,
             )
-        case .audio, .file, .link, .sticker:
+        case .audio,
+             .file,
+             .link,
+             .sticker:
             preferredContentSize = CGSize(width: 4, height: 3)
         case .location:
             break
@@ -64,7 +67,9 @@ final class PollMediaMenuPreviewViewController: UIViewController, MKMapViewDeleg
             showMap(location, venue: venue)
         case .audio:
             showFile(systemName: "music.note")
-        case .file, .link, .sticker:
+        case .file,
+             .link,
+             .sticker:
             showFile(systemName: "doc.fill")
         }
     }

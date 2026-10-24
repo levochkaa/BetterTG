@@ -189,7 +189,8 @@ final class ChatDiscussionViewController: SettingsListViewController {
                         supergroupId: value.supergroupId, isAllHistoryAvailable: true,
                     ))
                 }
-            case .chatTypePrivate, .chatTypeSecret:
+            case .chatTypePrivate,
+                 .chatTypeSecret:
                 return
             }
             _ = try await client.send(TDNativeRequests.setChatDiscussionGroup(

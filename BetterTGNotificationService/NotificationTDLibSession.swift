@@ -275,7 +275,8 @@ final class NotificationTDLibSession: @unchecked Sendable {
             switch selection {
             case .message: true
             case .unresolved: metadata.expectsMedia
-            case .denied, .nonMedia: false
+            case .denied,
+                 .nonMedia: false
             }
         guard isCurrent(ticket) else { return nil }
         logger.log(
@@ -332,21 +333,23 @@ final class NotificationTDLibSession: @unchecked Sendable {
                 false
             }
         guard isCurrent(ticket),
-              RichNotificationCache.matchesAccount(metadata.accountID, boundUserID: account.userID) else { return nil }
-        guard lifetime.publish(ticket, {
-            if let resolvedSenderAvatar {
-                RichNotificationCache.cacheAvatar(
-                    resolvedSenderAvatar,
-                    for: metadata.sender,
-                    accountID: metadata.accountID,
-                )
-            }
-            if let resolvedConversationAvatar {
-                RichNotificationCache.cacheAvatar(
-                    resolvedConversationAvatar, for: metadata.peer, accountID: metadata.accountID,
-                )
-            }
-        }) else { return nil }
+              RichNotificationCache.matchesAccount(metadata.accountID, boundUserID: account.userID), lifetime.publish(
+                  ticket,
+                  {
+                      if let resolvedSenderAvatar {
+                          RichNotificationCache.cacheAvatar(
+                              resolvedSenderAvatar,
+                              for: metadata.sender,
+                              accountID: metadata.accountID,
+                          )
+                      }
+                      if let resolvedConversationAvatar {
+                          RichNotificationCache.cacheAvatar(
+                              resolvedConversationAvatar, for: metadata.peer, accountID: metadata.accountID,
+                          )
+                      }
+                  },
+              ) else { return nil }
 
         return ResolvedTelegramNotification(
             senderName: senderName.isEmpty ? (metadata.senderName ?? "Telegram") : senderName,
@@ -400,12 +403,13 @@ final class NotificationTDLibSession: @unchecked Sendable {
                 offset: 0,
                 limit: 10,
                 onlyLocal: false,
-            ), isCurrent(ticket) {
-                if let message = history.messages.first(where: { target.matches(message: $0, chatID: chatID) }) {
-                    logger.log("rich_notification.message_fetched source=latest_history")
-                    RichNotificationDiagnostics.record("message_fetched", fields: ["source": "latest_history"])
-                    return message
-                }
+            ), isCurrent(ticket), let message = history.messages.first(where: { target.matches(
+                message: $0,
+                chatID: chatID,
+            ) }) {
+                logger.log("rich_notification.message_fetched source=latest_history")
+                RichNotificationDiagnostics.record("message_fetched", fields: ["source": "latest_history"])
+                return message
             }
             for messageID in messageIDs {
                 guard isCurrent(ticket) else { return nil }

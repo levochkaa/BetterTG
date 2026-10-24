@@ -175,7 +175,8 @@ final class AppLocalization: @unchecked Sendable {
                         two: plural.twoValue,
                         zero: plural.zeroValue,
                     ))
-                case .languagePackStringValueDeleted, nil: .deleted
+                case .languagePackStringValueDeleted,
+                     nil: .deleted
                 }
             return (string.key, value)
         })
@@ -212,7 +213,7 @@ final class AppLocalization: @unchecked Sendable {
     }
 
     private static func preferredLanguagePackID() -> String {
-        guard let preferred = Locale.preferredLanguages.first?.lowercased().replacingOccurrences(of: "_", with: "-")
+        guard let preferred = Locale.preferredLanguages.first?.lowercased().replacing("_", with: "-")
         else { return "en" }
         if preferred.hasPrefix("zh-hant") || preferred.hasPrefix("zh-tw") || preferred.hasPrefix("zh-hk") {
             return "zh-hant"
@@ -227,7 +228,7 @@ final class AppLocalization: @unchecked Sendable {
     }
 
     private static func bundleLanguageCandidates(_ languageID: String) -> [String] {
-        let normalized = languageID.lowercased().replacingOccurrences(of: "_", with: "-")
+        let normalized = languageID.lowercased().replacing("_", with: "-")
         let base = normalized.split(separator: "-").first.map(String.init)
         return [normalized, base].compactMap(\.self).uniqued()
     }
@@ -255,7 +256,7 @@ final class AppLocalization: @unchecked Sendable {
 
     private static func pluralCategory(languageCode: String, count: Int) -> PluralCategory {
         let code = languageCode.lowercased()
-            .replacingOccurrences(of: "_", with: "-")
+            .replacing("_", with: "-")
             .split(separator: "-")
             .first
             .map(String.init) ?? languageCode
@@ -270,16 +271,21 @@ final class AppLocalization: @unchecked Sendable {
             if (3...10).contains(mod100) { return .few }
             if (11...99).contains(mod100) { return .many }
             return .other
-        case "be", "ru", "uk":
+        case "be",
+             "ru",
+             "uk":
             if mod10 == 1, mod100 != 11 { return .one }
             if (2...4).contains(mod10), !(12...14).contains(mod100) { return .few }
             if mod10 == 0 || (5...9).contains(mod10) || (11...14).contains(mod100) { return .many }
             return .other
-        case "bs", "hr", "sr":
+        case "bs",
+             "hr",
+             "sr":
             if mod10 == 1, mod100 != 11 { return .one }
             if (2...4).contains(mod10), !(12...14).contains(mod100) { return .few }
             return .other
-        case "cs", "sk":
+        case "cs",
+             "sk":
             if count == 1 { return .one }
             if (2...4).contains(count) { return .few }
             return .other
@@ -290,7 +296,9 @@ final class AppLocalization: @unchecked Sendable {
             if count == 3 { return .few }
             if count == 6 { return .many }
             return .other
-        case "fr", "hi", "pt":
+        case "fr",
+             "hi",
+             "pt":
             return count == 0 || count == 1 ? .one : .other
         case "ga":
             if count == 1 { return .one }
@@ -319,7 +327,11 @@ final class AppLocalization: @unchecked Sendable {
             if mod100 == 2 { return .two }
             if mod100 == 3 || mod100 == 4 { return .few }
             return .other
-        case "ja", "ko", "th", "vi", "zh":
+        case "ja",
+             "ko",
+             "th",
+             "vi",
+             "zh":
             return .other
         default:
             return count == 1 ? .one : .other

@@ -7,11 +7,10 @@ import TDLibKit
 
 extension TDNativeAccountInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.registrationMonth == rhs.registrationMonth else { return false }
-        guard lhs.registrationYear == rhs.registrationYear else { return false }
-        guard lhs.phoneNumberCountryCode == rhs.phoneNumberCountryCode else { return false }
-        guard lhs.lastNameChangeDate == rhs.lastNameChangeDate else { return false }
-        guard lhs.lastPhotoChangeDate == rhs.lastPhotoChangeDate else { return false }
+        guard lhs.registrationMonth == rhs.registrationMonth, lhs.registrationYear == rhs.registrationYear,
+              lhs.phoneNumberCountryCode == rhs.phoneNumberCountryCode,
+              lhs.lastNameChangeDate == rhs.lastNameChangeDate,
+              lhs.lastPhotoChangeDate == rhs.lastPhotoChangeDate else { return false }
         return true
     }
 
@@ -70,12 +69,9 @@ extension TDNativeActiveStoryStateLive: @retroactive Hashable {
 
 extension TDNativeAddress: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.countryCode == rhs.countryCode else { return false }
-        guard lhs.state == rhs.state else { return false }
-        guard lhs.city == rhs.city else { return false }
-        guard lhs.streetLine1 == rhs.streetLine1 else { return false }
-        guard lhs.streetLine2 == rhs.streetLine2 else { return false }
-        guard lhs.postalCode == rhs.postalCode else { return false }
+        guard lhs.countryCode == rhs.countryCode, lhs.state == rhs.state, lhs.city == rhs.city,
+              lhs.streetLine1 == rhs.streetLine1, lhs.streetLine2 == rhs.streetLine2,
+              lhs.postalCode == rhs.postalCode else { return false }
         return true
     }
 
@@ -93,12 +89,9 @@ extension TDNativeAddress: @retroactive Hashable {
 
 extension TDNativeAnimatedEmoji: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.sticker == rhs.sticker else { return false }
-        guard lhs.stickerWidth == rhs.stickerWidth else { return false }
-        guard lhs.stickerHeight == rhs.stickerHeight else { return false }
-        guard lhs.fitzpatrickType == rhs.fitzpatrickType else { return false }
-        guard lhs.sound == rhs.sound else { return false }
-        guard lhs.isRegularEmoji == rhs.isRegularEmoji else { return false }
+        guard lhs.sticker == rhs.sticker, lhs.stickerWidth == rhs.stickerWidth, lhs.stickerHeight == rhs.stickerHeight,
+              lhs.fitzpatrickType == rhs.fitzpatrickType, lhs.sound == rhs.sound,
+              lhs.isRegularEmoji == rhs.isRegularEmoji else { return false }
         return true
     }
 
@@ -116,15 +109,11 @@ extension TDNativeAnimatedEmoji: @retroactive Hashable {
 
 extension TDNativeAudio: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.performer == rhs.performer else { return false }
-        guard lhs.fileName == rhs.fileName else { return false }
-        guard lhs.mimeType == rhs.mimeType else { return false }
-        guard lhs.albumCoverMinithumbnail == rhs.albumCoverMinithumbnail else { return false }
-        guard lhs.albumCoverThumbnail == rhs.albumCoverThumbnail else { return false }
-        guard lhs.externalAlbumCovers == rhs.externalAlbumCovers else { return false }
-        guard lhs.audio == rhs.audio else { return false }
+        guard lhs.duration == rhs.duration, lhs.title == rhs.title, lhs.performer == rhs.performer,
+              lhs.fileName == rhs.fileName, lhs.mimeType == rhs.mimeType,
+              lhs.albumCoverMinithumbnail == rhs.albumCoverMinithumbnail,
+              lhs.albumCoverThumbnail == rhs.albumCoverThumbnail, lhs.externalAlbumCovers == rhs.externalAlbumCovers,
+              lhs.audio == rhs.audio else { return false }
         return true
     }
 
@@ -145,10 +134,8 @@ extension TDNativeAudio: @retroactive Hashable {
 
 extension TDNativeAuthenticationCodeInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.phoneNumber == rhs.phoneNumber else { return false }
-        guard lhs.type == rhs.type else { return false }
-        guard lhs.nextType == rhs.nextType else { return false }
-        guard lhs.timeout == rhs.timeout else { return false }
+        guard lhs.phoneNumber == rhs.phoneNumber, lhs.type == rhs.type, lhs.nextType == rhs.nextType,
+              lhs.timeout == rhs.timeout else { return false }
         return true
     }
 
@@ -243,8 +230,8 @@ extension TDNativeAuthenticationCodeTypeCall: @retroactive Hashable {
 
 extension TDNativeAuthenticationCodeTypeFirebaseAndroid: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.deviceVerificationParameters == rhs.deviceVerificationParameters else { return false }
-        guard lhs.length == rhs.length else { return false }
+        guard lhs.deviceVerificationParameters == rhs.deviceVerificationParameters,
+              lhs.length == rhs.length else { return false }
         return true
     }
 
@@ -258,9 +245,8 @@ extension TDNativeAuthenticationCodeTypeFirebaseAndroid: @retroactive Hashable {
 
 extension TDNativeAuthenticationCodeTypeFirebaseIos: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.receipt == rhs.receipt else { return false }
-        guard lhs.pushTimeout == rhs.pushTimeout else { return false }
-        guard lhs.length == rhs.length else { return false }
+        guard lhs.receipt == rhs.receipt, lhs.pushTimeout == rhs.pushTimeout,
+              lhs.length == rhs.length else { return false }
         return true
     }
 
@@ -288,8 +274,7 @@ extension TDNativeAuthenticationCodeTypeFlashCall: @retroactive Hashable {
 
 extension TDNativeAuthenticationCodeTypeFragment: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.length == rhs.length else { return false }
+        guard lhs.url == rhs.url, lhs.length == rhs.length else { return false }
         return true
     }
 
@@ -303,8 +288,7 @@ extension TDNativeAuthenticationCodeTypeFragment: @retroactive Hashable {
 
 extension TDNativeAuthenticationCodeTypeMissedCall: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.phoneNumberPrefix == rhs.phoneNumberPrefix else { return false }
-        guard lhs.length == rhs.length else { return false }
+        guard lhs.phoneNumberPrefix == rhs.phoneNumberPrefix, lhs.length == rhs.length else { return false }
         return true
     }
 
@@ -461,8 +445,7 @@ extension TDNativeAuthorizationStateWaitCode: @retroactive Hashable {
 
 extension TDNativeAuthorizationStateWaitEmailAddress: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.allowAppleId == rhs.allowAppleId else { return false }
-        guard lhs.allowGoogleId == rhs.allowGoogleId else { return false }
+        guard lhs.allowAppleId == rhs.allowAppleId, lhs.allowGoogleId == rhs.allowGoogleId else { return false }
         return true
     }
 
@@ -476,10 +459,9 @@ extension TDNativeAuthorizationStateWaitEmailAddress: @retroactive Hashable {
 
 extension TDNativeAuthorizationStateWaitEmailCode: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.allowAppleId == rhs.allowAppleId else { return false }
-        guard lhs.allowGoogleId == rhs.allowGoogleId else { return false }
-        guard lhs.codeInfo == rhs.codeInfo else { return false }
-        guard lhs.emailAddressResetState == rhs.emailAddressResetState else { return false }
+        guard lhs.allowAppleId == rhs.allowAppleId, lhs.allowGoogleId == rhs.allowGoogleId,
+              lhs.codeInfo == rhs.codeInfo,
+              lhs.emailAddressResetState == rhs.emailAddressResetState else { return false }
         return true
     }
 
@@ -508,10 +490,9 @@ extension TDNativeAuthorizationStateWaitOtherDeviceConfirmation: @retroactive Ha
 
 extension TDNativeAuthorizationStateWaitPassword: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.passwordHint == rhs.passwordHint else { return false }
-        guard lhs.hasRecoveryEmailAddress == rhs.hasRecoveryEmailAddress else { return false }
-        guard lhs.hasPassportData == rhs.hasPassportData else { return false }
-        guard lhs.recoveryEmailAddressPattern == rhs.recoveryEmailAddressPattern else { return false }
+        guard lhs.passwordHint == rhs.passwordHint, lhs.hasRecoveryEmailAddress == rhs.hasRecoveryEmailAddress,
+              lhs.hasPassportData == rhs.hasPassportData,
+              lhs.recoveryEmailAddressPattern == rhs.recoveryEmailAddressPattern else { return false }
         return true
     }
 
@@ -527,10 +508,9 @@ extension TDNativeAuthorizationStateWaitPassword: @retroactive Hashable {
 
 extension TDNativeAuthorizationStateWaitPremiumPurchase: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.storeProductId == rhs.storeProductId else { return false }
-        guard lhs.premiumDayCount == rhs.premiumDayCount else { return false }
-        guard lhs.supportEmailAddress == rhs.supportEmailAddress else { return false }
-        guard lhs.supportEmailSubject == rhs.supportEmailSubject else { return false }
+        guard lhs.storeProductId == rhs.storeProductId, lhs.premiumDayCount == rhs.premiumDayCount,
+              lhs.supportEmailAddress == rhs.supportEmailAddress,
+              lhs.supportEmailSubject == rhs.supportEmailSubject else { return false }
         return true
     }
 
@@ -559,12 +539,8 @@ extension TDNativeAuthorizationStateWaitRegistration: @retroactive Hashable {
 
 extension TDNativeBackground: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.isDefault == rhs.isDefault else { return false }
-        guard lhs.isDark == rhs.isDark else { return false }
-        guard lhs.name == rhs.name else { return false }
-        guard lhs.document == rhs.document else { return false }
-        guard lhs.type == rhs.type else { return false }
+        guard lhs.id == rhs.id, lhs.isDefault == rhs.isDefault, lhs.isDark == rhs.isDark, lhs.name == rhs.name,
+              lhs.document == rhs.document, lhs.type == rhs.type else { return false }
         return true
     }
 
@@ -626,9 +602,8 @@ extension TDNativeBackgroundFillFreeformGradient: @retroactive Hashable {
 
 extension TDNativeBackgroundFillGradient: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.topColor == rhs.topColor else { return false }
-        guard lhs.bottomColor == rhs.bottomColor else { return false }
-        guard lhs.rotationAngle == rhs.rotationAngle else { return false }
+        guard lhs.topColor == rhs.topColor, lhs.bottomColor == rhs.bottomColor,
+              lhs.rotationAngle == rhs.rotationAngle else { return false }
         return true
     }
 
@@ -718,10 +693,8 @@ extension TDNativeBackgroundTypeFill: @retroactive Hashable {
 
 extension TDNativeBackgroundTypePattern: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.fill == rhs.fill else { return false }
-        guard lhs.intensity == rhs.intensity else { return false }
-        guard lhs.isInverted == rhs.isInverted else { return false }
-        guard lhs.isMoving == rhs.isMoving else { return false }
+        guard lhs.fill == rhs.fill, lhs.intensity == rhs.intensity, lhs.isInverted == rhs.isInverted,
+              lhs.isMoving == rhs.isMoving else { return false }
         return true
     }
 
@@ -737,8 +710,7 @@ extension TDNativeBackgroundTypePattern: @retroactive Hashable {
 
 extension TDNativeBackgroundTypeWallpaper: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.isBlurred == rhs.isBlurred else { return false }
-        guard lhs.isMoving == rhs.isMoving else { return false }
+        guard lhs.isBlurred == rhs.isBlurred, lhs.isMoving == rhs.isMoving else { return false }
         return true
     }
 
@@ -752,11 +724,9 @@ extension TDNativeBackgroundTypeWallpaper: @retroactive Hashable {
 
 extension TDNativeBasicGroup: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.memberCount == rhs.memberCount else { return false }
-        guard lhs.status == rhs.status else { return false }
-        guard lhs.isActive == rhs.isActive else { return false }
-        guard lhs.upgradedToSupergroupId == rhs.upgradedToSupergroupId else { return false }
+        guard lhs.id == rhs.id, lhs.memberCount == rhs.memberCount, lhs.status == rhs.status,
+              lhs.isActive == rhs.isActive,
+              lhs.upgradedToSupergroupId == rhs.upgradedToSupergroupId else { return false }
         return true
     }
 
@@ -773,9 +743,7 @@ extension TDNativeBasicGroup: @retroactive Hashable {
 
 extension TDNativeBirthdate: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.day == rhs.day else { return false }
-        guard lhs.month == rhs.month else { return false }
-        guard lhs.year == rhs.year else { return false }
+        guard lhs.day == rhs.day, lhs.month == rhs.month, lhs.year == rhs.year else { return false }
         return true
     }
 
@@ -850,10 +818,8 @@ extension TDNativeBotWriteAccessAllowReasonLaunchedWebApp: @retroactive Hashable
 
 extension TDNativeBusinessBotManageBar: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.botUserId == rhs.botUserId else { return false }
-        guard lhs.manageUrl == rhs.manageUrl else { return false }
-        guard lhs.isBotPaused == rhs.isBotPaused else { return false }
-        guard lhs.canBotReply == rhs.canBotReply else { return false }
+        guard lhs.botUserId == rhs.botUserId, lhs.manageUrl == rhs.manageUrl, lhs.isBotPaused == rhs.isBotPaused,
+              lhs.canBotReply == rhs.canBotReply else { return false }
         return true
     }
 
@@ -923,50 +889,29 @@ extension TDNativeCallDiscardReasonUpgradeToGroupCall: @retroactive Hashable {
 
 extension TDNativeChat: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.type == rhs.type else { return false }
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.accentColorId == rhs.accentColorId else { return false }
-        guard lhs.backgroundCustomEmojiId == rhs.backgroundCustomEmojiId else { return false }
-        guard lhs.upgradedGiftColors == rhs.upgradedGiftColors else { return false }
-        guard lhs.profileAccentColorId == rhs.profileAccentColorId else { return false }
-        guard lhs.profileBackgroundCustomEmojiId == rhs.profileBackgroundCustomEmojiId else { return false }
-        guard lhs.permissions == rhs.permissions else { return false }
-        guard lhs.lastMessage == rhs.lastMessage else { return false }
-        guard lhs.positions == rhs.positions else { return false }
-        guard lhs.chatLists == rhs.chatLists else { return false }
-        guard lhs.messageSenderId == rhs.messageSenderId else { return false }
-        guard lhs.blockList == rhs.blockList else { return false }
-        guard lhs.hasProtectedContent == rhs.hasProtectedContent else { return false }
-        guard lhs.isTranslatable == rhs.isTranslatable else { return false }
-        guard lhs.isMarkedAsUnread == rhs.isMarkedAsUnread else { return false }
-        guard lhs.viewAsTopics == rhs.viewAsTopics else { return false }
-        guard lhs.hasScheduledMessages == rhs.hasScheduledMessages else { return false }
-        guard lhs.hasWelcomeMessages == rhs.hasWelcomeMessages else { return false }
-        guard lhs.canBeDeletedOnlyForSelf == rhs.canBeDeletedOnlyForSelf else { return false }
-        guard lhs.canBeDeletedForAllUsers == rhs.canBeDeletedForAllUsers else { return false }
-        guard lhs.canBeReported == rhs.canBeReported else { return false }
-        guard lhs.defaultDisableNotification == rhs.defaultDisableNotification else { return false }
-        guard lhs.unreadCount == rhs.unreadCount else { return false }
-        guard lhs.lastReadInboxMessageId == rhs.lastReadInboxMessageId else { return false }
-        guard lhs.lastReadOutboxMessageId == rhs.lastReadOutboxMessageId else { return false }
-        guard lhs.unreadMentionCount == rhs.unreadMentionCount else { return false }
-        guard lhs.unreadReactionCount == rhs.unreadReactionCount else { return false }
-        guard lhs.unreadPollVoteCount == rhs.unreadPollVoteCount else { return false }
-        guard lhs.notificationSettings == rhs.notificationSettings else { return false }
-        guard lhs.availableReactions == rhs.availableReactions else { return false }
-        guard lhs.messageAutoDeleteTime == rhs.messageAutoDeleteTime else { return false }
-        guard lhs.emojiStatus == rhs.emojiStatus else { return false }
-        guard lhs.background == rhs.background else { return false }
-        guard lhs.theme == rhs.theme else { return false }
-        guard lhs.actionBar == rhs.actionBar else { return false }
-        guard lhs.businessBotManageBar == rhs.businessBotManageBar else { return false }
-        guard lhs.videoChat == rhs.videoChat else { return false }
-        guard lhs.pendingJoinRequests == rhs.pendingJoinRequests else { return false }
-        guard lhs.replyMarkupMessageId == rhs.replyMarkupMessageId else { return false }
-        guard lhs.draftMessage == rhs.draftMessage else { return false }
-        guard lhs.clientData == rhs.clientData else { return false }
+        guard lhs.id == rhs.id, lhs.type == rhs.type, lhs.title == rhs.title, lhs.photo == rhs.photo,
+              lhs.accentColorId == rhs.accentColorId, lhs.backgroundCustomEmojiId == rhs.backgroundCustomEmojiId,
+              lhs.upgradedGiftColors == rhs.upgradedGiftColors, lhs.profileAccentColorId == rhs.profileAccentColorId,
+              lhs.profileBackgroundCustomEmojiId == rhs.profileBackgroundCustomEmojiId,
+              lhs.permissions == rhs.permissions, lhs.lastMessage == rhs.lastMessage, lhs.positions == rhs.positions,
+              lhs.chatLists == rhs.chatLists, lhs.messageSenderId == rhs.messageSenderId,
+              lhs.blockList == rhs.blockList,
+              lhs.hasProtectedContent == rhs.hasProtectedContent, lhs.isTranslatable == rhs.isTranslatable,
+              lhs.isMarkedAsUnread == rhs.isMarkedAsUnread, lhs.viewAsTopics == rhs.viewAsTopics,
+              lhs.hasScheduledMessages == rhs.hasScheduledMessages, lhs.hasWelcomeMessages == rhs.hasWelcomeMessages,
+              lhs.canBeDeletedOnlyForSelf == rhs.canBeDeletedOnlyForSelf,
+              lhs.canBeDeletedForAllUsers == rhs.canBeDeletedForAllUsers, lhs.canBeReported == rhs.canBeReported,
+              lhs.defaultDisableNotification == rhs.defaultDisableNotification, lhs.unreadCount == rhs.unreadCount,
+              lhs.lastReadInboxMessageId == rhs.lastReadInboxMessageId,
+              lhs.lastReadOutboxMessageId == rhs.lastReadOutboxMessageId,
+              lhs.unreadMentionCount == rhs.unreadMentionCount, lhs.unreadReactionCount == rhs.unreadReactionCount,
+              lhs.unreadPollVoteCount == rhs.unreadPollVoteCount, lhs.notificationSettings == rhs.notificationSettings,
+              lhs.availableReactions == rhs.availableReactions, lhs.messageAutoDeleteTime == rhs.messageAutoDeleteTime,
+              lhs.emojiStatus == rhs.emojiStatus, lhs.background == rhs.background, lhs.theme == rhs.theme,
+              lhs.actionBar == rhs.actionBar, lhs.businessBotManageBar == rhs.businessBotManageBar,
+              lhs.videoChat == rhs.videoChat, lhs.pendingJoinRequests == rhs.pendingJoinRequests,
+              lhs.replyMarkupMessageId == rhs.replyMarkupMessageId, lhs.draftMessage == rhs.draftMessage,
+              lhs.clientData == rhs.clientData else { return false }
         return true
     }
 
@@ -1065,9 +1010,8 @@ extension TDNativeChatActionBar: @retroactive Hashable {
 
 extension TDNativeChatActionBarJoinRequest: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.isChannel == rhs.isChannel else { return false }
-        guard lhs.requestDate == rhs.requestDate else { return false }
+        guard lhs.title == rhs.title, lhs.isChannel == rhs.isChannel,
+              lhs.requestDate == rhs.requestDate else { return false }
         return true
     }
 
@@ -1082,8 +1026,7 @@ extension TDNativeChatActionBarJoinRequest: @retroactive Hashable {
 
 extension TDNativeChatActionBarReportAddBlock: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.canUnarchive == rhs.canUnarchive else { return false }
-        guard lhs.accountInfo == rhs.accountInfo else { return false }
+        guard lhs.canUnarchive == rhs.canUnarchive, lhs.accountInfo == rhs.accountInfo else { return false }
         return true
     }
 
@@ -1110,24 +1053,16 @@ extension TDNativeChatActionBarReportSpam: @retroactive Hashable {
 
 extension TDNativeChatAdministratorRights: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.canManageChat == rhs.canManageChat else { return false }
-        guard lhs.canChangeInfo == rhs.canChangeInfo else { return false }
-        guard lhs.canPostMessages == rhs.canPostMessages else { return false }
-        guard lhs.canEditMessages == rhs.canEditMessages else { return false }
-        guard lhs.canDeleteMessages == rhs.canDeleteMessages else { return false }
-        guard lhs.canInviteUsers == rhs.canInviteUsers else { return false }
-        guard lhs.canRestrictMembers == rhs.canRestrictMembers else { return false }
-        guard lhs.canPinMessages == rhs.canPinMessages else { return false }
-        guard lhs.canManageTopics == rhs.canManageTopics else { return false }
-        guard lhs.canPromoteMembers == rhs.canPromoteMembers else { return false }
-        guard lhs.canManageVideoChats == rhs.canManageVideoChats else { return false }
-        guard lhs.canPostStories == rhs.canPostStories else { return false }
-        guard lhs.canEditStories == rhs.canEditStories else { return false }
-        guard lhs.canDeleteStories == rhs.canDeleteStories else { return false }
-        guard lhs.canManageDirectMessages == rhs.canManageDirectMessages else { return false }
-        guard lhs.canManageTags == rhs.canManageTags else { return false }
-        guard lhs.canSendWelcomeMessages == rhs.canSendWelcomeMessages else { return false }
-        guard lhs.isAnonymous == rhs.isAnonymous else { return false }
+        guard lhs.canManageChat == rhs.canManageChat, lhs.canChangeInfo == rhs.canChangeInfo,
+              lhs.canPostMessages == rhs.canPostMessages, lhs.canEditMessages == rhs.canEditMessages,
+              lhs.canDeleteMessages == rhs.canDeleteMessages, lhs.canInviteUsers == rhs.canInviteUsers,
+              lhs.canRestrictMembers == rhs.canRestrictMembers, lhs.canPinMessages == rhs.canPinMessages,
+              lhs.canManageTopics == rhs.canManageTopics, lhs.canPromoteMembers == rhs.canPromoteMembers,
+              lhs.canManageVideoChats == rhs.canManageVideoChats, lhs.canPostStories == rhs.canPostStories,
+              lhs.canEditStories == rhs.canEditStories, lhs.canDeleteStories == rhs.canDeleteStories,
+              lhs.canManageDirectMessages == rhs.canManageDirectMessages, lhs.canManageTags == rhs.canManageTags,
+              lhs.canSendWelcomeMessages == rhs.canSendWelcomeMessages,
+              lhs.isAnonymous == rhs.isAnonymous else { return false }
         return true
     }
 
@@ -1196,8 +1131,7 @@ extension TDNativeChatAvailableReactionsAll: @retroactive Hashable {
 
 extension TDNativeChatAvailableReactionsSome: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.reactions == rhs.reactions else { return false }
-        guard lhs.maxReactionCount == rhs.maxReactionCount else { return false }
+        guard lhs.reactions == rhs.reactions, lhs.maxReactionCount == rhs.maxReactionCount else { return false }
         return true
     }
 
@@ -1211,8 +1145,7 @@ extension TDNativeChatAvailableReactionsSome: @retroactive Hashable {
 
 extension TDNativeChatBackground: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.background == rhs.background else { return false }
-        guard lhs.darkThemeDimming == rhs.darkThemeDimming else { return false }
+        guard lhs.background == rhs.background, lhs.darkThemeDimming == rhs.darkThemeDimming else { return false }
         return true
     }
 
@@ -1226,8 +1159,7 @@ extension TDNativeChatBackground: @retroactive Hashable {
 
 extension TDNativeChatJoinRequestsInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.totalCount == rhs.totalCount else { return false }
-        guard lhs.userIds == rhs.userIds else { return false }
+        guard lhs.totalCount == rhs.totalCount, lhs.userIds == rhs.userIds else { return false }
         return true
     }
 
@@ -1241,11 +1173,8 @@ extension TDNativeChatJoinRequestsInfo: @retroactive Hashable {
 
 extension TDNativeChatMember: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.memberId == rhs.memberId else { return false }
-        guard lhs.tag == rhs.tag else { return false }
-        guard lhs.inviterUserId == rhs.inviterUserId else { return false }
-        guard lhs.joinedChatDate == rhs.joinedChatDate else { return false }
-        guard lhs.status == rhs.status else { return false }
+        guard lhs.memberId == rhs.memberId, lhs.tag == rhs.tag, lhs.inviterUserId == rhs.inviterUserId,
+              lhs.joinedChatDate == rhs.joinedChatDate, lhs.status == rhs.status else { return false }
         return true
     }
 
@@ -1307,8 +1236,7 @@ extension TDNativeChatMemberStatus: @retroactive Hashable {
 
 extension TDNativeChatMemberStatusAdministrator: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.canBeEdited == rhs.canBeEdited else { return false }
-        guard lhs.rights == rhs.rights else { return false }
+        guard lhs.canBeEdited == rhs.canBeEdited, lhs.rights == rhs.rights else { return false }
         return true
     }
 
@@ -1335,8 +1263,7 @@ extension TDNativeChatMemberStatusBanned: @retroactive Hashable {
 
 extension TDNativeChatMemberStatusCreator: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.isAnonymous == rhs.isAnonymous else { return false }
-        guard lhs.isMember == rhs.isMember else { return false }
+        guard lhs.isAnonymous == rhs.isAnonymous, lhs.isMember == rhs.isMember else { return false }
         return true
     }
 
@@ -1363,9 +1290,8 @@ extension TDNativeChatMemberStatusMember: @retroactive Hashable {
 
 extension TDNativeChatMemberStatusRestricted: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.isMember == rhs.isMember else { return false }
-        guard lhs.restrictedUntilDate == rhs.restrictedUntilDate else { return false }
-        guard lhs.permissions == rhs.permissions else { return false }
+        guard lhs.isMember == rhs.isMember, lhs.restrictedUntilDate == rhs.restrictedUntilDate,
+              lhs.permissions == rhs.permissions else { return false }
         return true
     }
 
@@ -1380,24 +1306,17 @@ extension TDNativeChatMemberStatusRestricted: @retroactive Hashable {
 
 extension TDNativeChatNotificationSettings: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.useDefaultMuteFor == rhs.useDefaultMuteFor else { return false }
-        guard lhs.muteFor == rhs.muteFor else { return false }
-        guard lhs.useDefaultSound == rhs.useDefaultSound else { return false }
-        guard lhs.soundId == rhs.soundId else { return false }
-        guard lhs.useDefaultShowPreview == rhs.useDefaultShowPreview else { return false }
-        guard lhs.showPreview == rhs.showPreview else { return false }
-        guard lhs.useDefaultMuteStories == rhs.useDefaultMuteStories else { return false }
-        guard lhs.muteStories == rhs.muteStories else { return false }
-        guard lhs.useDefaultStorySound == rhs.useDefaultStorySound else { return false }
-        guard lhs.storySoundId == rhs.storySoundId else { return false }
-        guard lhs.useDefaultShowStoryPoster == rhs.useDefaultShowStoryPoster else { return false }
-        guard lhs.showStoryPoster == rhs.showStoryPoster else { return false }
-        guard lhs.useDefaultDisablePinnedMessageNotifications == rhs.useDefaultDisablePinnedMessageNotifications
-        else { return false }
-        guard lhs.disablePinnedMessageNotifications == rhs.disablePinnedMessageNotifications else { return false }
-        guard lhs.useDefaultDisableMentionNotifications == rhs.useDefaultDisableMentionNotifications
-        else { return false }
-        guard lhs.disableMentionNotifications == rhs.disableMentionNotifications else { return false }
+        guard lhs.useDefaultMuteFor == rhs.useDefaultMuteFor, lhs.muteFor == rhs.muteFor,
+              lhs.useDefaultSound == rhs.useDefaultSound, lhs.soundId == rhs.soundId,
+              lhs.useDefaultShowPreview == rhs.useDefaultShowPreview, lhs.showPreview == rhs.showPreview,
+              lhs.useDefaultMuteStories == rhs.useDefaultMuteStories, lhs.muteStories == rhs.muteStories,
+              lhs.useDefaultStorySound == rhs.useDefaultStorySound, lhs.storySoundId == rhs.storySoundId,
+              lhs.useDefaultShowStoryPoster == rhs.useDefaultShowStoryPoster,
+              lhs.showStoryPoster == rhs.showStoryPoster,
+              lhs.useDefaultDisablePinnedMessageNotifications == rhs.useDefaultDisablePinnedMessageNotifications,
+              lhs.disablePinnedMessageNotifications == rhs.disablePinnedMessageNotifications,
+              lhs.useDefaultDisableMentionNotifications == rhs.useDefaultDisableMentionNotifications,
+              lhs.disableMentionNotifications == rhs.disableMentionNotifications else { return false }
         return true
     }
 
@@ -1425,22 +1344,14 @@ extension TDNativeChatNotificationSettings: @retroactive Hashable {
 
 extension TDNativeChatPermissions: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.canSendBasicMessages == rhs.canSendBasicMessages else { return false }
-        guard lhs.canSendAudios == rhs.canSendAudios else { return false }
-        guard lhs.canSendDocuments == rhs.canSendDocuments else { return false }
-        guard lhs.canSendPhotos == rhs.canSendPhotos else { return false }
-        guard lhs.canSendVideos == rhs.canSendVideos else { return false }
-        guard lhs.canSendVideoNotes == rhs.canSendVideoNotes else { return false }
-        guard lhs.canSendVoiceNotes == rhs.canSendVoiceNotes else { return false }
-        guard lhs.canSendPolls == rhs.canSendPolls else { return false }
-        guard lhs.canSendOtherMessages == rhs.canSendOtherMessages else { return false }
-        guard lhs.canAddLinkPreviews == rhs.canAddLinkPreviews else { return false }
-        guard lhs.canReactToMessages == rhs.canReactToMessages else { return false }
-        guard lhs.canEditTag == rhs.canEditTag else { return false }
-        guard lhs.canChangeInfo == rhs.canChangeInfo else { return false }
-        guard lhs.canInviteUsers == rhs.canInviteUsers else { return false }
-        guard lhs.canPinMessages == rhs.canPinMessages else { return false }
-        guard lhs.canCreateTopics == rhs.canCreateTopics else { return false }
+        guard lhs.canSendBasicMessages == rhs.canSendBasicMessages, lhs.canSendAudios == rhs.canSendAudios,
+              lhs.canSendDocuments == rhs.canSendDocuments, lhs.canSendPhotos == rhs.canSendPhotos,
+              lhs.canSendVideos == rhs.canSendVideos, lhs.canSendVideoNotes == rhs.canSendVideoNotes,
+              lhs.canSendVoiceNotes == rhs.canSendVoiceNotes, lhs.canSendPolls == rhs.canSendPolls,
+              lhs.canSendOtherMessages == rhs.canSendOtherMessages, lhs.canAddLinkPreviews == rhs.canAddLinkPreviews,
+              lhs.canReactToMessages == rhs.canReactToMessages, lhs.canEditTag == rhs.canEditTag,
+              lhs.canChangeInfo == rhs.canChangeInfo, lhs.canInviteUsers == rhs.canInviteUsers,
+              lhs.canPinMessages == rhs.canPinMessages, lhs.canCreateTopics == rhs.canCreateTopics else { return false }
         return true
     }
 
@@ -1468,13 +1379,9 @@ extension TDNativeChatPermissions: @retroactive Hashable {
 
 extension TDNativeChatPhoto: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.addedDate == rhs.addedDate else { return false }
-        guard lhs.minithumbnail == rhs.minithumbnail else { return false }
-        guard lhs.sizes == rhs.sizes else { return false }
-        guard lhs.animation == rhs.animation else { return false }
-        guard lhs.smallAnimation == rhs.smallAnimation else { return false }
-        guard lhs.sticker == rhs.sticker else { return false }
+        guard lhs.id == rhs.id, lhs.addedDate == rhs.addedDate, lhs.minithumbnail == rhs.minithumbnail,
+              lhs.sizes == rhs.sizes, lhs.animation == rhs.animation, lhs.smallAnimation == rhs.smallAnimation,
+              lhs.sticker == rhs.sticker else { return false }
         return true
     }
 
@@ -1493,8 +1400,7 @@ extension TDNativeChatPhoto: @retroactive Hashable {
 
 extension TDNativeChatPhotoSticker: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.type == rhs.type else { return false }
-        guard lhs.backgroundFill == rhs.backgroundFill else { return false }
+        guard lhs.type == rhs.type, lhs.backgroundFill == rhs.backgroundFill else { return false }
         return true
     }
 
@@ -1547,8 +1453,7 @@ extension TDNativeChatPhotoStickerTypeCustomEmoji: @retroactive Hashable {
 
 extension TDNativeChatPhotoStickerTypeRegularOrMask: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.stickerSetId == rhs.stickerSetId else { return false }
-        guard lhs.stickerId == rhs.stickerId else { return false }
+        guard lhs.stickerSetId == rhs.stickerSetId, lhs.stickerId == rhs.stickerId else { return false }
         return true
     }
 
@@ -1562,10 +1467,8 @@ extension TDNativeChatPhotoStickerTypeRegularOrMask: @retroactive Hashable {
 
 extension TDNativeChatPosition: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.list == rhs.list else { return false }
-        guard lhs.order == rhs.order else { return false }
-        guard lhs.isPinned == rhs.isPinned else { return false }
-        guard lhs.source == rhs.source else { return false }
+        guard lhs.list == rhs.list, lhs.order == rhs.order, lhs.isPinned == rhs.isPinned,
+              lhs.source == rhs.source else { return false }
         return true
     }
 
@@ -1606,8 +1509,7 @@ extension TDNativeChatSource: @retroactive Hashable {
 
 extension TDNativeChatSourcePublicServiceAnnouncement: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.type == rhs.type else { return false }
-        guard lhs.text == rhs.text else { return false }
+        guard lhs.type == rhs.type, lhs.text == rhs.text else { return false }
         return true
     }
 
@@ -1735,8 +1637,7 @@ extension TDNativeChatTypePrivate: @retroactive Hashable {
 
 extension TDNativeChatTypeSecret: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.secretChatId == rhs.secretChatId else { return false }
-        guard lhs.userId == rhs.userId else { return false }
+        guard lhs.secretChatId == rhs.secretChatId, lhs.userId == rhs.userId else { return false }
         return true
     }
 
@@ -1750,8 +1651,7 @@ extension TDNativeChatTypeSecret: @retroactive Hashable {
 
 extension TDNativeChatTypeSupergroup: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.supergroupId == rhs.supergroupId else { return false }
-        guard lhs.isChannel == rhs.isChannel else { return false }
+        guard lhs.supergroupId == rhs.supergroupId, lhs.isChannel == rhs.isChannel else { return false }
         return true
     }
 
@@ -1765,12 +1665,9 @@ extension TDNativeChatTypeSupergroup: @retroactive Hashable {
 
 extension TDNativeChecklist: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.tasks == rhs.tasks else { return false }
-        guard lhs.othersCanAddTasks == rhs.othersCanAddTasks else { return false }
-        guard lhs.canAddTasks == rhs.canAddTasks else { return false }
-        guard lhs.othersCanMarkTasksAsDone == rhs.othersCanMarkTasksAsDone else { return false }
-        guard lhs.canMarkTasksAsDone == rhs.canMarkTasksAsDone else { return false }
+        guard lhs.title == rhs.title, lhs.tasks == rhs.tasks, lhs.othersCanAddTasks == rhs.othersCanAddTasks,
+              lhs.canAddTasks == rhs.canAddTasks, lhs.othersCanMarkTasksAsDone == rhs.othersCanMarkTasksAsDone,
+              lhs.canMarkTasksAsDone == rhs.canMarkTasksAsDone else { return false }
         return true
     }
 
@@ -1788,10 +1685,8 @@ extension TDNativeChecklist: @retroactive Hashable {
 
 extension TDNativeChecklistTask: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.completedBy == rhs.completedBy else { return false }
-        guard lhs.completionDate == rhs.completionDate else { return false }
+        guard lhs.id == rhs.id, lhs.text == rhs.text, lhs.completedBy == rhs.completedBy,
+              lhs.completionDate == rhs.completionDate else { return false }
         return true
     }
 
@@ -1807,11 +1702,8 @@ extension TDNativeChecklistTask: @retroactive Hashable {
 
 extension TDNativeContact: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.phoneNumber == rhs.phoneNumber else { return false }
-        guard lhs.firstName == rhs.firstName else { return false }
-        guard lhs.lastName == rhs.lastName else { return false }
-        guard lhs.vcard == rhs.vcard else { return false }
-        guard lhs.userId == rhs.userId else { return false }
+        guard lhs.phoneNumber == rhs.phoneNumber, lhs.firstName == rhs.firstName, lhs.lastName == rhs.lastName,
+              lhs.vcard == rhs.vcard, lhs.userId == rhs.userId else { return false }
         return true
     }
 
@@ -1853,9 +1745,8 @@ extension TDNativeDateTimeFormattingType: @retroactive Hashable {
 
 extension TDNativeDateTimeFormattingTypeAbsolute: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.timePrecision == rhs.timePrecision else { return false }
-        guard lhs.datePrecision == rhs.datePrecision else { return false }
-        guard lhs.showDayOfWeek == rhs.showDayOfWeek else { return false }
+        guard lhs.timePrecision == rhs.timePrecision, lhs.datePrecision == rhs.datePrecision,
+              lhs.showDayOfWeek == rhs.showDayOfWeek else { return false }
         return true
     }
 
@@ -1870,8 +1761,7 @@ extension TDNativeDateTimeFormattingTypeAbsolute: @retroactive Hashable {
 
 extension TDNativeDatedFile: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.file == rhs.file else { return false }
-        guard lhs.date == rhs.date else { return false }
+        guard lhs.file == rhs.file, lhs.date == rhs.date else { return false }
         return true
     }
 
@@ -1924,11 +1814,8 @@ extension TDNativeDiceStickersRegular: @retroactive Hashable {
 
 extension TDNativeDiceStickersSlotMachine: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.background == rhs.background else { return false }
-        guard lhs.lever == rhs.lever else { return false }
-        guard lhs.leftReel == rhs.leftReel else { return false }
-        guard lhs.centerReel == rhs.centerReel else { return false }
-        guard lhs.rightReel == rhs.rightReel else { return false }
+        guard lhs.background == rhs.background, lhs.lever == rhs.lever, lhs.leftReel == rhs.leftReel,
+              lhs.centerReel == rhs.centerReel, lhs.rightReel == rhs.rightReel else { return false }
         return true
     }
 
@@ -1945,11 +1832,8 @@ extension TDNativeDiceStickersSlotMachine: @retroactive Hashable {
 
 extension TDNativeDocument: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.fileName == rhs.fileName else { return false }
-        guard lhs.mimeType == rhs.mimeType else { return false }
-        guard lhs.minithumbnail == rhs.minithumbnail else { return false }
-        guard lhs.thumbnail == rhs.thumbnail else { return false }
-        guard lhs.document == rhs.document else { return false }
+        guard lhs.fileName == rhs.fileName, lhs.mimeType == rhs.mimeType, lhs.minithumbnail == rhs.minithumbnail,
+              lhs.thumbnail == rhs.thumbnail, lhs.document == rhs.document else { return false }
         return true
     }
 
@@ -1966,11 +1850,9 @@ extension TDNativeDocument: @retroactive Hashable {
 
 extension TDNativeDraftMessage: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.replyTo == rhs.replyTo else { return false }
-        guard lhs.date == rhs.date else { return false }
-        guard lhs.content == rhs.content else { return false }
-        guard lhs.effectId == rhs.effectId else { return false }
-        guard lhs.suggestedPostInfo == rhs.suggestedPostInfo else { return false }
+        guard lhs.replyTo == rhs.replyTo, lhs.date == rhs.date, lhs.content == rhs.content,
+              lhs.effectId == rhs.effectId,
+              lhs.suggestedPostInfo == rhs.suggestedPostInfo else { return false }
         return true
     }
 
@@ -2054,8 +1936,7 @@ extension TDNativeDraftMessageContentRichMessage: @retroactive Hashable {
 
 extension TDNativeDraftMessageContentText: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.linkPreviewOptions == rhs.linkPreviewOptions else { return false }
+        guard lhs.text == rhs.text, lhs.linkPreviewOptions == rhs.linkPreviewOptions else { return false }
         return true
     }
 
@@ -2069,10 +1950,8 @@ extension TDNativeDraftMessageContentText: @retroactive Hashable {
 
 extension TDNativeDraftMessageContentVideoNote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.filePath == rhs.filePath else { return false }
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.length == rhs.length else { return false }
-        guard lhs.selfDestructType == rhs.selfDestructType else { return false }
+        guard lhs.filePath == rhs.filePath, lhs.duration == rhs.duration, lhs.length == rhs.length,
+              lhs.selfDestructType == rhs.selfDestructType else { return false }
         return true
     }
 
@@ -2088,10 +1967,8 @@ extension TDNativeDraftMessageContentVideoNote: @retroactive Hashable {
 
 extension TDNativeDraftMessageContentVoiceNote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.filePath == rhs.filePath else { return false }
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.waveform == rhs.waveform else { return false }
-        guard lhs.selfDestructType == rhs.selfDestructType else { return false }
+        guard lhs.filePath == rhs.filePath, lhs.duration == rhs.duration, lhs.waveform == rhs.waveform,
+              lhs.selfDestructType == rhs.selfDestructType else { return false }
         return true
     }
 
@@ -2107,8 +1984,7 @@ extension TDNativeDraftMessageContentVoiceNote: @retroactive Hashable {
 
 extension TDNativeEmailAddressAuthenticationCodeInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.emailAddressPattern == rhs.emailAddressPattern else { return false }
-        guard lhs.length == rhs.length else { return false }
+        guard lhs.emailAddressPattern == rhs.emailAddressPattern, lhs.length == rhs.length else { return false }
         return true
     }
 
@@ -2174,8 +2050,7 @@ extension TDNativeEmailAddressResetStatePending: @retroactive Hashable {
 
 extension TDNativeEmojiStatus: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.type == rhs.type else { return false }
-        guard lhs.expirationDate == rhs.expirationDate else { return false }
+        guard lhs.type == rhs.type, lhs.expirationDate == rhs.expirationDate else { return false }
         return true
     }
 
@@ -2228,12 +2103,9 @@ extension TDNativeEmojiStatusTypeCustomEmoji: @retroactive Hashable {
 
 extension TDNativeEmojiStatusTypeUpgradedGift: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.upgradedGiftId == rhs.upgradedGiftId else { return false }
-        guard lhs.giftTitle == rhs.giftTitle else { return false }
-        guard lhs.giftName == rhs.giftName else { return false }
-        guard lhs.modelCustomEmojiId == rhs.modelCustomEmojiId else { return false }
-        guard lhs.symbolCustomEmojiId == rhs.symbolCustomEmojiId else { return false }
-        guard lhs.backdropColors == rhs.backdropColors else { return false }
+        guard lhs.upgradedGiftId == rhs.upgradedGiftId, lhs.giftTitle == rhs.giftTitle, lhs.giftName == rhs.giftName,
+              lhs.modelCustomEmojiId == rhs.modelCustomEmojiId, lhs.symbolCustomEmojiId == rhs.symbolCustomEmojiId,
+              lhs.backdropColors == rhs.backdropColors else { return false }
         return true
     }
 
@@ -2251,9 +2123,7 @@ extension TDNativeEmojiStatusTypeUpgradedGift: @retroactive Hashable {
 
 extension TDNativeEncryptedCredentials: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.data == rhs.data else { return false }
-        guard lhs.hash == rhs.hash else { return false }
-        guard lhs.secret == rhs.secret else { return false }
+        guard lhs.data == rhs.data, lhs.hash == rhs.hash, lhs.secret == rhs.secret else { return false }
         return true
     }
 
@@ -2268,15 +2138,9 @@ extension TDNativeEncryptedCredentials: @retroactive Hashable {
 
 extension TDNativeEncryptedPassportElement: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.type == rhs.type else { return false }
-        guard lhs.data == rhs.data else { return false }
-        guard lhs.frontSide == rhs.frontSide else { return false }
-        guard lhs.reverseSide == rhs.reverseSide else { return false }
-        guard lhs.selfie == rhs.selfie else { return false }
-        guard lhs.translation == rhs.translation else { return false }
-        guard lhs.files == rhs.files else { return false }
-        guard lhs.value == rhs.value else { return false }
-        guard lhs.hash == rhs.hash else { return false }
+        guard lhs.type == rhs.type, lhs.data == rhs.data, lhs.frontSide == rhs.frontSide,
+              lhs.reverseSide == rhs.reverseSide, lhs.selfie == rhs.selfie, lhs.translation == rhs.translation,
+              lhs.files == rhs.files, lhs.value == rhs.value, lhs.hash == rhs.hash else { return false }
         return true
     }
 
@@ -2297,10 +2161,8 @@ extension TDNativeEncryptedPassportElement: @retroactive Hashable {
 
 extension TDNativeEphemeralMessageContent: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.canBeSaved == rhs.canBeSaved else { return false }
-        guard lhs.hasTimestampedMedia == rhs.hasTimestampedMedia else { return false }
-        guard lhs.content == rhs.content else { return false }
-        guard lhs.replyMarkup == rhs.replyMarkup else { return false }
+        guard lhs.canBeSaved == rhs.canBeSaved, lhs.hasTimestampedMedia == rhs.hasTimestampedMedia,
+              lhs.content == rhs.content, lhs.replyMarkup == rhs.replyMarkup else { return false }
         return true
     }
 
@@ -2316,8 +2178,7 @@ extension TDNativeEphemeralMessageContent: @retroactive Hashable {
 
 extension TDNativeError: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.code == rhs.code else { return false }
-        guard lhs.message == rhs.message else { return false }
+        guard lhs.code == rhs.code, lhs.message == rhs.message else { return false }
         return true
     }
 
@@ -2331,8 +2192,7 @@ extension TDNativeError: @retroactive Hashable {
 
 extension TDNativeFactCheck: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.countryCode == rhs.countryCode else { return false }
+        guard lhs.text == rhs.text, lhs.countryCode == rhs.countryCode else { return false }
         return true
     }
 
@@ -2378,8 +2238,7 @@ extension TDNativeFirebaseDeviceVerificationParameters: @retroactive Hashable {
 
 extension TDNativeFirebaseDeviceVerificationParametersPlayIntegrity: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.nonce == rhs.nonce else { return false }
-        guard lhs.cloudProjectNumber == rhs.cloudProjectNumber else { return false }
+        guard lhs.nonce == rhs.nonce, lhs.cloudProjectNumber == rhs.cloudProjectNumber else { return false }
         return true
     }
 
@@ -2406,18 +2265,13 @@ extension TDNativeFirebaseDeviceVerificationParametersSafetyNet: @retroactive Ha
 
 extension TDNativeForumTopic: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.info == rhs.info else { return false }
-        guard lhs.lastMessage == rhs.lastMessage else { return false }
-        guard lhs.order == rhs.order else { return false }
-        guard lhs.isPinned == rhs.isPinned else { return false }
-        guard lhs.unreadCount == rhs.unreadCount else { return false }
-        guard lhs.lastReadInboxMessageId == rhs.lastReadInboxMessageId else { return false }
-        guard lhs.lastReadOutboxMessageId == rhs.lastReadOutboxMessageId else { return false }
-        guard lhs.unreadMentionCount == rhs.unreadMentionCount else { return false }
-        guard lhs.unreadReactionCount == rhs.unreadReactionCount else { return false }
-        guard lhs.unreadPollVoteCount == rhs.unreadPollVoteCount else { return false }
-        guard lhs.notificationSettings == rhs.notificationSettings else { return false }
-        guard lhs.draftMessage == rhs.draftMessage else { return false }
+        guard lhs.info == rhs.info, lhs.lastMessage == rhs.lastMessage, lhs.order == rhs.order,
+              lhs.isPinned == rhs.isPinned, lhs.unreadCount == rhs.unreadCount,
+              lhs.lastReadInboxMessageId == rhs.lastReadInboxMessageId,
+              lhs.lastReadOutboxMessageId == rhs.lastReadOutboxMessageId,
+              lhs.unreadMentionCount == rhs.unreadMentionCount, lhs.unreadReactionCount == rhs.unreadReactionCount,
+              lhs.unreadPollVoteCount == rhs.unreadPollVoteCount, lhs.notificationSettings == rhs.notificationSettings,
+              lhs.draftMessage == rhs.draftMessage else { return false }
         return true
     }
 
@@ -2441,8 +2295,7 @@ extension TDNativeForumTopic: @retroactive Hashable {
 
 extension TDNativeForumTopicIcon: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.color == rhs.color else { return false }
-        guard lhs.customEmojiId == rhs.customEmojiId else { return false }
+        guard lhs.color == rhs.color, lhs.customEmojiId == rhs.customEmojiId else { return false }
         return true
     }
 
@@ -2456,17 +2309,11 @@ extension TDNativeForumTopicIcon: @retroactive Hashable {
 
 extension TDNativeForumTopicInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.chatId == rhs.chatId else { return false }
-        guard lhs.forumTopicId == rhs.forumTopicId else { return false }
-        guard lhs.name == rhs.name else { return false }
-        guard lhs.icon == rhs.icon else { return false }
-        guard lhs.creationDate == rhs.creationDate else { return false }
-        guard lhs.creatorId == rhs.creatorId else { return false }
-        guard lhs.isGeneral == rhs.isGeneral else { return false }
-        guard lhs.isOutgoing == rhs.isOutgoing else { return false }
-        guard lhs.isClosed == rhs.isClosed else { return false }
-        guard lhs.isHidden == rhs.isHidden else { return false }
-        guard lhs.isNameImplicit == rhs.isNameImplicit else { return false }
+        guard lhs.chatId == rhs.chatId, lhs.forumTopicId == rhs.forumTopicId, lhs.name == rhs.name,
+              lhs.icon == rhs.icon,
+              lhs.creationDate == rhs.creationDate, lhs.creatorId == rhs.creatorId, lhs.isGeneral == rhs.isGeneral,
+              lhs.isOutgoing == rhs.isOutgoing, lhs.isClosed == rhs.isClosed, lhs.isHidden == rhs.isHidden,
+              lhs.isNameImplicit == rhs.isNameImplicit else { return false }
         return true
     }
 
@@ -2489,12 +2336,9 @@ extension TDNativeForumTopicInfo: @retroactive Hashable {
 
 extension TDNativeForwardSource: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.chatId == rhs.chatId else { return false }
-        guard lhs.messageId == rhs.messageId else { return false }
-        guard lhs.senderId == rhs.senderId else { return false }
-        guard lhs.senderName == rhs.senderName else { return false }
-        guard lhs.date == rhs.date else { return false }
-        guard lhs.isOutgoing == rhs.isOutgoing else { return false }
+        guard lhs.chatId == rhs.chatId, lhs.messageId == rhs.messageId, lhs.senderId == rhs.senderId,
+              lhs.senderName == rhs.senderName, lhs.date == rhs.date,
+              lhs.isOutgoing == rhs.isOutgoing else { return false }
         return true
     }
 
@@ -2512,13 +2356,9 @@ extension TDNativeForwardSource: @retroactive Hashable {
 
 extension TDNativeGame: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.shortName == rhs.shortName else { return false }
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.description == rhs.description else { return false }
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.animation == rhs.animation else { return false }
+        guard lhs.id == rhs.id, lhs.shortName == rhs.shortName, lhs.title == rhs.title, lhs.text == rhs.text,
+              lhs.description == rhs.description, lhs.photo == rhs.photo,
+              lhs.animation == rhs.animation else { return false }
         return true
     }
 
@@ -2537,23 +2377,14 @@ extension TDNativeGame: @retroactive Hashable {
 
 extension TDNativeGift: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.publisherChatId == rhs.publisherChatId else { return false }
-        guard lhs.sticker == rhs.sticker else { return false }
-        guard lhs.starCount == rhs.starCount else { return false }
-        guard lhs.defaultSellStarCount == rhs.defaultSellStarCount else { return false }
-        guard lhs.upgradeStarCount == rhs.upgradeStarCount else { return false }
-        guard lhs.upgradeVariantCount == rhs.upgradeVariantCount else { return false }
-        guard lhs.hasColors == rhs.hasColors else { return false }
-        guard lhs.isForBirthday == rhs.isForBirthday else { return false }
-        guard lhs.isPremium == rhs.isPremium else { return false }
-        guard lhs.auctionInfo == rhs.auctionInfo else { return false }
-        guard lhs.nextSendDate == rhs.nextSendDate else { return false }
-        guard lhs.userLimits == rhs.userLimits else { return false }
-        guard lhs.overallLimits == rhs.overallLimits else { return false }
-        guard lhs.background == rhs.background else { return false }
-        guard lhs.firstSendDate == rhs.firstSendDate else { return false }
-        guard lhs.lastSendDate == rhs.lastSendDate else { return false }
+        guard lhs.id == rhs.id, lhs.publisherChatId == rhs.publisherChatId, lhs.sticker == rhs.sticker,
+              lhs.starCount == rhs.starCount, lhs.defaultSellStarCount == rhs.defaultSellStarCount,
+              lhs.upgradeStarCount == rhs.upgradeStarCount, lhs.upgradeVariantCount == rhs.upgradeVariantCount,
+              lhs.hasColors == rhs.hasColors, lhs.isForBirthday == rhs.isForBirthday, lhs.isPremium == rhs.isPremium,
+              lhs.auctionInfo == rhs.auctionInfo, lhs.nextSendDate == rhs.nextSendDate,
+              lhs.userLimits == rhs.userLimits,
+              lhs.overallLimits == rhs.overallLimits, lhs.background == rhs.background,
+              lhs.firstSendDate == rhs.firstSendDate, lhs.lastSendDate == rhs.lastSendDate else { return false }
         return true
     }
 
@@ -2582,9 +2413,8 @@ extension TDNativeGift: @retroactive Hashable {
 
 extension TDNativeGiftAuction: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.giftsPerRound == rhs.giftsPerRound else { return false }
-        guard lhs.startDate == rhs.startDate else { return false }
+        guard lhs.id == rhs.id, lhs.giftsPerRound == rhs.giftsPerRound,
+              lhs.startDate == rhs.startDate else { return false }
         return true
     }
 
@@ -2599,9 +2429,8 @@ extension TDNativeGiftAuction: @retroactive Hashable {
 
 extension TDNativeGiftBackground: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.centerColor == rhs.centerColor else { return false }
-        guard lhs.edgeColor == rhs.edgeColor else { return false }
-        guard lhs.textColor == rhs.textColor else { return false }
+        guard lhs.centerColor == rhs.centerColor, lhs.edgeColor == rhs.edgeColor,
+              lhs.textColor == rhs.textColor else { return false }
         return true
     }
 
@@ -2616,9 +2445,8 @@ extension TDNativeGiftBackground: @retroactive Hashable {
 
 extension TDNativeGiftChatTheme: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.gift == rhs.gift else { return false }
-        guard lhs.lightSettings == rhs.lightSettings else { return false }
-        guard lhs.darkSettings == rhs.darkSettings else { return false }
+        guard lhs.gift == rhs.gift, lhs.lightSettings == rhs.lightSettings,
+              lhs.darkSettings == rhs.darkSettings else { return false }
         return true
     }
 
@@ -2633,8 +2461,7 @@ extension TDNativeGiftChatTheme: @retroactive Hashable {
 
 extension TDNativeGiftPurchaseLimits: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.totalCount == rhs.totalCount else { return false }
-        guard lhs.remainingCount == rhs.remainingCount else { return false }
+        guard lhs.totalCount == rhs.totalCount, lhs.remainingCount == rhs.remainingCount else { return false }
         return true
     }
 
@@ -2648,9 +2475,8 @@ extension TDNativeGiftPurchaseLimits: @retroactive Hashable {
 
 extension TDNativeGiftResaleParameters: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.starCount == rhs.starCount else { return false }
-        guard lhs.gramCentCount == rhs.gramCentCount else { return false }
-        guard lhs.gramOnly == rhs.gramOnly else { return false }
+        guard lhs.starCount == rhs.starCount, lhs.gramCentCount == rhs.gramCentCount,
+              lhs.gramOnly == rhs.gramOnly else { return false }
         return true
     }
 
@@ -2717,13 +2543,10 @@ extension TDNativeGiftResalePriceStar: @retroactive Hashable {
 
 extension TDNativeGiveawayParameters: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.boostedChatId == rhs.boostedChatId else { return false }
-        guard lhs.additionalChatIds == rhs.additionalChatIds else { return false }
-        guard lhs.winnersSelectionDate == rhs.winnersSelectionDate else { return false }
-        guard lhs.onlyNewMembers == rhs.onlyNewMembers else { return false }
-        guard lhs.hasPublicWinners == rhs.hasPublicWinners else { return false }
-        guard lhs.countryCodes == rhs.countryCodes else { return false }
-        guard lhs.prizeDescription == rhs.prizeDescription else { return false }
+        guard lhs.boostedChatId == rhs.boostedChatId, lhs.additionalChatIds == rhs.additionalChatIds,
+              lhs.winnersSelectionDate == rhs.winnersSelectionDate, lhs.onlyNewMembers == rhs.onlyNewMembers,
+              lhs.hasPublicWinners == rhs.hasPublicWinners, lhs.countryCodes == rhs.countryCodes,
+              lhs.prizeDescription == rhs.prizeDescription else { return false }
         return true
     }
 
@@ -2794,9 +2617,7 @@ extension TDNativeGiveawayPrizeStars: @retroactive Hashable {
 
 extension TDNativeInlineButton: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.style == rhs.style else { return false }
-        guard lhs.type == rhs.type else { return false }
+        guard lhs.text == rhs.text, lhs.style == rhs.style, lhs.type == rhs.type else { return false }
         return true
     }
 
@@ -2811,10 +2632,8 @@ extension TDNativeInlineButton: @retroactive Hashable {
 
 extension TDNativeInlineKeyboardButton: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.iconCustomEmojiId == rhs.iconCustomEmojiId else { return false }
-        guard lhs.style == rhs.style else { return false }
-        guard lhs.type == rhs.type else { return false }
+        guard lhs.text == rhs.text, lhs.iconCustomEmojiId == rhs.iconCustomEmojiId, lhs.style == rhs.style,
+              lhs.type == rhs.type else { return false }
         return true
     }
 
@@ -2940,9 +2759,7 @@ extension TDNativeInlineKeyboardButtonTypeCopyText: @retroactive Hashable {
 
 extension TDNativeInlineKeyboardButtonTypeLoginUrl: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.forwardText == rhs.forwardText else { return false }
+        guard lhs.url == rhs.url, lhs.id == rhs.id, lhs.forwardText == rhs.forwardText else { return false }
         return true
     }
 
@@ -2957,8 +2774,7 @@ extension TDNativeInlineKeyboardButtonTypeLoginUrl: @retroactive Hashable {
 
 extension TDNativeInlineKeyboardButtonTypeSwitchInline: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.query == rhs.query else { return false }
-        guard lhs.targetChat == rhs.targetChat else { return false }
+        guard lhs.query == rhs.query, lhs.targetChat == rhs.targetChat else { return false }
         return true
     }
 
@@ -3011,12 +2827,9 @@ extension TDNativeInlineKeyboardButtonTypeWebApp: @retroactive Hashable {
 
 extension TDNativeInputAnimation: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.animation == rhs.animation else { return false }
-        guard lhs.thumbnail == rhs.thumbnail else { return false }
-        guard lhs.addedStickerFileIds == rhs.addedStickerFileIds else { return false }
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
+        guard lhs.animation == rhs.animation, lhs.thumbnail == rhs.thumbnail,
+              lhs.addedStickerFileIds == rhs.addedStickerFileIds, lhs.duration == rhs.duration, lhs.width == rhs.width,
+              lhs.height == rhs.height else { return false }
         return true
     }
 
@@ -3034,11 +2847,8 @@ extension TDNativeInputAnimation: @retroactive Hashable {
 
 extension TDNativeInputAudio: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.audio == rhs.audio else { return false }
-        guard lhs.albumCoverThumbnail == rhs.albumCoverThumbnail else { return false }
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.performer == rhs.performer else { return false }
+        guard lhs.audio == rhs.audio, lhs.albumCoverThumbnail == rhs.albumCoverThumbnail, lhs.duration == rhs.duration,
+              lhs.title == rhs.title, lhs.performer == rhs.performer else { return false }
         return true
     }
 
@@ -3055,10 +2865,8 @@ extension TDNativeInputAudio: @retroactive Hashable {
 
 extension TDNativeInputChecklist: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.tasks == rhs.tasks else { return false }
-        guard lhs.othersCanAddTasks == rhs.othersCanAddTasks else { return false }
-        guard lhs.othersCanMarkTasksAsDone == rhs.othersCanMarkTasksAsDone else { return false }
+        guard lhs.title == rhs.title, lhs.tasks == rhs.tasks, lhs.othersCanAddTasks == rhs.othersCanAddTasks,
+              lhs.othersCanMarkTasksAsDone == rhs.othersCanMarkTasksAsDone else { return false }
         return true
     }
 
@@ -3074,8 +2882,7 @@ extension TDNativeInputChecklist: @retroactive Hashable {
 
 extension TDNativeInputChecklistTask: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.text == rhs.text else { return false }
+        guard lhs.id == rhs.id, lhs.text == rhs.text else { return false }
         return true
     }
 
@@ -3089,9 +2896,8 @@ extension TDNativeInputChecklistTask: @retroactive Hashable {
 
 extension TDNativeInputDocument: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.document == rhs.document else { return false }
-        guard lhs.thumbnail == rhs.thumbnail else { return false }
-        guard lhs.disableContentTypeDetection == rhs.disableContentTypeDetection else { return false }
+        guard lhs.document == rhs.document, lhs.thumbnail == rhs.thumbnail,
+              lhs.disableContentTypeDetection == rhs.disableContentTypeDetection else { return false }
         return true
     }
 
@@ -3142,9 +2948,8 @@ extension TDNativeInputFile: @retroactive Hashable {
 
 extension TDNativeInputFileGenerated: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.originalPath == rhs.originalPath else { return false }
-        guard lhs.conversion == rhs.conversion else { return false }
-        guard lhs.expectedSize == rhs.expectedSize else { return false }
+        guard lhs.originalPath == rhs.originalPath, lhs.conversion == rhs.conversion,
+              lhs.expectedSize == rhs.expectedSize else { return false }
         return true
     }
 
@@ -3198,10 +3003,9 @@ extension TDNativeInputFileRemote: @retroactive Hashable {
 
 extension TDNativeInputMessageAnimation: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.animation == rhs.animation else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.showCaptionAboveMedia == rhs.showCaptionAboveMedia else { return false }
-        guard lhs.hasSpoiler == rhs.hasSpoiler else { return false }
+        guard lhs.animation == rhs.animation, lhs.caption == rhs.caption,
+              lhs.showCaptionAboveMedia == rhs.showCaptionAboveMedia,
+              lhs.hasSpoiler == rhs.hasSpoiler else { return false }
         return true
     }
 
@@ -3217,8 +3021,7 @@ extension TDNativeInputMessageAnimation: @retroactive Hashable {
 
 extension TDNativeInputMessageAudio: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.audio == rhs.audio else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.audio == rhs.audio, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -3389,8 +3192,7 @@ extension TDNativeInputMessageContent: @retroactive Hashable {
 
 extension TDNativeInputMessageDice: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.emoji == rhs.emoji else { return false }
-        guard lhs.clearDraft == rhs.clearDraft else { return false }
+        guard lhs.emoji == rhs.emoji, lhs.clearDraft == rhs.clearDraft else { return false }
         return true
     }
 
@@ -3404,8 +3206,7 @@ extension TDNativeInputMessageDice: @retroactive Hashable {
 
 extension TDNativeInputMessageDocument: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.document == rhs.document else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.document == rhs.document, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -3419,12 +3220,10 @@ extension TDNativeInputMessageDocument: @retroactive Hashable {
 
 extension TDNativeInputMessageForwarded: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.fromChatId == rhs.fromChatId else { return false }
-        guard lhs.messageId == rhs.messageId else { return false }
-        guard lhs.inGameShare == rhs.inGameShare else { return false }
-        guard lhs.replaceVideoStartTimestamp == rhs.replaceVideoStartTimestamp else { return false }
-        guard lhs.newVideoStartTimestamp == rhs.newVideoStartTimestamp else { return false }
-        guard lhs.copyOptions == rhs.copyOptions else { return false }
+        guard lhs.fromChatId == rhs.fromChatId, lhs.messageId == rhs.messageId, lhs.inGameShare == rhs.inGameShare,
+              lhs.replaceVideoStartTimestamp == rhs.replaceVideoStartTimestamp,
+              lhs.newVideoStartTimestamp == rhs.newVideoStartTimestamp,
+              lhs.copyOptions == rhs.copyOptions else { return false }
         return true
     }
 
@@ -3442,8 +3241,7 @@ extension TDNativeInputMessageForwarded: @retroactive Hashable {
 
 extension TDNativeInputMessageGame: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.botUserId == rhs.botUserId else { return false }
-        guard lhs.gameShortName == rhs.gameShortName else { return false }
+        guard lhs.botUserId == rhs.botUserId, lhs.gameShortName == rhs.gameShortName else { return false }
         return true
     }
 
@@ -3457,19 +3255,11 @@ extension TDNativeInputMessageGame: @retroactive Hashable {
 
 extension TDNativeInputMessageInvoice: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.invoice == rhs.invoice else { return false }
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.description == rhs.description else { return false }
-        guard lhs.photoUrl == rhs.photoUrl else { return false }
-        guard lhs.photoSize == rhs.photoSize else { return false }
-        guard lhs.photoWidth == rhs.photoWidth else { return false }
-        guard lhs.photoHeight == rhs.photoHeight else { return false }
-        guard lhs.payload == rhs.payload else { return false }
-        guard lhs.providerToken == rhs.providerToken else { return false }
-        guard lhs.providerData == rhs.providerData else { return false }
-        guard lhs.startParameter == rhs.startParameter else { return false }
-        guard lhs.paidMedia == rhs.paidMedia else { return false }
-        guard lhs.paidMediaCaption == rhs.paidMediaCaption else { return false }
+        guard lhs.invoice == rhs.invoice, lhs.title == rhs.title, lhs.description == rhs.description,
+              lhs.photoUrl == rhs.photoUrl, lhs.photoSize == rhs.photoSize, lhs.photoWidth == rhs.photoWidth,
+              lhs.photoHeight == rhs.photoHeight, lhs.payload == rhs.payload, lhs.providerToken == rhs.providerToken,
+              lhs.providerData == rhs.providerData, lhs.startParameter == rhs.startParameter,
+              lhs.paidMedia == rhs.paidMedia, lhs.paidMediaCaption == rhs.paidMediaCaption else { return false }
         return true
     }
 
@@ -3520,11 +3310,8 @@ extension TDNativeInputMessageLocation: @retroactive Hashable {
 
 extension TDNativeInputMessagePaidMedia: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.starCount == rhs.starCount else { return false }
-        guard lhs.paidMedia == rhs.paidMedia else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.showCaptionAboveMedia == rhs.showCaptionAboveMedia else { return false }
-        guard lhs.payload == rhs.payload else { return false }
+        guard lhs.starCount == rhs.starCount, lhs.paidMedia == rhs.paidMedia, lhs.caption == rhs.caption,
+              lhs.showCaptionAboveMedia == rhs.showCaptionAboveMedia, lhs.payload == rhs.payload else { return false }
         return true
     }
 
@@ -3541,11 +3328,9 @@ extension TDNativeInputMessagePaidMedia: @retroactive Hashable {
 
 extension TDNativeInputMessagePhoto: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.showCaptionAboveMedia == rhs.showCaptionAboveMedia else { return false }
-        guard lhs.selfDestructType == rhs.selfDestructType else { return false }
-        guard lhs.hasSpoiler == rhs.hasSpoiler else { return false }
+        guard lhs.photo == rhs.photo, lhs.caption == rhs.caption,
+              lhs.showCaptionAboveMedia == rhs.showCaptionAboveMedia,
+              lhs.selfDestructType == rhs.selfDestructType, lhs.hasSpoiler == rhs.hasSpoiler else { return false }
         return true
     }
 
@@ -3562,21 +3347,13 @@ extension TDNativeInputMessagePhoto: @retroactive Hashable {
 
 extension TDNativeInputMessagePoll: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.question == rhs.question else { return false }
-        guard lhs.options == rhs.options else { return false }
-        guard lhs.description == rhs.description else { return false }
-        guard lhs.media == rhs.media else { return false }
-        guard lhs.isAnonymous == rhs.isAnonymous else { return false }
-        guard lhs.allowsMultipleAnswers == rhs.allowsMultipleAnswers else { return false }
-        guard lhs.allowsRevoting == rhs.allowsRevoting else { return false }
-        guard lhs.membersOnly == rhs.membersOnly else { return false }
-        guard lhs.countryCodes == rhs.countryCodes else { return false }
-        guard lhs.shuffleOptions == rhs.shuffleOptions else { return false }
-        guard lhs.hideResultsUntilCloses == rhs.hideResultsUntilCloses else { return false }
-        guard lhs.type == rhs.type else { return false }
-        guard lhs.openPeriod == rhs.openPeriod else { return false }
-        guard lhs.closeDate == rhs.closeDate else { return false }
-        guard lhs.isClosed == rhs.isClosed else { return false }
+        guard lhs.question == rhs.question, lhs.options == rhs.options, lhs.description == rhs.description,
+              lhs.media == rhs.media, lhs.isAnonymous == rhs.isAnonymous,
+              lhs.allowsMultipleAnswers == rhs.allowsMultipleAnswers, lhs.allowsRevoting == rhs.allowsRevoting,
+              lhs.membersOnly == rhs.membersOnly, lhs.countryCodes == rhs.countryCodes,
+              lhs.shuffleOptions == rhs.shuffleOptions, lhs.hideResultsUntilCloses == rhs.hideResultsUntilCloses,
+              lhs.type == rhs.type, lhs.openPeriod == rhs.openPeriod, lhs.closeDate == rhs.closeDate,
+              lhs.isClosed == rhs.isClosed else { return false }
         return true
     }
 
@@ -3603,8 +3380,7 @@ extension TDNativeInputMessagePoll: @retroactive Hashable {
 
 extension TDNativeInputMessageRichMessage: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.message == rhs.message else { return false }
-        guard lhs.clearDraft == rhs.clearDraft else { return false }
+        guard lhs.message == rhs.message, lhs.clearDraft == rhs.clearDraft else { return false }
         return true
     }
 
@@ -3618,9 +3394,8 @@ extension TDNativeInputMessageRichMessage: @retroactive Hashable {
 
 extension TDNativeInputMessageStakeDice: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.stateHash == rhs.stateHash else { return false }
-        guard lhs.stakeGramAmount == rhs.stakeGramAmount else { return false }
-        guard lhs.clearDraft == rhs.clearDraft else { return false }
+        guard lhs.stateHash == rhs.stateHash, lhs.stakeGramAmount == rhs.stakeGramAmount,
+              lhs.clearDraft == rhs.clearDraft else { return false }
         return true
     }
 
@@ -3635,8 +3410,7 @@ extension TDNativeInputMessageStakeDice: @retroactive Hashable {
 
 extension TDNativeInputMessageSticker: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.sticker == rhs.sticker else { return false }
-        guard lhs.emoji == rhs.emoji else { return false }
+        guard lhs.sticker == rhs.sticker, lhs.emoji == rhs.emoji else { return false }
         return true
     }
 
@@ -3650,8 +3424,7 @@ extension TDNativeInputMessageSticker: @retroactive Hashable {
 
 extension TDNativeInputMessageStory: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.storyPosterChatId == rhs.storyPosterChatId else { return false }
-        guard lhs.storyId == rhs.storyId else { return false }
+        guard lhs.storyPosterChatId == rhs.storyPosterChatId, lhs.storyId == rhs.storyId else { return false }
         return true
     }
 
@@ -3665,9 +3438,8 @@ extension TDNativeInputMessageStory: @retroactive Hashable {
 
 extension TDNativeInputMessageText: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.linkPreviewOptions == rhs.linkPreviewOptions else { return false }
-        guard lhs.clearDraft == rhs.clearDraft else { return false }
+        guard lhs.text == rhs.text, lhs.linkPreviewOptions == rhs.linkPreviewOptions,
+              lhs.clearDraft == rhs.clearDraft else { return false }
         return true
     }
 
@@ -3695,11 +3467,9 @@ extension TDNativeInputMessageVenue: @retroactive Hashable {
 
 extension TDNativeInputMessageVideo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.video == rhs.video else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.showCaptionAboveMedia == rhs.showCaptionAboveMedia else { return false }
-        guard lhs.selfDestructType == rhs.selfDestructType else { return false }
-        guard lhs.hasSpoiler == rhs.hasSpoiler else { return false }
+        guard lhs.video == rhs.video, lhs.caption == rhs.caption,
+              lhs.showCaptionAboveMedia == rhs.showCaptionAboveMedia,
+              lhs.selfDestructType == rhs.selfDestructType, lhs.hasSpoiler == rhs.hasSpoiler else { return false }
         return true
     }
 
@@ -3716,8 +3486,7 @@ extension TDNativeInputMessageVideo: @retroactive Hashable {
 
 extension TDNativeInputMessageVideoNote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.videoNote == rhs.videoNote else { return false }
-        guard lhs.selfDestructType == rhs.selfDestructType else { return false }
+        guard lhs.videoNote == rhs.videoNote, lhs.selfDestructType == rhs.selfDestructType else { return false }
         return true
     }
 
@@ -3731,9 +3500,8 @@ extension TDNativeInputMessageVideoNote: @retroactive Hashable {
 
 extension TDNativeInputMessageVoiceNote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.voiceNote == rhs.voiceNote else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.selfDestructType == rhs.selfDestructType else { return false }
+        guard lhs.voiceNote == rhs.voiceNote, lhs.caption == rhs.caption,
+              lhs.selfDestructType == rhs.selfDestructType else { return false }
         return true
     }
 
@@ -3896,9 +3664,8 @@ extension TDNativeInputPageBlockAnchor: @retroactive Hashable {
 
 extension TDNativeInputPageBlockAnimation: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.animation == rhs.animation else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.hasSpoiler == rhs.hasSpoiler else { return false }
+        guard lhs.animation == rhs.animation, lhs.caption == rhs.caption,
+              lhs.hasSpoiler == rhs.hasSpoiler else { return false }
         return true
     }
 
@@ -3913,8 +3680,7 @@ extension TDNativeInputPageBlockAnimation: @retroactive Hashable {
 
 extension TDNativeInputPageBlockAudio: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.audio == rhs.audio else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.audio == rhs.audio, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -3928,8 +3694,7 @@ extension TDNativeInputPageBlockAudio: @retroactive Hashable {
 
 extension TDNativeInputPageBlockBlockQuote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.blocks == rhs.blocks else { return false }
-        guard lhs.credit == rhs.credit else { return false }
+        guard lhs.blocks == rhs.blocks, lhs.credit == rhs.credit else { return false }
         return true
     }
 
@@ -3943,8 +3708,7 @@ extension TDNativeInputPageBlockBlockQuote: @retroactive Hashable {
 
 extension TDNativeInputPageBlockButtonRow: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.buttons == rhs.buttons else { return false }
-        guard lhs.align == rhs.align else { return false }
+        guard lhs.buttons == rhs.buttons, lhs.align == rhs.align else { return false }
         return true
     }
 
@@ -3958,8 +3722,7 @@ extension TDNativeInputPageBlockButtonRow: @retroactive Hashable {
 
 extension TDNativeInputPageBlockCollage: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.blocks == rhs.blocks else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.blocks == rhs.blocks, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -3973,9 +3736,7 @@ extension TDNativeInputPageBlockCollage: @retroactive Hashable {
 
 extension TDNativeInputPageBlockDetails: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.header == rhs.header else { return false }
-        guard lhs.blocks == rhs.blocks else { return false }
-        guard lhs.isOpen == rhs.isOpen else { return false }
+        guard lhs.header == rhs.header, lhs.blocks == rhs.blocks, lhs.isOpen == rhs.isOpen else { return false }
         return true
     }
 
@@ -3990,8 +3751,7 @@ extension TDNativeInputPageBlockDetails: @retroactive Hashable {
 
 extension TDNativeInputPageBlockDocument: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.document == rhs.document else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.document == rhs.document, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -4005,8 +3765,7 @@ extension TDNativeInputPageBlockDocument: @retroactive Hashable {
 
 extension TDNativeInputPageBlockExpandableBlockQuote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.credit == rhs.credit else { return false }
+        guard lhs.text == rhs.text, lhs.credit == rhs.credit else { return false }
         return true
     }
 
@@ -4046,11 +3805,8 @@ extension TDNativeInputPageBlockList: @retroactive Hashable {
 
 extension TDNativeInputPageBlockListItem: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.blocks == rhs.blocks else { return false }
-        guard lhs.hasCheckbox == rhs.hasCheckbox else { return false }
-        guard lhs.isChecked == rhs.isChecked else { return false }
-        guard lhs.value == rhs.value else { return false }
-        guard lhs.type == rhs.type else { return false }
+        guard lhs.blocks == rhs.blocks, lhs.hasCheckbox == rhs.hasCheckbox, lhs.isChecked == rhs.isChecked,
+              lhs.value == rhs.value, lhs.type == rhs.type else { return false }
         return true
     }
 
@@ -4067,11 +3823,8 @@ extension TDNativeInputPageBlockListItem: @retroactive Hashable {
 
 extension TDNativeInputPageBlockMap: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.location == rhs.location else { return false }
-        guard lhs.zoom == rhs.zoom else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.location == rhs.location, lhs.zoom == rhs.zoom, lhs.width == rhs.width, lhs.height == rhs.height,
+              lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -4114,9 +3867,7 @@ extension TDNativeInputPageBlockParagraph: @retroactive Hashable {
 
 extension TDNativeInputPageBlockPhoto: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.hasSpoiler == rhs.hasSpoiler else { return false }
+        guard lhs.photo == rhs.photo, lhs.caption == rhs.caption, lhs.hasSpoiler == rhs.hasSpoiler else { return false }
         return true
     }
 
@@ -4131,8 +3882,7 @@ extension TDNativeInputPageBlockPhoto: @retroactive Hashable {
 
 extension TDNativeInputPageBlockPreformatted: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.language == rhs.language else { return false }
+        guard lhs.text == rhs.text, lhs.language == rhs.language else { return false }
         return true
     }
 
@@ -4146,8 +3896,7 @@ extension TDNativeInputPageBlockPreformatted: @retroactive Hashable {
 
 extension TDNativeInputPageBlockPullQuote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.credit == rhs.credit else { return false }
+        guard lhs.text == rhs.text, lhs.credit == rhs.credit else { return false }
         return true
     }
 
@@ -4161,8 +3910,7 @@ extension TDNativeInputPageBlockPullQuote: @retroactive Hashable {
 
 extension TDNativeInputPageBlockSectionHeading: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.size == rhs.size else { return false }
+        guard lhs.text == rhs.text, lhs.size == rhs.size else { return false }
         return true
     }
 
@@ -4176,8 +3924,7 @@ extension TDNativeInputPageBlockSectionHeading: @retroactive Hashable {
 
 extension TDNativeInputPageBlockSlideshow: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.blocks == rhs.blocks else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.blocks == rhs.blocks, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -4191,11 +3938,8 @@ extension TDNativeInputPageBlockSlideshow: @retroactive Hashable {
 
 extension TDNativeInputPageBlockTable: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.cells == rhs.cells else { return false }
-        guard lhs.isBordered == rhs.isBordered else { return false }
-        guard lhs.isStriped == rhs.isStriped else { return false }
-        guard lhs.isCompact == rhs.isCompact else { return false }
+        guard lhs.caption == rhs.caption, lhs.cells == rhs.cells, lhs.isBordered == rhs.isBordered,
+              lhs.isStriped == rhs.isStriped, lhs.isCompact == rhs.isCompact else { return false }
         return true
     }
 
@@ -4225,9 +3969,7 @@ extension TDNativeInputPageBlockThinking: @retroactive Hashable {
 
 extension TDNativeInputPageBlockVideo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.video == rhs.video else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.hasSpoiler == rhs.hasSpoiler else { return false }
+        guard lhs.video == rhs.video, lhs.caption == rhs.caption, lhs.hasSpoiler == rhs.hasSpoiler else { return false }
         return true
     }
 
@@ -4242,8 +3984,7 @@ extension TDNativeInputPageBlockVideo: @retroactive Hashable {
 
 extension TDNativeInputPageBlockVoiceNote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.voiceNote == rhs.voiceNote else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.voiceNote == rhs.voiceNote, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -4257,12 +3998,9 @@ extension TDNativeInputPageBlockVoiceNote: @retroactive Hashable {
 
 extension TDNativeInputPaidMedia: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.type == rhs.type else { return false }
-        guard lhs.media == rhs.media else { return false }
-        guard lhs.thumbnail == rhs.thumbnail else { return false }
-        guard lhs.addedStickerFileIds == rhs.addedStickerFileIds else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
+        guard lhs.type == rhs.type, lhs.media == rhs.media, lhs.thumbnail == rhs.thumbnail,
+              lhs.addedStickerFileIds == rhs.addedStickerFileIds, lhs.width == rhs.width,
+              lhs.height == rhs.height else { return false }
         return true
     }
 
@@ -4319,10 +4057,8 @@ extension TDNativeInputPaidMediaTypePhoto: @retroactive Hashable {
 
 extension TDNativeInputPaidMediaTypeVideo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.cover == rhs.cover else { return false }
-        guard lhs.startTimestamp == rhs.startTimestamp else { return false }
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.supportsStreaming == rhs.supportsStreaming else { return false }
+        guard lhs.cover == rhs.cover, lhs.startTimestamp == rhs.startTimestamp, lhs.duration == rhs.duration,
+              lhs.supportsStreaming == rhs.supportsStreaming else { return false }
         return true
     }
 
@@ -4338,12 +4074,9 @@ extension TDNativeInputPaidMediaTypeVideo: @retroactive Hashable {
 
 extension TDNativeInputPhoto: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.thumbnail == rhs.thumbnail else { return false }
-        guard lhs.video == rhs.video else { return false }
-        guard lhs.addedStickerFileIds == rhs.addedStickerFileIds else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
+        guard lhs.photo == rhs.photo, lhs.thumbnail == rhs.thumbnail, lhs.video == rhs.video,
+              lhs.addedStickerFileIds == rhs.addedStickerFileIds, lhs.width == rhs.width,
+              lhs.height == rhs.height else { return false }
         return true
     }
 
@@ -4539,8 +4272,7 @@ extension TDNativeInputPollMediaVideo: @retroactive Hashable {
 
 extension TDNativeInputPollOption: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.media == rhs.media else { return false }
+        guard lhs.text == rhs.text, lhs.media == rhs.media else { return false }
         return true
     }
 
@@ -4580,9 +4312,8 @@ extension TDNativeInputPollType: @retroactive Hashable {
 
 extension TDNativeInputPollTypeQuiz: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.correctOptionIds == rhs.correctOptionIds else { return false }
-        guard lhs.explanation == rhs.explanation else { return false }
-        guard lhs.explanationMedia == rhs.explanationMedia else { return false }
+        guard lhs.correctOptionIds == rhs.correctOptionIds, lhs.explanation == rhs.explanation,
+              lhs.explanationMedia == rhs.explanationMedia else { return false }
         return true
     }
 
@@ -4610,9 +4341,8 @@ extension TDNativeInputPollTypeRegular: @retroactive Hashable {
 
 extension TDNativeInputRichMessage: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.source == rhs.source else { return false }
-        guard lhs.isRtl == rhs.isRtl else { return false }
-        guard lhs.detectAutomaticBlocks == rhs.detectAutomaticBlocks else { return false }
+        guard lhs.source == rhs.source, lhs.isRtl == rhs.isRtl,
+              lhs.detectAutomaticBlocks == rhs.detectAutomaticBlocks else { return false }
         return true
     }
 
@@ -4627,8 +4357,7 @@ extension TDNativeInputRichMessage: @retroactive Hashable {
 
 extension TDNativeInputRichMessageMedia: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.media == rhs.media else { return false }
+        guard lhs.id == rhs.id, lhs.media == rhs.media else { return false }
         return true
     }
 
@@ -4642,10 +4371,8 @@ extension TDNativeInputRichMessageMedia: @retroactive Hashable {
 
 extension TDNativeInputSticker: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.sticker == rhs.sticker else { return false }
-        guard lhs.thumbnail == rhs.thumbnail else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
+        guard lhs.sticker == rhs.sticker, lhs.thumbnail == rhs.thumbnail, lhs.width == rhs.width,
+              lhs.height == rhs.height else { return false }
         return true
     }
 
@@ -4661,8 +4388,7 @@ extension TDNativeInputSticker: @retroactive Hashable {
 
 extension TDNativeInputSuggestedPostInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.price == rhs.price else { return false }
-        guard lhs.sendDate == rhs.sendDate else { return false }
+        guard lhs.price == rhs.price, lhs.sendDate == rhs.sendDate else { return false }
         return true
     }
 
@@ -4676,9 +4402,7 @@ extension TDNativeInputSuggestedPostInfo: @retroactive Hashable {
 
 extension TDNativeInputThumbnail: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.thumbnail == rhs.thumbnail else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
+        guard lhs.thumbnail == rhs.thumbnail, lhs.width == rhs.width, lhs.height == rhs.height else { return false }
         return true
     }
 
@@ -4693,15 +4417,10 @@ extension TDNativeInputThumbnail: @retroactive Hashable {
 
 extension TDNativeInputVideo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.video == rhs.video else { return false }
-        guard lhs.thumbnail == rhs.thumbnail else { return false }
-        guard lhs.cover == rhs.cover else { return false }
-        guard lhs.startTimestamp == rhs.startTimestamp else { return false }
-        guard lhs.addedStickerFileIds == rhs.addedStickerFileIds else { return false }
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
-        guard lhs.supportsStreaming == rhs.supportsStreaming else { return false }
+        guard lhs.video == rhs.video, lhs.thumbnail == rhs.thumbnail, lhs.cover == rhs.cover,
+              lhs.startTimestamp == rhs.startTimestamp, lhs.addedStickerFileIds == rhs.addedStickerFileIds,
+              lhs.duration == rhs.duration, lhs.width == rhs.width, lhs.height == rhs.height,
+              lhs.supportsStreaming == rhs.supportsStreaming else { return false }
         return true
     }
 
@@ -4722,10 +4441,8 @@ extension TDNativeInputVideo: @retroactive Hashable {
 
 extension TDNativeInputVideoNote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.videoNote == rhs.videoNote else { return false }
-        guard lhs.thumbnail == rhs.thumbnail else { return false }
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.length == rhs.length else { return false }
+        guard lhs.videoNote == rhs.videoNote, lhs.thumbnail == rhs.thumbnail, lhs.duration == rhs.duration,
+              lhs.length == rhs.length else { return false }
         return true
     }
 
@@ -4741,9 +4458,8 @@ extension TDNativeInputVideoNote: @retroactive Hashable {
 
 extension TDNativeInputVoiceNote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.voiceNote == rhs.voiceNote else { return false }
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.waveform == rhs.waveform else { return false }
+        guard lhs.voiceNote == rhs.voiceNote, lhs.duration == rhs.duration,
+              lhs.waveform == rhs.waveform else { return false }
         return true
     }
 
@@ -5061,9 +4777,8 @@ extension TDNativeInternalLinkType: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeAttachmentMenuBot: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.targetChat == rhs.targetChat else { return false }
-        guard lhs.botUsername == rhs.botUsername else { return false }
-        guard lhs.url == rhs.url else { return false }
+        guard lhs.targetChat == rhs.targetChat, lhs.botUsername == rhs.botUsername,
+              lhs.url == rhs.url else { return false }
         return true
     }
 
@@ -5104,8 +4819,8 @@ extension TDNativeInternalLinkTypeBackground: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeBotAddToChannel: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.botUsername == rhs.botUsername else { return false }
-        guard lhs.administratorRights == rhs.administratorRights else { return false }
+        guard lhs.botUsername == rhs.botUsername,
+              lhs.administratorRights == rhs.administratorRights else { return false }
         return true
     }
 
@@ -5119,9 +4834,8 @@ extension TDNativeInternalLinkTypeBotAddToChannel: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeBotStart: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.botUsername == rhs.botUsername else { return false }
-        guard lhs.startParameter == rhs.startParameter else { return false }
-        guard lhs.autostart == rhs.autostart else { return false }
+        guard lhs.botUsername == rhs.botUsername, lhs.startParameter == rhs.startParameter,
+              lhs.autostart == rhs.autostart else { return false }
         return true
     }
 
@@ -5136,9 +4850,8 @@ extension TDNativeInternalLinkTypeBotStart: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeBotStartInGroup: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.botUsername == rhs.botUsername else { return false }
-        guard lhs.startParameter == rhs.startParameter else { return false }
-        guard lhs.administratorRights == rhs.administratorRights else { return false }
+        guard lhs.botUsername == rhs.botUsername, lhs.startParameter == rhs.startParameter,
+              lhs.administratorRights == rhs.administratorRights else { return false }
         return true
     }
 
@@ -5179,8 +4892,7 @@ extension TDNativeInternalLinkTypeCallsPage: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeChatAffiliateProgram: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.username == rhs.username else { return false }
-        guard lhs.referrer == rhs.referrer else { return false }
+        guard lhs.username == rhs.username, lhs.referrer == rhs.referrer else { return false }
         return true
     }
 
@@ -5259,8 +4971,7 @@ extension TDNativeInternalLinkTypeDirectMessagesChat: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeGame: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.botUsername == rhs.botUsername else { return false }
-        guard lhs.gameShortName == rhs.gameShortName else { return false }
+        guard lhs.botUsername == rhs.botUsername, lhs.gameShortName == rhs.gameShortName else { return false }
         return true
     }
 
@@ -5287,8 +4998,7 @@ extension TDNativeInternalLinkTypeGiftAuction: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeGiftCollection: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.giftOwnerUsername == rhs.giftOwnerUsername else { return false }
-        guard lhs.collectionId == rhs.collectionId else { return false }
+        guard lhs.giftOwnerUsername == rhs.giftOwnerUsername, lhs.collectionId == rhs.collectionId else { return false }
         return true
     }
 
@@ -5315,8 +5025,7 @@ extension TDNativeInternalLinkTypeGroupCall: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeInstantView: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.fallbackUrl == rhs.fallbackUrl else { return false }
+        guard lhs.url == rhs.url, lhs.fallbackUrl == rhs.fallbackUrl else { return false }
         return true
     }
 
@@ -5369,9 +5078,8 @@ extension TDNativeInternalLinkTypeLiveStory: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeMainWebApp: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.botUsername == rhs.botUsername else { return false }
-        guard lhs.startParameter == rhs.startParameter else { return false }
-        guard lhs.mode == rhs.mode else { return false }
+        guard lhs.botUsername == rhs.botUsername, lhs.startParameter == rhs.startParameter,
+              lhs.mode == rhs.mode else { return false }
         return true
     }
 
@@ -5399,8 +5107,7 @@ extension TDNativeInternalLinkTypeMessage: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeMessageDraft: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.containsLink == rhs.containsLink else { return false }
+        guard lhs.text == rhs.text, lhs.containsLink == rhs.containsLink else { return false }
         return true
     }
 
@@ -5453,11 +5160,8 @@ extension TDNativeInternalLinkTypeOauth: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypePassportDataRequest: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.botUserId == rhs.botUserId else { return false }
-        guard lhs.scope == rhs.scope else { return false }
-        guard lhs.publicKey == rhs.publicKey else { return false }
-        guard lhs.nonce == rhs.nonce else { return false }
-        guard lhs.callbackUrl == rhs.callbackUrl else { return false }
+        guard lhs.botUserId == rhs.botUserId, lhs.scope == rhs.scope, lhs.publicKey == rhs.publicKey,
+              lhs.nonce == rhs.nonce, lhs.callbackUrl == rhs.callbackUrl else { return false }
         return true
     }
 
@@ -5474,8 +5178,7 @@ extension TDNativeInternalLinkTypePassportDataRequest: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypePhoneNumberConfirmation: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.hash == rhs.hash else { return false }
-        guard lhs.phoneNumber == rhs.phoneNumber else { return false }
+        guard lhs.hash == rhs.hash, lhs.phoneNumber == rhs.phoneNumber else { return false }
         return true
     }
 
@@ -5541,9 +5244,8 @@ extension TDNativeInternalLinkTypeProxy: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypePublicChat: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.chatUsername == rhs.chatUsername else { return false }
-        guard lhs.draftText == rhs.draftText else { return false }
-        guard lhs.openProfile == rhs.openProfile else { return false }
+        guard lhs.chatUsername == rhs.chatUsername, lhs.draftText == rhs.draftText,
+              lhs.openProfile == rhs.openProfile else { return false }
         return true
     }
 
@@ -5558,9 +5260,8 @@ extension TDNativeInternalLinkTypePublicChat: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeRequestManagedBot: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.managerBotUsername == rhs.managerBotUsername else { return false }
-        guard lhs.suggestedBotUsername == rhs.suggestedBotUsername else { return false }
-        guard lhs.suggestedBotName == rhs.suggestedBotName else { return false }
+        guard lhs.managerBotUsername == rhs.managerBotUsername, lhs.suggestedBotUsername == rhs.suggestedBotUsername,
+              lhs.suggestedBotName == rhs.suggestedBotName else { return false }
         return true
     }
 
@@ -5588,8 +5289,7 @@ extension TDNativeInternalLinkTypeSettings: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeStarPurchase: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.starCount == rhs.starCount else { return false }
-        guard lhs.purpose == rhs.purpose else { return false }
+        guard lhs.starCount == rhs.starCount, lhs.purpose == rhs.purpose else { return false }
         return true
     }
 
@@ -5603,8 +5303,8 @@ extension TDNativeInternalLinkTypeStarPurchase: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeStickerSet: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.stickerSetName == rhs.stickerSetName else { return false }
-        guard lhs.expectCustomEmoji == rhs.expectCustomEmoji else { return false }
+        guard lhs.stickerSetName == rhs.stickerSetName,
+              lhs.expectCustomEmoji == rhs.expectCustomEmoji else { return false }
         return true
     }
 
@@ -5618,8 +5318,7 @@ extension TDNativeInternalLinkTypeStickerSet: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeStory: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.storyPosterUsername == rhs.storyPosterUsername else { return false }
-        guard lhs.storyId == rhs.storyId else { return false }
+        guard lhs.storyPosterUsername == rhs.storyPosterUsername, lhs.storyId == rhs.storyId else { return false }
         return true
     }
 
@@ -5633,8 +5332,8 @@ extension TDNativeInternalLinkTypeStory: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeStoryAlbum: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.storyAlbumOwnerUsername == rhs.storyAlbumOwnerUsername else { return false }
-        guard lhs.storyAlbumId == rhs.storyAlbumId else { return false }
+        guard lhs.storyAlbumOwnerUsername == rhs.storyAlbumOwnerUsername,
+              lhs.storyAlbumId == rhs.storyAlbumId else { return false }
         return true
     }
 
@@ -5674,12 +5373,10 @@ extension TDNativeInternalLinkTypeTheme: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeTonConnect: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.version == rhs.version else { return false }
-        guard lhs.dappClientId == rhs.dappClientId else { return false }
-        guard lhs.connectRequest == rhs.connectRequest else { return false }
-        guard lhs.returnStrategy == rhs.returnStrategy else { return false }
-        guard lhs.rpcRequest == rhs.rpcRequest else { return false }
-        guard lhs.traceId == rhs.traceId else { return false }
+        guard lhs.version == rhs.version, lhs.dappClientId == rhs.dappClientId,
+              lhs.connectRequest == rhs.connectRequest,
+              lhs.returnStrategy == rhs.returnStrategy, lhs.rpcRequest == rhs.rpcRequest,
+              lhs.traceId == rhs.traceId else { return false }
         return true
     }
 
@@ -5697,8 +5394,7 @@ extension TDNativeInternalLinkTypeTonConnect: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeTonWalletTransfer: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.receiver == rhs.receiver else { return false }
-        guard lhs.gramAmount == rhs.gramAmount else { return false }
+        guard lhs.receiver == rhs.receiver, lhs.gramAmount == rhs.gramAmount else { return false }
         return true
     }
 
@@ -5738,9 +5434,8 @@ extension TDNativeInternalLinkTypeUpgradedGift: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeUserPhoneNumber: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.phoneNumber == rhs.phoneNumber else { return false }
-        guard lhs.draftText == rhs.draftText else { return false }
-        guard lhs.openProfile == rhs.openProfile else { return false }
+        guard lhs.phoneNumber == rhs.phoneNumber, lhs.draftText == rhs.draftText,
+              lhs.openProfile == rhs.openProfile else { return false }
         return true
     }
 
@@ -5768,9 +5463,8 @@ extension TDNativeInternalLinkTypeUserToken: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeVideoChat: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.chatUsername == rhs.chatUsername else { return false }
-        guard lhs.inviteHash == rhs.inviteHash else { return false }
-        guard lhs.isLiveStream == rhs.isLiveStream else { return false }
+        guard lhs.chatUsername == rhs.chatUsername, lhs.inviteHash == rhs.inviteHash,
+              lhs.isLiveStream == rhs.isLiveStream else { return false }
         return true
     }
 
@@ -5785,10 +5479,8 @@ extension TDNativeInternalLinkTypeVideoChat: @retroactive Hashable {
 
 extension TDNativeInternalLinkTypeWebApp: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.botUsername == rhs.botUsername else { return false }
-        guard lhs.webAppShortName == rhs.webAppShortName else { return false }
-        guard lhs.startParameter == rhs.startParameter else { return false }
-        guard lhs.mode == rhs.mode else { return false }
+        guard lhs.botUsername == rhs.botUsername, lhs.webAppShortName == rhs.webAppShortName,
+              lhs.startParameter == rhs.startParameter, lhs.mode == rhs.mode else { return false }
         return true
     }
 
@@ -5804,21 +5496,16 @@ extension TDNativeInternalLinkTypeWebApp: @retroactive Hashable {
 
 extension TDNativeInvoice: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.currency == rhs.currency else { return false }
-        guard lhs.priceParts == rhs.priceParts else { return false }
-        guard lhs.subscriptionPeriod == rhs.subscriptionPeriod else { return false }
-        guard lhs.maxTipAmount == rhs.maxTipAmount else { return false }
-        guard lhs.suggestedTipAmounts == rhs.suggestedTipAmounts else { return false }
-        guard lhs.recurringPaymentTermsOfServiceUrl == rhs.recurringPaymentTermsOfServiceUrl else { return false }
-        guard lhs.termsOfServiceUrl == rhs.termsOfServiceUrl else { return false }
-        guard lhs.isTest == rhs.isTest else { return false }
-        guard lhs.needName == rhs.needName else { return false }
-        guard lhs.needPhoneNumber == rhs.needPhoneNumber else { return false }
-        guard lhs.needEmailAddress == rhs.needEmailAddress else { return false }
-        guard lhs.needShippingAddress == rhs.needShippingAddress else { return false }
-        guard lhs.sendPhoneNumberToProvider == rhs.sendPhoneNumberToProvider else { return false }
-        guard lhs.sendEmailAddressToProvider == rhs.sendEmailAddressToProvider else { return false }
-        guard lhs.isFlexible == rhs.isFlexible else { return false }
+        guard lhs.currency == rhs.currency, lhs.priceParts == rhs.priceParts,
+              lhs.subscriptionPeriod == rhs.subscriptionPeriod, lhs.maxTipAmount == rhs.maxTipAmount,
+              lhs.suggestedTipAmounts == rhs.suggestedTipAmounts,
+              lhs.recurringPaymentTermsOfServiceUrl == rhs.recurringPaymentTermsOfServiceUrl,
+              lhs.termsOfServiceUrl == rhs.termsOfServiceUrl, lhs.isTest == rhs.isTest, lhs.needName == rhs.needName,
+              lhs.needPhoneNumber == rhs.needPhoneNumber, lhs.needEmailAddress == rhs.needEmailAddress,
+              lhs.needShippingAddress == rhs.needShippingAddress,
+              lhs.sendPhoneNumberToProvider == rhs.sendPhoneNumberToProvider,
+              lhs.sendEmailAddressToProvider == rhs.sendEmailAddressToProvider,
+              lhs.isFlexible == rhs.isFlexible else { return false }
         return true
     }
 
@@ -5845,10 +5532,8 @@ extension TDNativeInvoice: @retroactive Hashable {
 
 extension TDNativeKeyboardButton: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.iconCustomEmojiId == rhs.iconCustomEmojiId else { return false }
-        guard lhs.style == rhs.style else { return false }
-        guard lhs.type == rhs.type else { return false }
+        guard lhs.text == rhs.text, lhs.iconCustomEmojiId == rhs.iconCustomEmojiId, lhs.style == rhs.style,
+              lhs.type == rhs.type else { return false }
         return true
     }
 
@@ -5917,19 +5602,13 @@ extension TDNativeKeyboardButtonType: @retroactive Hashable {
 
 extension TDNativeKeyboardButtonTypeRequestChat: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.chatIsChannel == rhs.chatIsChannel else { return false }
-        guard lhs.restrictChatIsForum == rhs.restrictChatIsForum else { return false }
-        guard lhs.chatIsForum == rhs.chatIsForum else { return false }
-        guard lhs.restrictChatHasUsername == rhs.restrictChatHasUsername else { return false }
-        guard lhs.chatHasUsername == rhs.chatHasUsername else { return false }
-        guard lhs.chatIsCreated == rhs.chatIsCreated else { return false }
-        guard lhs.userAdministratorRights == rhs.userAdministratorRights else { return false }
-        guard lhs.botAdministratorRights == rhs.botAdministratorRights else { return false }
-        guard lhs.botIsMember == rhs.botIsMember else { return false }
-        guard lhs.requestTitle == rhs.requestTitle else { return false }
-        guard lhs.requestUsername == rhs.requestUsername else { return false }
-        guard lhs.requestPhoto == rhs.requestPhoto else { return false }
+        guard lhs.id == rhs.id, lhs.chatIsChannel == rhs.chatIsChannel,
+              lhs.restrictChatIsForum == rhs.restrictChatIsForum, lhs.chatIsForum == rhs.chatIsForum,
+              lhs.restrictChatHasUsername == rhs.restrictChatHasUsername, lhs.chatHasUsername == rhs.chatHasUsername,
+              lhs.chatIsCreated == rhs.chatIsCreated, lhs.userAdministratorRights == rhs.userAdministratorRights,
+              lhs.botAdministratorRights == rhs.botAdministratorRights, lhs.botIsMember == rhs.botIsMember,
+              lhs.requestTitle == rhs.requestTitle, lhs.requestUsername == rhs.requestUsername,
+              lhs.requestPhoto == rhs.requestPhoto else { return false }
         return true
     }
 
@@ -5954,9 +5633,8 @@ extension TDNativeKeyboardButtonTypeRequestChat: @retroactive Hashable {
 
 extension TDNativeKeyboardButtonTypeRequestManagedBot: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.suggestedName == rhs.suggestedName else { return false }
-        guard lhs.suggestedUsername == rhs.suggestedUsername else { return false }
+        guard lhs.id == rhs.id, lhs.suggestedName == rhs.suggestedName,
+              lhs.suggestedUsername == rhs.suggestedUsername else { return false }
         return true
     }
 
@@ -5971,8 +5649,7 @@ extension TDNativeKeyboardButtonTypeRequestManagedBot: @retroactive Hashable {
 
 extension TDNativeKeyboardButtonTypeRequestPoll: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.forceRegular == rhs.forceRegular else { return false }
-        guard lhs.forceQuiz == rhs.forceQuiz else { return false }
+        guard lhs.forceRegular == rhs.forceRegular, lhs.forceQuiz == rhs.forceQuiz else { return false }
         return true
     }
 
@@ -5986,15 +5663,10 @@ extension TDNativeKeyboardButtonTypeRequestPoll: @retroactive Hashable {
 
 extension TDNativeKeyboardButtonTypeRequestUsers: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.restrictUserIsBot == rhs.restrictUserIsBot else { return false }
-        guard lhs.userIsBot == rhs.userIsBot else { return false }
-        guard lhs.restrictUserIsPremium == rhs.restrictUserIsPremium else { return false }
-        guard lhs.userIsPremium == rhs.userIsPremium else { return false }
-        guard lhs.maxQuantity == rhs.maxQuantity else { return false }
-        guard lhs.requestName == rhs.requestName else { return false }
-        guard lhs.requestUsername == rhs.requestUsername else { return false }
-        guard lhs.requestPhoto == rhs.requestPhoto else { return false }
+        guard lhs.id == rhs.id, lhs.restrictUserIsBot == rhs.restrictUserIsBot, lhs.userIsBot == rhs.userIsBot,
+              lhs.restrictUserIsPremium == rhs.restrictUserIsPremium, lhs.userIsPremium == rhs.userIsPremium,
+              lhs.maxQuantity == rhs.maxQuantity, lhs.requestName == rhs.requestName,
+              lhs.requestUsername == rhs.requestUsername, lhs.requestPhoto == rhs.requestPhoto else { return false }
         return true
     }
 
@@ -6028,8 +5700,7 @@ extension TDNativeKeyboardButtonTypeWebApp: @retroactive Hashable {
 
 extension TDNativeLabeledPricePart: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.label == rhs.label else { return false }
-        guard lhs.amount == rhs.amount else { return false }
+        guard lhs.label == rhs.label, lhs.amount == rhs.amount else { return false }
         return true
     }
 
@@ -6043,19 +5714,13 @@ extension TDNativeLabeledPricePart: @retroactive Hashable {
 
 extension TDNativeLinkPreview: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.displayUrl == rhs.displayUrl else { return false }
-        guard lhs.siteName == rhs.siteName else { return false }
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.description == rhs.description else { return false }
-        guard lhs.author == rhs.author else { return false }
-        guard lhs.type == rhs.type else { return false }
-        guard lhs.hasLargeMedia == rhs.hasLargeMedia else { return false }
-        guard lhs.showLargeMedia == rhs.showLargeMedia else { return false }
-        guard lhs.showMediaAboveDescription == rhs.showMediaAboveDescription else { return false }
-        guard lhs.skipConfirmation == rhs.skipConfirmation else { return false }
-        guard lhs.showAboveText == rhs.showAboveText else { return false }
-        guard lhs.instantViewVersion == rhs.instantViewVersion else { return false }
+        guard lhs.url == rhs.url, lhs.displayUrl == rhs.displayUrl, lhs.siteName == rhs.siteName,
+              lhs.title == rhs.title,
+              lhs.description == rhs.description, lhs.author == rhs.author, lhs.type == rhs.type,
+              lhs.hasLargeMedia == rhs.hasLargeMedia, lhs.showLargeMedia == rhs.showLargeMedia,
+              lhs.showMediaAboveDescription == rhs.showMediaAboveDescription,
+              lhs.skipConfirmation == rhs.skipConfirmation, lhs.showAboveText == rhs.showAboveText,
+              lhs.instantViewVersion == rhs.instantViewVersion else { return false }
         return true
     }
 
@@ -6132,11 +5797,8 @@ extension TDNativeLinkPreviewAlbumMediaVideo: @retroactive Hashable {
 
 extension TDNativeLinkPreviewOptions: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.isDisabled == rhs.isDisabled else { return false }
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.forceSmallMedia == rhs.forceSmallMedia else { return false }
-        guard lhs.forceLargeMedia == rhs.forceLargeMedia else { return false }
-        guard lhs.showAboveText == rhs.showAboveText else { return false }
+        guard lhs.isDisabled == rhs.isDisabled, lhs.url == rhs.url, lhs.forceSmallMedia == rhs.forceSmallMedia,
+              lhs.forceLargeMedia == rhs.forceLargeMedia, lhs.showAboveText == rhs.showAboveText else { return false }
         return true
     }
 
@@ -6362,8 +6024,7 @@ extension TDNativeLinkPreviewType: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeAlbum: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.media == rhs.media else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.media == rhs.media, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -6429,8 +6090,7 @@ extension TDNativeLinkPreviewTypeAudio: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeBackground: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.document == rhs.document else { return false }
-        guard lhs.backgroundType == rhs.backgroundType else { return false }
+        guard lhs.document == rhs.document, lhs.backgroundType == rhs.backgroundType else { return false }
         return true
     }
 
@@ -6457,9 +6117,8 @@ extension TDNativeLinkPreviewTypeChannelBoost: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeChat: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.type == rhs.type else { return false }
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.createsJoinRequest == rhs.createsJoinRequest else { return false }
+        guard lhs.type == rhs.type, lhs.photo == rhs.photo,
+              lhs.createsJoinRequest == rhs.createsJoinRequest else { return false }
         return true
     }
 
@@ -6500,12 +6159,8 @@ extension TDNativeLinkPreviewTypeDocument: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeEmbeddedAnimationPlayer: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.animation == rhs.animation else { return false }
-        guard lhs.thumbnail == rhs.thumbnail else { return false }
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
+        guard lhs.url == rhs.url, lhs.animation == rhs.animation, lhs.thumbnail == rhs.thumbnail,
+              lhs.duration == rhs.duration, lhs.width == rhs.width, lhs.height == rhs.height else { return false }
         return true
     }
 
@@ -6523,12 +6178,8 @@ extension TDNativeLinkPreviewTypeEmbeddedAnimationPlayer: @retroactive Hashable 
 
 extension TDNativeLinkPreviewTypeEmbeddedAudioPlayer: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.audio == rhs.audio else { return false }
-        guard lhs.thumbnail == rhs.thumbnail else { return false }
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
+        guard lhs.url == rhs.url, lhs.audio == rhs.audio, lhs.thumbnail == rhs.thumbnail, lhs.duration == rhs.duration,
+              lhs.width == rhs.width, lhs.height == rhs.height else { return false }
         return true
     }
 
@@ -6546,12 +6197,8 @@ extension TDNativeLinkPreviewTypeEmbeddedAudioPlayer: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeEmbeddedVideoPlayer: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.video == rhs.video else { return false }
-        guard lhs.thumbnail == rhs.thumbnail else { return false }
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
+        guard lhs.url == rhs.url, lhs.video == rhs.video, lhs.thumbnail == rhs.thumbnail, lhs.duration == rhs.duration,
+              lhs.width == rhs.width, lhs.height == rhs.height else { return false }
         return true
     }
 
@@ -6569,9 +6216,7 @@ extension TDNativeLinkPreviewTypeEmbeddedVideoPlayer: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeExternalAudio: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.mimeType == rhs.mimeType else { return false }
-        guard lhs.duration == rhs.duration else { return false }
+        guard lhs.url == rhs.url, lhs.mimeType == rhs.mimeType, lhs.duration == rhs.duration else { return false }
         return true
     }
 
@@ -6586,11 +6231,8 @@ extension TDNativeLinkPreviewTypeExternalAudio: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeExternalVideo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.mimeType == rhs.mimeType else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
-        guard lhs.duration == rhs.duration else { return false }
+        guard lhs.url == rhs.url, lhs.mimeType == rhs.mimeType, lhs.width == rhs.width, lhs.height == rhs.height,
+              lhs.duration == rhs.duration else { return false }
         return true
     }
 
@@ -6607,8 +6249,7 @@ extension TDNativeLinkPreviewTypeExternalVideo: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeGiftAuction: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.gift == rhs.gift else { return false }
-        guard lhs.auctionEndDate == rhs.auctionEndDate else { return false }
+        guard lhs.gift == rhs.gift, lhs.auctionEndDate == rhs.auctionEndDate else { return false }
         return true
     }
 
@@ -6635,8 +6276,7 @@ extension TDNativeLinkPreviewTypeGiftCollection: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeLiveStory: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.storyPosterChatId == rhs.storyPosterChatId else { return false }
-        guard lhs.storyId == rhs.storyId else { return false }
+        guard lhs.storyPosterChatId == rhs.storyPosterChatId, lhs.storyId == rhs.storyId else { return false }
         return true
     }
 
@@ -6689,8 +6329,7 @@ extension TDNativeLinkPreviewTypeStickerSet: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeStory: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.storyPosterChatId == rhs.storyPosterChatId else { return false }
-        guard lhs.storyId == rhs.storyId else { return false }
+        guard lhs.storyPosterChatId == rhs.storyPosterChatId, lhs.storyId == rhs.storyId else { return false }
         return true
     }
 
@@ -6704,8 +6343,7 @@ extension TDNativeLinkPreviewTypeStory: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeStoryAlbum: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.photoIcon == rhs.photoIcon else { return false }
-        guard lhs.videoIcon == rhs.videoIcon else { return false }
+        guard lhs.photoIcon == rhs.photoIcon, lhs.videoIcon == rhs.videoIcon else { return false }
         return true
     }
 
@@ -6745,8 +6383,7 @@ extension TDNativeLinkPreviewTypeTextCompositionStyle: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeTheme: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.documents == rhs.documents else { return false }
-        guard lhs.settings == rhs.settings else { return false }
+        guard lhs.documents == rhs.documents, lhs.settings == rhs.settings else { return false }
         return true
     }
 
@@ -6773,8 +6410,7 @@ extension TDNativeLinkPreviewTypeUpgradedGift: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeUser: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.isBot == rhs.isBot else { return false }
+        guard lhs.photo == rhs.photo, lhs.isBot == rhs.isBot else { return false }
         return true
     }
 
@@ -6788,9 +6424,8 @@ extension TDNativeLinkPreviewTypeUser: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeVideo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.video == rhs.video else { return false }
-        guard lhs.cover == rhs.cover else { return false }
-        guard lhs.startTimestamp == rhs.startTimestamp else { return false }
+        guard lhs.video == rhs.video, lhs.cover == rhs.cover,
+              lhs.startTimestamp == rhs.startTimestamp else { return false }
         return true
     }
 
@@ -6805,9 +6440,8 @@ extension TDNativeLinkPreviewTypeVideo: @retroactive Hashable {
 
 extension TDNativeLinkPreviewTypeVideoChat: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.isLiveStream == rhs.isLiveStream else { return false }
-        guard lhs.joinsAsSpeaker == rhs.joinsAsSpeaker else { return false }
+        guard lhs.photo == rhs.photo, lhs.isLiveStream == rhs.isLiveStream,
+              lhs.joinsAsSpeaker == rhs.joinsAsSpeaker else { return false }
         return true
     }
 
@@ -6861,10 +6495,8 @@ extension TDNativeLinkPreviewTypeWebApp: @retroactive Hashable {
 
 extension TDNativeLiveLocation: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.location == rhs.location else { return false }
-        guard lhs.livePeriod == rhs.livePeriod else { return false }
-        guard lhs.heading == rhs.heading else { return false }
-        guard lhs.proximityAlertRadius == rhs.proximityAlertRadius else { return false }
+        guard lhs.location == rhs.location, lhs.livePeriod == rhs.livePeriod, lhs.heading == rhs.heading,
+              lhs.proximityAlertRadius == rhs.proximityAlertRadius else { return false }
         return true
     }
 
@@ -6880,9 +6512,8 @@ extension TDNativeLiveLocation: @retroactive Hashable {
 
 extension TDNativeLocation: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.latitude == rhs.latitude else { return false }
-        guard lhs.longitude == rhs.longitude else { return false }
-        guard lhs.horizontalAccuracy == rhs.horizontalAccuracy else { return false }
+        guard lhs.latitude == rhs.latitude, lhs.longitude == rhs.longitude,
+              lhs.horizontalAccuracy == rhs.horizontalAccuracy else { return false }
         return true
     }
 
@@ -6897,51 +6528,30 @@ extension TDNativeLocation: @retroactive Hashable {
 
 extension TDNativeMessage: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.senderId == rhs.senderId else { return false }
-        guard lhs.receiverId == rhs.receiverId else { return false }
-        guard lhs.chatId == rhs.chatId else { return false }
-        guard lhs.sendingState == rhs.sendingState else { return false }
-        guard lhs.schedulingState == rhs.schedulingState else { return false }
-        guard lhs.isOutgoing == rhs.isOutgoing else { return false }
-        guard lhs.isPinned == rhs.isPinned else { return false }
-        guard lhs.isFromOffline == rhs.isFromOffline else { return false }
-        guard lhs.canBeSaved == rhs.canBeSaved else { return false }
-        guard lhs.hasTimestampedMedia == rhs.hasTimestampedMedia else { return false }
-        guard lhs.isChannelPost == rhs.isChannelPost else { return false }
-        guard lhs.isPaidStarSuggestedPost == rhs.isPaidStarSuggestedPost else { return false }
-        guard lhs.isPaidGramSuggestedPost == rhs.isPaidGramSuggestedPost else { return false }
-        guard lhs.containsUnreadMention == rhs.containsUnreadMention else { return false }
-        guard lhs.containsUnreadPollVotes == rhs.containsUnreadPollVotes else { return false }
-        guard lhs.date == rhs.date else { return false }
-        guard lhs.editDate == rhs.editDate else { return false }
-        guard lhs.forwardInfo == rhs.forwardInfo else { return false }
-        guard lhs.importInfo == rhs.importInfo else { return false }
-        guard lhs.interactionInfo == rhs.interactionInfo else { return false }
-        guard lhs.unreadReactions == rhs.unreadReactions else { return false }
-        guard lhs.factCheck == rhs.factCheck else { return false }
-        guard lhs.suggestedPostInfo == rhs.suggestedPostInfo else { return false }
-        guard lhs.replyTo == rhs.replyTo else { return false }
-        guard lhs.topicId == rhs.topicId else { return false }
-        guard lhs.selfDestructType == rhs.selfDestructType else { return false }
-        guard lhs.selfDestructIn == rhs.selfDestructIn else { return false }
-        guard lhs.autoDeleteIn == rhs.autoDeleteIn else { return false }
-        guard lhs.viaBotUserId == rhs.viaBotUserId else { return false }
-        guard lhs.guestBotCallerId == rhs.guestBotCallerId else { return false }
-        guard lhs.senderBusinessBotUserId == rhs.senderBusinessBotUserId else { return false }
-        guard lhs.senderBoostCount == rhs.senderBoostCount else { return false }
-        guard lhs.senderTag == rhs.senderTag else { return false }
-        guard lhs.paidMessageStarCount == rhs.paidMessageStarCount else { return false }
-        guard lhs.authorSignature == rhs.authorSignature else { return false }
-        guard lhs.mediaAlbumId == rhs.mediaAlbumId else { return false }
-        guard lhs.effectId == rhs.effectId else { return false }
-        guard lhs.restrictionInfo == rhs.restrictionInfo else { return false }
-        guard lhs.summaryLanguageCode == rhs.summaryLanguageCode else { return false }
-        guard lhs.content == rhs.content else { return false }
-        guard lhs.ephemeralContent == rhs.ephemeralContent else { return false }
-        guard lhs.replyMarkup == rhs.replyMarkup else { return false }
-        guard lhs.ephemeralMessageId == rhs.ephemeralMessageId else { return false }
-        guard lhs.chatInstance == rhs.chatInstance else { return false }
+        guard lhs.id == rhs.id, lhs.senderId == rhs.senderId, lhs.receiverId == rhs.receiverId,
+              lhs.chatId == rhs.chatId,
+              lhs.sendingState == rhs.sendingState, lhs.schedulingState == rhs.schedulingState,
+              lhs.isOutgoing == rhs.isOutgoing, lhs.isPinned == rhs.isPinned, lhs.isFromOffline == rhs.isFromOffline,
+              lhs.canBeSaved == rhs.canBeSaved, lhs.hasTimestampedMedia == rhs.hasTimestampedMedia,
+              lhs.isChannelPost == rhs.isChannelPost, lhs.isPaidStarSuggestedPost == rhs.isPaidStarSuggestedPost,
+              lhs.isPaidGramSuggestedPost == rhs.isPaidGramSuggestedPost,
+              lhs.containsUnreadMention == rhs.containsUnreadMention,
+              lhs.containsUnreadPollVotes == rhs.containsUnreadPollVotes, lhs.date == rhs.date,
+              lhs.editDate == rhs.editDate, lhs.forwardInfo == rhs.forwardInfo, lhs.importInfo == rhs.importInfo,
+              lhs.interactionInfo == rhs.interactionInfo, lhs.unreadReactions == rhs.unreadReactions,
+              lhs.factCheck == rhs.factCheck, lhs.suggestedPostInfo == rhs.suggestedPostInfo,
+              lhs.replyTo == rhs.replyTo,
+              lhs.topicId == rhs.topicId, lhs.selfDestructType == rhs.selfDestructType,
+              lhs.selfDestructIn == rhs.selfDestructIn, lhs.autoDeleteIn == rhs.autoDeleteIn,
+              lhs.viaBotUserId == rhs.viaBotUserId, lhs.guestBotCallerId == rhs.guestBotCallerId,
+              lhs.senderBusinessBotUserId == rhs.senderBusinessBotUserId, lhs.senderBoostCount == rhs.senderBoostCount,
+              lhs.senderTag == rhs.senderTag, lhs.paidMessageStarCount == rhs.paidMessageStarCount,
+              lhs.authorSignature == rhs.authorSignature, lhs.mediaAlbumId == rhs.mediaAlbumId,
+              lhs.effectId == rhs.effectId, lhs.restrictionInfo == rhs.restrictionInfo,
+              lhs.summaryLanguageCode == rhs.summaryLanguageCode, lhs.content == rhs.content,
+              lhs.ephemeralContent == rhs.ephemeralContent, lhs.replyMarkup == rhs.replyMarkup,
+              lhs.ephemeralMessageId == rhs.ephemeralMessageId,
+              lhs.chatInstance == rhs.chatInstance else { return false }
         return true
     }
 
@@ -6998,8 +6608,7 @@ extension TDNativeMessage: @retroactive Hashable {
 
 extension TDNativeMessageAnimatedEmoji: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.animatedEmoji == rhs.animatedEmoji else { return false }
-        guard lhs.emoji == rhs.emoji else { return false }
+        guard lhs.animatedEmoji == rhs.animatedEmoji, lhs.emoji == rhs.emoji else { return false }
         return true
     }
 
@@ -7013,8 +6622,7 @@ extension TDNativeMessageAnimatedEmoji: @retroactive Hashable {
 
 extension TDNativeMessageAudio: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.audio == rhs.audio else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.audio == rhs.audio, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -7028,8 +6636,7 @@ extension TDNativeMessageAudio: @retroactive Hashable {
 
 extension TDNativeMessageBasicGroupChatCreate: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.memberUserIds == rhs.memberUserIds else { return false }
+        guard lhs.title == rhs.title, lhs.memberUserIds == rhs.memberUserIds else { return false }
         return true
     }
 
@@ -7056,10 +6663,8 @@ extension TDNativeMessageBotWriteAccessAllowed: @retroactive Hashable {
 
 extension TDNativeMessageCall: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.uniqueId == rhs.uniqueId else { return false }
-        guard lhs.isVideo == rhs.isVideo else { return false }
-        guard lhs.discardReason == rhs.discardReason else { return false }
-        guard lhs.duration == rhs.duration else { return false }
+        guard lhs.uniqueId == rhs.uniqueId, lhs.isVideo == rhs.isVideo, lhs.discardReason == rhs.discardReason,
+              lhs.duration == rhs.duration else { return false }
         return true
     }
 
@@ -7166,9 +6771,8 @@ extension TDNativeMessageChatHasProtectedContentDisableRequested: @retroactive H
 
 extension TDNativeMessageChatHasProtectedContentToggled: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.requestMessageId == rhs.requestMessageId else { return false }
-        guard lhs.oldHasProtectedContent == rhs.oldHasProtectedContent else { return false }
-        guard lhs.newHasProtectedContent == rhs.newHasProtectedContent else { return false }
+        guard lhs.requestMessageId == rhs.requestMessageId, lhs.oldHasProtectedContent == rhs.oldHasProtectedContent,
+              lhs.newHasProtectedContent == rhs.newHasProtectedContent else { return false }
         return true
     }
 
@@ -7222,9 +6826,8 @@ extension TDNativeMessageChatOwnerLeft: @retroactive Hashable {
 
 extension TDNativeMessageChatSetBackground: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.oldBackgroundMessageId == rhs.oldBackgroundMessageId else { return false }
-        guard lhs.background == rhs.background else { return false }
-        guard lhs.onlyForSelf == rhs.onlyForSelf else { return false }
+        guard lhs.oldBackgroundMessageId == rhs.oldBackgroundMessageId, lhs.background == rhs.background,
+              lhs.onlyForSelf == rhs.onlyForSelf else { return false }
         return true
     }
 
@@ -7239,8 +6842,8 @@ extension TDNativeMessageChatSetBackground: @retroactive Hashable {
 
 extension TDNativeMessageChatSetMessageAutoDeleteTime: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.messageAutoDeleteTime == rhs.messageAutoDeleteTime else { return false }
-        guard lhs.fromUserId == rhs.fromUserId else { return false }
+        guard lhs.messageAutoDeleteTime == rhs.messageAutoDeleteTime,
+              lhs.fromUserId == rhs.fromUserId else { return false }
         return true
     }
 
@@ -7267,8 +6870,7 @@ extension TDNativeMessageChatSetTheme: @retroactive Hashable {
 
 extension TDNativeMessageChatShared: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.chat == rhs.chat else { return false }
-        guard lhs.buttonId == rhs.buttonId else { return false }
+        guard lhs.chat == rhs.chat, lhs.buttonId == rhs.buttonId else { return false }
         return true
     }
 
@@ -7282,8 +6884,7 @@ extension TDNativeMessageChatShared: @retroactive Hashable {
 
 extension TDNativeMessageChatUpgradeFrom: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.basicGroupId == rhs.basicGroupId else { return false }
+        guard lhs.title == rhs.title, lhs.basicGroupId == rhs.basicGroupId else { return false }
         return true
     }
 
@@ -7323,8 +6924,7 @@ extension TDNativeMessageChecklist: @retroactive Hashable {
 
 extension TDNativeMessageChecklistTasksAdded: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.checklistMessageId == rhs.checklistMessageId else { return false }
-        guard lhs.tasks == rhs.tasks else { return false }
+        guard lhs.checklistMessageId == rhs.checklistMessageId, lhs.tasks == rhs.tasks else { return false }
         return true
     }
 
@@ -7338,9 +6938,8 @@ extension TDNativeMessageChecklistTasksAdded: @retroactive Hashable {
 
 extension TDNativeMessageChecklistTasksDone: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.checklistMessageId == rhs.checklistMessageId else { return false }
-        guard lhs.markedAsDoneTaskIds == rhs.markedAsDoneTaskIds else { return false }
-        guard lhs.markedAsNotDoneTaskIds == rhs.markedAsNotDoneTaskIds else { return false }
+        guard lhs.checklistMessageId == rhs.checklistMessageId, lhs.markedAsDoneTaskIds == rhs.markedAsDoneTaskIds,
+              lhs.markedAsNotDoneTaskIds == rhs.markedAsNotDoneTaskIds else { return false }
         return true
     }
 
@@ -7911,10 +7510,8 @@ extension TDNativeMessageContent: @retroactive Hashable {
 
 extension TDNativeMessageCopyOptions: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.sendCopy == rhs.sendCopy else { return false }
-        guard lhs.replaceCaption == rhs.replaceCaption else { return false }
-        guard lhs.newCaption == rhs.newCaption else { return false }
-        guard lhs.newShowCaptionAboveMedia == rhs.newShowCaptionAboveMedia else { return false }
+        guard lhs.sendCopy == rhs.sendCopy, lhs.replaceCaption == rhs.replaceCaption, lhs.newCaption == rhs.newCaption,
+              lhs.newShowCaptionAboveMedia == rhs.newShowCaptionAboveMedia else { return false }
         return true
     }
 
@@ -7943,11 +7540,9 @@ extension TDNativeMessageCustomServiceAction: @retroactive Hashable {
 
 extension TDNativeMessageDice: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.initialState == rhs.initialState else { return false }
-        guard lhs.finalState == rhs.finalState else { return false }
-        guard lhs.emoji == rhs.emoji else { return false }
-        guard lhs.value == rhs.value else { return false }
-        guard lhs.successAnimationFrameNumber == rhs.successAnimationFrameNumber else { return false }
+        guard lhs.initialState == rhs.initialState, lhs.finalState == rhs.finalState, lhs.emoji == rhs.emoji,
+              lhs.value == rhs.value,
+              lhs.successAnimationFrameNumber == rhs.successAnimationFrameNumber else { return false }
         return true
     }
 
@@ -7964,8 +7559,7 @@ extension TDNativeMessageDice: @retroactive Hashable {
 
 extension TDNativeMessageDirectMessagePriceChanged: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.isEnabled == rhs.isEnabled else { return false }
-        guard lhs.paidMessageStarCount == rhs.paidMessageStarCount else { return false }
+        guard lhs.isEnabled == rhs.isEnabled, lhs.paidMessageStarCount == rhs.paidMessageStarCount else { return false }
         return true
     }
 
@@ -7979,8 +7573,7 @@ extension TDNativeMessageDirectMessagePriceChanged: @retroactive Hashable {
 
 extension TDNativeMessageDocument: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.document == rhs.document else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.document == rhs.document, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -7994,9 +7587,7 @@ extension TDNativeMessageDocument: @retroactive Hashable {
 
 extension TDNativeMessageForumTopicCreated: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.name == rhs.name else { return false }
-        guard lhs.isNameImplicit == rhs.isNameImplicit else { return false }
-        guard lhs.icon == rhs.icon else { return false }
+        guard lhs.name == rhs.name, lhs.isNameImplicit == rhs.isNameImplicit, lhs.icon == rhs.icon else { return false }
         return true
     }
 
@@ -8011,9 +7602,8 @@ extension TDNativeMessageForumTopicCreated: @retroactive Hashable {
 
 extension TDNativeMessageForumTopicEdited: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.name == rhs.name else { return false }
-        guard lhs.editIconCustomEmojiId == rhs.editIconCustomEmojiId else { return false }
-        guard lhs.iconCustomEmojiId == rhs.iconCustomEmojiId else { return false }
+        guard lhs.name == rhs.name, lhs.editIconCustomEmojiId == rhs.editIconCustomEmojiId,
+              lhs.iconCustomEmojiId == rhs.iconCustomEmojiId else { return false }
         return true
     }
 
@@ -8054,10 +7644,8 @@ extension TDNativeMessageForumTopicIsHiddenToggled: @retroactive Hashable {
 
 extension TDNativeMessageForwardInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.origin == rhs.origin else { return false }
-        guard lhs.date == rhs.date else { return false }
-        guard lhs.source == rhs.source else { return false }
-        guard lhs.publicServiceAnnouncementType == rhs.publicServiceAnnouncementType else { return false }
+        guard lhs.origin == rhs.origin, lhs.date == rhs.date, lhs.source == rhs.source,
+              lhs.publicServiceAnnouncementType == rhs.publicServiceAnnouncementType else { return false }
         return true
     }
 
@@ -8086,9 +7674,8 @@ extension TDNativeMessageGame: @retroactive Hashable {
 
 extension TDNativeMessageGameScore: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.gameMessageId == rhs.gameMessageId else { return false }
-        guard lhs.gameId == rhs.gameId else { return false }
-        guard lhs.score == rhs.score else { return false }
+        guard lhs.gameMessageId == rhs.gameMessageId, lhs.gameId == rhs.gameId,
+              lhs.score == rhs.score else { return false }
         return true
     }
 
@@ -8103,25 +7690,16 @@ extension TDNativeMessageGameScore: @retroactive Hashable {
 
 extension TDNativeMessageGift: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.gift == rhs.gift else { return false }
-        guard lhs.senderId == rhs.senderId else { return false }
-        guard lhs.receiverId == rhs.receiverId else { return false }
-        guard lhs.receivedGiftId == rhs.receivedGiftId else { return false }
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.uniqueGiftNumber == rhs.uniqueGiftNumber else { return false }
-        guard lhs.sellStarCount == rhs.sellStarCount else { return false }
-        guard lhs.prepaidUpgradeStarCount == rhs.prepaidUpgradeStarCount else { return false }
-        guard lhs.isUpgradeSeparate == rhs.isUpgradeSeparate else { return false }
-        guard lhs.isFromAuction == rhs.isFromAuction else { return false }
-        guard lhs.isPrivate == rhs.isPrivate else { return false }
-        guard lhs.isSaved == rhs.isSaved else { return false }
-        guard lhs.isPrepaidUpgrade == rhs.isPrepaidUpgrade else { return false }
-        guard lhs.canBeUpgraded == rhs.canBeUpgraded else { return false }
-        guard lhs.wasConverted == rhs.wasConverted else { return false }
-        guard lhs.wasUpgraded == rhs.wasUpgraded else { return false }
-        guard lhs.wasRefunded == rhs.wasRefunded else { return false }
-        guard lhs.upgradedReceivedGiftId == rhs.upgradedReceivedGiftId else { return false }
-        guard lhs.prepaidUpgradeHash == rhs.prepaidUpgradeHash else { return false }
+        guard lhs.gift == rhs.gift, lhs.senderId == rhs.senderId, lhs.receiverId == rhs.receiverId,
+              lhs.receivedGiftId == rhs.receivedGiftId, lhs.text == rhs.text,
+              lhs.uniqueGiftNumber == rhs.uniqueGiftNumber, lhs.sellStarCount == rhs.sellStarCount,
+              lhs.prepaidUpgradeStarCount == rhs.prepaidUpgradeStarCount,
+              lhs.isUpgradeSeparate == rhs.isUpgradeSeparate,
+              lhs.isFromAuction == rhs.isFromAuction, lhs.isPrivate == rhs.isPrivate, lhs.isSaved == rhs.isSaved,
+              lhs.isPrepaidUpgrade == rhs.isPrepaidUpgrade, lhs.canBeUpgraded == rhs.canBeUpgraded,
+              lhs.wasConverted == rhs.wasConverted, lhs.wasUpgraded == rhs.wasUpgraded,
+              lhs.wasRefunded == rhs.wasRefunded, lhs.upgradedReceivedGiftId == rhs.upgradedReceivedGiftId,
+              lhs.prepaidUpgradeHash == rhs.prepaidUpgradeHash else { return false }
         return true
     }
 
@@ -8152,11 +7730,9 @@ extension TDNativeMessageGift: @retroactive Hashable {
 
 extension TDNativeMessageGiftedGrams: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.gifterUserId == rhs.gifterUserId else { return false }
-        guard lhs.receiverUserId == rhs.receiverUserId else { return false }
-        guard lhs.gramAmount == rhs.gramAmount else { return false }
-        guard lhs.transactionId == rhs.transactionId else { return false }
-        guard lhs.sticker == rhs.sticker else { return false }
+        guard lhs.gifterUserId == rhs.gifterUserId, lhs.receiverUserId == rhs.receiverUserId,
+              lhs.gramAmount == rhs.gramAmount, lhs.transactionId == rhs.transactionId,
+              lhs.sticker == rhs.sticker else { return false }
         return true
     }
 
@@ -8173,16 +7749,10 @@ extension TDNativeMessageGiftedGrams: @retroactive Hashable {
 
 extension TDNativeMessageGiftedPremium: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.gifterUserId == rhs.gifterUserId else { return false }
-        guard lhs.receiverUserId == rhs.receiverUserId else { return false }
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.currency == rhs.currency else { return false }
-        guard lhs.amount == rhs.amount else { return false }
-        guard lhs.cryptocurrency == rhs.cryptocurrency else { return false }
-        guard lhs.cryptocurrencyAmount == rhs.cryptocurrencyAmount else { return false }
-        guard lhs.monthCount == rhs.monthCount else { return false }
-        guard lhs.dayCount == rhs.dayCount else { return false }
-        guard lhs.sticker == rhs.sticker else { return false }
+        guard lhs.gifterUserId == rhs.gifterUserId, lhs.receiverUserId == rhs.receiverUserId, lhs.text == rhs.text,
+              lhs.currency == rhs.currency, lhs.amount == rhs.amount, lhs.cryptocurrency == rhs.cryptocurrency,
+              lhs.cryptocurrencyAmount == rhs.cryptocurrencyAmount, lhs.monthCount == rhs.monthCount,
+              lhs.dayCount == rhs.dayCount, lhs.sticker == rhs.sticker else { return false }
         return true
     }
 
@@ -8204,15 +7774,10 @@ extension TDNativeMessageGiftedPremium: @retroactive Hashable {
 
 extension TDNativeMessageGiftedStars: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.gifterUserId == rhs.gifterUserId else { return false }
-        guard lhs.receiverUserId == rhs.receiverUserId else { return false }
-        guard lhs.currency == rhs.currency else { return false }
-        guard lhs.amount == rhs.amount else { return false }
-        guard lhs.cryptocurrency == rhs.cryptocurrency else { return false }
-        guard lhs.cryptocurrencyAmount == rhs.cryptocurrencyAmount else { return false }
-        guard lhs.starCount == rhs.starCount else { return false }
-        guard lhs.transactionId == rhs.transactionId else { return false }
-        guard lhs.sticker == rhs.sticker else { return false }
+        guard lhs.gifterUserId == rhs.gifterUserId, lhs.receiverUserId == rhs.receiverUserId,
+              lhs.currency == rhs.currency, lhs.amount == rhs.amount, lhs.cryptocurrency == rhs.cryptocurrency,
+              lhs.cryptocurrencyAmount == rhs.cryptocurrencyAmount, lhs.starCount == rhs.starCount,
+              lhs.transactionId == rhs.transactionId, lhs.sticker == rhs.sticker else { return false }
         return true
     }
 
@@ -8233,10 +7798,8 @@ extension TDNativeMessageGiftedStars: @retroactive Hashable {
 
 extension TDNativeMessageGiveaway: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.parameters == rhs.parameters else { return false }
-        guard lhs.winnerCount == rhs.winnerCount else { return false }
-        guard lhs.prize == rhs.prize else { return false }
-        guard lhs.sticker == rhs.sticker else { return false }
+        guard lhs.parameters == rhs.parameters, lhs.winnerCount == rhs.winnerCount, lhs.prize == rhs.prize,
+              lhs.sticker == rhs.sticker else { return false }
         return true
     }
 
@@ -8252,10 +7815,9 @@ extension TDNativeMessageGiveaway: @retroactive Hashable {
 
 extension TDNativeMessageGiveawayCompleted: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.giveawayMessageId == rhs.giveawayMessageId else { return false }
-        guard lhs.winnerCount == rhs.winnerCount else { return false }
-        guard lhs.isStarGiveaway == rhs.isStarGiveaway else { return false }
-        guard lhs.unclaimedPrizeCount == rhs.unclaimedPrizeCount else { return false }
+        guard lhs.giveawayMessageId == rhs.giveawayMessageId, lhs.winnerCount == rhs.winnerCount,
+              lhs.isStarGiveaway == rhs.isStarGiveaway,
+              lhs.unclaimedPrizeCount == rhs.unclaimedPrizeCount else { return false }
         return true
     }
 
@@ -8284,12 +7846,9 @@ extension TDNativeMessageGiveawayCreated: @retroactive Hashable {
 
 extension TDNativeMessageGiveawayPrizeStars: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.starCount == rhs.starCount else { return false }
-        guard lhs.transactionId == rhs.transactionId else { return false }
-        guard lhs.boostedChatId == rhs.boostedChatId else { return false }
-        guard lhs.giveawayMessageId == rhs.giveawayMessageId else { return false }
-        guard lhs.isUnclaimed == rhs.isUnclaimed else { return false }
-        guard lhs.sticker == rhs.sticker else { return false }
+        guard lhs.starCount == rhs.starCount, lhs.transactionId == rhs.transactionId,
+              lhs.boostedChatId == rhs.boostedChatId, lhs.giveawayMessageId == rhs.giveawayMessageId,
+              lhs.isUnclaimed == rhs.isUnclaimed, lhs.sticker == rhs.sticker else { return false }
         return true
     }
 
@@ -8307,17 +7866,13 @@ extension TDNativeMessageGiveawayPrizeStars: @retroactive Hashable {
 
 extension TDNativeMessageGiveawayWinners: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.boostedChatId == rhs.boostedChatId else { return false }
-        guard lhs.giveawayMessageId == rhs.giveawayMessageId else { return false }
-        guard lhs.additionalChatCount == rhs.additionalChatCount else { return false }
-        guard lhs.actualWinnersSelectionDate == rhs.actualWinnersSelectionDate else { return false }
-        guard lhs.onlyNewMembers == rhs.onlyNewMembers else { return false }
-        guard lhs.wasRefunded == rhs.wasRefunded else { return false }
-        guard lhs.prize == rhs.prize else { return false }
-        guard lhs.prizeDescription == rhs.prizeDescription else { return false }
-        guard lhs.winnerCount == rhs.winnerCount else { return false }
-        guard lhs.winnerUserIds == rhs.winnerUserIds else { return false }
-        guard lhs.unclaimedPrizeCount == rhs.unclaimedPrizeCount else { return false }
+        guard lhs.boostedChatId == rhs.boostedChatId, lhs.giveawayMessageId == rhs.giveawayMessageId,
+              lhs.additionalChatCount == rhs.additionalChatCount,
+              lhs.actualWinnersSelectionDate == rhs.actualWinnersSelectionDate,
+              lhs.onlyNewMembers == rhs.onlyNewMembers,
+              lhs.wasRefunded == rhs.wasRefunded, lhs.prize == rhs.prize, lhs.prizeDescription == rhs.prizeDescription,
+              lhs.winnerCount == rhs.winnerCount, lhs.winnerUserIds == rhs.winnerUserIds,
+              lhs.unclaimedPrizeCount == rhs.unclaimedPrizeCount else { return false }
         return true
     }
 
@@ -8340,12 +7895,9 @@ extension TDNativeMessageGiveawayWinners: @retroactive Hashable {
 
 extension TDNativeMessageGroupCall: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.uniqueId == rhs.uniqueId else { return false }
-        guard lhs.isActive == rhs.isActive else { return false }
-        guard lhs.wasMissed == rhs.wasMissed else { return false }
-        guard lhs.isVideo == rhs.isVideo else { return false }
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.otherParticipantIds == rhs.otherParticipantIds else { return false }
+        guard lhs.uniqueId == rhs.uniqueId, lhs.isActive == rhs.isActive, lhs.wasMissed == rhs.wasMissed,
+              lhs.isVideo == rhs.isVideo, lhs.duration == rhs.duration,
+              lhs.otherParticipantIds == rhs.otherParticipantIds else { return false }
         return true
     }
 
@@ -8363,8 +7915,7 @@ extension TDNativeMessageGroupCall: @retroactive Hashable {
 
 extension TDNativeMessageImportInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.senderName == rhs.senderName else { return false }
-        guard lhs.date == rhs.date else { return false }
+        guard lhs.senderName == rhs.senderName, lhs.date == rhs.date else { return false }
         return true
     }
 
@@ -8378,10 +7929,8 @@ extension TDNativeMessageImportInfo: @retroactive Hashable {
 
 extension TDNativeMessageInteractionInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.viewCount == rhs.viewCount else { return false }
-        guard lhs.forwardCount == rhs.forwardCount else { return false }
-        guard lhs.replyInfo == rhs.replyInfo else { return false }
-        guard lhs.reactions == rhs.reactions else { return false }
+        guard lhs.viewCount == rhs.viewCount, lhs.forwardCount == rhs.forwardCount, lhs.replyInfo == rhs.replyInfo,
+              lhs.reactions == rhs.reactions else { return false }
         return true
     }
 
@@ -8397,8 +7946,7 @@ extension TDNativeMessageInteractionInfo: @retroactive Hashable {
 
 extension TDNativeMessageInviteVideoChatParticipants: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.groupCallId == rhs.groupCallId else { return false }
-        guard lhs.userIds == rhs.userIds else { return false }
+        guard lhs.groupCallId == rhs.groupCallId, lhs.userIds == rhs.userIds else { return false }
         return true
     }
 
@@ -8412,15 +7960,10 @@ extension TDNativeMessageInviteVideoChatParticipants: @retroactive Hashable {
 
 extension TDNativeMessageInvoice: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.productInfo == rhs.productInfo else { return false }
-        guard lhs.currency == rhs.currency else { return false }
-        guard lhs.totalAmount == rhs.totalAmount else { return false }
-        guard lhs.startParameter == rhs.startParameter else { return false }
-        guard lhs.isTest == rhs.isTest else { return false }
-        guard lhs.needShippingAddress == rhs.needShippingAddress else { return false }
-        guard lhs.receiptMessageId == rhs.receiptMessageId else { return false }
-        guard lhs.paidMedia == rhs.paidMedia else { return false }
-        guard lhs.paidMediaCaption == rhs.paidMediaCaption else { return false }
+        guard lhs.productInfo == rhs.productInfo, lhs.currency == rhs.currency, lhs.totalAmount == rhs.totalAmount,
+              lhs.startParameter == rhs.startParameter, lhs.isTest == rhs.isTest,
+              lhs.needShippingAddress == rhs.needShippingAddress, lhs.receiptMessageId == rhs.receiptMessageId,
+              lhs.paidMedia == rhs.paidMedia, lhs.paidMediaCaption == rhs.paidMediaCaption else { return false }
         return true
     }
 
@@ -8441,8 +7984,7 @@ extension TDNativeMessageInvoice: @retroactive Hashable {
 
 extension TDNativeMessageLiveLocation: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.location == rhs.location else { return false }
-        guard lhs.expiresIn == rhs.expiresIn else { return false }
+        guard lhs.location == rhs.location, lhs.expiresIn == rhs.expiresIn else { return false }
         return true
     }
 
@@ -8469,8 +8011,7 @@ extension TDNativeMessageLocation: @retroactive Hashable {
 
 extension TDNativeMessageManagedBotCreated: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.botUserId == rhs.botUserId else { return false }
-        guard lhs.managerBotUserId == rhs.managerBotUserId else { return false }
+        guard lhs.botUserId == rhs.botUserId, lhs.managerBotUserId == rhs.managerBotUserId else { return false }
         return true
     }
 
@@ -8520,9 +8061,8 @@ extension TDNativeMessageOrigin: @retroactive Hashable {
 
 extension TDNativeMessageOriginChannel: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.chatId == rhs.chatId else { return false }
-        guard lhs.messageId == rhs.messageId else { return false }
-        guard lhs.authorSignature == rhs.authorSignature else { return false }
+        guard lhs.chatId == rhs.chatId, lhs.messageId == rhs.messageId,
+              lhs.authorSignature == rhs.authorSignature else { return false }
         return true
     }
 
@@ -8537,8 +8077,7 @@ extension TDNativeMessageOriginChannel: @retroactive Hashable {
 
 extension TDNativeMessageOriginChat: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.senderChatId == rhs.senderChatId else { return false }
-        guard lhs.authorSignature == rhs.authorSignature else { return false }
+        guard lhs.senderChatId == rhs.senderChatId, lhs.authorSignature == rhs.authorSignature else { return false }
         return true
     }
 
@@ -8578,10 +8117,8 @@ extension TDNativeMessageOriginUser: @retroactive Hashable {
 
 extension TDNativeMessagePaidMedia: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.starCount == rhs.starCount else { return false }
-        guard lhs.media == rhs.media else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.showCaptionAboveMedia == rhs.showCaptionAboveMedia else { return false }
+        guard lhs.starCount == rhs.starCount, lhs.media == rhs.media, lhs.caption == rhs.caption,
+              lhs.showCaptionAboveMedia == rhs.showCaptionAboveMedia else { return false }
         return true
     }
 
@@ -8610,8 +8147,7 @@ extension TDNativeMessagePaidMessagePriceChanged: @retroactive Hashable {
 
 extension TDNativeMessagePaidMessagesRefunded: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.messageCount == rhs.messageCount else { return false }
-        guard lhs.starCount == rhs.starCount else { return false }
+        guard lhs.messageCount == rhs.messageCount, lhs.starCount == rhs.starCount else { return false }
         return true
     }
 
@@ -8625,8 +8161,7 @@ extension TDNativeMessagePaidMessagesRefunded: @retroactive Hashable {
 
 extension TDNativeMessagePassportDataReceived: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.elements == rhs.elements else { return false }
-        guard lhs.credentials == rhs.credentials else { return false }
+        guard lhs.elements == rhs.elements, lhs.credentials == rhs.credentials else { return false }
         return true
     }
 
@@ -8653,12 +8188,9 @@ extension TDNativeMessagePassportDataSent: @retroactive Hashable {
 
 extension TDNativeMessagePaymentRefunded: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.ownerId == rhs.ownerId else { return false }
-        guard lhs.currency == rhs.currency else { return false }
-        guard lhs.totalAmount == rhs.totalAmount else { return false }
-        guard lhs.invoicePayload == rhs.invoicePayload else { return false }
-        guard lhs.telegramPaymentChargeId == rhs.telegramPaymentChargeId else { return false }
-        guard lhs.providerPaymentChargeId == rhs.providerPaymentChargeId else { return false }
+        guard lhs.ownerId == rhs.ownerId, lhs.currency == rhs.currency, lhs.totalAmount == rhs.totalAmount,
+              lhs.invoicePayload == rhs.invoicePayload, lhs.telegramPaymentChargeId == rhs.telegramPaymentChargeId,
+              lhs.providerPaymentChargeId == rhs.providerPaymentChargeId else { return false }
         return true
     }
 
@@ -8676,14 +8208,10 @@ extension TDNativeMessagePaymentRefunded: @retroactive Hashable {
 
 extension TDNativeMessagePaymentSuccessful: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.invoiceChatId == rhs.invoiceChatId else { return false }
-        guard lhs.invoiceMessageId == rhs.invoiceMessageId else { return false }
-        guard lhs.currency == rhs.currency else { return false }
-        guard lhs.totalAmount == rhs.totalAmount else { return false }
-        guard lhs.subscriptionUntilDate == rhs.subscriptionUntilDate else { return false }
-        guard lhs.isRecurring == rhs.isRecurring else { return false }
-        guard lhs.isFirstRecurring == rhs.isFirstRecurring else { return false }
-        guard lhs.invoiceName == rhs.invoiceName else { return false }
+        guard lhs.invoiceChatId == rhs.invoiceChatId, lhs.invoiceMessageId == rhs.invoiceMessageId,
+              lhs.currency == rhs.currency, lhs.totalAmount == rhs.totalAmount,
+              lhs.subscriptionUntilDate == rhs.subscriptionUntilDate, lhs.isRecurring == rhs.isRecurring,
+              lhs.isFirstRecurring == rhs.isFirstRecurring, lhs.invoiceName == rhs.invoiceName else { return false }
         return true
     }
 
@@ -8703,16 +8231,12 @@ extension TDNativeMessagePaymentSuccessful: @retroactive Hashable {
 
 extension TDNativeMessagePaymentSuccessfulBot: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.currency == rhs.currency else { return false }
-        guard lhs.totalAmount == rhs.totalAmount else { return false }
-        guard lhs.subscriptionUntilDate == rhs.subscriptionUntilDate else { return false }
-        guard lhs.isRecurring == rhs.isRecurring else { return false }
-        guard lhs.isFirstRecurring == rhs.isFirstRecurring else { return false }
-        guard lhs.invoicePayload == rhs.invoicePayload else { return false }
-        guard lhs.shippingOptionId == rhs.shippingOptionId else { return false }
-        guard lhs.orderInfo == rhs.orderInfo else { return false }
-        guard lhs.telegramPaymentChargeId == rhs.telegramPaymentChargeId else { return false }
-        guard lhs.providerPaymentChargeId == rhs.providerPaymentChargeId else { return false }
+        guard lhs.currency == rhs.currency, lhs.totalAmount == rhs.totalAmount,
+              lhs.subscriptionUntilDate == rhs.subscriptionUntilDate, lhs.isRecurring == rhs.isRecurring,
+              lhs.isFirstRecurring == rhs.isFirstRecurring, lhs.invoicePayload == rhs.invoicePayload,
+              lhs.shippingOptionId == rhs.shippingOptionId, lhs.orderInfo == rhs.orderInfo,
+              lhs.telegramPaymentChargeId == rhs.telegramPaymentChargeId,
+              lhs.providerPaymentChargeId == rhs.providerPaymentChargeId else { return false }
         return true
     }
 
@@ -8747,10 +8271,8 @@ extension TDNativeMessagePinMessage: @retroactive Hashable {
 
 extension TDNativeMessagePoll: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.poll == rhs.poll else { return false }
-        guard lhs.description == rhs.description else { return false }
-        guard lhs.media == rhs.media else { return false }
-        guard lhs.canAddOption == rhs.canAddOption else { return false }
+        guard lhs.poll == rhs.poll, lhs.description == rhs.description, lhs.media == rhs.media,
+              lhs.canAddOption == rhs.canAddOption else { return false }
         return true
     }
 
@@ -8766,9 +8288,8 @@ extension TDNativeMessagePoll: @retroactive Hashable {
 
 extension TDNativeMessagePollOptionAdded: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.pollMessageId == rhs.pollMessageId else { return false }
-        guard lhs.optionId == rhs.optionId else { return false }
-        guard lhs.text == rhs.text else { return false }
+        guard lhs.pollMessageId == rhs.pollMessageId, lhs.optionId == rhs.optionId,
+              lhs.text == rhs.text else { return false }
         return true
     }
 
@@ -8783,9 +8304,8 @@ extension TDNativeMessagePollOptionAdded: @retroactive Hashable {
 
 extension TDNativeMessagePollOptionDeleted: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.pollMessageId == rhs.pollMessageId else { return false }
-        guard lhs.optionId == rhs.optionId else { return false }
-        guard lhs.text == rhs.text else { return false }
+        guard lhs.pollMessageId == rhs.pollMessageId, lhs.optionId == rhs.optionId,
+              lhs.text == rhs.text else { return false }
         return true
     }
 
@@ -8800,18 +8320,11 @@ extension TDNativeMessagePollOptionDeleted: @retroactive Hashable {
 
 extension TDNativeMessagePremiumGiftCode: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.creatorId == rhs.creatorId else { return false }
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.isFromGiveaway == rhs.isFromGiveaway else { return false }
-        guard lhs.isUnclaimed == rhs.isUnclaimed else { return false }
-        guard lhs.currency == rhs.currency else { return false }
-        guard lhs.amount == rhs.amount else { return false }
-        guard lhs.cryptocurrency == rhs.cryptocurrency else { return false }
-        guard lhs.cryptocurrencyAmount == rhs.cryptocurrencyAmount else { return false }
-        guard lhs.monthCount == rhs.monthCount else { return false }
-        guard lhs.dayCount == rhs.dayCount else { return false }
-        guard lhs.sticker == rhs.sticker else { return false }
-        guard lhs.code == rhs.code else { return false }
+        guard lhs.creatorId == rhs.creatorId, lhs.text == rhs.text, lhs.isFromGiveaway == rhs.isFromGiveaway,
+              lhs.isUnclaimed == rhs.isUnclaimed, lhs.currency == rhs.currency, lhs.amount == rhs.amount,
+              lhs.cryptocurrency == rhs.cryptocurrency, lhs.cryptocurrencyAmount == rhs.cryptocurrencyAmount,
+              lhs.monthCount == rhs.monthCount, lhs.dayCount == rhs.dayCount, lhs.sticker == rhs.sticker,
+              lhs.code == rhs.code else { return false }
         return true
     }
 
@@ -8835,46 +8348,30 @@ extension TDNativeMessagePremiumGiftCode: @retroactive Hashable {
 
 extension TDNativeMessageProperties: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.canAddOffer == rhs.canAddOffer else { return false }
-        guard lhs.canAddTasks == rhs.canAddTasks else { return false }
-        guard lhs.canBeApproved == rhs.canBeApproved else { return false }
-        guard lhs.canBeCopied == rhs.canBeCopied else { return false }
-        guard lhs.canBeCopiedToSecretChat == rhs.canBeCopiedToSecretChat else { return false }
-        guard lhs.canBeDeclined == rhs.canBeDeclined else { return false }
-        guard lhs.canBeDeletedOnlyForSelf == rhs.canBeDeletedOnlyForSelf else { return false }
-        guard lhs.canBeDeletedForAllUsers == rhs.canBeDeletedForAllUsers else { return false }
-        guard lhs.canBeEdited == rhs.canBeEdited else { return false }
-        guard lhs.canBeForwarded == rhs.canBeForwarded else { return false }
-        guard lhs.canBePaid == rhs.canBePaid else { return false }
-        guard lhs.canBePinned == rhs.canBePinned else { return false }
-        guard lhs.canBeReplied == rhs.canBeReplied else { return false }
-        guard lhs.canBeRepliedInAnotherChat == rhs.canBeRepliedInAnotherChat else { return false }
-        guard lhs.canBeSaved == rhs.canBeSaved else { return false }
-        guard lhs.canBeSharedInStory == rhs.canBeSharedInStory else { return false }
-        guard lhs.canDeleteReactions == rhs.canDeleteReactions else { return false }
-        guard lhs.canEditMedia == rhs.canEditMedia else { return false }
-        guard lhs.canEditSchedulingState == rhs.canEditSchedulingState else { return false }
-        guard lhs.canEditSuggestedPostInfo == rhs.canEditSuggestedPostInfo else { return false }
-        guard lhs.canGetAuthor == rhs.canGetAuthor else { return false }
-        guard lhs.canGetEmbeddingCode == rhs.canGetEmbeddingCode else { return false }
-        guard lhs.canGetLink == rhs.canGetLink else { return false }
-        guard lhs.canGetMediaTimestampLinks == rhs.canGetMediaTimestampLinks else { return false }
-        guard lhs.canGetMessageThread == rhs.canGetMessageThread else { return false }
-        guard lhs.canGetPollVoteStatistics == rhs.canGetPollVoteStatistics else { return false }
-        guard lhs.canGetReadDate == rhs.canGetReadDate else { return false }
-        guard lhs.canGetStatistics == rhs.canGetStatistics else { return false }
-        guard lhs.canGetVideoAdvertisements == rhs.canGetVideoAdvertisements else { return false }
-        guard lhs.canGetViewers == rhs.canGetViewers else { return false }
-        guard lhs.canMarkTasksAsDone == rhs.canMarkTasksAsDone else { return false }
-        guard lhs.canRecognizeSpeech == rhs.canRecognizeSpeech else { return false }
-        guard lhs.canReportChat == rhs.canReportChat else { return false }
-        guard lhs.canReportReactions == rhs.canReportReactions else { return false }
-        guard lhs.canReportSupergroupSpam == rhs.canReportSupergroupSpam else { return false }
-        guard lhs.canSetFactCheck == rhs.canSetFactCheck else { return false }
-        guard lhs.customEmojiIds == rhs.customEmojiIds else { return false }
-        guard lhs.hasProtectedContentByCurrentUser == rhs.hasProtectedContentByCurrentUser else { return false }
-        guard lhs.hasProtectedContentByOtherUser == rhs.hasProtectedContentByOtherUser else { return false }
-        guard lhs.needShowStatistics == rhs.needShowStatistics else { return false }
+        guard lhs.canAddOffer == rhs.canAddOffer, lhs.canAddTasks == rhs.canAddTasks,
+              lhs.canBeApproved == rhs.canBeApproved, lhs.canBeCopied == rhs.canBeCopied,
+              lhs.canBeCopiedToSecretChat == rhs.canBeCopiedToSecretChat, lhs.canBeDeclined == rhs.canBeDeclined,
+              lhs.canBeDeletedOnlyForSelf == rhs.canBeDeletedOnlyForSelf,
+              lhs.canBeDeletedForAllUsers == rhs.canBeDeletedForAllUsers, lhs.canBeEdited == rhs.canBeEdited,
+              lhs.canBeForwarded == rhs.canBeForwarded, lhs.canBePaid == rhs.canBePaid,
+              lhs.canBePinned == rhs.canBePinned, lhs.canBeReplied == rhs.canBeReplied,
+              lhs.canBeRepliedInAnotherChat == rhs.canBeRepliedInAnotherChat, lhs.canBeSaved == rhs.canBeSaved,
+              lhs.canBeSharedInStory == rhs.canBeSharedInStory, lhs.canDeleteReactions == rhs.canDeleteReactions,
+              lhs.canEditMedia == rhs.canEditMedia, lhs.canEditSchedulingState == rhs.canEditSchedulingState,
+              lhs.canEditSuggestedPostInfo == rhs.canEditSuggestedPostInfo, lhs.canGetAuthor == rhs.canGetAuthor,
+              lhs.canGetEmbeddingCode == rhs.canGetEmbeddingCode, lhs.canGetLink == rhs.canGetLink,
+              lhs.canGetMediaTimestampLinks == rhs.canGetMediaTimestampLinks,
+              lhs.canGetMessageThread == rhs.canGetMessageThread,
+              lhs.canGetPollVoteStatistics == rhs.canGetPollVoteStatistics, lhs.canGetReadDate == rhs.canGetReadDate,
+              lhs.canGetStatistics == rhs.canGetStatistics,
+              lhs.canGetVideoAdvertisements == rhs.canGetVideoAdvertisements, lhs.canGetViewers == rhs.canGetViewers,
+              lhs.canMarkTasksAsDone == rhs.canMarkTasksAsDone, lhs.canRecognizeSpeech == rhs.canRecognizeSpeech,
+              lhs.canReportChat == rhs.canReportChat, lhs.canReportReactions == rhs.canReportReactions,
+              lhs.canReportSupergroupSpam == rhs.canReportSupergroupSpam, lhs.canSetFactCheck == rhs.canSetFactCheck,
+              lhs.customEmojiIds == rhs.customEmojiIds,
+              lhs.hasProtectedContentByCurrentUser == rhs.hasProtectedContentByCurrentUser,
+              lhs.hasProtectedContentByOtherUser == rhs.hasProtectedContentByOtherUser,
+              lhs.needShowStatistics == rhs.needShowStatistics else { return false }
         return true
     }
 
@@ -8926,9 +8423,8 @@ extension TDNativeMessageProperties: @retroactive Hashable {
 
 extension TDNativeMessageProximityAlertTriggered: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.travelerId == rhs.travelerId else { return false }
-        guard lhs.watcherId == rhs.watcherId else { return false }
-        guard lhs.distance == rhs.distance else { return false }
+        guard lhs.travelerId == rhs.travelerId, lhs.watcherId == rhs.watcherId,
+              lhs.distance == rhs.distance else { return false }
         return true
     }
 
@@ -8943,10 +8439,8 @@ extension TDNativeMessageProximityAlertTriggered: @retroactive Hashable {
 
 extension TDNativeMessageRefundedUpgradedGift: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.gift == rhs.gift else { return false }
-        guard lhs.senderId == rhs.senderId else { return false }
-        guard lhs.receiverId == rhs.receiverId else { return false }
-        guard lhs.origin == rhs.origin else { return false }
+        guard lhs.gift == rhs.gift, lhs.senderId == rhs.senderId, lhs.receiverId == rhs.receiverId,
+              lhs.origin == rhs.origin else { return false }
         return true
     }
 
@@ -8962,11 +8456,10 @@ extension TDNativeMessageRefundedUpgradedGift: @retroactive Hashable {
 
 extension TDNativeMessageReplyInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.replyCount == rhs.replyCount else { return false }
-        guard lhs.recentReplierIds == rhs.recentReplierIds else { return false }
-        guard lhs.lastReadInboxMessageId == rhs.lastReadInboxMessageId else { return false }
-        guard lhs.lastReadOutboxMessageId == rhs.lastReadOutboxMessageId else { return false }
-        guard lhs.lastMessageId == rhs.lastMessageId else { return false }
+        guard lhs.replyCount == rhs.replyCount, lhs.recentReplierIds == rhs.recentReplierIds,
+              lhs.lastReadInboxMessageId == rhs.lastReadInboxMessageId,
+              lhs.lastReadOutboxMessageId == rhs.lastReadOutboxMessageId,
+              lhs.lastMessageId == rhs.lastMessageId else { return false }
         return true
     }
 
@@ -9009,14 +8502,10 @@ extension TDNativeMessageReplyTo: @retroactive Hashable {
 
 extension TDNativeMessageReplyToMessage: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.chatId == rhs.chatId else { return false }
-        guard lhs.messageId == rhs.messageId else { return false }
-        guard lhs.quote == rhs.quote else { return false }
-        guard lhs.checklistTaskId == rhs.checklistTaskId else { return false }
-        guard lhs.pollOptionId == rhs.pollOptionId else { return false }
-        guard lhs.origin == rhs.origin else { return false }
-        guard lhs.originSendDate == rhs.originSendDate else { return false }
-        guard lhs.content == rhs.content else { return false }
+        guard lhs.chatId == rhs.chatId, lhs.messageId == rhs.messageId, lhs.quote == rhs.quote,
+              lhs.checklistTaskId == rhs.checklistTaskId, lhs.pollOptionId == rhs.pollOptionId,
+              lhs.origin == rhs.origin,
+              lhs.originSendDate == rhs.originSendDate, lhs.content == rhs.content else { return false }
         return true
     }
 
@@ -9036,8 +8525,7 @@ extension TDNativeMessageReplyToMessage: @retroactive Hashable {
 
 extension TDNativeMessageReplyToStory: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.storyPosterChatId == rhs.storyPosterChatId else { return false }
-        guard lhs.storyId == rhs.storyId else { return false }
+        guard lhs.storyPosterChatId == rhs.storyPosterChatId, lhs.storyId == rhs.storyId else { return false }
         return true
     }
 
@@ -9097,8 +8585,7 @@ extension TDNativeMessageSchedulingState: @retroactive Hashable {
 
 extension TDNativeMessageSchedulingStateSendAtDate: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.sendDate == rhs.sendDate else { return false }
-        guard lhs.repeatPeriod == rhs.repeatPeriod else { return false }
+        guard lhs.sendDate == rhs.sendDate, lhs.repeatPeriod == rhs.repeatPeriod else { return false }
         return true
     }
 
@@ -9189,13 +8676,10 @@ extension TDNativeMessageSendingState: @retroactive Hashable {
 
 extension TDNativeMessageSendingStateFailed: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.error == rhs.error else { return false }
-        guard lhs.canRetry == rhs.canRetry else { return false }
-        guard lhs.needAnotherSender == rhs.needAnotherSender else { return false }
-        guard lhs.needAnotherReplyQuote == rhs.needAnotherReplyQuote else { return false }
-        guard lhs.needDropReply == rhs.needDropReply else { return false }
-        guard lhs.requiredPaidMessageStarCount == rhs.requiredPaidMessageStarCount else { return false }
-        guard lhs.retryAfter == rhs.retryAfter else { return false }
+        guard lhs.error == rhs.error, lhs.canRetry == rhs.canRetry, lhs.needAnotherSender == rhs.needAnotherSender,
+              lhs.needAnotherReplyQuote == rhs.needAnotherReplyQuote, lhs.needDropReply == rhs.needDropReply,
+              lhs.requiredPaidMessageStarCount == rhs.requiredPaidMessageStarCount,
+              lhs.retryAfter == rhs.retryAfter else { return false }
         return true
     }
 
@@ -9227,11 +8711,9 @@ extension TDNativeMessageSendingStatePending: @retroactive Hashable {
 
 extension TDNativeMessageStakeDice: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.initialState == rhs.initialState else { return false }
-        guard lhs.finalState == rhs.finalState else { return false }
-        guard lhs.value == rhs.value else { return false }
-        guard lhs.stakeGramAmount == rhs.stakeGramAmount else { return false }
-        guard lhs.prizeGramAmount == rhs.prizeGramAmount else { return false }
+        guard lhs.initialState == rhs.initialState, lhs.finalState == rhs.finalState, lhs.value == rhs.value,
+              lhs.stakeGramAmount == rhs.stakeGramAmount,
+              lhs.prizeGramAmount == rhs.prizeGramAmount else { return false }
         return true
     }
 
@@ -9248,9 +8730,8 @@ extension TDNativeMessageStakeDice: @retroactive Hashable {
 
 extension TDNativeMessageStory: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.storyPosterChatId == rhs.storyPosterChatId else { return false }
-        guard lhs.storyId == rhs.storyId else { return false }
-        guard lhs.viaMention == rhs.viaMention else { return false }
+        guard lhs.storyPosterChatId == rhs.storyPosterChatId, lhs.storyId == rhs.storyId,
+              lhs.viaMention == rhs.viaMention else { return false }
         return true
     }
 
@@ -9291,8 +8772,7 @@ extension TDNativeMessageSuggestProfilePhoto: @retroactive Hashable {
 
 extension TDNativeMessageSuggestedPostApprovalFailed: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.suggestedPostMessageId == rhs.suggestedPostMessageId else { return false }
-        guard lhs.price == rhs.price else { return false }
+        guard lhs.suggestedPostMessageId == rhs.suggestedPostMessageId, lhs.price == rhs.price else { return false }
         return true
     }
 
@@ -9306,9 +8786,8 @@ extension TDNativeMessageSuggestedPostApprovalFailed: @retroactive Hashable {
 
 extension TDNativeMessageSuggestedPostApproved: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.suggestedPostMessageId == rhs.suggestedPostMessageId else { return false }
-        guard lhs.price == rhs.price else { return false }
-        guard lhs.sendDate == rhs.sendDate else { return false }
+        guard lhs.suggestedPostMessageId == rhs.suggestedPostMessageId, lhs.price == rhs.price,
+              lhs.sendDate == rhs.sendDate else { return false }
         return true
     }
 
@@ -9323,8 +8802,7 @@ extension TDNativeMessageSuggestedPostApproved: @retroactive Hashable {
 
 extension TDNativeMessageSuggestedPostDeclined: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.suggestedPostMessageId == rhs.suggestedPostMessageId else { return false }
-        guard lhs.comment == rhs.comment else { return false }
+        guard lhs.suggestedPostMessageId == rhs.suggestedPostMessageId, lhs.comment == rhs.comment else { return false }
         return true
     }
 
@@ -9338,9 +8816,8 @@ extension TDNativeMessageSuggestedPostDeclined: @retroactive Hashable {
 
 extension TDNativeMessageSuggestedPostPaid: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.suggestedPostMessageId == rhs.suggestedPostMessageId else { return false }
-        guard lhs.starAmount == rhs.starAmount else { return false }
-        guard lhs.gramAmount == rhs.gramAmount else { return false }
+        guard lhs.suggestedPostMessageId == rhs.suggestedPostMessageId, lhs.starAmount == rhs.starAmount,
+              lhs.gramAmount == rhs.gramAmount else { return false }
         return true
     }
 
@@ -9355,8 +8832,7 @@ extension TDNativeMessageSuggestedPostPaid: @retroactive Hashable {
 
 extension TDNativeMessageSuggestedPostRefunded: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.suggestedPostMessageId == rhs.suggestedPostMessageId else { return false }
-        guard lhs.reason == rhs.reason else { return false }
+        guard lhs.suggestedPostMessageId == rhs.suggestedPostMessageId, lhs.reason == rhs.reason else { return false }
         return true
     }
 
@@ -9383,9 +8859,8 @@ extension TDNativeMessageSupergroupChatCreate: @retroactive Hashable {
 
 extension TDNativeMessageText: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.linkPreview == rhs.linkPreview else { return false }
-        guard lhs.linkPreviewOptions == rhs.linkPreviewOptions else { return false }
+        guard lhs.text == rhs.text, lhs.linkPreview == rhs.linkPreview,
+              lhs.linkPreviewOptions == rhs.linkPreviewOptions else { return false }
         return true
     }
 
@@ -9400,11 +8875,8 @@ extension TDNativeMessageText: @retroactive Hashable {
 
 extension TDNativeMessageTonConnectRequest: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.sessionId == rhs.sessionId else { return false }
-        guard lhs.state == rhs.state else { return false }
-        guard lhs.dappName == rhs.dappName else { return false }
-        guard lhs.topic == rhs.topic else { return false }
-        guard lhs.traceId == rhs.traceId else { return false }
+        guard lhs.sessionId == rhs.sessionId, lhs.state == rhs.state, lhs.dappName == rhs.dappName,
+              lhs.topic == rhs.topic, lhs.traceId == rhs.traceId else { return false }
         return true
     }
 
@@ -9421,12 +8893,9 @@ extension TDNativeMessageTonConnectRequest: @retroactive Hashable {
 
 extension TDNativeMessageTonWalletTransfer: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.senderUserId == rhs.senderUserId else { return false }
-        guard lhs.transactionId == rhs.transactionId else { return false }
-        guard lhs.peerAddress == rhs.peerAddress else { return false }
-        guard lhs.amount == rhs.amount else { return false }
-        guard lhs.comment == rhs.comment else { return false }
-        guard lhs.isCommentEncrypted == rhs.isCommentEncrypted else { return false }
+        guard lhs.senderUserId == rhs.senderUserId, lhs.transactionId == rhs.transactionId,
+              lhs.peerAddress == rhs.peerAddress, lhs.amount == rhs.amount, lhs.comment == rhs.comment,
+              lhs.isCommentEncrypted == rhs.isCommentEncrypted else { return false }
         return true
     }
 
@@ -9444,22 +8913,13 @@ extension TDNativeMessageTonWalletTransfer: @retroactive Hashable {
 
 extension TDNativeMessageUpgradedGift: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.gift == rhs.gift else { return false }
-        guard lhs.senderId == rhs.senderId else { return false }
-        guard lhs.receiverId == rhs.receiverId else { return false }
-        guard lhs.origin == rhs.origin else { return false }
-        guard lhs.receivedGiftId == rhs.receivedGiftId else { return false }
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.isPrivate == rhs.isPrivate else { return false }
-        guard lhs.isSaved == rhs.isSaved else { return false }
-        guard lhs.canBeTransferred == rhs.canBeTransferred else { return false }
-        guard lhs.wasTransferred == rhs.wasTransferred else { return false }
-        guard lhs.transferStarCount == rhs.transferStarCount else { return false }
-        guard lhs.dropOriginalDetailsStarCount == rhs.dropOriginalDetailsStarCount else { return false }
-        guard lhs.nextTransferDate == rhs.nextTransferDate else { return false }
-        guard lhs.nextResaleDate == rhs.nextResaleDate else { return false }
-        guard lhs.exportDate == rhs.exportDate else { return false }
-        guard lhs.craftDate == rhs.craftDate else { return false }
+        guard lhs.gift == rhs.gift, lhs.senderId == rhs.senderId, lhs.receiverId == rhs.receiverId,
+              lhs.origin == rhs.origin, lhs.receivedGiftId == rhs.receivedGiftId, lhs.text == rhs.text,
+              lhs.isPrivate == rhs.isPrivate, lhs.isSaved == rhs.isSaved, lhs.canBeTransferred == rhs.canBeTransferred,
+              lhs.wasTransferred == rhs.wasTransferred, lhs.transferStarCount == rhs.transferStarCount,
+              lhs.dropOriginalDetailsStarCount == rhs.dropOriginalDetailsStarCount,
+              lhs.nextTransferDate == rhs.nextTransferDate, lhs.nextResaleDate == rhs.nextResaleDate,
+              lhs.exportDate == rhs.exportDate, lhs.craftDate == rhs.craftDate else { return false }
         return true
     }
 
@@ -9487,10 +8947,8 @@ extension TDNativeMessageUpgradedGift: @retroactive Hashable {
 
 extension TDNativeMessageUpgradedGiftPurchaseOffer: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.gift == rhs.gift else { return false }
-        guard lhs.state == rhs.state else { return false }
-        guard lhs.price == rhs.price else { return false }
-        guard lhs.expirationDate == rhs.expirationDate else { return false }
+        guard lhs.gift == rhs.gift, lhs.state == rhs.state, lhs.price == rhs.price,
+              lhs.expirationDate == rhs.expirationDate else { return false }
         return true
     }
 
@@ -9506,10 +8964,8 @@ extension TDNativeMessageUpgradedGiftPurchaseOffer: @retroactive Hashable {
 
 extension TDNativeMessageUpgradedGiftPurchaseOfferRejected: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.gift == rhs.gift else { return false }
-        guard lhs.price == rhs.price else { return false }
-        guard lhs.offerMessageId == rhs.offerMessageId else { return false }
-        guard lhs.wasExpired == rhs.wasExpired else { return false }
+        guard lhs.gift == rhs.gift, lhs.price == rhs.price, lhs.offerMessageId == rhs.offerMessageId,
+              lhs.wasExpired == rhs.wasExpired else { return false }
         return true
     }
 
@@ -9525,8 +8981,7 @@ extension TDNativeMessageUpgradedGiftPurchaseOfferRejected: @retroactive Hashabl
 
 extension TDNativeMessageUsersShared: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.users == rhs.users else { return false }
-        guard lhs.buttonId == rhs.buttonId else { return false }
+        guard lhs.users == rhs.users, lhs.buttonId == rhs.buttonId else { return false }
         return true
     }
 
@@ -9566,8 +9021,7 @@ extension TDNativeMessageVideoChatEnded: @retroactive Hashable {
 
 extension TDNativeMessageVideoChatScheduled: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.groupCallId == rhs.groupCallId else { return false }
-        guard lhs.startDate == rhs.startDate else { return false }
+        guard lhs.groupCallId == rhs.groupCallId, lhs.startDate == rhs.startDate else { return false }
         return true
     }
 
@@ -9594,9 +9048,8 @@ extension TDNativeMessageVideoChatStarted: @retroactive Hashable {
 
 extension TDNativeMessageVideoNote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.videoNote == rhs.videoNote else { return false }
-        guard lhs.isViewed == rhs.isViewed else { return false }
-        guard lhs.isSecret == rhs.isSecret else { return false }
+        guard lhs.videoNote == rhs.videoNote, lhs.isViewed == rhs.isViewed,
+              lhs.isSecret == rhs.isSecret else { return false }
         return true
     }
 
@@ -9611,9 +9064,8 @@ extension TDNativeMessageVideoNote: @retroactive Hashable {
 
 extension TDNativeMessageVoiceNote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.voiceNote == rhs.voiceNote else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.isListened == rhs.isListened else { return false }
+        guard lhs.voiceNote == rhs.voiceNote, lhs.caption == rhs.caption,
+              lhs.isListened == rhs.isListened else { return false }
         return true
     }
 
@@ -9628,8 +9080,7 @@ extension TDNativeMessageVoiceNote: @retroactive Hashable {
 
 extension TDNativeMessageWebAppDataReceived: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.buttonText == rhs.buttonText else { return false }
-        guard lhs.data == rhs.data else { return false }
+        guard lhs.buttonText == rhs.buttonText, lhs.data == rhs.data else { return false }
         return true
     }
 
@@ -9656,10 +9107,8 @@ extension TDNativeMessageWebAppDataSent: @retroactive Hashable {
 
 extension TDNativeOrderInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.name == rhs.name else { return false }
-        guard lhs.phoneNumber == rhs.phoneNumber else { return false }
-        guard lhs.emailAddress == rhs.emailAddress else { return false }
-        guard lhs.shippingAddress == rhs.shippingAddress else { return false }
+        guard lhs.name == rhs.name, lhs.phoneNumber == rhs.phoneNumber, lhs.emailAddress == rhs.emailAddress,
+              lhs.shippingAddress == rhs.shippingAddress else { return false }
         return true
     }
 
@@ -9882,10 +9331,8 @@ extension TDNativePageBlockAnchor: @retroactive Hashable {
 
 extension TDNativePageBlockAnimation: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.animation == rhs.animation else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.needAutoplay == rhs.needAutoplay else { return false }
-        guard lhs.hasSpoiler == rhs.hasSpoiler else { return false }
+        guard lhs.animation == rhs.animation, lhs.caption == rhs.caption, lhs.needAutoplay == rhs.needAutoplay,
+              lhs.hasSpoiler == rhs.hasSpoiler else { return false }
         return true
     }
 
@@ -9901,8 +9348,7 @@ extension TDNativePageBlockAnimation: @retroactive Hashable {
 
 extension TDNativePageBlockAudio: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.audio == rhs.audio else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.audio == rhs.audio, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -9916,8 +9362,7 @@ extension TDNativePageBlockAudio: @retroactive Hashable {
 
 extension TDNativePageBlockAuthorDate: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.author == rhs.author else { return false }
-        guard lhs.publishDate == rhs.publishDate else { return false }
+        guard lhs.author == rhs.author, lhs.publishDate == rhs.publishDate else { return false }
         return true
     }
 
@@ -9931,8 +9376,7 @@ extension TDNativePageBlockAuthorDate: @retroactive Hashable {
 
 extension TDNativePageBlockBlockQuote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.blocks == rhs.blocks else { return false }
-        guard lhs.credit == rhs.credit else { return false }
+        guard lhs.blocks == rhs.blocks, lhs.credit == rhs.credit else { return false }
         return true
     }
 
@@ -9946,8 +9390,7 @@ extension TDNativePageBlockBlockQuote: @retroactive Hashable {
 
 extension TDNativePageBlockButtonRow: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.buttons == rhs.buttons else { return false }
-        guard lhs.align == rhs.align else { return false }
+        guard lhs.buttons == rhs.buttons, lhs.align == rhs.align else { return false }
         return true
     }
 
@@ -9961,8 +9404,7 @@ extension TDNativePageBlockButtonRow: @retroactive Hashable {
 
 extension TDNativePageBlockCaption: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.credit == rhs.credit else { return false }
+        guard lhs.text == rhs.text, lhs.credit == rhs.credit else { return false }
         return true
     }
 
@@ -9976,10 +9418,8 @@ extension TDNativePageBlockCaption: @retroactive Hashable {
 
 extension TDNativePageBlockChatLink: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.accentColorId == rhs.accentColorId else { return false }
-        guard lhs.username == rhs.username else { return false }
+        guard lhs.title == rhs.title, lhs.photo == rhs.photo, lhs.accentColorId == rhs.accentColorId,
+              lhs.username == rhs.username else { return false }
         return true
     }
 
@@ -9995,8 +9435,7 @@ extension TDNativePageBlockChatLink: @retroactive Hashable {
 
 extension TDNativePageBlockCollage: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.blocks == rhs.blocks else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.blocks == rhs.blocks, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -10023,9 +9462,7 @@ extension TDNativePageBlockCover: @retroactive Hashable {
 
 extension TDNativePageBlockDetails: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.header == rhs.header else { return false }
-        guard lhs.blocks == rhs.blocks else { return false }
-        guard lhs.isOpen == rhs.isOpen else { return false }
+        guard lhs.header == rhs.header, lhs.blocks == rhs.blocks, lhs.isOpen == rhs.isOpen else { return false }
         return true
     }
 
@@ -10040,8 +9477,7 @@ extension TDNativePageBlockDetails: @retroactive Hashable {
 
 extension TDNativePageBlockDocument: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.document == rhs.document else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.document == rhs.document, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -10055,14 +9491,9 @@ extension TDNativePageBlockDocument: @retroactive Hashable {
 
 extension TDNativePageBlockEmbedded: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.html == rhs.html else { return false }
-        guard lhs.posterPhoto == rhs.posterPhoto else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.isFullWidth == rhs.isFullWidth else { return false }
-        guard lhs.allowScrolling == rhs.allowScrolling else { return false }
+        guard lhs.url == rhs.url, lhs.html == rhs.html, lhs.posterPhoto == rhs.posterPhoto, lhs.width == rhs.width,
+              lhs.height == rhs.height, lhs.caption == rhs.caption, lhs.isFullWidth == rhs.isFullWidth,
+              lhs.allowScrolling == rhs.allowScrolling else { return false }
         return true
     }
 
@@ -10082,12 +9513,8 @@ extension TDNativePageBlockEmbedded: @retroactive Hashable {
 
 extension TDNativePageBlockEmbeddedPost: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.author == rhs.author else { return false }
-        guard lhs.authorPhoto == rhs.authorPhoto else { return false }
-        guard lhs.date == rhs.date else { return false }
-        guard lhs.blocks == rhs.blocks else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.url == rhs.url, lhs.author == rhs.author, lhs.authorPhoto == rhs.authorPhoto, lhs.date == rhs.date,
+              lhs.blocks == rhs.blocks, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -10105,8 +9532,7 @@ extension TDNativePageBlockEmbeddedPost: @retroactive Hashable {
 
 extension TDNativePageBlockExpandableBlockQuote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.credit == rhs.credit else { return false }
+        guard lhs.text == rhs.text, lhs.credit == rhs.credit else { return false }
         return true
     }
 
@@ -10172,12 +9598,8 @@ extension TDNativePageBlockList: @retroactive Hashable {
 
 extension TDNativePageBlockListItem: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.label == rhs.label else { return false }
-        guard lhs.blocks == rhs.blocks else { return false }
-        guard lhs.hasCheckbox == rhs.hasCheckbox else { return false }
-        guard lhs.isChecked == rhs.isChecked else { return false }
-        guard lhs.value == rhs.value else { return false }
-        guard lhs.type == rhs.type else { return false }
+        guard lhs.label == rhs.label, lhs.blocks == rhs.blocks, lhs.hasCheckbox == rhs.hasCheckbox,
+              lhs.isChecked == rhs.isChecked, lhs.value == rhs.value, lhs.type == rhs.type else { return false }
         return true
     }
 
@@ -10195,11 +9617,8 @@ extension TDNativePageBlockListItem: @retroactive Hashable {
 
 extension TDNativePageBlockMap: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.location == rhs.location else { return false }
-        guard lhs.zoom == rhs.zoom else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.location == rhs.location, lhs.zoom == rhs.zoom, lhs.width == rhs.width, lhs.height == rhs.height,
+              lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -10242,10 +9661,8 @@ extension TDNativePageBlockParagraph: @retroactive Hashable {
 
 extension TDNativePageBlockPhoto: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.hasSpoiler == rhs.hasSpoiler else { return false }
+        guard lhs.photo == rhs.photo, lhs.caption == rhs.caption, lhs.url == rhs.url,
+              lhs.hasSpoiler == rhs.hasSpoiler else { return false }
         return true
     }
 
@@ -10261,8 +9678,7 @@ extension TDNativePageBlockPhoto: @retroactive Hashable {
 
 extension TDNativePageBlockPreformatted: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.language == rhs.language else { return false }
+        guard lhs.text == rhs.text, lhs.language == rhs.language else { return false }
         return true
     }
 
@@ -10276,8 +9692,7 @@ extension TDNativePageBlockPreformatted: @retroactive Hashable {
 
 extension TDNativePageBlockPullQuote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.credit == rhs.credit else { return false }
+        guard lhs.text == rhs.text, lhs.credit == rhs.credit else { return false }
         return true
     }
 
@@ -10291,12 +9706,8 @@ extension TDNativePageBlockPullQuote: @retroactive Hashable {
 
 extension TDNativePageBlockRelatedArticle: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.description == rhs.description else { return false }
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.author == rhs.author else { return false }
-        guard lhs.publishDate == rhs.publishDate else { return false }
+        guard lhs.url == rhs.url, lhs.title == rhs.title, lhs.description == rhs.description, lhs.photo == rhs.photo,
+              lhs.author == rhs.author, lhs.publishDate == rhs.publishDate else { return false }
         return true
     }
 
@@ -10314,8 +9725,7 @@ extension TDNativePageBlockRelatedArticle: @retroactive Hashable {
 
 extension TDNativePageBlockRelatedArticles: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.header == rhs.header else { return false }
-        guard lhs.articles == rhs.articles else { return false }
+        guard lhs.header == rhs.header, lhs.articles == rhs.articles else { return false }
         return true
     }
 
@@ -10329,8 +9739,7 @@ extension TDNativePageBlockRelatedArticles: @retroactive Hashable {
 
 extension TDNativePageBlockSectionHeading: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.size == rhs.size else { return false }
+        guard lhs.text == rhs.text, lhs.size == rhs.size else { return false }
         return true
     }
 
@@ -10344,8 +9753,7 @@ extension TDNativePageBlockSectionHeading: @retroactive Hashable {
 
 extension TDNativePageBlockSlideshow: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.blocks == rhs.blocks else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.blocks == rhs.blocks, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -10385,11 +9793,8 @@ extension TDNativePageBlockSubtitle: @retroactive Hashable {
 
 extension TDNativePageBlockTable: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.cells == rhs.cells else { return false }
-        guard lhs.isBordered == rhs.isBordered else { return false }
-        guard lhs.isStriped == rhs.isStriped else { return false }
-        guard lhs.isCompact == rhs.isCompact else { return false }
+        guard lhs.caption == rhs.caption, lhs.cells == rhs.cells, lhs.isBordered == rhs.isBordered,
+              lhs.isStriped == rhs.isStriped, lhs.isCompact == rhs.isCompact else { return false }
         return true
     }
 
@@ -10406,12 +9811,9 @@ extension TDNativePageBlockTable: @retroactive Hashable {
 
 extension TDNativePageBlockTableCell: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.isHeader == rhs.isHeader else { return false }
-        guard lhs.colspan == rhs.colspan else { return false }
-        guard lhs.rowspan == rhs.rowspan else { return false }
-        guard lhs.align == rhs.align else { return false }
-        guard lhs.valign == rhs.valign else { return false }
+        guard lhs.text == rhs.text, lhs.isHeader == rhs.isHeader, lhs.colspan == rhs.colspan,
+              lhs.rowspan == rhs.rowspan,
+              lhs.align == rhs.align, lhs.valign == rhs.valign else { return false }
         return true
     }
 
@@ -10455,11 +9857,8 @@ extension TDNativePageBlockTitle: @retroactive Hashable {
 
 extension TDNativePageBlockVideo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.video == rhs.video else { return false }
-        guard lhs.caption == rhs.caption else { return false }
-        guard lhs.needAutoplay == rhs.needAutoplay else { return false }
-        guard lhs.isLooped == rhs.isLooped else { return false }
-        guard lhs.hasSpoiler == rhs.hasSpoiler else { return false }
+        guard lhs.video == rhs.video, lhs.caption == rhs.caption, lhs.needAutoplay == rhs.needAutoplay,
+              lhs.isLooped == rhs.isLooped, lhs.hasSpoiler == rhs.hasSpoiler else { return false }
         return true
     }
 
@@ -10476,8 +9875,7 @@ extension TDNativePageBlockVideo: @retroactive Hashable {
 
 extension TDNativePageBlockVoiceNote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.voiceNote == rhs.voiceNote else { return false }
-        guard lhs.caption == rhs.caption else { return false }
+        guard lhs.voiceNote == rhs.voiceNote, lhs.caption == rhs.caption else { return false }
         return true
     }
 
@@ -10526,8 +9924,7 @@ extension TDNativePaidMedia: @retroactive Hashable {
 
 extension TDNativePaidMediaPhoto: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.video == rhs.video else { return false }
+        guard lhs.photo == rhs.photo, lhs.video == rhs.video else { return false }
         return true
     }
 
@@ -10541,10 +9938,8 @@ extension TDNativePaidMediaPhoto: @retroactive Hashable {
 
 extension TDNativePaidMediaPreview: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.minithumbnail == rhs.minithumbnail else { return false }
+        guard lhs.width == rhs.width, lhs.height == rhs.height, lhs.duration == rhs.duration,
+              lhs.minithumbnail == rhs.minithumbnail else { return false }
         return true
     }
 
@@ -10560,9 +9955,8 @@ extension TDNativePaidMediaPreview: @retroactive Hashable {
 
 extension TDNativePaidMediaVideo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.video == rhs.video else { return false }
-        guard lhs.cover == rhs.cover else { return false }
-        guard lhs.startTimestamp == rhs.startTimestamp else { return false }
+        guard lhs.video == rhs.video, lhs.cover == rhs.cover,
+              lhs.startTimestamp == rhs.startTimestamp else { return false }
         return true
     }
 
@@ -10577,24 +9971,14 @@ extension TDNativePaidMediaVideo: @retroactive Hashable {
 
 extension TDNativePoll: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.question == rhs.question else { return false }
-        guard lhs.options == rhs.options else { return false }
-        guard lhs.totalVoterCount == rhs.totalVoterCount else { return false }
-        guard lhs.recentVoterIds == rhs.recentVoterIds else { return false }
-        guard lhs.canGetVoters == rhs.canGetVoters else { return false }
-        guard lhs.canSeeResults == rhs.canSeeResults else { return false }
-        guard lhs.isAnonymous == rhs.isAnonymous else { return false }
-        guard lhs.allowsMultipleAnswers == rhs.allowsMultipleAnswers else { return false }
-        guard lhs.allowsRevoting == rhs.allowsRevoting else { return false }
-        guard lhs.membersOnly == rhs.membersOnly else { return false }
-        guard lhs.countryCodes == rhs.countryCodes else { return false }
-        guard lhs.optionOrder == rhs.optionOrder else { return false }
-        guard lhs.type == rhs.type else { return false }
-        guard lhs.openPeriod == rhs.openPeriod else { return false }
-        guard lhs.closeDate == rhs.closeDate else { return false }
-        guard lhs.isClosed == rhs.isClosed else { return false }
-        guard lhs.voteRestrictionReason == rhs.voteRestrictionReason else { return false }
+        guard lhs.id == rhs.id, lhs.question == rhs.question, lhs.options == rhs.options,
+              lhs.totalVoterCount == rhs.totalVoterCount, lhs.recentVoterIds == rhs.recentVoterIds,
+              lhs.canGetVoters == rhs.canGetVoters, lhs.canSeeResults == rhs.canSeeResults,
+              lhs.isAnonymous == rhs.isAnonymous, lhs.allowsMultipleAnswers == rhs.allowsMultipleAnswers,
+              lhs.allowsRevoting == rhs.allowsRevoting, lhs.membersOnly == rhs.membersOnly,
+              lhs.countryCodes == rhs.countryCodes, lhs.optionOrder == rhs.optionOrder, lhs.type == rhs.type,
+              lhs.openPeriod == rhs.openPeriod, lhs.closeDate == rhs.closeDate, lhs.isClosed == rhs.isClosed,
+              lhs.voteRestrictionReason == rhs.voteRestrictionReason else { return false }
         return true
     }
 
@@ -10724,8 +10108,7 @@ extension TDNativePollMediaDocument: @retroactive Hashable {
 
 extension TDNativePollMediaLink: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.linkPreview == rhs.linkPreview else { return false }
+        guard lhs.url == rhs.url, lhs.linkPreview == rhs.linkPreview else { return false }
         return true
     }
 
@@ -10752,8 +10135,7 @@ extension TDNativePollMediaLocation: @retroactive Hashable {
 
 extension TDNativePollMediaPhoto: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.video == rhs.video else { return false }
+        guard lhs.photo == rhs.photo, lhs.video == rhs.video else { return false }
         return true
     }
 
@@ -10793,11 +10175,9 @@ extension TDNativePollMediaVenue: @retroactive Hashable {
 
 extension TDNativePollMediaVideo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.video == rhs.video else { return false }
-        guard lhs.alternativeVideos == rhs.alternativeVideos else { return false }
-        guard lhs.storyboards == rhs.storyboards else { return false }
-        guard lhs.cover == rhs.cover else { return false }
-        guard lhs.startTimestamp == rhs.startTimestamp else { return false }
+        guard lhs.video == rhs.video, lhs.alternativeVideos == rhs.alternativeVideos,
+              lhs.storyboards == rhs.storyboards,
+              lhs.cover == rhs.cover, lhs.startTimestamp == rhs.startTimestamp else { return false }
         return true
     }
 
@@ -10814,16 +10194,10 @@ extension TDNativePollMediaVideo: @retroactive Hashable {
 
 extension TDNativePollOption: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.media == rhs.media else { return false }
-        guard lhs.voterCount == rhs.voterCount else { return false }
-        guard lhs.votePercentage == rhs.votePercentage else { return false }
-        guard lhs.recentVoterIds == rhs.recentVoterIds else { return false }
-        guard lhs.isChosen == rhs.isChosen else { return false }
-        guard lhs.isBeingChosen == rhs.isBeingChosen else { return false }
-        guard lhs.author == rhs.author else { return false }
-        guard lhs.additionDate == rhs.additionDate else { return false }
+        guard lhs.id == rhs.id, lhs.text == rhs.text, lhs.media == rhs.media, lhs.voterCount == rhs.voterCount,
+              lhs.votePercentage == rhs.votePercentage, lhs.recentVoterIds == rhs.recentVoterIds,
+              lhs.isChosen == rhs.isChosen, lhs.isBeingChosen == rhs.isBeingChosen, lhs.author == rhs.author,
+              lhs.additionDate == rhs.additionDate else { return false }
         return true
     }
 
@@ -10870,9 +10244,8 @@ extension TDNativePollType: @retroactive Hashable {
 
 extension TDNativePollTypeQuiz: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.correctOptionIds == rhs.correctOptionIds else { return false }
-        guard lhs.explanation == rhs.explanation else { return false }
-        guard lhs.explanationMedia == rhs.explanationMedia else { return false }
+        guard lhs.correctOptionIds == rhs.correctOptionIds, lhs.explanation == rhs.explanation,
+              lhs.explanationMedia == rhs.explanationMedia else { return false }
         return true
     }
 
@@ -10961,9 +10334,7 @@ extension TDNativePollVoteRestrictionReasonMembershipRequired: @retroactive Hash
 
 extension TDNativeProductInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.description == rhs.description else { return false }
-        guard lhs.photo == rhs.photo else { return false }
+        guard lhs.title == rhs.title, lhs.description == rhs.description, lhs.photo == rhs.photo else { return false }
         return true
     }
 
@@ -10978,12 +10349,8 @@ extension TDNativeProductInfo: @retroactive Hashable {
 
 extension TDNativeProfilePhoto: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.small == rhs.small else { return false }
-        guard lhs.big == rhs.big else { return false }
-        guard lhs.minithumbnail == rhs.minithumbnail else { return false }
-        guard lhs.hasAnimation == rhs.hasAnimation else { return false }
-        guard lhs.isPersonal == rhs.isPersonal else { return false }
+        guard lhs.id == rhs.id, lhs.small == rhs.small, lhs.big == rhs.big, lhs.minithumbnail == rhs.minithumbnail,
+              lhs.hasAnimation == rhs.hasAnimation, lhs.isPersonal == rhs.isPersonal else { return false }
         return true
     }
 
@@ -11001,9 +10368,7 @@ extension TDNativeProfilePhoto: @retroactive Hashable {
 
 extension TDNativeProxy: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.server == rhs.server else { return false }
-        guard lhs.port == rhs.port else { return false }
-        guard lhs.type == rhs.type else { return false }
+        guard lhs.server == rhs.server, lhs.port == rhs.port, lhs.type == rhs.type else { return false }
         return true
     }
 
@@ -11049,9 +10414,8 @@ extension TDNativeProxyType: @retroactive Hashable {
 
 extension TDNativeProxyTypeHttp: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.username == rhs.username else { return false }
-        guard lhs.password == rhs.password else { return false }
-        guard lhs.httpOnly == rhs.httpOnly else { return false }
+        guard lhs.username == rhs.username, lhs.password == rhs.password,
+              lhs.httpOnly == rhs.httpOnly else { return false }
         return true
     }
 
@@ -11079,8 +10443,7 @@ extension TDNativeProxyTypeMtproto: @retroactive Hashable {
 
 extension TDNativeProxyTypeSocks5: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.username == rhs.username else { return false }
-        guard lhs.password == rhs.password else { return false }
+        guard lhs.username == rhs.username, lhs.password == rhs.password else { return false }
         return true
     }
 
@@ -11130,8 +10493,8 @@ extension TDNativeReplyMarkup: @retroactive Hashable {
 
 extension TDNativeReplyMarkupForceReply: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.isPersonal == rhs.isPersonal else { return false }
-        guard lhs.inputFieldPlaceholder == rhs.inputFieldPlaceholder else { return false }
+        guard lhs.isPersonal == rhs.isPersonal,
+              lhs.inputFieldPlaceholder == rhs.inputFieldPlaceholder else { return false }
         return true
     }
 
@@ -11145,8 +10508,7 @@ extension TDNativeReplyMarkupForceReply: @retroactive Hashable {
 
 extension TDNativeReplyMarkupInlineKeyboard: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.rows == rhs.rows else { return false }
-        guard lhs.forceReply == rhs.forceReply else { return false }
+        guard lhs.rows == rhs.rows, lhs.forceReply == rhs.forceReply else { return false }
         return true
     }
 
@@ -11173,13 +10535,9 @@ extension TDNativeReplyMarkupRemoveKeyboard: @retroactive Hashable {
 
 extension TDNativeReplyMarkupShowKeyboard: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.rows == rhs.rows else { return false }
-        guard lhs.isPersistent == rhs.isPersistent else { return false }
-        guard lhs.resizeKeyboard == rhs.resizeKeyboard else { return false }
-        guard lhs.oneTime == rhs.oneTime else { return false }
-        guard lhs.isPersonal == rhs.isPersonal else { return false }
-        guard lhs.forceReply == rhs.forceReply else { return false }
-        guard lhs.inputFieldPlaceholder == rhs.inputFieldPlaceholder else { return false }
+        guard lhs.rows == rhs.rows, lhs.isPersistent == rhs.isPersistent, lhs.resizeKeyboard == rhs.resizeKeyboard,
+              lhs.oneTime == rhs.oneTime, lhs.isPersonal == rhs.isPersonal, lhs.forceReply == rhs.forceReply,
+              lhs.inputFieldPlaceholder == rhs.inputFieldPlaceholder else { return false }
         return true
     }
 
@@ -11198,8 +10556,8 @@ extension TDNativeReplyMarkupShowKeyboard: @retroactive Hashable {
 
 extension TDNativeRestrictionInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.restrictionReason == rhs.restrictionReason else { return false }
-        guard lhs.hasSensitiveContent == rhs.hasSensitiveContent else { return false }
+        guard lhs.restrictionReason == rhs.restrictionReason,
+              lhs.hasSensitiveContent == rhs.hasSensitiveContent else { return false }
         return true
     }
 
@@ -11213,9 +10571,7 @@ extension TDNativeRestrictionInfo: @retroactive Hashable {
 
 extension TDNativeRichMessage: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.blocks == rhs.blocks else { return false }
-        guard lhs.isRtl == rhs.isRtl else { return false }
-        guard lhs.isFull == rhs.isFull else { return false }
+        guard lhs.blocks == rhs.blocks, lhs.isRtl == rhs.isRtl, lhs.isFull == rhs.isFull else { return false }
         return true
     }
 
@@ -11274,8 +10630,7 @@ extension TDNativeRichMessageSourceBlocks: @retroactive Hashable {
 
 extension TDNativeRichMessageSourceHtml: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.media == rhs.media else { return false }
+        guard lhs.text == rhs.text, lhs.media == rhs.media else { return false }
         return true
     }
 
@@ -11289,8 +10644,7 @@ extension TDNativeRichMessageSourceHtml: @retroactive Hashable {
 
 extension TDNativeRichMessageSourceMarkdown: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.media == rhs.media else { return false }
+        guard lhs.text == rhs.text, lhs.media == rhs.media else { return false }
         return true
     }
 
@@ -11488,9 +10842,7 @@ extension TDNativeRichTextAnchor: @retroactive Hashable {
 
 extension TDNativeRichTextAnchorLink: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.anchorName == rhs.anchorName else { return false }
-        guard lhs.url == rhs.url else { return false }
+        guard lhs.text == rhs.text, lhs.anchorName == rhs.anchorName, lhs.url == rhs.url else { return false }
         return true
     }
 
@@ -11505,8 +10857,7 @@ extension TDNativeRichTextAnchorLink: @retroactive Hashable {
 
 extension TDNativeRichTextBankCardNumber: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.bankCardNumber == rhs.bankCardNumber else { return false }
+        guard lhs.text == rhs.text, lhs.bankCardNumber == rhs.bankCardNumber else { return false }
         return true
     }
 
@@ -11533,8 +10884,7 @@ extension TDNativeRichTextBold: @retroactive Hashable {
 
 extension TDNativeRichTextBotCommand: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.botCommand == rhs.botCommand else { return false }
+        guard lhs.text == rhs.text, lhs.botCommand == rhs.botCommand else { return false }
         return true
     }
 
@@ -11561,8 +10911,7 @@ extension TDNativeRichTextButton: @retroactive Hashable {
 
 extension TDNativeRichTextCashtag: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.cashtag == rhs.cashtag else { return false }
+        guard lhs.text == rhs.text, lhs.cashtag == rhs.cashtag else { return false }
         return true
     }
 
@@ -11576,8 +10925,7 @@ extension TDNativeRichTextCashtag: @retroactive Hashable {
 
 extension TDNativeRichTextCustomEmoji: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.customEmojiId == rhs.customEmojiId else { return false }
-        guard lhs.alternativeText == rhs.alternativeText else { return false }
+        guard lhs.customEmojiId == rhs.customEmojiId, lhs.alternativeText == rhs.alternativeText else { return false }
         return true
     }
 
@@ -11591,9 +10939,8 @@ extension TDNativeRichTextCustomEmoji: @retroactive Hashable {
 
 extension TDNativeRichTextDateTime: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.unixTime == rhs.unixTime else { return false }
-        guard lhs.formattingType == rhs.formattingType else { return false }
+        guard lhs.text == rhs.text, lhs.unixTime == rhs.unixTime,
+              lhs.formattingType == rhs.formattingType else { return false }
         return true
     }
 
@@ -11608,8 +10955,7 @@ extension TDNativeRichTextDateTime: @retroactive Hashable {
 
 extension TDNativeRichTextDiff: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.oldText == rhs.oldText else { return false }
+        guard lhs.text == rhs.text, lhs.oldText == rhs.oldText else { return false }
         return true
     }
 
@@ -11623,8 +10969,7 @@ extension TDNativeRichTextDiff: @retroactive Hashable {
 
 extension TDNativeRichTextEmailAddress: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.emailAddress == rhs.emailAddress else { return false }
+        guard lhs.text == rhs.text, lhs.emailAddress == rhs.emailAddress else { return false }
         return true
     }
 
@@ -11651,8 +10996,7 @@ extension TDNativeRichTextFixed: @retroactive Hashable {
 
 extension TDNativeRichTextHashtag: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.hashtag == rhs.hashtag else { return false }
+        guard lhs.text == rhs.text, lhs.hashtag == rhs.hashtag else { return false }
         return true
     }
 
@@ -11666,9 +11010,7 @@ extension TDNativeRichTextHashtag: @retroactive Hashable {
 
 extension TDNativeRichTextIcon: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.document == rhs.document else { return false }
-        guard lhs.width == rhs.width else { return false }
-        guard lhs.height == rhs.height else { return false }
+        guard lhs.document == rhs.document, lhs.width == rhs.width, lhs.height == rhs.height else { return false }
         return true
     }
 
@@ -11722,8 +11064,7 @@ extension TDNativeRichTextMathematicalExpression: @retroactive Hashable {
 
 extension TDNativeRichTextMention: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.username == rhs.username else { return false }
+        guard lhs.text == rhs.text, lhs.username == rhs.username else { return false }
         return true
     }
 
@@ -11737,8 +11078,7 @@ extension TDNativeRichTextMention: @retroactive Hashable {
 
 extension TDNativeRichTextMentionName: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.userId == rhs.userId else { return false }
+        guard lhs.text == rhs.text, lhs.userId == rhs.userId else { return false }
         return true
     }
 
@@ -11752,8 +11092,7 @@ extension TDNativeRichTextMentionName: @retroactive Hashable {
 
 extension TDNativeRichTextPhoneNumber: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.phoneNumber == rhs.phoneNumber else { return false }
+        guard lhs.text == rhs.text, lhs.phoneNumber == rhs.phoneNumber else { return false }
         return true
     }
 
@@ -11780,8 +11119,7 @@ extension TDNativeRichTextPlain: @retroactive Hashable {
 
 extension TDNativeRichTextReference: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.name == rhs.name else { return false }
-        guard lhs.text == rhs.text else { return false }
+        guard lhs.name == rhs.name, lhs.text == rhs.text else { return false }
         return true
     }
 
@@ -11795,9 +11133,7 @@ extension TDNativeRichTextReference: @retroactive Hashable {
 
 extension TDNativeRichTextReferenceLink: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.referenceName == rhs.referenceName else { return false }
-        guard lhs.url == rhs.url else { return false }
+        guard lhs.text == rhs.text, lhs.referenceName == rhs.referenceName, lhs.url == rhs.url else { return false }
         return true
     }
 
@@ -11864,8 +11200,7 @@ extension TDNativeRichTextSuperscript: @retroactive Hashable {
 
 extension TDNativeRichTextTonAddress: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.address == rhs.address else { return false }
+        guard lhs.text == rhs.text, lhs.address == rhs.address else { return false }
         return true
     }
 
@@ -11892,9 +11227,7 @@ extension TDNativeRichTextUnderline: @retroactive Hashable {
 
 extension TDNativeRichTextUrl: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.url == rhs.url else { return false }
-        guard lhs.isCached == rhs.isCached else { return false }
+        guard lhs.text == rhs.text, lhs.url == rhs.url, lhs.isCached == rhs.isCached else { return false }
         return true
     }
 
@@ -12218,10 +11551,8 @@ extension TDNativeSettingsSectionSendGift: @retroactive Hashable {
 
 extension TDNativeSharedChat: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.chatId == rhs.chatId else { return false }
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.username == rhs.username else { return false }
-        guard lhs.photo == rhs.photo else { return false }
+        guard lhs.chatId == rhs.chatId, lhs.title == rhs.title, lhs.username == rhs.username,
+              lhs.photo == rhs.photo else { return false }
         return true
     }
 
@@ -12237,11 +11568,8 @@ extension TDNativeSharedChat: @retroactive Hashable {
 
 extension TDNativeSharedUser: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.userId == rhs.userId else { return false }
-        guard lhs.firstName == rhs.firstName else { return false }
-        guard lhs.lastName == rhs.lastName else { return false }
-        guard lhs.username == rhs.username else { return false }
-        guard lhs.photo == rhs.photo else { return false }
+        guard lhs.userId == rhs.userId, lhs.firstName == rhs.firstName, lhs.lastName == rhs.lastName,
+              lhs.username == rhs.username, lhs.photo == rhs.photo else { return false }
         return true
     }
 
@@ -12328,8 +11656,7 @@ extension TDNativeSpeechRecognitionResultText: @retroactive Hashable {
 
 extension TDNativeStarAmount: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.starCount == rhs.starCount else { return false }
-        guard lhs.nanostarCount == rhs.nanostarCount else { return false }
+        guard lhs.starCount == rhs.starCount, lhs.nanostarCount == rhs.nanostarCount else { return false }
         return true
     }
 
@@ -12343,11 +11670,8 @@ extension TDNativeStarAmount: @retroactive Hashable {
 
 extension TDNativeSuggestedPostInfo: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.price == rhs.price else { return false }
-        guard lhs.sendDate == rhs.sendDate else { return false }
-        guard lhs.state == rhs.state else { return false }
-        guard lhs.canBeApproved == rhs.canBeApproved else { return false }
-        guard lhs.canBeDeclined == rhs.canBeDeclined else { return false }
+        guard lhs.price == rhs.price, lhs.sendDate == rhs.sendDate, lhs.state == rhs.state,
+              lhs.canBeApproved == rhs.canBeApproved, lhs.canBeDeclined == rhs.canBeDeclined else { return false }
         return true
     }
 
@@ -12416,31 +11740,20 @@ extension TDNativeSuggestedPostPriceStar: @retroactive Hashable {
 
 extension TDNativeSupergroup: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.usernames == rhs.usernames else { return false }
-        guard lhs.date == rhs.date else { return false }
-        guard lhs.status == rhs.status else { return false }
-        guard lhs.memberCount == rhs.memberCount else { return false }
-        guard lhs.boostLevel == rhs.boostLevel else { return false }
-        guard lhs.hasAutomaticTranslation == rhs.hasAutomaticTranslation else { return false }
-        guard lhs.hasLinkedChat == rhs.hasLinkedChat else { return false }
-        guard lhs.hasLocation == rhs.hasLocation else { return false }
-        guard lhs.signMessages == rhs.signMessages else { return false }
-        guard lhs.showMessageSender == rhs.showMessageSender else { return false }
-        guard lhs.joinToSendMessages == rhs.joinToSendMessages else { return false }
-        guard lhs.joinByRequest == rhs.joinByRequest else { return false }
-        guard lhs.isSlowModeEnabled == rhs.isSlowModeEnabled else { return false }
-        guard lhs.isChannel == rhs.isChannel else { return false }
-        guard lhs.isBroadcastGroup == rhs.isBroadcastGroup else { return false }
-        guard lhs.isForum == rhs.isForum else { return false }
-        guard lhs.isDirectMessagesGroup == rhs.isDirectMessagesGroup else { return false }
-        guard lhs.isAdministeredDirectMessagesGroup == rhs.isAdministeredDirectMessagesGroup else { return false }
-        guard lhs.verificationStatus == rhs.verificationStatus else { return false }
-        guard lhs.hasDirectMessagesGroup == rhs.hasDirectMessagesGroup else { return false }
-        guard lhs.hasForumTabs == rhs.hasForumTabs else { return false }
-        guard lhs.restrictionInfo == rhs.restrictionInfo else { return false }
-        guard lhs.paidMessageStarCount == rhs.paidMessageStarCount else { return false }
-        guard lhs.activeStoryState == rhs.activeStoryState else { return false }
+        guard lhs.id == rhs.id, lhs.usernames == rhs.usernames, lhs.date == rhs.date, lhs.status == rhs.status,
+              lhs.memberCount == rhs.memberCount, lhs.boostLevel == rhs.boostLevel,
+              lhs.hasAutomaticTranslation == rhs.hasAutomaticTranslation, lhs.hasLinkedChat == rhs.hasLinkedChat,
+              lhs.hasLocation == rhs.hasLocation, lhs.signMessages == rhs.signMessages,
+              lhs.showMessageSender == rhs.showMessageSender, lhs.joinToSendMessages == rhs.joinToSendMessages,
+              lhs.joinByRequest == rhs.joinByRequest, lhs.isSlowModeEnabled == rhs.isSlowModeEnabled,
+              lhs.isChannel == rhs.isChannel, lhs.isBroadcastGroup == rhs.isBroadcastGroup, lhs.isForum == rhs.isForum,
+              lhs.isDirectMessagesGroup == rhs.isDirectMessagesGroup,
+              lhs.isAdministeredDirectMessagesGroup == rhs.isAdministeredDirectMessagesGroup,
+              lhs.verificationStatus == rhs.verificationStatus,
+              lhs.hasDirectMessagesGroup == rhs.hasDirectMessagesGroup,
+              lhs.hasForumTabs == rhs.hasForumTabs, lhs.restrictionInfo == rhs.restrictionInfo,
+              lhs.paidMessageStarCount == rhs.paidMessageStarCount,
+              lhs.activeStoryState == rhs.activeStoryState else { return false }
         return true
     }
 
@@ -12533,10 +11846,9 @@ extension TDNativeTargetChatInternalLink: @retroactive Hashable {
 
 extension TDNativeTargetChatTypes: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.allowUserChats == rhs.allowUserChats else { return false }
-        guard lhs.allowBotChats == rhs.allowBotChats else { return false }
-        guard lhs.allowGroupChats == rhs.allowGroupChats else { return false }
-        guard lhs.allowChannelChats == rhs.allowChannelChats else { return false }
+        guard lhs.allowUserChats == rhs.allowUserChats, lhs.allowBotChats == rhs.allowBotChats,
+              lhs.allowGroupChats == rhs.allowGroupChats,
+              lhs.allowChannelChats == rhs.allowChannelChats else { return false }
         return true
     }
 
@@ -12552,9 +11864,8 @@ extension TDNativeTargetChatTypes: @retroactive Hashable {
 
 extension TDNativeTermsOfService: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.minUserAge == rhs.minUserAge else { return false }
-        guard lhs.showPopup == rhs.showPopup else { return false }
+        guard lhs.text == rhs.text, lhs.minUserAge == rhs.minUserAge,
+              lhs.showPopup == rhs.showPopup else { return false }
         return true
     }
 
@@ -12569,9 +11880,7 @@ extension TDNativeTermsOfService: @retroactive Hashable {
 
 extension TDNativeTextQuote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.position == rhs.position else { return false }
-        guard lhs.isManual == rhs.isManual else { return false }
+        guard lhs.text == rhs.text, lhs.position == rhs.position, lhs.isManual == rhs.isManual else { return false }
         return true
     }
 
@@ -12586,13 +11895,11 @@ extension TDNativeTextQuote: @retroactive Hashable {
 
 extension TDNativeThemeSettings: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.baseTheme == rhs.baseTheme else { return false }
-        guard lhs.accentColor == rhs.accentColor else { return false }
-        guard lhs.background == rhs.background else { return false }
-        guard lhs.outgoingMessageFill == rhs.outgoingMessageFill else { return false }
-        guard lhs.animateOutgoingMessageFill == rhs.animateOutgoingMessageFill else { return false }
-        guard lhs.hasOutgoingMessageAccentColor == rhs.hasOutgoingMessageAccentColor else { return false }
-        guard lhs.outgoingMessageAccentColor == rhs.outgoingMessageAccentColor else { return false }
+        guard lhs.baseTheme == rhs.baseTheme, lhs.accentColor == rhs.accentColor, lhs.background == rhs.background,
+              lhs.outgoingMessageFill == rhs.outgoingMessageFill,
+              lhs.animateOutgoingMessageFill == rhs.animateOutgoingMessageFill,
+              lhs.hasOutgoingMessageAccentColor == rhs.hasOutgoingMessageAccentColor,
+              lhs.outgoingMessageAccentColor == rhs.outgoingMessageAccentColor else { return false }
         return true
     }
 
@@ -12663,8 +11970,7 @@ extension TDNativeTonConnectConnectItemProof: @retroactive Hashable {
 
 extension TDNativeTonConnectConnectRequest: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.manifestUrl == rhs.manifestUrl else { return false }
-        guard lhs.items == rhs.items else { return false }
+        guard lhs.manifestUrl == rhs.manifestUrl, lhs.items == rhs.items else { return false }
         return true
     }
 
@@ -12772,9 +12078,7 @@ extension TDNativeTonWalletTransferReceiverUser: @retroactive Hashable {
 
 extension TDNativeUnreadReaction: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.type == rhs.type else { return false }
-        guard lhs.senderId == rhs.senderId else { return false }
-        guard lhs.isBig == rhs.isBig else { return false }
+        guard lhs.type == rhs.type, lhs.senderId == rhs.senderId, lhs.isBig == rhs.isBig else { return false }
         return true
     }
 
@@ -12789,16 +12093,12 @@ extension TDNativeUnreadReaction: @retroactive Hashable {
 
 extension TDNativeUpdateForumTopic: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.chatId == rhs.chatId else { return false }
-        guard lhs.forumTopicId == rhs.forumTopicId else { return false }
-        guard lhs.isPinned == rhs.isPinned else { return false }
-        guard lhs.lastReadInboxMessageId == rhs.lastReadInboxMessageId else { return false }
-        guard lhs.lastReadOutboxMessageId == rhs.lastReadOutboxMessageId else { return false }
-        guard lhs.unreadMentionCount == rhs.unreadMentionCount else { return false }
-        guard lhs.unreadReactionCount == rhs.unreadReactionCount else { return false }
-        guard lhs.unreadPollVoteCount == rhs.unreadPollVoteCount else { return false }
-        guard lhs.notificationSettings == rhs.notificationSettings else { return false }
-        guard lhs.draftMessage == rhs.draftMessage else { return false }
+        guard lhs.chatId == rhs.chatId, lhs.forumTopicId == rhs.forumTopicId, lhs.isPinned == rhs.isPinned,
+              lhs.lastReadInboxMessageId == rhs.lastReadInboxMessageId,
+              lhs.lastReadOutboxMessageId == rhs.lastReadOutboxMessageId,
+              lhs.unreadMentionCount == rhs.unreadMentionCount, lhs.unreadReactionCount == rhs.unreadReactionCount,
+              lhs.unreadPollVoteCount == rhs.unreadPollVoteCount, lhs.notificationSettings == rhs.notificationSettings,
+              lhs.draftMessage == rhs.draftMessage else { return false }
         return true
     }
 
@@ -12820,9 +12120,8 @@ extension TDNativeUpdateForumTopic: @retroactive Hashable {
 
 extension TDNativeUpdateMessageSendFailed: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.message == rhs.message else { return false }
-        guard lhs.oldMessageId == rhs.oldMessageId else { return false }
-        guard lhs.error == rhs.error else { return false }
+        guard lhs.message == rhs.message, lhs.oldMessageId == rhs.oldMessageId,
+              lhs.error == rhs.error else { return false }
         return true
     }
 
@@ -12837,8 +12136,7 @@ extension TDNativeUpdateMessageSendFailed: @retroactive Hashable {
 
 extension TDNativeUpdateMessageSendSucceeded: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.message == rhs.message else { return false }
-        guard lhs.oldMessageId == rhs.oldMessageId else { return false }
+        guard lhs.message == rhs.message, lhs.oldMessageId == rhs.oldMessageId else { return false }
         return true
     }
 
@@ -12852,35 +12150,18 @@ extension TDNativeUpdateMessageSendSucceeded: @retroactive Hashable {
 
 extension TDNativeUpgradedGift: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.regularGiftId == rhs.regularGiftId else { return false }
-        guard lhs.publisherChatId == rhs.publisherChatId else { return false }
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.name == rhs.name else { return false }
-        guard lhs.number == rhs.number else { return false }
-        guard lhs.totalUpgradedCount == rhs.totalUpgradedCount else { return false }
-        guard lhs.maxUpgradedCount == rhs.maxUpgradedCount else { return false }
-        guard lhs.isBurned == rhs.isBurned else { return false }
-        guard lhs.isCrafted == rhs.isCrafted else { return false }
-        guard lhs.isPremium == rhs.isPremium else { return false }
-        guard lhs.isThemeAvailable == rhs.isThemeAvailable else { return false }
-        guard lhs.usedThemeChatId == rhs.usedThemeChatId else { return false }
-        guard lhs.hostId == rhs.hostId else { return false }
-        guard lhs.ownerId == rhs.ownerId else { return false }
-        guard lhs.ownerAddress == rhs.ownerAddress else { return false }
-        guard lhs.ownerName == rhs.ownerName else { return false }
-        guard lhs.giftAddress == rhs.giftAddress else { return false }
-        guard lhs.model == rhs.model else { return false }
-        guard lhs.symbol == rhs.symbol else { return false }
-        guard lhs.backdrop == rhs.backdrop else { return false }
-        guard lhs.originalDetails == rhs.originalDetails else { return false }
-        guard lhs.colors == rhs.colors else { return false }
-        guard lhs.resaleParameters == rhs.resaleParameters else { return false }
-        guard lhs.canSendPurchaseOffer == rhs.canSendPurchaseOffer else { return false }
-        guard lhs.craftProbabilityPerMille == rhs.craftProbabilityPerMille else { return false }
-        guard lhs.valueCurrency == rhs.valueCurrency else { return false }
-        guard lhs.valueAmount == rhs.valueAmount else { return false }
-        guard lhs.valueUsdAmount == rhs.valueUsdAmount else { return false }
+        guard lhs.id == rhs.id, lhs.regularGiftId == rhs.regularGiftId, lhs.publisherChatId == rhs.publisherChatId,
+              lhs.title == rhs.title, lhs.name == rhs.name, lhs.number == rhs.number,
+              lhs.totalUpgradedCount == rhs.totalUpgradedCount, lhs.maxUpgradedCount == rhs.maxUpgradedCount,
+              lhs.isBurned == rhs.isBurned, lhs.isCrafted == rhs.isCrafted, lhs.isPremium == rhs.isPremium,
+              lhs.isThemeAvailable == rhs.isThemeAvailable, lhs.usedThemeChatId == rhs.usedThemeChatId,
+              lhs.hostId == rhs.hostId, lhs.ownerId == rhs.ownerId, lhs.ownerAddress == rhs.ownerAddress,
+              lhs.ownerName == rhs.ownerName, lhs.giftAddress == rhs.giftAddress, lhs.model == rhs.model,
+              lhs.symbol == rhs.symbol, lhs.backdrop == rhs.backdrop, lhs.originalDetails == rhs.originalDetails,
+              lhs.colors == rhs.colors, lhs.resaleParameters == rhs.resaleParameters,
+              lhs.canSendPurchaseOffer == rhs.canSendPurchaseOffer,
+              lhs.craftProbabilityPerMille == rhs.craftProbabilityPerMille, lhs.valueCurrency == rhs.valueCurrency,
+              lhs.valueAmount == rhs.valueAmount, lhs.valueUsdAmount == rhs.valueUsdAmount else { return false }
         return true
     }
 
@@ -12971,10 +12252,8 @@ extension TDNativeUpgradedGiftAttributeRarityPerMille: @retroactive Hashable {
 
 extension TDNativeUpgradedGiftBackdrop: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.name == rhs.name else { return false }
-        guard lhs.colors == rhs.colors else { return false }
-        guard lhs.rarity == rhs.rarity else { return false }
+        guard lhs.id == rhs.id, lhs.name == rhs.name, lhs.colors == rhs.colors,
+              lhs.rarity == rhs.rarity else { return false }
         return true
     }
 
@@ -12990,10 +12269,8 @@ extension TDNativeUpgradedGiftBackdrop: @retroactive Hashable {
 
 extension TDNativeUpgradedGiftBackdropColors: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.centerColor == rhs.centerColor else { return false }
-        guard lhs.edgeColor == rhs.edgeColor else { return false }
-        guard lhs.symbolColor == rhs.symbolColor else { return false }
-        guard lhs.textColor == rhs.textColor else { return false }
+        guard lhs.centerColor == rhs.centerColor, lhs.edgeColor == rhs.edgeColor, lhs.symbolColor == rhs.symbolColor,
+              lhs.textColor == rhs.textColor else { return false }
         return true
     }
 
@@ -13009,13 +12286,11 @@ extension TDNativeUpgradedGiftBackdropColors: @retroactive Hashable {
 
 extension TDNativeUpgradedGiftColors: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.modelCustomEmojiId == rhs.modelCustomEmojiId else { return false }
-        guard lhs.symbolCustomEmojiId == rhs.symbolCustomEmojiId else { return false }
-        guard lhs.lightThemeAccentColor == rhs.lightThemeAccentColor else { return false }
-        guard lhs.lightThemeColors == rhs.lightThemeColors else { return false }
-        guard lhs.darkThemeAccentColor == rhs.darkThemeAccentColor else { return false }
-        guard lhs.darkThemeColors == rhs.darkThemeColors else { return false }
+        guard lhs.id == rhs.id, lhs.modelCustomEmojiId == rhs.modelCustomEmojiId,
+              lhs.symbolCustomEmojiId == rhs.symbolCustomEmojiId,
+              lhs.lightThemeAccentColor == rhs.lightThemeAccentColor,
+              lhs.lightThemeColors == rhs.lightThemeColors, lhs.darkThemeAccentColor == rhs.darkThemeAccentColor,
+              lhs.darkThemeColors == rhs.darkThemeColors else { return false }
         return true
     }
 
@@ -13034,10 +12309,8 @@ extension TDNativeUpgradedGiftColors: @retroactive Hashable {
 
 extension TDNativeUpgradedGiftModel: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.name == rhs.name else { return false }
-        guard lhs.sticker == rhs.sticker else { return false }
-        guard lhs.rarity == rhs.rarity else { return false }
-        guard lhs.isCrafted == rhs.isCrafted else { return false }
+        guard lhs.name == rhs.name, lhs.sticker == rhs.sticker, lhs.rarity == rhs.rarity,
+              lhs.isCrafted == rhs.isCrafted else { return false }
         return true
     }
 
@@ -13139,10 +12412,8 @@ extension TDNativeUpgradedGiftOriginUpgrade: @retroactive Hashable {
 
 extension TDNativeUpgradedGiftOriginalDetails: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.senderId == rhs.senderId else { return false }
-        guard lhs.receiverId == rhs.receiverId else { return false }
-        guard lhs.text == rhs.text else { return false }
-        guard lhs.date == rhs.date else { return false }
+        guard lhs.senderId == rhs.senderId, lhs.receiverId == rhs.receiverId, lhs.text == rhs.text,
+              lhs.date == rhs.date else { return false }
         return true
     }
 
@@ -13158,9 +12429,7 @@ extension TDNativeUpgradedGiftOriginalDetails: @retroactive Hashable {
 
 extension TDNativeUpgradedGiftSymbol: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.name == rhs.name else { return false }
-        guard lhs.sticker == rhs.sticker else { return false }
-        guard lhs.rarity == rhs.rarity else { return false }
+        guard lhs.name == rhs.name, lhs.sticker == rhs.sticker, lhs.rarity == rhs.rarity else { return false }
         return true
     }
 
@@ -13175,33 +12444,20 @@ extension TDNativeUpgradedGiftSymbol: @retroactive Hashable {
 
 extension TDNativeUser: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.firstName == rhs.firstName else { return false }
-        guard lhs.lastName == rhs.lastName else { return false }
-        guard lhs.usernames == rhs.usernames else { return false }
-        guard lhs.phoneNumber == rhs.phoneNumber else { return false }
-        guard lhs.status == rhs.status else { return false }
-        guard lhs.profilePhoto == rhs.profilePhoto else { return false }
-        guard lhs.accentColorId == rhs.accentColorId else { return false }
-        guard lhs.backgroundCustomEmojiId == rhs.backgroundCustomEmojiId else { return false }
-        guard lhs.upgradedGiftColors == rhs.upgradedGiftColors else { return false }
-        guard lhs.profileAccentColorId == rhs.profileAccentColorId else { return false }
-        guard lhs.profileBackgroundCustomEmojiId == rhs.profileBackgroundCustomEmojiId else { return false }
-        guard lhs.emojiStatus == rhs.emojiStatus else { return false }
-        guard lhs.isContact == rhs.isContact else { return false }
-        guard lhs.isMutualContact == rhs.isMutualContact else { return false }
-        guard lhs.isCloseFriend == rhs.isCloseFriend else { return false }
-        guard lhs.verificationStatus == rhs.verificationStatus else { return false }
-        guard lhs.isPremium == rhs.isPremium else { return false }
-        guard lhs.isSupport == rhs.isSupport else { return false }
-        guard lhs.restrictionInfo == rhs.restrictionInfo else { return false }
-        guard lhs.activeStoryState == rhs.activeStoryState else { return false }
-        guard lhs.restrictsNewChats == rhs.restrictsNewChats else { return false }
-        guard lhs.paidMessageStarCount == rhs.paidMessageStarCount else { return false }
-        guard lhs.haveAccess == rhs.haveAccess else { return false }
-        guard lhs.type == rhs.type else { return false }
-        guard lhs.languageCode == rhs.languageCode else { return false }
-        guard lhs.addedToAttachmentMenu == rhs.addedToAttachmentMenu else { return false }
+        guard lhs.id == rhs.id, lhs.firstName == rhs.firstName, lhs.lastName == rhs.lastName,
+              lhs.usernames == rhs.usernames, lhs.phoneNumber == rhs.phoneNumber, lhs.status == rhs.status,
+              lhs.profilePhoto == rhs.profilePhoto, lhs.accentColorId == rhs.accentColorId,
+              lhs.backgroundCustomEmojiId == rhs.backgroundCustomEmojiId,
+              lhs.upgradedGiftColors == rhs.upgradedGiftColors, lhs.profileAccentColorId == rhs.profileAccentColorId,
+              lhs.profileBackgroundCustomEmojiId == rhs.profileBackgroundCustomEmojiId,
+              lhs.emojiStatus == rhs.emojiStatus, lhs.isContact == rhs.isContact,
+              lhs.isMutualContact == rhs.isMutualContact, lhs.isCloseFriend == rhs.isCloseFriend,
+              lhs.verificationStatus == rhs.verificationStatus, lhs.isPremium == rhs.isPremium,
+              lhs.isSupport == rhs.isSupport, lhs.restrictionInfo == rhs.restrictionInfo,
+              lhs.activeStoryState == rhs.activeStoryState, lhs.restrictsNewChats == rhs.restrictsNewChats,
+              lhs.paidMessageStarCount == rhs.paidMessageStarCount, lhs.haveAccess == rhs.haveAccess,
+              lhs.type == rhs.type, lhs.languageCode == rhs.languageCode,
+              lhs.addedToAttachmentMenu == rhs.addedToAttachmentMenu else { return false }
         return true
     }
 
@@ -13383,21 +12639,15 @@ extension TDNativeUserType: @retroactive Hashable {
 
 extension TDNativeUserTypeBot: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.canBeEdited == rhs.canBeEdited else { return false }
-        guard lhs.canJoinGroups == rhs.canJoinGroups else { return false }
-        guard lhs.canReadAllGroupMessages == rhs.canReadAllGroupMessages else { return false }
-        guard lhs.hasMainWebApp == rhs.hasMainWebApp else { return false }
-        guard lhs.hasTopics == rhs.hasTopics else { return false }
-        guard lhs.allowsUsersToCreateTopics == rhs.allowsUsersToCreateTopics else { return false }
-        guard lhs.canManageBots == rhs.canManageBots else { return false }
-        guard lhs.isInline == rhs.isInline else { return false }
-        guard lhs.inlineQueryPlaceholder == rhs.inlineQueryPlaceholder else { return false }
-        guard lhs.supportsGuestQueries == rhs.supportsGuestQueries else { return false }
-        guard lhs.isGuard == rhs.isGuard else { return false }
-        guard lhs.needLocation == rhs.needLocation else { return false }
-        guard lhs.canConnectToBusiness == rhs.canConnectToBusiness else { return false }
-        guard lhs.canBeAddedToAttachmentMenu == rhs.canBeAddedToAttachmentMenu else { return false }
-        guard lhs.activeUserCount == rhs.activeUserCount else { return false }
+        guard lhs.canBeEdited == rhs.canBeEdited, lhs.canJoinGroups == rhs.canJoinGroups,
+              lhs.canReadAllGroupMessages == rhs.canReadAllGroupMessages, lhs.hasMainWebApp == rhs.hasMainWebApp,
+              lhs.hasTopics == rhs.hasTopics, lhs.allowsUsersToCreateTopics == rhs.allowsUsersToCreateTopics,
+              lhs.canManageBots == rhs.canManageBots, lhs.isInline == rhs.isInline,
+              lhs.inlineQueryPlaceholder == rhs.inlineQueryPlaceholder,
+              lhs.supportsGuestQueries == rhs.supportsGuestQueries, lhs.isGuard == rhs.isGuard,
+              lhs.needLocation == rhs.needLocation, lhs.canConnectToBusiness == rhs.canConnectToBusiness,
+              lhs.canBeAddedToAttachmentMenu == rhs.canBeAddedToAttachmentMenu,
+              lhs.activeUserCount == rhs.activeUserCount else { return false }
         return true
     }
 
@@ -13424,11 +12674,9 @@ extension TDNativeUserTypeBot: @retroactive Hashable {
 
 extension TDNativeUsernames: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.activeUsernames == rhs.activeUsernames else { return false }
-        guard lhs.disabledUsernames == rhs.disabledUsernames else { return false }
-        guard lhs.editableUsername == rhs.editableUsername else { return false }
-        guard lhs.collectibleUsernames == rhs.collectibleUsernames else { return false }
-        guard lhs.secondaryUsername == rhs.secondaryUsername else { return false }
+        guard lhs.activeUsernames == rhs.activeUsernames, lhs.disabledUsernames == rhs.disabledUsernames,
+              lhs.editableUsername == rhs.editableUsername, lhs.collectibleUsernames == rhs.collectibleUsernames,
+              lhs.secondaryUsername == rhs.secondaryUsername else { return false }
         return true
     }
 
@@ -13445,12 +12693,8 @@ extension TDNativeUsernames: @retroactive Hashable {
 
 extension TDNativeVenue: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.location == rhs.location else { return false }
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.address == rhs.address else { return false }
-        guard lhs.provider == rhs.provider else { return false }
-        guard lhs.id == rhs.id else { return false }
-        guard lhs.type == rhs.type else { return false }
+        guard lhs.location == rhs.location, lhs.title == rhs.title, lhs.address == rhs.address,
+              lhs.provider == rhs.provider, lhs.id == rhs.id, lhs.type == rhs.type else { return false }
         return true
     }
 
@@ -13468,10 +12712,8 @@ extension TDNativeVenue: @retroactive Hashable {
 
 extension TDNativeVerificationStatus: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.isVerified == rhs.isVerified else { return false }
-        guard lhs.isScam == rhs.isScam else { return false }
-        guard lhs.isFake == rhs.isFake else { return false }
-        guard lhs.botVerificationIconCustomEmojiId == rhs.botVerificationIconCustomEmojiId else { return false }
+        guard lhs.isVerified == rhs.isVerified, lhs.isScam == rhs.isScam, lhs.isFake == rhs.isFake,
+              lhs.botVerificationIconCustomEmojiId == rhs.botVerificationIconCustomEmojiId else { return false }
         return true
     }
 
@@ -13487,9 +12729,8 @@ extension TDNativeVerificationStatus: @retroactive Hashable {
 
 extension TDNativeVideoChat: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.groupCallId == rhs.groupCallId else { return false }
-        guard lhs.hasParticipants == rhs.hasParticipants else { return false }
-        guard lhs.defaultParticipantId == rhs.defaultParticipantId else { return false }
+        guard lhs.groupCallId == rhs.groupCallId, lhs.hasParticipants == rhs.hasParticipants,
+              lhs.defaultParticipantId == rhs.defaultParticipantId else { return false }
         return true
     }
 
@@ -13504,13 +12745,9 @@ extension TDNativeVideoChat: @retroactive Hashable {
 
 extension TDNativeVideoNote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.waveform == rhs.waveform else { return false }
-        guard lhs.length == rhs.length else { return false }
-        guard lhs.minithumbnail == rhs.minithumbnail else { return false }
-        guard lhs.thumbnail == rhs.thumbnail else { return false }
-        guard lhs.speechRecognitionResult == rhs.speechRecognitionResult else { return false }
-        guard lhs.video == rhs.video else { return false }
+        guard lhs.duration == rhs.duration, lhs.waveform == rhs.waveform, lhs.length == rhs.length,
+              lhs.minithumbnail == rhs.minithumbnail, lhs.thumbnail == rhs.thumbnail,
+              lhs.speechRecognitionResult == rhs.speechRecognitionResult, lhs.video == rhs.video else { return false }
         return true
     }
 
@@ -13529,11 +12766,8 @@ extension TDNativeVideoNote: @retroactive Hashable {
 
 extension TDNativeVoiceNote: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.duration == rhs.duration else { return false }
-        guard lhs.waveform == rhs.waveform else { return false }
-        guard lhs.mimeType == rhs.mimeType else { return false }
-        guard lhs.speechRecognitionResult == rhs.speechRecognitionResult else { return false }
-        guard lhs.voice == rhs.voice else { return false }
+        guard lhs.duration == rhs.duration, lhs.waveform == rhs.waveform, lhs.mimeType == rhs.mimeType,
+              lhs.speechRecognitionResult == rhs.speechRecognitionResult, lhs.voice == rhs.voice else { return false }
         return true
     }
 
@@ -13550,11 +12784,8 @@ extension TDNativeVoiceNote: @retroactive Hashable {
 
 extension TDNativeWebApp: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
-        guard lhs.shortName == rhs.shortName else { return false }
-        guard lhs.title == rhs.title else { return false }
-        guard lhs.description == rhs.description else { return false }
-        guard lhs.photo == rhs.photo else { return false }
-        guard lhs.animation == rhs.animation else { return false }
+        guard lhs.shortName == rhs.shortName, lhs.title == rhs.title, lhs.description == rhs.description,
+              lhs.photo == rhs.photo, lhs.animation == rhs.animation else { return false }
         return true
     }
 

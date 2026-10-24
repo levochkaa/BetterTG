@@ -32,7 +32,8 @@ import UIKit
     /// sends nothing.
     func request() {
         switch CLLocationManager().authorizationStatus {
-        case .denied, .restricted:
+        case .denied,
+             .restricted:
             presentAccessDenied()
         case .notDetermined:
             Task { [weak self] in
@@ -131,7 +132,7 @@ import UIKit
                 content,
             )
         } else {
-            alert.message = text.replacingOccurrences(of: "**", with: "")
+            alert.message = text.replacing("**", with: "")
         }
         presenter.present(alert, animated: true)
     }
@@ -147,7 +148,7 @@ import UIKit
         if let host = bridge.toastHost() {
             let text = L10n.telegram("WebApp.LocationPermission.Succeed", bridge.botName)
             TelegramUndoToast.show(
-                text: text.replacingOccurrences(of: "**", with: ""),
+                text: text.replacing("**", with: ""),
                 in: host,
                 bottomInset: 8,
                 actionTitle: L10n.telegram("WebApp.LocationPermission.Undo"),

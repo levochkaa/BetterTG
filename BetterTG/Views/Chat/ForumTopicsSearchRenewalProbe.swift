@@ -165,7 +165,9 @@ import UIKit
                     + "IME/foreign-modal/explicit-Retry/stale-control/pop/account-actor-ABA/initial-unknown-actor=true; "
                     + "unloaded-failure-visible-Retry=true; "
                     + "transport/server-filter/keyboard-animation/foreground=unverified; RPC/global-account-writes=0"
-            } catch { result = "Forum active search probe failed: \(error)" }
+            } catch {
+                result = "Forum active search probe failed: \(error)"
+            }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
                     to: directory.appendingPathComponent("forum-active-search-probe.txt"),

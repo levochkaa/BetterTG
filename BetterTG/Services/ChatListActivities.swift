@@ -48,13 +48,17 @@ import UIKit
         case .chatActionTyping: L10n.telegram("DialogList.Typing")
         case .chatActionRecordingVideoNote: L10n.telegram("Activity.RecordingVideoMessage")
         case .chatActionUploadingVideoNote: L10n.telegram("Activity.UploadingVideoMessage")
-        case .chatActionRecordingVideo, .chatActionUploadingVideo: L10n.telegram("Activity.UploadingVideo")
+        case .chatActionRecordingVideo,
+             .chatActionUploadingVideo: L10n.telegram("Activity.UploadingVideo")
         case .chatActionRecordingVoiceNote: L10n.telegram("Activity.RecordingAudio")
-        case .chatActionUploadingDocument, .chatActionUploadingVoiceNote: L10n.telegram("Activity.UploadingDocument")
+        case .chatActionUploadingDocument,
+             .chatActionUploadingVoiceNote: L10n.telegram("Activity.UploadingDocument")
         case .chatActionUploadingPhoto: L10n.telegram("Activity.UploadingPhoto")
         case .chatActionChoosingSticker: L10n.telegram("Activity.ChoosingSticker")
         case .chatActionStartPlayingGame: L10n.telegram("Activity.PlayingGame")
-        case .chatActionCancel, .chatActionChoosingContact, .chatActionChoosingLocation,
+        case .chatActionCancel,
+             .chatActionChoosingContact,
+             .chatActionChoosingLocation,
              .chatActionWatchingAnimations:
             nil
         }
@@ -64,14 +68,19 @@ import UIKit
         switch action {
         case .chatActionTyping: "DialogList.SingleTypingSuffix"
         case .chatActionRecordingVideoNote: "DialogList.SingleRecordingVideoMessageSuffix"
-        case .chatActionRecordingVideo, .chatActionUploadingVideo, .chatActionUploadingVideoNote:
+        case .chatActionRecordingVideo,
+             .chatActionUploadingVideo,
+             .chatActionUploadingVideoNote:
             "DialogList.SingleUploadingVideoSuffix"
         case .chatActionRecordingVoiceNote: "DialogList.SingleRecordingAudioSuffix"
-        case .chatActionUploadingDocument, .chatActionUploadingVoiceNote: "DialogList.SingleUploadingFileSuffix"
+        case .chatActionUploadingDocument,
+             .chatActionUploadingVoiceNote: "DialogList.SingleUploadingFileSuffix"
         case .chatActionUploadingPhoto: "DialogList.SingleUploadingPhotoSuffix"
         case .chatActionChoosingSticker: "DialogList.SingleChoosingStickerSuffix"
         case .chatActionStartPlayingGame: "DialogList.SinglePlayingGameSuffix"
-        case .chatActionCancel, .chatActionChoosingContact, .chatActionChoosingLocation,
+        case .chatActionCancel,
+             .chatActionChoosingContact,
+             .chatActionChoosingLocation,
              .chatActionWatchingAnimations:
             nil
         }

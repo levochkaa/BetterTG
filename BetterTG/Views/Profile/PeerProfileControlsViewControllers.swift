@@ -16,7 +16,9 @@ import UIKit
 
         var chatID: Int64 {
             switch self {
-            case .administrators(let chatID, _), .basicGroup(let chatID, _), .supergroup(let chatID, _):
+            case .administrators(let chatID, _),
+                 .basicGroup(let chatID, _),
+                 .supergroup(let chatID, _):
                 chatID
             }
         }
@@ -169,7 +171,8 @@ import UIKit
     private var emptyListText: String {
         switch source {
         case .administrators: L10n.betterTG("Profile.NoAdmins")
-        case .basicGroup, .supergroup: L10n.betterTG("Profile.NoMembers")
+        case .basicGroup,
+             .supergroup: L10n.betterTG("Profile.NoMembers")
         }
     }
 
@@ -195,7 +198,8 @@ import UIKit
         case .chatMemberStatusRestricted(let restricted):
             return !isChannel && restricted.isMember && restricted.permissions.canInviteUsers
                 && actionContext.permissions.canInviteUsers
-        case .chatMemberStatusBanned, .chatMemberStatusLeft:
+        case .chatMemberStatusBanned,
+             .chatMemberStatusLeft:
             return false
         }
     }
@@ -228,7 +232,8 @@ import UIKit
         self.title =
             switch source {
             case .administrators: L10n.telegram("GroupInfo.Administrators")
-            case .basicGroup, .supergroup: L10n.telegram("Group.Info.Members")
+            case .basicGroup,
+                 .supergroup: L10n.telegram("Group.Info.Members")
             }
         navigationItem.backButtonTitle = title
     }
@@ -416,7 +421,10 @@ import UIKit
         case .chatMemberStatusAdministrator:
             isAdministrator = true
             isOwner = false
-        case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember, .chatMemberStatusRestricted:
+        case .chatMemberStatusBanned,
+             .chatMemberStatusLeft,
+             .chatMemberStatusMember,
+             .chatMemberStatusRestricted:
             isAdministrator = false
             isOwner = false
         }
@@ -459,7 +467,8 @@ import UIKit
         case .userStatusRecently: L10n.telegram("Watch.LastSeen.Lately")
         case .userStatusLastWeek: L10n.telegram("Watch.LastSeen.WithinAWeek")
         case .userStatusLastMonth: L10n.telegram("Watch.LastSeen.WithinAMonth")
-        case .userStatusEmpty, .userStatusOffline: ""
+        case .userStatusEmpty,
+             .userStatusOffline: ""
         }
     }
 
@@ -802,7 +811,8 @@ import UIKit
     private func loadFailureText(_ message: String) -> String {
         switch source {
         case .administrators: L10n.betterTG("Profile.AdminsLoadFailed", message)
-        case .basicGroup, .supergroup: L10n.betterTG("Profile.MembersLoadFailed", message)
+        case .basicGroup,
+             .supergroup: L10n.betterTG("Profile.MembersLoadFailed", message)
         }
     }
 
@@ -1506,9 +1516,12 @@ struct PeerProfileMemberTagAuthority {
         )
         let editorTitle =
             switch target.status {
-            case .chatMemberStatusAdministrator, .chatMemberStatusCreator:
+            case .chatMemberStatusAdministrator,
+                 .chatMemberStatusCreator:
                 L10n.betterTG("Profile.EditAdminTitle")
-            case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember,
+            case .chatMemberStatusBanned,
+                 .chatMemberStatusLeft,
+                 .chatMemberStatusMember,
                  .chatMemberStatusRestricted:
                 target.tag.isEmpty ? L10n.telegram("GroupInfo.ActionAddRank") : L10n.betterTG("Profile.EditMemberTag")
             }
@@ -1530,7 +1543,9 @@ struct PeerProfileMemberTagAuthority {
             break
         case .chatTypeSupergroup(let supergroup) where !supergroup.isChannel:
             break
-        case .chatTypePrivate, .chatTypeSecret, .chatTypeSupergroup:
+        case .chatTypePrivate,
+             .chatTypeSecret,
+             .chatTypeSupergroup:
             throw PeerProfileMemberTagError.unsupportedChat
         }
         if let targetStatus, !targetIsActive(targetStatus) {
@@ -1548,7 +1563,9 @@ struct PeerProfileMemberTagAuthority {
             case .chatMemberStatusAdministrator(let administrator):
                 actorIsCreator = false
                 actorCanManageTags = administrator.rights.canManageTags
-            case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember,
+            case .chatMemberStatusBanned,
+                 .chatMemberStatusLeft,
+                 .chatMemberStatusMember,
                  .chatMemberStatusRestricted:
                 actorIsCreator = false
                 actorCanManageTags = false
@@ -1561,8 +1578,11 @@ struct PeerProfileMemberTagAuthority {
                 guard actorIsCreator || administrator.canBeEdited else {
                     throw PeerProfileMemberTagError.permissionDenied
                 }
-            case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember,
-                 .chatMemberStatusRestricted, nil:
+            case .chatMemberStatusBanned,
+                 .chatMemberStatusLeft,
+                 .chatMemberStatusMember,
+                 .chatMemberStatusRestricted,
+                 nil:
                 break
             }
         }
@@ -1570,11 +1590,14 @@ struct PeerProfileMemberTagAuthority {
 
     private static func targetIsActive(_ status: ChatMemberStatus) -> Bool {
         switch status {
-        case .chatMemberStatusAdministrator, .chatMemberStatusCreator, .chatMemberStatusMember:
+        case .chatMemberStatusAdministrator,
+             .chatMemberStatusCreator,
+             .chatMemberStatusMember:
             true
         case .chatMemberStatusRestricted(let restricted):
             restricted.isMember
-        case .chatMemberStatusBanned, .chatMemberStatusLeft:
+        case .chatMemberStatusBanned,
+             .chatMemberStatusLeft:
             false
         }
     }
@@ -1861,6 +1884,8 @@ enum PeerProfileMemberTagError: LocalizedError {
         case .selfProfile(_, let firstName, let lastName, let bio):
             self.persistedFirst = firstName
             self.persistedSecond = lastName
+            // Swift's replacing sees "\r\n" as one character and would keep that line break.
+            // swiftformat:disable:next preferSwiftStringAPI
             self.persistedDetail = bio.replacingOccurrences(of: "\n", with: " ")
         case .chat(_, let title, let description):
             self.persistedFirst = title
@@ -1998,7 +2023,7 @@ enum PeerProfileMemberTagError: LocalizedError {
             if first != persistedFirst || second != persistedSecond {
                 mutations.append(.name(first, second))
             }
-            let normalizedBio = detail.replacingOccurrences(of: "\n", with: " ")
+            let normalizedBio = detail.replacing("\n", with: " ")
             if normalizedBio != persistedDetail { mutations.append(.bio(normalizedBio)) }
         case .chat(let chatID, _, _):
             if first != persistedFirst { mutations.append(.title(chatID, first)) }
@@ -2012,7 +2037,8 @@ enum PeerProfileMemberTagError: LocalizedError {
                 persistedFirst = first
                 persistedSecond = last
             case .title(_, let value): persistedFirst = value
-            case .bio(let value), .description(_, let value): persistedDetail = value
+            case .bio(let value),
+                 .description(_, let value): persistedDetail = value
             case .memberTag: break
             }
         }, completion: { [weak self] result, completed in

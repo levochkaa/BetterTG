@@ -283,7 +283,8 @@ enum StoryMoreMenu {
             kind = .supergroup
             let group = try? await client.send(TDNativeRequests.getSupergroup(supergroupId: info.supergroupId))
             username = group?.usernames?.activeUsernames.first
-        case .chatTypeBasicGroup, .chatTypeSecret:
+        case .chatTypeBasicGroup,
+             .chatTypeSecret:
             break
         }
         var isHidden = false
@@ -312,7 +313,8 @@ enum StoryMoreMenu {
             StoryMedia.photoFile(content.photo).map { ($0, false) }
         case .storyContentVideo(let content):
             (content.video.video, true)
-        case .storyContentLive, .storyContentUnsupported:
+        case .storyContentLive,
+             .storyContentUnsupported:
             nil
         }
     }
@@ -390,6 +392,6 @@ extension ChatNotificationSettings {
 extension String {
     /// Telegram's inline link markup, `[text]()`, as plain text for a toast.
     var withoutTelegramLinkMarkup: String {
-        replacingOccurrences(of: "]()", with: "").replacingOccurrences(of: "[", with: "")
+        replacingOccurrences(of: "]()", with: "").replacing("[", with: "")
     }
 }

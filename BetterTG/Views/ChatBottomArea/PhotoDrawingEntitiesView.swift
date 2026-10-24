@@ -477,7 +477,8 @@ final class PhotoDrawingEntitiesView: UIView {
             case .bubble:
                 shape.size = CGSize(width: width, height: (width * 0.7).rounded())
                 shape.tailPosition = CGPoint(x: 0.16, y: width * 0.18)
-            case .ellipse, .rectangle:
+            case .ellipse,
+                 .rectangle:
                 shape.size = CGSize(width: width, height: (width * 0.75).rounded())
             }
             entity.content = .shape(shape)
@@ -785,7 +786,9 @@ final class PhotoDrawingEntitiesView: UIView {
             update(selectedID) { entity in
                 self.apply(pan: delta, location: location, handle: self.activeHandle, to: &entity)
             }
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             activeHandle = nil
             gestureStart = nil
             setGestureActive(false)
@@ -797,7 +800,8 @@ final class PhotoDrawingEntitiesView: UIView {
     /// `handlePinch` for the selected entity.
     func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
         switch recognizer.state {
-        case .began, .changed:
+        case .began,
+             .changed:
             if recognizer.state == .began {
                 setGestureActive(true)
             }
@@ -816,7 +820,9 @@ final class PhotoDrawingEntitiesView: UIView {
                     break
                 }
             }
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             setGestureActive(false)
         default:
             break
@@ -826,7 +832,8 @@ final class PhotoDrawingEntitiesView: UIView {
     /// `handleRotate` for the selected entity.
     func handleRotate(_ recognizer: UIRotationGestureRecognizer) {
         switch recognizer.state {
-        case .began, .changed:
+        case .began,
+             .changed:
             if recognizer.state == .began {
                 setGestureActive(true)
             }
@@ -839,7 +846,9 @@ final class PhotoDrawingEntitiesView: UIView {
                 }
                 entity.rotation += rotation
             }
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             setGestureActive(false)
         default:
             break
@@ -1132,7 +1141,8 @@ final class PhotoDrawingTextSettingsView: UIView {
         styleButton.accessibilityValue =
             switch text.style {
             case .regular: L10n.telegram("Paint.Regular")
-            case .filled, .semi: L10n.telegram("Paint.Framed")
+            case .filled,
+                 .semi: L10n.telegram("Paint.Framed")
             case .stroke: L10n.telegram("Paint.Outlined")
             }
         let alignmentSymbol =

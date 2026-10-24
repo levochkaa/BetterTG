@@ -153,7 +153,8 @@ import TDLibKit
                     synchronous: false,
                 )
             }
-        case .storyContentLive, .storyContentUnsupported:
+        case .storyContentLive,
+             .storyContentUnsupported:
             break
         }
     }

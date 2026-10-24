@@ -295,7 +295,8 @@ enum UserPresenceText {
                     detail: detail.isEmpty ? nil : detail,
                     user: nil,
                 ))
-            case .chatTypeBasicGroup, .chatTypeSecret:
+            case .chatTypeBasicGroup,
+                 .chatTypeSecret:
                 continue
             }
         }

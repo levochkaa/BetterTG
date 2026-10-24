@@ -278,7 +278,8 @@ struct LiveLocationBroadcast: Equatable {
 
     private func authorizationChanged() {
         switch manager.authorizationStatus {
-        case .authorizedAlways, .authorizedWhenInUse:
+        case .authorizedAlways,
+             .authorizedWhenInUse:
             if !broadcasts.isEmpty { startUpdatingLocation() }
         case .notDetermined:
             break
@@ -293,7 +294,8 @@ struct LiveLocationBroadcast: Equatable {
         case .notDetermined:
             // The authorization change starts the updates.
             manager.requestWhenInUseAuthorization()
-        case .authorizedAlways, .authorizedWhenInUse:
+        case .authorizedAlways,
+             .authorizedWhenInUse:
             isUpdatingLocation = true
             manager.startUpdatingLocation()
             manager.startUpdatingHeading()

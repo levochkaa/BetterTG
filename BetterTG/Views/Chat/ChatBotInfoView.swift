@@ -79,7 +79,10 @@ final class ChatBotInfoView: UIView {
 
     private static func isImage(_ format: TDNativeThumbnailFormat) -> Bool {
         switch format {
-        case .thumbnailFormatGif, .thumbnailFormatJpeg, .thumbnailFormatPng, .thumbnailFormatWebp: true
+        case .thumbnailFormatGif,
+             .thumbnailFormatJpeg,
+             .thumbnailFormatPng,
+             .thumbnailFormatWebp: true
         default: false
         }
     }

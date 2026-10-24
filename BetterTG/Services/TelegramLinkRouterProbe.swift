@@ -17,7 +17,9 @@
                 try verify()
                 result = "Telegram link probe passed: hosts/subdomains/schemes/ports/credentials=true; "
                     + "usernames=true; mention/text-mention/concealed=true; TDLib/navigation/URL-open=0"
-            } catch { result = "Telegram link probe failed: \(error)" }
+            } catch {
+                result = "Telegram link probe failed: \(error)"
+            }
             log(result)
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(

@@ -82,7 +82,9 @@
                         + "expiry/finish before task registration; old delayed producer denied; replacement/cancellation/handler reentry; "
                         + "entered producer versus expiry serialized; exact tasks awaited; actual NSE/builder/APNs=unverified; "
                         + "system donation completion cannot be revoked; RPC/account/cache/donation effects=0"
-                } catch { result = "FAIL: \(error)" }
+                } catch {
+                    result = "FAIL: \(error)"
+                }
                 log(result)
                 if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                     try? Data(result.utf8).write(
@@ -94,7 +96,8 @@
 
         private static func verifyLateInstallation() async throws {
             for expires in [true, false] {
-                let owner = Owner(), receipts = Receipts()
+                let owner = Owner()
+                let receipts = Receipts()
                 let ticket = owner.begin(original: "original") { value in
                     // A foreign UUID remains false, and reentry must not deadlock.
                     receipts.add(owner.isCurrent(.init()) ? "wrong-owner" : "delivered:\(value)")
@@ -125,7 +128,10 @@
         }
 
         private static func verifyHeldReplacement() async throws {
-            let owner = Owner(), receipts = Receipts(), entered = Signal(), response = Signal()
+            let owner = Owner()
+            let receipts = Receipts()
+            let entered = Signal()
+            let response = Signal()
             defer { response.open()
             owner.expire()
             }
@@ -154,7 +160,8 @@
         }
 
         private static func verifyCallbackReentry() async throws {
-            let owner = Owner(), receipts = Receipts()
+            let owner = Owner()
+            let receipts = Receipts()
             _ = owner.begin(original: "A-original") { value in
                 receipts.add("A:\(value)")
                 receipts.replace(owner.begin(original: "C-original") { receipts.add("C:\($0)") })
@@ -180,7 +187,10 @@
         }
 
         private static func verifyCancellationReentry() async throws {
-            let owner = Owner(), receipts = Receipts(), entered = Signal(), response = Signal()
+            let owner = Owner()
+            let receipts = Receipts()
+            let entered = Signal()
+            let response = Signal()
             defer { response.open()
             owner.expire()
             }
@@ -217,8 +227,13 @@
         }
 
         private static func verifyEnteredProducer() async throws {
-            let owner = Owner(), receipts = Receipts(), entered = Signal(), finished = Signal()
-            let expiryStarted = Signal(), expired = Signal(), release = DispatchSemaphore(value: 0)
+            let owner = Owner()
+            let receipts = Receipts()
+            let entered = Signal()
+            let finished = Signal()
+            let expiryStarted = Signal()
+            let expired = Signal()
+            let release = DispatchSemaphore(value: 0)
             defer { release.signal()
             owner.expire()
             }

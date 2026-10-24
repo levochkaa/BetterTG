@@ -437,7 +437,8 @@ struct LocationPickerVenue {
             goToCoordinate(placemark.coordinate)
         case .venue(let venue):
             finish(with: venue.content)
-        case .loading, .message:
+        case .loading,
+             .message:
             break
         }
     }
@@ -630,7 +631,8 @@ struct LocationPickerVenue {
         case .notDetermined:
             accessDenied = false
             locationManager.requestWhenInUseAuthorization()
-        case .authorizedAlways, .authorizedWhenInUse:
+        case .authorizedAlways,
+             .authorizedWhenInUse:
             accessDenied = false
             mapView.showsUserLocation = true
         default:
@@ -763,18 +765,18 @@ struct LocationPickerVenue {
     /// Telegram's nearbyVenues: an inline query to the venue search bot with the location, the search text or
     /// nothing as its query, and the venues among its results. Nil when the bot doesn't answer.
     private func venues(around coordinate: CLLocationCoordinate2D, query: String = "") async -> [LocationPickerVenue]? {
-        guard let botUserID = await venueSearchBot() else { return nil }
-        guard let found = try? await client.send(TDNativeRequests.getInlineQueryResults(
-            botUserId: botUserID,
-            chatId: chatID,
-            userLocation: TDNativeLocation(
-                latitude: coordinate.latitude,
-                longitude: coordinate.longitude,
-                horizontalAccuracy: 0,
-            ),
-            query: query,
-            offset: "",
-        )) else { return nil }
+        guard let botUserID = await venueSearchBot(),
+              let found = try? await client.send(TDNativeRequests.getInlineQueryResults(
+                  botUserId: botUserID,
+                  chatId: chatID,
+                  userLocation: TDNativeLocation(
+                      latitude: coordinate.latitude,
+                      longitude: coordinate.longitude,
+                      horizontalAccuracy: 0,
+                  ),
+                  query: query,
+                  offset: "",
+              )) else { return nil }
         return found.results.compactMap { result -> LocationPickerVenue? in
             guard case .inlineQueryResultVenue(let venue) = result else { return nil }
             return LocationPickerVenue(venue: venue.venue)
@@ -839,7 +841,8 @@ struct LocationPickerVenue {
         let showsPin: Bool
         let lifted: Bool
         switch selection {
-        case .current, .venue:
+        case .current,
+             .venue:
             showsPin = false
             lifted = false
         case .selecting:
@@ -927,7 +930,7 @@ struct LocationPickerVenue {
         guard userLocation != nil else { return }
         let description = (peerName.map { L10n.telegram("Map.LiveLocationPrivateNewDescription", $0) }
             ?? L10n.telegram("Map.LiveLocationGroupNewDescription"))
-            .replacingOccurrences(of: "**", with: "")
+            .replacing("**", with: "")
         let sheet = UIAlertController(title: nil, message: description, preferredStyle: .actionSheet)
         for period in Self.livePeriods {
             sheet.addAction(UIAlertAction(title: Self.livePeriodTitle(period), style: .default) { [weak self] _ in

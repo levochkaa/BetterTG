@@ -2156,7 +2156,7 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
             let title = previewResultsTitle()
             voteButton.setAttributedTitle(title, for: .normal)
             voteButton.accessibilityLabel = title.string
-                .replacingOccurrences(of: "\u{FFFC}", with: "")
+                .replacing("\u{FFFC}", with: "")
                 .trimmingCharacters(in: .whitespaces)
             voteButton.isEnabled = !state.isSubmitting
         case .saveOption:
@@ -3385,8 +3385,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                 guard components.count == 2 else { return nil }
                 let rawKey = String(components[0]).uppercased()
                 let value = String(components[1])
-                    .replacingOccurrences(of: "\\n", with: "\n")
-                    .replacingOccurrences(of: "\\,", with: ",")
+                    .replacing("\\n", with: "\n")
+                    .replacing("\\,", with: ",")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !value.isEmpty else { return nil }
                 let key: String
@@ -3403,7 +3403,7 @@ final class TelegramContactDetailsViewController: UIViewController {
                 } else {
                     return nil
                 }
-                return (key, value.replacingOccurrences(of: ";", with: " "), rawKey.hasPrefix("TEL"))
+                return (key, value.replacing(";", with: " "), rawKey.hasPrefix("TEL"))
             }
     }
 
@@ -3852,7 +3852,7 @@ final class TelegramContactDetailsViewController: UIViewController {
                 "game", "game", "story", "story",
             ]
             let actionProof = actions.contains("poll:0") && actions.contains("poll:0,1")
-                && actions.filter { $0 == "checklist:2:true" }.count == 1
+                && actions.count(where: { $0 == "checklist:2:true" }) == 1
                 && actions.contains("checklist-unavailable")
             let proof = "MessageContent probe: tdlib=\(MessageContentPresentation.auditedTDLibRevision), "
                 + "exhaustive-cases=\(MessageContentPresentation.auditedTDLibCaseCount), "

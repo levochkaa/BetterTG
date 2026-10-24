@@ -70,10 +70,8 @@ struct TelegramAccountRegistry {
         try migrateApplicationSupportDirectoryIfNeeded()
         if fileManager.fileExists(atPath: registryURL.path) {
             let data = try Data(contentsOf: registryURL)
-            guard var state = try? JSONDecoder().decode(TelegramAccountRegistryState.self, from: data) else {
-                return try makeInitialState()
-            }
-            guard !state.accounts.isEmpty else { return try makeInitialState() }
+            guard var state = try? JSONDecoder().decode(TelegramAccountRegistryState.self, from: data),
+                  !state.accounts.isEmpty else { return try makeInitialState() }
             if !state.accounts.contains(where: { $0.id == state.activeAccountID }) {
                 state.activeAccountID = state.accounts[0].id
                 try save(state)
@@ -165,7 +163,7 @@ struct TelegramAccountRegistry {
             )
         }
 
-        if let recovered = recoveredAccounts.sorted(by: { $0.lastActiveAt > $1.lastActiveAt }).first {
+        if let recovered = recoveredAccounts.min(by: { $0.lastActiveAt > $1.lastActiveAt }) {
             let state = TelegramAccountRegistryState(
                 version: 1,
                 activeAccountID: recovered.id,

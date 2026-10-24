@@ -272,7 +272,8 @@ private extension PeerProfileViewController.SharedTab {
         if case .messageRichMessage = message.content { return nil }
         return switch self {
         case .media:
-            switch message.content { case .messagePhoto, .messageVideo: true
+            switch message.content { case .messagePhoto,
+                 .messageVideo: true
             default: false }
         case .files:
             if case .messageDocument = message.content {
@@ -288,7 +289,8 @@ private extension PeerProfileViewController.SharedTab {
             }
         case .voice:
             switch message.content {
-            case .messageVideoNote, .messageVoiceNote: true
+            case .messageVideoNote,
+                 .messageVoiceNote: true
             default: false
             }
         case .gifs:
@@ -297,20 +299,30 @@ private extension PeerProfileViewController.SharedTab {
             } else {
                 false
             }
-        case .groupsInCommon, .members:
+        case .groupsInCommon,
+             .members:
             // Groups lists chats and Members lists people; no message belongs to them.
             false
         case .links:
             switch message.content {
             case .messageGame: false
             // Unsupported content must not be misclassified as a confirmed filter removal.
-            case .messageGift, .messageGiftedGrams, .messageGiftedPremium, .messageGiftedStars,
-                 .messageInvoice, .messagePaidMedia, .messagePremiumGiftCode, .messageRichMessage, .messageUpgradedGift:
+            case .messageGift,
+                 .messageGiftedGrams,
+                 .messageGiftedPremium,
+                 .messageGiftedStars,
+                 .messageInvoice,
+                 .messagePaidMedia,
+                 .messagePremiumGiftCode,
+                 .messageRichMessage,
+                 .messageUpgradedGift:
                 nil
             default:
                 MessageContentPresentation.make(message).formattedText?.entities.contains {
                     switch $0.type {
-                    case .textEntityTypeEmailAddress, .textEntityTypeTextUrl, .textEntityTypeUrl: true
+                    case .textEntityTypeEmailAddress,
+                         .textEntityTypeTextUrl,
+                         .textEntityTypeUrl: true
                     default: false
                     }
                 } ?? false

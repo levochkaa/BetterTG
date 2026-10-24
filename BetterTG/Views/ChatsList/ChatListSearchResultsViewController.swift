@@ -147,7 +147,8 @@ import UIKit
         guard actionAuthority.scope(owner: self).isCurrent,
               let item = dataSource.itemIdentifier(for: indexPath) else { return }
         switch item {
-        case .globalPeer(let chatID), .localPeer(let chatID):
+        case .globalPeer(let chatID),
+             .localPeer(let chatID):
             guard let chat = chatsByID[chatID] else { return }
             NavigationStorage.shared.push(.customChat(chat))
         case .message(let key):
@@ -160,9 +161,11 @@ import UIKit
 
     func tableView(_: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         switch dataSource.itemIdentifier(for: indexPath) {
-        case .globalPeer, .localPeer: Self.peerRowHeight
+        case .globalPeer,
+             .localPeer: Self.peerRowHeight
         case .message: Self.messageRowHeight
-        case .messagesLoading, nil: Self.loadingRowHeight
+        case .messagesLoading,
+             nil: Self.loadingRowHeight
         }
     }
 
@@ -245,7 +248,8 @@ import UIKit
     private func cell(for item: Item, at indexPath: IndexPath, in table: UITableView) -> UITableViewCell {
         let client = actionAuthority.client
         switch item {
-        case .globalPeer(let chatID), .localPeer(let chatID):
+        case .globalPeer(let chatID),
+             .localPeer(let chatID):
             guard let chat = chatsByID[chatID],
                   let cell = table.dequeueReusableCell(
                       withIdentifier: ChatListSearchPeerCell.reuseIdentifier,
@@ -358,7 +362,11 @@ import UIKit
         localChatIDs = local
         applySnapshot()
 
-        do { try await Task.sleep(for: Self.remoteSearchDelay) } catch { return }
+        do {
+            try await Task.sleep(for: Self.remoteSearchDelay)
+        } catch {
+            return
+        }
         guard isCurrent(requestGeneration, scope) else { return }
 
         let chatList = chatList

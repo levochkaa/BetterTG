@@ -817,7 +817,9 @@ final class PhotoCurvesAreaView: UIView, UIGestureRecognizerDelegate {
         switch recognizer.state {
         case .began:
             selectSegment(at: recognizer.location(in: self))
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             activeSegment = nil
         default:
             break
@@ -838,7 +840,9 @@ final class PhotoCurvesAreaView: UIView, UIGestureRecognizerDelegate {
             updateCurve()
             onValueChanged?(curves)
             recognizer.setTranslation(.zero, in: self)
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             activeSegment = nil
         default:
             break

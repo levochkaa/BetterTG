@@ -75,8 +75,14 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
 
     private var allowedChatTypes: InlineTargetChatTypes? {
         switch purpose {
-        case .addBot(let types), .attachmentMenuBot(let types), .switchInline(let types): types.isEmpty ? nil : types
-        case .forward, .messageDraft, .replyInAnotherChat, .shareGame, .shareStory: nil
+        case .addBot(let types),
+             .attachmentMenuBot(let types),
+             .switchInline(let types): types.isEmpty ? nil : types
+        case .forward,
+             .messageDraft,
+             .replyInAnotherChat,
+             .shareGame,
+             .shareStory: nil
         }
     }
 
@@ -278,7 +284,9 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
                     direction: .forward,
                     animated: false,
                 ) }
-            } catch { showError(error.localizedDescription) }
+            } catch {
+                showError(error.localizedDescription)
+            }
         }
     }
 
@@ -458,7 +466,8 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
                     .messageSenderChat(MessageSenderChat(chatId: origin.senderChatId))
                 case .messageOriginChannel(let origin):
                     .messageSenderChat(MessageSenderChat(chatId: origin.chatId))
-                case .messageOriginHiddenUser, nil:
+                case .messageOriginHiddenUser,
+                     nil:
                     message.senderId
                 }
             switch author {

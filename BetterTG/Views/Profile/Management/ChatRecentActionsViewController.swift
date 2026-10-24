@@ -267,7 +267,8 @@ import UIKit
 
     private static func isAdministrator(_ status: ChatMemberStatus) -> Bool {
         switch status {
-        case .chatMemberStatusAdministrator, .chatMemberStatusCreator: true
+        case .chatMemberStatusAdministrator,
+             .chatMemberStatusCreator: true
         default: false
         }
     }

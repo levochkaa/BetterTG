@@ -85,9 +85,11 @@ enum ChatTimelineItemID: Hashable {
 
 extension CustomMessage {
     var displayedID: DisplayedMessageID {
-        message.mediaAlbumId == 0
-            ? .message(id)
-            : .album(message.mediaAlbumId)
+        if message.mediaAlbumId == 0 {
+            .message(id)
+        } else {
+            .album(message.mediaAlbumId)
+        }
     }
 
     var oldestSourceMessageID: Int64 {

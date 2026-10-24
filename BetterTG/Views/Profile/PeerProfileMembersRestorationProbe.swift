@@ -46,7 +46,9 @@ import UIKit
                     + "production-coordinator/exact-parent-child/Back/foreign-replacement=true; "
                     + "actual-unloaded-Profile/init-readiness/epoch-callbacks/retained-state/ABA=true; "
                     + "parent-navigation-entries=value-only; TDLib/real-permission-loss/foreground=unverified; server-reads/writes=0"
-            } catch { result = "Profile members restoration probe failed: \(error)" }
+            } catch {
+                result = "Profile members restoration probe failed: \(error)"
+            }
             log(result)
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
@@ -131,8 +133,11 @@ import UIKit
         let next = TdUpdateSource(accountID: first.accountID, clientID: 2)
         var current = first
         let ready = CurrentValueSubject<TdUpdateSource?, Never>(nil)
-        let root = UIViewController(), oldParent = Entry(first), child = Entry(first)
-        let freshParent = Entry(next), freshChild = Entry(next)
+        let root = UIViewController()
+        let oldParent = Entry(first)
+        let child = Entry(first)
+        let freshParent = Entry(next)
+        let freshChild = Entry(next)
         let binding = PeerProfileMembersParentBinding(parent: oldParent)
         let navigation = UINavigationController()
         navigation.setViewControllers([root, oldParent, child], animated: false)

@@ -64,8 +64,8 @@ final class UsernameSetupViewController: SettingsListViewController {
         if !username.isEmpty, status == .idle || status == .available {
             footer += "\n\n" + L10n.telegram("Username.LinkHint", username)
                 .withoutTelegramLinks
-                .replacingOccurrences(of: "[", with: "")
-                .replacingOccurrences(of: "]", with: "")
+                .replacing("[", with: "")
+                .replacing("]", with: "")
         }
         return [
             SettingsSection(header: L10n.telegram("Username.Username"), rows: [SettingsRow(
@@ -141,11 +141,14 @@ final class UsernameSetupViewController: SettingsListViewController {
             status =
                 switch result {
                 case .checkChatUsernameResultOk: .available
-                case .checkChatUsernameResultUsernameOccupied, .checkChatUsernameResultUsernamePurchasable:
+                case .checkChatUsernameResultUsernameOccupied,
+                     .checkChatUsernameResultUsernamePurchasable:
                     .invalid(L10n.telegram("Username.InvalidTaken"))
                 case .checkChatUsernameResultPublicChatsTooMany:
                     .invalid(L10n.telegram("Username.TooManyPublicUsernamesError"))
-                case .checkChatUsernameResultPublicGroupsUnavailable, .checkChatUsernameResultUsernameInvalid, nil:
+                case .checkChatUsernameResultPublicGroupsUnavailable,
+                     .checkChatUsernameResultUsernameInvalid,
+                     nil:
                     .invalid(L10n.telegram("Username.InvalidValue"))
                 }
             updateStatus()

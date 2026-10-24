@@ -32,7 +32,8 @@ enum TelegramMediaLayout {
             unboundSize = CGSize(width: max(10, unboundSize.width), height: max(10, unboundSize.height))
         case .animation:
             unboundSize = unboundSize.telegramAspectFilled(CGSize(width: 480, height: 480))
-        case .sticker, .video:
+        case .sticker,
+             .video:
             break
         }
         let maximumSize = kind == .video

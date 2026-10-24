@@ -132,7 +132,9 @@ import UIKit
                   case .messageChecklist(let content) = raw.content, content.list.canMarkTasksAsDone,
                   let task = content.list.tasks.first(where: { $0.id == toggle.taskID }),
                   (task.completedBy == nil) == toggle.isDone else { return nil }
-        case .content, .media, .selection:
+        case .content,
+             .media,
+             .selection:
             break
         }
         return message

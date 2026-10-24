@@ -18,7 +18,9 @@
                     + "matching notification retained before unrelated-last, unrelated-only rejected; "
                     + "preview permission remains separate; actual NSE/RPC/cache publication/session lifetime=unverified; "
                     + "RPC/account-stores/notifications/donations=0"
-            } catch { result = "FAIL: \(error)" }
+            } catch {
+                result = "FAIL: \(error)"
+            }
             log(result)
             if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(

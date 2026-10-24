@@ -225,7 +225,7 @@
                 backgroundColor = .secondarySystemBackground
                 isAccessibilityElement = true
                 accessibilityLabel = "\(title), \(subtitle)"
-                accessibilityIdentifier = "forward-probe-\(title.lowercased().replacingOccurrences(of: " ", with: "-"))"
+                accessibilityIdentifier = "forward-probe-\(title.lowercased().replacing(" ", with: "-"))"
 
                 let labels = UIStackView()
                 labels.translatesAutoresizingMaskIntoConstraints = false

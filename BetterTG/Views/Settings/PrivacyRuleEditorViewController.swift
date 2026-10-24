@@ -51,8 +51,8 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
         ]
         let publicLink = L10n.telegram("PrivacyPhoneNumberSettings.CustomPublicLink", "+\(phoneNumber)")
             .withoutTelegramLinks
-            .replacingOccurrences(of: "[", with: "")
-            .replacingOccurrences(of: "]", with: "")
+            .replacing("[", with: "")
+            .replacing("]", with: "")
         let info = kind == .phoneNumber ? (state.base == .nobody ? nil : publicLink) : kind.info
         var sections = [SettingsSection(
             header: kind.header,
@@ -104,9 +104,11 @@ final class PrivacyRuleEditorViewController: SettingsListViewController {
     }
 
     private static func countText(_ count: Int) -> String {
-        count == 0
-            ? L10n.telegram("PrivacyLastSeenSettings.EmpryUsersPlaceholder")
-            : L10n.telegramPlural("UserCount", count: count)
+        if count == 0 {
+            L10n.telegram("PrivacyLastSeenSettings.EmpryUsersPlaceholder")
+        } else {
+            L10n.telegramPlural("UserCount", count: count)
+        }
     }
 
     private func select(_ base: PrivacyRuleState.Base) {

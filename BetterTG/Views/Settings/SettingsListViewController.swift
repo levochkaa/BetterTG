@@ -217,7 +217,10 @@ class SettingsListViewController: UITableViewController {
             switch row.style {
             case .value: .valueCell()
             case .subtitle: .subtitleCell()
-            case .action, .input, .peer, .status: .cell()
+            case .action,
+                 .input,
+                 .peer,
+                 .status: .cell()
             }
         configuration.text = row.title
         configuration.secondaryText = row.detail
@@ -232,7 +235,10 @@ class SettingsListViewController: UITableViewController {
         case .status(let color):
             configuration.textProperties.color = color
             configuration.textProperties.font = .preferredFont(forTextStyle: .footnote)
-        case .input, .peer, .subtitle, .value:
+        case .input,
+             .peer,
+             .subtitle,
+             .value:
             break
         }
         if let symbol = row.symbol {

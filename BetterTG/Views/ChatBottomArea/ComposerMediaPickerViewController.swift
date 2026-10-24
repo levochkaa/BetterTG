@@ -597,7 +597,8 @@ UISearchBarDelegate {
             onEmoji?(emoji)
         case .groupedSticker(.foundPack(let setID), _):
             openStickerSet(setID)
-        case .groupedSticker(_, let id), .sticker(let id):
+        case .groupedSticker(_, let id),
+             .sticker(let id):
             guard let sticker = stickers[id] else { return }
             if case .stickerFullTypeCustomEmoji = sticker.fullType {
                 guard canUseCustomEmoji else {
@@ -804,7 +805,8 @@ UISearchBarDelegate {
                 ) as? ComposerEmojiCell
                 cell?.configure(emoji: emoji)
                 return cell ?? UICollectionViewCell()
-            case .groupedSticker(_, let id), .sticker(let id):
+            case .groupedSticker(_, let id),
+                 .sticker(let id):
                 let cell = collectionView.dequeueReusableCell(
                     withReuseIdentifier: ComposerStickerCell.reuseIdentifier,
                     for: indexPath,
@@ -870,7 +872,9 @@ UISearchBarDelegate {
         switch mode {
         case .emoji:
             applyEmojiSnapshot()
-        case .customEmoji, .gifs, .stickers:
+        case .customEmoji,
+             .gifs,
+             .stickers:
             loadTask = Task { [weak self] in await self?.reload(query: "") }
         }
     }
@@ -1245,7 +1249,9 @@ UISearchBarDelegate {
         case .sticker(let id):
             section = .content
             stickerID = id
-        case .animation, .emoji, .inlineAnimation:
+        case .animation,
+             .emoji,
+             .inlineAnimation:
             return nil
         }
         guard let sticker = stickers[stickerID] else { return nil }

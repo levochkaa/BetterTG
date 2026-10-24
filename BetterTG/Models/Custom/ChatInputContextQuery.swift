@@ -27,7 +27,9 @@ struct ChatHashtagSuggestions: Equatable {
 
         var hashtag: String {
             switch self {
-            case .recent(let hashtag), .useGeneric(let hashtag), .useLocal(let hashtag, _): hashtag
+            case .recent(let hashtag),
+                 .useGeneric(let hashtag),
+                 .useLocal(let hashtag, _): hashtag
             }
         }
     }

@@ -154,7 +154,9 @@ import UIKit
                     + "deinit/suspended-download/ordinary-tap=true; real-secret-open/account-writes=0; "
                     + "capture-trait-inheritance/admission/pending-IO/ACK/pixels/rehold/ordinary=true; "
                     + "server-semantics/touch-hardware/recording-hardware/screenshot-prevention=unverified"
-            } catch { result = "Video note hold probe failed: \(error)" }
+            } catch {
+                result = "Video note hold probe failed: \(error)"
+            }
             log(result)
             if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
@@ -216,7 +218,8 @@ import UIKit
             )
         }
         for oldFails in [false, true] {
-            let f = Fixture(url: url), v = f.makeView(in: window)
+            let f = Fixture(url: url)
+            let v = f.makeView(in: window)
             defer { v.prepareForReuse()
             v.removeFromSuperview()
             f.finish()
@@ -266,7 +269,8 @@ import UIKit
                 "reuse",
                 "file",
             ] {
-                let f = Fixture(url: url), v = f.makeView(in: window)
+                let f = Fixture(url: url)
+                let v = f.makeView(in: window)
                 defer { v.prepareForReuse()
                 v.removeFromSuperview()
                 f.finish()
@@ -335,7 +339,8 @@ import UIKit
             }
         }
         for remaining in [0.0, Double.nan, Double.infinity] {
-            let f = Fixture(url: url), v = f.makeView(in: window)
+            let f = Fixture(url: url)
+            let v = f.makeView(in: window)
             defer { v.prepareForReuse()
             v.removeFromSuperview()
             f.finish()
@@ -348,7 +353,8 @@ import UIKit
             try require(!v.probeSnapshot.playerItem, "invalid TTL revealed")
         }
         do {
-            let f = Fixture(url: url), v = f.makeView(in: window)
+            let f = Fixture(url: url)
+            let v = f.makeView(in: window)
             defer { v.prepareForReuse()
             v.removeFromSuperview()
             f.finish()
@@ -429,7 +435,8 @@ import UIKit
             let container = UIView(frame: window.bounds)
             container.traitOverrides.sceneCaptureState = .active
             window.addSubview(container)
-            let f = Fixture(url: url), v = f.makeView(in: container)
+            let f = Fixture(url: url)
+            let v = f.makeView(in: container)
             defer {
                 v.prepareForReuse()
                 container.removeFromSuperview()
@@ -462,7 +469,8 @@ import UIKit
         }
 
         for captureState in [UISceneCaptureState.active, .unspecified] {
-            let f = Fixture(url: url), v = f.makeView(in: window, captureState: captureState)
+            let f = Fixture(url: url)
+            let v = f.makeView(in: window, captureState: captureState)
             defer {
                 v.prepareForReuse()
                 v.removeFromSuperview()
@@ -512,7 +520,8 @@ import UIKit
                 }
             }
             let priorDeadline = v.probeSnapshot.deadline
-            let priorReads = f.messageCalls, priorOpens = f.openCalls
+            let priorReads = f.messageCalls
+            let priorOpens = f.openCalls
             setCaptureState(.active, on: v)
             try require(
                 !v.probeSnapshot.held && !v.probeSnapshot.visiblePixels
@@ -549,7 +558,8 @@ import UIKit
         }
 
         do {
-            let f = Fixture(url: url), v = f.makeView(in: window)
+            let f = Fixture(url: url)
+            let v = f.makeView(in: window)
             defer {
                 v.prepareForReuse()
                 f.finish()

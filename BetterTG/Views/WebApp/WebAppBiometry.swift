@@ -164,7 +164,8 @@ private final class WebAppBiometryKey: @unchecked Sendable {
         let context = LAContext()
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil) else { return nil }
         switch context.biometryType {
-        case .faceID, .opticID: return "face"
+        case .faceID,
+             .opticID: return "face"
         case .touchID: return "finger"
         default: return nil
         }

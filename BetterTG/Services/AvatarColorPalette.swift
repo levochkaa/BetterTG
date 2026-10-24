@@ -115,7 +115,9 @@ struct TelegramAvatarPlaceholder {
         icon: TelegramAvatarIcon,
     ) -> [UIColor] {
         switch icon {
-        case .anonymousSavedMessages, .replies, .savedMessages:
+        case .anonymousSavedMessages,
+             .replies,
+             .savedMessages:
             return Self.gradients[5]
         case .deleted:
             return Self.grayscaleGradient
@@ -175,9 +177,11 @@ extension User {
 
     private var isDeletedOrUnknown: Bool {
         switch type {
-        case .userTypeDeleted, .userTypeUnknown:
+        case .userTypeDeleted,
+             .userTypeUnknown:
             true
-        case .userTypeBot, .userTypeRegular:
+        case .userTypeBot,
+             .userTypeRegular:
             false
         }
     }

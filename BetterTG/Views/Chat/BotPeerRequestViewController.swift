@@ -171,8 +171,10 @@ final class BotPeerRequestViewController: SettingsListViewController, UISearchRe
                 let chatUsers = mainChats.compactMap { chat -> Int64? in
                     guard !chat.isSavedMessages else { return nil }
                     switch chat.type {
-                    case .bot(let user), .user(let user): return user.id
-                    case .group, .supergroup: return nil
+                    case .bot(let user),
+                         .user(let user): return user.id
+                    case .group,
+                         .supergroup: return nil
                     }
                 }
                 for id in contacts + chatUsers where id != me?.id && seen.insert(id).inserted {
@@ -192,7 +194,8 @@ final class BotPeerRequestViewController: SettingsListViewController, UISearchRe
                     switch item.type {
                     case .group: isChannel = false
                     case .supergroup(let group): isChannel = group.isChannel
-                    case .bot, .user: continue
+                    case .bot,
+                         .user: continue
                     }
                     guard isChannel == chat.chatIsChannel,
                           await (try? client.send(TDNativeRequests.shareChatWithBot(

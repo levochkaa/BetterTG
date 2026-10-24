@@ -116,7 +116,7 @@ enum ChecklistEditorOutcome {
         if tasks.count >= maximumTaskCount { return L10n.telegram("CreateTodo.TaskCountLimitReached") }
         let remaining = maximumTaskCount - tasks.count
         return L10n.telegramPlural("CreateTodo.TaskCountFooterFormat", count: remaining)
-            .replacingOccurrences(of: "{count}", with: "\(remaining)")
+            .replacing("{count}", with: "\(remaining)")
     }
 
     /// ComposeTodoScreen's validatedInput: a title and at least one task with more than spaces; others may add tasks
@@ -487,7 +487,8 @@ enum ChecklistEditorOutcome {
         switch sections[safe: indexPath.section] {
         case .title: canEdit
         case .tasks: tasks[safe: indexPath.row].map { !$0.isLocked } ?? false
-        case nil, .settings: false
+        case nil,
+             .settings: false
         }
     }
 

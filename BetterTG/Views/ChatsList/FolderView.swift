@@ -273,7 +273,7 @@ struct ChatListViewportSnapshot {
         tableView: UITableView,
         chatID: (IndexPath) -> Int64?,
     ) -> ChatListViewportSnapshot {
-        let first = tableView.indexPathsForVisibleRows?.sorted().first
+        let first = tableView.indexPathsForVisibleRows?.min()
         return ChatListViewportSnapshot(
             chatID: first.flatMap(chatID),
             rowMinYRelativeToViewport: first.map {

@@ -62,7 +62,11 @@
                 write("Video note navigation preservation probe started", file: "video-note-preservation-probe.txt")
                 var timedOut = false
                 let deadline = Task {
-                    do { try await Task<Never, Never>.sleep(for: .seconds(45)) } catch { return }
+                    do {
+                        try await Task<Never, Never>.sleep(for: .seconds(45))
+                    } catch {
+                        return
+                    }
                     timedOut = true
                     let result = "Video note navigation preservation probe failed: timeout at \(lastProgress)"
                     write(result, file: "video-note-preservation-probe.txt")
@@ -99,7 +103,11 @@
                 write("Video note lifecycle probe started", file: "video-note-lifecycle-probe.txt")
                 var timedOut = false
                 let deadline = Task {
-                    do { try await Task<Never, Never>.sleep(for: .seconds(60)) } catch { return }
+                    do {
+                        try await Task<Never, Never>.sleep(for: .seconds(60))
+                    } catch {
+                        return
+                    }
                     timedOut = true
                     let result = "Video note lifecycle probe failed: timeout at \(lastLifecycleProgress)"
                     write(result, file: "video-note-lifecycle-probe.txt")

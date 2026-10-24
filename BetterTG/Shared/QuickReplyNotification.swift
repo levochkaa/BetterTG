@@ -63,7 +63,8 @@ enum QuickReplyNotification {
                 && !requiresPostPermission
                 && restricted.isMember
                 && restricted.permissions.canSendBasicMessages
-        case .chatMemberStatusBanned, .chatMemberStatusLeft:
+        case .chatMemberStatusBanned,
+             .chatMemberStatusLeft:
             false
         }
     }

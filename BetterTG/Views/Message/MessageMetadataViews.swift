@@ -346,7 +346,7 @@ final class ReplySnippetView: UIControl {
                   systemName: isDone ? "checkmark.\(shape).fill" : shape,
                   withConfiguration: configuration,
               )?
-                  .withTintColor(titleLabel.textColor, renderingMode: .alwaysOriginal)
+                .withTintColor(titleLabel.textColor, renderingMode: .alwaysOriginal)
         else { return text }
         let body = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
         body.append(NSAttributedString(string: " "))

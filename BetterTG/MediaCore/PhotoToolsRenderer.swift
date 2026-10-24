@@ -1058,33 +1058,35 @@ final class PhotoToolsRenderer: @unchecked Sendable {
         if !tools.blur.isDefault,
            let weights = Self.gaussianWeights(width: source.width, height: source.height),
            let vertical = pipelines.device.makeBuffer(length: length, options: .storageModePrivate),
-           let output = pipelines.device.makeBuffer(length: length, options: .storageModePrivate)
+           let output = pipelines.device.makeBuffer(length: length, options: .storageModePrivate),
+           let weightsBuffer = Self.makeBuffer(
+               weights,
+               on: pipelines.device,
+           )
         {
-            if let weightsBuffer = Self.makeBuffer(weights, on: pipelines.device) {
-                let blur = BlurParameters(
-                    blur: tools.blur,
-                    width: source.width,
-                    height: source.height,
-                    sampleRadius: weights.count - 1,
-                )
-                encode(
-                    pipelines.blurVertical,
-                    in: commandBuffer,
-                    buffers: [(0, current), (1, vertical), (2, weightsBuffer)],
-                    blur: blur,
-                    parameters: &parameters,
-                    size: &size,
-                )
-                encode(
-                    pipelines.blurFocus,
-                    in: commandBuffer,
-                    buffers: [(0, current), (1, output), (2, weightsBuffer), (6, vertical)],
-                    blur: blur,
-                    parameters: &parameters,
-                    size: &size,
-                )
-                current = output
-            }
+            let blur = BlurParameters(
+                blur: tools.blur,
+                width: source.width,
+                height: source.height,
+                sampleRadius: weights.count - 1,
+            )
+            encode(
+                pipelines.blurVertical,
+                in: commandBuffer,
+                buffers: [(0, current), (1, vertical), (2, weightsBuffer)],
+                blur: blur,
+                parameters: &parameters,
+                size: &size,
+            )
+            encode(
+                pipelines.blurFocus,
+                in: commandBuffer,
+                buffers: [(0, current), (1, output), (2, weightsBuffer), (6, vertical)],
+                blur: blur,
+                parameters: &parameters,
+                size: &size,
+            )
+            current = output
         }
         guard let result = pipelines.device.makeBuffer(length: length, options: .storageModeShared) else { return nil }
         var curves = [PhotoCurvesChannel.luminance, .red, .green, .blue]

@@ -72,9 +72,12 @@
         }
 
         private static func rejects(_ operation: () async throws -> Void) async -> Bool {
-            do { try await operation()
+            do {
+                try await operation()
             return false
-            } catch { return true }
+            } catch {
+                return true
+            }
         }
 
         private static func makeDraft(root: URL, route: ChatDraftKey) throws -> VoiceNoteSendDraft {

@@ -393,7 +393,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             titleControl.isUserInteractionEnabled = false
             applyTitle(
                 title: L10n.telegramPlural("Conversation.SelectedMessagesFormat", count: count)
-                    .replacingOccurrences(of: "{}", with: String(count)),
+                    .replacing("{}", with: String(count)),
                 status: "",
                 statusColor: .secondaryLabel,
             )
@@ -597,7 +597,9 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             switch searchMemberScope {
             case .choosing where wasEmpty: clearSearchMemberScopeFromInput()
             case .chosen where searchField.tokens.isEmpty: clearSearchMemberScopeFromInput()
-            case .choosing, .chosen, .none: break
+            case .choosing,
+                 .chosen,
+                 .none: break
             }
         }
         defaultSearchLeftView = searchField.leftView

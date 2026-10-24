@@ -877,7 +877,8 @@ enum PhotoDrawingGeometry {
         let inset = shapeMaximumLineWidth(paintingSize: paintingSize) * 0.5
         let rect = bounds.insetBy(dx: inset, dy: inset)
         switch shape.kind {
-        case .bubble, .rectangle:
+        case .bubble,
+             .rectangle:
             return CGPath(rect: rect, transform: nil)
         case .ellipse:
             return CGPath(ellipseIn: rect, transform: nil)

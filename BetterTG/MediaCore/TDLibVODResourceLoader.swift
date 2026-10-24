@@ -45,9 +45,8 @@ final class TDLibVODResourceLoaderSession: NSObject, AVAssetResourceLoaderDelega
         let extensionContentType = Self.contentType(forExtension: extensionValue)
         guard mimeContentType == nil
             || extensionContentType == nil
-            || mimeContentType == extensionContentType
-        else { return nil }
-        guard let contentType = mimeContentType ?? extensionContentType else { return nil }
+            || mimeContentType == extensionContentType,
+            let contentType = mimeContentType ?? extensionContentType else { return nil }
 
         let fallbackExtension = contentType == UTType.quickTimeMovie.identifier ? "mov" : "mp4"
         let candidateName = (fileName as NSString).lastPathComponent
@@ -93,7 +92,9 @@ final class TDLibVODResourceLoaderSession: NSObject, AVAssetResourceLoaderDelega
 
     private static func contentType(forMIMEType mimeType: String) -> String? {
         switch mimeType.lowercased() {
-        case "application/mp4", "video/mp4", "video/x-m4v":
+        case "application/mp4",
+             "video/mp4",
+             "video/x-m4v":
             UTType.mpeg4Movie.identifier
         case "video/quicktime":
             UTType.quickTimeMovie.identifier
@@ -104,7 +105,8 @@ final class TDLibVODResourceLoaderSession: NSObject, AVAssetResourceLoaderDelega
 
     private static func contentType(forExtension pathExtension: String) -> String? {
         switch pathExtension {
-        case "m4v", "mp4":
+        case "m4v",
+             "mp4":
             UTType.mpeg4Movie.identifier
         case "mov":
             UTType.quickTimeMovie.identifier
@@ -219,7 +221,9 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
 
     private static func statusPriority(_ status: TDLibVODResourceLoaderStatus) -> Int {
         switch status {
-        case .idle, .loading, .ready: 0
+        case .idle,
+             .loading,
+             .ready: 0
         case .failed: 1
         case .retrying: 2
         case .offline: 3
@@ -470,7 +474,8 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
 
     private func resourceError(for error: TDLibVODRangeError) -> Swift.Error {
         switch error {
-        case .cancelled, .staleRequest:
+        case .cancelled,
+             .staleRequest:
             URLError(.cancelled)
         case .offline:
             URLError(.notConnectedToInternet)
@@ -478,20 +483,26 @@ private final class TDLibVODResourceLoaderState: @unchecked Sendable {
             URLError(.timedOut)
         case .invalidRange:
             ResourceError.invalidRange
-        case .missingLocalPath, .readFailed, .unknownSize:
+        case .missingLocalPath,
+             .readFailed,
+             .unknownSize:
             ResourceError.unreadable
         }
     }
 
     private func status(for error: TDLibVODRangeError) -> TDLibVODResourceLoaderStatus? {
         switch error {
-        case .cancelled, .staleRequest:
+        case .cancelled,
+             .staleRequest:
             nil
         case .offline:
             .offline
         case .timedOut:
             .retrying
-        case .invalidRange, .missingLocalPath, .readFailed, .unknownSize:
+        case .invalidRange,
+             .missingLocalPath,
+             .readFailed,
+             .unknownSize:
             .failed
         }
     }

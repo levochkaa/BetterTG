@@ -17,7 +17,9 @@
                     result = "Text spoiler probe passed: UTF16/overflow/overlap=true; text-layout/reveal-before-link-code=true; "
                         + "parent-AX/reply-quote/summary=true; account-client-chat-source-edit-reuse=true; "
                         + "emoji-admission/stale-generation=true; actual-emoji-decoder/live-UI=pending; URL/clipboard/server/account-stores=0"
-                } catch { result = "Text spoiler probe failed: \(error)" }
+                } catch {
+                    result = "Text spoiler probe failed: \(error)"
+                }
                 log(result)
                 if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                     try? Data(result.utf8).write(

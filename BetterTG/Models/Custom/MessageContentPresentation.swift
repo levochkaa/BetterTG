@@ -100,7 +100,8 @@ struct MessageContentPresentation {
         switch message.content {
         case .messageDice:
             make(message.content).dated(message)
-        case .messageChecklist, .messageStory:
+        case .messageChecklist,
+             .messageStory:
             make(message.content).attributed(to: message)
         case .messageLiveLocation(let liveLocation):
             make(liveLocation, date: message.date, editDate: message.editDate)
@@ -499,20 +500,34 @@ struct MessageContentPresentation {
             )
         case .messageManagedBotCreated:
             return service(title: L10n.betterTG("Service.ManagedBotCreated"), symbolName: "cpu")
-        case .messagePaymentRefunded, .messagePaymentSuccessful, .messagePaymentSuccessfulBot,
-             .messageTonConnectRequest, .messageTonWalletTransfer:
+        case .messagePaymentRefunded,
+             .messagePaymentSuccessful,
+             .messagePaymentSuccessfulBot,
+             .messageTonConnectRequest,
+             .messageTonWalletTransfer:
             return excludedPaidContent(title: L10n.betterTG("Message.Payment"))
-        case .messageGiftedPremium, .messagePremiumGiftCode:
+        case .messageGiftedPremium,
+             .messagePremiumGiftCode:
             return excludedPaidContent(title: L10n.betterTG("Message.PremiumGift"))
-        case .messageGiveaway, .messageGiveawayCompleted, .messageGiveawayCreated, .messageGiveawayWinners:
+        case .messageGiveaway,
+             .messageGiveawayCompleted,
+             .messageGiveawayCreated,
+             .messageGiveawayWinners:
             return excludedPaidContent(title: L10n.telegram("Message.Giveaway"))
-        case .messageGiftedGrams, .messageGiftedStars, .messageGiveawayPrizeStars:
+        case .messageGiftedGrams,
+             .messageGiftedStars,
+             .messageGiveawayPrizeStars:
             return excludedPaidContent(title: L10n.betterTG("Message.CurrencyGift"))
-        case .messageGift, .messageRefundedUpgradedGift, .messageUpgradedGift:
+        case .messageGift,
+             .messageRefundedUpgradedGift,
+             .messageUpgradedGift:
             return excludedPaidContent(title: L10n.betterTG("Message.Gift"))
-        case .messageUpgradedGiftPurchaseOffer, .messageUpgradedGiftPurchaseOfferRejected:
+        case .messageUpgradedGiftPurchaseOffer,
+             .messageUpgradedGiftPurchaseOfferRejected:
             return excludedPaidContent(title: L10n.betterTG("Message.GiftOffer"))
-        case .messageDirectMessagePriceChanged, .messagePaidMessagePriceChanged, .messagePaidMessagesRefunded:
+        case .messageDirectMessagePriceChanged,
+             .messagePaidMessagePriceChanged,
+             .messagePaidMessagesRefunded:
             return excludedPaidContent(title: L10n.betterTG("Message.PaidMessages"))
         case .messageChecklistTasksDone(let message):
             return service(
@@ -532,7 +547,8 @@ struct MessageContentPresentation {
             return service(title: L10n.betterTG("Service.SuggestedPostApproved"), symbolName: "checkmark.circle")
         case .messageSuggestedPostDeclined:
             return service(title: L10n.betterTG("Service.SuggestedPostDeclined"), symbolName: "xmark.circle")
-        case .messageSuggestedPostPaid, .messageSuggestedPostRefunded:
+        case .messageSuggestedPostPaid,
+             .messageSuggestedPostRefunded:
             return excludedPaidContent(title: L10n.betterTG("Message.SuggestedPostPayment"))
         case .messageContactRegistered:
             return service(title: L10n.betterTG("Service.ContactJoined"), symbolName: "person.crop.circle.badge.plus")

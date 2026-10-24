@@ -128,11 +128,14 @@ final class ChannelLinkSetupViewController: SettingsListViewController, ComposeF
         switch result {
         case .checkChatUsernameResultOk:
             nil
-        case .checkChatUsernameResultUsernameOccupied, .checkChatUsernameResultUsernamePurchasable:
+        case .checkChatUsernameResultUsernameOccupied,
+             .checkChatUsernameResultUsernamePurchasable:
             L10n.telegram("Channel.Username.InvalidTaken")
         case .checkChatUsernameResultPublicChatsTooMany:
             L10n.telegram("Username.TooManyPublicUsernamesError")
-        case .checkChatUsernameResultPublicGroupsUnavailable, .checkChatUsernameResultUsernameInvalid, nil:
+        case .checkChatUsernameResultPublicGroupsUnavailable,
+             .checkChatUsernameResultUsernameInvalid,
+             nil:
             L10n.telegram("Channel.Username.InvalidCharacters")
         }
     }

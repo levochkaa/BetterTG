@@ -130,7 +130,8 @@ final class ChatAdministratorsViewController: SettingsListViewController {
                 case .basic:
                     (refreshed?.basicGroupInfo?.members ?? []).filter {
                         switch $0.status {
-                        case .chatMemberStatusAdministrator, .chatMemberStatusCreator: true
+                        case .chatMemberStatusAdministrator,
+                             .chatMemberStatusCreator: true
                         default: false
                         }
                     }
@@ -213,10 +214,13 @@ final class ChatAdministratorsViewController: SettingsListViewController {
             title: L10n.telegram("Channel.Management.AddModerator"),
         ) {
             switch $0.status {
-            case .chatMemberStatusAdministrator, .chatMemberStatusBanned, .chatMemberStatusCreator,
+            case .chatMemberStatusAdministrator,
+                 .chatMemberStatusBanned,
+                 .chatMemberStatusCreator,
                  .chatMemberStatusLeft:
                 true
-            case .chatMemberStatusMember, .chatMemberStatusRestricted:
+            case .chatMemberStatusMember,
+                 .chatMemberStatusRestricted:
                 $0.userID == nil
             }
         }
@@ -435,7 +439,7 @@ final class ChatAdminRightsViewController: SettingsListViewController {
         let key = target.isChannel ? "Bot.AddToChat.Add.AdminAlertTextChannel" : "Bot.AddToChat.Add.AdminAlertTextGroup"
         confirm(
             title: L10n.telegram("Bot.AddToChat.Add.AdminAlertTitle"),
-            message: L10n.telegram(key, target.chat.title).replacingOccurrences(of: "**", with: ""),
+            message: L10n.telegram(key, target.chat.title).replacing("**", with: ""),
             actionTitle: L10n.telegram("Bot.AddToChat.Add.AdminAlertAdd"),
             isDestructive: false,
         ) { [weak self] in self?.savePressed() }

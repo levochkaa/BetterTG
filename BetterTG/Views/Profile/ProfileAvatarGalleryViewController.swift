@@ -1026,7 +1026,8 @@ struct ProfileAvatarGalleryItem: Hashable {
             } else {
                 transitionController.cancelInteractiveDismissal()
             }
-        case .cancelled, .failed:
+        case .cancelled,
+             .failed:
             transitionController.cancelInteractiveDismissal()
         case .possible:
             break

@@ -66,7 +66,9 @@
                         + "whole-batch both orders, bound replacement, exact client/chat/raw isolation; "
                         + "held fetch/download revoked by content/edit/delete/hidden, late publish/finish refused; "
                         + "actual NSE/builder/donation/TDLib/durable cache-only restoration=unverified; RPC/donations=0"
-                } catch { report = "FAIL: \(error)" }
+                } catch {
+                    report = "FAIL: \(error)"
+                }
                 log(report)
                 if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                     try? Data(report.utf8).write(

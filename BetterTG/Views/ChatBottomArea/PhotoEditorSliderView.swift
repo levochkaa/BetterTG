@@ -359,7 +359,8 @@ final class PhotoEditorSliderView: UIControl {
             continueKnobTracking(at: recognizer.location(in: self))
         case .ended:
             endKnobTracking()
-        case .cancelled, .failed:
+        case .cancelled,
+             .failed:
             cancelKnobTracking()
         default:
             break

@@ -185,7 +185,8 @@ import UserNotifications
             switch stateRoute.event {
             case "READ_HISTORY":
                 guard let maxId = stateRoute.maxId, messageId <= maxId else { return nil }
-            case "MESSAGE_DELETED", "READ_REACTION":
+            case "MESSAGE_DELETED",
+                 "READ_REACTION":
                 guard stateRoute.deletedMessageIds.contains(messageId) else { return nil }
             default:
                 return nil
@@ -767,9 +768,8 @@ import UserNotifications
                 else { return }
                 let currentUser = try await client.getMe()
                 guard TDLib.shared.activeAccountID == accountID,
-                      TDLib.shared.activeClient.id == client.id
-                else { return }
-                guard route.accountId == nil || route.accountId == currentUser.id else { return }
+                      TDLib.shared.activeClient.id == client.id,
+                      route.accountId == nil || route.accountId == currentUser.id else { return }
                 let chat = try await chat(for: route, using: client)
                 guard TDLib.shared.activeAccountID == accountID,
                       TDLib.shared.activeClient.id == client.id,

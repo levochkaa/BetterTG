@@ -70,8 +70,10 @@
             current = first
             owner = first.accountID
             authority.invalidate()
-            guard accepts(first), !accepts(initial) else { return false }
-            guard let returned = authority.capture(ownerAccountID: owner, activeSource: current) else { return false }
+            guard accepts(first), !accepts(initial), let returned = authority.capture(
+                ownerAccountID: owner,
+                activeSource: current,
+            ) else { return false }
             center.postTdUpdate(
                 name: .updateChatTitle,
                 object: UpdateChatTitle(chatId: 7, title: "old-client"),

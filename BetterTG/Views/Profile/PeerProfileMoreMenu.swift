@@ -37,7 +37,8 @@ import UIKit
         switch customChat.type {
         case .user: !customChat.isSavedMessages
         case .bot: false
-        case .group, .supergroup: canChangeInfo
+        case .group,
+             .supergroup: canChangeInfo
         }
     }
 
@@ -153,8 +154,10 @@ import UIKit
         let menu = self
         let offersStories =
             switch customChat.type {
-            case .bot, .user: true
-            case .group, .supergroup: false
+            case .bot,
+                 .user: true
+            case .group,
+                 .supergroup: false
             }
         NotificationExceptionViewController(
             title: chat.title,
@@ -254,7 +257,8 @@ import UIKit
                 title: L10n.telegram("Conversation.DeleteMessagesForMe"),
                 isDestructive: true,
             ) { clearHistory(revoke: false) })
-        case .bot, .group:
+        case .bot,
+             .group:
             children.append(TelegramContextMenuAction(
                 title: L10n.telegram("Conversation.DeleteMessagesForMe"),
                 isDestructive: true,
@@ -292,7 +296,8 @@ import UIKit
     private func removalAction() -> TelegramContextMenuAction {
         let title: String =
             switch customChat.type {
-            case .bot, .user:
+            case .bot,
+                 .user:
                 L10n.telegram("ChatList.DeleteChat")
             case .group(let group):
                 L10n.telegram(group.status.isOwner ? "Group.DeleteGroup" : "Group.LeaveGroup")

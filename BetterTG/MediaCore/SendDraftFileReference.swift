@@ -13,7 +13,8 @@ enum SendDraftFileReference {
         var storeName: String {
             switch self {
             case .voice: "VoiceNoteDrafts"
-            case .video, .videoThumbnail: "VideoNoteDrafts"
+            case .video,
+                 .videoThumbnail: "VideoNoteDrafts"
             }
         }
 
@@ -107,7 +108,7 @@ enum SendDraftFileReference {
         let name = file.lastPathComponent
         guard name.count >= 40, let id = UUID(uuidString: String(name.prefix(36))),
               [.voice(encoded: false), .voice(encoded: true), .video, .videoThumbnail]
-                  .contains(where: { (kind: Kind) in kind.owns(name, id: id) })
+                .contains(where: { (kind: Kind) in kind.owns(name, id: id) })
         else { return false }
         return FileManager.default.fileExists(atPath: directory.appendingPathComponent("\(id.uuidString).json").path)
     }

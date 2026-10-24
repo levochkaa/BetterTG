@@ -55,7 +55,9 @@ import Photos
                     )
                     lines.append("PASS added one synthetic Live Photo to the simulator library")
                 }
-            } catch { lines.append("FAIL \(error.localizedDescription)") }
+            } catch {
+                lines.append("FAIL \(error.localizedDescription)")
+            }
             try? lines.joined(separator: "\n").write(to: output, atomically: true, encoding: .utf8)
         }
     }

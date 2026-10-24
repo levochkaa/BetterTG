@@ -370,7 +370,7 @@ final class NotificationExceptionViewController: SettingsListViewController, UID
     private func confirmDelete(soundID: Int64, title: String) {
         confirm(
             title: L10n.telegram("PeerInfo.DeleteToneTitle"),
-            message: L10n.telegram("PeerInfo.DeleteToneText", title).replacingOccurrences(of: "**", with: ""),
+            message: L10n.telegram("PeerInfo.DeleteToneText", title).replacing("**", with: ""),
             actionTitle: L10n.telegram("Common.Delete"),
         ) { [weak self] in
             guard let self else { return }
@@ -421,7 +421,7 @@ final class NotificationExceptionViewController: SettingsListViewController, UID
                 toast = (
                     L10n.telegram("Notifications.UploadSuccess.Title"),
                     L10n.telegram("Notifications.UploadSuccess.Text", added.title)
-                        .replacingOccurrences(of: "**", with: ""),
+                        .replacing("**", with: ""),
                 )
             } else if toast == nil {
                 presentChatListActionFailure()

@@ -218,10 +218,13 @@ private final class VoiceRecordingTrimHandle: UIControl {
 
     @objc private func handlePan(_ gesture: UILongPressGestureRecognizer) {
         switch gesture.state {
-        case .began, .changed:
+        case .began,
+             .changed:
             lastLocation = gesture.location(in: superview).x
             onMove?(lastLocation, false)
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             lastLocation = gesture.location(in: superview).x
             onMove?(lastLocation, true)
         case .possible:

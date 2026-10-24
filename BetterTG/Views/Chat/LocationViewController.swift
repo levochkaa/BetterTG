@@ -110,7 +110,7 @@ private enum LocationTravelTime: Equatable {
                 return L10n.telegramPlural("Map.ETAHours", count: 1)
             }
             return L10n.telegramPlural("Map.ETAHours", count: 10)
-                .replacingOccurrences(of: "10", with: String(format: "%ld:%02ld", hours, minutes))
+                .replacing("10", with: String(format: "%ld:%02ld", hours, minutes))
         }
         return L10n.telegramPlural("Map.ETAMinutes", count: minutes)
     }
@@ -1116,7 +1116,9 @@ private final class LocationTipView: UIView {
                 )
             }
             return infoCell
-        case .extendLiveLocation, .shareLiveLocation, .stopLiveLocation:
+        case .extendLiveLocation,
+             .shareLiveLocation,
+             .stopLiveLocation:
             let cell = tableView.dequeueReusableCell(withIdentifier: Self.actionCellIdentifier, for: indexPath)
             configureAction(cell, row: row)
             return cell
@@ -1369,7 +1371,8 @@ private final class LocationTipView: UIView {
         case .notDetermined:
             accessDenied = false
             locationManager.requestWhenInUseAuthorization()
-        case .authorizedAlways, .authorizedWhenInUse:
+        case .authorizedAlways,
+             .authorizedWhenInUse:
             accessDenied = false
             mapView.showsUserLocation = true
         default:
@@ -1525,7 +1528,8 @@ private final class LocationTipView: UIView {
                 .map { LiveLocationUpdateText.string(since: Self.updateDate(of: $0)) }
             configuration.image = icon(symbol: "location.slash.fill", color: Self.stopColor)
             showsRing = ring
-        case .info, .liveLocation:
+        case .info,
+             .liveLocation:
             break
         }
         cell.contentConfiguration = configuration
@@ -1567,7 +1571,7 @@ private final class LocationTipView: UIView {
     /// Telegram's shortStringForDistance.
     private func shortDistance(_ distance: CLLocationDistance) -> String {
         let result = shortDistanceFormatter.string(fromDistance: Double(max(1, Int(distance))))
-        return result.hasPrefix("0 ") ? result.replacingOccurrences(of: "0 ", with: "1 ") : result
+        return result.hasPrefix("0 ") ? result.replacing("0 ", with: "1 ") : result
     }
 
     /// Travel times are only asked for others' live locations; without the user's location the row offers Get
@@ -1882,7 +1886,7 @@ private final class LocationTipView: UIView {
             } else {
                 (peerName.map { L10n.telegram("Map.LiveLocationPrivateNewDescription", $0) }
                     ?? L10n.telegram("Map.LiveLocationGroupNewDescription"))
-                    .replacingOccurrences(of: "**", with: "")
+                    .replacing("**", with: "")
             }
         let sheet = UIAlertController(title: nil, message: description, preferredStyle: .actionSheet)
         for period in LocationPickerViewController.livePeriods {

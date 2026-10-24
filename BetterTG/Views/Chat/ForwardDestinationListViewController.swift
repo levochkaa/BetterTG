@@ -109,10 +109,10 @@ import UIKit
         >(tableView: tableView) { [weak self] table, index, id in
             guard let self, let chat = chatsByID[id],
                   let cell = table
-                      .dequeueReusableCell(
-                          withIdentifier: ForwardDestinationCell.reuseID,
-                          for: index,
-                      ) as? ForwardDestinationCell else { return UITableViewCell() }
+                    .dequeueReusableCell(
+                        withIdentifier: ForwardDestinationCell.reuseID,
+                        for: index,
+                    ) as? ForwardDestinationCell else { return UITableViewCell() }
             cell.configure(chat: chat, enabled: true, client: client)
             return cell
         }
@@ -285,12 +285,15 @@ import UIKit
             if let chat = try? await client.getChat(chatId: chatID) {
                 chatsByID[chatID] = chat
             }
-            if let chat = chatsByID[chatID], standingByChatID[chatID] == nil {
-                if let standing = try? await MessageForwardingService.standing(of: chat, client: client) {
-                    standingByChatID[chatID] = standing
-                    if chat.viewAsTopics || standing.isForum {
-                        forumChatIDs.insert(chatID)
-                    }
+            if let chat = chatsByID[chatID], standingByChatID[chatID] == nil,
+               let standing = try? await MessageForwardingService.standing(
+                   of: chat,
+                   client: client,
+               )
+            {
+                standingByChatID[chatID] = standing
+                if chat.viewAsTopics || standing.isForum {
+                    forumChatIDs.insert(chatID)
                 }
             }
             if let chatTypes, chatTypes.users != chatTypes.bots, let chat = chatsByID[chatID],
@@ -498,7 +501,8 @@ private final class ForwardDestinationCell: UITableViewCell {
                 privateChat.userId
             case .chatTypeSecret(let secretChat):
                 secretChat.userId
-            case .chatTypeBasicGroup, .chatTypeSupergroup:
+            case .chatTypeBasicGroup,
+                 .chatTypeSupergroup:
                 chat.id
             }
         let firstLetter = chat.title

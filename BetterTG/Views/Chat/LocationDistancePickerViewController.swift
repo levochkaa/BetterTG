@@ -296,8 +296,8 @@ final class LocationDistancePickerViewController: UIViewController, UIPickerView
         var formattedValue = String(format: "%0.1f", Double(value) / 1000)
         if smallValue == 5 {
             formattedValue = formattedValue
-                .replacingOccurrences(of: ".1", with: ".05")
-                .replacingOccurrences(of: ",1", with: ",05")
+                .replacing(".1", with: ".05")
+                .replacing(",1", with: ",05")
         }
         let unit = L10n.telegram(
             usesMetricSystem

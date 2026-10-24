@@ -387,10 +387,9 @@ actor VideoNoteFileStore {
         _ draft: VideoNoteSendDraft,
         failedSendState: VideoNoteFailedSendState? = nil,
     ) throws -> VideoNoteSendDraft {
-        guard !removingDraftIDs.contains(draft.id) else {
-            throw VideoNoteFileStoreError.draftBeingRemoved
-        }
-        guard try loadVisibleDrafts().contains(where: { $0.id == draft.id }) else {
+        guard !removingDraftIDs.contains(draft.id),
+              try loadVisibleDrafts().contains(where: { $0.id == draft.id })
+        else {
             throw VideoNoteFileStoreError.draftBeingRemoved
         }
         var updatedDraft = draft

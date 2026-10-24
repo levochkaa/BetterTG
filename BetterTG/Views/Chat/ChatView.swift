@@ -474,7 +474,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         switch chatVM.customChat.type {
         case .group: true
         case .supergroup(let group): !group.isChannel && !group.isDirectMessagesGroup
-        case .bot, .user: false
+        case .bot,
+             .user: false
         }
     }
 
@@ -599,8 +600,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if !(presentedViewController is MediaGalleryViewController) {
             pauseInlineVideoPlayback(excluding: nil)
         }
-        guard presentationMode == .full else { return }
-        guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
+        guard presentationMode == .full,
+              isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
         endMessageSelection()
         isTerminatingNavigation = true
         videoNoteRecorder?.teardownForNavigation()
@@ -815,7 +816,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private static func isChatGalleryMedia(_ message: Message) -> Bool {
         switch message.content {
-        case .messagePhoto, .messageVideo: true
+        case .messagePhoto,
+             .messageVideo: true
         default: false
         }
     }
@@ -823,7 +825,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// The content `ChatVM.editMessage` changes through editMessageText or editMessageCaption.
     private static func editsText(_ content: MessageContent) -> Bool {
         switch content {
-        case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageText, .messageVideo,
+        case .messageAnimation,
+             .messageAudio,
+             .messageDocument,
+             .messagePhoto,
+             .messageText,
+             .messageVideo,
              .messageVoiceNote:
             true
         default:
@@ -892,7 +899,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         default:
             return nil
         }
-        let lastComponent = URL(filePath: name.replacingOccurrences(of: "\\", with: "/")).lastPathComponent
+        let lastComponent = URL(filePath: name.replacing("\\", with: "/")).lastPathComponent
         var fileExtension = URL(filePath: lastComponent).pathExtension
         if fileExtension.isEmpty {
             fileExtension = UTType(mimeType: mimeType)?.preferredFilenameExtension
@@ -954,7 +961,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// Telegram leaves a group's upgrade to a supergroup out of the history (ChatHistoryEntriesForView).
     private static func isUpgradeNotice(_ content: MessageContent) -> Bool {
         switch content {
-        case .messageChatUpgradeFrom, .messageChatUpgradeTo: true
+        case .messageChatUpgradeFrom,
+             .messageChatUpgradeTo: true
         default: false
         }
     }
@@ -1132,8 +1140,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         _: UIDocumentPickerViewController,
         didPickDocumentsAt urls: [URL],
     ) {
-        guard !urls.isEmpty else { return }
-        guard let token = importBarrier.begin() else { return }
+        guard !urls.isEmpty, let token = importBarrier.begin() else { return }
         let barrier = importBarrier
         Task { [weak self] in
             let documents = await Task.detached(priority: .userInitiated) {
@@ -1164,10 +1171,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
               let cell = cell as? MessageCell,
               let row = currentBoundRenderRow(cell)
         else { return }
-        for owner in inlineVideoPlaybackOwners(for: row).values {
-            if cell.restoreInlineVideoPlaybackOwner(owner) {
-                pendingInlineVideoOwnerReturns.remove(owner.messageID)
-            }
+        for owner in inlineVideoPlaybackOwners(for: row).values where cell.restoreInlineVideoPlaybackOwner(owner) {
+            pendingInlineVideoOwnerReturns.remove(owner.messageID)
         }
         cell.setMediaPlaybackVisible(
             presentedViewController == nil,
@@ -1981,8 +1986,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
             return
         }
-        guard restorationFocusSettled else { return }
-        guard restoredViewport?.take(
+        guard restorationFocusSettled, restoredViewport?.take(
             currentSource: tdlib.activeUpdateSource,
             hasLayout: collectionView.bounds.height > 0 && timelineLayoutMutationDepth == 0
                 && (chatVM.messages.isEmpty || collectionView.contentSize.height > 0),
@@ -2323,9 +2327,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 offset: 0,
                 priority: 32,
                 synchronous: true,
-            ), file.local.isDownloadingCompleted, !file.local.path.isEmpty else { return }
-            guard let self, chatVM.locationContextIsCurrent, TDLib.shared.activeClient.id == client.id,
-                  Media.shared.savedMediaPath.isEmpty else { return }
+            ), file.local.isDownloadingCompleted, !file.local.path.isEmpty, let self, chatVM.locationContextIsCurrent,
+            TDLib.shared.activeClient.id == client.id,
+            Media.shared.savedMediaPath.isEmpty else { return }
             Media.shared.toggle(with: file.local.path, duration: content.voiceNote.duration, item: item)
             if !next.isOutgoing, !content.isListened {
                 _ = try? await client.openMessageContent(chatId: next.chatId, messageId: next.id)
@@ -2808,7 +2812,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             guard let self, videoNoteRecorder === recorder else { return }
             composerView.updateVideoNoteState(state)
             switch state {
-            case .holding, .locked:
+            case .holding,
+                 .locked:
                 if let recorder { RecordingIdleTimer.hold(recorder) }
                 if !videoNoteChatActionActive {
                     videoNoteChatActionActive = true
@@ -2829,10 +2834,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 if let recorder { RecordingIdleTimer.release(recorder) }
                 stopVideoNoteChatAction()
                 presentVideoNoteErrorIfNeeded(message)
-            case .idle, .preview, .sending:
+            case .idle,
+                 .preview,
+                 .sending:
                 if let recorder { RecordingIdleTimer.release(recorder) }
                 stopVideoNoteChatAction()
-            case .preparing, .stopping:
+            case .preparing,
+                 .stopping:
                 break
             }
         }
@@ -4607,9 +4615,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             || selectionInteractionActive
         guard didPerformInitialScroll,
               timelineLayoutMutationDepth == 0, !timelineSnapshots.isBusy,
-              !userIsScrolling
-        else { return }
-        guard !selfSizingAnchorRestoreScheduled else { return }
+              !userIsScrolling, !selfSizingAnchorRestoreScheduled else { return }
         pendingSelfSizingRestoration = captureAutomaticViewportRestoration(
             allowInitial: false, ensuringLayout: false,
         )
@@ -4919,8 +4925,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func applyPendingMessageNavigation() {
-        guard !timelineSnapshots.isBusy else { return }
-        guard let id = pendingScrollMessageID else { return }
+        guard !timelineSnapshots.isBusy, let id = pendingScrollMessageID else { return }
         if messageNavigationScroll.ownsViewport {
             messageNavigationScroll.layoutDidSettle()
             return
@@ -4997,8 +5002,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard let displayedID = chatVM.displayedMessageID(containing: id),
               message(for: displayedID)?.sourceMessages.contains(where: { $0.id == id }) == true
         else { return .missing }
-        guard timelineSnapshots.committedContains(rawID: id, displayedID: displayedID) else { return .deferred }
-        guard let path = dataSource.indexPath(for: .message(displayedID)),
+        guard timelineSnapshots.committedContains(rawID: id, displayedID: displayedID),
+              let path = dataSource.indexPath(for: .message(displayedID)),
               let attributes = collectionView.layoutAttributesForItem(at: path) else { return .deferred }
         let insets = collectionView.adjustedContentInset
         let visibleCenterOffset = (collectionView.bounds.height + insets.top - insets.bottom) / 2
@@ -5131,8 +5136,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func showMedia(_ messages: [Message], selection: Int64) {
-        guard let galleryPlaybackContext, galleryPlaybackContext.isCurrent else { return }
-        guard let captured = messages.first(where: { $0.id == selection }),
+        guard let galleryPlaybackContext, galleryPlaybackContext.isCurrent,
+              let captured = messages.first(where: { $0.id == selection }),
               let displayedID = chatVM.displayedMessageID(containing: selection),
               let current = message(for: displayedID)?.sourceMessages.first(where: { $0.id == selection })
         else { return }
@@ -5337,11 +5342,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                       TDLib.shared.activeAccountID == accountID,
                       TDLib.shared.activeClient.id == client.id
                 else { return }
-                guard let chat else {
-                    presentMetadataUnavailable()
-                    return
-                }
-                guard let customChat = await RootVM.shared.getCustomChatForNavigation(from: chat.id, client: client)
+                guard let chat, let customChat = await RootVM.shared.getCustomChatForNavigation(
+                    from: chat.id,
+                    client: client,
+                )
                 else {
                     presentMetadataUnavailable()
                     return
@@ -5909,7 +5913,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             openPollFile(value.document.document, audio: nil, messageID: messageID, in: message)
         case .pollMediaAudio(let value):
             openPollFile(value.audio.audio, audio: value.audio, messageID: messageID, in: message)
-        case .pollMediaAnimation, .pollMediaPhoto, .pollMediaVideo:
+        case .pollMediaAnimation,
+             .pollMediaPhoto,
+             .pollMediaVideo:
             presentPollMediaGallery(media, messageID: messageID, in: message)
         }
     }
@@ -6193,15 +6199,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let permit = mediaRevealSession?.permit(for: message)
         guard MediaRevealPermit.allows(message, permit: permit, requiresPermit: true),
               let source = GalleryPlayableMessage(message: message, revealPermit: permit), !source.isSecret,
-              let galleryPlaybackContext, galleryPlaybackContext.isCurrent
-        else { return nil }
-        guard let owner = GalleryVideoPlaybackOwner(
-            message: message,
-            tdlib: tdlib,
-            playbackContext: galleryPlaybackContext,
-            revealPermit: permit,
-            deferPlaybackUntilVisible: true,
-        ) else { return nil }
+              let galleryPlaybackContext, galleryPlaybackContext.isCurrent, let owner = GalleryVideoPlaybackOwner(
+                  message: message,
+                  tdlib: tdlib,
+                  playbackContext: galleryPlaybackContext,
+                  revealPermit: permit,
+                  deferPlaybackUntilVisible: true,
+              ) else { return nil }
         owner.onReturnToInline = { [weak self, weak owner] returnedOwner in
             guard let self,
                   let owner,
@@ -6643,8 +6647,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         let client = chatVM.client
         Task { [weak self] in
-            guard let favorites = try? await client.send(TDNativeRequests.getFavoriteStickers()) else { return }
-            guard let self, chatVM.locationContextIsCurrent else { return }
+            guard let favorites = try? await client.send(TDNativeRequests.getFavoriteStickers()), let self,
+                  chatVM.locationContextIsCurrent else { return }
             favoriteStickerFileIDs = Set(favorites.stickers.map(\.sticker.id))
         }
     }
@@ -6884,14 +6888,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         else { return [] }
         let messageID = source.id
         switch source.content {
-        case .messagePhoto, .messageVideo:
+        case .messagePhoto,
+             .messageVideo:
             guard let asset = MediaGalleryExportAsset(source), !asset.isSecretMedia,
                   let saveTitle = asset.saveActionTitle else { return [] }
             return [TelegramContextMenuAction(
                 title: saveTitle,
                 image: UIImage(systemName: "square.and.arrow.down"),
             ) { [weak self] in self?.saveMessageMediaToPhotos(messageID: messageID) }]
-        case .messageAudio, .messageDocument:
+        case .messageAudio,
+             .messageDocument:
             return [TelegramContextMenuAction(
                 title: L10n.telegram("Conversation.SaveToFiles"),
                 image: UIImage(systemName: "folder"),
@@ -6975,8 +6981,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func loadSavedNotificationSounds() {
         let client = chatVM.client
         Task { [weak self] in
-            guard let sounds = try? await client.send(TDNativeRequests.getSavedNotificationSounds()) else { return }
-            guard let self, chatVM.locationContextIsCurrent else { return }
+            guard let sounds = try? await client.send(TDNativeRequests.getSavedNotificationSounds()), let self,
+                  chatVM.locationContextIsCurrent else { return }
             savedNotificationSoundIDs = Set(sounds.notificationSounds.map(\.sound.remote.uniqueId))
         }
     }
@@ -7154,7 +7160,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// The attachment panel's other buttons, opened once the sheet has closed.
     private func openAttachmentTab(_ tab: AttachmentSheetTab) {
         switch tab {
-        case .gallery, .link: break
+        case .gallery,
+             .link: break
         case .file: showDocumentPicker()
         case .location: showLocationPicker()
         case .poll: showPollCreator()
@@ -7222,7 +7229,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             bot.showInSideMenu ? "WebApp.ShortcutsSettingsAdded" : "WebApp.ShortcutsAdded",
             bot.name,
         )
-        .replacingOccurrences(of: "**", with: "")
+        .replacing("**", with: "")
         guard chatVM.canWriteBasicMessages, let supports = attachmentMenuBotSupport(), supports(bot) else {
             showChatToast(start.justInstalled ? addedNotice : L10n.telegram("WebApp.AddToAttachmentAlreadyAddedError"))
             return
@@ -8136,7 +8143,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         var quoteRange: NSRange?
         if chatVM.replyTargetMessageID == messageID, let quote = chatVM.replyQuote,
            let resolved = MessageQuoteHighlight(text: quote.text.text, position: quote.position)?
-               .resolved(in: source.content)
+            .resolved(in: source.content)
         {
             quoteRange = NSRange(location: resolved.position, length: resolved.length)
         }
@@ -8839,7 +8846,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return pinOption(title: title, image: image, mode: .savedMessages, message: message)
         }
         switch chatVM.customChat.type {
-        case .bot(let user), .user(let user):
+        case .bot(let user),
+             .user(let user):
             children = [
                 pinOption(
                     title: L10n.telegram("Conversation.PinMessagesFor", user.compactDisplayTitle),
@@ -8854,7 +8862,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ]
         case .supergroup(let supergroup) where supergroup.isChannel:
             return pinOption(title: title, image: image, mode: .channel, message: message)
-        case .group, .supergroup:
+        case .group,
+             .supergroup:
             children = [
                 pinOption(
                     title: L10n.telegram("Conversation.PinMessageAlert.PinAndNotifyMembers"),
@@ -8969,7 +8978,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         chatVM.toggleReaction(on: message, type: type, isBig: false)
                     }
                 }
-            } catch { return [] }
+            } catch {
+                return []
+            }
         }
     }
 

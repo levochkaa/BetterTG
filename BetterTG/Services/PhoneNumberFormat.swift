@@ -26,7 +26,7 @@ enum PhoneNumberFormat {
     /// formatPhoneNumberToMask stops at the number's last digit, while TDLib also returns the mask's unfilled tail, a
     /// "-" for each missing digit with its separators; that tail goes.
     private static func masked(callingCode: String, rest: String) -> String {
-        var rest = rest.replacingOccurrences(of: "-", with: "")
+        var rest = rest.replacing("-", with: "")
         while let last = rest.last, !last.isNumber {
             rest.removeLast()
         }

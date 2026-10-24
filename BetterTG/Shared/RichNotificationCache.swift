@@ -137,7 +137,9 @@ enum RichNotificationCache {
                 ofItemAtPath: url.path,
             )
             return true
-        } catch { return false }
+        } catch {
+            return false
+        }
     }
 
     private static func trimMediaCache(in directory: URL) {

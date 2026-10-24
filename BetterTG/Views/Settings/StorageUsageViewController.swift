@@ -35,20 +35,32 @@ final class StorageUsageViewController: SettingsListViewController {
         init(_ type: TDNativeFileType) {
             self =
                 switch type {
-                case .fileTypePhoto, .fileTypePhotoStory, .fileTypeSelfDestructingPhoto: .photos
-                case .fileTypeAnimation, .fileTypeLivePhotoVideo, .fileTypeSelfDestructingLivePhotoVideo,
-                     .fileTypeSelfDestructingVideo, .fileTypeSelfDestructingVideoNote, .fileTypeVideo,
+                case .fileTypePhoto,
+                     .fileTypePhotoStory,
+                     .fileTypeSelfDestructingPhoto: .photos
+                case .fileTypeAnimation,
+                     .fileTypeLivePhotoVideo,
+                     .fileTypeSelfDestructingLivePhotoVideo,
+                     .fileTypeSelfDestructingVideo,
+                     .fileTypeSelfDestructingVideoNote,
+                     .fileTypeVideo,
                      .fileTypeVideoNote,
                      .fileTypeVideoStory:
                     .videos
                 case .fileTypeDocument: .files
                 case .fileTypeAudio: .music
-                case .fileTypeSelfDestructingVoiceNote, .fileTypeVoiceNote: .voice
+                case .fileTypeSelfDestructingVoiceNote,
+                     .fileTypeVoiceNote: .voice
                 case .fileTypeSticker: .stickers
                 case .fileTypeProfilePhoto: .avatars
-                case .fileTypeNone, .fileTypeNotificationSound, .fileTypeSecret, .fileTypeSecretThumbnail,
+                case .fileTypeNone,
+                     .fileTypeNotificationSound,
+                     .fileTypeSecret,
+                     .fileTypeSecretThumbnail,
                      .fileTypeSecure,
-                     .fileTypeThumbnail, .fileTypeUnknown, .fileTypeWallpaper:
+                     .fileTypeThumbnail,
+                     .fileTypeUnknown,
+                     .fileTypeWallpaper:
                     .other
                 }
         }

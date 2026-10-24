@@ -480,7 +480,8 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         case .name:
             cell.accessoryView = nameField
             cell.selectionStyle = .none
-        case .excludedChats, .includedChats:
+        case .excludedChats,
+             .includedChats:
             cell.accessoryType = .disclosureIndicator
         case .include(let type):
             cell.accessoryType = draft.includes(type) ? .checkmark : .none
@@ -971,17 +972,17 @@ TelegramNavigationSearchProvider {
                   view.window != nil, session.isCurrent else { return }
             let empty = visibleChats.filter(\.chat.title.isEmpty)
             let cells = tableView.visibleCells
-            let mismatches = cells.filter { cell in
+            let mismatches = cells.count(where: { cell in
                 guard let index = tableView.indexPath(for: cell), visibleChats.indices.contains(index.row)
                 else { return true }
                 return (cell.textLabel?.text ?? "") != visibleChats[index.row].folderPickerTitle
-            }
-.count
+            })
+
             let result = "Folder selector diagnostic: candidates=\(chats.count); filtered=\(visibleChats.count); "
-                + "empty-raw-title=\(empty.count); empty-deleted=\(empty.filter { $0.user?.type == .userTypeDeleted }.count); "
-                + "empty-unknown=\(empty.filter { $0.user?.type == .userTypeUnknown }.count); "
-                + "empty-non-contact=\(empty.filter { $0.user?.isContact == false }.count); "
-                + "visible-cells=\(cells.count); empty-cell-text=\(cells.filter { $0.textLabel?.text?.isEmpty != false }.count); "
+                + "empty-raw-title=\(empty.count); empty-deleted=\(empty.count(where: { $0.user?.type == .userTypeDeleted })); "
+                + "empty-unknown=\(empty.count(where: { $0.user?.type == .userTypeUnknown })); "
+                + "empty-non-contact=\(empty.count(where: { $0.user?.isContact == false })); "
+                + "visible-cells=\(cells.count); empty-cell-text=\(cells.count(where: { $0.textLabel?.text?.isEmpty != false })); "
                 + "cell-display-mismatches=\(mismatches); names/IDs/query/payload-logged=false"
             log(result)
             if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -1089,7 +1090,7 @@ TelegramNavigationSearchProvider {
     /// loaded counts as non-secret.
     private func chosenCount(secret: Bool) -> Int {
         let secretIDs = Set(chats.lazy.filter { $0.secretChatID != nil }.map(\.id))
-        return selectedChatIDs.filter { secretIDs.contains($0) == secret }.count
+        return selectedChatIDs.count(where: { secretIDs.contains($0) == secret })
     }
 
     /// Telegram's limit screen without its Premium offer: the selection stops at TDLib's limit.
@@ -1189,8 +1190,7 @@ TelegramNavigationSearchProvider {
 
     @objc private func done() {
         let scope = session.scope(owner: self)
-        guard scope.isCurrent else { return }
-        guard onDone(self, selectedChatIDs), scope.isCurrent else { return }
+        guard scope.isCurrent, onDone(self, selectedChatIDs), scope.isCurrent else { return }
         navigationController?.popViewController(animated: true)
     }
 }
@@ -1523,7 +1523,9 @@ private extension ChatFolderEditorViewController {
             case .includedChats: L10n.betterTG("Folders.AlwaysInclude")
             case .excludedChats: L10n.betterTG("Folders.NeverInclude")
             case .exclude(let type): type.title
-            case .createInviteLink, .inviteLink, .newChats: ""
+            case .createInviteLink,
+                 .inviteLink,
+                 .newChats: ""
             }
         }
 
@@ -1563,7 +1565,8 @@ private extension CustomChat {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty { return displayTitle }
         switch type {
-        case .bot(let user), .user(let user):
+        case .bot(let user),
+             .user(let user):
             switch user.type {
             case .userTypeDeleted: return L10n.telegram("User.DeletedAccount")
             case .userTypeUnknown: return L10n.betterTG("Folders.UnknownUser")
@@ -1589,7 +1592,8 @@ private extension CustomChat {
         switch type {
         case .user(let user):
             switch user.type {
-            case .userTypeDeleted, .userTypeUnknown: nil
+            case .userTypeDeleted,
+                 .userTypeUnknown: nil
             default: user.isContact
                 ? L10n.telegram("ChatList.PeerTypeContact")
                 : L10n.telegram("ChatList.PeerTypeNonContact")

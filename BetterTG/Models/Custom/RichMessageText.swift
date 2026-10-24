@@ -44,12 +44,14 @@ enum RichMessageText {
                 case .pageBlockFooter(let value): text(value.footer)
                 case .pageBlockThinking(let value): text(value.text)
                 case .pageBlockList(let value): value.items
+                    .lazy
                     .map { $0.label + " " + nested($0.blocks) }
                     .joined(separator: "\n")
                 case .pageBlockBlockQuote(let value): nested(value.blocks)
                 case .pageBlockExpandableBlockQuote(let value): text(value.text)
                 case .pageBlockPullQuote(let value): text(value.text)
                 case .pageBlockTable(let value): value.cells
+                    .lazy
                     .map { $0.compactMap { $0.text.map(text) }.joined(separator: "\t") }
                     .joined(separator: "\n")
                 case .pageBlockDetails(let value): text(value.header) + "\n" + nested(value.blocks)
@@ -73,12 +75,14 @@ enum RichMessageText {
                 case .pageBlockEmbeddedPost(let value): nested(value.blocks)
                 case .pageBlockEmbedded(let value): value.caption.map { text($0.text) } ?? value.url
                 case .pageBlockChatLink(let value): value.title
-                case .pageBlockButtonRow(let value): value.buttons.map { text($0.text) }.joined(separator: " · ")
+                case .pageBlockButtonRow(let value): value.buttons.lazy.map { text($0.text) }.joined(separator: " · ")
                 case .pageBlockMathematicalExpression(let value): value.expression
                 case .pageBlockAuthorDate(let value): text(value.author)
                 case .pageBlockRelatedArticles(let value): text(value.header)
                 case .pageBlockMap: L10n.telegram("Message.Location")
-                case .pageBlockAnchor, .pageBlockDivider, .pageBlockUnsupported: nil
+                case .pageBlockAnchor,
+                     .pageBlockDivider,
+                     .pageBlockUnsupported: nil
                 }
             }
             .filter { !$0.isEmpty }

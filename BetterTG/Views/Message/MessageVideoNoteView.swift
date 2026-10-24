@@ -552,7 +552,8 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             hasStartedPlayback = true
             playIcon.isHidden = true
             accessibilityValue = L10n.betterTG("Accessibility.Playing")
-        case .buffering, .preparing:
+        case .buffering,
+             .preparing:
             playIcon.image = UIImage(systemName: "clock.fill")
             playIcon.isHidden = false
             accessibilityValue = L10n.betterTG("Accessibility.Loading")
@@ -567,7 +568,8 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             accessibilityValue = representedPath == nil
                 ? L10n.betterTG("Accessibility.Downloading")
                 : L10n.betterTG("Accessibility.Paused")
-        case .ended, .idle:
+        case .ended,
+             .idle:
             proximityControl.end()
             if Self.activePlaybackView === self { Self.activePlaybackView = nil }
             hasStartedPlayback = false
@@ -669,8 +671,11 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             secretDeadline = min(secretDeadline ?? .infinity, requestedAt + value.selfDestructIn)
             secretDeadlineTask?.cancel()
             secretDeadlineTask = Task { [weak self] in
-                do { try await backend.sleep(max(0, (self?.secretDeadline ?? 0) - backend.now())) }
-                catch { return }
+                do {
+                    try await backend.sleep(max(0, (self?.secretDeadline ?? 0) - backend.now()))
+                } catch {
+                    return
+                }
                 guard let self, secretHoldID == token, !Task.isCancelled else { return }
                 revoke()
             }

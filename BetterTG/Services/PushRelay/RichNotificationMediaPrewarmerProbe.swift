@@ -145,7 +145,9 @@
                         + "exact ordinary cloud IDs before IO; local/scheduled/overflow aliases refused; "
                         + "exact production publishers and async leases; held edit/delete/source/replacement refusal; own-token cleanup; "
                         + "real TDLib/NSE/durable cache revocation=unverified; verified cache-only media restoration=pending; RPC/disk-media=0"
-                } catch { result = "FAIL: \(error)" }
+                } catch {
+                    result = "FAIL: \(error)"
+                }
                 await f.finish()
                 log(result)
                 if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {

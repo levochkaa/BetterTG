@@ -284,8 +284,12 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
         switch row(at: indexPath) {
-        case .permissionButton, .pick: true
-        case .loading, nil, .noResults, .permissionInfo: false
+        case .permissionButton,
+             .pick: true
+        case .loading,
+             nil,
+             .noResults,
+             .permissionInfo: false
         }
     }
 
@@ -294,7 +298,10 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
         switch row(at: indexPath) {
         case .pick(let pick): toggle(pick)
         case .permissionButton: authorize()
-        case .loading, nil, .noResults, .permissionInfo: break
+        case .loading,
+             nil,
+             .noResults,
+             .permissionInfo: break
         }
     }
 
@@ -471,10 +478,12 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
                 _ = try? await CNContactStore().requestAccess(for: .contacts)
                 self?.authorizationChanged()
             }
-        case .denied, .restricted:
+        case .denied,
+             .restricted:
             guard let url = Foundation.URL(string: UIApplication.openSettingsURLString) else { return }
             UIApplication.shared.open(url)
-        case .authorized, .limited:
+        case .authorized,
+             .limited:
             break
         @unknown default:
             break

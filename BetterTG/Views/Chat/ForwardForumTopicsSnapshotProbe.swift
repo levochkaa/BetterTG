@@ -137,7 +137,9 @@ import UIKit
                     + "initial-containment/synthetic-retained-parent-removal=true; "
                     + "same-instance/fallback-cleanup=true; read-only-injection/server-writes=0; "
                     + "baseline-UIKit-crash/live-TDLib/real-forward-delivery/interactive-pop-gesture=unverified; \(teardown)"
-            } catch { result = "Forward forum snapshot probe failed at \(stage): \(error)" }
+            } catch {
+                result = "Forward forum snapshot probe failed at \(stage): \(error)"
+            }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
                     to: directory.appendingPathComponent("forward-forum-snapshot-probe.txt"), options: .atomic,

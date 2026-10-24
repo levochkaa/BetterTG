@@ -29,7 +29,12 @@ import TDLibKit
 
     static func allowsSubmission(message: Message, text: AttributedString) -> Bool {
         switch message.content {
-        case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageVideo, .messageVoiceNote:
+        case .messageAnimation,
+             .messageAudio,
+             .messageDocument,
+             .messagePhoto,
+             .messageVideo,
+             .messageVoiceNote:
             true
         case .messageText:
             !text.characters.isEmpty

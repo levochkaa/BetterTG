@@ -150,9 +150,11 @@ struct PendingMessageForward: Equatable {
     var restoresNamesWithCaptions = false
 
     var title: String {
-        prepared.request.messageIDs.count == 1
-            ? L10n.telegram("Conversation.ForwardOptions.ForwardTitleSingle")
-            : L10n.telegramPlural("Conversation.ForwardOptions.ForwardTitle", count: prepared.request.messageIDs.count)
+        if prepared.request.messageIDs.count == 1 {
+            L10n.telegram("Conversation.ForwardOptions.ForwardTitleSingle")
+        } else {
+            L10n.telegramPlural("Conversation.ForwardOptions.ForwardTitle", count: prepared.request.messageIDs.count)
+        }
     }
 
     var text: String {
@@ -275,7 +277,8 @@ struct MessageForwardGroupStanding {
     var paysForMessages: Bool {
         guard chargesStars else { return false }
         return switch status {
-        case .chatMemberStatusAdministrator, .chatMemberStatusCreator:
+        case .chatMemberStatusAdministrator,
+             .chatMemberStatusCreator:
             false
         default:
             true
@@ -644,7 +647,9 @@ enum MessageForwardingError: LocalizedError, Equatable {
         case .document: \.canSendDocuments
         case .other: \.canSendOtherMessages
         case .photo: \.canSendPhotos
-        case .checklist, .poll, .publicPoll: \.canSendPolls
+        case .checklist,
+             .poll,
+             .publicPoll: \.canSendPolls
         case .video: \.canSendVideos
         case .videoNote: \.canSendVideoNotes
         case .voiceNote: \.canSendVoiceNotes
@@ -661,7 +666,11 @@ enum MessageForwardingError: LocalizedError, Equatable {
 
     private static func requirement(for content: MessageContent) -> MessageForwardContentRequirement {
         switch content {
-        case .messageAnimatedEmoji, .messageAnimation, .messageDice, .messageGame, .messageStakeDice,
+        case .messageAnimatedEmoji,
+             .messageAnimation,
+             .messageDice,
+             .messageGame,
+             .messageStakeDice,
              .messageSticker:
             .other
         case .messageAudio:
@@ -670,7 +679,8 @@ enum MessageForwardingError: LocalizedError, Equatable {
             .document
         case .messagePhoto:
             .photo
-        case .messageChecklist, .messagePoll:
+        case .messageChecklist,
+             .messagePoll:
             .poll
         case .messageVideo:
             .video

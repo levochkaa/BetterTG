@@ -286,15 +286,13 @@ import TDLibKit
                 let next = found.messages
                     .filter({ $0.id > finished.messageID && $0.selfDestructType == nil })
                     .min(by: { $0.id < $1.id }),
-                    case .messageVoiceNote(let content) = next.content
-            else { return }
-            guard let file = try? await client.downloadFile(
-                fileId: content.voiceNote.voice.id,
-                limit: 0,
-                offset: 0,
-                priority: 32,
-                synchronous: true,
-            ), file.local.isDownloadingCompleted, !file.local.path.isEmpty else { return }
+                  case .messageVoiceNote(let content) = next.content, let file = try? await client.downloadFile(
+                      fileId: content.voiceNote.voice.id,
+                      limit: 0,
+                      offset: 0,
+                      priority: 32,
+                      synchronous: true,
+                  ), file.local.isDownloadingCompleted, !file.local.path.isEmpty else { return }
             let title = await Self.senderTitle(of: next, client: client)
             guard !Task.isCancelled, let self,
                   TDLib.shared.activeAccountID == accountID, TDLib.shared.activeClient.id == client.id,
@@ -329,7 +327,8 @@ import TDLibKit
             let target: Message?
             var stackStep = StackStep.push
             switch settings.order {
-            case .regular, .reversed:
+            case .regular,
+                 .reversed:
                 // The regular order plays from newer tracks to older ones, the reversed order the other way.
                 let toOlder = (settings.order == .regular) == (action == .next)
                 target = await Self.adjacentMusic(
@@ -414,9 +413,9 @@ import TDLibKit
 
 // MARK: - Media.NowPlayingDisplay
 
-extension Media.NowPlaying {
+@MainActor extension Media.NowPlaying {
     /// A chat's music track in the active account.
-    @MainActor static func music(chatID: Int64, messageID: Int64) -> Self {
+    static func music(chatID: Int64, messageID: Int64) -> Self {
         Self(accountID: TDLib.shared.activeAccountID, chatID: chatID, messageID: messageID, isMusic: true)
     }
 }

@@ -262,7 +262,8 @@ enum ServiceMessageText {
                         ? "Chat.PostApproval.Status.AdminApproved"
                         : "Chat.PostApproval.Status.UserApproved",
                 )
-            case .messageSuggestedPostApprovalFailed, .messageSuggestedPostDeclined:
+            case .messageSuggestedPostApprovalFailed,
+                 .messageSuggestedPostDeclined:
                 // Telegram words a rejection for a low balance as any rejection.
                 telegram(
                     context.isOutgoing
@@ -313,7 +314,9 @@ enum ServiceMessageText {
     static func needsResolvedContext(_ content: MessageContent) -> Bool {
         if needsAccount(content) || needsChat(content) { return true }
         switch content {
-        case .messageChecklistTasksAdded, .messageChecklistTasksDone, .messageGameScore:
+        case .messageChecklistTasksAdded,
+             .messageChecklistTasksDone,
+             .messageGameScore:
             return true
         default:
             return false
@@ -322,25 +325,54 @@ enum ServiceMessageText {
 
     private static func handles(_ content: MessageContent) -> Bool {
         switch content {
-        case .messageBasicGroupChatCreate, .messageBotWriteAccessAllowed, .messageCall,
-             .messageChatAddedToCommunity, .messageChatAddMembers, .messageChatChangePhoto, .messageChatChangeTitle,
-             .messageChatDeleteMember, .messageChatDeletePhoto, .messageChatHasProtectedContentDisableRequested,
-             .messageChatHasProtectedContentToggled, .messageChatJoinByLink, .messageChatJoinByRequest,
-             .messageChatOwnerChanged, .messageChatOwnerLeft, .messageChatRemovedFromCommunity,
-             .messageChatSetBackground, .messageChatSetMessageAutoDeleteTime, .messageChatSetTheme, .messageChatShared,
-             .messageChecklistTasksAdded, .messageChecklistTasksDone, .messageContactRegistered,
+        case .messageBasicGroupChatCreate,
+             .messageBotWriteAccessAllowed,
+             .messageCall,
+             .messageChatAddedToCommunity,
+             .messageChatAddMembers,
+             .messageChatChangePhoto,
+             .messageChatChangeTitle,
+             .messageChatDeleteMember,
+             .messageChatDeletePhoto,
+             .messageChatHasProtectedContentDisableRequested,
+             .messageChatHasProtectedContentToggled,
+             .messageChatJoinByLink,
+             .messageChatJoinByRequest,
+             .messageChatOwnerChanged,
+             .messageChatOwnerLeft,
+             .messageChatRemovedFromCommunity,
+             .messageChatSetBackground,
+             .messageChatSetMessageAutoDeleteTime,
+             .messageChatSetTheme,
+             .messageChatShared,
+             .messageChecklistTasksAdded,
+             .messageChecklistTasksDone,
+             .messageContactRegistered,
              .messageForumTopicCreated,
-             .messageForumTopicEdited, .messageForumTopicIsClosedToggled, .messageForumTopicIsHiddenToggled,
+             .messageForumTopicEdited,
+             .messageForumTopicIsClosedToggled,
+             .messageForumTopicIsHiddenToggled,
              .messageGameScore,
-             .messageGroupCall, .messageInviteVideoChatParticipants, .messageManagedBotCreated,
+             .messageGroupCall,
+             .messageInviteVideoChatParticipants,
+             .messageManagedBotCreated,
              .messagePassportDataSent,
-             .messagePinMessage, .messagePollOptionAdded,
-             .messagePollOptionDeleted, .messageProximityAlertTriggered, .messageScreenshotTaken,
+             .messagePinMessage,
+             .messagePollOptionAdded,
+             .messagePollOptionDeleted,
+             .messageProximityAlertTriggered,
+             .messageScreenshotTaken,
              .messageSuggestBirthdate,
-             .messageSuggestedPostApprovalFailed, .messageSuggestedPostApproved, .messageSuggestedPostDeclined,
+             .messageSuggestedPostApprovalFailed,
+             .messageSuggestedPostApproved,
+             .messageSuggestedPostDeclined,
              .messageSuggestProfilePhoto,
-             .messageSupergroupChatCreate, .messageUsersShared, .messageVideoChatEnded,
-             .messageVideoChatScheduled, .messageVideoChatStarted, .messageWebAppDataSent:
+             .messageSupergroupChatCreate,
+             .messageUsersShared,
+             .messageVideoChatEnded,
+             .messageVideoChatScheduled,
+             .messageVideoChatStarted,
+             .messageWebAppDataSent:
             true
         default:
             false
@@ -349,7 +381,9 @@ enum ServiceMessageText {
 
     private static func needsAccount(_ content: MessageContent) -> Bool {
         switch content {
-        case .messageChatSetMessageAutoDeleteTime, .messageInviteVideoChatParticipants, .messageProximityAlertTriggered:
+        case .messageChatSetMessageAutoDeleteTime,
+             .messageInviteVideoChatParticipants,
+             .messageProximityAlertTriggered:
             true
         default:
             false
@@ -358,10 +392,15 @@ enum ServiceMessageText {
 
     private static func needsChat(_ content: MessageContent) -> Bool {
         switch content {
-        case .messageChatAddedToCommunity, .messageChatHasProtectedContentDisableRequested,
+        case .messageChatAddedToCommunity,
+             .messageChatHasProtectedContentDisableRequested,
              .messageChatHasProtectedContentToggled,
-             .messageChatRemovedFromCommunity, .messageChatSetBackground, .messageChatSetMessageAutoDeleteTime,
-             .messageChatShared, .messagePassportDataSent, .messageUsersShared:
+             .messageChatRemovedFromCommunity,
+             .messageChatSetBackground,
+             .messageChatSetMessageAutoDeleteTime,
+             .messageChatShared,
+             .messagePassportDataSent,
+             .messageUsersShared:
             true
         default: false
         }
@@ -439,7 +478,8 @@ enum ServiceMessageText {
             switch type {
             case .passportElementTypePersonalDetails:
                 values.append(telegram("Notification.PassportValuePersonalDetails"))
-            case .passportElementTypeDriverLicense, .passportElementTypeIdentityCard,
+            case .passportElementTypeDriverLicense,
+                 .passportElementTypeIdentityCard,
                  .passportElementTypeInternalPassport,
                  .passportElementTypePassport:
                 guard !hasIdentity else { continue }
@@ -447,9 +487,11 @@ enum ServiceMessageText {
                 values.append(telegram("Notification.PassportValueProofOfIdentity"))
             case .passportElementTypeAddress:
                 values.append(telegram("Notification.PassportValueAddress"))
-            case .passportElementTypeBankStatement, .passportElementTypePassportRegistration,
+            case .passportElementTypeBankStatement,
+                 .passportElementTypePassportRegistration,
                  .passportElementTypeRentalAgreement,
-                 .passportElementTypeTemporaryRegistration, .passportElementTypeUtilityBill:
+                 .passportElementTypeTemporaryRegistration,
+                 .passportElementTypeUtilityBill:
                 guard !hasAddress else { continue }
                 hasAddress = true
                 values.append(telegram("Notification.PassportValueProofOfAddress"))
@@ -494,7 +536,8 @@ enum ServiceMessageText {
             return added
                 ? telegram("Notification.CommunityAddedChannel", name)
                 : telegram("Notification.CommunityRemovedChannel")
-        case .basicGroup, .supergroup:
+        case .basicGroup,
+             .supergroup:
             if context.isOutgoing {
                 return added
                     ? telegram("Notification.CommunityAddedGroupYou", name)
@@ -505,7 +548,8 @@ enum ServiceMessageText {
             return added
                 ? telegram("Notification.CommunityAddedGroup", context.author, name)
                 : telegram("Notification.CommunityRemovedGroup", context.author)
-        case .secretChat, .unknown:
+        case .secretChat,
+             .unknown:
             return nil
         }
     }
@@ -524,7 +568,8 @@ enum ServiceMessageText {
         switch reason {
         case .callDiscardReasonDisconnected:
             telegram("Notification.CallCanceled")
-        case .callDiscardReasonDeclined, .callDiscardReasonMissed:
+        case .callDiscardReasonDeclined,
+             .callDiscardReasonMissed:
             telegram(isOutgoing ? "Notification.CallCanceled" : "Notification.CallMissed")
         default:
             telegram(isOutgoing ? "Notification.CallOutgoing" : "Notification.CallIncoming")
@@ -584,9 +629,11 @@ enum ServiceMessageText {
         let isYou = context.isOutgoing
         let time = timeInterval(timeout)
         func byAuthor(_ key: String, _ arguments: CVarArg...) -> String? {
-            author.isEmpty
-                ? nil
-                : AppLocalization.shared.telegramString(key, arguments: [author as CVarArg] + arguments)
+            if author.isEmpty {
+                nil
+            } else {
+                AppLocalization.shared.telegramString(key, arguments: [author as CVarArg] + arguments)
+            }
         }
         switch context.chatKind {
         case .privateChat:
@@ -603,7 +650,8 @@ enum ServiceMessageText {
             return isYou
                 ? telegram("Conversation.AutoremoveTimerRemovedUserYou")
                 : byAuthor("Conversation.AutoremoveTimerRemovedUser")
-        case .basicGroup, .supergroup:
+        case .basicGroup,
+             .supergroup:
             if isYou {
                 return timeout > 0
                     ? telegram("Conversation.AutoremoveTimerSetUserYou", time)
@@ -637,8 +685,8 @@ enum ServiceMessageText {
         let key = context.isOutgoing ? "ServiceMessage.GameScoreSelf\(form)" : "ServiceMessage.GameScore\(form)"
         return AppLocalization.shared
             .telegramPluralString(key, count: score)
-            .replacingOccurrences(of: "{name}", with: context.author)
-            .replacingOccurrences(of: "{game}", with: context.gameTitle ?? "")
+            .replacing("{name}", with: context.author)
+            .replacing("{game}", with: context.gameTitle ?? "")
     }
 
     private static func checklist(in chatID: Int64, messageID: Int64, client: TDLibClient) async -> Checklist? {
@@ -765,11 +813,13 @@ enum ServiceMessageText {
             return telegram(isGroup ? "Notification.YouChangedGroupWallpaper" : "Notification.YouChangedWallpaper")
         }
         switch context.chatKind {
-        case .basicGroup, .supergroup:
+        case .basicGroup,
+             .supergroup:
             return telegram("Notification.GroupChangedWallpaper")
         case .channel:
             return telegram("Notification.ChannelChangedWallpaper")
-        case .privateChat, .secretChat:
+        case .privateChat,
+             .secretChat:
             return context.author.isEmpty ? nil : telegram("Notification.ChangedWallpaper", context.author)
         case .unknown:
             return nil
@@ -852,10 +902,13 @@ enum ServiceMessageText {
             case .messageVideo: "Notification.PinnedVideoMessage"
             case .messageVideoNote: "Notification.PinnedRoundMessage"
             case .messageVoiceNote: "Notification.PinnedAudioMessage"
-            case .messageAudio, .messageDocument: "Notification.PinnedDocumentMessage"
+            case .messageAudio,
+                 .messageDocument: "Notification.PinnedDocumentMessage"
             case .messageAnimation: "Notification.PinnedAnimationMessage"
             case .messageSticker: "Notification.PinnedStickerMessage"
-            case .messageLiveLocation, .messageLocation, .messageVenue: "Notification.PinnedLocationMessage"
+            case .messageLiveLocation,
+                 .messageLocation,
+                 .messageVenue: "Notification.PinnedLocationMessage"
             case .messageContact: "Notification.PinnedContactMessage"
             case .messageGame: "Message.AuthorPinnedGame"
             case .messagePoll(let value):
@@ -870,7 +923,9 @@ enum ServiceMessageText {
         guard case .messageText(let value) = pinned.content else {
             return telegram("Message.PinnedGenericMessage", author)
         }
-        // Telegram clips the quoted text to fifteen characters on one line.
+        // Telegram clips the quoted text to fifteen characters on one line. Swift's replacing sees "\r\n" as one
+        // character and would keep that line break.
+        // swiftformat:disable:next preferSwiftStringAPI
         var clipped = value.text.text.replacingOccurrences(of: "\n", with: " ")
         if clipped.count > 14 { clipped = String(clipped.prefix(15)) + "..." }
         return clipped.isEmpty

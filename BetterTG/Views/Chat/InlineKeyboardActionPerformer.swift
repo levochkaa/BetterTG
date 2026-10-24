@@ -381,7 +381,8 @@ struct InlineTargetChatTypes: Equatable {
             case .canTransferOwnershipResultPasswordNeeded:
                 // Telegram offers Enable 2-Step Verification here; BetterTG has no password setup screen.
                 showSecurityCheck(comeBackLater: false)
-            case .canTransferOwnershipResultPasswordTooFresh, .canTransferOwnershipResultSessionTooFresh:
+            case .canTransferOwnershipResultPasswordTooFresh,
+                 .canTransferOwnershipResultSessionTooFresh:
                 showSecurityCheck(comeBackLater: true)
             case nil:
                 showAlert(L10n.telegram("Login.UnknownError"))
@@ -395,7 +396,7 @@ struct InlineTargetChatTypes: Equatable {
         var text = L10n.telegram("OwnershipTransfer.SecurityRequirements")
         if comeBackLater { text += L10n.telegram("OwnershipTransfer.ComeBackLater") }
         showAlert(
-            text.replacingOccurrences(of: "**", with: ""),
+            text.replacing("**", with: ""),
             title: L10n.telegram("OwnershipTransfer.SecurityCheck"),
         )
     }

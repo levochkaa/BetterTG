@@ -18,7 +18,8 @@ enum PollMediaSubject: Equatable {
     /// Sticker, Location and Link for an option.
     var tabs: [AttachmentSheetTab] {
         switch self {
-        case .description, .explanation: [.gallery, .file, .location]
+        case .description,
+             .explanation: [.gallery, .file, .location]
         case .option: [.gallery, .sticker, .location, .link]
         }
     }
@@ -45,7 +46,8 @@ enum PollMediaSubject: Equatable {
     var fileSubtitle: String {
         switch self {
         case .description: L10n.telegram("Attachment.File.PollSubtitle.Description")
-        case .explanation, .option: L10n.telegram("Attachment.File.PollSubtitle.Explanation")
+        case .explanation,
+             .option: L10n.telegram("Attachment.File.PollSubtitle.Explanation")
         }
     }
 }
@@ -481,7 +483,10 @@ struct PollDraftMedia {
         case .link:
             // The Link button dismisses the sheet and opens chatTextLinkEditController.
             return closeSheet { [self] in presentLinkEditor() }
-        case .app, .checklist, .contact, .poll:
+        case .app,
+             .checklist,
+             .contact,
+             .poll:
             return
         }
         currentTab = tab

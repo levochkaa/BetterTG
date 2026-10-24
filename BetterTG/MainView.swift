@@ -1711,8 +1711,8 @@ final class FolderPickerView: UIView {
                 if let interactiveSelection,
                 let fromIndex = items
                     .firstIndex(where: { $0.id == interactiveSelection.fromID }),
-                    let toIndex = items
-                        .firstIndex(where: { $0.id == interactiveSelection.toID })
+                   let toIndex = items
+                    .firstIndex(where: { $0.id == interactiveSelection.toID })
                 {
                     if index == fromIndex {
                         1 - interactiveSelection.fraction

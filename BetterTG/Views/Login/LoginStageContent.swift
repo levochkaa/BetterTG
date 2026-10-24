@@ -115,9 +115,9 @@ struct LoginStageContent {
             if case .authorizationStateWaitRegistration(let value) = state, !value.termsOfService.text.text.isEmpty {
                 // "By signing up, you agree to the [Terms of Service]."
                 let label = L10n.telegram("Login.TermsOfServiceLabel")
-                    .replacingOccurrences(of: "\n", with: " ")
-                    .replacingOccurrences(of: "[", with: "")
-                    .replacingOccurrences(of: "]", with: "")
+                    .replacing("\n", with: " ")
+                    .replacing("[", with: "")
+                    .replacing("]", with: "")
                 content.option = Option(title: label, action: .showTermsOfService)
             }
             return content
@@ -131,6 +131,7 @@ struct LoginStageContent {
                     L10n.betterTG("Login.QRCode.Step3"),
                 ]
                     .enumerated()
+                    .lazy
                     .map { "\($0.offset + 1). \($0.element)" }
                     .joined(separator: "\n"),
             )
@@ -142,13 +143,13 @@ struct LoginStageContent {
 
     /// A Telegram string with its bold runs kept as `boldMarker` pairs.
     static func styled(_ key: String, _ arguments: CVarArg...) -> String {
-        let template = L10n.telegram(key).replacingOccurrences(of: "**", with: boldMarker)
+        let template = L10n.telegram(key).replacing("**", with: boldMarker)
         return arguments.isEmpty ? template : String(format: template, arguments: arguments)
     }
 
     /// `styled` without its bold runs, for alert text.
     static func plain(_ key: String, _ arguments: CVarArg...) -> String {
-        let template = L10n.telegram(key).replacingOccurrences(of: "**", with: "")
+        let template = L10n.telegram(key).replacing("**", with: "")
         return arguments.isEmpty ? template : String(format: template, arguments: arguments)
     }
 
@@ -191,7 +192,9 @@ struct LoginStageContent {
         switch info.type {
         case .authenticationCodeTypeTelegramMessage:
             content.text = styled("Login.EnterCodeTelegramText", phone)
-        case .authenticationCodeTypeFirebaseAndroid, .authenticationCodeTypeFirebaseIos, .authenticationCodeTypeSms:
+        case .authenticationCodeTypeFirebaseAndroid,
+             .authenticationCodeTypeFirebaseIos,
+             .authenticationCodeTypeSms:
             content.title = L10n.telegram("Login.EnterCodeSMSTitle")
             content.text = styled("Login.EnterCodeSMSText", phone)
         case .authenticationCodeTypeSmsWord(let value):
@@ -210,14 +213,15 @@ struct LoginStageContent {
             content.placeholder = L10n.telegram("Login.EnterPhrasePlaceholder")
             content.keyboardType = .default
             content.contentType = nil
-        case .authenticationCodeTypeCall, .authenticationCodeTypeFlashCall:
+        case .authenticationCodeTypeCall,
+             .authenticationCodeTypeFlashCall:
             content.text = styled("Login.CodeSentCallText", phone)
         case .authenticationCodeTypeMissedCall(let value):
             content.title = L10n.telegram("Login.EnterMissingDigits")
             content.text = [
-                L10n.telegram("Login.ShortCallTitle").replacingOccurrences(of: "\n", with: " "),
+                L10n.telegram("Login.ShortCallTitle").replacing("\n", with: " "),
                 boldMarker + value.phoneNumberPrefix + boldMarker,
-                L10n.telegram("Login.CodePhonePatternInfoText").replacingOccurrences(of: "\n", with: " "),
+                L10n.telegram("Login.CodePhonePatternInfoText").replacing("\n", with: " "),
             ].joined(separator: "\n")
         case .authenticationCodeTypeFragment(let value):
             content.title = L10n.telegram("Login.EnterCodeFragmentTitle")
@@ -235,12 +239,16 @@ struct LoginStageContent {
         guard let next = info.nextType else { return nil }
         let (isCall, key) =
             switch next {
-            case .authenticationCodeTypeFirebaseAndroid, .authenticationCodeTypeFirebaseIos, .authenticationCodeTypeSms,
-                 .authenticationCodeTypeSmsPhrase, .authenticationCodeTypeSmsWord:
+            case .authenticationCodeTypeFirebaseAndroid,
+                 .authenticationCodeTypeFirebaseIos,
+                 .authenticationCodeTypeSms,
+                 .authenticationCodeTypeSmsPhrase,
+                 .authenticationCodeTypeSmsWord:
                 (false, "Login.SendCodeViaSms")
             case .authenticationCodeTypeCall:
                 (true, "Login.SendCodeViaCall")
-            case .authenticationCodeTypeFlashCall, .authenticationCodeTypeMissedCall:
+            case .authenticationCodeTypeFlashCall,
+                 .authenticationCodeTypeMissedCall:
                 (true, "Login.SendCodeViaFlashCall")
             case .authenticationCodeTypeFragment:
                 (false, "Login.GetCodeViaFragment")

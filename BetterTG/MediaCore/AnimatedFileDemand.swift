@@ -100,7 +100,8 @@ import TDLibKit
         guard entries[entry.key] === entry else { return }
         if entry.consumers.isEmpty {
             switch entry.phase {
-            case .finished, .idle:
+            case .finished,
+                 .idle:
                 entries.removeValue(forKey: entry.key)
             case .waiting:
                 if entry.latest?.local.isDownloadingCompleted == true {
@@ -108,7 +109,8 @@ import TDLibKit
                 } else {
                     cancel(entry)
                 }
-            case .cancelling, .starting:
+            case .cancelling,
+                 .starting:
                 // A start RPC returns its immediate state before cancellation. A
                 // replacement download waits for the old cancellation's reply.
                 break
@@ -160,9 +162,8 @@ import TDLibKit
 
     private func receive(_ file: File, entry: Entry) {
         entry.latest = file
-        if entry.phase == .waiting {
-            if file.local.isDownloadingCompleted || !file.local.isDownloadingActive { entry.phase = .finished }
-        }
+        if entry.phase == .waiting,
+           file.local.isDownloadingCompleted || !file.local.isDownloadingActive { entry.phase = .finished }
         notify(file, entry: entry)
         if entry.phase == .finished, !file.local.isDownloadingCompleted { notify(nil, entry: entry) }
         drive(entry)

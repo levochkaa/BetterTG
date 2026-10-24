@@ -155,10 +155,7 @@ actor VoiceRecordingDraftStore {
         guard let canonicalDraft = load(id: draft.id) else {
             throw VoiceRecordingDraftStoreError.missingDraft
         }
-        guard canonicalDraft.revision == draft.revision else {
-            throw VoiceRecordingDraftStoreError.staleRevision
-        }
-        guard canonicalDraft.editRevision == draft.editRevision else {
+        guard canonicalDraft.revision == draft.revision, canonicalDraft.editRevision == draft.editRevision else {
             throw VoiceRecordingDraftStoreError.staleRevision
         }
         var updatedDraft = canonicalDraft
@@ -198,9 +195,7 @@ actor VoiceRecordingDraftStore {
             throw VoiceRecordingDraftStoreError.missingDraft
         }
         guard canonicalDraft.revision == draft.revision,
-              canonicalDraft.editRevision == draft.editRevision
-        else { throw VoiceRecordingDraftStoreError.staleRevision }
-        guard range.lowerBound >= 0,
+              canonicalDraft.editRevision == draft.editRevision, range.lowerBound >= 0,
               range.lowerBound < range.upperBound,
               range.upperBound <= canonicalDraft.exactDuration
         else { throw VoiceRecordingDraftStoreError.staleRevision }

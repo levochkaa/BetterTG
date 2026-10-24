@@ -203,7 +203,10 @@ enum PrivacyKind: CaseIterable {
         case .lastSeen: L10n.telegram("PrivacySettings.LastSeenTitle")
         case .calls: L10n.telegram("Settings.CallSettings")
         case .invites: L10n.telegram("Privacy.GroupsAndChannels")
-        case .bio, .birthday, .forwards, .profilePhoto: rowTitle
+        case .bio,
+             .birthday,
+             .forwards,
+             .profilePhoto: rowTitle
         }
     }
 
@@ -236,16 +239,26 @@ enum PrivacyKind: CaseIterable {
 
     var neverTitle: String {
         switch self {
-        case .calls, .forwards, .invites: L10n.telegram("Privacy.GroupsAndChannels.NeverAllow")
-        case .bio, .birthday, .lastSeen, .phoneNumber,
+        case .calls,
+             .forwards,
+             .invites: L10n.telegram("Privacy.GroupsAndChannels.NeverAllow")
+        case .bio,
+             .birthday,
+             .lastSeen,
+             .phoneNumber,
              .profilePhoto: L10n.telegram("PrivacyLastSeenSettings.NeverShareWith")
         }
     }
 
     var alwaysTitle: String {
         switch self {
-        case .calls, .forwards, .invites: L10n.telegram("Privacy.GroupsAndChannels.AlwaysAllow")
-        case .bio, .birthday, .lastSeen, .phoneNumber,
+        case .calls,
+             .forwards,
+             .invites: L10n.telegram("Privacy.GroupsAndChannels.AlwaysAllow")
+        case .bio,
+             .birthday,
+             .lastSeen,
+             .phoneNumber,
              .profilePhoto: L10n.telegram("PrivacyLastSeenSettings.AlwaysShareWith")
         }
     }
@@ -360,7 +373,8 @@ struct PrivacyRuleState: Equatable {
             case .userPrivacySettingRuleAllowChatMembers(let value): allowChatIDs += value.chatIds
             case .userPrivacySettingRuleRestrictUsers(let value): restrictUserIDs += value.userIds
             case .userPrivacySettingRuleRestrictChatMembers(let value): restrictChatIDs += value.chatIds
-            case .userPrivacySettingRuleRestrictAll, .userPrivacySettingRuleRestrictBots,
+            case .userPrivacySettingRuleRestrictAll,
+                 .userPrivacySettingRuleRestrictBots,
                  .userPrivacySettingRuleRestrictContacts:
                 break
             }

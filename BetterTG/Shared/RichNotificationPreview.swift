@@ -57,7 +57,8 @@ enum RichNotificationPreviewPolicy {
         func preview(data: Data?) -> RichNotificationPreview {
             switch self {
             case .denied: .denied
-            case .nonMedia, .unresolved: .unresolved
+            case .nonMedia,
+                 .unresolved: .unresolved
             case .message: .allowed(data)
             }
         }
@@ -152,8 +153,12 @@ enum RichNotificationPreviewPolicy {
 
     private static func isMedia(_ content: PushMessageContent) -> Bool {
         switch content {
-        case .pushMessageContentAnimation, .pushMessageContentDocument, .pushMessageContentPhoto,
-             .pushMessageContentSticker, .pushMessageContentVideo, .pushMessageContentVideoNote:
+        case .pushMessageContentAnimation,
+             .pushMessageContentDocument,
+             .pushMessageContentPhoto,
+             .pushMessageContentSticker,
+             .pushMessageContentVideo,
+             .pushMessageContentVideoNote:
             true
         default: false
         }

@@ -366,7 +366,7 @@ import UIKit
         guard task == nil, let presenter = host.presenter() else { return }
         let notice: (String) -> String? = { name in
             guard justAdded else { return nil }
-            return L10n.telegram("WebApp.ShortcutsSettingsAdded", name).replacingOccurrences(of: "**", with: "")
+            return L10n.telegram("WebApp.ShortcutsSettingsAdded", name).replacing("**", with: "")
         }
         #if DEBUG
             if let html = Self.probeHTML {

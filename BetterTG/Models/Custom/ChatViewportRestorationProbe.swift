@@ -156,7 +156,9 @@
                         + "A39-successive-self-size/injected-offset-convergence/strict-centering/stall-and-cap=true; "
                         + "navigation-consumer=value-only; ChatView-wiring=source-reviewed; "
                         + "real-ChatVM/TDLib/foreground/rotation=unverified; server/account-stores=0"
-                } catch { result = "Viewport authority probe failed: \(error)" }
+                } catch {
+                    result = "Viewport authority probe failed: \(error)"
+                }
                 log(result)
                 if let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                     try? Data(result.utf8).write(

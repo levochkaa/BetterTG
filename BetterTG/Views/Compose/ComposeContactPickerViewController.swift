@@ -63,7 +63,9 @@ ComposeFlowScreen {
     /// Who the mode lists: a secret chat is only with a person.
     private var allowsPerson: (ComposeContact) -> Bool {
         switch mode {
-        case .addMembers, .channelSubscribers, .secretChat: { !$0.isBot }
+        case .addMembers,
+             .channelSubscribers,
+             .secretChat: { !$0.isBot }
         case .newGroup: { _ in true }
         }
     }
@@ -71,7 +73,9 @@ ComposeFlowScreen {
     private var isMultipleSelection: Bool {
         switch mode {
         case .secretChat: false
-        case .addMembers, .channelSubscribers, .newGroup: true
+        case .addMembers,
+             .channelSubscribers,
+             .newGroup: true
         }
     }
 
@@ -250,7 +254,9 @@ ComposeFlowScreen {
         switch mode {
         case .secretChat:
             startSecretChat(with: contact)
-        case .addMembers, .channelSubscribers, .newGroup:
+        case .addMembers,
+             .channelSubscribers,
+             .newGroup:
             toggle(contact)
         }
     }

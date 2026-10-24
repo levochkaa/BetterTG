@@ -250,8 +250,7 @@ actor TDLibVODFFmpegLookahead {
     }
 
     private func beginTerminalLeaseRelease() {
-        guard releasesLeaseOnCancellation else { return }
-        guard !leaseReleased else { return }
+        guard releasesLeaseOnCancellation, !leaseReleased else { return }
         leaseReleased = true
         isClosed = true
         let lease = lease

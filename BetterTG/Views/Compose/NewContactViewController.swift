@@ -95,7 +95,8 @@ final class NewContactViewController: SettingsListViewController, ComposeFlowScr
     private func statusRows() -> [SettingsRow] {
         let text: String? =
             switch lookup {
-            case .idle, .resolving: nil
+            case .idle,
+                 .resolving: nil
             case .found(_, _, let isContact):
                 isContact
                     ? Self.withoutLinkAction(L10n.telegram("AddContact.PhoneNumber.IsContact"))

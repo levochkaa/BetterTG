@@ -17,14 +17,16 @@ import UIKit
     }
 
     static func address(_ link: String) -> String {
-        link.replacingOccurrences(of: "https://", with: "")
+        link.replacing("https://", with: "")
     }
 
     /// The main link's line: how many people joined through it.
     static func joined(_ count: Int) -> String {
-        count > 0
-            ? L10n.telegramPlural("InviteLink.PeopleJoined", count: count)
-            : L10n.telegram("InviteLink.PeopleJoinedNone")
+        if count > 0 {
+            L10n.telegramPlural("InviteLink.PeopleJoined", count: count)
+        } else {
+            L10n.telegram("InviteLink.PeopleJoinedNone")
+        }
     }
 
     /// ItemListInviteLinkItem's subtitle: who joined or can join, pending requests and approval, then revoked, the

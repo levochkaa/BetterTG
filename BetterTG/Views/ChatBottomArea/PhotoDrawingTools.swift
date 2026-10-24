@@ -145,13 +145,15 @@ func normalizedDrawingRect(_ rect: CGRect, drawingSize: CGSize) -> CGRect {
 
         var start: Point {
             switch self {
-            case .cubic(let start, _, _, _), .quad(let start, _, _): start
+            case .cubic(let start, _, _, _),
+                 .quad(let start, _, _): start
             }
         }
 
         var end: Point {
             switch self {
-            case .cubic(_, _, _, let end), .quad(_, _, let end): end
+            case .cubic(_, _, _, let end),
+                 .quad(_, _, let end): end
             }
         }
     }
@@ -1116,7 +1118,8 @@ func normalizedDrawingRect(_ rect: CGRect, drawingSize: CGSize) -> CGRect {
             if !bezierPoints.isEmpty, location != lastRenderedPoint {
                 pushPoint(location, isEnd: false)
             }
-        case .cancelled, .ended:
+        case .cancelled,
+             .ended:
             if bezierPoints.count >= 3 {
                 pushPoint(location, isEnd: true)
             }

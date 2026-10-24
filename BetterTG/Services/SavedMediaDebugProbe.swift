@@ -57,7 +57,9 @@ import TDLibKit
                                 "kind=\(kind) id=\(message.id) date=\(message.date) topic=\(topic) sent=\(message.sendingState == nil) downloaded=\(file.local.isDownloadingCompleted) fileExtension=\(URL(filePath: file.local.path).pathExtension)",
                             )
                     }
-                } catch { lines.append("read failed: \(error)") }
+                } catch {
+                    lines.append("read failed: \(error)")
+                }
             }
             let proof = lines.joined(separator: "\n")
             if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {

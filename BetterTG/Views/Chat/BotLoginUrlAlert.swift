@@ -66,7 +66,7 @@ import UIKit
     }
 
     private static func plain(_ text: String) -> String {
-        text.replacingOccurrences(of: "**", with: "")
+        text.replacing("**", with: "")
     }
 }
 

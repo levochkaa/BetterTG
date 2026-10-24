@@ -53,7 +53,10 @@ final class MessageMediaView: UIView {
         let view: UIView?
         let visualAlbum = message.album.filter { message in
             switch message.content {
-            case .messageAnimation, .messagePhoto, .messageSticker, .messageVideo:
+            case .messageAnimation,
+                 .messagePhoto,
+                 .messageSticker,
+                 .messageVideo:
                 true
             default:
                 false
@@ -1517,8 +1520,8 @@ enum TDMediaPrefetcher {
         client: TDLibClient,
         revealPermit: MediaRevealPermit? = nil,
     ) async {
-        guard MediaRevealPermit.allows(message, permit: revealPermit, requiresPermit: true) else { return }
-        guard let source = TDLib.shared.activeUpdateSource, source.clientID == client.id else { return }
+        guard MediaRevealPermit.allows(message, permit: revealPermit, requiresPermit: true),
+              let source = TDLib.shared.activeUpdateSource, source.clientID == client.id else { return }
         let files: [(file: File, decodeKind: DecodeKind)] =
             switch message.content {
             case .messagePhoto(let photo):
@@ -1564,7 +1567,9 @@ enum TDMediaPrefetcher {
             case .none:
                 guard let origin = TDImageOrigin.captured(client: client) else { return }
                 downloaded = await origin.request(fileID: file.file.id).completedFile(file: file.file)
-            case .ffmpegVideo, .tgs, .webP:
+            case .ffmpegVideo,
+                 .tgs,
+                 .webP:
                 guard let request = AnimatedFileDownload(fileID: file.file.id, client: client) else { return }
                 downloaded = await request.completedFile(file: file.file)
             case .unpooledMedia:

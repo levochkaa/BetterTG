@@ -232,7 +232,7 @@
             try await require(guarded.refreshNextBatch(), "partial update did not allow explicit retry")
             try require(
                 guardedDeliveries == [4, 1, 3] && guarded.failedMessageIDs.isEmpty
-                    && guardedReads.filter { $0 == 1 || $0 == 3 }.count == 4,
+                    && guardedReads.count(where: { $0 == 1 || $0 == 3 }) == 4,
                 "retry did not resolve both read and hydration races",
             )
             let latest = guarded.beginLatestRead()!

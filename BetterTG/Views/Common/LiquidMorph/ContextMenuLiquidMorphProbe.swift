@@ -30,7 +30,11 @@ import UIKit
                     ("visibility assertions", checkVisibilityAssertions),
                 ] as [(String, (UIView) async throws -> Void)] {
                     let host = makeHost(scene: scene, bounds: window.bounds)
-                    do { try await check.1(host.view) } catch { failures.append("\(check.0): \(error)") }
+                    do {
+                        try await check.1(host.view)
+                    } catch {
+                        failures.append("\(check.0): \(error)")
+                    }
                     host.window.isHidden = true
                 }
             } else {

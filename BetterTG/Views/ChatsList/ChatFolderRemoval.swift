@@ -150,7 +150,7 @@ import UIKit
         DispatchQueue.main.asyncAfter(deadline: .now() + PendingChatRemovals.delay, execute: commit)
         guard let placement else { return }
         let title = L10n.telegram("FolderLinkPreview.ToastLeftTitleV2")
-            .replacingOccurrences(of: "{folder}", with: info.name.text.text)
+            .replacing("{folder}", with: info.name.text.text)
         TelegramUndoToast.show(
             title: title,
             text: leaveChatIDs.isEmpty

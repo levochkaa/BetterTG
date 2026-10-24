@@ -726,8 +726,8 @@ func telegramVideoUsesFFmpeg(mimeType: String, fileName: String) -> Bool {
         }
     }
 
-    extension FFmpegAnimatedVideoView {
-        @MainActor static func runDebugProbeIfRequested() {
+    @MainActor extension FFmpegAnimatedVideoView {
+        static func runDebugProbeIfRequested() {
             FFmpegAnimationTimingProbe.runDebugProbeIfRequested()
             guard ProcessInfo.processInfo.arguments.contains("-media-probe-animation-worker") else { return }
             Task { await runAnimationWorkerProbe() }
@@ -793,17 +793,17 @@ func telegramVideoUsesFFmpeg(mimeType: String, fileName: String) -> Bool {
                 let held = heldProbe.snapshot()
                 let replacement = replacementProbe.snapshot()
                 guard !lifecycle.ranOnMain, !held.ranOnMain, !replacement.ranOnMain,
-                      lifecycle.events.filter({ $0 == "create" }).count == 1,
+                      lifecycle.events.count(where: { $0 == "create" }) == 1,
                       lifecycle.events.contains("read"), lifecycle.events.contains("reset"),
-                      lifecycle.events.filter({ $0 == "destroy" }).count == 1,
-                      held.events.filter({ $0 == "destroy" }).count == 1,
+                      lifecycle.events.count(where: { $0 == "destroy" }) == 1,
+                      held.events.count(where: { $0 == "destroy" }) == 1,
                       !held.events.contains("setup-timeout"),
-                      replacement.events.filter({ $0 == "destroy" }).count == 1
+                      replacement.events.count(where: { $0 == "destroy" }) == 1
                 else { throw WorkerProbeError.lifecycle }
                 result = "Animation worker probe: create/read/reset/destroy-off-main=true, "
                     + "main-release-worker-destroy=true, delayed-setup-cancel=true, "
                     + "same-path-reuse-fenced=true, replacement-ready=true, first-frame-preserved=true, "
-                    + "exactly-once-teardown=true, native-reads=\(lifecycle.events.filter { $0 == "read" }.count)"
+                    + "exactly-once-teardown=true, native-reads=\(lifecycle.events.count(where: { $0 == "read" }))"
             } catch {
                 result = "Animation worker probe failed: \(error)"
             }

@@ -139,13 +139,11 @@ enum VoiceNotePCMEditor {
                     let sourceFile = try AVAudioFile(forReading: sourceURL)
                     try validate(sourceFile, url: sourceURL)
                     guard sourceFile.length > 0 else { throw EditorError.emptyAudio }
-                    guard formatsAreCompatible(firstFile.processingFormat, sourceFile.processingFormat) else {
-                        throw EditorError.incompatibleFormat
-                    }
-                    guard let buffer = AVAudioPCMBuffer(
-                        pcmFormat: sourceFile.processingFormat,
-                        frameCapacity: bufferFrames,
-                    ) else { throw EditorError.incompatibleFormat }
+                    guard formatsAreCompatible(firstFile.processingFormat, sourceFile.processingFormat),
+                          let buffer = AVAudioPCMBuffer(
+                              pcmFormat: sourceFile.processingFormat,
+                              frameCapacity: bufferFrames,
+                          ) else { throw EditorError.incompatibleFormat }
                     while sourceFile.framePosition < sourceFile.length {
                         try Task.checkCancellation()
                         buffer.frameLength = 0

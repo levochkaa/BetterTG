@@ -101,8 +101,11 @@ enum TelegramContextMenuPresentationStyle: Equatable {
 
     var showsPreview: Bool {
         switch self {
-        case .avatar, .chatPreview, .message: true
-        case .menuOnly, .sourceMorph: false
+        case .avatar,
+             .chatPreview,
+             .message: true
+        case .menuOnly,
+             .sourceMorph: false
         }
     }
 }
@@ -1477,10 +1480,12 @@ private final class TelegramContextMenuController: UIViewController {
                 perform(actionButtons[index])
             case .dismiss:
                 dismissMenu(completion: nil)
-            case .keepOpen, .select:
+            case .keepOpen,
+                 .select:
                 break
             }
-        case .cancelled, .failed:
+        case .cancelled,
+             .failed:
             finishTracking()
         default:
             updateSelection(at: point, time: time)

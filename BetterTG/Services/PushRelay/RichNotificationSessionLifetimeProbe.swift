@@ -87,7 +87,9 @@
                         + "strict synchronous publication/retirement order, one result/close claim; "
                         + "actual NSE/TDLib close and RPC cancellation/callback drain=unverified; "
                         + "entered synchronous IO may delay retirement; RPC/cache/account/donation effects=0"
-                } catch { result = "FAIL: \(error)" }
+                } catch {
+                    result = "FAIL: \(error)"
+                }
                 log(result)
                 if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                     try? Data(result.utf8).write(
@@ -99,7 +101,8 @@
         }
 
         private static func verifyRegistration() throws {
-            let early = Lifetime(), events = Log()
+            let early = Lifetime()
+            let events = Log()
             try require(early.finish(nil), "cancel-before-begin was not accepted")
             try require(!early.begin { events.add($0 == nil ? "nil" : "value") }, "retired begin admitted")
             try require(!early.createClient { events.add("create")
@@ -115,7 +118,8 @@
             }, "create crossed retirement")
             try require(events.values == ["nil", "between"], "between-registration completion not exact")
 
-            let live = Lifetime(), replies = Log()
+            let live = Lifetime()
+            let replies = Log()
             try require(live.begin { value in
                 // Reentry would deadlock if finish resumed its continuation under the lock.
                 replies.add(value == 7 && !live.isCurrent(clientID: 11) ? "result" : "wrong")
@@ -148,7 +152,11 @@
         }
 
         private static func verifyHeldTasks() async throws {
-            let lifetime = Lifetime(), began = Signal(), resumed = Signal(), response = Signal(), events = Log()
+            let lifetime = Lifetime()
+            let began = Signal()
+            let resumed = Signal()
+            let response = Signal()
+            let events = Log()
             defer { response.open()
             lifetime.finish(nil)
             }
@@ -170,7 +178,8 @@
             var completed = [Signal]()
             for role in [Lifetime.Role.configure, .process, .resolve] {
                 let ticket = lifetime.reserve(role, clientID: 11)!
-                let entered = Signal(), done = Signal()
+                let entered = Signal()
+                let done = Signal()
                 completed.append(done)
                 let task = Task {
                     entered.open()
@@ -201,11 +210,12 @@
                 await task.value
             }
             try require(
-                events.values.filter { $0 == "cancelled" }.count == 3 && events.values.count == 4,
+                events.values.count(where: { $0 == "cancelled" }) == 3 && events.values.count == 4,
                 "late response published or role task was not cancelled",
             )
 
-            let fast = Lifetime(), returned = Signal()
+            let fast = Lifetime()
+            let returned = Signal()
             _ = fast.begin { _ in }
             _ = fast.createClient { 22 }
             let ticket = fast.reserve(.process, clientID: 22)!
@@ -224,8 +234,14 @@
         }
 
         private static func verifyBootstrap() async throws {
-            let lifetime = Lifetime(), gate = BlockingGate(), callbackStarted = Signal(), callbackDone = Signal()
-            let retireStarted = Signal(), retired = Signal(), created = Signal(), events = Log()
+            let lifetime = Lifetime()
+            let gate = BlockingGate()
+            let callbackStarted = Signal()
+            let callbackDone = Signal()
+            let retireStarted = Signal()
+            let retired = Signal()
+            let created = Signal()
+            let events = Log()
             defer { gate.open()
             lifetime.finish(nil)
             }
@@ -264,8 +280,12 @@
         }
 
         private static func verifyPublication() async throws {
-            let lifetime = Lifetime(), gate = BlockingGate(), retireStarted = Signal(), retired = Signal()
-            let published = Signal(), events = Log()
+            let lifetime = Lifetime()
+            let gate = BlockingGate()
+            let retireStarted = Signal()
+            let retired = Signal()
+            let published = Signal()
+            let events = Log()
             defer { gate.open()
             lifetime.finish(nil)
             }

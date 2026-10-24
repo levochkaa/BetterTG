@@ -104,7 +104,11 @@ import UIKit
     private var offersPhoneNumberChange: Bool {
         guard localStage == nil else { return false }
         return switch tdlibStage {
-        case .code, .emailAddress, .emailCode, .registration, .twoFactor: true
+        case .code,
+             .emailAddress,
+             .emailCode,
+             .registration,
+             .twoFactor: true
         default: false
         }
     }
@@ -215,7 +219,8 @@ import UIKit
         self.localStage =
             switch localStage {
             case .newPassword: .passwordRecovery
-            case .passwordRecovery, .phoneNumber: nil
+            case .passwordRecovery,
+                 .phoneNumber: nil
             }
         onChange?(true)
     }
@@ -268,8 +273,11 @@ import UIKit
         requestTask = Task { [weak self] in
             guard !Task.isCancelled, let request = self?.takeRequest(id, token: token) else { return }
             var failure: String?
-            do { try await client.submit(request) }
-            catch { failure = LoginErrorText.message(for: error, stage: stage) }
+            do {
+                try await client.submit(request)
+            } catch {
+                failure = LoginErrorText.message(for: error, stage: stage)
+            }
             guard !Task.isCancelled else { return }
             self?.finish(id, token: token, request: request, failure: failure)
         }
@@ -331,7 +339,9 @@ enum LoginErrorText {
         }
         if stage == .passwordRecovery {
             switch message {
-            case "CODE_INVALID", "Invalid recovery code", "PASSWORD_RECOVERY_EXPIRED":
+            case "CODE_INVALID",
+                 "Invalid recovery code",
+                 "PASSWORD_RECOVERY_EXPIRED":
                 return L10n.telegram("TwoStepAuth.RecoveryCodeInvalid")
             case "PASSWORD_RECOVERY_NA":
                 return L10n.telegram("TwoStepAuth.RecoveryUnavailable")
@@ -344,9 +354,13 @@ enum LoginErrorText {
             case "PHONE_NUMBER_INVALID": "Login.InvalidPhoneError"
             case "PHONE_NUMBER_BANNED": "Login.PhoneBannedError"
             case "PHONE_NUMBER_FLOOD": "Login.PhoneFloodError"
-            case "CODE_INVALID", "EMAIL_CODE_INVALID", "PHONE_CODE_INVALID":
+            case "CODE_INVALID",
+                 "EMAIL_CODE_INVALID",
+                 "PHONE_CODE_INVALID":
                 stage == .emailCode ? "Login.WrongCodeError" : "Login.InvalidCodeError"
-            case "CODE_EXPIRED", "EMAIL_CODE_EXPIRED", "PHONE_CODE_EXPIRED": "Login.CodeExpired"
+            case "CODE_EXPIRED",
+                 "EMAIL_CODE_EXPIRED",
+                 "PHONE_CODE_EXPIRED": "Login.CodeExpired"
             case "PASSWORD_HASH_INVALID": "LoginPassword.InvalidPasswordError"
             case "PASSWORD_RECOVERY_NA": "TwoStepAuth.RecoveryUnavailable"
             case "FIRSTNAME_INVALID": "Login.InvalidFirstNameError"

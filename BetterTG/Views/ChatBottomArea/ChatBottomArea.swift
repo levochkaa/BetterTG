@@ -223,9 +223,15 @@ final class ChatComposerView: UIView {
 
     private var isVideoNoteBusy: Bool {
         switch videoNoteState {
-        case .preparing, .sending, .stopping:
+        case .preparing,
+             .sending,
+             .stopping:
             true
-        case .failed, .holding, .idle, .locked, .preview:
+        case .failed,
+             .holding,
+             .idle,
+             .locked,
+             .preview:
             false
         }
     }
@@ -360,7 +366,8 @@ final class ChatComposerView: UIView {
             }
         case .text:
             sources.append(textView)
-        case .videoNote, .voiceNote:
+        case .videoNote,
+             .voiceNote:
             if !recordingRow.isHidden {
                 sources.append(recordingRow)
             } else if !actionButton.isHidden {
@@ -2182,7 +2189,9 @@ final class ChatComposerView: UIView {
         let allowsContext =
             switch context {
             case .stickers: chatVM.editCustomMessage == nil && chatVM.canSendStickersAndAnimations
-            case .emojiSearch, .hashtag, nil: true
+            case .emojiSearch,
+                 .hashtag,
+                 nil: true
             }
         chatVM.updateContextQuery(allowsContext ? context : nil)
     }
@@ -2261,9 +2270,11 @@ final class ChatComposerView: UIView {
                 ?? preview.showLargeMedia
             let isVideo =
                 switch preview.type {
-                case .linkPreviewTypeAnimation, .linkPreviewTypeEmbeddedAnimationPlayer,
+                case .linkPreviewTypeAnimation,
+                     .linkPreviewTypeEmbeddedAnimationPlayer,
                      .linkPreviewTypeEmbeddedVideoPlayer,
-                     .linkPreviewTypeExternalVideo, .linkPreviewTypeVideo:
+                     .linkPreviewTypeExternalVideo,
+                     .linkPreviewTypeVideo:
                     true
                 default:
                     false
@@ -2320,9 +2331,15 @@ final class ChatComposerView: UIView {
         if videoNoteState.isActive {
             setVoiceGestureDeferral(false)
             switch videoNoteState {
-            case .holding, .locked, .preview:
+            case .holding,
+                 .locked,
+                 .preview:
                 onSendVideoNoteRecording?()
-            case .failed, .idle, .preparing, .sending, .stopping:
+            case .failed,
+                 .idle,
+                 .preparing,
+                 .sending,
+                 .stopping:
                 break
             }
             return
@@ -2496,8 +2513,8 @@ final class ChatComposerView: UIView {
     }
 
     private func toggleMediaRecordingMode() {
-        guard !videoNoteState.isActive, !chatVM.recordingVoiceNote else { return }
-        guard chatVM.canRecordVoiceNote, chatVM.canRecordVideoNote else { return }
+        guard !videoNoteState.isActive, !chatVM.recordingVoiceNote, chatVM.canRecordVoiceNote,
+              chatVM.canRecordVideoNote else { return }
         selectedMediaRecordingMode = selectedMediaRecordingMode == .voice ? .video : .voice
         UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.55)
         updateActionButton()
@@ -2677,7 +2694,8 @@ final class ChatComposerView: UIView {
                 finishVoiceGesture(with: .send)
             }
             resetVoiceGestureButtonSuppressionAfterCurrentEvent()
-        case .cancelled, .failed:
+        case .cancelled,
+             .failed:
             voiceGestureContactEnded = true
             setVoiceGestureDeferral(false)
             if voiceGestureFinished {
@@ -2837,9 +2855,15 @@ final class ChatComposerView: UIView {
             chatVM.recordingVoiceNote
         case .video:
             switch videoNoteState {
-            case .holding, .locked:
+            case .holding,
+                 .locked:
                 true
-            case .failed, .idle, .preparing, .preview, .sending, .stopping:
+            case .failed,
+                 .idle,
+                 .preparing,
+                 .preview,
+                 .sending,
+                 .stopping:
                 false
             }
         }
@@ -2925,7 +2949,10 @@ final class ChatComposerView: UIView {
             } else {
                 chatVM.resumeVoiceRecording()
             }
-        case .holding, .idle, .pausing, .resuming:
+        case .holding,
+             .idle,
+             .pausing,
+             .resuming:
             break
         }
     }

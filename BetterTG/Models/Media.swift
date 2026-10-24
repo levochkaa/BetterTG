@@ -379,7 +379,10 @@ final class Media: ObservableObject {
                 case .failed:
                     stop()
                     releasePlaybackSession()
-                case .buffering, .idle, .paused, .preparing:
+                case .buffering,
+                     .idle,
+                     .paused,
+                     .preparing:
                     isPlaying = false
                 }
             }

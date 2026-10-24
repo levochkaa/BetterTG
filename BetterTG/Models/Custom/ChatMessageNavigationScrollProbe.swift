@@ -306,7 +306,9 @@
                         + "second native animation=injected; full settlement/ChatView/historical failure cause=unverified; RPC=0"
                 } catch let error as EndOrderSetupFailure {
                     result = "Navigation end-order probe inconclusive: \(error)"
-                } catch { result = "Navigation end-order probe failed: \(error)" }
+                } catch {
+                    result = "Navigation end-order probe failed: \(error)"
+                }
                 log(result)
                 if let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                     try? Data(result.utf8).write(
@@ -572,8 +574,11 @@
         }
 
         private static func waitForEndOrderSetup(_ detail: String, until condition: () -> Bool) async throws {
-            do { try await wait(detail, until: condition) }
-            catch { throw EndOrderSetupFailure(description: "\(detail): \(error)") }
+            do {
+                try await wait(detail, until: condition)
+            } catch {
+                throw EndOrderSetupFailure(description: "\(detail): \(error)")
+            }
         }
 
         private static func require(_ condition: Bool, _ detail: String) throws {

@@ -40,8 +40,18 @@ enum PhotoTool: CaseIterable {
     /// The tool's `minimumValue`: the one-sided tools start at zero.
     var minimumValue: Int {
         switch self {
-        case .enhance, .fade, .grain, .sharpen, .skin, .vignette: 0
-        case .contrast, .exposure, .highlights, .saturation, .shadows, .warmth: -100
+        case .enhance,
+             .fade,
+             .grain,
+             .sharpen,
+             .skin,
+             .vignette: 0
+        case .contrast,
+             .exposure,
+             .highlights,
+             .saturation,
+             .shadows,
+             .warmth: -100
         }
     }
 

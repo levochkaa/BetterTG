@@ -196,7 +196,11 @@ final class VoicePlayOnceViewController: UIViewController {
                     finish()
                 case .failed:
                     finish(failed: true)
-                case .buffering, .idle, .paused, .playing, .preparing:
+                case .buffering,
+                     .idle,
+                     .paused,
+                     .playing,
+                     .preparing:
                     render(position: nil)
                 }
             }
@@ -304,7 +308,11 @@ final class VoicePlayOnceViewController: UIViewController {
         deadlineTask?.cancel()
         let backend = backend
         deadlineTask = Task { [weak self] in
-            do { try await backend.sleep(max(0, interval)) } catch { return }
+            do {
+                try await backend.sleep(max(0, interval))
+            } catch {
+                return
+            }
             self?.finish()
         }
     }

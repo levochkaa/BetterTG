@@ -92,10 +92,8 @@ import UIKit
             guard let index = original.firstIndex(where: { $0 === candidate }),
                   let entry = candidate as? any ClientRestorableNavigationEntry,
                   let previous = entry.navigationClientSource,
-                  previous.accountID == source.accountID, previous.clientID != source.clientID
-            else { continue }
-            guard let plan = entry.prepareReplacementForReadyClient(source) else { continue }
-            guard plan.canCommit() else { continue }
+                  previous.accountID == source.accountID, previous.clientID != source.clientID,
+                  let plan = entry.prepareReplacementForReadyClient(source), plan.canCommit() else { continue }
             guard generation == expectedGeneration, readySource == source,
                   currentSource() == source, canReplace(),
                   original.elementsEqual(stack(), by: { $0 === $1 })

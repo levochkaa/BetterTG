@@ -484,7 +484,11 @@ final class LoginViewController: UIViewController {
             presentTermsOfService(value.termsOfService, token: token, asksToAgree: false)
         case .usePhoneNumber:
             guard authorization.stage == .qrCode, let restartSignIn else { return }
-            do { try restartSignIn() } catch { showError(error.localizedDescription) }
+            do {
+                try restartSignIn()
+            } catch {
+                showError(error.localizedDescription)
+            }
         }
     }
 
@@ -504,7 +508,8 @@ final class LoginViewController: UIViewController {
                     proceed: "Login.CancelPhoneVerificationContinue",
                     stop: "Login.CancelPhoneVerificationStop",
                 )
-            case .emailAddress, .emailCode:
+            case .emailAddress,
+                 .emailCode:
                 (
                     text: "Login.CancelEmailVerification",
                     proceed: "Login.CancelEmailVerificationContinue",

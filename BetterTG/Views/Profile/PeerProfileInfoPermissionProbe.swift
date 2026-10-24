@@ -222,7 +222,9 @@
                         do {
                             _ = try await pending.perform { writes += 1 }
                             return false
-                        } catch { return true }
+                        } catch {
+                            return true
+                        }
                     }
                     await gate.waitUntilEntered()
                     switch invalidation {
@@ -252,7 +254,9 @@
                         }
                         completions += 1
                         return false
-                    } catch { return true }
+                    } catch {
+                        return true
+                    }
                 }
                 await gate.waitUntilEntered()
                 current = replacement

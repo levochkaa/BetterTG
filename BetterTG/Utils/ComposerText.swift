@@ -55,7 +55,9 @@ enum ComposerText {
             guard isValid(range, in: formatted.text as NSString), range.length > 0 else { continue }
             let original: String? =
                 switch entity.type {
-                case .textEntityTypeCustomEmoji, .textEntityTypeDateTime, .textEntityTypeMentionName:
+                case .textEntityTypeCustomEmoji,
+                     .textEntityTypeDateTime,
+                     .textEntityTypeMentionName:
                     (formatted.text as NSString).substring(with: range)
                 default: nil
                 }
@@ -220,7 +222,9 @@ enum ComposerText {
         transform(text, in: range) { current in
             current.filter {
                 switch $0.type {
-                case .textEntityTypeCustomEmoji, .textEntityTypeMentionName, .textEntityTypeTextUrl: false
+                case .textEntityTypeCustomEmoji,
+                     .textEntityTypeMentionName,
+                     .textEntityTypeTextUrl: false
                 default: true
                 }
             } + [entity]
@@ -241,7 +245,9 @@ enum ComposerText {
             transform(text, in: emoji.range) { current in
                 current.filter {
                     switch $0.type {
-                    case .textEntityTypeCustomEmoji, .textEntityTypeMentionName, .textEntityTypeTextUrl: false
+                    case .textEntityTypeCustomEmoji,
+                         .textEntityTypeMentionName,
+                         .textEntityTypeTextUrl: false
                     default: true
                     }
                 } + [entity]
@@ -258,8 +264,12 @@ enum ComposerText {
             : []
         let entities = values(attributes).filter {
             switch $0.type {
-            case .textEntityTypeBold, .textEntityTypeCode, .textEntityTypeItalic: true
-            case .textEntityTypeBlockQuote, .textEntityTypeExpandableBlockQuote, .textEntityTypePre,
+            case .textEntityTypeBold,
+                 .textEntityTypeCode,
+                 .textEntityTypeItalic: true
+            case .textEntityTypeBlockQuote,
+                 .textEntityTypeExpandableBlockQuote,
+                 .textEntityTypePre,
                  .textEntityTypePreCode:
                 interior.contains($0)
             default: false
@@ -347,7 +357,10 @@ enum ComposerText {
 
     private static func isStyle(_ type: TextEntityType) -> Bool {
         switch type {
-        case .textEntityTypeBold, .textEntityTypeItalic, .textEntityTypeSpoiler, .textEntityTypeStrikethrough,
+        case .textEntityTypeBold,
+             .textEntityTypeItalic,
+             .textEntityTypeSpoiler,
+             .textEntityTypeStrikethrough,
              .textEntityTypeUnderline: true
         default: false
         }
@@ -355,18 +368,29 @@ enum ComposerText {
 
     private static func isCode(_ type: TextEntityType) -> Bool {
         switch type {
-        case .textEntityTypeCode, .textEntityTypePre, .textEntityTypePreCode: true
+        case .textEntityTypeCode,
+             .textEntityTypePre,
+             .textEntityTypePreCode: true
         default: false
         }
     }
 
     private static func isManual(_ type: TextEntityType) -> Bool {
         switch type {
-        case .textEntityTypeBlockQuote, .textEntityTypeBold, .textEntityTypeCode, .textEntityTypeCustomEmoji,
-             .textEntityTypeDateTime, .textEntityTypeExpandableBlockQuote, .textEntityTypeItalic,
+        case .textEntityTypeBlockQuote,
+             .textEntityTypeBold,
+             .textEntityTypeCode,
+             .textEntityTypeCustomEmoji,
+             .textEntityTypeDateTime,
+             .textEntityTypeExpandableBlockQuote,
+             .textEntityTypeItalic,
              .textEntityTypeMentionName,
-             .textEntityTypePre, .textEntityTypePreCode, .textEntityTypeSpoiler,
-             .textEntityTypeStrikethrough, .textEntityTypeTextUrl, .textEntityTypeUnderline: true
+             .textEntityTypePre,
+             .textEntityTypePreCode,
+             .textEntityTypeSpoiler,
+             .textEntityTypeStrikethrough,
+             .textEntityTypeTextUrl,
+             .textEntityTypeUnderline: true
         default: false
         }
     }

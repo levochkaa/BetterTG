@@ -690,7 +690,8 @@ private final class StickerPeekMenuView: UIView {
 
     @objc private func pressChanged(_ gesture: UILongPressGestureRecognizer) {
         switch gesture.state {
-        case .began, .changed:
+        case .began,
+             .changed:
             highlightItem(at: gesture.location(in: self))
         case .ended:
             highlightItem(at: gesture.location(in: self))

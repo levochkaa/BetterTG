@@ -336,7 +336,9 @@ final class StoryCubePreviewView: UIView {
                     origin: origin,
                 )
             }
-        case nil, .storyContentLive, .storyContentUnsupported:
+        case nil,
+             .storyContentLive,
+             .storyContentUnsupported:
             imageView.cancel()
             imageView.image = nil
         }

@@ -14,7 +14,8 @@
             let account = UUID()
             func consume(_ update: Update) { store.consume(update, accountID: account, clientID: 1) }
             switch seed.type {
-            case .bot(let user), .user(let user):
+            case .bot(let user),
+                 .user(let user):
                 consume(.updateUser(TDNativeUpdateUser(user: user)))
             case .group(let group):
                 consume(.updateBasicGroup(TDNativeUpdateBasicGroup(basicGroup: group)))

@@ -364,7 +364,8 @@ final class PhotoDrawingCanvasView: UIView, UIGestureRecognizerDelegate {
             }
             previousPointTimestamp = timestamp
             uncommittedElement?.updatePath(point, state: state)
-        case .cancelled, .ended:
+        case .cancelled,
+             .ended:
             isDrawing = false
             guard let element = uncommittedElement else {
                 updateInternalState()
@@ -387,7 +388,10 @@ final class PhotoDrawingCanvasView: UIView, UIGestureRecognizerDelegate {
     /// `setupNewElement`.
     private func makeElement() -> PhotoDrawingElement {
         switch tool {
-        case .arrow, .blur, .eraser, .pen:
+        case .arrow,
+             .blur,
+             .eraser,
+             .pen:
             PhotoDrawingPenElement(
                 drawingSize: drawingSize,
                 color: toolColor,
@@ -551,7 +555,9 @@ final class PhotoDrawingCanvasView: UIView, UIGestureRecognizerDelegate {
             animation.fillMode = .forwards
             animation.isRemovedOnCompletion = false
             circle.add(animation, forKey: "scale")
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             longPressTimer?.invalidate()
             longPressTimer = nil
             if let circle = fillCircleLayer {

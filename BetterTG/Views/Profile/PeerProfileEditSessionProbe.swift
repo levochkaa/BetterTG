@@ -52,7 +52,8 @@ import UIKit
                 return .init(source: source) { [weak self] mutation, dispatch in
                     guard let self else { throw CancellationError() }
                     switch mutation {
-                    case .description(let chatID, _), .title(let chatID, _):
+                    case .description(let chatID, _),
+                         .title(let chatID, _):
                         let authorization = PeerProfileInfoEditAuthorization(
                             chatID: chatID,
                             actorUserID: 77,

@@ -107,7 +107,8 @@ import UIKit
                             try dispatch()
                             _ = try await client.setChatMemberTag(chatId: chatID, tag: tag, userId: targetID)
                         }
-                    case .description(let chatID, let value), .title(let chatID, let value):
+                    case .description(let chatID, let value),
+                         .title(let chatID, let value):
                         let authorization = PeerProfileInfoEditAuthorization.live(
                             accountID: accountID, actorUserID: actorID, chatID: chatID,
                             client: client,

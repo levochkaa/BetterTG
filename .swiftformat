@@ -86,6 +86,7 @@
 --semicolons never
 --short-optionals always
 --single-line-for-each ignore
+--single-line-ternary preserve
 --smart-tabs enabled
 --some-any true
 --sort-swiftui-properties alphabetize
@@ -126,5 +127,5 @@
 --xctest-symbols 
 --yoda-swap always
 --disable wrapFunctionBodies,wrapPropertyBodies,swiftTestingTestCaseNames,wrapIfStatementBodies
---enable blockComments,isEmpty,markTypes,noExplicitOwnership,noGuardInTests,organizeDeclarations,preferFinalClasses,preferSwiftTesting,propertyTypes,redundantSendable,sortSwitchCases,unusedPrivateDeclarations,validateTestCases,wrapEnumCases,wrapMultilineConditionalAssignment,wrapMultilineFunctionChains
+--enable blockComments,commonTypos,emptyExtensions,forWhere,ifExpressions,isEmpty,markTypes,noExplicitOwnership,noGuardInTests,organizeDeclarations,preferContains,preferCountWhere,preferFinalClasses,preferFirstWhere,preferFlatMap,preferLazyMap,preferMinOverSorted,preferStructSwiftTestingSuites,preferSwiftStringAPI,preferSwiftTesting,propertyTypes,redundantExtendedLifetime,redundantOverload,redundantSendable,singlePropertyPerLine,sortSwitchCases,testSuiteAccessControl,unusedPrivateDeclarations,validateTestCases,wrapDoBodies,wrapEnumCases,wrapMultilineConditionalAssignment,wrapMultilineFunctionChains,wrapSwitchCases
 --exclude BetterTG/Extensions/Td/Td+Generated.swift

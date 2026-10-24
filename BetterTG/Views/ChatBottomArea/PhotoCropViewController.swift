@@ -862,7 +862,9 @@ final class PhotoCropViewController: UIViewController {
         case .began:
             isShowingOriginal = true
             hudView.setText(L10n.telegram("PhotoEditor.Original"))
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             isShowingOriginal = false
             hudView.setText(nil)
         default:

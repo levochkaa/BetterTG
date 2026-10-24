@@ -278,7 +278,11 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         var index = caret - 1
         while index >= 0 {
             switch string.character(at: index) {
-            case 0x0A, 0x20, 0x23, 0x2F, 0x3A:
+            case 0x0A,
+                 0x20,
+                 0x23,
+                 0x2F,
+                 0x3A:
                 // A space or a newline ends the word; "#", "/" and ":" start other queries.
                 return nil
             case 0x40:
@@ -322,10 +326,14 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         while index >= 0 {
             let character = string.character(at: index)
             switch character {
-            case 0x0A, 0x20, 0x2F, 0x40:
+            case 0x0A,
+                 0x20,
+                 0x2F,
+                 0x40:
                 // A space or a newline ends the word; "/" and "@" start a command or a mention.
                 return nil
-            case 0x23, 0x3A:
+            case 0x23,
+                 0x3A:
                 if index > 0, ![0x20, 0x0A, 0x2E, 0x2C].contains(string.character(at: index - 1)) { return nil }
                 let word = NSRange(location: index + 1, length: caret - index - 1)
                 let query = string.substring(with: word)
@@ -385,10 +393,11 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         typingAttributes = ComposerText.typingAttributes(in: attributedText, at: range.location)
         // A custom emoji is one atomic glyph: a partial edit replaces the whole emoji.
         var atomicRange = range
-        for emoji in TelegramCustomEmojiRun.extract(from: textStorage) {
-            if range.length > 0, NSIntersectionRange(range, emoji.range).length > 0 {
-                atomicRange = NSUnionRange(atomicRange, emoji.range)
-            }
+        for emoji in TelegramCustomEmojiRun.extract(from: textStorage) where range.length > 0 && NSIntersectionRange(
+            range,
+            emoji.range,
+        ).length > 0 {
+            atomicRange = NSUnionRange(atomicRange, emoji.range)
         }
         guard atomicRange == range else {
             selectedRange = atomicRange

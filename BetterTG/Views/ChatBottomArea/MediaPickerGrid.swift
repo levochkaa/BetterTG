@@ -462,9 +462,8 @@ struct MediaPickerAlbum {
         var mediaTypes = [MediaPickerAlbum]()
         smartAlbums.enumerateObjects { collection, _, _ in
             let subtype = collection.assetCollectionSubtype
-            if subtype == .smartAlbumUserLibrary || subtype == .smartAlbumFavorites {
-                if let album = MediaPickerAlbum(collection: collection) { albums.append(album) }
-            }
+            if subtype == .smartAlbumUserLibrary || subtype == .smartAlbumFavorites,
+               let album = MediaPickerAlbum(collection: collection) { albums.append(album) }
         }
         userAlbums.enumerateObjects(options: [.reverse]) { collection, _, _ in
             if let album = MediaPickerAlbum(collection: collection) { albums.append(album) }

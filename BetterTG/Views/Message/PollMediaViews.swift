@@ -53,7 +53,9 @@ struct PollMediaStill {
             // ChatMessagePollOptionNode draws a link's preview image (the web page's `content.image`).
             guard let preview = value.linkPreview else { return nil }
             self.init(linkPreview: preview)
-        case .pollMediaLocation, .pollMediaSticker, .pollMediaVenue:
+        case .pollMediaLocation,
+             .pollMediaSticker,
+             .pollMediaVenue:
             return nil
         }
     }
@@ -84,7 +86,10 @@ struct PollMediaStill {
     private static func imageFile(_ thumbnail: TDNativeThumbnail?) -> File? {
         guard let thumbnail else { return nil }
         return switch thumbnail.format {
-        case .thumbnailFormatGif, .thumbnailFormatJpeg, .thumbnailFormatPng, .thumbnailFormatWebp: thumbnail.file
+        case .thumbnailFormatGif,
+             .thumbnailFormatJpeg,
+             .thumbnailFormatPng,
+             .thumbnailFormatWebp: thumbnail.file
         default: nil
         }
     }
@@ -460,7 +465,10 @@ final class PollMediaPreviewView: UIControl, MessageSupplementView {
     /// Nil for media this preview doesn't draw: a file, a place or a link.
     init?(media: TDNativePollMedia, client: TDLibClient, onTap: @escaping (TDNativePollMedia) -> Void) {
         switch media {
-        case .pollMediaAnimation, .pollMediaPhoto, .pollMediaSticker, .pollMediaVideo:
+        case .pollMediaAnimation,
+             .pollMediaPhoto,
+             .pollMediaSticker,
+             .pollMediaVideo:
             break
         default:
             return nil

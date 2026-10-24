@@ -759,7 +759,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             )
         case .storyContentVideo(let content):
             startVideo(content.video, origin: origin)
-        case .storyContentLive, .storyContentUnsupported:
+        case .storyContentLive,
+             .storyContentUnsupported:
             showMessage(L10n.betterTG("Story.Unsupported"), key: key)
         }
         preloadUpcoming()
@@ -902,7 +903,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
                     }
                 mediaDidBecomeReady(duration: storyDuration > 0 ? storyDuration : player.duration, key: key)
             }
-        case .buffering, .preparing:
+        case .buffering,
+             .preparing:
             guard state.duration != nil else { return }
             state.setPaused(true, for: .buffering)
             loadingIndicator.startAnimating()
@@ -915,7 +917,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             if state.duration == nil {
                 showMessage(L10n.betterTG("Story.PlaybackFailed"), key: key)
             }
-        case .idle, .paused:
+        case .idle,
+             .paused:
             break
         }
     }
@@ -1120,7 +1123,9 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         case .began:
             setPaused(true, for: .hold)
             setChromeHidden(true)
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             setPaused(false, for: .hold)
             setChromeHidden(false)
         default:
@@ -1143,7 +1148,9 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             case .poster: updatePosterPan(translation.x)
             case nil: break
             }
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             let axis = panAxis
             panAxis = nil
             let ended = gesture.state == .ended
@@ -1227,7 +1234,9 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             title = L10n.telegram("Story.ViewLink")
             subtitle = link.url
             action = { [weak self] in self?.openAreaLink(link.url) }
-        case .storyAreaTypeSuggestedReaction, .storyAreaTypeUpgradedGift, .storyAreaTypeWeather:
+        case .storyAreaTypeSuggestedReaction,
+             .storyAreaTypeUpgradedGift,
+             .storyAreaTypeWeather:
             return
         }
         let size = contentView.bounds.size
@@ -2142,7 +2151,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             guard replyReactionsMode == .like else { return }
             replyReactions.updateTracking(at: gesture.location(in: replyReactions))
             if !replyReactions.selectTrackedReaction() { replyReactions.updateTracking(at: nil) }
-        case .cancelled, .failed:
+        case .cancelled,
+             .failed:
             replyReactions.updateTracking(at: nil)
         default:
             break

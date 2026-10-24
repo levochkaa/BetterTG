@@ -128,7 +128,13 @@ final class SettingsViewController: UITableViewController {
             cell.contentConfiguration = configuration
         case .app(let botUserID):
             configureApp(cell, configuration: configuration, botUserID: botUserID)
-        case .appearance, .chatFolders, .dataAndStorage, .devices, .language, .notifications, .privacy,
+        case .appearance,
+             .chatFolders,
+             .dataAndStorage,
+             .devices,
+             .language,
+             .notifications,
+             .privacy,
              .savedMessages:
             cell.accessoryType = .disclosureIndicator
         case .animatedMedia:
@@ -136,7 +142,9 @@ final class SettingsViewController: UITableViewController {
             toggle.isOn = UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
             toggle.addTarget(self, action: #selector(animatedMediaChanged(_:)), for: .valueChanged)
             cell.accessoryView = toggle
-        case .logOut, .profile, .version:
+        case .logOut,
+             .profile,
+             .version:
             break
         }
         return cell
@@ -173,7 +181,8 @@ final class SettingsViewController: UITableViewController {
             navigationController?.pushViewController(DataAndStorageViewController(), animated: true)
         case .logOut:
             confirmLogout(from: indexPath)
-        case .animatedMedia, .version:
+        case .animatedMedia,
+             .version:
             break
         }
     }
@@ -395,7 +404,11 @@ private extension SettingsViewController {
             case .accounts: L10n.betterTG("Accounts.Section")
             case .media: L10n.betterTG("Settings.MediaSection")
             case .about: L10n.betterTG("Settings.AboutSection")
-            case .accountActions, .appearance, .apps, .profile, .shortcuts: nil
+            case .accountActions,
+                 .appearance,
+                 .apps,
+                 .profile,
+                 .shortcuts: nil
             }
         }
     }
@@ -474,8 +487,16 @@ private extension SettingsViewController {
                 L10n.betterTG("Settings.AnimatedMediaFormats")
             case .version:
                 Utils.applicationVersion
-            case .addAccount, .app, .chatFolders, .dataAndStorage, .devices, .logOut, .notifications, .privacy,
-                 .profile, .savedMessages:
+            case .addAccount,
+                 .app,
+                 .chatFolders,
+                 .dataAndStorage,
+                 .devices,
+                 .logOut,
+                 .notifications,
+                 .privacy,
+                 .profile,
+                 .savedMessages:
                 nil
             }
         }
@@ -483,7 +504,9 @@ private extension SettingsViewController {
         /// Rows that show their value on the right, as Telegram's disclosure items do.
         var showsValue: Bool {
             switch self {
-            case .appearance, .devices, .language: true
+            case .appearance,
+                 .devices,
+                 .language: true
             default: false
             }
         }
@@ -511,7 +534,13 @@ private extension SettingsViewController {
         var tintColor: UIColor {
             switch self {
             case .account: .systemTeal
-            case .addAccount, .app, .appearance, .language, .profile, .savedMessages, .version: .systemBlue
+            case .addAccount,
+                 .app,
+                 .appearance,
+                 .language,
+                 .profile,
+                 .savedMessages,
+                 .version: .systemBlue
             case .devices: .systemOrange
             case .chatFolders: .systemCyan
             case .notifications: .systemRed
@@ -524,7 +553,8 @@ private extension SettingsViewController {
 
         var isSelectable: Bool {
             switch self {
-            case .animatedMedia, .version:
+            case .animatedMedia,
+                 .version:
                 false
             default:
                 true

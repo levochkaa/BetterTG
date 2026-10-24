@@ -168,7 +168,8 @@ enum Route {
                     lastMessage: chat.lastMessage,
                     draftMessage: chat.draftMessage,
                 )
-            case .userTypeDeleted, .userTypeUnknown:
+            case .userTypeDeleted,
+                 .userTypeUnknown:
                 return CustomChat(
                     chat: chat,
                     position: position,

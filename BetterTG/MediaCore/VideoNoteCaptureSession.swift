@@ -81,7 +81,9 @@ enum VideoNoteCaptureError: Swift.Error {
                     try VideoNoteFinishProbe.require(deliveredGeneration == generation, "wrong capture generation")
                     let asset = try result.get()
                     try FileManager.default.moveItem(at: asset.url, to: adopted)
-                } catch { callbackError = error }
+                } catch {
+                    callbackError = error
+                }
             }
             guard let automatic = session.requestAutomaticStop(context) else {
                 throw VideoNoteFinishProbe.Failure(description: "automatic reservation failed")
@@ -871,11 +873,7 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
                 }
                 return true
             }
-            guard ownsResult else {
-                try? FileManager.default.removeItem(at: asset.url)
-                throw CancellationError()
-            }
-            guard !Task.isCancelled else {
+            guard ownsResult, !Task.isCancelled else {
                 try? FileManager.default.removeItem(at: asset.url)
                 throw CancellationError()
             }
@@ -941,7 +939,8 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
             return true
         case .notDetermined:
             return await AVCaptureDevice.requestAccess(for: .video)
-        case .denied, .restricted:
+        case .denied,
+             .restricted:
             return false
         @unknown default:
             return false

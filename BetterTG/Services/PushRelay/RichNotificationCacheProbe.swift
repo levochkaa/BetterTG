@@ -18,7 +18,9 @@
                         + "nil/invalid scope performs no container lookup; legacy files untouched/unread; "
                         + "exact nonnil account matching; queued scoped publisher and delayed source/client admission=true; "
                         + "file-ID generations isolated; actual coordinator TDLib/NSE delivery/main-thread relief=unverified; RPC/account-stores=0"
-                } catch { result = "FAIL: \(error)" }
+                } catch {
+                    result = "FAIL: \(error)"
+                }
                 log(result)
                 if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                     try? Data(result.utf8).write(

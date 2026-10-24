@@ -44,9 +44,11 @@ import TDLibKit
 
     var user: User? {
         switch type {
-        case .bot(let user), .user(let user):
+        case .bot(let user),
+             .user(let user):
             user
-        case .group, .supergroup:
+        case .group,
+             .supergroup:
             nil
         }
     }
@@ -67,7 +69,8 @@ import TDLibKit
 
     var notificationSettingsScope: NotificationSettingsScope {
         switch type {
-        case .bot, .user:
+        case .bot,
+             .user:
             .notificationSettingsScopePrivateChats
         case .group:
             .notificationSettingsScopeGroupChats
@@ -96,7 +99,8 @@ import TDLibKit
             return chat.permissions.canCreateTopics
         case .chatMemberStatusRestricted(let restricted):
             return restricted.isMember && restricted.permissions.canCreateTopics && chat.permissions.canCreateTopics
-        case .chatMemberStatusBanned, .chatMemberStatusLeft:
+        case .chatMemberStatusBanned,
+             .chatMemberStatusLeft:
             return false
         }
     }
@@ -123,8 +127,10 @@ import TDLibKit
 
     var shouldShowProfileImage: Bool {
         switch type {
-        case .bot, .user: false
-        case .group, .supergroup: true
+        case .bot,
+             .user: false
+        case .group,
+             .supergroup: true
         }
     }
 
@@ -194,7 +200,8 @@ import TDLibKit
             status = group.status
             postsOnly = false
             joinToSend = true
-        case .bot, .user:
+        case .bot,
+             .user:
             return defaults[keyPath: permission]
         }
         return Self.allowsSending(

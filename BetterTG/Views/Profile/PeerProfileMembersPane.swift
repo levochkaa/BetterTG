@@ -27,7 +27,10 @@ enum PeerProfileMemberRights {
                 )
             }
             return (isSupergroup && actor.rights.canPromoteMembers, actor.rights.canRestrictMembers)
-        case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember, .chatMemberStatusRestricted:
+        case .chatMemberStatusBanned,
+             .chatMemberStatusLeft,
+             .chatMemberStatusMember,
+             .chatMemberStatusRestricted:
             return (false, false)
         }
     }
@@ -127,7 +130,8 @@ enum PeerProfileMemberRights {
             return context.permissions.canInviteUsers
         case .chatMemberStatusRestricted(let restricted):
             return restricted.isMember && restricted.permissions.canInviteUsers && context.permissions.canInviteUsers
-        case .chatMemberStatusBanned, .chatMemberStatusLeft:
+        case .chatMemberStatusBanned,
+             .chatMemberStatusLeft:
             return false
         }
     }
@@ -282,7 +286,10 @@ enum PeerProfileMemberRights {
             (member.tag.isEmpty ? L10n.telegram("GroupInfo.LabelOwner") : member.tag, .owner)
         case .chatMemberStatusAdministrator:
             (member.tag.isEmpty ? L10n.telegram("GroupInfo.LabelAdmin") : member.tag, .admin)
-        case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember, .chatMemberStatusRestricted:
+        case .chatMemberStatusBanned,
+             .chatMemberStatusLeft,
+             .chatMemberStatusMember,
+             .chatMemberStatusRestricted:
             if !member.tag.isEmpty {
                 (member.tag, .plain)
             } else if canEditOwnTag {
@@ -505,9 +512,13 @@ enum PeerProfileMemberRights {
             return nil
         }
         switch row.member.status {
-        case .chatMemberStatusAdministrator, .chatMemberStatusCreator:
+        case .chatMemberStatusAdministrator,
+             .chatMemberStatusCreator:
             return L10n.telegram("GroupInfo.ActionEditAdminRank")
-        case .chatMemberStatusBanned, .chatMemberStatusLeft, .chatMemberStatusMember, .chatMemberStatusRestricted:
+        case .chatMemberStatusBanned,
+             .chatMemberStatusLeft,
+             .chatMemberStatusMember,
+             .chatMemberStatusRestricted:
             return row.member.tag.isEmpty
                 ? L10n.telegram("GroupInfo.ActionAddRank")
                 : L10n.telegram("GroupInfo.ActionEditRank")

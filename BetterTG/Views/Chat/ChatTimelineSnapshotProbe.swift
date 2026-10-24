@@ -165,8 +165,8 @@ import UIKit
 
         func drain() {
             guard depth == 0, state.canBegin,
-                  permitsStructuralDispatch || state.pending?.structural != true else { return }
-            guard let batch = state.begin(makeContent: { demand in
+                  permitsStructuralDispatch || state.pending?.structural != true,
+                  let batch = state.begin(makeContent: { demand in
                 if demand.restoresViewport, demand.permitsRestoration(at: viewport.invalidationRevision) {
                     _ = viewport.begin()
                     restorationTickets += 1
@@ -281,7 +281,9 @@ import UIKit
                     + "pre-drag-buffer-no-new-ticket/delete-late-provider/same-album-reappearance/selection-exit=true; "
                     + "duplicate-completion/source-retirement/released-owner-lease/fresh-restoration/exact-depth-cleanup=true; "
                     + "actual-ChatView-producers/physical-gesture/live-client-switch/delete-timing/media-player=unverified; RPC/sends=0"
-            } catch { result = "Chat timeline snapshot probe failed: \(error)" }
+            } catch {
+                result = "Chat timeline snapshot probe failed: \(error)"
+            }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
                     to: directory.appendingPathComponent("chat-timeline-snapshot-probe.txt"), options: .atomic,

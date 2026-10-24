@@ -389,7 +389,8 @@ final class ChatInviteLinkPreviewViewController: UIViewController {
                     dismiss(animated: true) { onJoined?(success.chatId) }
                 case .chatJoinResultRequestSent:
                     finishWithRequestSent()
-                case .chatJoinResultDeclined, .chatJoinResultGuardBotApprovalRequired:
+                case .chatJoinResultDeclined,
+                     .chatJoinResultGuardBotApprovalRequired:
                     // Telegram continues a guard bot's approval in a web app BetterTG doesn't have.
                     dismiss(animated: true)
                 }

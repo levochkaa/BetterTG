@@ -223,8 +223,12 @@ import UIKit
 
     override func tableView(_: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
         switch row(at: indexPath) {
-        case .failed, .showMore(_, false), .voter: true
-        case .loading, .question, .showMore: false
+        case .failed,
+             .showMore(_, false),
+             .voter: true
+        case .loading,
+             .question,
+             .showMore: false
         }
     }
 
@@ -238,7 +242,9 @@ import UIKit
             load(optionID: optionID)
         case .showMore(_, false):
             showMore(optionID: optionID)
-        case .loading, .question, .showMore:
+        case .loading,
+             .question,
+             .showMore:
             break
         }
     }
@@ -422,10 +428,8 @@ import UIKit
             users.merge(resolvedUsers) { _, new in new }
             chats.merge(resolvedChats) { _, new in new }
             var known = Set(state.voters.map { Self.peerID(of: $0.voterId) })
-            for voter in page.voters {
-                if known.insert(Self.peerID(of: voter.voterId)).inserted {
-                    state.voters.append(voter)
-                }
+            for voter in page.voters where known.insert(Self.peerID(of: voter.voterId)).inserted {
+                state.voters.append(voter)
             }
             state.nextOffset = offset + page.voters.count
             state.totalCount = max(page.totalCount, state.voters.count)
@@ -682,7 +686,7 @@ private final class PollResultsVoterCell: UITableViewCell {
             accountUserID: 0,
             client: client,
         )
-        accessibilityLabel = [title, date?.string.replacingOccurrences(of: "\n", with: " ")]
+        accessibilityLabel = [title, date?.string.replacing("\n", with: " ")]
             .compactMap(\.self)
             .joined(separator: ", ")
     }

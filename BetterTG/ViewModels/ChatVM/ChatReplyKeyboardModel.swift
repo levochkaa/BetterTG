@@ -59,7 +59,9 @@ import TDLibKit
         return switch message.replyMarkup {
         case .replyMarkupForceReply: true
         case .replyMarkupShowKeyboard(let markup): markup.forceReply
-        case nil, .replyMarkupInlineKeyboard, .replyMarkupRemoveKeyboard: false
+        case nil,
+             .replyMarkupInlineKeyboard,
+             .replyMarkupRemoveKeyboard: false
         }
     }
 
@@ -83,7 +85,9 @@ import TDLibKit
             switch message.replyMarkup {
             case .replyMarkupForceReply(let markup): markup.inputFieldPlaceholder
             case .replyMarkupShowKeyboard(let markup): markup.inputFieldPlaceholder
-            case nil, .replyMarkupInlineKeyboard, .replyMarkupRemoveKeyboard: ""
+            case nil,
+                 .replyMarkupInlineKeyboard,
+                 .replyMarkupRemoveKeyboard: ""
             }
         return placeholder.isEmpty ? nil : placeholder
     }

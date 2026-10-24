@@ -41,7 +41,9 @@ func setEntity(_ entity: TextEntity, base text: String, for attributedString: NS
         attributedString.addAttribute(.font, value: UIFont.bold, range: range)
     case .textEntityTypeItalic:
         attributedString.addAttribute(.font, value: UIFont.italic, range: range)
-    case .textEntityTypeCode, .textEntityTypePre, .textEntityTypePreCode:
+    case .textEntityTypeCode,
+         .textEntityTypePre,
+         .textEntityTypePreCode:
         attributedString.addAttribute(.font, value: UIFont.monospaced, range: range)
     case .textEntityTypeUnderline:
         attributedString.addAttribute(.underlineStyle, value: 1, range: range)

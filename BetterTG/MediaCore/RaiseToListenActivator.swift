@@ -230,10 +230,10 @@ enum RaiseToListenSettings {
             -> Void
         guard let managerClass = NSClassFromString(Self.managerClassName) as? NSObject.Type,
               [Self.initializer, Self.handlerSetter]
-                  .allSatisfy({ managerClass.instancesRespond(to: NSSelectorFromString($0)) }),
-                  let allocated = (managerClass as AnyObject)
-                      .perform(NSSelectorFromString("alloc"))?
-                      .takeUnretainedValue()
+                .allSatisfy({ managerClass.instancesRespond(to: NSSelectorFromString($0)) }),
+              let allocated = (managerClass as AnyObject)
+                .perform(NSSelectorFromString("alloc"))?
+                .takeUnretainedValue()
         else { return false }
         let initSelector = NSSelectorFromString(Self.initializer)
         let initialize = unsafeBitCast(managerClass.instanceMethod(for: initSelector), to: Initialize.self)

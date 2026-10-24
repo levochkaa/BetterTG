@@ -17,7 +17,8 @@ func peerProfileCanChangeInfo(
     case .chatTypeSupergroup(let group):
         isBasicGroup = false
         isChannel = group.isChannel
-    case .chatTypePrivate, .chatTypeSecret:
+    case .chatTypePrivate,
+         .chatTypeSecret:
         return false
     }
 
@@ -33,7 +34,9 @@ func peerProfileCanChangeInfo(
     case .chatMemberStatusRestricted(let restricted):
         return !isBasicGroup && !isChannel && restricted.isMember
             && permissions.canChangeInfo && restricted.permissions.canChangeInfo
-    case .chatMemberStatusBanned, .chatMemberStatusLeft, nil:
+    case .chatMemberStatusBanned,
+         .chatMemberStatusLeft,
+         nil:
         return false
     }
 }

@@ -18,7 +18,9 @@
                         + "UITextView-callback/edit-attempt/draft/snapshot=true; overlapping-toggles/range-edits/caret=true; "
                         + "RTF-whitelist/automatic-types/identity-isolation=true; marked-model-feedback=true; "
                         + "UIKit-undo-redo=\(undoVerified); clipboard/URL/server/account-stores=0; live-IME/keyboard-undo=pending"
-                } catch { result = "Composer entities probe failed: \(error)" }
+                } catch {
+                    result = "Composer entities probe failed: \(error)"
+                }
                 log(result)
                 if let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                     try? Data(result.utf8).write(

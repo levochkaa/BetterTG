@@ -295,7 +295,9 @@ import UIKit
         case .changed:
             let translation = recognizer.translation(in: host)
             window.frame.origin = CGPoint(x: dragStartOrigin.x + translation.x, y: dragStartOrigin.y + translation.y)
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             let (updated, shouldHide) = locationForPosition(
                 CGPoint(x: window.frame.midX, y: window.frame.midY),
                 velocity: recognizer.velocity(in: host),

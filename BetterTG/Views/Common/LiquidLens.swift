@@ -49,8 +49,8 @@ import UIKit
               punchout.superview === container,
               let lensClass = NSClassFromString(Self.className) as? UIView.Type,
               (Self.setters + [Self.initializer])
-                  .allSatisfy({ lensClass.instancesRespond(to: NSSelectorFromString($0)) }),
-                  let view = Self.make(lensClass)
+                .allSatisfy({ lensClass.instancesRespond(to: NSSelectorFromString($0)) }),
+              let view = Self.make(lensClass)
         else { return nil }
         self.view = view
         view.isUserInteractionEnabled = false

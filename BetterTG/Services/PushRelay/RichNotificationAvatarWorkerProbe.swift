@@ -88,7 +88,9 @@
                         + "held prewrite source/photo revocation; same-photo quality monotonic; failed write retry; "
                         + "decode/path/write utility-only; current-peer registration count uncapped; "
                         + "actual coordinator/profile/NSE strict handoff/media pipeline=unverified; RPC/account-stores=0"
-                } catch { result = "FAIL: \(error)" }
+                } catch {
+                    result = "FAIL: \(error)"
+                }
                 log(result)
                 if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                     try? Data(result.utf8).write(
@@ -101,8 +103,10 @@
 
         private static func verify() async throws {
             let cleanup = Cleanup()
-            do { try await exercise(cleanup) }
-            catch { await cleanup.finish()
+            do {
+                try await exercise(cleanup)
+            } catch {
+                await cleanup.finish()
             throw error
             }
             await cleanup.finish()

@@ -298,6 +298,8 @@ actor VoiceNoteDraftStore {
         return VoiceNoteEnqueueRegistration(draft: updatedDraft, outcome: outcomeRecord?.outcome)
     }
 
+    /// The one-argument form satisfies MediaDraftProbeStore, which a default argument doesn't.
+    // swiftformat:disable:next redundantOverload
     func beginEnqueue(_ draft: VoiceNoteSendDraft) throws -> VoiceNoteSendDraft {
         try beginEnqueue(draft, finalization: nil)
     }
@@ -308,14 +310,13 @@ actor VoiceNoteDraftStore {
     ) throws -> VoiceNoteSendDraft {
         try Task.checkCancellation()
         let canonical = try canonicalDraft(matching: draft, finalization: finalization, forMutation: true)
-        guard canonical.isEncoded, canonical.enqueueStartedAt == nil, canonical.temporaryMessageID == nil else {
-            throw VoiceNoteDraftStoreError.enqueueAlreadyActive
-        }
-        guard try !loadAllDrafts().contains(where: {
-            $0.enqueueStartedAt != nil && (
-                $0.belongs(to: canonical.resolvedDestination) || $0.deliveryKey == canonical.deliveryKey
-            )
-        }) else {
+        guard canonical.isEncoded, canonical.enqueueStartedAt == nil, canonical.temporaryMessageID == nil,
+              try !loadAllDrafts().contains(where: {
+                  $0.enqueueStartedAt != nil && (
+                      $0.belongs(to: canonical.resolvedDestination) || $0.deliveryKey == canonical.deliveryKey
+                  )
+              })
+        else {
             throw VoiceNoteDraftStoreError.enqueueAlreadyActive
         }
         removeOutcomes(draftID: draft.id)

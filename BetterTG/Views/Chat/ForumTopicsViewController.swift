@@ -2126,7 +2126,8 @@ final class ForumTopicCell: UITableViewCell {
         switch content {
         case .draftMessageContentText(let text):
             L10n.betterTG("Forum.DraftPreview", text.text.text)
-        case .draftMessageContentInputRichMessage, .draftMessageContentRichMessage:
+        case .draftMessageContentInputRichMessage,
+             .draftMessageContentRichMessage:
             L10n.betterTG("Forum.DraftPreview", L10n.betterTG("Message.Rich"))
         case .draftMessageContentVideoNote:
             L10n.betterTG("Forum.DraftPreview", L10n.telegram("VoiceOver.Chat.VideoMessage"))

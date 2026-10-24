@@ -47,7 +47,9 @@
                             + "receipt revalidated under flock, held consume precedes competing revocation ACK; "
                             + "account clear invalidates token/receipt, failed IO has no ACK, legacy/avatar untouched; "
                             + "app/NSE integration/cross-process delivery/power-loss durability=unverified; RPC/donations=0"
-                    } catch { return "FAIL: \(error)" }
+                    } catch {
+                        return "FAIL: \(error)"
+                    }
                 }.value
                 log(report)
                 if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -201,7 +203,7 @@
             }
             let files = try fm.contentsOfDirectory(at: directory(root, account: 101), includingPropertiesForKeys: nil)
             try require(
-                files.filter { $0.pathExtension == "record" }.count == Store.maximumRecords
+                files.count(where: { $0.pathExtension == "record" }) == Store.maximumRecords
                         && !second.commit(evicted, evidence: evidence, data: blue, rank: 1),
                 "evicted lease recreated record",
             )

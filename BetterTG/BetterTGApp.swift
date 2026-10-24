@@ -253,6 +253,7 @@ private func logPendingRichNotificationDiagnostics() {
     for entry in RichNotificationDiagnostics.recentEntries() {
         let fields = entry.fields
             .sorted(by: { $0.key < $1.key })
+            .lazy
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: ",")
         log("NSE diagnostic: event=\(entry.event)\(fields.isEmpty ? "" : ",\(fields)")")

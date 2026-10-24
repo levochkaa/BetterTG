@@ -22,7 +22,8 @@ final class ChatTimelineLayout: UICollectionViewCompositionalLayout {
             switch item.updateAction {
             case .insert: if let path = item.indexPathAfterUpdate { inserted.insert(path) }
             case .delete: if let path = item.indexPathBeforeUpdate { deleted.insert(path) }
-            case .move, .reload: return
+            case .move,
+                 .reload: return
             default: break
             }
         }

@@ -519,7 +519,11 @@ final class SecretMediaPreviewViewController: UIViewController, UIScrollViewDele
         deadlineTask?.cancel()
         let backend = backend
         deadlineTask = Task { [weak self] in
-            do { try await backend.sleep(max(0, deadline - backend.now())) } catch { return }
+            do {
+                try await backend.sleep(max(0, deadline - backend.now()))
+            } catch {
+                return
+            }
             self?.finish()
         }
     }
@@ -611,7 +615,9 @@ final class SecretMediaPreviewViewController: UIViewController, UIScrollViewDele
             backgroundView.alpha = 1 - progress
             topBar.alpha = 1 - progress
             footerView.alpha = 1 - progress
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             let velocity = recognizer.velocity(in: view).y
             if recognizer.state == .ended, abs(translation.y) > 100 || abs(velocity) > 1000 {
                 let direction: CGFloat = translation.y + velocity * 0.1 >= 0 ? 1 : -1

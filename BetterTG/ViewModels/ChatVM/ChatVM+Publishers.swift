@@ -282,11 +282,11 @@ extension ChatVM {
         observeCurrentUpdate(.updateUser) { [weak self] update, authority in
             guard let self, locationContextIsCurrent else { return }
             metadataResolver.update(user: update.user)
-            for message in messages {
-                if message.message.senderId == .messageSenderUser(.init(userId: update.user.id)) {
-                    notePartialMessageUpdate([message.id])
-                    message.senderUser = update.user
-                }
+            for message in messages
+                where message.message.senderId == .messageSenderUser(.init(userId: update.user.id))
+            {
+                notePartialMessageUpdate([message.id])
+                message.senderUser = update.user
             }
             refreshReferencedMetadata(userID: update.user.id, authority: authority)
         }

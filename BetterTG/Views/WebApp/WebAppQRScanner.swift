@@ -441,7 +441,8 @@ private final class WebAppQRFrameView: UIView {
         let lineLength = size.width / 2 - radius
         let fraction = min(1, 24 / max(lineLength, 1))
         let strokeStart = (1 - fraction) / 2
-        let halfWidth = size.width / 2, halfHeight = size.height / 2
+        let halfWidth = size.width / 2
+        let halfHeight = size.height / 2
         let corners: [(start: CGPoint, center: CGPoint, from: CGFloat, to: CGFloat, end: CGPoint)] = [
             (CGPoint(x: 0, y: halfHeight), CGPoint(x: radius, y: radius), -.pi, -.pi / 2, CGPoint(x: halfWidth, y: 0)),
             (

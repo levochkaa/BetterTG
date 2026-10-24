@@ -161,8 +161,11 @@ final class RichNotificationMediaStore {
             guard urls.count <= Self.maximumRecords else { return false }
             var success = true
             for url in urls {
-                do { try FileManager.default.removeItem(at: url) }
-                catch { success = false }
+                do {
+                    try FileManager.default.removeItem(at: url)
+                } catch {
+                    success = false
+                }
             }
             return try success && recordURLs(in: directory, accountID: accountID).isEmpty
         } ?? false
@@ -236,7 +239,9 @@ final class RichNotificationMediaStore {
             let directory = account.appendingPathComponent("media-v2", isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             return try operation(directory)
-        } catch { return nil }
+        } catch {
+            return nil
+        }
     }
 
     private func write(_ record: Record, in directory: URL) throws {
@@ -271,7 +276,8 @@ final class RichNotificationMediaStore {
               let record = try? PropertyListDecoder().decode(Record.self, from: data),
               record.schema == 2, record.key == key else { return nil }
         switch record.status {
-        case .invalidated, .pending:
+        case .invalidated,
+             .pending:
             guard record.evidence == nil, record.jpeg == nil, record.digest == nil,
                   record.rank == nil else { return nil }
         case .valid:

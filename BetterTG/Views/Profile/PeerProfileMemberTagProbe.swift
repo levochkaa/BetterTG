@@ -188,7 +188,9 @@ import UIKit
                     + "account-actor-ABA/detached/stale-completion=true; "
                     + "modal-draft-hold/covered-Save-completion=true; "
                     + "Profile/Members-parents=value-only; whole-navigation-coordinator/live-TDLib/foreground=unverified; server-writes=0"
-            } catch { result = "Profile member tag probe failed: \(error)" }
+            } catch {
+                result = "Profile member tag probe failed: \(error)"
+            }
             log(result)
             if let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
@@ -205,7 +207,8 @@ import UIKit
         defer { f.close()
         previousKey?.makeKey()
         }
-        let editor = f.editor(), field = try field(editor)
+        let editor = f.editor()
+        let field = try field(editor)
         f.window.makeKey()
         try require(field.becomeFirstResponder(), "field refused focus")
         change(field, "Тег e\u{301}")
@@ -213,7 +216,8 @@ import UIKit
               let end = field.position(from: field.beginningOfDocument, offset: 4)
               else { throw Failure(description: "selection") }
         field.selectedTextRange = field.textRange(from: start, to: end)
-        let raw = field.text, selection = offsets(field)
+        let raw = field.text
+        let selection = offsets(field)
         for id: Int32 in [811, 812] {
             let next = f.replace(id)
             try require(
@@ -273,7 +277,8 @@ import UIKit
         for denial in 0..<5 {
             let f = try Fixture()
             defer { f.close() }
-            let editor = f.editor(), field = try field(editor)
+            let editor = f.editor()
+            let field = try field(editor)
             change(field, "candidate")
             switch denial {
             case 0: f.actorReturned = 99
@@ -291,7 +296,8 @@ import UIKit
         }
         let f = try Fixture()
         defer { f.close() }
-        let editor = f.editor(), field = try field(editor)
+        let editor = f.editor()
+        let field = try field(editor)
         change(field, "")
         save(editor)
         try await until("empty tag removal") { f.writes.count == 1 && f.saved == 1 }
@@ -304,8 +310,10 @@ import UIKit
     private static func verifyPredispatch() async throws {
         let f = try Fixture()
         defer { f.close() }
-        let editor = f.editor(), field = try field(editor)
-        let oldGate = Gate(), newGate = Gate()
+        let editor = f.editor()
+        let field = try field(editor)
+        let oldGate = Gate()
+        let newGate = Gate()
         f.preflights[1] = oldGate
         f.preflights[2] = newGate
         change(field, "first")
@@ -332,7 +340,9 @@ import UIKit
         for fails in [false, true] {
             let f = try Fixture()
             defer { f.close() }
-            let editor = f.editor(), field = try field(editor), ack = Gate()
+            let editor = f.editor()
+            let field = try field(editor)
+            let ack = Gate()
             f.acknowledgments[1] = ack
             f.failAcknowledgment = fails
             change(field, "sent once")
@@ -356,7 +366,9 @@ import UIKit
     private static func verifyNewTyping() async throws {
         let f = try Fixture()
         defer { f.close() }
-        let editor = f.editor(), field = try field(editor), ack = Gate()
+        let editor = f.editor()
+        let field = try field(editor)
+        let ack = Gate()
         f.acknowledgments[1] = ack
         change(field, "first")
         save(editor)
@@ -386,7 +398,8 @@ import UIKit
         for actorChange in [false, true] {
             let f = try Fixture()
             defer { f.close() }
-            let editor = f.editor(), field = try field(editor)
+            let editor = f.editor()
+            let field = try field(editor)
             change(field, "kept")
             if actorChange {
                 f.actor = 99
@@ -413,7 +426,8 @@ import UIKit
         for fails in [false, true] {
             let f = try Fixture()
             defer { f.close() }
-            let editor = f.editor(), field = try field(editor)
+            let editor = f.editor()
+            let field = try field(editor)
             change(field, "candidate")
             let modal = UIViewController()
             editor.present(modal, animated: false)

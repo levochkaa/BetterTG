@@ -72,7 +72,8 @@ final class StoryAvatarRingView: UIView {
         isHidden = style == nil
         let colors: [UIColor] =
             switch style {
-            case nil, .unseen: Self.unseenColors
+            case nil,
+                 .unseen: Self.unseenColors
             case .live: Self.liveColors
             case .seen: [Self.seenColor, Self.seenColor]
             }
@@ -112,7 +113,8 @@ extension CustomChat {
     var activeStoryState: ActiveStoryState? {
         guard !isSavedMessages, secretChatID == nil else { return nil }
         switch type {
-        case .bot(let user), .user(let user):
+        case .bot(let user),
+             .user(let user):
             return user.activeStoryState
         case .supergroup(let supergroup):
             return supergroup.activeStoryState

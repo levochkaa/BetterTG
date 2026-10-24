@@ -116,7 +116,8 @@ enum MessageQuoteBuilder {
             let overlap = NSIntersectionRange(range, original)
             guard overlap.length > 0 else { return nil }
             switch entity.type {
-            case .textEntityTypeCustomEmoji, .textEntityTypeDateTime:
+            case .textEntityTypeCustomEmoji,
+                 .textEntityTypeDateTime:
                 guard overlap == original else { return nil }
             default: break
             }
@@ -130,8 +131,12 @@ enum MessageQuoteBuilder {
 
     private static func isAllowed(_ type: TextEntityType) -> Bool {
         switch type {
-        case .textEntityTypeBold, .textEntityTypeCustomEmoji, .textEntityTypeDateTime,
-             .textEntityTypeItalic, .textEntityTypeSpoiler, .textEntityTypeStrikethrough,
+        case .textEntityTypeBold,
+             .textEntityTypeCustomEmoji,
+             .textEntityTypeDateTime,
+             .textEntityTypeItalic,
+             .textEntityTypeSpoiler,
+             .textEntityTypeStrikethrough,
              .textEntityTypeUnderline:
             true
         default:
@@ -186,7 +191,8 @@ enum MessageReplyInputBuilder {
                 messageID: message.messageId,
                 quote: message.quote.flatMap { MessageQuoteHighlight(text: $0.text.text, position: $0.position) },
             )
-        case .inputMessageReplyToEphemeralMessage, .inputMessageReplyToStory:
+        case .inputMessageReplyToEphemeralMessage,
+             .inputMessageReplyToStory:
             .unavailable
         case nil:
             nil

@@ -830,13 +830,17 @@ actor TDLibVODRangeSource {
     ) {
         guard generation == seekGeneration else { return }
         switch error {
-        case .cancelled, .staleRequest:
+        case .cancelled,
+             .staleRequest:
             break
         case .offline:
             state = .offlineMissingRange(requestedRange)
-        case .missingLocalPath, .readFailed, .timedOut:
+        case .missingLocalPath,
+             .readFailed,
+             .timedOut:
             state = .retryableFailure(String(describing: error))
-        case .invalidRange, .unknownSize:
+        case .invalidRange,
+             .unknownSize:
             state = .terminalFailure(String(describing: error))
         }
     }

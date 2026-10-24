@@ -394,7 +394,9 @@ private final class PhotoBlurShapeView: UIView, UIGestureRecognizerDelegate {
         switch recognizer.state {
         case .began:
             setSelected(true)
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             setSelected(false)
         default:
             break
@@ -416,7 +418,9 @@ private final class PhotoBlurShapeView: UIView, UIGestureRecognizerDelegate {
             case .outerRadius:
                 startDistance = distance
                 startRadius = shorterSide * value.size
-            case .idle, .rotation, .wholeArea:
+            case .idle,
+                 .rotation,
+                 .wholeArea:
                 break
             }
             setSelected(true)
@@ -446,11 +450,14 @@ private final class PhotoBlurShapeView: UIView, UIGestureRecognizerDelegate {
             case .rotation:
                 newValue.angle = rotated(by: recognizer.translation(in: self), at: location)
                 recognizer.setTranslation(.zero, in: self)
-            case .idle, .wholeArea:
+            case .idle,
+                 .wholeArea:
                 break
             }
             update(newValue)
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             activeControl = .idle
             setSelected(false)
         default:
@@ -461,7 +468,8 @@ private final class PhotoBlurShapeView: UIView, UIGestureRecognizerDelegate {
     /// The pinch scales where the blur starts and where it is full.
     @objc private func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
         switch recognizer.state {
-        case .began, .changed:
+        case .began,
+             .changed:
             if recognizer.state == .began {
                 activeControl = .wholeArea
                 setSelected(true)
@@ -471,7 +479,9 @@ private final class PhotoBlurShapeView: UIView, UIGestureRecognizerDelegate {
             newValue.size = max(newValue.falloff + PhotoBlurValue.minimumDifference, value.size * recognizer.scale)
             recognizer.scale = 1
             update(newValue)
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             activeControl = .idle
             setSelected(false)
         default:

@@ -283,7 +283,9 @@ final class PhotoDrawingSizeSlider: UIView, UIGestureRecognizerDelegate {
             track(recognizer)
         case .changed:
             track(recognizer)
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             trackingCount = max(0, trackingCount - 1)
             if recognizer is UIPanGestureRecognizer {
                 isPanning = false

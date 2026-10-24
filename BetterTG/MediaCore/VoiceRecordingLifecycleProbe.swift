@@ -50,7 +50,11 @@
                 write("Voice lifecycle probe started")
                 var timedOut = false
                 let timeout = Task {
-                    do { try await Task<Never, Never>.sleep(for: .seconds(60)) } catch { return }
+                    do {
+                        try await Task<Never, Never>.sleep(for: .seconds(60))
+                    } catch {
+                        return
+                    }
                     timedOut = true
                     write("Voice lifecycle probe failed: timeout at \(stage)")
                 }
@@ -127,7 +131,11 @@
             var result: Result<VoiceRecordingDraft, Swift.Error>?
             let save = VoiceRecordingDraftPreservation.start(for: route) {
                 await gate.wait()
-                do { result = try await .success(store.adopt(draft)) } catch { result = .failure(error) }
+                do {
+                    result = try await .success(store.adopt(draft))
+                } catch {
+                    result = .failure(error)
+                }
             }
             var begins = 0
             var ends = 0
@@ -187,7 +195,9 @@
                     await trimGate.wait()
                     trimmed = try await store.replaceMedia(in: canonical, with: output, inspection: inspection)
                     if lifecycle.value.permitsContinuation(intent) { resumes += 1 }
-                } catch { trimError = error }
+                } catch {
+                    trimError = error
+                }
             }
             try await trimGate.waitUntilEntered()
             _ = lifecycle.value.suspend(.audioInterruption)
@@ -268,7 +278,9 @@
                     if let lease, !requestStarted, draft.enqueueStartedAt != nil {
                         _ = try? await sendStore.markPending(draft, failedSendState: nil, finalization: lease)
                     }
-                } catch { failure = error }
+                } catch {
+                    failure = error
+                }
                 if let lease { await sendStore.finishFinalization(lease) }
             }
             try await gate.waitUntilEntered()

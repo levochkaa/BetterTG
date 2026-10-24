@@ -99,7 +99,9 @@ import UIKit
             do {
                 try await verify()
                 result = "Profile shared refresh probe passed: " + coverage + "; server-reads/writes=0"
-            } catch { result = "Profile shared refresh probe failed: \(error)" }
+            } catch {
+                result = "Profile shared refresh probe failed: \(error)"
+            }
             log(result)
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(

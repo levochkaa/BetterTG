@@ -408,7 +408,9 @@ final class ChatManagementViewController: SettingsListViewController {
             switch mutation {
             case .title(_, let value): self?.savedTitle = value
             case .description(_, let value): self?.savedDescription = value
-            case .bio, .memberTag, .name: break
+            case .bio,
+                 .memberTag,
+                 .name: break
             }
         }, completion: { [weak self] result, _ in
             guard let self else { return }

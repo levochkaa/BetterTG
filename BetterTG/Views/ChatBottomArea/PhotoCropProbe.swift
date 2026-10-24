@@ -494,7 +494,7 @@
                     let converted = await convertMotion(of: selection)
                     result.motionFrame = converted.frame
                     result.text = summary + "\n" + converted.summary
-                    log("Photo crop probe Live Photo: " + result.text.replacingOccurrences(of: "\n", with: "; "))
+                    log("Photo crop probe Live Photo: " + result.text.replacing("\n", with: "; "))
                     SelectedDocumentFileStore.remove([selection.url])
                 }
             }

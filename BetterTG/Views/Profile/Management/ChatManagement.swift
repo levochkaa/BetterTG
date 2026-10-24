@@ -77,7 +77,8 @@ struct ChatManagementTarget {
                 chat: chat, group: .supergroup(group.id), isChannel: group.isChannel, isForum: group.isForum,
                 status: group.status, supergroup: group, supergroupInfo: info, basicGroupInfo: nil,
             )
-        case .chatTypePrivate, .chatTypeSecret:
+        case .chatTypePrivate,
+             .chatTypeSecret:
             return nil
         }
     }

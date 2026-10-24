@@ -5,7 +5,8 @@ import TDLibKit
 extension TDNativeChatList: @retroactive Hashable {
     public static func == (lhs: Self, rhs: Self) -> Bool {
         switch (lhs, rhs) {
-        case (.chatListArchive, .chatListArchive), (.chatListMain, .chatListMain):
+        case (.chatListArchive, .chatListArchive),
+             (.chatListMain, .chatListMain):
             true
         case (.chatListFolder(let lhs), .chatListFolder(let rhs)):
             lhs.chatFolderId == rhs.chatFolderId

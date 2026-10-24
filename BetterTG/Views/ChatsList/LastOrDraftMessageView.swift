@@ -25,7 +25,8 @@ import UIKit
                     NSMutableAttributedString(string: L10n.telegram("Message.Audio"))
                 case .draftMessageContentVideoNote:
                     NSMutableAttributedString(string: L10n.telegram("Message.VideoMessage"))
-                case .draftMessageContentInputRichMessage, .draftMessageContentRichMessage:
+                case .draftMessageContentInputRichMessage,
+                     .draftMessageContentRichMessage:
                     NSMutableAttributedString(string: L10n.betterTG("Message.Rich"))
                 }
             draftText.addAttribute(

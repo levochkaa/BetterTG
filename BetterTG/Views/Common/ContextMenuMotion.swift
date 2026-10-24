@@ -167,7 +167,8 @@ struct ContextMenuTouchSession {
         if let highlighted { return .select(highlighted) }
         let duration = time - startTime
         switch origin {
-        case .initiatingPreview, .menu:
+        case .initiatingPreview,
+             .menu:
             return .keepOpen
         case .preview:
             return !panning && duration <= ContextMenuMotion.dismissTapDuration ? .dismiss : .keepOpen

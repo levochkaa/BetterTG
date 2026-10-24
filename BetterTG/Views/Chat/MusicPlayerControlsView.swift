@@ -515,7 +515,9 @@ final class MusicPlayerScrubberView: UIView, UIGestureRecognizerDelegate {
                 }
             }
             scrub(to: location)
-        case .cancelled, .ended, .failed:
+        case .cancelled,
+             .ended,
+             .failed:
             guard scrubbingStartLocation != nil else { return }
             scrub(to: location)
             endScrubbing(applying: recognizer.state == .ended)

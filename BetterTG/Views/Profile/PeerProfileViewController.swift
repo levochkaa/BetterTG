@@ -68,7 +68,8 @@ ClientRestorableNavigationEntry {
             case .voice: .searchMessagesFilterVoiceAndVideoNote
             case .links: .searchMessagesFilterUrl
             case .gifs: .searchMessagesFilterAnimation
-            case .groupsInCommon, .members: nil
+            case .groupsInCommon,
+                 .members: nil
             }
         }
 
@@ -403,7 +404,8 @@ ClientRestorableNavigationEntry {
             switch customChat.type {
             case .group(let group): group.status
             case .supergroup(let group): group.status
-            case .bot, .user: nil
+            case .bot,
+                 .user: nil
             }
         return switch status {
         case .chatMemberStatusAdministrator?: true
@@ -418,7 +420,8 @@ ClientRestorableNavigationEntry {
         return switch customChat.type {
         case .group: true
         case .supergroup(let group): !group.isChannel
-        case .bot, .user: false
+        case .bot,
+             .user: false
         }
     }
 
@@ -431,7 +434,8 @@ ClientRestorableNavigationEntry {
         case .supergroup(let group):
             currentSupergroupCanGetMembers
                 && max(group.memberCount, currentSupergroupMemberCount) > PeerProfileMembersPane.threshold
-        case .bot, .user:
+        case .bot,
+             .user:
             false
         }
     }
@@ -675,7 +679,8 @@ ClientRestorableNavigationEntry {
         case .userStatusRecently: L10n.telegram("LastSeen.Lately")
         case .userStatusLastWeek: L10n.telegram("LastSeen.WithinAWeek")
         case .userStatusLastMonth: L10n.telegram("LastSeen.WithinAMonth")
-        case .userStatusEmpty, .userStatusOffline: L10n.telegram("LastSeen.Offline")
+        case .userStatusEmpty,
+             .userStatusOffline: L10n.telegram("LastSeen.Offline")
         }
     }
 
@@ -823,7 +828,12 @@ ClientRestorableNavigationEntry {
             switch currentSharedTab {
             case .groupsInCommon: groupsInCommon.count
             case .members: membersPane?.items.count ?? 0
-            case .audio, .files, .gifs, .links, .media, .voice: messagesByID.count
+            case .audio,
+                 .files,
+                 .gifs,
+                 .links,
+                 .media,
+                 .voice: messagesByID.count
             }
         guard historyError == nil, indexPath.item >= max(0, itemCount - 6) else { return }
         loadMore()
@@ -1487,7 +1497,8 @@ ClientRestorableNavigationEntry {
         let messages = sortedSharedMessages.filter { message in
             guard sharedMessageRefresh?.allows(message.id) == true else { return false }
             return switch message.content {
-            case .messagePhoto, .messageVideo:
+            case .messagePhoto,
+                 .messageVideo:
                 true
             default:
                 false
@@ -1711,8 +1722,7 @@ ClientRestorableNavigationEntry {
     }
 
     private func handleAccountChange() {
-        guard !contextIsCurrent else { return }
-        guard !editorRetention.shouldRetain(
+        guard !contextIsCurrent, !editorRetention.shouldRetain(
             parent: self, accountID: accountID, currentAccountID: TDLib.shared.activeAccountID,
         ) else { return }
         if !restorationIdentity.revoked, membersChild?.retainsMemberTag(
@@ -1888,8 +1898,10 @@ ClientRestorableNavigationEntry {
     private func refreshInfoPermission() {
         guard contextIsCurrent, let accountUserID else { return }
         switch infoPermission.chatType {
-        case .chatTypeBasicGroup, .chatTypeSupergroup: break
-        case .chatTypePrivate, .chatTypeSecret: return
+        case .chatTypeBasicGroup,
+             .chatTypeSupergroup: break
+        case .chatTypePrivate,
+             .chatTypeSecret: return
         }
         let authorization = PeerProfileInfoEditAuthorization.live(
             accountID: accountID, actorUserID: accountUserID, chatID: customChat.id, client: client,
@@ -2149,7 +2161,8 @@ ClientRestorableNavigationEntry {
                 false
             case .supergroup:
                 !currentSupergroupCanGetMembers
-            case .bot, .user:
+            case .bot,
+                 .user:
                 true
             }
         // Telegram lists a group's or channel's administrators only to its owner and admins (`PeerInfoProfileItems`:
@@ -2158,7 +2171,8 @@ ClientRestorableNavigationEntry {
             switch customChat.type {
             case .group(let group): group.status
             case .supergroup(let group): group.status
-            case .bot, .user: nil
+            case .bot,
+                 .user: nil
             }
         administratorsActionButton.isHidden =
             switch memberStatus {
@@ -2292,7 +2306,8 @@ ClientRestorableNavigationEntry {
             guard let self else { return }
             do {
                 switch customChat.type {
-                case .bot(let user), .user(let user):
+                case .bot(let user),
+                     .user(let user):
                     let info = try await client.getUserFullInfo(userId: user.id)
                     guard !Task.isCancelled,
                           contextIsCurrent,
@@ -2602,7 +2617,8 @@ ClientRestorableNavigationEntry {
     private func loadAvatarGalleryPayload(client: TDLibClient) async throws -> AvatarGalleryPayload {
         try await prepareAvatarGalleryClient(client)
         switch customChat.type {
-        case .bot(let user), .user(let user):
+        case .bot(let user),
+             .user(let user):
             let info = try await client.getUserFullInfo(userId: user.id)
             let result = try await client.getUserProfilePhotos(limit: 100, offset: 0, userId: user.id)
             let historyItems = result.photos.map(ProfileAvatarGalleryItem.init(photo:))
@@ -2649,7 +2665,7 @@ ClientRestorableNavigationEntry {
                 knownIDs = [fallback.id]
             }
             let resultIDs = Set(result.photos.map(\.id))
-            let extraPhotoCount = knownIDs.filter { !resultIDs.contains($0) }.count
+            let extraPhotoCount = knownIDs.count(where: { !resultIDs.contains($0) })
             let trailingPhotoID = !publicWasAlreadyCurrent && items.last?.id == publicItem?.id
                 ? publicItem?.id
                 : nil
@@ -2696,7 +2712,7 @@ ClientRestorableNavigationEntry {
             items.append(item)
         }
         let historyIDs = Set(history.map(\.id))
-        let extraPhotoCount = items.filter { !historyIDs.contains($0.id) }.count
+        let extraPhotoCount = items.count(where: { !historyIDs.contains($0.id) })
         return AvatarGalleryPayload(
             extraPhotoCount: extraPhotoCount,
             historyRawOffset: 0,
@@ -2747,10 +2763,7 @@ ClientRestorableNavigationEntry {
             do {
                 try await prepareAvatarGalleryClient(client)
                 let result = try await client.getUserProfilePhotos(limit: 100, offset: offset, userId: userID)
-                guard let activeAvatarGallery else {
-                    return
-                }
-                guard !Task.isCancelled,
+                guard let activeAvatarGallery, !Task.isCancelled,
                       avatarGalleryClient?.id == client.id,
                       avatarMetadataGeneration == metadataGeneration,
                       avatarHistoryRequestID == requestID,
@@ -2772,10 +2785,7 @@ ClientRestorableNavigationEntry {
                     totalCount: result.totalCount + avatarHistoryExtraPhotoCount,
                 )
             } catch {
-                guard let activeAvatarGallery else {
-                    return
-                }
-                guard !Task.isCancelled,
+                guard let activeAvatarGallery, !Task.isCancelled,
                       avatarMetadataGeneration == metadataGeneration,
                       avatarHistoryRequestID == requestID,
                       self.activeAvatarGallery === activeAvatarGallery
@@ -2945,7 +2955,12 @@ ClientRestorableNavigationEntry {
             switch tab {
             case .members: showsMembers
             case .groupsInCommon: listsGroups && (groupsInCommonCount ?? 0) > 0
-            case .audio, .files, .gifs, .links, .media, .voice: sharedTabCounts[tab].map { $0 > 0 } ?? true
+            case .audio,
+                 .files,
+                 .gifs,
+                 .links,
+                 .media,
+                 .voice: sharedTabCounts[tab].map { $0 > 0 } ?? true
             }
         }
         if showsMembers { makeMembersPaneIfNeeded() }
@@ -3017,7 +3032,8 @@ ClientRestorableNavigationEntry {
         switch customChat.type {
         case .group(let value): group = .basic(value.id)
         case .supergroup(let value): group = .supergroup(value.id)
-        case .bot, .user: return
+        case .bot,
+             .user: return
         }
         let pane = PeerProfileMembersPane(
             chatID: customChat.id,
@@ -3120,7 +3136,8 @@ ClientRestorableNavigationEntry {
             administrators
                 ? .administrators(chatID: customChat.id, group: .supergroup(group.id))
                 : .supergroup(chatID: customChat.id, id: group.id)
-        case .bot, .user:
+        case .bot,
+             .user:
             nil
         }
     }
@@ -3139,8 +3156,7 @@ ClientRestorableNavigationEntry {
     }
 
     @objc private func administratorsPressed() {
-        guard contextIsCurrent else { return }
-        guard let source = membersSource(administrators: true) else { return }
+        guard contextIsCurrent, let source = membersSource(administrators: true) else { return }
         pushMembers(source)
     }
 
@@ -3608,7 +3624,8 @@ struct SharedMediaGridPreview {
 
     static func opensGallery(_ message: Message) -> Bool {
         switch message.content {
-        case .messagePhoto, .messageVideo: true
+        case .messagePhoto,
+             .messageVideo: true
         default: false
         }
     }

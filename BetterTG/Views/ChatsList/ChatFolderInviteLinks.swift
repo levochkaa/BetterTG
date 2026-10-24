@@ -280,9 +280,9 @@ final class ChatFolderInviteLinkPreviewViewController: UIViewController, UITable
                 L10n.telegram("FolderLinkPreview.TextAddFolder")
             } else {
                 L10n.telegram("FolderLinkPreview.TextAddChatsV2")
-                    .replacingOccurrences(of: "{folder}", with: content.folderTitle)
-                    .replacingOccurrences(
-                        of: "{chats}",
+                    .replacing("{folder}", with: content.folderTitle)
+                    .replacing(
+                        "{chats}",
                         with: L10n.telegramPlural("FolderLinkPreview.TextAddChatsCount", count: content.chatIDs.count),
                     )
             }
@@ -424,16 +424,16 @@ final class ChatFolderInviteLinkPreviewViewController: UIViewController, UITable
         let folder = content.folderTitle
         let text: String? =
             if content.existingFolderID == nil {
-                L10n.telegram("FolderLinkPreview.ToastFolderAddedTitleV2").replacingOccurrences(
-                    of: "{folder}",
+                L10n.telegram("FolderLinkPreview.ToastFolderAddedTitleV2").replacing(
+                    "{folder}",
                     with: folder,
                 )
                     + (joining > 0
                         ? "\n" + L10n.telegramPlural("FolderLinkPreview.ToastFolderAddedText", count: joining)
                         : "")
             } else if joining > 0 {
-                L10n.telegram("FolderLinkPreview.ToastChatsAddedTitleV2").replacingOccurrences(
-                    of: "{folder}",
+                L10n.telegram("FolderLinkPreview.ToastChatsAddedTitleV2").replacing(
+                    "{folder}",
                     with: folder,
                 )
                     + "\n" + L10n.telegramPlural("FolderLinkPreview.ToastChatsAddedText", count: joining)
@@ -472,7 +472,7 @@ final class ChatFolderInviteLinkPreviewViewController: UIViewController, UITable
 
     /// A link as Telegram lists it: its name, or else the link without its scheme.
     static func title(of link: TDNativeChatFolderInviteLink) -> String {
-        link.name.isEmpty ? link.inviteLink.replacingOccurrences(of: "https://", with: "") : link.name
+        link.name.isEmpty ? link.inviteLink.replacing("https://", with: "") : link.name
     }
 }
 
@@ -532,12 +532,12 @@ final class ChatFolderInviteLinkViewController: UITableViewController, TelegramN
         if shareableChatIDs.isEmpty { return L10n.telegram("FolderLinkScreen.TitleDescriptionUnavailable") }
         if selectedIDs.isEmpty {
             return L10n.telegram("FolderLinkScreen.TitleDescriptionDeselectedV2")
-                .replacingOccurrences(of: "{folder}", with: folderTitle)
+                .replacing("{folder}", with: folderTitle)
         }
         return L10n.telegram("FolderLinkScreen.TitleDescriptionSelectedV2")
-            .replacingOccurrences(of: "{folder}", with: folderTitle)
-            .replacingOccurrences(
-                of: "{chats}",
+            .replacing("{folder}", with: folderTitle)
+            .replacing(
+                "{chats}",
                 with: L10n.telegramPlural("FolderLinkScreen.TitleDescriptionSelectedCount", count: selectedIDs.count),
             )
     }
@@ -630,7 +630,7 @@ final class ChatFolderInviteLinkViewController: UITableViewController, TelegramN
         case .link:
             switch LinkRow.allCases[indexPath.row] {
             case .link:
-                cell.textLabel?.text = link.inviteLink.replacingOccurrences(of: "https://", with: "")
+                cell.textLabel?.text = link.inviteLink.replacing("https://", with: "")
                 cell.accessoryView = UIImageView(image: UIImage(systemName: "ellipsis.circle"))
             case .copy:
                 cell.textLabel?.text = L10n.telegram("FolderLinkScreen.LinkActionCopy")
@@ -683,14 +683,17 @@ final class ChatFolderInviteLinkViewController: UITableViewController, TelegramN
             switch chat.type {
             case .chatTypePrivate(let type): type.userId
             case .chatTypeSecret(let type): type.userId
-            case .chatTypeBasicGroup, .chatTypeSupergroup: nil
+            case .chatTypeBasicGroup,
+                 .chatTypeSupergroup: nil
             }
         if let userID {
             let user = try? await client.getUser(userId: userID)
             let isBot =
                 if let user, case .userTypeBot = user.type {
                     true
-                } else { false }
+                } else {
+                    false
+                }
             return isBot
                 ? (
                     L10n.telegram("FolderLinkScreen.LabelUnavailableBot"),

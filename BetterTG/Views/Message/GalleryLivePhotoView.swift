@@ -323,7 +323,9 @@ final class GalleryLivePhotoView: UIView, GalleryMediaView, UIScrollViewDelegate
     @objc private func held(_ gesture: UILongPressGestureRecognizer) {
         switch gesture.state {
         case .began: startMotion()
-        case .cancelled, .ended, .failed: stopMotion()
+        case .cancelled,
+             .ended,
+             .failed: stopMotion()
         default: break
         }
     }

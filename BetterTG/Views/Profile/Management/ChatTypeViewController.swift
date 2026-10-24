@@ -54,7 +54,8 @@ final class ChatTypeViewController: SettingsListViewController {
         switch status {
         case .available: true
         case .idle: !username.isEmpty && username == savedUsername
-        case .checking, .invalid: false
+        case .checking,
+             .invalid: false
         }
     }
 

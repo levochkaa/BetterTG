@@ -227,20 +227,25 @@ private final class InlineKeyboardButtonView: UIControl {
     /// payment and copy.
     private static func iconName(for type: TDNativeInlineKeyboardButtonType) -> String? {
         switch type {
-        case .inlineKeyboardButtonTypeLoginUrl, .inlineKeyboardButtonTypeUrl: "arrow.up.right"
+        case .inlineKeyboardButtonTypeLoginUrl,
+             .inlineKeyboardButtonTypeUrl: "arrow.up.right"
         case .inlineKeyboardButtonTypeWebApp: "app"
         case .inlineKeyboardButtonTypeSwitchInline: "arrowshape.turn.up.right.fill"
         case .inlineKeyboardButtonTypeUser: "person.fill"
         case .inlineKeyboardButtonTypeBuy: "creditcard.fill"
         case .inlineKeyboardButtonTypeCopyText: "doc.on.doc.fill"
-        case .inlineKeyboardButtonTypeCallback, .inlineKeyboardButtonTypeCallbackGame,
-             .inlineKeyboardButtonTypeCallbackWithPassword, .inlineKeyboardButtonTypeDisabled: nil
+        case .inlineKeyboardButtonTypeCallback,
+             .inlineKeyboardButtonTypeCallbackGame,
+             .inlineKeyboardButtonTypeCallbackWithPassword,
+             .inlineKeyboardButtonTypeDisabled: nil
         }
     }
 
     private static func isLink(_ type: TDNativeInlineKeyboardButtonType) -> Bool {
         switch type {
-        case .inlineKeyboardButtonTypeLoginUrl, .inlineKeyboardButtonTypeUrl, .inlineKeyboardButtonTypeWebApp: true
+        case .inlineKeyboardButtonTypeLoginUrl,
+             .inlineKeyboardButtonTypeUrl,
+             .inlineKeyboardButtonTypeWebApp: true
         default: false
         }
     }

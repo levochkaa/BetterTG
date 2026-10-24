@@ -606,7 +606,8 @@ import UIKit
             guard customChat.isSavedMessages else { return false }
         case .supergroup(let group):
             guard !group.isDirectMessagesGroup else { return false }
-        case .bot, .group:
+        case .bot,
+             .group:
             break
         }
         return (try? resolveSendContext(
@@ -797,7 +798,8 @@ import UIKit
         guard !customChat.isSavedMessages else { return "" }
         guard actionStatus.isEmpty else { return actionStatus }
         switch customChat.type {
-        case .bot, .user:
+        case .bot,
+             .user:
             return onlineStatus
         case .group:
             return Self.memberStatus(memberCount: memberCount, onlineMemberCount: onlineMemberCount)
@@ -817,8 +819,10 @@ import UIKit
         if !actionStatus.isEmpty { return true }
         guard !customChat.isSavedMessages else { return false }
         switch customChat.type {
-        case .bot, .user: return isUserOnline
-        case .group, .supergroup: return false
+        case .bot,
+             .user: return isUserOnline
+        case .group,
+             .supergroup: return false
         }
     }
 
@@ -925,7 +929,7 @@ import UIKit
     #if DEBUG
         var historyDiagnosticSummary: String {
             let ids = messages.flatMap { $0.sourceMessages.map(\.id) }
-            let gaps = historyGaps.map { "\($0.olderBoundID)...\($0.newerBoundID)" }.joined(separator: ",")
+            let gaps = historyGaps.lazy.map { "\($0.olderBoundID)...\($0.newerBoundID)" }.joined(separator: ",")
             return "rows \(messages.count) newest \(ids.max() ?? 0) oldest \(ids.min() ?? 0) gaps [\(gaps)] "
                 + "latestCursor \(latestRestorationCursor != nil) latestFailed \(latestRestorationFailed) "
                 + "waitsForViewport \(restorationWaitsForViewport) more \(hasMoreMessages)"
@@ -937,7 +941,9 @@ import UIKit
         switch replyInputOverride {
         case .inputMessageReplyToMessage(let reply): reply.messageId
         case .inputMessageReplyToExternalMessage(let reply): reply.messageId
-        case .inputMessageReplyToEphemeralMessage, .inputMessageReplyToStory, nil: replyMessage?.id
+        case .inputMessageReplyToEphemeralMessage,
+             .inputMessageReplyToStory,
+             nil: replyMessage?.id
         }
     }
 
@@ -1143,8 +1149,10 @@ import UIKit
     /// A group's commands name their bot ("/command@bot"), as ChatControllerLoadDisplayNode's sendBotCommand does.
     private var sendsCommandsToGroup: Bool {
         switch customChat.type {
-        case .bot, .user: false
-        case .group, .supergroup: true
+        case .bot,
+             .user: false
+        case .group,
+             .supergroup: true
         }
     }
 
@@ -1566,7 +1574,8 @@ import UIKit
         case .messageTopicForum(let forumTopic):
             if let id = location.forumTopicID { return forumTopic.forumTopicId == id }
             return isAllMessagesForum
-        case .messageTopicDirectMessages, .messageTopicThread:
+        case .messageTopicDirectMessages,
+             .messageTopicThread:
             return false
         }
     }
@@ -1957,7 +1966,8 @@ import UIKit
                       !Task.isCancelled, let self, locationContextIsCurrent else { return }
                 updateRecipientNoteRestriction(info.hasRestrictedVoiceAndVideoNoteMessages)
             }
-        case .bot, .group:
+        case .bot,
+             .group:
             break
         }
         loadBotInfo()
@@ -1996,7 +2006,7 @@ import UIKit
             return nil
         }
         let time = String(format: "%d:%02d", remaining / 60, remaining % 60)
-        return L10n.telegram("Chat.SlowmodeTooltip", time).replacingOccurrences(of: "\n", with: " ")
+        return L10n.telegram("Chat.SlowmodeTooltip", time).replacing("\n", with: " ")
     }
 
     func loadMessages() {
@@ -2035,11 +2045,7 @@ import UIKit
                 fromMessageId: cursor,
                 limit: min(100, remaining + (cursor == 0 ? 0 : 1)),
                 offset: 0,
-            ) else {
-                loadingMessagesTask = nil
-                return
-            }
-            guard !Task.isCancelled, locationContextIsCurrent else {
+            ), !Task.isCancelled, locationContextIsCurrent else {
                 loadingMessagesTask = nil
                 return
             }
@@ -2183,9 +2189,9 @@ import UIKit
     func prepareLatestMessageWindow() async -> (window: PreparedMessageWindow, messageID: Int64)? {
         guard locationContextIsCurrent,
               let newest = await loadHistory(fromMessageId: 0, limit: 1, offset: 0)?
-                  .first(where: { location.matches(message: $0) }),
-                  !Task.isCancelled, locationContextIsCurrent, displayedMessageID(containing: newest.id) == nil,
-                  let window = await prepareMessageWindow(around: newest.id)
+                .first(where: { location.matches(message: $0) }),
+              !Task.isCancelled, locationContextIsCurrent, displayedMessageID(containing: newest.id) == nil,
+              let window = await prepareMessageWindow(around: newest.id)
         else { return nil }
         return (window, newest.id)
     }
@@ -3211,7 +3217,8 @@ import UIKit
                     pollOptionId: reply.pollOptionId,
                     quote: nil,
                 ))
-            case .inputMessageReplyToEphemeralMessage, .inputMessageReplyToStory:
+            case .inputMessageReplyToEphemeralMessage,
+                 .inputMessageReplyToStory:
                 input
             }
         }
@@ -3319,7 +3326,9 @@ import UIKit
             guard let target = try? await client.getMessage(chatId: message.chatId, messageId: message.messageId)
             else { return nil }
             return await getCustomMessage(from: target)
-        case .inputMessageReplyToEphemeralMessage, .inputMessageReplyToStory, nil:
+        case .inputMessageReplyToEphemeralMessage,
+             .inputMessageReplyToStory,
+             nil:
             return nil
         }
     }
@@ -3865,8 +3874,10 @@ import UIKit
         let topic = location.topic
         let searchesMembers =
             switch customChat.type {
-            case .group, .supergroup: true
-            case .bot, .user: false
+            case .group,
+                 .supergroup: true
+            case .bot,
+                 .user: false
             }
         let accountUserID = TDLib.shared.activeAccount?.userID
         mentionQueryTask = Task { [weak self] in
@@ -4267,7 +4278,8 @@ import UIKit
         let action: ChatAction =
             switch mode {
             case .files: .chatActionUploadingDocument(ChatActionUploadingDocument(progress: 0))
-            case .grouped, .separately:
+            case .grouped,
+                 .separately:
                 sendsVideos
                     ? .chatActionUploadingVideo(ChatActionUploadingVideo(progress: 0))
                     : .chatActionUploadingPhoto(ChatActionUploadingPhoto(progress: 0))
@@ -5097,9 +5109,7 @@ import UIKit
                   for: .voiceNote,
                   replyingTo: replySnapshot,
                   useCurrentReplyOverride: true,
-              )
-        else { return false }
-        guard !loadingVoiceDraft,
+              ), !loadingVoiceDraft,
               !startingVoiceNote,
               !recordingVoiceNote,
               !finalizingVoiceNote,
@@ -5181,9 +5191,12 @@ import UIKit
             sendVoiceRecordingPreview()
         case .locked where activeVoiceRecordingDraft != nil:
             closeVoiceRecordingSegment(sendAfterPreparation: true)
-        case .holding, .locked:
+        case .holding,
+             .locked:
             finishVoiceRecording(sendWhenReady: true, pendingMessage: nil)
-        case .idle, .pausing, .resuming:
+        case .idle,
+             .pausing,
+             .resuming:
             break
         }
     }
@@ -6239,7 +6252,8 @@ import UIKit
         guard recordingVoiceNote else { return }
 
         switch voiceRecordingInteractionState {
-        case .holding, .locked:
+        case .holding,
+             .locked:
             updateVoiceRecordingDuration()
             voiceRecordingInteractionState = .locked
             if canPauseVoiceRecording {
@@ -6263,7 +6277,9 @@ import UIKit
                     finished: true,
                 )
             }
-        case .idle, .pausing, .resuming:
+        case .idle,
+             .pausing,
+             .resuming:
             // Owned persistence work must finish. Its continuation observes suspension.
             break
         }
@@ -6329,13 +6345,10 @@ import UIKit
                 guard !latestRestorationFailed, var cursor = latestRestorationCursor,
                       let token = refresh.beginLatestRead() else { break }
                 guard let page = await loadHistory(fromMessageId: cursor.fromMessageID, limit: 30, offset: 0),
-                      !Task.isCancelled, locationContextIsCurrent
-                else {
-                    latestRestorationFailed = !refresh.failLatestRead(token: token)
-                    if latestRestorationFailed { break }
-                    continue
-                }
-                guard cursor.accept(rawPage: page, requestedFromMessageID: cursor.fromMessageID),
+                      !Task.isCancelled, locationContextIsCurrent, cursor.accept(
+                          rawPage: page,
+                          requestedFromMessageID: cursor.fromMessageID,
+                      ),
                       refresh.enqueueLatest(page, token: token)
                 else {
                     latestRestorationFailed = !refresh.failLatestRead(token: token)
@@ -6411,7 +6424,12 @@ import UIKit
                 messageId: message.id,
                 replyMarkup: nil,
             )
-        case .messageAnimation, .messageAudio, .messageDocument, .messagePhoto, .messageVideo, .messageVoiceNote:
+        case .messageAnimation,
+             .messageAudio,
+             .messageDocument,
+             .messagePhoto,
+             .messageVideo,
+             .messageVoiceNote:
             _ = try await client.editMessageCaption(
                 caption: attempt.text,
                 chatId: context.chatID,
@@ -6697,9 +6715,11 @@ import UIKit
         switch action {
         case .chatActionUploadingDocument:
             .document
-        case .chatActionRecordingVoiceNote, .chatActionUploadingVoiceNote:
+        case .chatActionRecordingVoiceNote,
+             .chatActionUploadingVoiceNote:
             .voiceNote
-        case .chatActionRecordingVideoNote, .chatActionUploadingVideoNote:
+        case .chatActionRecordingVideoNote,
+             .chatActionUploadingVideoNote:
             .videoNote
         case .chatActionUploadingPhoto:
             .photo
@@ -6814,12 +6834,14 @@ import UIKit
         if customChat.secretChatID != nil, secretChatIsReady != true { return false }
         // Telegram's recipient restriction on voice and video notes (`Conversation.VoiceMessagesRestricted`).
         switch kind {
-        case .videoNote, .voiceNote: if recipientRestrictsVoiceAndVideoNotes { return false }
+        case .videoNote,
+             .voiceNote: if recipientRestrictsVoiceAndVideoNotes { return false }
         default: break
         }
         let permission: KeyPath<ChatPermissions, Bool> =
             switch kind {
-            case .animation, .sticker:
+            case .animation,
+                 .sticker:
                 \.canSendOtherMessages
             case .audio:
                 \.canSendAudios
@@ -6828,7 +6850,8 @@ import UIKit
             case .photo:
                 \.canSendPhotos
             // TDLib sends checklists under the poll permission.
-            case .checklist, .poll:
+            case .checklist,
+                 .poll:
                 \.canSendPolls
             case .text:
                 \.canSendBasicMessages
@@ -7120,9 +7143,11 @@ import UIKit
         }
         let allowsLegacyCurrentChatFallback =
             switch replyTo {
-            case .inputMessageReplyToMessage, nil:
+            case .inputMessageReplyToMessage,
+                 nil:
                 true
-            case .inputMessageReplyToEphemeralMessage, .inputMessageReplyToExternalMessage,
+            case .inputMessageReplyToEphemeralMessage,
+                 .inputMessageReplyToExternalMessage,
                  .inputMessageReplyToStory:
                 false
             }
@@ -7136,7 +7161,9 @@ import UIKit
             message.quote
         case .inputMessageReplyToExternalMessage(let message):
             message.quote
-        case .inputMessageReplyToEphemeralMessage, .inputMessageReplyToStory, nil:
+        case .inputMessageReplyToEphemeralMessage,
+             .inputMessageReplyToStory,
+             nil:
             nil
         }
     }
@@ -8432,7 +8459,7 @@ import UIKit
             .sink { [weak self] notification in
                 guard let self,
                       let rawValue = (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? NSNumber)?
-                          .uintValue
+                        .uintValue
                 else { return }
                 if AVAudioSession.InterruptionType(rawValue: rawValue) == .began {
                     suspendVoiceRecordingForSystem(.audioInterruption)

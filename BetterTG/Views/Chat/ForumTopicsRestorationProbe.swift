@@ -112,7 +112,9 @@
                             + "real-UIKit-diffable/production-cell/same-instance-reconfigure=true; "
                             + "missing-model-clears-content/retire-stale-completion=true; "
                             + "full-controller/VM-RPC/query-actions/foreground=unverified; server-writes=0"
-                    } catch { result = "Forum snapshot probe failed: \(error)" }
+                    } catch {
+                        result = "Forum snapshot probe failed: \(error)"
+                    }
                     if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                         try? Data(result.utf8).write(
                             to: directory.appendingPathComponent("forum-snapshot-probe.txt"), options: .atomic,
@@ -134,7 +136,9 @@
                     + "production-coordinator/current-slot/retained-child/modal/epoch/stack-fences=true; "
                     + "production-UIKit-viewport/stable-topic/pending-layout/drag=true; "
                     + "full-VM-RPC/controller/foreground/search-runtime=unverified; server-writes=0"
-            } catch { result = "Forum restoration probe failed: \(error)" }
+            } catch {
+                result = "Forum restoration probe failed: \(error)"
+            }
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
                 try? Data(result.utf8).write(
                     to: directory.appendingPathComponent("forum-restoration-probe.txt"),

@@ -15,7 +15,8 @@ enum RichNotificationMediaEligibility {
         case .messageVideo(let value): !value.isSecret && !value.hasSpoiler
         case .messageAnimation(let value): !value.isSecret && !value.hasSpoiler
         case .messageVideoNote(let value): !value.isSecret
-        case .messageDocument, .messageSticker: true
+        case .messageDocument,
+             .messageSticker: true
         default: false
         }
     }

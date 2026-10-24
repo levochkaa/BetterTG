@@ -139,9 +139,13 @@ final class TDLib: @unchecked Sendable {
               let snapshot = authorizationState.current, snapshot.source == source,
               let state = snapshot.state else { return false }
         return switch state {
-        case .authorizationStateWaitCode, .authorizationStateWaitEmailAddress, .authorizationStateWaitEmailCode,
-             .authorizationStateWaitOtherDeviceConfirmation, .authorizationStateWaitPassword,
-             .authorizationStateWaitPhoneNumber, .authorizationStateWaitPremiumPurchase,
+        case .authorizationStateWaitCode,
+             .authorizationStateWaitEmailAddress,
+             .authorizationStateWaitEmailCode,
+             .authorizationStateWaitOtherDeviceConfirmation,
+             .authorizationStateWaitPassword,
+             .authorizationStateWaitPhoneNumber,
+             .authorizationStateWaitPremiumPurchase,
              .authorizationStateWaitRegistration:
             true
         default:
@@ -299,7 +303,7 @@ final class TDLib: @unchecked Sendable {
         var updatedAccounts = survivors
         let replacement: TelegramAccount
 
-        if var existing = survivors.sorted(by: { $0.lastActiveAt > $1.lastActiveAt }).first {
+        if var existing = survivors.min(by: { $0.lastActiveAt > $1.lastActiveAt }) {
             existing.lastActiveAt = Date()
             replacement = existing
             if let index = updatedAccounts.firstIndex(where: { $0.id == existing.id }) {
@@ -460,7 +464,8 @@ final class TDLib: @unchecked Sendable {
             guard isActive(client: client, accountID: accountID) else { return }
             if lifecycleSuspended {
                 switch state {
-                case .authorizationStateClosed, .authorizationStateClosing:
+                case .authorizationStateClosed,
+                     .authorizationStateClosing:
                     return
                 default:
                     break
@@ -584,7 +589,7 @@ final class TDLib: @unchecked Sendable {
         let survivors = accounts.filter { $0.id != accountID }
         var updatedAccounts = survivors
         let replacement: TelegramAccount
-        if var existing = survivors.sorted(by: { $0.lastActiveAt > $1.lastActiveAt }).first {
+        if var existing = survivors.min(by: { $0.lastActiveAt > $1.lastActiveAt }) {
             existing.lastActiveAt = Date()
             replacement = existing
             if let index = updatedAccounts.firstIndex(where: { $0.id == existing.id }) {

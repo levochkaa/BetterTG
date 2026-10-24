@@ -65,7 +65,8 @@ import UIKit
             return url.absoluteString
         case "bettertg":
             return "tg:" + url.absoluteString.dropFirst(scheme.count + 1)
-        case "http", "https":
+        case "http",
+             "https":
             guard components.user == nil, components.password == nil,
                   components.port == nil || components.port == 80 || components.port == 443,
                   let host = components.host?.lowercased() else { return nil }
@@ -312,8 +313,11 @@ import UIKit
             let info = try? await client.send(TDNativeRequests.getDeepLinkInfo(link: value.link))
             guard !Task.isCancelled, authority.isCurrent, let text = info?.text.text, !text.isEmpty else { return }
             presentAlert(text, presenter: presenter)
-        case .internalLinkTypeAuthenticationCode, .internalLinkTypeOauth, .internalLinkTypePassportDataRequest,
-             .internalLinkTypePhoneNumberConfirmation, .internalLinkTypeQrCodeAuthentication:
+        case .internalLinkTypeAuthenticationCode,
+             .internalLinkTypeOauth,
+             .internalLinkTypePassportDataRequest,
+             .internalLinkTypePhoneNumberConfirmation,
+             .internalLinkTypeQrCodeAuthentication:
             break
         default:
             openExternally(url)
@@ -747,7 +751,8 @@ import UIKit
         guard !Task.isCancelled, authority.isCurrent else { return }
         let botIsAdmin =
             switch botStatus {
-            case .chatMemberStatusAdministrator, .chatMemberStatusCreator: true
+            case .chatMemberStatusAdministrator,
+                 .chatMemberStatusCreator: true
             default: false
             }
         let opensRights: Bool
@@ -1281,8 +1286,9 @@ import UIKit
                     applyButton.isEnabled = false
                     cancelButton.setTitle(L10n.telegram("Common.OK"), for: .normal)
                 }
-            } catch is CancellationError { dismiss(animated: true) }
-            catch {
+            } catch is CancellationError {
+                dismiss(animated: true)
+            } catch {
                 spinner.stopAnimating()
                 bodyLabel.text = L10n.telegram("ApplyLanguage.LanguageNotSupportedError")
             }
