@@ -1705,7 +1705,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             fallbackResponse: 0.4,
         ) {
             self.layoutSubmenus()
-            submenu.setGlassSuppressed(false)
+            submenu.materializeGlass()
             // The header starts on the source row and takes its place; left under the translucent card, the row
             // would read as a second copy of it.
             button.alpha = 0
@@ -1713,8 +1713,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         updateSubmenuAccessibility(focus: submenu.headerButton)
     }
 
-    /// `navigateUpFromNode:`: the card shrinks back into its row, its actions fading and its glass dematerializing,
-    /// and the parent returns.
+    /// `navigateUpFromNode:`: the card shrinks back into its row, its actions and glass fading, and the parent returns.
     private func closeSubmenu() {
         guard let submenu = submenus.last else { return }
         touchSession?.highlighted = nil
@@ -1742,7 +1741,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             fallbackResponse: 0.4,
         ) {
             self.layoutSubmenus()
-            submenu.setGlassSuppressed(true)
+            submenu.setGlassAlpha(0)
             submenu.bounds = CGRect(origin: .zero, size: collapsed.size)
             submenu.center = CGPoint(x: collapsed.midX, y: collapsed.midY)
             submenu.layoutIfNeeded()
@@ -2171,7 +2170,7 @@ private final class TelegramContextMenuSectionDivider: UIView {
 /// Like `_UIContextMenuListView`, the card carries the glass itself, while its rows sit in a clipping view that is
 /// never smaller than the header with the menu's insets around it. Closed, the card is the row inset like its
 /// highlight, and its glass is suppressed to the material's `_identityGlass`, which shows nothing: the glass
-/// materializes on the opening spring and dematerializes on the closing one (`setSuppressGlassBackground:`).
+/// materializes on the opening spring (`setSuppressGlassBackground:`) and fades on the closing one.
 private final class TelegramContextSubmenuView: UIView {
     // MARK: Internal
 
@@ -2316,17 +2315,22 @@ private final class TelegramContextSubmenuView: UIView {
         childButtons.forEach { $0.alpha = alpha }
     }
 
-    /// `setSuppressGlassBackground:`. Inside a spring, the glass materializes or dematerializes along with it.
-    func setGlassSuppressed(_ suppressed: Bool) {
+    /// `setSuppressGlassBackground:NO`. Inside a spring, the glass materializes along with it.
+    func materializeGlass() {
         if usesNativeGlass {
-            _ = ContextMenuNativeGlass.applyMenuGlass(to: backgroundView, suppressed: suppressed)
-        } else if suppressed {
-            fallbackGlassView.effect = nil
+            _ = ContextMenuNativeGlass.applyMenuGlass(to: backgroundView)
         } else {
             let glass = UIGlassEffect(style: .regular)
             glass.isInteractive = true
             fallbackGlassView.effect = glass
         }
+    }
+
+    /// `navigateUpFromNode:` suppresses the glass again on the closing spring, but UIKit doesn't interpolate a glass
+    /// going back to its `_identityGlass`: it stays whole while the card shrinks and vanishes in one frame, in the
+    /// system's menu too. The glass fades by alpha instead.
+    func setGlassAlpha(_ alpha: CGFloat) {
+        backgroundView.alpha = alpha
     }
 }
 

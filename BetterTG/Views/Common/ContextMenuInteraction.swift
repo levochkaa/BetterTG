@@ -84,8 +84,8 @@ import UIKit
 
     /// `_updateGlassBackgroundIfNeeded` (0x1c482b0a8) puts the material on a plain view. With `suppressed`, as for a
     /// list view under `setSuppressGlassBackground:YES`, it puts the material's `_identityGlass` there instead, which
-    /// shows nothing; switching between the two inside an animation materializes or dematerializes the glass. Returns
-    /// false when the private material is unavailable; the caller then uses interactive `UIGlassEffect`.
+    /// shows nothing; putting the material back inside an animation materializes the glass. Returns false when the
+    /// private material is unavailable; the caller then uses interactive `UIGlassEffect`.
     static func applyMenuGlass(to view: UIView, suppressed: Bool = false) -> Bool {
         guard let glassClass, !suppressed || makesIdentityGlass,
               view.responds(to: NSSelectorFromString("_setBackground:"))
