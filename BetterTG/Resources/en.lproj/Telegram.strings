@@ -181,6 +181,7 @@
 "Conversation.ContextMenuDelete" = "Delete";
 "Conversation.ContextMenuCancelSending" = "Cancel Sending";
 "Conversation.ViewInChannel" = "View in Channel";
+"Conversation.MessageDialogEdit" = "Edit";
 "Conversation.ContextMenuSelectAll_1" = "Select All %@ Items";
 "Conversation.ContextMenuSelectAll_any" = "Select All %@ Items";
 "Chat.MessageContextMenu.Remove" = "Remove";

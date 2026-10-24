@@ -9100,13 +9100,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             } else {
                 false
             }
-        // For polls, live locations and checklists `canBeEdited` means stop or update, not a text edit.
+        // For polls and live locations `canBeEdited` means stop or update; a checklist opens in its editor.
         if message.properties.canBeEdited, !isRichMessage, Self.editsText(message.message.content) {
             elements.append(TelegramContextMenuAction(
-                title: L10n.telegram("Common.Edit"),
+                title: L10n.telegram("Conversation.MessageDialogEdit"),
                 image: UIImage(systemName: "square.and.pencil"),
             ) { [weak self] in
                 self?.chatVM.beginMessageEditing(message)
+            })
+        } else if chatVM.canEditChecklist(message) {
+            // Telegram's Edit on a checklist opens it in the checklist editor (editTodoMessage).
+            elements.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.MessageDialogEdit"),
+                image: UIImage(systemName: "square.and.pencil"),
+            ) { [weak self, weak message] in
+                guard let self, let message else { return }
+                openChecklistEditor(message, focusedTaskID: nil, appends: false)
             })
         }
         // Telegram lists Retract Vote ahead of Stop Poll.
