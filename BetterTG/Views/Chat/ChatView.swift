@@ -418,15 +418,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     /// A reply thread is titled "N Comments" or "N Replies", with only typing activity below (ChatTitleView,
     /// `.replyThread`). A forum topic shows who acts in it, else its chat below the topic name.
-    private var headerTitleAndStatus: (title: String, status: String) {
+    /// The header's title and status, with ChatTitleActivityNode's indicator when the status words an activity.
+    private var headerContent: (title: String, status: String, activity: ChatActivityIndicatorView.Kind?) {
         if let title = chatVM.messageThreadTitle {
-            return (title, chatVM.actionStatus)
+            let status = chatVM.actionStatus
+            return (title, status, status.isEmpty ? nil : chatVM.actionIndicator)
         }
         let title = chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle
+        if let activity = chatVM.topicActivityStatus {
+            return (title, activity, chatVM.topicActivityIndicator)
+        }
         let status =
-            if let activity = chatVM.topicActivityStatus {
-                activity
-            } else if location.isTopicScoped {
+            if location.isTopicScoped {
                 chatVM.isReadOnlyTopic
                     ? (chatVM.forumTopicInfo?.isClosed == true || chatVM.forumTopicInfo?.isHidden == true
                         ? L10n.betterTG("Forum.ClosedTopicReadOnly")
@@ -435,7 +438,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             } else {
                 chatVM.headerStatus
             }
-        return (title, status)
+        let acts = !location.isTopicScoped && !chatVM.customChat.isSavedMessages && !chatVM.actionStatus.isEmpty
+        return (title, status, acts ? chatVM.actionIndicator : nil)
     }
 
     private var isNearLatest: Bool {
@@ -677,6 +681,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        #if DEBUG
+            // `-ui-probe-header-activity` shows Telegram's account typing here, locally, to look at the header's
+            // activity indicator without anyone typing.
+            if ProcessInfo.processInfo.arguments.contains("-ui-probe-header-activity") {
+                chatVM.updateChatAction(UpdateChatAction(
+                    chatId: location.chatID,
+                    topicId: nil,
+                    senderId: .messageSenderUser(.init(userId: 777_000)),
+                    action: .chatActionTyping,
+                ))
+            }
+        #endif
         restoredViewport?.appeared = true
         if restoredHistoryCover != nil {
             // A restoration that never settles must not leave the history covered.
@@ -3934,7 +3950,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateChatHeader() {
         let chat = chatVM.customChat.chat
-        let (title, status) = headerTitleAndStatus
+        let (title, status, activity) = headerContent
         // The chat's own title carries its credibility icon; topics and threads have their own titles.
         customNavigationBar.titleBadge = location.isTopicScoped || location.messageThreadID != nil
             ? nil
@@ -3944,6 +3960,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             title: title,
             status: status,
             statusColor: statusColor,
+            activity: activity,
         )
         customNavigationBar.configureAvatar(
             file: chat.photo?.small,
@@ -3976,12 +3993,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func updateStatus() {
-        let (title, status) = headerTitleAndStatus
+        let (title, status, activity) = headerContent
         let statusColor: UIColor = chatVM.headerStatusIsActive ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
             title: title,
             status: status,
             statusColor: statusColor,
+            activity: activity,
         )
         // TDLib reports a thread's unread count only in its one-off read, so a thread shows none.
         let unreadCount =

@@ -363,8 +363,19 @@ extension ChatVM {
         displayedChatActions.last.map { Self.chatActionText($0.action) } ?? ""
     }
 
-    /// Telegram shows who acts in a forum topic over its subtitle (ChatTitleView.updateStatus); this uses the chat
-    /// list's wording, as BetterTG has no animated activity indicator.
+    /// ChatTitleActivityNode's indicator for the latest action the header words.
+    var actionIndicator: ChatActivityIndicatorView.Kind? {
+        displayedChatActions.last.flatMap { ChatActivityIndicatorView.Kind(action: $0.action) }
+    }
+
+    /// The indicator for a forum topic's activity line: typing dots when several act, as ChatListTypingNode shows.
+    var topicActivityIndicator: ChatActivityIndicatorView.Kind? {
+        guard location.forumTopicID != nil, let first = chatActions.first else { return nil }
+        return chatActions.count > 1 ? .typing : ChatActivityIndicatorView.Kind(action: first.action)
+    }
+
+    /// Telegram shows who acts in a forum topic over its subtitle (ChatTitleView.updateStatus), in the chat list's
+    /// wording.
     var topicActivityStatus: String? {
         guard location.forumTopicID != nil else { return nil }
         return ChatListActivities.text(

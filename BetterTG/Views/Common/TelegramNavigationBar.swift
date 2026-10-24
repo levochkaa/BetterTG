@@ -328,7 +328,12 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     var titleBadge: PeerCredibilityBadge? {
         didSet {
             guard titleBadge != oldValue, selectionCount == nil else { return }
-            applyTitle(title: configuredTitle, status: configuredStatus, statusColor: configuredStatusColor)
+            applyTitle(
+                title: configuredTitle,
+                status: configuredStatus,
+                statusColor: configuredStatusColor,
+                activity: configuredActivity,
+            )
         }
     }
 
@@ -341,6 +346,12 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private let titleStack = UIStackView()
     private let titleLabel = UILabel()
     private let statusLabel = UILabel()
+    /// ChatTitleActivityNode's indicator before an activity's status, centred with it.
+    private let statusActivityView = ChatActivityIndicatorView(frame: CGRect(
+        origin: .zero,
+        size: ChatActivityIndicatorView.size,
+    ))
+    private lazy var statusRow = UIStackView(arrangedSubviews: [statusActivityView, statusLabel])
     private let avatarView = ProfileAvatarView()
     private let moreButton = UIButton(type: .system)
     private var showsMoreButton = false
@@ -360,6 +371,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private var configuredTitle = ""
     private var configuredStatus = ""
     private var configuredStatusColor = UIColor.secondaryLabel
+    private var configuredActivity: ChatActivityIndicatorView.Kind?
 
     var visibleContentHeight: CGFloat { searchActive ? ChatListNavigationSearchView.scrollHeight : Self.contentHeight }
 
@@ -376,12 +388,19 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         blurView.isHidden = true
     }
 
-    func configure(title: String, status: String, statusColor: UIColor) {
+    /// `activity` adds its animated indicator before the status, for a status that words an activity.
+    func configure(
+        title: String,
+        status: String,
+        statusColor: UIColor,
+        activity: ChatActivityIndicatorView.Kind? = nil,
+    ) {
         configuredTitle = title
         configuredStatus = status
         configuredStatusColor = statusColor
+        configuredActivity = activity
         guard selectionCount == nil else { return }
-        applyTitle(title: title, status: status, statusColor: statusColor)
+        applyTitle(title: title, status: status, statusColor: statusColor, activity: activity)
     }
 
     func setSelectionCount(_ count: Int?) {
@@ -419,6 +438,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
                 title: configuredTitle,
                 status: configuredStatus,
                 statusColor: configuredStatusColor,
+                activity: configuredActivity,
             )
         }
     }
@@ -525,7 +545,12 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         }
     }
 
-    private func applyTitle(title: String, status: String, statusColor: UIColor) {
+    private func applyTitle(
+        title: String,
+        status: String,
+        statusColor: UIColor,
+        activity: ChatActivityIndicatorView.Kind? = nil,
+    ) {
         if let titleBadge, selectionCount == nil {
             titleLabel.attributedText = PeerCredibilityBadge.title(
                 title,
@@ -538,7 +563,12 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         }
         statusLabel.text = status
         statusLabel.textColor = statusColor
-        statusLabel.isHidden = status.isEmpty
+        statusRow.isHidden = status.isEmpty
+        if let activity {
+            statusActivityView.kind = activity
+            statusActivityView.color = statusColor
+        }
+        statusActivityView.isHidden = activity == nil
         titleControl.accessibilityLabel = status.isEmpty ? title : "\(title), \(status)"
     }
 
@@ -572,7 +602,15 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         statusLabel.font = .preferredFont(forTextStyle: .caption1)
         statusLabel.textColor = .secondaryLabel
         titleStack.addArrangedSubview(titleLabel)
-        titleStack.addArrangedSubview(statusLabel)
+        statusRow.axis = .horizontal
+        statusRow.alignment = .center
+        statusActivityView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            statusActivityView.widthAnchor.constraint(equalToConstant: ChatActivityIndicatorView.size.width),
+            statusActivityView.heightAnchor.constraint(equalToConstant: ChatActivityIndicatorView.size.height),
+        ])
+        statusActivityView.isHidden = true
+        titleStack.addArrangedSubview(statusRow)
         titleStack.isUserInteractionEnabled = false
         titleControl.highlightedContentView = titleStack
         titleControl.addSubview(titleStack)
