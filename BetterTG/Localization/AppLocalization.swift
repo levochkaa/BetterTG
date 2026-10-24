@@ -161,6 +161,21 @@ final class AppLocalization: @unchecked Sendable {
         }
     }
 
+    /// Telegram's presentationStringsFormattedNumber with the locale's grouping separator, as PresentationStrings
+    /// formats every plural count: from 1,000 up, every three digits.
+    static func formattedNumber(_ count: Int, groupingSeparator: String? = Locale.current.groupingSeparator) -> String {
+        let string = String(count.magnitude)
+        guard let groupingSeparator, !groupingSeparator.isEmpty, count.magnitude >= 1000 else { return String(count) }
+        var groups = [Substring]()
+        var end = string.endIndex
+        while end > string.startIndex {
+            let start = string.index(end, offsetBy: -3, limitedBy: string.startIndex) ?? string.startIndex
+            groups.insert(string[start..<end], at: 0)
+            end = start
+        }
+        return (count < 0 ? "-" : "") + groups.joined(separator: groupingSeparator)
+    }
+
     private static func storedStrings(_ strings: [LanguagePackString]) -> [String: StoredString] {
         Dictionary(uniqueKeysWithValues: strings.map { string in
             let value: StoredString =
@@ -527,7 +542,7 @@ final class AppLocalization: @unchecked Sendable {
         // Telegram's plural strings take the count as %@, and a few as %d.
         let argument: CVarArg = result.0.contains("%d")
             ? Int32(clamping: count)
-            : (formattedCount ?? String(count)) as NSString
+            : (formattedCount ?? Self.formattedNumber(count)) as NSString
         return Self.format(result.0, localeID: result.1, arguments: [argument])
     }
 

@@ -656,11 +656,7 @@ ClientRestorableNavigationEntry {
     }
 
     private static func memberCountText(_ count: Int, isChannel: Bool) -> String {
-        L10n.telegramPlural(
-            isChannel ? "Conversation.StatusSubscribers" : "Conversation.StatusMembers",
-            count: count,
-            formattedCount: String(count),
-        )
+        L10n.telegramPlural(isChannel ? "Conversation.StatusSubscribers" : "Conversation.StatusMembers", count: count)
     }
 
     private static func kindText(isChannel: Bool, isForum: Bool) -> String {
