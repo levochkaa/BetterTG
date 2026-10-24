@@ -1054,12 +1054,22 @@ ClientRestorableNavigationEntry {
         Task { _ = try? await client.cancelDownloadFile(fileId: download.fileID, onlyIfPending: false) }
     }
 
+    /// Redraws one row once a sender it names is known.
+    private func reconfigureSharedItem(_ id: Int64) {
+        guard isViewLoaded else { return }
+        var snapshot = dataSource.snapshot()
+        guard snapshot.itemIdentifiers.contains(id) else { return }
+        snapshot.reconfigureItems([id])
+        dataSource.apply(snapshot, animatingDifferences: false)
+    }
+
     private func setSharedItemProgress(_ progress: Float?, for messageID: Int64) {
         sharedItemProgress[messageID] = progress
         guard isViewLoaded, let path = dataSource.indexPath(for: messageID) else { return }
         let cell = collectionView.cellForItem(at: path)
         (cell as? SharedMediaRowCell)?.setDownloadProgress(progress)
         (cell as? SharedFileRowCell)?.setDownloadProgress(progress)
+        (cell as? SharedAudioRowCell)?.setDownloadProgress(progress)
     }
 
     private func open(_ link: SharedLink) {
@@ -1342,6 +1352,7 @@ ClientRestorableNavigationEntry {
         collectionView.register(SharedMediaRowCell.self, forCellWithReuseIdentifier: SharedMediaRowCell.reuseIdentifier)
         collectionView.register(SharedLinkRowCell.self, forCellWithReuseIdentifier: SharedLinkRowCell.reuseIdentifier)
         collectionView.register(SharedFileRowCell.self, forCellWithReuseIdentifier: SharedFileRowCell.reuseIdentifier)
+        collectionView.register(SharedAudioRowCell.self, forCellWithReuseIdentifier: SharedAudioRowCell.reuseIdentifier)
         collectionView.register(
             SharedMediaPendingCell.self,
             forCellWithReuseIdentifier: SharedMediaPendingCell.reuseIdentifier,
@@ -1478,6 +1489,18 @@ ClientRestorableNavigationEntry {
                     permit: mediaRevealSession?.permit(for: message),
                 )
                 return cell ?? UICollectionViewCell()
+            }
+            if currentSharedTab == .audio || currentSharedTab == .voice,
+               let cell = collectionView.dequeueReusableCell(
+                   withReuseIdentifier: SharedAudioRowCell.reuseIdentifier,
+                   for: indexPath,
+               ) as? SharedAudioRowCell,
+               cell.configure(message: message, isGlobalSearch: false, client: client, onNameResolved: { [weak self] in
+                   self?.reconfigureSharedItem(id)
+               })
+            {
+                cell.setDownloadProgress(sharedItemProgress[message.id])
+                return cell
             }
             if currentSharedTab == .files, case .messageDocument = message.content,
                let cell = collectionView.dequeueReusableCell(

@@ -112,6 +112,7 @@ enum ChatListSearchFilter: Int, CaseIterable {
         collectionView.register(SharedMediaRowCell.self, forCellWithReuseIdentifier: SharedMediaRowCell.reuseIdentifier)
         collectionView.register(SharedLinkRowCell.self, forCellWithReuseIdentifier: SharedLinkRowCell.reuseIdentifier)
         collectionView.register(SharedFileRowCell.self, forCellWithReuseIdentifier: SharedFileRowCell.reuseIdentifier)
+        collectionView.register(SharedAudioRowCell.self, forCellWithReuseIdentifier: SharedAudioRowCell.reuseIdentifier)
         addSubview(collectionView)
         spinner.translatesAutoresizingMaskIntoConstraints = false
         spinner.hidesWhenStopped = true
@@ -202,6 +203,17 @@ enum ChatListSearchFilter: Int, CaseIterable {
             if let client { (cell as? ChatListSearchMediaCell)?.configure(message: message, client: client) }
             return cell
         }
+        if filter == .music || filter == .voice, let client,
+           let cell = collectionView.dequeueReusableCell(
+               withReuseIdentifier: SharedAudioRowCell.reuseIdentifier,
+               for: indexPath,
+           ) as? SharedAudioRowCell,
+           cell.configure(message: message, isGlobalSearch: true, client: client, onNameResolved: { [weak self] in
+               self?.reloadMessage(chatID: message.chatId, messageID: message.id)
+           })
+        {
+            return cell
+        }
         if filter == .files, let client, case .messageDocument = message.content,
            let cell = collectionView.dequeueReusableCell(
                withReuseIdentifier: SharedFileRowCell.reuseIdentifier,
@@ -237,6 +249,11 @@ enum ChatListSearchFilter: Int, CaseIterable {
         collectionView.deselectItem(at: indexPath, animated: true)
         guard messages.indices.contains(indexPath.item) else { return }
         onOpen?(messages[indexPath.item])
+    }
+
+    private func reloadMessage(chatID: Int64, messageID: Int64) {
+        guard let index = messages.firstIndex(where: { $0.chatId == chatID && $0.id == messageID }) else { return }
+        collectionView.reloadItems(at: [IndexPath(item: index, section: 0)])
     }
 
     private func loadPage() {
