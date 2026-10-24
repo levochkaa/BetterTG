@@ -523,8 +523,6 @@ Proofs:
   first rejected by automatic approval review under the old AGENTS.md rule; `75872177` allows Xcode MCP, and the next
   section has the multi-touch proofs.
 
-Attachment-point morph, 10-24 (iPhone 17 Pro iOS 26.5 Simulator `8108A92F`, idb holds and taps, `simctl` recordings): holding the Saved Messages row grew the menu glass as a round lensing blob out of the point under the chat preview into the menu in about 0.25 s; an outside tap pulled it back toward the preview flying home, with no overlay left; holding a message grew the menu under the bubble while the bubble rose to its place and the reaction strip came in, and an outside tap closed it back with the bubble restored in its cell; holding the channels folder tab grew its menu upward out of the point above the tab; Copy on a message ran after the morphing close (pasteboard changed). `-ui-probe-context-menu-interaction` and `-ui-probe-context-menu-liquid-morph` pass on that runtime. Not checked: the avatar menu by hand (same path as the chat preview), Reduce Motion at runtime after this change (the code path is the earlier one), iOS 27 by hand (Xcode MCP lists only iOS 27 Simulators, where the account is not signed in).
-
 ### Context-menu gestures through Xcode device interaction — 2026-10-12
 
 Real multi-touch sequences (`mt`) on iPhone 18 Pro iOS 27.0, build after `9d46205`, in Saved Messages:
@@ -563,7 +561,7 @@ Per-control decisions:
 | Media preview before sending | Not applicable: no button there opens a menu |
 | Record button retry/discard (`actionButton.menu`) | Kept as a system `UIMenu`, which UIKit morphs natively. The same button owns hold-to-record touches |
 | Classic navigation bar items with menus | Kept as system `UIMenu`s, morphed by UIKit. Telegram's morph targets glass header capsules, which BetterTG's classic chrome does not use |
-| Messages, chat rows, avatars, folder tabs and list rows | Morph since the user's decision of 10-24 (`feature(context-menu): grow every menu out of its attachment point`): UIKit's preview-menu branch (`sourcePreviewMorphsToMenu` NO, CustomContextMenu Research/Interaction "LiquidMorph", Telegram's `morphPreviewFromAttachmentPoint`). The menu glass grows out of a clear 10 × 10 point, radius 5, in the middle of the menu's edge facing the preview, kept within the preview's width, on the preview's edge (beside a source without a preview, on the menu's edge facing the source), and closes into the same point on the preview's way back. The preview moves as before; it hands its content back and the action runs when it lands (0.24 s), while the glass finishes closing over the app, which takes touches again; the overlay leaves at UIKit's completion |
+| Folders, messages, chat rows, avatars | No morph, by scope |
 
 Proofs:
 
