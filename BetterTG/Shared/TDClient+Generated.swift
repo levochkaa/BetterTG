@@ -691,6 +691,10 @@ extension TDClient {
         try await send(TDNativeRequests.getWebAppUrl(botUserId: botUserId, url: url, parameters: parameters))
     }
 
+    func joinChat(chatId: Int64) async throws -> TDNativeChatJoinResult {
+        try await send(TDNativeRequests.joinChat(chatId: chatId))
+    }
+
     func logOut() async throws -> TDNativeOk {
         try await send(TDNativeRequests.logOut())
     }

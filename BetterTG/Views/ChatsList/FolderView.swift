@@ -213,6 +213,9 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     }
 
     private func configureSearchResults() {
+        searchResultsController.chatMenu = { [weak self] chat in
+            self?.folderController.searchResultMenu(for: chat) ?? []
+        }
         addChild(searchResultsController)
         let resultsView = searchResultsController.view!
         resultsView.translatesAutoresizingMaskIntoConstraints = false
@@ -795,6 +798,12 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         )
     }
 
+    /// ChatContextMenus' chatContextMenuItems for a chat the account has, found by search (`.search` source): no
+    /// Remove from Folder, and Pin in the chat's own list.
+    func searchResultMenu(for chat: CustomChat) -> [TelegramContextMenuAction] {
+        menu(for: chat, inSearch: true)
+    }
+
     /// Telegram opens a chat's stories from its avatar (ChatListItem.avatarStoryTapGesture) and then pages through
     /// the other posters, unseen ones first as its story subscriptions are ordered; here those are the page's chats
     /// with stories, in list order within each group.
@@ -1132,13 +1141,15 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         chatsByID[id]
     }
 
-    private func menu(for chat: CustomChat) -> [TelegramContextMenuAction] {
+    private func menu(for chat: CustomChat, inSearch: Bool = false) -> [TelegramContextMenuAction] {
         let scope = actionAuthority.scope(owner: self)
         let client = actionAuthority.client
         guard scope.isCurrent else { return [] }
-        let pinned = chat.position.isPinned
-        let unread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
         let archived = chat.chat.positions.contains { $0.list == .chatListArchive && $0.order != 0 }
+        let searchPinList: ChatList? = inSearch ? (archived ? .chatListArchive : .chatListMain) : nil
+        let pinned = searchPinList.map { list in chat.chat.positions.contains { $0.list == list && $0.isPinned } }
+            ?? chat.position.isPinned
+        let unread = chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
         let muted = rootVM.isMuted(chat)
         // Telegram (ChatContextMenus, chatContextMenuItems) keeps Saved Messages out of Archive and Mute, service
         // notifications out of Archive, and offers Mark as Unread only outside forums.
@@ -1146,7 +1157,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         let isServiceNotifications = chat.user?.id == Self.serviceNotificationsUserID
         let isForum = chat.supergroup.map { $0.isForum || $0.isDirectMessagesGroup } ?? false
         let isCustomFolder =
-            if case .folder = folder.type {
+            if !inSearch, case .folder = folder.type {
                 true
             } else {
                 false
@@ -1229,11 +1240,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
                 : L10n.telegram("ChatList.Context.Pin"),
             image: UIImage(systemName: pinned ? "pin.slash.fill" : "pin.fill"),
         ) { [weak self] in
-            self?.setPinned(chat, !pinned, scope: scope, client: client)
+            self?.setPinned(chat, !pinned, in: searchPinList, scope: scope, client: client)
         })
         // Telegram offers Reorder on a pinned item (ChatContextMenus, Chat.InlineTopicMenu.Reorder); BetterTG has no
         // Edit mode, so this is the way into reordering pinned chats.
-        if pinned, folder.chats.filter(\.position.isPinned).count > 1, isSearchActive?() != true {
+        if !inSearch, pinned, folder.chats.filter(\.position.isPinned).count > 1, isSearchActive?() != true {
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("Chat.InlineTopicMenu.Reorder"),
                 image: UIImage(systemName: "arrow.up.arrow.down"),
@@ -1424,9 +1435,21 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }
     }
 
-    private func setPinned(_ chat: CustomChat, _ pin: Bool, scope: ChatListActionScope, client: TDLibClient) {
-        let pinLimit = pinLimitType
-        let chatList = folder.chatList
+    /// Pins in this page's list, or in `list` for a chat found by search.
+    private func setPinned(
+        _ chat: CustomChat,
+        _ pin: Bool,
+        in list: ChatList? = nil,
+        scope: ChatListActionScope,
+        client: TDLibClient,
+    ) {
+        let chatList = list ?? folder.chatList
+        let pinLimit: TDNativePremiumLimitType =
+            switch list {
+            case .chatListArchive?: .premiumLimitTypePinnedArchivedChatCount
+            case .some: .premiumLimitTypePinnedChatCount
+            case nil: pinLimitType
+            }
         runAction(scope, onFailure: { [weak self] error in
             // Telegram (toggleItemPinned, limitExceeded) shows the pin limit.
             self?.presentFailure(

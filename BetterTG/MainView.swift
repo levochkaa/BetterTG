@@ -586,6 +586,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 
     private func configureSearchResults() {
+        searchResultsController.chatMenu = { [weak self] chat in
+            self?.currentFolderController?.searchResultMenu(for: chat) ?? []
+        }
         addChild(searchResultsController)
         let resultsView = searchResultsController.view!
         resultsView.translatesAutoresizingMaskIntoConstraints = false

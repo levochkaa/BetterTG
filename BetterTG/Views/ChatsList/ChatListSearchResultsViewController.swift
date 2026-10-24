@@ -42,6 +42,10 @@ import UIKit
     private static let peerRowHeight: CGFloat = 56
     private static let messageRowHeight: CGFloat = 76
 
+    /// The chat list's own menu for a chat the account has (ChatContextMenus with the `.search` source), from the
+    /// page under the search.
+    var chatMenu: ((CustomChat) -> [TelegramContextMenuAction])?
+
     private let rootVM: RootVM
     private let chatList: ChatList
     private let actionAuthority: ChatListActionAuthority
@@ -300,6 +304,15 @@ import UIKit
         tableView.keyboardDismissMode = .none
         tableView.alwaysBounceVertical = true
         tableView.delegate = self
+        let pressGesture = ContextMenuPressGestureRecognizer(target: self, action: #selector(chatLongPressed(_:)))
+        pressGesture.pressedViewProvider = { [weak self] gesture in
+            guard let self,
+                  let indexPath = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+                  pressedChat(at: indexPath) != nil
+            else { return nil }
+            return tableView.cellForRow(at: indexPath)?.contentView
+        }
+        tableView.addGestureRecognizer(pressGesture)
         tableView.register(ChatListSearchPeerCell.self, forCellReuseIdentifier: ChatListSearchPeerCell.reuseIdentifier)
         tableView.register(ChatListCell.self, forCellReuseIdentifier: ChatListCell.reuseIdentifier)
         tableView.register(
@@ -706,6 +719,158 @@ import UIKit
             recentChatIDs = hydratedRecent
             applySnapshot(reloadingSections: [.topPeers])
         }
+    }
+
+    private func pressedChat(at indexPath: IndexPath) -> CustomChat? {
+        switch dataSource.itemIdentifier(for: indexPath) {
+        case .globalPeer(let chatID)?,
+             .localPeer(let chatID)?,
+             .recentPeer(let chatID)?:
+            chatsByID[chatID]
+        default:
+            nil
+        }
+    }
+
+    /// ChatListSearchListPaneNode's peer context action: the chat's preview over ChatContextMenus' items for the
+    /// `.search` source.
+    @objc private func chatLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard gesture.state == .began, actionAuthority.scope(owner: self).isCurrent,
+              let indexPath = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+              let chat = pressedChat(at: indexPath),
+              let cell = tableView.cellForRow(at: indexPath)
+        else { return }
+        let actions = menu(for: chat)
+        guard !actions.isEmpty else { return }
+        presentTelegramContextMenu(
+            sourceView: cell.contentView,
+            actions: actions,
+            tracking: gesture,
+            presentationStyle: .chatPreview,
+            previewController: ChatViewController(customChat: chat, presentationMode: .contextPreview),
+        )
+    }
+
+    /// Remove from Recents for a recently found chat, Add to Contacts for someone not in them, then the chat list's
+    /// items for a chat the account has or Join for a channel or group it hasn't joined.
+    private func menu(for chat: CustomChat) -> [TelegramContextMenuAction] {
+        let client = actionAuthority.client
+        var actions = [TelegramContextMenuAction]()
+        if recentChatIDs.contains(chat.id) {
+            let chatID = chat.id
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.Context.RemoveFromRecents"),
+                image: UIImage(systemName: "xmark.circle"),
+                isDestructive: true,
+            ) { [weak self] in
+                Task { _ = try? await client.removeRecentlyFoundChat(chatId: chatID) }
+                self?.recentChatIDs.removeAll { $0 == chatID }
+                self?.applySnapshot()
+            })
+        }
+        if let user = chat.user, !user.isContact, !chat.isSavedMessages, user.id != 777_000 {
+            let isPerson =
+                switch user.type {
+                case .userTypeRegular: true
+                default: false
+                }
+            if isPerson {
+                actions.append(TelegramContextMenuAction(
+                    title: L10n.telegram("ChatList.Context.AddToContacts"),
+                    image: UIImage(systemName: "person.badge.plus"),
+                    startsNewSection: !actions.isEmpty,
+                ) { [weak self] in
+                    self?.presentAddContact(user)
+                })
+            }
+        }
+        let isJoined = !chat.chat.positions.isEmpty
+        if isJoined {
+            var chatActions = chatMenu?(chat) ?? []
+            if !actions.isEmpty, !chatActions.isEmpty { chatActions[0].startsNewSection = true }
+            actions.append(contentsOf: chatActions)
+        } else if let supergroup = chat.supergroup {
+            let chatID = chat.id
+            actions.append(TelegramContextMenuAction(
+                title: L10n
+                    .telegram(supergroup.isChannel ? "ChatList.Context.JoinChannel" : "ChatList.Context.JoinChat"),
+                image: UIImage(systemName: "plus.circle"),
+                startsNewSection: !actions.isEmpty,
+            ) { [weak self] in
+                self?.join(chatID: chatID, chat: chat)
+            })
+        }
+        return actions
+    }
+
+    /// Join for a channel or group found by search: once joined, the chat opens.
+    private func join(chatID: Int64, chat: CustomChat) {
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        Task { [weak self] in
+            do {
+                _ = try await client.joinChat(chatId: chatID)
+                guard let self, scope.isCurrent else { return }
+                openFoundChat(chat)
+            } catch {
+                guard let self, scope.isCurrent, presentedViewController == nil else { return }
+                let alert = UIAlertController(
+                    title: nil,
+                    message: L10n.telegram("Login.UnknownError"),
+                    preferredStyle: .alert,
+                )
+                alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+                present(alert, animated: true)
+            }
+        }
+    }
+
+    /// openAddPersonContact: the person's name to keep, then `addContact` without sharing the phone number.
+    private func presentAddContact(_ user: User) {
+        guard presentedViewController == nil else { return }
+        let client = actionAuthority.client
+        let scope = actionAuthority.scope(owner: self)
+        let alert = UIAlertController(title: L10n.telegram("AddContact.Title"), message: nil, preferredStyle: .alert)
+        alert.addTextField { field in
+            field.placeholder = L10n.telegram("UserInfo.FirstNamePlaceholder")
+            field.text = user.firstName
+            field.autocapitalizationType = .words
+        }
+        alert.addTextField { field in
+            field.placeholder = L10n.telegram("UserInfo.LastNamePlaceholder")
+            field.text = user.lastName
+            field.autocapitalizationType = .words
+        }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        let done = UIAlertAction(title: L10n.telegram("Common.Done"), style: .default) { [weak alert] _ in
+            let firstName = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let lastName = alert?.textFields?.last?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !firstName.isEmpty || !lastName.isEmpty else { return }
+            let contact = ImportedContact(
+                firstName: firstName,
+                lastName: lastName,
+                note: FormattedText(entities: [], text: ""),
+                phoneNumber: user.phoneNumber,
+            )
+            Task { [weak self] in
+                let added = await (
+                    try? client.addContact(contact: contact, sharePhoneNumber: false, userId: user.id)
+                ) !=
+                    nil
+                guard let self, scope.isCurrent else { return }
+                if added {
+                    let name = [firstName, lastName].filter { !$0.isEmpty }.joined(separator: " ")
+                    showToast(L10n.telegram("AddContact.StatusSuccess", name))
+                }
+            }
+        }
+        alert.addAction(done)
+        alert.preferredAction = done
+        present(alert, animated: true)
+    }
+
+    private func showToast(_ text: String) {
+        TelegramUndoToast.show(text: text, in: view, bottomInset: 8, undo: nil)
     }
 
     /// A chat picked from the results joins the recently found ones, as Telegram's addRecentlySearchedPeer does.
