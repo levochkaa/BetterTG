@@ -64,9 +64,11 @@ import UIKit
                     try await ProbeFixtures.waitForActiveAccount()
                     try verifyIcons()
                     try verifyPreviews()
+                    try verifyAlbum()
                     try render()
                     result = "Row icons probe passed: forward/story/voice/location/caption-text/assets=true; "
-                        + "photo-caption/video-play/round/spoiler-mini/secret-none=true; rendered=true"
+                        + "photo-caption/video-play/round/spoiler-mini/secret-none=true; "
+                        + "album-three/first-caption/last-label/width=true; rendered=true"
                 } catch {
                     result = "Row icons probe failed: \(error)"
                 }
@@ -251,6 +253,24 @@ import UIKit
                 ) == nil,
                 "secret",
             )
+        }
+
+        private static func verifyAlbum() throws {
+            let album = [
+                message(20, photo("trip")),
+                message(21, video("")),
+                message(22, photo("")),
+                message(23, photo("")),
+            ]
+            let previews = ChatListMediaPreviews.make(for: album, inSecretChat: false)
+            try require(previews?.items.count == 3 && previews?.items[1].showsPlay == true, "album items")
+            try require(previews?.text == "trip", "album caption \(previews?.text ?? "nil")")
+            let bare = ChatListMediaPreviews.make(
+                for: [message(24, photo("")), message(25, video(""))],
+                inSecretChat: false,
+            )
+            try require(bare?.text == L10n.telegram("Message.Video"), "album label")
+            try require(previews.map { $0.width == 18 * 3 + 2 * 2 } == true, "album width")
         }
 
         private static func render() throws {

@@ -8,7 +8,7 @@ import UIKit
     static func attributedText(
         for chat: CustomChat,
         icon: ChatListMessageTypeIcon? = nil,
-        preview: ChatListMediaPreview? = nil,
+        previews: ChatListMediaPreviews? = nil,
     ) -> NSAttributedString? {
         if let draft = chat.draftMessage {
             let result = NSMutableAttributedString(
@@ -45,10 +45,10 @@ import UIKit
         guard let message = chat.lastMessage else { return nil }
         let attributes: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.secondaryLabel]
         let result = NSMutableAttributedString()
-        if icon != nil || preview != nil {
-            result.append(ChatListMessageTypeIcon.gap(icon: icon, hasPreview: preview != nil))
+        if icon != nil || previews != nil {
+            result.append(ChatListMessageTypeIcon.gap(icon: icon, previews: previews))
         }
-        let text = preview?.text ?? ChatListMessageTypeIcon.text(for: message) ?? summary(for: message)
+        let text = previews?.text ?? ChatListMessageTypeIcon.text(for: message) ?? summary(for: message)
         result.append(NSAttributedString(string: text, attributes: attributes))
         return result
     }

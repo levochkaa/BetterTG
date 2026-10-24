@@ -50,9 +50,9 @@ final class ChatListCell: UITableViewCell {
     private lazy var storyTapGesture = UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
     private let titleLabel = UILabel()
     private let messageLabel = UILabel()
-    /// ChatListMediaPreviewNode before the text, in the gap the text leaves for it.
-    private let mediaPreviewView = ChatListMediaPreviewView()
-    private var mediaPreview: ChatListMediaPreview?
+    /// ChatListMediaPreviewNodes before the text, in the gap the text leaves for them.
+    private let mediaPreviewViews = (0..<ChatListMediaPreviews.limit).map { _ in ChatListMediaPreviewView() }
+    private var mediaPreviews: ChatListMediaPreviews?
     /// ChatListItem's forwardedIconNode, showing whichever messageTypeIcon the last message has.
     private let messageTypeIconView = UIImageView()
     private var messageTypeIcon: ChatListMessageTypeIcon?
@@ -227,12 +227,21 @@ final class ChatListCell: UITableViewCell {
         pinned = chat.position.isPinned
         titleLabel.attributedText = Self.title(for: chat, font: titleLabel.font)
         let shownMessage = chat.draftMessage == nil ? chat.lastMessage : nil
-        mediaPreview = shownMessage
-            .flatMap { ChatListMediaPreview.make(for: $0, inSecretChat: chat.secretChatID != nil) }
+        let album = shownMessage.map { message in
+            ChatListAlbumMessages.shared.messages(endingWith: message, client: client) { [weak self] in
+                self?.reconfigure(chatID: chat.id)
+            }
+        } ?? []
+        mediaPreviews = ChatListMediaPreviews.make(for: album, inSecretChat: chat.secretChatID != nil)
         messageTypeIcon = shownMessage.flatMap(ChatListMessageTypeIcon.make)
         messageTypeIconView.image = messageTypeIcon?.image
-        if let mediaPreview { mediaPreviewView.configure(mediaPreview, client: client) }
-        else { mediaPreviewView.reset() }
+        for (index, view) in mediaPreviewViews.enumerated() {
+            if let preview = mediaPreviews?.items[safe: index] {
+                view.configure(preview, client: client)
+            } else {
+                view.reset()
+            }
+        }
         messageLabel.attributedText = activityText(for: chat, client: client) ?? summaryText(for: chat, client: client)
         setNeedsLayout()
         let chatID = chat.id
@@ -360,14 +369,12 @@ final class ChatListCell: UITableViewCell {
         ) {
             // A call's icon leads its wording.
             let result = NSMutableAttributedString()
-            if messageTypeIcon != nil { result.append(ChatListMessageTypeIcon.gap(
-                icon: messageTypeIcon,
-                hasPreview: false,
-            )) }
+            if messageTypeIcon !=
+                nil { result.append(ChatListMessageTypeIcon.gap(icon: messageTypeIcon, previews: nil)) }
             result.append(NSAttributedString(string: service, attributes: [.foregroundColor: UIColor.secondaryLabel]))
             return result
         }
-        guard let summary = ChatSummary.attributedText(for: chat, icon: messageTypeIcon, preview: mediaPreview)
+        guard let summary = ChatSummary.attributedText(for: chat, icon: messageTypeIcon, previews: mediaPreviews)
         else { return nil }
         let isGroup =
             switch chat.type {
@@ -437,7 +444,7 @@ final class ChatListCell: UITableViewCell {
             rowView.addSubview(item)
         }
         rowView.addSubview(onlineMarker)
-        rowView.addSubview(mediaPreviewView)
+        mediaPreviewViews.forEach(rowView.addSubview)
         rowView.addSubview(messageTypeIconView)
         messageTypeIconView.tintColor = .secondaryLabel
         avatarView.addGestureRecognizer(storyTapGesture)
@@ -497,14 +504,14 @@ final class ChatListCell: UITableViewCell {
         unreadLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
     }
 
-    /// ChatListItem places the type icon and then the thumbnail a point into the text's gap, on the first line; a gap
+    /// ChatListItem places the type icon and then the thumbnails a point into the text's gap, on the first line; a gap
     /// truncated away hides them, as does any text without one (an activity or a draft).
     private func layoutMediaPreview() {
         func hide() {
-            mediaPreviewView.isHidden = true
+            mediaPreviewViews.forEach { $0.isHidden = true }
             messageTypeIconView.isHidden = true
         }
-        guard mediaPreview != nil || messageTypeIcon != nil,
+        guard mediaPreviews != nil || messageTypeIcon != nil,
               let text = messageLabel.attributedText, let font = messageLabel.font
         else { return hide() }
         var gapLocation: Int?
@@ -523,7 +530,7 @@ final class ChatListCell: UITableViewCell {
         let side = ChatListMediaPreview.side
         let frame = messageLabel.frame
         var origin = CGPoint(x: frame.minX + prefixWidth + 1, y: frame.minY + 1 + floor((font.lineHeight - side) / 2))
-        let gapWidth = ChatListMessageTypeIcon.gapWidth(icon: messageTypeIcon, hasPreview: mediaPreview != nil)
+        let gapWidth = ChatListMessageTypeIcon.gapWidth(icon: messageTypeIcon, previews: mediaPreviews)
         guard origin.x + gapWidth - 1 <= frame.maxX else { return hide() }
         if let icon = messageTypeIcon, let image = messageTypeIconView.image {
             messageTypeIconView.frame = CGRect(
@@ -535,11 +542,12 @@ final class ChatListCell: UITableViewCell {
         } else {
             messageTypeIconView.isHidden = true
         }
-        if mediaPreview != nil {
-            mediaPreviewView.frame = CGRect(origin: origin, size: CGSize(width: side, height: side))
-            mediaPreviewView.isHidden = false
-        } else {
-            mediaPreviewView.isHidden = true
+        let count = mediaPreviews?.items.count ?? 0
+        for (index, view) in mediaPreviewViews.enumerated() {
+            view.isHidden = index >= count
+            guard index < count else { continue }
+            view.frame = CGRect(origin: origin, size: CGSize(width: side, height: side))
+            origin.x += side + ChatListMediaPreviews.spacing
         }
     }
 

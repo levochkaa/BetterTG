@@ -149,6 +149,93 @@ struct ChatListMediaPreview: Equatable {
     }
 }
 
+// MARK: - ChatListMediaPreviews
+
+/// ChatListItem's contentImageSpecs over the last message's album: up to three thumbnails, oldest first, 2 pt apart,
+/// and the text chatListItemStrings gives the group, its first caption or else the last message's.
+struct ChatListMediaPreviews: Equatable {
+    static let limit = 3
+    static let spacing = CGFloat(2)
+
+    let items: [ChatListMediaPreview]
+    let text: String?
+
+    var width: CGFloat {
+        CGFloat(items.count) * ChatListMediaPreview.side + CGFloat(max(0, items.count - 1)) * Self.spacing
+    }
+
+    static func make(for messages: [Message], inSecretChat: Bool) -> Self? {
+        let previews = messages.compactMap { ChatListMediaPreview.make(for: $0, inSecretChat: inSecretChat) }
+        guard let last = previews.last else { return nil }
+        let caption = messages.lazy.compactMap(captionText).first
+        return Self(items: Array(previews.prefix(limit)), text: caption ?? last.text)
+    }
+
+    private static func captionText(_ message: Message) -> String? {
+        let caption: FormattedText
+        switch message.content {
+        case .messagePhoto(let content): caption = content.caption
+        case .messageVideo(let content): caption = content.caption
+        default: return nil
+        }
+        guard !caption.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return MessageTextSpoilerPresentation(caption).accessibilityText()
+    }
+}
+
+// MARK: - ChatListAlbumMessages
+
+/// The rest of a last message's album, which TDLib's chat leaves out, for the row's thumbnails; kept for the
+/// current TDLib client only.
+@MainActor final class ChatListAlbumMessages {
+    private struct Key: Hashable {
+        let chatID: Int64
+        let albumID: Int64
+    }
+
+    static let shared = ChatListAlbumMessages()
+
+    private var clientID: Int32?
+    private var albums = [Key: [Message]]()
+    private var waiters = [Key: [() -> Void]]()
+
+    /// The album ending with `last`, oldest first; `[last]` alone until the rest lands, when `completion` runs.
+    func messages(endingWith last: Message, client: TDLibClient, completion: @escaping () -> Void) -> [Message] {
+        guard last.mediaAlbumId != 0 else { return [last] }
+        if clientID != client.id {
+            clientID = client.id
+            albums.removeAll()
+            waiters.removeAll()
+        }
+        let key = Key(chatID: last.chatId, albumID: Int64(last.mediaAlbumId))
+        if let album = albums[key], album.last?.id == last.id { return album }
+        let isFirstWaiter = waiters[key] == nil
+        waiters[key, default: []].append(completion)
+        guard isFirstWaiter else { return [last] }
+        let requestClientID = client.id
+        Task { [weak self] in
+            let history = try? await client.getChatHistory(
+                chatId: last.chatId,
+                fromMessageId: last.id,
+                limit: 10,
+                offset: 0,
+                onlyLocal: false,
+            )
+            guard let self, clientID == requestClientID else { return }
+            let completions = waiters.removeValue(forKey: key) ?? []
+            var byID = [last.id: last]
+            for message in history?.messages ?? []
+                where message.mediaAlbumId == last.mediaAlbumId && message.id <= last.id
+            {
+                byID[message.id] = message
+            }
+            albums[key] = byID.values.sorted { $0.id < $1.id }
+            if byID.count > 1 { completions.forEach { $0() } }
+        }
+        return [last]
+    }
+}
+
 extension NSAttributedString.Key {
     /// Marks the gap ChatListItem's textLeftCutout leaves in a row's text for its type icon and media thumbnail.
     static let chatListMediaPreviewGap = NSAttributedString.Key("BetterTGChatListMediaPreviewGap")
@@ -240,20 +327,20 @@ enum ChatListMessageTypeIcon: Equatable {
     }
 
     /// The width the icon and its spacing take from the start of the text.
-    static func gapWidth(icon: Self?, hasPreview: Bool) -> CGFloat {
+    static func gapWidth(icon: Self?, previews: ChatListMediaPreviews?) -> CGFloat {
         var width = CGFloat.zero
         if let image = icon?.image {
-            width += image.size.width + (hasPreview ? spacingBeforePreview : spacingBeforeText)
+            width += image.size.width + (previews != nil ? spacingBeforePreview : spacingBeforeText)
         }
-        if hasPreview { width += ChatListMediaPreview.side + ChatListMediaPreview.spacingAfter }
+        if let previews { width += previews.width + ChatListMediaPreview.spacingAfter }
         return width
     }
 
     /// The gap in the text, after which the row's text continues.
-    static func gap(icon: Self?, hasPreview: Bool) -> NSAttributedString {
+    static func gap(icon: Self?, previews: ChatListMediaPreviews?) -> NSAttributedString {
         let attachment = NSTextAttachment(image: UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { _ in
         })
-        attachment.bounds = CGRect(x: 0, y: 0, width: gapWidth(icon: icon, hasPreview: hasPreview), height: 1)
+        attachment.bounds = CGRect(x: 0, y: 0, width: gapWidth(icon: icon, previews: previews), height: 1)
         let result = NSMutableAttributedString(attachment: attachment)
         result.addAttribute(.chatListMediaPreviewGap, value: true, range: NSRange(location: 0, length: result.length))
         return result
