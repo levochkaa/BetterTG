@@ -508,4 +508,6 @@ enum ChatListPreviewText {
 extension NSAttributedString.Key {
     /// Text the row hides under spoiler dust.
     static let chatListSpoiler = NSAttributedString.Key("BetterTGChatListSpoiler")
+    /// Marks the room an activity's text leaves for its indicator.
+    static let chatListActivityGap = NSAttributedString.Key("BetterTGChatListActivityGap")
 }

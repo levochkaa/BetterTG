@@ -109,6 +109,12 @@ import UIKit
         changes.send(update.chatId)
     }
 
+    /// ChatListTypingNode's indicator: the one action's, or typing dots when several people act.
+    func indicator(for chat: CustomChat, client: TDLibClient) -> ChatActivityIndicatorView.Kind? {
+        guard clientID == client.id, let list = activities[chat.id], let first = list.first else { return nil }
+        return list.count > 1 ? .typing : ChatActivityIndicatorView.Kind(action: first.action)
+    }
+
     /// Telegram's `ChatListTypingNode` text: the bare action in a private chat, the sender's name and action in a
     /// group, or the typing count when several people act.
     func text(for chat: CustomChat, client: TDLibClient) -> String? {

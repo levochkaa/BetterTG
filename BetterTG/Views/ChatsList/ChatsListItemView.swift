@@ -55,6 +55,11 @@ final class ChatListCell: UITableViewCell {
     private var mediaPreviews: ChatListMediaPreviews?
     /// ChatListItem's forwardedIconNode, showing whichever messageTypeIcon the last message has.
     private let messageTypeIconView = UIImageView()
+    /// ChatListTypingNode's animated indicator before an activity's text.
+    private let activityIndicatorView = ChatActivityIndicatorView(frame: CGRect(
+        origin: .zero,
+        size: ChatActivityIndicatorView.size,
+    ))
     /// ChatListItem's dustNode over the text's spoilers.
     private var spoilerViews = [TelegramSpoilerView]()
     private var messageTypeIcon: ChatListMessageTypeIcon?
@@ -105,6 +110,7 @@ final class ChatListCell: UITableViewCell {
         super.layoutSubviews()
         layoutMediaPreview()
         layoutSpoilers()
+        layoutActivityIndicator()
     }
 
     override func prepareForReuse() {
@@ -373,7 +379,19 @@ final class ChatListCell: UITableViewCell {
     /// Telegram replaces the row's message with who is typing or sending, while they do (`ChatListTypingNode`).
     private func activityText(for chat: CustomChat, client: TDLibClient) -> NSAttributedString? {
         guard let text = ChatListActivities.shared.text(for: chat, client: client), !text.isEmpty else { return nil }
-        return NSAttributedString(string: text + "…", attributes: [.foregroundColor: UIColor.secondaryLabel])
+        let attributes: [NSAttributedString.Key: Any] = [.foregroundColor: UIColor.secondaryLabel]
+        guard let kind = ChatListActivities.shared.indicator(for: chat, client: client) else {
+            return NSAttributedString(string: text + "…", attributes: attributes)
+        }
+        // ChatListTypingNode: the indicator 3 pt before the text's start, the words after its 24 pt.
+        activityIndicatorView.kind = kind
+        let attachment = NSTextAttachment(image: UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1)).image { _ in
+        })
+        attachment.bounds = CGRect(x: 0, y: 0, width: ChatActivityIndicatorView.size.width - 3, height: 1)
+        let result = NSMutableAttributedString(attachment: attachment)
+        result.addAttribute(.chatListActivityGap, value: true, range: NSRange(location: 0, length: result.length))
+        result.append(NSAttributedString(string: text, attributes: attributes))
+        return result
     }
 
     private func summaryText(for chat: CustomChat, client: TDLibClient) -> NSAttributedString? {
@@ -468,6 +486,9 @@ final class ChatListCell: UITableViewCell {
         }
         rowView.addSubview(onlineMarker)
         mediaPreviewViews.forEach(rowView.addSubview)
+        rowView.addSubview(activityIndicatorView)
+        activityIndicatorView.color = UIColor.secondaryLabel.withAlphaComponent(0.85)
+        activityIndicatorView.isHidden = true
         rowView.addSubview(messageTypeIconView)
         messageTypeIconView.tintColor = .secondaryLabel
         avatarView.addGestureRecognizer(storyTapGesture)
@@ -571,6 +592,26 @@ final class ChatListCell: UITableViewCell {
             view.frame = CGRect(origin: origin, size: CGSize(width: side, height: side))
             origin.x += side + ChatListMediaPreviews.spacing
         }
+    }
+
+    /// The activity's indicator where its text leaves room, 3 pt left of the text's edge and centred on the line.
+    private func layoutActivityIndicator() {
+        guard let text = messageLabel.attributedText, text.length > 0, let font = messageLabel.font,
+              text.attribute(.chatListActivityGap, at: 0, effectiveRange: nil) != nil
+        else {
+            activityIndicatorView.isHidden = true
+            return
+        }
+        rowView.layoutIfNeeded()
+        let frame = messageLabel.frame
+        activityIndicatorView.frame = CGRect(
+            origin: CGPoint(
+                x: frame.minX - 3,
+                y: frame.minY + 1 + max(0, floor((font.lineHeight - ChatActivityIndicatorView.size.height) / 2)),
+            ),
+            size: ChatActivityIndicatorView.size,
+        )
+        activityIndicatorView.isHidden = false
     }
 
     /// Dust over each spoiler on the visible line, as far as the label shows it.

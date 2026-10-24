@@ -79,7 +79,7 @@ import UIKit
                     result = "Row icons probe passed: forward/story/voice/location/caption-text/assets=true; "
                         + "photo-caption/video-play/round/spoiler-mini/secret-none=true; "
                         + "album-three/first-caption/last-label/width=true; "
-                        + "folded/italic/spoiler/strikethrough/accessibility=true; rendered=true"
+                        + "folded/italic/spoiler/strikethrough/accessibility=true; activity-kinds=true; rendered=true"
                 } catch {
                     result = "Row icons probe failed: \(error)"
                 }
@@ -317,19 +317,60 @@ import UIKit
                     message(15, .messageText(.init(linkPreview: nil, linkPreviewOptions: nil, text: spoilerText))),
                 ),
             ]
+            // Activities from a person in private fixture chats, as TDLib's updateChatAction brings them.
+            let client = TDLib.shared.activeClient
+            let person = User(
+                accentColorId: -1, activeStoryState: nil, addedToAttachmentMenu: false, backgroundCustomEmojiId: 0,
+                emojiStatus: nil, firstName: "Alice", haveAccess: true, id: 11, isCloseFriend: false,
+                isContact: false, isMutualContact: false, isPremium: false, isSupport: false, languageCode: "",
+                lastName: "", paidMessageStarCount: 0, phoneNumber: "", profileAccentColorId: -1,
+                profileBackgroundCustomEmojiId: 0, profilePhoto: nil, restrictionInfo: nil, restrictsNewChats: false,
+                status: .userStatusEmpty, type: .userTypeRegular, upgradedGiftColors: nil, usernames: nil,
+                verificationStatus: nil,
+            )
+            let activities: [(String, ChatAction)] = [
+                ("Typing", .chatActionTyping),
+                ("Recording", .chatActionRecordingVoiceNote),
+                ("Uploading", .chatActionUploadingPhoto(.init(progress: 40))),
+                ("Sticker", .chatActionChoosingSticker),
+            ]
+            var activityChats = [CustomChat]()
+            for (index, activity) in activities.enumerated() {
+                let id = 9500 + Int64(index)
+                ChatListActivities.shared.receive(
+                    UpdateChatAction(
+                        chatId: id,
+                        topicId: nil,
+                        senderId: .messageSenderUser(.init(userId: person.id)),
+                        action: activity.1,
+                    ),
+                    clientID: client.id,
+                )
+                activityChats.append(ProbeFixtures.chat(
+                    position,
+                    title: activity.0,
+                    id: id,
+                    user: person,
+                    last: message(30, nil),
+                ))
+            }
+            try require(
+                activityChats.map { ChatListActivities.shared.indicator(for: $0, client: client) }
+                    == [.typing, .recordingVoice, .uploading, .choosingSticker],
+                "activity kinds",
+            )
             let width = CGFloat(402)
             let height = ChatListCell.cardRowHeight
-            let canvas = UIView(frame: CGRect(x: 0, y: 0, width: width, height: height * CGFloat(rows.count)))
+            let chats = rows.enumerated().map { index, row in
+                ProbeFixtures.chat(position, title: row.0, id: 9000 + Int64(index), last: row.1)
+            } + activityChats
+            let canvas = UIView(frame: CGRect(x: 0, y: 0, width: width, height: height * CGFloat(chats.count)))
             canvas.backgroundColor = .systemBackground
             canvas.overrideUserInterfaceStyle = .dark
-            for (index, row) in rows.enumerated() {
+            for (index, chat) in chats.enumerated() {
                 let cell = ChatListCell(style: .default, reuseIdentifier: ChatListCell.reuseIdentifier)
                 cell.frame = CGRect(x: 0, y: height * CGFloat(index), width: width, height: height)
-                cell.configure(
-                    chat: ProbeFixtures.chat(position, title: row.0, id: 9000 + Int64(index), last: row.1),
-                    isMuted: false,
-                    client: TDLib.shared.activeClient,
-                )
+                cell.configure(chat: chat, isMuted: false, client: client)
                 canvas.addSubview(cell)
                 cell.layoutIfNeeded()
                 cell.setNeedsLayout()
@@ -337,6 +378,17 @@ import UIKit
             }
             let image = UIGraphicsImageRenderer(bounds: canvas.bounds).image { context in
                 canvas.layer.render(in: context.cgContext)
+            }
+            for chat in activityChats {
+                ChatListActivities.shared.receive(
+                    UpdateChatAction(
+                        chatId: chat.id,
+                        topicId: nil,
+                        senderId: .messageSenderUser(.init(userId: person.id)),
+                        action: .chatActionCancel,
+                    ),
+                    clientID: client.id,
+                )
             }
             guard let data = image.pngData(),
                   let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
