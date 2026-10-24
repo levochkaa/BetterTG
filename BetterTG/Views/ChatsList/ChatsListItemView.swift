@@ -10,6 +10,22 @@ final class ChatListCell: UITableViewCell {
     // MARK: Internal
 
     static let reuseIdentifier = "ChatListCell"
+    /// A card row: the 76 pt card and 4 pt above and below it.
+    static let cardRowHeight = CGFloat(84)
+
+    private static let cardHorizontalInset = CGFloat(20)
+    private static let cardVerticalInset = CGFloat(4)
+    /// UITableView's inset-grouped section radius, as the Settings cards have it.
+    private static let cardCornerRadius = CGFloat(26)
+
+    /// BetterTG's chat card, styled like the Settings cards: inset from the sides, rounded, on the grouped
+    /// background. Plain rows (search results) keep the full-width row with a separator.
+    var usesCardStyle = true {
+        didSet {
+            guard usesCardStyle != oldValue else { return }
+            applyStyle()
+        }
+    }
 
     /// Opens the chat's stories from its avatar, zooming from the given view (ChatListItem.avatarStoryTapGesture).
     var onOpenStories: ((UIView) -> Void)? {
@@ -48,6 +64,9 @@ final class ChatListCell: UITableViewCell {
     private var configuredArchived = false
     private var configuredClient: TDLibClient?
     private var activityCancellable: AnyCancellable?
+    private var rowInsetConstraints = [NSLayoutConstraint]()
+    private var plainTextConstraints = [NSLayoutConstraint]()
+    private var cardTextConstraints = [NSLayoutConstraint]()
 
     var contextPreviewView: UIView { rowView }
 
@@ -60,6 +79,7 @@ final class ChatListCell: UITableViewCell {
         isAccessibilityElement = true
         configureViews()
         configureConstraints()
+        applyStyle()
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -171,7 +191,6 @@ final class ChatListCell: UITableViewCell {
         configuredArchived = isArchived
         configuredClient = client
         pinned = chat.position.isPinned
-        backgroundColor = pinned ? .secondarySystemBackground : .systemBackground
         titleLabel.attributedText = Self.title(for: chat, font: titleLabel.font)
         messageLabel.attributedText = activityText(for: chat, client: client) ?? summaryText(for: chat, client: client)
         let chatID = chat.id
@@ -320,9 +339,13 @@ final class ChatListCell: UITableViewCell {
     }
 
     private func updateBackground(highlighted: Bool, animated: Bool) {
-        let color: UIColor = highlighted
-            ? .tertiarySystemFill
-            : (pinned ? .secondarySystemBackground : .systemBackground)
+        let color: UIColor =
+            if usesCardStyle {
+                highlighted ? .systemGray4 : .secondarySystemGroupedBackground
+            } else {
+                highlighted ? .tertiarySystemFill : (pinned ? .secondarySystemBackground : .systemBackground)
+            }
+        backgroundColor = usesCardStyle ? .clear : (pinned ? .secondarySystemBackground : .systemBackground)
         guard animated else {
             rowView.backgroundColor = color
             return
@@ -410,10 +433,6 @@ final class ChatListCell: UITableViewCell {
         let mentionBadgeWidth = mentionBadgeView.widthAnchor.constraint(equalToConstant: 20)
         mentionBadgeWidth.priority = .required - 1
         NSLayoutConstraint.activate([
-            rowView.topAnchor.constraint(equalTo: contentView.topAnchor),
-            rowView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            rowView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            rowView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             avatarView.leadingAnchor.constraint(equalTo: rowView.leadingAnchor, constant: 10),
             avatarView.centerYAnchor.constraint(equalTo: rowView.centerYAnchor),
             avatarView.widthAnchor.constraint(equalToConstant: 60),
@@ -423,13 +442,11 @@ final class ChatListCell: UITableViewCell {
             storyRingView.widthAnchor.constraint(equalToConstant: 60),
             storyRingView.heightAnchor.constraint(equalToConstant: 60),
             titleLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10),
-            titleLabel.topAnchor.constraint(equalTo: rowView.topAnchor, constant: 9),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: headerAccessoryRow.leadingAnchor, constant: -6),
             headerAccessoryRow.trailingAnchor.constraint(equalTo: rowView.trailingAnchor, constant: -14),
             headerAccessoryRow.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             messageLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             messageLabel.trailingAnchor.constraint(equalTo: trailingBadges.leadingAnchor, constant: -6),
-            messageLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
             messageLabel.bottomAnchor.constraint(lessThanOrEqualTo: rowView.bottomAnchor, constant: -9),
             trailingBadges.trailingAnchor.constraint(equalTo: rowView.trailingAnchor, constant: -14),
             trailingBadges.centerYAnchor.constraint(equalTo: messageLabel.centerYAnchor),
@@ -454,6 +471,57 @@ final class ChatListCell: UITableViewCell {
             separatorView.bottomAnchor.constraint(equalTo: rowView.bottomAnchor),
             separatorView.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
         ])
+        rowInsetConstraints = [
+            rowView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            rowView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: rowView.trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: rowView.bottomAnchor),
+        ]
+        NSLayoutConstraint.activate(rowInsetConstraints)
+        // Plain rows follow Telegram's title-then-message stack; a card centres the pair, as BetterTG's did.
+        plainTextConstraints = [
+            titleLabel.topAnchor.constraint(equalTo: rowView.topAnchor, constant: 9),
+            messageLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
+        ]
+        cardTextConstraints = [
+            titleLabel.bottomAnchor.constraint(equalTo: rowView.centerYAnchor, constant: -2),
+            messageLabel.topAnchor.constraint(equalTo: rowView.centerYAnchor, constant: 2),
+        ]
+    }
+
+    private func applyStyle() {
+        let horizontal = usesCardStyle ? Self.cardHorizontalInset : 0
+        let vertical = usesCardStyle ? Self.cardVerticalInset : 0
+        for constraint in rowInsetConstraints {
+            let isHorizontal = constraint.firstAttribute == .leading || constraint.firstAttribute == .trailing
+            constraint.constant = isHorizontal ? horizontal : vertical
+        }
+        NSLayoutConstraint.deactivate(usesCardStyle ? plainTextConstraints : cardTextConstraints)
+        NSLayoutConstraint.activate(usesCardStyle ? cardTextConstraints : plainTextConstraints)
+        rowView.layer.cornerRadius = usesCardStyle ? Self.cardCornerRadius : 0
+        rowView.layer.cornerCurve = .continuous
+        rowView.clipsToBounds = usesCardStyle
+        separatorView.isHidden = usesCardStyle
+        if usesCardStyle {
+            titleLabel.font = .preferredFont(forTextStyle: .title3)
+            messageLabel.font = .preferredFont(forTextStyle: .subheadline)
+        } else {
+            titleLabel.font = UIFontMetrics(forTextStyle: .body).scaledFont(
+                for: .systemFont(ofSize: 17, weight: .semibold),
+                maximumPointSize: 19,
+            )
+            messageLabel.font = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
+                for: .systemFont(ofSize: 15),
+                maximumPointSize: 17,
+            )
+        }
+        titleLabel.adjustsFontForContentSizeCategory = usesCardStyle
+        messageLabel.adjustsFontForContentSizeCategory = usesCardStyle
+        if let chat = configuredChat {
+            // The secret chat lock is sized to the title font.
+            titleLabel.attributedText = Self.title(for: chat, font: titleLabel.font)
+        }
+        updateBackground(highlighted: isHighlighted || isSelected, animated: false)
     }
 }
 

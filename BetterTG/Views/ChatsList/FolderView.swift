@@ -68,7 +68,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = .systemGroupedBackground
 
         installFolderController()
 
@@ -511,10 +511,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
-        tableView.backgroundColor = .systemBackground
+        view.backgroundColor = .systemGroupedBackground
+        tableView.backgroundColor = .systemGroupedBackground
         tableView.separatorStyle = .none
-        tableView.rowHeight = 76
+        tableView.rowHeight = ChatListCell.cardRowHeight
         tableView.keyboardDismissMode = .interactive
         tableView.alwaysBounceVertical = true
         let initialTopInset = searchActive
