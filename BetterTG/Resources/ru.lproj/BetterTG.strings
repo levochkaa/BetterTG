@@ -97,6 +97,7 @@
 "Message.Unsupported.Paid" = "Платные функции, Premium, Stars, TON, подарки, бусты и коллекционные предметы в BetterTG не поддерживаются.";
 "Message.Unsupported.Invoice" = "Платежи в BetterTG не поддерживаются.";
 "Accessibility.HidePinnedMessage" = "Скрыть закреплённое сообщение";
+"Accessibility.Verified" = "Верифицирован";
 "Accessibility.OpenPinnedMessageHint" = "Открывает закреплённое сообщение";
 
 "Service.Call" = "Звонок";

@@ -2476,3 +2476,5 @@
 "Chat.PinnedListPreview.ShowAllMessages" = "Show All Messages";
 "Conversation.PinnedPreviousMessage" = "Previous Message";
 "Conversation.UnreadMessages" = "Unread Messages";
+"Message.ScamAccount" = "Scam";
+"Message.FakeAccount" = "Fake";

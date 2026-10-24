@@ -3909,6 +3909,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func updateChatHeader() {
         let chat = chatVM.customChat.chat
         let (title, status) = headerTitleAndStatus
+        // The chat's own title carries its credibility icon; topics and threads have their own titles.
+        customNavigationBar.titleBadge = location.isTopicScoped || location.messageThreadID != nil
+            ? nil
+            : PeerCredibilityBadge(chat: chatVM.customChat)
         let statusColor: UIColor = chatVM.headerStatusIsActive ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
             title: title,

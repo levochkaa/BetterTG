@@ -124,7 +124,13 @@ final class ChatListCell: UITableViewCell {
     /// Telegram draws a secret chat's title in green after a lock (`ChatListItem`, `secretTitleColor`).
     private static func title(for chat: CustomChat, font: UIFont) -> NSAttributedString {
         guard chat.secretChatID != nil else {
-            return NSAttributedString(string: chat.displayTitle, attributes: [.foregroundColor: UIColor.label])
+            // ChatListItem's credibility icon after the title.
+            return PeerCredibilityBadge.title(
+                chat.displayTitle,
+                badge: PeerCredibilityBadge(chat: chat),
+                font: font,
+                color: .label,
+            )
         }
         let configuration = UIImage.SymbolConfiguration(font: font, scale: .small)
         let lock = NSTextAttachment(

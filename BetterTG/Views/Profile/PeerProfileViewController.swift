@@ -1228,7 +1228,7 @@ ClientRestorableNavigationEntry {
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 2
-        titleLabel.text = profileTitle()
+        applyProfileTitle()
         headerStack.addArrangedSubview(titleLabel)
 
         statusLabel.font = .preferredFont(forTextStyle: .subheadline)
@@ -2086,7 +2086,7 @@ ClientRestorableNavigationEntry {
 
     private func renderMetadata() {
         guard !clientOwnerRetired else { return }
-        titleLabel.text = profileTitle()
+        applyProfileTitle()
         statusLabel.text = currentStatusText
         statusLabel.textColor = currentStatusIsOnline ? .systemGreen : .secondaryLabel
         statusLabel.isHidden = currentStatusText.isEmpty
@@ -2533,6 +2533,22 @@ ClientRestorableNavigationEntry {
 
     private func initialStatus() -> String {
         currentStatusText
+    }
+
+    /// PeerInfoHeaderNode's title with the credibility icon after it; a topic's profile is titled by the topic.
+    private func applyProfileTitle() {
+        let badge = topic == nil ? PeerCredibilityBadge(chat: customChat) : nil
+        guard let badge else {
+            titleLabel.text = profileTitle()
+            return
+        }
+        titleLabel.attributedText = PeerCredibilityBadge.title(
+            profileTitle(),
+            badge: badge,
+            font: titleLabel.font,
+            color: .label,
+        )
+        titleLabel.accessibilityLabel = "\(profileTitle()), \(badge.accessibilityLabel)"
     }
 
     private func profileTitle() -> String {

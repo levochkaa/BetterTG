@@ -324,6 +324,14 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     /// Shown instead of the avatar by `setShowsMoreButton(true)`; receives the button as the menu source.
     var onMore: ((UIView) -> Void)?
 
+    /// ChatTitleView's credibility icon after the title; selection titles go without it.
+    var titleBadge: PeerCredibilityBadge? {
+        didSet {
+            guard titleBadge != oldValue, selectionCount == nil else { return }
+            applyTitle(title: configuredTitle, status: configuredStatus, statusColor: configuredStatusColor)
+        }
+    }
+
     // MARK: Private
 
     private let separator = UIView()
@@ -518,7 +526,16 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     }
 
     private func applyTitle(title: String, status: String, statusColor: UIColor) {
-        titleLabel.text = title
+        if let titleBadge, selectionCount == nil {
+            titleLabel.attributedText = PeerCredibilityBadge.title(
+                title,
+                badge: titleBadge,
+                font: titleLabel.font,
+                color: titleLabel.textColor ?? .label,
+            )
+        } else {
+            titleLabel.text = title
+        }
         statusLabel.text = status
         statusLabel.textColor = statusColor
         statusLabel.isHidden = status.isEmpty

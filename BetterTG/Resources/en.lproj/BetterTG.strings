@@ -97,6 +97,7 @@
 "Message.Unsupported.Paid" = "Paid, Premium, Stars, TON, gift, boost, and collectible flows aren't supported in BetterTG.";
 "Message.Unsupported.Invoice" = "Payments aren't supported in BetterTG.";
 "Accessibility.HidePinnedMessage" = "Hide pinned message";
+"Accessibility.Verified" = "Verified";
 "Accessibility.OpenPinnedMessageHint" = "Opens the pinned message";
 
 "Service.Call" = "Call";

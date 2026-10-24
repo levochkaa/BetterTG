@@ -688,7 +688,12 @@ private final class ChatListSearchPeerCell: UITableViewCell {
     }
 
     func configure(chat: CustomChat, subtitle: String?, unreadCount: Int, isMuted: Bool, client: TDLibClient) {
-        titleLabel.text = chat.displayTitle
+        titleLabel.attributedText = PeerCredibilityBadge.title(
+            chat.displayTitle,
+            badge: PeerCredibilityBadge(chat: chat),
+            font: titleLabel.font,
+            color: .label,
+        )
         subtitleLabel.text = subtitle
         subtitleLabel.isHidden = subtitle == nil
         unreadLabel.text = unreadCount > 0 ? compactNumericCountString(unreadCount) : nil
