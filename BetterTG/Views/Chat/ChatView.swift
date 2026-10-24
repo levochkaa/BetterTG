@@ -3693,6 +3693,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         cell.onSelfSizingHeightChange = { [weak self] in
                             self?.messageCellWillChangeHeight()
                         }
+                        cell.onQuickReaction = row.inputs.canAddReactions && !row.inputs.selectionActive
+                            ? { [weak self, weak cell] in
+                                guard let self,
+                                      let current = currentActionMessage(authority, cell: cell, intent: .quickReaction)
+                                else { return }
+                                toggleQuickReaction(on: current)
+                            }
+                            : nil
                         if renderRowIsCurrent(row) {
                             row.videoOwners.keys.forEach { self.pendingInlineVideoOwnerReturns.remove($0) }
                         }
@@ -6082,6 +6090,36 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         present(alert, animated: true)
+    }
+
+    /// ChatController's updateMessageReaction(.default) on a double tap: the quick reaction comes off if chosen, or
+    /// goes on where the message offers it, with its effect.
+    private func toggleQuickReaction(on message: CustomMessage) {
+        guard canOfferReactionPicker(for: message) else { return }
+        let client = chatVM.client
+        let type = DefaultReactionType.shared.type(for: client)
+        if MessageReactionStateReducer.isChosen(type, in: message.reactions) {
+            chatVM.toggleReaction(on: message, type: type, isBig: false)
+            return
+        }
+        let chatID = chatVM.chatID
+        let messageID = message.id
+        Task { [weak self, weak message] in
+            async let availableRequest = client.getMessageAvailableReactions(
+                chatId: chatID,
+                messageId: messageID,
+                rowSize: 7,
+            )
+            async let userRequest = client.getMe()
+            guard let (available, user) = try? await (availableRequest, userRequest),
+                  let self, let message, TDLib.shared.activeClient.id == client.id,
+                  available.contextReactionTypes(isPremium: user.isPremium).contains(type),
+                  !MessageReactionStateReducer.isChosen(type, in: message.reactions)
+            else { return }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            chatVM.toggleReaction(on: message, type: type, isBig: false)
+            playReactionEffect(type, displayedID: message.displayedID)
+        }
     }
 
     /// ChatController's reaction selection: once the chosen reaction's chip shows, StandaloneReactionAnimation plays

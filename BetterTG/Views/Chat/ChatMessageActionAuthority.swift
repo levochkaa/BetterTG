@@ -8,6 +8,8 @@ import UIKit
     enum Intent {
         case reply, selection, quote, media
         case reaction(ReactionType)
+        /// A double tap's quick reaction, which may not be on the message yet.
+        case quickReaction
         /// Who reacted with this reaction, from a long press on its chip.
         case reactionList(ReactionType)
         case metadata(MessageMetadataNavigationTarget)
@@ -90,6 +92,10 @@ import UIKit
                   chosen == MessageReactionStateReducer.isChosen(type, in: renderValue.reactions),
                   message.reactions?.reactions.contains(where: { $0.type == type }) == true,
                   state.canAddReactions || chosen else { return nil }
+        case .quickReaction:
+            guard !state.isReadOnly, state.canAddReactions, !message.reactionMutationInFlight,
+                  !message.contentPresentation.isService, message.message.selfDestructType == nil,
+                  message.message.ephemeralMessageId == 0, message.message.sendingState == nil else { return nil }
         case .reactionList(let type):
             guard message.reactions?.canGetAddedReactions == true,
                   message.reactions?.reactions.contains(where: { $0.type == type }) == true else { return nil }

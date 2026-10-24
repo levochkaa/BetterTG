@@ -219,6 +219,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         private(set) var probeMediaAction: (([Message], Int64) -> Void)?
     #endif
 
+    /// ChatMessageBubbleItemNode's double tap: the chat's quick reaction, set once the cell is configured.
+    var onQuickReaction: (() -> Void)? {
+        didSet { quickReactionRecognizer.isEnabled = onQuickReaction != nil }
+    }
+
     private var selectionTouchBindingID: UUID?
     private let rowStack = UIStackView()
     private let bubbleContainerView = TelegramContextMenuExtractableView()
@@ -282,6 +287,16 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private weak var pollInteractionStore: MessagePollInteractionStore?
     private var selectionOutgoing = false
     private var selectionCentered = false
+
+    private lazy var quickReactionRecognizer: UITapGestureRecognizer = {
+        let recognizer = UITapGestureRecognizer(target: self, action: #selector(quickReactionTapped(_:)))
+        recognizer.numberOfTapsRequired = 2
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesEnded = false
+        recognizer.isEnabled = false
+        return recognizer
+    }()
+
     private lazy var swipeToReplyRecognizer = TelegramSwipeToReplyRecognizer(
         target: self,
         action: #selector(swipeToReply(_:)),
@@ -521,6 +536,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         // Conceal it without stealing the menu's view or return constraints.
         bubbleView.isHidden = true
         onSwipeToReply = nil
+        onQuickReaction = nil
         onMediaTap = nil
         onSelectionToggle = nil
         onSelfSizingHeightChange = nil
@@ -1161,6 +1177,17 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         return gestureRecognizer.view is UIScrollView || otherGestureRecognizer.view is UIScrollView
     }
 
+    /// Controls such as reaction chips, buttons and links keep their own taps.
+    @objc private func quickReactionTapped(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        var view = bubbleView.hitTest(recognizer.location(in: bubbleView), with: nil)
+        while let current = view, current !== bubbleView {
+            if current is UIControl { return }
+            view = current.superview
+        }
+        onQuickReaction?()
+    }
+
     private func resetDeletionPresentation() {
         contentView.layer.removeAllAnimations()
         contentView.alpha = 1
@@ -1315,6 +1342,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         swipeToReplyRecognizer.delegate = self
         swipeToReplyRecognizer.isEnabled = false
         contentView.addGestureRecognizer(swipeToReplyRecognizer)
+        bubbleView.addGestureRecognizer(quickReactionRecognizer)
     }
 
     @objc private func swipeToReply(_ recognizer: TelegramSwipeToReplyRecognizer) {
