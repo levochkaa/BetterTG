@@ -2478,3 +2478,4 @@
 "Conversation.UnreadMessages" = "Unread Messages";
 "Message.ScamAccount" = "Scam";
 "Message.FakeAccount" = "Fake";
+"Conversation.ContextMenuSpeak" = "Speak";

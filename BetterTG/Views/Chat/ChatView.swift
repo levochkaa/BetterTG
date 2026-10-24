@@ -177,6 +177,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// ChatReportPeerTitlePanelNode for a chat from someone new (TDLib's action bar).
     private let chatActionBarView = ChatActionBarView()
     private var cachedEmptyStateView: ChatEmptyStateView?
+    /// Speak's SpeechSynthesizerHolder: the message being read aloud.
+    private var speechSynthesizer: AVSpeechSynthesizer?
     /// The date stuck to the top while the history is dragged, and ListView's flashing state behind it.
     private let floatingDateView = ChatFloatingDateView()
     private var floatingDateFlashes = false
@@ -7432,6 +7434,32 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
+    /// Telegram's Speak message item: with iOS's Speak Selection on, the message's text is read aloud (Speak's
+    /// speakText: AVSpeechSynthesizer in the text's language), copy protection or not.
+    private func speakAction(for message: CustomMessage) -> TelegramContextMenuAction? {
+        guard UIAccessibility.isSpeakSelectionEnabled else { return nil }
+        var foundText = copyableText(from: message.message.content)
+        for source in message.sourceMessages where foundText == nil {
+            foundText = copyableText(from: source.content)
+        }
+        guard let text = foundText?.text, !text.isEmpty else { return nil }
+        return TelegramContextMenuAction(
+            title: L10n.telegram("Conversation.ContextMenuSpeak"),
+            image: UIImage(systemName: "speaker.wave.2"),
+        ) { [weak self] in self?.speak(text) }
+    }
+
+    private func speak(_ text: String) {
+        speechSynthesizer?.stopSpeaking(at: .immediate)
+        let synthesizer = AVSpeechSynthesizer()
+        let utterance = AVSpeechUtterance(string: text)
+        if let language = MessageTranslation.detectedLanguage(of: text) {
+            utterance.voice = AVSpeechSynthesisVoice(language: language)
+        }
+        synthesizer.speak(utterance)
+        speechSynthesizer = synthesizer
+    }
+
     /// TextSelectionNode's Translate for the selected part of a message, where the chat offers Telegram's
     /// translation.
     private func selectionTranslateAction(canCopy: Bool) -> ((String) -> Void)? {
@@ -8859,6 +8887,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             if let translateAction = translateAction(for: message) {
                 readOnlyActions.append(translateAction)
             }
+            if let speakAction = speakAction(for: message) {
+                readOnlyActions.append(speakAction)
+            }
             readOnlyActions.append(contentsOf: mediaSaveActions(for: message, albumItemID: albumItemID))
             return readOnlyActions
         }
@@ -8952,6 +8983,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         if let translateAction = translateAction(for: message) {
             elements.append(translateAction)
+        }
+        if let speakAction = speakAction(for: message) {
+            elements.append(speakAction)
         }
         if message.properties.canGetLink {
             elements.append(TelegramContextMenuAction(
