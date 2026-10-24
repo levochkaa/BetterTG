@@ -167,6 +167,8 @@
 "Common.Yes" = "Yes";
 "Common.No" = "No";
 "Conversation.TextCopied" = "Text copied to clipboard";
+"Conversation.MessageCopied" = "Message copied to clipboard";
+"Conversation.ImageCopied" = "Image copied to clipboard";
 "VoiceOver.Keyboard" = "Keyboard";
 "VoiceOver.BotKeyboard" = "Bot Keyboard";
 "Conversation.StopPoll" = "Stop Poll";

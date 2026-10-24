@@ -449,6 +449,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             .messageID
     }
 
+    /// Whether the photo of `messageID`, or of an album item, shows its downloaded image.
+    func contextShowsFullPhoto(forMessageID messageID: Int64) -> Bool {
+        mediaView.showsFullPhoto(for: messageID)
+    }
+
     /// The checklist task a long press at `point` (in the cell's coordinates) is on; Telegram opens that task's
     /// own menu.
     func contextChecklistTaskID(at point: CGPoint) -> Int? {

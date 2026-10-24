@@ -307,6 +307,15 @@ final class MessageMediaView: UIView {
         return self
     }
 
+    /// Whether the photo of `messageID` shows its downloaded image rather than a placeholder: Telegram offers Copy
+    /// for a photo once its resource is local (`resourceStatus` `.Local`).
+    func showsFullPhoto(for messageID: Int64) -> Bool {
+        if let albumView = contentView as? AlbumMediaView {
+            return albumView.showsFullPhoto(for: messageID)
+        }
+        return (contentView as? SinglePhotoView)?.showsFullPhoto == true
+    }
+
     /// The photo or video of an album under `point` (in `coordinateSpace`); nil outside an album.
     func albumItemMessageID(at point: CGPoint, in coordinateSpace: UIView) -> Int64? {
         (contentView as? AlbumMediaView)?.messageID(at: point, in: coordinateSpace)
@@ -399,6 +408,8 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
     private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
     private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
     private var onTap: (() -> Void)?
+
+    var showsFullPhoto: Bool { imageView.hasFullImage }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -608,6 +619,10 @@ final class AlbumMediaView: UIView, ReusableMediaView {
         tiles.first(where: { $0.messageID == messageID })
     }
 
+    func showsFullPhoto(for messageID: Int64) -> Bool {
+        tiles.first(where: { $0.messageID == messageID })?.showsFullPhoto == true
+    }
+
     func tileFrames(in coordinateSpace: UIView) -> [Int64: CGRect] {
         var frames = [Int64: CGRect]()
         for tile in tiles {
@@ -720,6 +735,8 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
             debugHasVideoPlaybackOwner = hasVideoPlaybackOwner
         }
     #endif
+
+    var showsFullPhoto: Bool { imageView.hasFullImage }
 
     var hasVideoPlaybackOwner: Bool {
         #if DEBUG
@@ -1215,11 +1232,12 @@ final class TDImageLoadingView: UIImageView {
         var debugDecode: ((String, Int) async -> UIImage?)?
     #endif
 
+    private(set) var hasFullImage = false
+
     private var representedRequest: RequestIdentity?
     private var representedOrigin: TDImageOrigin?
     private var fileRequest: AnimatedFileDownload?
     private var renderGeneration = UUID()
-    private var hasFullImage = false
     private var imageTransitionDuration: TimeInterval = 0
     private var decodeTask: Task<Void, Never>?
     private var placeholderTask: Task<Void, Never>?

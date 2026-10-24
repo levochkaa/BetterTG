@@ -8501,7 +8501,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         // A file or music album quotes the caption of the file under the finger, replying to that file.
         let quoteTarget = cell.contextQuoteTarget(at: gesture.location(in: cell))
         let albumItemID = cell.contextAlbumItemID(at: gesture.location(in: cell))
-        let messageActions = menu(for: message, albumItemID: albumItemID)
+        let messageActions = menu(
+            for: message,
+            albumItemID: albumItemID,
+            showsFullPhoto: cell.contextShowsFullPhoto(forMessageID: albumItemID ?? message.id),
+        )
         // ChatControllerOpenTodoContextMenu: a checklist task under the finger opens its own actions first.
         let taskSources = cell.contextChecklistTaskID(at: gesture.location(in: cell))
             .flatMap { checklistTaskMenu(for: message, taskID: $0) }?
@@ -8979,17 +8983,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         panGesture.isEnabled = true
     }
 
-    /// The message menu; `albumItemID` is the album item the long press was on, for actions on a single item.
-    private func menu(for message: CustomMessage, albumItemID: Int64? = nil) -> [TelegramContextMenuAction] {
+    /// The message menu; `albumItemID` is the album item the long press was on, for actions on a single item, and
+    /// `showsFullPhoto` whether its photo shows the downloaded image.
+    private func menu(
+        for message: CustomMessage,
+        albumItemID: Int64? = nil,
+        showsFullPhoto: Bool = false,
+    ) -> [TelegramContextMenuAction] {
+        let copyAction = copyAction(for: message, albumItemID: albumItemID, showsFullPhoto: showsFullPhoto)
         if chatVM.isReadOnlyTopic {
             var readOnlyActions = [TelegramContextMenuAction]()
-            if message.properties.canBeCopied,
-               let text = copyableText(from: message.message.content)
-            {
-                readOnlyActions.append(TelegramContextMenuAction(
-                    title: L10n.telegram("Conversation.ContextMenuCopy"),
-                    image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
-                ) { UIPasteboard.setFormattedText(text) })
+            if let copyAction {
+                readOnlyActions.append(copyAction)
             }
             if let translateAction = translateAction(for: message) {
                 readOnlyActions.append(translateAction)
@@ -9080,13 +9085,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 openComments(messageID: message.id, displayedID: message.displayedID)
             })
         }
-        if message.properties.canBeCopied,
-           let text = copyableText(from: message.message.content)
-        {
-            elements.append(TelegramContextMenuAction(
-                title: L10n.telegram("Conversation.ContextMenuCopy"),
-                image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
-            ) { UIPasteboard.setFormattedText(text) })
+        if let copyAction {
+            elements.append(copyAction)
         }
         if let translateAction = translateAction(for: message) {
             elements.append(translateAction)
@@ -10190,6 +10190,61 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             poll.description.text.isEmpty ? nil : poll.description
         default:
             nil
+        }
+    }
+
+    /// Telegram's Copy (ChatInterfaceStateContextMenus): the text, saying so in a toast; a die's emoji; and a photo
+    /// without a caption once it is downloaded, as an image.
+    private func copyAction(
+        for message: CustomMessage,
+        albumItemID: Int64?,
+        showsFullPhoto: Bool,
+    ) -> TelegramContextMenuAction? {
+        guard message.properties.canBeCopied else { return nil }
+        let handler: () -> Void
+        if let text = copyableText(from: message.message.content) {
+            handler = { [weak self] in
+                UIPasteboard.setFormattedText(text)
+                self?.showChatToast(L10n.telegram("Conversation.MessageCopied"))
+            }
+        } else if case .messageDice(let dice) = message.message.content {
+            handler = { UIPasteboard.setPlainText(dice.emoji) }
+        } else {
+            let source =
+                if let albumItemID {
+                    message.sourceMessages.first { $0.id == albumItemID }
+                } else {
+                    message.sourceMessages.count <= 1 ? message.message : nil
+                }
+            guard let source, case .messagePhoto(let photo) = source.content, source.selfDestructType == nil,
+                  showsFullPhoto
+            else { return nil }
+            handler = { [weak self] in self?.copyImage(of: photo.photo) }
+        }
+        return TelegramContextMenuAction(
+            title: L10n.telegram("Conversation.ContextMenuCopy"),
+            image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
+            handler: handler,
+        )
+    }
+
+    /// Copies the largest downloaded size of `photo`, as Telegram copies its `largestImageRepresentation`.
+    private func copyImage(of photo: Photo) {
+        let client = chatVM.client
+        let sizes = photo.sizes.sorted { $0.width * $0.height > $1.width * $1.height }
+        Task { [weak self] in
+            var path: String?
+            for size in sizes {
+                if let file = try? await client.getFile(fileId: size.photo.id), file.local.isDownloadingCompleted {
+                    path = file.local.path
+                    break
+                }
+            }
+            guard let path else { return }
+            let image = await Task.detached(priority: .userInitiated) { UIImage(contentsOfFile: path) }.value
+            guard let image, let self, chatVM.locationContextIsCurrent else { return }
+            UIPasteboard.general.image = image
+            showChatToast(L10n.telegram("Conversation.ImageCopied"))
         }
     }
 
