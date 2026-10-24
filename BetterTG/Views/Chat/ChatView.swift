@@ -1088,6 +1088,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return value
     }
 
+    /// Message.effectivelyIncoming in Saved Messages, whose chat ID is the user's: a forwarded message counts as
+    /// incoming unless the user sent the original.
+    private static func isEffectivelyIncomingInSavedMessages(_ message: Message) -> Bool {
+        guard let forwardInfo = message.forwardInfo else { return false }
+        if let source = forwardInfo.source {
+            if source.isOutgoing { return false }
+            if case .messageSenderUser(let sender)? = source.senderId, sender.userId == message.chatId { return false }
+        } else if case .messageOriginUser(let origin) = forwardInfo.origin, origin.senderUserId == message.chatId {
+            return false
+        }
+        return true
+    }
+
     /// A bot start link for a chat the router has just created shows Start before the chat appears.
     func beginBotStart(parameter: String) {
         chatVM.beginBotStart(parameter: parameter)
@@ -9168,9 +9181,27 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 }
             })
         } else if !deleteActions.isEmpty {
+            // ChatInterfaceStateContextMenus: a message that is still sending offers Cancel Sending with the Clear
+            // icon, and one forwarded into Saved Messages from someone else Remove.
+            let isSending =
+                if case .messageSendingStatePending = message.message.sendingState {
+                    true
+                } else {
+                    false
+                }
+            let deleteTitle =
+                if isSending {
+                    "Conversation.ContextMenuCancelSending"
+                } else if chatVM.customChat.isSavedMessages,
+                          Self.isEffectivelyIncomingInSavedMessages(message.message)
+                {
+                    "Chat.MessageContextMenu.Remove"
+                } else {
+                    "Conversation.ContextMenuDelete"
+                }
             elements.append(TelegramContextMenuAction(
-                title: L10n.telegram("Common.Delete"),
-                image: UIImage(systemName: "trash"),
+                title: L10n.telegram(deleteTitle),
+                image: UIImage(systemName: isSending ? "xmark" : "trash"),
                 isDestructive: true,
                 children: deleteActions,
             ))
@@ -9223,11 +9254,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if message.properties.canBeDeletedOnlyForSelf {
             let title =
                 if chatVM.customChat.isSavedMessages {
-                    // Message.effectivelyIncoming: a message forwarded into Saved Messages counts as incoming.
                     L10n.telegram(
-                        message.message.forwardInfo == nil
-                            ? "Chat.ConfirmationDeleteFromSavedMessages"
-                            : "Chat.ConfirmationRemoveFromSavedMessages",
+                        Self.isEffectivelyIncomingInSavedMessages(message.message)
+                            ? "Chat.ConfirmationRemoveFromSavedMessages"
+                            : "Chat.ConfirmationDeleteFromSavedMessages",
                     )
                 } else {
                     L10n.telegram("Conversation.DeleteMessagesForMe")
