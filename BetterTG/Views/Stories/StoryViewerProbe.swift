@@ -38,7 +38,7 @@ import UIKit
                     + "timestamps=true; cube-neighbors/resume/unloaded=true; "
                     + "cube-rest-flat/half-turn-edges-meet/whole-turn-gap-40/rubber-band/spring=true; "
                     + "area-placement/rotated-hit/side-inset/reaction-skipped/tooltip-source/temperature=true; "
-                    + "menu-contact/muted-hidden/non-contact/service/bot/private/protected/own/panel-share/speed/"
+                    + "menu-contact/muted-hidden/non-contact/service/bot/private/protected/channel-admin/own/panel-share/speed/"
                     + "translate=true; "
                     + "own-menu/expired/live/button/footer/no-views/view-label/count-text=true; "
                     + "view-list-title/tabs-at-20/private-no-tabs/sort-at-10/expired-no-header/empty-texts/"
@@ -424,10 +424,36 @@ import UIKit
             try require(items(open, poster(stranger, isService: true)) == "share,save", "a service account")
             try require(items(open, poster(.user(isContact: true, isBot: true))).isEmpty, "a bot's menu")
             try require(
-                items(contactsOnly, poster(.supergroup, canBeArchived: false)) == "save,report",
+                items(contactsOnly, poster(.supergroup(isChannel: true), canBeArchived: false)) == "save,report",
                 "a story for contacts in a channel that can't be hidden",
             )
-            try require(items(protected, poster(.supergroup)) == "copy-link,hide,report", "a protected story")
+            try require(
+                items(protected, poster(.supergroup(isChannel: true))) == "copy-link,hide,report",
+                "a protected story",
+            )
+            // performMyChannelMoreAction: a story the account may edit or delete in a channel or a group.
+            let admin = StoryViewerUIProbe.makeStory(
+                id: 4,
+                chatID: 1,
+                date: 0,
+                file: file,
+                areas: [],
+                own: (isPosted: true, interactions: nil),
+            )
+            try require(
+                items(admin, poster(.supergroup(isChannel: true)))
+                    == "remove-from-channel,save,copy-link,share,hide,delete",
+                "a channel admin's menu: \(items(admin, poster(.supergroup(isChannel: true))))",
+            )
+            if case .channelPage(_, let isGroup)? = StoryMoreMenu.items(
+                story: admin,
+                poster: poster(.supergroup(isChannel: false)),
+            )
+.first {
+                try require(isGroup, "a group's story toasts about the group page")
+            } else {
+                throw Failure(description: "a group admin's menu starts with Remove from Posts")
+            }
             try require(
                 StoryMoreMenu.items(story: open, poster: poster(contact), sharesFromPanel: true)
                     .map(StoryMoreMenu.identifier(of:)) == ["notify-off", "copy-link", "hide", "save", "report"],
@@ -477,13 +503,12 @@ import UIKit
                     && !items(open, poster(contact)).contains("translate"),
                 "a caption to translate: \(translated)",
             )
+            // An editable story someone else posted is a channel admin's, with performMyChannelMoreAction's menu.
             try require(
-                StoryMoreMenu.showsButton(for: open, accountUserID: 2) && !StoryMoreMenu.showsButton(
-                    for: own,
-                    accountUserID: 2,
-                )
+                StoryMoreMenu.showsButton(for: open, accountUserID: 2)
+                    && StoryMoreMenu.showsButton(for: own, accountUserID: 2)
                     && !StoryMoreMenu.showsButton(for: nil, accountUserID: 2),
-                "the More button on an editable story someone else posted",
+                "the More button on every story",
             )
         }
 

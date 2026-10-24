@@ -17,6 +17,9 @@ import UniformTypeIdentifiers
 /// performMyMoreAction builds the account's own story's menu: the speed, Save to or Remove from Profile, Save to
 /// Gallery, and Copy Link and Share for a public story that is still active or saved to the profile. Telegram's Who
 /// Can See, Edit Story and Edit Cover (BetterTG has no story editor yet) and stealth mode (Premium) are left out.
+/// performMyChannelMoreAction builds the menu of a channel's or group's story the account may edit or delete: the
+/// speed, Save to or Remove from Posts, Save to Gallery, Copy Link and Share, Hide or Unhide Stories and Delete Story.
+/// Telegram's Edit, Edit Cover and View Statistics (BetterTG has no story editor or statistics) are left out.
 enum StoryMoreMenu {
     enum Item: Equatable {
         /// Playback Speed with the viewer's rate, and Telegram's speeds a level down.
@@ -28,6 +31,10 @@ enum StoryMoreMenu {
         case copyLink
         /// performShareAction's chat picker, offered by Telegram's footer for public, forwardable stories.
         case share
+        /// toggleStoryIsPostedToChatPage on a channel's or group's story: Save to Posts, or Remove from Posts.
+        case channelPage(isPosted: Bool, isGroup: Bool)
+        /// performDeleteAction on a channel's or group's story the account may delete.
+        case delete
         /// updatePeerStoriesHidden: Hide Stories moves them to the archive, Unhide Stories back.
         case archive(isHidden: Bool)
         case save
@@ -41,7 +48,7 @@ enum StoryMoreMenu {
         enum Kind: Equatable {
             case user(isContact: Bool, isBot: Bool)
             /// Telegram's channel peers: channels and supergroups.
-            case supergroup
+            case supergroup(isChannel: Bool)
             case other
         }
 
@@ -70,11 +77,10 @@ enum StoryMoreMenu {
     /// EnginePeer.isService: Telegram's notifications, support and replies accounts and the verification codes bot.
     static let serviceUserIDs: Set<Int64> = [777_000, 333_000, 708_513, 1_271_266_957, 489_000]
 
-    /// performMoreAction sends the account's own stories to performMyMoreAction and those a channel admin may edit or
-    /// delete to performMyChannelMoreAction, which BetterTG doesn't port; the button shows for the rest.
-    static func showsButton(for story: Story?, accountUserID: Int64?) -> Bool {
-        guard let story else { return false }
-        return isOwn(story, accountUserID: accountUserID) || (!story.canBeEdited && !story.canBeDeleted)
+    /// performMoreAction sends the account's own stories to performMyMoreAction, those a channel admin may edit or
+    /// delete to performMyChannelMoreAction and the rest to performOtherMoreAction; every story has the button.
+    static func showsButton(for story: Story?, accountUserID _: Int64?) -> Bool {
+        story != nil
     }
 
     /// The story was posted by the account itself: its private chat's id is the user's.
@@ -98,6 +104,9 @@ enum StoryMoreMenu {
         translatableLanguage: (String) -> String? = MessageTranslation.translatableLanguage(of:),
     ) -> [Item] {
         if poster.isSelf { return ownItems(story: story, poster: poster, baseRate: baseRate) }
+        if case .supergroup = poster.kind, story.canBeEdited || story.canBeDeleted {
+            return channelItems(story: story, poster: poster, baseRate: baseRate)
+        }
         if case .user(isContact: _, isBot: true) = poster.kind { return [] }
         var isLive = false
         if case .storyContentLive = story.content { isLive = true }
@@ -161,6 +170,36 @@ enum StoryMoreMenu {
         return items
     }
 
+    /// performMyChannelMoreAction's items on a story the account may edit or delete, in Telegram's order.
+    static func channelItems(story: Story, poster: Poster, baseRate: Double = 1) -> [Item] {
+        var isLive = false
+        if case .storyContentLive = story.content { isLive = true }
+        var isGroup = false
+        if case .supergroup(isChannel: false) = poster.kind { isGroup = true }
+        var items = [Item]()
+        if case .storyContentVideo = story.content {
+            items.append(.speed(rate: baseRate))
+        }
+        if !isLive, story.canToggleIsPostedToChatPage {
+            items.append(.channelPage(isPosted: story.isPostedToChatPage, isGroup: isGroup))
+        }
+        if !isLive {
+            items.append(.save)
+        }
+        let isReachable = poster.activeStoryIDs.contains(story.id) || story.isPostedToChatPage
+        if isPublic(story), poster.username != nil, isReachable {
+            items.append(.copyLink)
+            items.append(.share)
+        }
+        if poster.storiesHidden || poster.canBeArchived {
+            items.append(.archive(isHidden: poster.storiesHidden))
+        }
+        if story.canBeDeleted {
+            items.append(.delete)
+        }
+        return items
+    }
+
     /// The speed's name in speedList: Normal at 1x.
     static func speedTitle(_ rate: Double) -> String {
         if abs(rate - 1) < 0.01 { return L10n.telegram("PlaybackSpeed.Normal") }
@@ -211,6 +250,10 @@ enum StoryMoreMenu {
             L10n.telegram("Story.Context.CopyLink")
         case .share:
             L10n.telegram("Story.Context.Share")
+        case .channelPage(let isPosted, _):
+            L10n.telegram(isPosted ? "Story.Context.RemoveFromChannel" : "Story.Context.SaveToChannel")
+        case .delete:
+            L10n.telegram("Story.ContextDeleteStory")
         case .archive(let isHidden):
             L10n.telegram(isHidden ? "StoryFeed.ContextUnarchive" : "StoryFeed.ContextArchive")
         case .save:
@@ -232,6 +275,8 @@ enum StoryMoreMenu {
             case .notify(let isMuted): isMuted ? "bell" : "bell.slash"
             case .copyLink: "link"
             case .share: "arrowshape.turn.up.right"
+            case .channelPage(let isPosted, _): isPosted ? "pin.slash" : "pin"
+            case .delete: "trash"
             case .archive(let isHidden): isHidden ? "tray.and.arrow.up" : "archivebox"
             case .save: "square.and.arrow.down"
             case .translate: "translate"
@@ -248,6 +293,8 @@ enum StoryMoreMenu {
         case .notify(let isMuted): isMuted ? "notify-on" : "notify-off"
         case .copyLink: "copy-link"
         case .share: "share"
+        case .channelPage(let isPosted, _): isPosted ? "remove-from-channel" : "save-to-channel"
+        case .delete: "delete"
         case .archive(let isHidden): isHidden ? "unhide" : "hide"
         case .save: "save"
         case .translate: "translate"
@@ -280,7 +327,7 @@ enum StoryMoreMenu {
                 if !firstName.isEmpty { compactTitle = firstName }
             }
         case .chatTypeSupergroup(let info):
-            kind = .supergroup
+            kind = .supergroup(isChannel: info.isChannel)
             let group = try? await client.send(TDNativeRequests.getSupergroup(supergroupId: info.supergroupId))
             username = group?.usernames?.activeUsernames.first
         case .chatTypeBasicGroup,

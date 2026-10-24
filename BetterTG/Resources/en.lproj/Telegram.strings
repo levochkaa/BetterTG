@@ -2386,6 +2386,14 @@
 "Story.Views.NoViews" = "Nobody has viewed\nyour story yet.";
 "Story.Views.ViewsExpired" = "List of viewers becomes unavailable **24 hours** after the story expires.";
 "Story.Views.Commented" = " • commented";
+"Story.Context.SaveToChannel" = "Save to Posts";
+"Story.Context.RemoveFromChannel" = "Remove from Posts";
+"Story.ToastSavedToChannelTitle" = "Story saved to the channel's profile";
+"Story.ToastSavedToChannelText" = "Saved stories can be viewed by others on the channel's profile until an admin removes them.";
+"Story.ToastRemovedFromChannelText" = "Story removed from the channel's profile";
+"Story.ToastSavedToGroupTitle" = "Story saved to the group page";
+"Story.ToastSavedToGroupText" = "Posted stories can be viewed by others on the group page until an admin removes them.";
+"Story.ToastRemovedFromGroupText" = "Story removed from the group page";
 "Conversation.ContextMenuBlock" = "Block User";
 "Story.ContextShowStoriesTo" = "Show My Stories To %@";
 "Story.ContextHideStoriesFrom" = "Hide My Stories From %@";

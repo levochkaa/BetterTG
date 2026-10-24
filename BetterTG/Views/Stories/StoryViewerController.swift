@@ -1439,6 +1439,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             return TelegramContextMenuAction(
                 title: StoryMoreMenu.title(of: item),
                 image: StoryMoreMenu.image(of: item),
+                isDestructive: item == .delete,
                 children: children,
                 handler: { [weak self] in self?.performMoreItem(item, story: story, poster: poster) },
             )
@@ -1468,6 +1469,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             break
         case .profile(let isPosted):
             setPostedToProfile(!isPosted, story: story)
+        case .channelPage(let isPosted, let isGroup):
+            setPostedToChannel(!isPosted, isGroup: isGroup, story: story)
+        case .delete:
+            deletePressed()
         case .notify(let isMuted):
             toggleStoryNotifications(of: poster, wereMuted: isMuted)
         case .copyLink:
@@ -1663,6 +1668,32 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             )
         } else {
             showMenuToast(L10n.telegram("Story.ToastRemovedFromProfileText"))
+        }
+    }
+
+    /// Save to Posts and Remove from Posts on a channel's or group's story, with the channel's or group's toast.
+    private func setPostedToChannel(_ isPosted: Bool, isGroup: Bool, story: Story) {
+        let client = session.client
+        let chatID = story.posterChatId
+        let storyID = story.id
+        Task {
+            _ = try? await client.send(TDNativeRequests.toggleStoryIsPostedToChatPage(
+                storyPosterChatId: chatID,
+                storyId: storyID,
+                isPostedToChatPage: isPosted,
+            ))
+        }
+        let place = isGroup ? "Group" : "Channel"
+        if isPosted {
+            TelegramUndoToast.show(
+                title: L10n.telegram("Story.ToastSavedTo\(place)Title"),
+                text: L10n.telegram("Story.ToastSavedTo\(place)Text"),
+                in: view,
+                bottomInset: toastBottomInset,
+                undo: nil,
+            )
+        } else {
+            showMenuToast(L10n.telegram("Story.ToastRemovedFrom\(place)Text"))
         }
     }
 
