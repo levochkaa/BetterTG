@@ -860,7 +860,7 @@ import UIKit
             field.autocapitalizationType = .words
         }
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        let done = UIAlertAction(title: L10n.telegram("Common.Done"), style: .default) { [weak alert] _ in
+        let done = UIAlertAction(title: L10n.telegram("Common.Done"), style: .default) { [weak self, weak alert] _ in
             let firstName = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let lastName = alert?.textFields?.last?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard !firstName.isEmpty || !lastName.isEmpty else { return }
