@@ -810,7 +810,7 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         super.layoutSubviews()
         // RadialStatusNode is 50 pt in media bubbles and 32 pt where the media is small.
         uploadProgress.diameter = min(bounds.width, bounds.height) < 90 ? 32 : 50
-        let size = MediaSelectionCheckView.size
+        let size = MediaSelectionCheckView.Style.overlay.size
         selectionCheck?.bounds = CGRect(x: 0, y: 0, width: size, height: size)
         selectionCheck?.center = CGPoint(x: bounds.width - 2 - size / 2, y: 2 + size / 2)
     }

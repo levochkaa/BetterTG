@@ -9202,7 +9202,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         if canSelectMessage(message) {
             // Telegram's Select takes the message under the finger, an album's item included, and Select All takes
-            // the whole group. BetterTG selects a file album only whole.
+            // the whole group.
             let displayedID = message.displayedID
             let albumItems = selectableAlbumItemIDs(of: message)
             if message.sourceMessages.count <= 1 || albumItemID.map({ albumItems?.contains($0) == true }) == true {
@@ -9787,9 +9787,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         .count
     }
 
-    /// The items of a media album, which Telegram selects one by one: photos and videos laid out as a mosaic.
+    /// The items of an album, which Telegram selects one by one: photos and videos laid out as a mosaic, or the
+    /// files of a file or music album.
     private func selectableAlbumItemIDs(of message: CustomMessage) -> Set<Int64>? {
-        let items = message.album.filter { item in
+        let items = message.sourceMessages
+        guard items.count > 1 else { return nil }
+        let isMosaic = items.allSatisfy { item in
             switch item.content {
             case .messageAnimation,
                  .messagePhoto,
@@ -9800,7 +9803,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 false
             }
         }
-        return items.count > 1 && items.count == message.sourceMessages.count ? Set(items.map(\.id)) : nil
+        let isFileAlbum = items.allSatisfy { item in
+            switch item.content {
+            case .messageAudio,
+                 .messageDocument:
+                true
+            default:
+                false
+            }
+        }
+        return isMosaic || isFileAlbum ? Set(items.map(\.id)) : nil
     }
 
     /// The selected items of a media album: all of them when the bubble is selected whole.

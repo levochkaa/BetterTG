@@ -895,6 +895,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             onAction: onContentAction,
         )
         structuredContentView.isHidden = !hasStructuredContent
+        structuredContentView.setAlbumSelection(
+            selectionActive ? selectedAlbumItemIDs : nil,
+            animated: reconfiguresSameMessage,
+        )
         let displayedFormattedText = structuredContentView.handlesAlbumCaptions ? nil : message.formattedText
 
         let timestamp = Self.timeFormatter.string(from: message.date)
@@ -1542,9 +1546,9 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         selectionTouchBindingID = nil
         guard let binding, binding == actionBindingID, selectionActive, !selectionControl.isHidden,
               isUserInteractionEnabled, !contentView.isHidden, window != nil else { return }
-        if let onAlbumItemSelectionToggle, !mediaView.isHidden,
+        if let onAlbumItemSelectionToggle,
            let point = event.allTouches?.first?.location(in: self),
-           let itemID = mediaView.albumItemMessageID(at: point, in: self)
+           let itemID = contextAlbumItemID(at: point)
         {
             onAlbumItemSelectionToggle(itemID)
             return

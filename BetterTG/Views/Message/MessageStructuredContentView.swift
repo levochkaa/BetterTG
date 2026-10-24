@@ -458,6 +458,7 @@ final class MessageStructuredContentView: UIView {
     private(set) var handlesAlbumCaptions = false
 
     private var supplementView: (UIView & MessageSupplementView)?
+    private var albumSelection: Set<Int64>?
 
     /// A file or music album's items, top to bottom, each with its caption view if it has a caption.
     var albumCaptionItems: [(messageID: Int64, view: UIView, caption: MessageTextContentView?)] {
@@ -494,6 +495,14 @@ final class MessageStructuredContentView: UIView {
             (supplementView as? ChecklistMessageContentView)?.debugTapTask(index)
         }
     #endif
+
+    /// A file or music album's item checks while selection is on; nil hides them. An animated change starts from
+    /// the checks the album showed before it was configured again.
+    func setAlbumSelection(_ selected: Set<Int64>?, animated: Bool) {
+        let previous = animated ? albumSelection : nil
+        albumSelection = selected
+        (supplementView as? AttachmentAlbumMessageView)?.setSelection(selected, previous: previous, animated: animated)
+    }
 
     /// The checklist task under `point` (in `sourceView`'s coordinates).
     func checklistTaskID(at point: CGPoint, in sourceView: UIView) -> Int? {
@@ -680,6 +689,16 @@ private final class AttachmentAlbumMessageView: UIView, MessageSupplementView {
     func setPlaybackVisible(_ isVisible: Bool) {
         itemViews.forEach { $0.setPlaybackVisible(isVisible) }
     }
+
+    func setSelection(_ selected: Set<Int64>?, previous: Set<Int64>?, animated: Bool) {
+        for item in itemViews {
+            item.setSelection(
+                selected.map { $0.contains(item.messageID) },
+                previous: previous.map { $0.contains(item.messageID) },
+                animated: animated,
+            )
+        }
+    }
 }
 
 // MARK: - AttachmentAlbumItemView
@@ -689,6 +708,7 @@ private final class AttachmentAlbumItemView: UIView {
     private(set) var captionView: MessageTextContentView?
 
     private let fileView: TelegramFileMessageView
+    private var selectionCheck: MediaSelectionCheckView?
 
     init(
         messageID: Int64,
@@ -729,11 +749,37 @@ private final class AttachmentAlbumItemView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         if bounds.width > 0 { captionView?.setMaximumLayoutWidth(bounds.width) }
+        if let selectionCheck {
+            // FileMessageSelectionNode: 29 pt right of and 26 pt below the file icon's corner.
+            let icon = fileView.convert(fileView.iconFrame, to: self)
+            selectionCheck.frame.origin = CGPoint(x: icon.minX + 29, y: icon.minY + 26)
+        }
     }
 
     func prepareForReuse() {
         fileView.prepareForReuse()
         captionView?.prepareForReuse()
+        selectionCheck?.removeFromSuperview()
+        selectionCheck = nil
+    }
+
+    /// The file's check: nil hides it. `previous` is the state the item this one replaces showed.
+    func setSelection(_ selected: Bool?, previous: Bool?, animated: Bool) {
+        guard let selected else {
+            selectionCheck?.removeFromSuperview()
+            selectionCheck = nil
+            return
+        }
+        let check = selectionCheck ?? MediaSelectionCheckView(style: .plain)
+        if selectionCheck == nil {
+            selectionCheck = check
+            addSubview(check)
+            setNeedsLayout()
+            layoutIfNeeded()
+            check.setSelected(previous ?? selected, animated: false)
+            if animated, previous == nil { check.animateIn() }
+        }
+        check.setSelected(selected, animated: animated)
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -835,6 +881,11 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
     private var fileCancellable: AnyCancellable?
     private var mediaCancellable: AnyCancellable?
     private var requestedCancellation = false
+
+    /// The round icon, where a selected file shows its check.
+    var iconFrame: CGRect {
+        actionButton.frame
+    }
 
     private var completedLocalPath: String? {
         guard representedFile.local.isDownloadingCompleted,

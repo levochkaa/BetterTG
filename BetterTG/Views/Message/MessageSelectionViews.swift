@@ -4,27 +4,43 @@ import UIKit
 
 // MARK: - MediaSelectionCheckView
 
-/// CheckNode's overlay style on an album item (GridMessageSelectionNode): a 28 pt circle 2 pt inside the item's
-/// top right corner, a 1.5 pt white ring with a soft shadow, filled with the accent and checked once selected.
+/// CheckNode on an album item. `.overlay` (GridMessageSelectionNode) is a 28 pt circle 2 pt inside a photo's top
+/// right corner, a 1.5 pt white ring with a soft shadow; `.plain` (FileMessageSelectionNode) is a 20 pt ring in the
+/// bubble's placeholder color on a file icon's corner. Both fill with the accent and draw the check once selected.
 final class MediaSelectionCheckView: UIView {
-    static let size = CGFloat(28)
+    enum Style {
+        case overlay
+        case plain
 
+        var size: CGFloat {
+            self == .overlay ? 28 : 20
+        }
+    }
+
+    let style: Style
     private(set) var isSelected = false
 
     private let ringLayer = CAShapeLayer()
     private let fillLayer = CAShapeLayer()
     private let checkLayer = CAShapeLayer()
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    init(style: Style = .overlay) {
+        self.style = style
+        super.init(frame: CGRect(x: 0, y: 0, width: style.size, height: style.size))
         isUserInteractionEnabled = false
         ringLayer.fillColor = UIColor.clear.cgColor
-        ringLayer.strokeColor = UIColor.white.cgColor
-        ringLayer.lineWidth = 1.5
-        ringLayer.shadowColor = UIColor.black.cgColor
-        ringLayer.shadowOpacity = 0.22
-        ringLayer.shadowRadius = 1.25
-        ringLayer.shadowOffset = .zero
+        switch style {
+        case .overlay:
+            ringLayer.strokeColor = UIColor.white.cgColor
+            ringLayer.lineWidth = 1.5
+            ringLayer.shadowColor = UIColor.black.cgColor
+            ringLayer.shadowOpacity = 0.22
+            ringLayer.shadowRadius = 1.25
+            ringLayer.shadowOffset = .zero
+        case .plain:
+            ringLayer.strokeColor = UIColor.secondaryLabel.cgColor
+            ringLayer.lineWidth = 1.33
+        }
         fillLayer.fillColor = UIColor.systemBlue.cgColor
         checkLayer.fillColor = UIColor.clear.cgColor
         checkLayer.strokeColor = UIColor.white.cgColor
@@ -43,14 +59,15 @@ final class MediaSelectionCheckView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let inset = 2 - 1 / max(traitCollection.displayScale, 1)
-        let ringRect = bounds.insetBy(dx: inset + 0.75, dy: inset + 0.75)
-        let fillRect = bounds.insetBy(dx: inset + 1.5, dy: inset + 1.5)
+        let inset = style == .overlay ? 2 - 1 / max(traitCollection.displayScale, 1) : 0
+        let ringInset = inset + ringLayer.lineWidth / 2
+        // The overlay fills inside its ring; the plain check fills over it.
+        let fillInset = style == .overlay ? inset + ringLayer.lineWidth : 0
         for sublayer in [ringLayer, fillLayer, checkLayer] {
             sublayer.frame = bounds
         }
-        ringLayer.path = UIBezierPath(ovalIn: ringRect).cgPath
-        fillLayer.path = UIBezierPath(ovalIn: fillRect).cgPath
+        ringLayer.path = UIBezierPath(ovalIn: bounds.insetBy(dx: ringInset, dy: ringInset)).cgPath
+        fillLayer.path = UIBezierPath(ovalIn: bounds.insetBy(dx: fillInset, dy: fillInset)).cgPath
         // CheckNode's check, scaled to the size less the inset.
         let scale = (bounds.width - inset) / 18
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
