@@ -183,6 +183,8 @@
 "Conversation.ContextMenuOpenProfile" = "Open Profile";
 "Conversation.ContextMenuSearchMessages" = "Search Messages";
 "Conversation.DeleteMessagesForMe" = "Delete for me";
+"Chat.ConfirmationDeleteFromSavedMessages" = "Delete from Saved Messages";
+"Chat.ConfirmationRemoveFromSavedMessages" = "Remove from Saved Messages";
 "Conversation.DeleteMessagesForEveryone" = "Delete for everyone";
 "Conversation.SavedMessages" = "Saved Messages";
 "Conversation.PinMessagesFor" = "Pin for me and %@";

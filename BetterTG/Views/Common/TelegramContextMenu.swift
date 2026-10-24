@@ -28,9 +28,50 @@ enum TelegramContextMenuLayout {
     static let headerVerticalInset = CGFloat(7)
     static let headerHeight = ceil(UIFont.systemFont(ofSize: headerFontSize).lineHeight) + headerVerticalInset * 2
     static let headerIconSize = CGFloat(20)
+    /// The chevron of a row with a submenu is centred this far from the trailing edge, as in the system menu.
+    static let submenuIndicatorCenterInset = CGFloat(31)
+    /// `navigateDownFromNode:` scales the parent menu to 0.97 behind an open submenu.
+    static let submenuParentScale = CGFloat(0.97)
+    /// The room a row's chevron takes beyond the usual trailing inset.
+    static let submenuIndicatorReserve = CGFloat(26)
 
     static func height(of action: TelegramContextMenuAction) -> CGFloat {
         action.isHeader ? headerHeight : actionHeight
+    }
+
+    /// Telegram's `.twoLinesMax` action text: a title too long for the menu wraps onto a second line and the row
+    /// grows to hold it. Headers and titles that arrive later keep one line.
+    static func height(of action: TelegramContextMenuAction, menuWidth: CGFloat) -> CGFloat {
+        guard wrapsTitle(of: action), menuWidth > 0 else { return height(of: action) }
+        let font = UIFont.systemFont(ofSize: titleFontSize(of: action))
+        let textWidth = max(1, menuWidth - titleLeadingInset(of: action) - titleTrailingInset(of: action))
+        let titleHeight = (action.title as NSString)
+            .boundingRect(
+                with: CGSize(width: textWidth, height: .greatestFiniteMagnitude),
+                options: .usesLineFragmentOrigin,
+                attributes: [.font: font],
+                context: nil,
+            )
+            .height
+        guard titleHeight > font.lineHeight * 1.5 else { return actionHeight }
+        return max(actionHeight, ceil(font.lineHeight * 2) + actionVerticalInset * 2)
+    }
+
+    static func wrapsTitle(of action: TelegramContextMenuAction) -> Bool {
+        !action.isHeader && action.titleUpdates == nil
+    }
+
+    static func titleFontSize(of action: TelegramContextMenuAction) -> CGFloat {
+        if action.isHeader { return headerFontSize }
+        return action.isInformational || action.usesSmallText ? 14 : actionFontSize
+    }
+
+    static func titleLeadingInset(of action: TelegramContextMenuAction) -> CGFloat {
+        action.image == nil ? contentSideInset : iconSideInset + iconSlotWidth + iconSpacing
+    }
+
+    static func titleTrailingInset(of action: TelegramContextMenuAction) -> CGFloat {
+        contentSideInset + (action.children.isEmpty ? 0 : submenuIndicatorReserve)
     }
 }
 
@@ -439,7 +480,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private var reactionTask: Task<Void, Never>?
     private weak var trackingGesture: UIGestureRecognizer?
     private var actions: [TelegramContextMenuAction]
-    private var parentActions = [[TelegramContextMenuAction]]()
+    /// Open submenus, innermost last; each card lies over the one before it, or over the menu.
+    private var submenus = [TelegramContextSubmenuView]()
+    /// The screen's top and bottom limits for the menu, which an open submenu keeps within too.
+    private var menuTopLimit = CGFloat.zero
+    private var menuBottomLimit = CGFloat.zero
     /// Telegram's context sources; with more than one, tabs under the menu switch between their actions.
     private let sources: [TelegramContextMenuSource]
     private var activeSourceIndex = 0
@@ -476,6 +521,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private var originalContentCornerRadius = CGFloat.zero
     private weak var presentationHostView: UIView?
     private var actionButtons = [TelegramContextMenuActionButton]()
+    /// Each action's row height, which grows once the menu's width wraps its title.
+    private var actionHeightConstraints = [NSLayoutConstraint]()
     private var hasAnimatedIn = false
     private var isDismissing = false
     private var isPerformingAction = false
@@ -490,6 +537,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private let panBehavior = ContextMenuNativeAnimation.makePanBehavior()
     private let highlightFrameBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.12)
     private let highlightAlphaBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.3)
+    /// `navigateDownFromNode:` opens on 0.85 / 0.4 s; `navigateUpFromNode:` closes on 1 / 0.4 s and fades the
+    /// submenu's actions on 1 / 0.5 s.
+    private let submenuOpenBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 0.85, response: 0.4)
+    private let submenuCloseBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.4)
+    private let submenuFadeBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.5)
     private weak var escapeCommandOwner: UIViewController?
     private lazy var touchRecognizer = ContextMenuTouchRecognizer(
         target: self,
@@ -538,6 +590,21 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// The menu's frame on screen, wherever the content is scrolled.
     private var menuFrameInView: CGRect {
         menuView.convert(menuView.bounds, to: view)
+    }
+
+    /// The menu and the submenus open over it, on screen.
+    private var menuHitFrame: CGRect {
+        submenus.reduce(menuFrameInView) { $0.union($1.convert($1.bounds, to: view)) }
+    }
+
+    /// The rows a touch can choose: the innermost submenu's, or the menu's.
+    private var activeButtons: [TelegramContextMenuActionButton] {
+        submenus.last?.buttons ?? actionButtons
+    }
+
+    /// Every submenu card, including one still closing.
+    private var submenuViews: [TelegramContextSubmenuView] {
+        contentContainer.subviews.compactMap { $0 as? TelegramContextSubmenuView }
     }
 
     init(
@@ -604,6 +671,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         super.viewDidLayoutSubviews()
         guard !isDismissing else { return }
         layoutPreviewAndMenu()
+    }
+
+    private static func submenuParentTransform(height: CGFloat, anchorsBottom: Bool) -> CGAffineTransform {
+        let scale = TelegramContextMenuLayout.submenuParentScale
+        let shift = height * (1 - scale) / 2 * (anchorsBottom ? 1 : -1)
+        return CGAffineTransform(scaleX: scale, y: scale).concatenating(CGAffineTransform(translationX: 0, y: shift))
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -832,7 +905,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         else { return }
         activeSourceIndex = index
         let source = sources[index]
-        parentActions.removeAll()
+        removeSubmenus()
         actions = source.actions
         sourceTabsView.setSelectedIndex(index, animated: true)
         let showsReactions = reactionsProvider != nil && hasReactions && source.showsReactions
@@ -884,6 +957,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         touchSession?.highlighted = nil
         setHighlight(nil)
         actionButtons.removeAll()
+        actionHeightConstraints.removeAll()
         for child in menuStack.arrangedSubviews {
             menuStack.removeArrangedSubview(child)
             child.removeFromSuperview()
@@ -897,11 +971,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                 guard let self, let button else { return }
                 perform(button)
             }
-            button.heightAnchor
+            let heightConstraint = button.heightAnchor
                 .constraint(equalToConstant: TelegramContextMenuLayout.height(of: action))
-                .isActive = true
+            heightConstraint.isActive = true
             menuStack.addArrangedSubview(button)
             actionButtons.append(button)
+            actionHeightConstraints.append(heightConstraint)
         }
     }
 
@@ -914,12 +989,17 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         let separatorHeight = actions.dropFirst().reduce(CGFloat.zero) {
             $0 + ($1.startsNewSection ? TelegramContextMenuLayout.sectionSeparatorHeight : 0)
         }
-        let menuHeight = TelegramContextMenuLayout.contentVerticalInset * 2
-            + actions.reduce(CGFloat.zero) { $0 + TelegramContextMenuLayout.height(of: $1) }
-            + separatorHeight
         let menuWidth = menuWidth(availableWidth: availableWidth)
+        for (button, constraint) in zip(actionButtons, actionHeightConstraints) {
+            constraint.constant = TelegramContextMenuLayout.height(of: button.menuAction, menuWidth: menuWidth)
+        }
+        let menuHeight = TelegramContextMenuLayout.contentVerticalInset * 2
+            + actions.reduce(CGFloat.zero) { $0 + TelegramContextMenuLayout.height(of: $1, menuWidth: menuWidth) }
+            + separatorHeight
         let bottomInset = max(view.safeAreaInsets.bottom, CGFloat(12))
         let maximumBottom = layoutSourceTabs(bottom: view.bounds.height - bottomInset, availableWidth: availableWidth)
+        menuTopLimit = verticalInset
+        menuBottomLimit = maximumBottom
 
         switch presentationStyle {
         case .message:
@@ -1091,7 +1171,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                     presentationStyle.showsPreview ? sourceFrame : .zero
                 }
         }
-        menuView.frame = targetMenuFrame
+        // Bounds and centre, not frame: an open submenu keeps the menu shrunk.
+        menuView.bounds = CGRect(origin: .zero, size: targetMenuFrame.size)
+        menuView.center = CGPoint(x: targetMenuFrame.midX, y: targetMenuFrame.midY)
+        layoutSubmenus()
         layoutReactionStrip()
         previewView?.frame = previewContainer.bounds
         if presentationStyle == .avatar {
@@ -1133,8 +1216,13 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 
     private func menuWidth(availableWidth: CGFloat) -> CGFloat {
         let font = UIFont.systemFont(ofSize: TelegramContextMenuLayout.actionFontSize)
-        let naturalWidth = actions.reduce(CGFloat.zero) { width, action in
+        // A submenu opens as wide as the menu, so its actions count too.
+        func withSubmenus(_ actions: [TelegramContextMenuAction]) -> [TelegramContextMenuAction] {
+            actions.flatMap { [$0] + withSubmenus($0.children) }
+        }
+        let naturalWidth = withSubmenus(actions).reduce(CGFloat.zero) { width, action in
             let titleWidth = ceil((action.title as NSString).size(withAttributes: [.font: font]).width)
+                + (action.children.isEmpty ? 0 : TelegramContextMenuLayout.submenuIndicatorReserve)
             let contentWidth = titleWidth + TelegramContextMenuLayout.contentSideInset * 2
             guard action.image != nil else { return max(width, contentWidth) }
             return max(
@@ -1238,6 +1326,29 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             to: NSValue(cgPoint: offset),
             isAdditive: true,
         )
+        // Open submenus shrink with the menu into the same point.
+        let menuCenter = menuView.center
+        for submenu in submenuViews {
+            let cardLayer = submenu.layer
+            let cardPresentation = cardLayer.presentation()
+            let cardScale = (cardPresentation?.value(forKeyPath: "transform.scale") as? NSNumber)?.doubleValue ?? 1
+            cardLayer.addTelegramAnimation(
+                keyPath: "opacity",
+                from: cardPresentation?.opacity ?? cardLayer.opacity,
+                to: 0,
+            )
+            cardLayer.addTelegramAnimation(keyPath: "transform.scale", from: cardScale, to: 0.01)
+            let travel = CGPoint(
+                x: offset.x + (menuCenter.x - submenu.center.x) * 0.99,
+                y: offset.y + (menuCenter.y - submenu.center.y) * 0.99,
+            )
+            cardLayer.addTelegramAnimation(
+                keyPath: "position",
+                from: NSValue(cgPoint: .zero),
+                to: NSValue(cgPoint: travel),
+                isAdditive: true,
+            )
+        }
     }
 
     private func menuTransitionOffset(contentTravelY: CGFloat) -> CGPoint {
@@ -1349,6 +1460,9 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         dismissCompletion = completion
         scroller.panGestureRecognizer.isEnabled = false
         if liquidMorph != nil {
+            // The morph carries the menu alone; open submenus fade.
+            let cards = submenuViews
+            UIView.animate(withDuration: 0.15) { cards.forEach { $0.alpha = 0 } }
             if startLiquidMorphOut() {
                 // UIKit reports the close only once every spring settles, about 1.6 s after it starts; the motion
                 // ends at about 0.7 s (Telegram 7c2cfd6a1f). Touches pass through and the action runs then.
@@ -1462,20 +1576,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 
     private func perform(_ button: TelegramContextMenuActionButton) {
         guard !isPerformingAction, button.acceptsSelection else { return }
-        if !button.menuAction.children.isEmpty {
-            parentActions.append(actions)
-            let back = TelegramContextMenuAction(
-                title: L10n.telegram("Common.Back"),
-                image: UIImage(systemName: "chevron.left"),
-            ) { [weak self] in self?.showParentActions() }
-            var children = button.menuAction.children
-            children[0].startsNewSection = true
-            actions = [back] + children
-            showActions()
+        if let submenu = submenus.last, button === submenu.headerButton {
+            closeSubmenu()
             return
         }
-        if !parentActions.isEmpty, button === actionButtons.first {
-            showParentActions()
+        if !button.menuAction.children.isEmpty {
+            openSubmenu(from: button)
             return
         }
         isPerformingAction = true
@@ -1484,19 +1590,165 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         dismissMenu(completion: handler)
     }
 
-    private func showParentActions() {
-        guard let parent = parentActions.popLast() else { return }
-        actions = parent
-        showActions()
+    // MARK: Submenus
+
+    /// `navigateDownFromNode:`: the chosen row's highlight grows into the submenu's card, as wide as the parent,
+    /// while the parent shrinks and dims behind it.
+    private func openSubmenu(from button: TelegramContextMenuActionButton) {
+        guard !isDismissing else { return }
+        touchSession?.highlighted = nil
+        setHighlight(nil)
+        let parentView: UIView = submenus.last ?? menuView
+        let submenu = TelegramContextSubmenuView(action: button.menuAction)
+        submenu.sourceButton = button
+        submenu.setExpandedWidth(parentView.bounds.width)
+        for child in submenu.buttons {
+            child.onActivate = { [weak self, weak child] in
+                guard let self, let child else { return }
+                perform(child)
+            }
+        }
+        let geometry = submenuGeometry(submenu, parentView: parentView)
+        UIView.performWithoutAnimation {
+            submenu.bounds = CGRect(origin: .zero, size: geometry.collapsed.size)
+            submenu.center = CGPoint(x: geometry.collapsed.midX, y: geometry.collapsed.midY)
+            contentContainer.insertSubview(submenu, aboveSubview: parentView)
+            submenu.layoutIfNeeded()
+        }
+        submenus.append(submenu)
+        submenu.isExpanded = true
+        ContextMenuNativeAnimation.animate(
+            behavior: submenuOpenBehavior,
+            tracking: false,
+            fallbackDampingRatio: 0.85,
+            fallbackResponse: 0.4,
+        ) {
+            self.layoutSubmenus()
+            submenu.headerButton.setSubmenuExpanded(true)
+        }
+        updateSubmenuAccessibility(focus: submenu.headerButton)
     }
 
-    private func showActions() {
-        rebuildActions()
-        UIView.animate(withDuration: 0.22, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
-            self.layoutPreviewAndMenu()
-            self.menuView.layoutIfNeeded()
+    /// `navigateUpFromNode:`: the card shrinks back into its row, its actions fading, and the parent returns.
+    private func closeSubmenu() {
+        guard let submenu = submenus.last else { return }
+        touchSession?.highlighted = nil
+        setHighlight(nil)
+        let collapsed = submenuGeometry(submenu, parentView: submenus.dropLast().last ?? menuView).collapsed
+        submenus.removeLast()
+        submenu.isExpanded = false
+        submenu.isUserInteractionEnabled = false
+        submenu.accessibilityElementsHidden = true
+        ContextMenuNativeAnimation.animate(
+            behavior: submenuFadeBehavior,
+            tracking: false,
+            fallbackDampingRatio: 1,
+            fallbackResponse: 0.5,
+        ) { submenu.setActionsAlpha(0) }
+        ContextMenuNativeAnimation.animate(
+            behavior: submenuCloseBehavior,
+            tracking: false,
+            fallbackDampingRatio: 1,
+            fallbackResponse: 0.4,
+        ) {
+            self.layoutSubmenus()
+            submenu.bounds = CGRect(origin: .zero, size: collapsed.size)
+            submenu.center = CGPoint(x: collapsed.midX, y: collapsed.midY)
+            submenu.layoutIfNeeded()
+            submenu.headerButton.setSubmenuExpanded(false)
+        } completion: {
+            _ in submenu.removeFromSuperview()
         }
-        UIAccessibility.post(notification: .layoutChanged, argument: actionButtons.first)
+        updateSubmenuAccessibility(focus: submenu.sourceButton)
+    }
+
+    /// Another source's actions replace the menu, and its submenus go at once.
+    private func removeSubmenus() {
+        guard !submenus.isEmpty else { return }
+        submenus.removeAll()
+        submenuViews.forEach { $0.removeFromSuperview() }
+        layoutSubmenus()
+        updateSubmenuAccessibility(focus: nil)
+    }
+
+    /// Places each open submenu over its parent, which shrinks to 0.97 toward the edge the card grows from while
+    /// its rows dim to half, as `navigateDownFromNode:` leaves them.
+    private func layoutSubmenus() {
+        var parentView: UIView = menuView
+        var parentContent: UIView = menuContentView
+        for submenu in submenus {
+            let geometry = submenuGeometry(submenu, parentView: parentView)
+            submenu.anchorsParentBottom = geometry.anchorsParentBottom
+            parentView.transform = Self.submenuParentTransform(
+                height: parentView.bounds.height,
+                anchorsBottom: geometry.anchorsParentBottom,
+            )
+            parentContent.alpha = 0.5
+            let frame = submenu.isExpanded ? geometry.expanded : geometry.collapsed
+            submenu.bounds = CGRect(origin: .zero, size: frame.size)
+            submenu.center = CGPoint(x: frame.midX, y: frame.midY)
+            submenu.layoutIfNeeded()
+            parentView = submenu
+            parentContent = submenu.contentView
+        }
+        parentView.transform = .identity
+        parentContent.alpha = 1
+    }
+
+    /// The card closed on its source row, inset like the row's highlight, and open as wide as the parent. Open, its
+    /// header sits 2 points above the shrunk row; with no room below, the card ends 12 points above the parent's
+    /// bottom and grows upward over it (iOS 26.5 and 27.2).
+    private func submenuGeometry(
+        _ submenu: TelegramContextSubmenuView,
+        parentView: UIView,
+    ) -> (collapsed: CGRect, expanded: CGRect, anchorsParentBottom: Bool) {
+        // Bounds and centre give the parent's frame before its shrink.
+        let parentFrame = CGRect(
+            x: parentView.center.x - parentView.bounds.width / 2,
+            y: parentView.center.y - parentView.bounds.height / 2,
+            width: parentView.bounds.width,
+            height: parentView.bounds.height,
+        )
+        let row = submenu.sourceButton.map { $0.convert($0.bounds, to: parentView) }
+            ?? CGRect(x: 0, y: 0, width: parentFrame.width, height: TelegramContextMenuLayout.actionHeight)
+        let inset = TelegramContextMenuLayout.highlightInset
+        let collapsed = CGRect(
+            x: parentFrame.minX + row.minX + inset,
+            y: parentFrame.minY + row.minY,
+            width: max(0, row.width - inset * 2),
+            height: row.height,
+        )
+        let lift = TelegramContextMenuLayout.contentVerticalInset + 2
+        let height = submenu.expandedHeight
+        let bottomLimit = menuBottomLimit + contentScrollOffset
+        var originY = parentFrame.minY + row.minY * TelegramContextMenuLayout.submenuParentScale - lift
+        let anchorsParentBottom = originY + height > bottomLimit
+        if anchorsParentBottom {
+            originY = min(bottomLimit, parentFrame.maxY - lift) - height
+        }
+        let expanded = CGRect(
+            x: parentFrame.minX,
+            y: max(menuTopLimit + contentScrollOffset, originY),
+            width: parentFrame.width,
+            height: height,
+        )
+        return (collapsed, expanded, anchorsParentBottom)
+    }
+
+    /// Only the innermost level reads out; the dimmed ones behind it hide from VoiceOver.
+    private func updateSubmenuAccessibility(focus: UIView?) {
+        menuView.accessibilityElementsHidden = !submenus.isEmpty
+        for (index, submenu) in submenus.enumerated() {
+            submenu.accessibilityElementsHidden = index < submenus.count - 1
+        }
+        UIAccessibility.post(notification: .layoutChanged, argument: focus)
+    }
+
+    /// A tap on the dimmed menu behind a submenu closes the submenu.
+    private func tapClosesSubmenu(_ session: ContextMenuTouchSession?, at point: CGPoint) -> Bool {
+        guard let submenu = submenus.last, let session, session.origin == .menu else { return false }
+        let cardFrame = submenu.convert(submenu.bounds, to: view)
+        return !cardFrame.contains(session.start) && !cardFrame.contains(point)
     }
 
     // MARK: Touch tracking
@@ -1536,7 +1788,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private func touchOrigin(at point: CGPoint) -> ContextMenuTouchSession.Origin? {
         if showsSourceTabs, sourceTabsView.frame.contains(point) { return nil }
         if !reactionStrip.isHidden, reactionStrip.convert(reactionStrip.bounds, to: view).contains(point) { return nil }
-        if menuFrameInView.contains(point) { return .menu }
+        if menuHitFrame.contains(point) { return .menu }
         guard previewFrame.contains(point) else { return .outside }
         if presentationStyle == .chatPreview { return nil }
         if selectableTextViews.contains(where: { $0.convert($0.bounds, to: view).contains(point) }) { return nil }
@@ -1548,7 +1800,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         touchPoint = point
         touchSession?.move(to: point, insidePreview: previewFrame.contains(point))
         // The preview keeps its last position while the finger is over the menu.
-        if let anchor = touchSession?.panAnchor, !menuFrameInView.contains(point) {
+        if let anchor = touchSession?.panAnchor, !menuHitFrame.contains(point) {
             let offset = ContextMenuMotion.platterOffset(
                 location: point,
                 anchor: anchor,
@@ -1575,16 +1827,17 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             let index = touchSession?.selectsOnRelease == true ? actionIndex(at: point) : nil
             touchSession?.highlighted = index
             setHighlight(index)
-            let release = touchSession?.release(at: time) ?? .keepOpen
+            let session = touchSession
+            let release = session?.release(at: time) ?? .keepOpen
             finishTracking()
             switch release {
-            case .select(let index) where actionButtons.indices.contains(index):
-                perform(actionButtons[index])
+            case .select(let index) where activeButtons.indices.contains(index):
+                perform(activeButtons[index])
             case .dismiss:
                 dismissMenu(completion: nil)
             case .keepOpen,
                  .select:
-                break
+                if tapClosesSubmenu(session, at: point) { closeSubmenu() }
             }
         case .cancelled,
              .failed:
@@ -1606,8 +1859,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     }
 
     private func actionIndex(at point: CGPoint) -> Int? {
-        guard menuFrameInView.contains(point) else { return nil }
-        return actionButtons.firstIndex { button in
+        guard menuHitFrame.contains(point) else { return nil }
+        return activeButtons.firstIndex { button in
             button.acceptsSelection && button.convert(button.bounds, to: view).contains(point)
         }
     }
@@ -1664,8 +1917,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private func setHighlight(_ index: Int?) {
         guard index != highlightedIndex else { return }
         highlightedIndex = index
-        let highlight = selectionHighlightView
-        guard let index, actionButtons.indices.contains(index) else {
+        let highlight = submenus.last?.highlightView ?? selectionHighlightView
+        let host = submenus.last?.contentView ?? menuContentView
+        let buttons = activeButtons
+        guard let index, buttons.indices.contains(index) else {
             ContextMenuNativeAnimation.animate(
                 behavior: highlightAlphaBehavior,
                 tracking: false,
@@ -1674,9 +1929,9 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             ) { highlight.alpha = 0 }
             return
         }
-        menuView.layoutIfNeeded()
-        let button = actionButtons[index]
-        let rect = button.convert(button.bounds, to: menuContentView)
+        (submenus.last ?? menuView).layoutIfNeeded()
+        let button = buttons[index]
+        let rect = button.convert(button.bounds, to: host)
             .insetBy(dx: TelegramContextMenuLayout.highlightInset, dy: 0)
         let radius = min(
             TelegramContextMenuLayout.menuCornerRadius - TelegramContextMenuLayout.highlightInset,
@@ -1810,6 +2065,131 @@ private final class TelegramContextMenuSectionDivider: UIView {
     }
 }
 
+// MARK: - TelegramContextSubmenuView
+
+/// The system submenu (`_UIContextMenuStackedHierarchyLayout navigateDownFromNode:`, iOS 26.5 and 27.2): a glass
+/// card of its own that grows out of the chosen row's highlight over the dimmed parent. Its header repeats that row
+/// and closes the card; a divider separates it from the submenu's actions.
+private final class TelegramContextSubmenuView: UIView {
+    // MARK: Internal
+
+    let headerButton: TelegramContextMenuActionButton
+    let childButtons: [TelegramContextMenuActionButton]
+    /// Clips the rows to the card while it grows and dims them behind a deeper submenu.
+    let contentView = UIView()
+    let highlightView = UIView()
+    weak var sourceButton: TelegramContextMenuActionButton?
+    /// Whether the parent shrinks toward its bottom edge, when the card has no room below and grows upward over it.
+    var anchorsParentBottom = false
+    var isExpanded = false {
+        didSet { setNeedsLayout() }
+    }
+
+    /// The open card: the header, a divider and the actions, within the menu's vertical insets.
+    private(set) var expandedHeight = CGFloat.zero
+
+    // MARK: Private
+
+    /// The rows where they sit in the open card; while closed they move up and left by the card's insets, so the
+    /// header lies exactly on the source row.
+    private let rowsView = UIView()
+    private let divider = UIView()
+    private let fallbackGlassView = UIVisualEffectView(effect: nil)
+    private var expandedWidth = CGFloat.zero
+
+    var buttons: [TelegramContextMenuActionButton] {
+        [headerButton] + childButtons
+    }
+
+    /// Open, the menu's radius; closed, the radius of the row highlight it grows out of.
+    private var cornerRadius: CGFloat {
+        if isExpanded {
+            TelegramContextMenuLayout.menuCornerRadius
+        } else {
+            min(
+                TelegramContextMenuLayout.menuCornerRadius - TelegramContextMenuLayout.highlightInset,
+                bounds.height / 2,
+            )
+        }
+    }
+
+    init(action: TelegramContextMenuAction) {
+        self.headerButton = TelegramContextMenuActionButton(action: action, role: .submenuHeader)
+        self.childButtons = action.children.map { TelegramContextMenuActionButton(action: $0) }
+        super.init(frame: .zero)
+        layer.cornerCurve = .continuous
+        if !ContextMenuNativeGlass.applyMenuGlass(to: self) {
+            let glass = UIGlassEffect(style: .regular)
+            glass.isInteractive = true
+            fallbackGlassView.effect = glass
+            addSubview(fallbackGlassView)
+        }
+        contentView.clipsToBounds = true
+        contentView.layer.cornerCurve = .continuous
+        addSubview(contentView)
+        highlightView.backgroundColor = .contextMenuSelectionHighlight
+        highlightView.layer.cornerCurve = .continuous
+        highlightView.alpha = 0
+        highlightView.isUserInteractionEnabled = false
+        contentView.addSubview(highlightView)
+        contentView.addSubview(rowsView)
+        divider.backgroundColor = UIColor.separator.withAlphaComponent(0.62)
+        rowsView.addSubview(divider)
+        buttons.forEach(rowsView.addSubview)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let radius = cornerRadius
+        layer.cornerRadius = radius
+        contentView.layer.cornerRadius = radius
+        contentView.frame = bounds
+        fallbackGlassView.frame = bounds
+        fallbackGlassView.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
+        rowsView.frame = CGRect(
+            x: isExpanded ? 0 : -TelegramContextMenuLayout.highlightInset,
+            y: isExpanded ? 0 : -TelegramContextMenuLayout.contentVerticalInset,
+            width: expandedWidth,
+            height: expandedHeight,
+        )
+    }
+
+    /// Lays the rows out for an open card as wide as the parent menu.
+    func setExpandedWidth(_ width: CGFloat) {
+        guard width != expandedWidth else { return }
+        expandedWidth = width
+        var originY = TelegramContextMenuLayout.contentVerticalInset
+        let headerHeight = TelegramContextMenuLayout.height(of: headerButton.menuAction, menuWidth: width)
+        headerButton.frame = CGRect(x: 0, y: originY, width: width, height: headerHeight)
+        originY += headerHeight
+        let lineHeight = 1 / max(1, traitCollection.displayScale)
+        divider.frame = CGRect(
+            x: TelegramContextMenuLayout.contentSideInset,
+            y: originY + (TelegramContextMenuLayout.sectionSeparatorHeight - lineHeight) / 2,
+            width: width - TelegramContextMenuLayout.contentSideInset * 2,
+            height: lineHeight,
+        )
+        originY += TelegramContextMenuLayout.sectionSeparatorHeight
+        for button in childButtons {
+            let height = TelegramContextMenuLayout.height(of: button.menuAction, menuWidth: width)
+            button.frame = CGRect(x: 0, y: originY, width: width, height: height)
+            originY += height
+        }
+        expandedHeight = originY + TelegramContextMenuLayout.contentVerticalInset
+        setNeedsLayout()
+    }
+
+    /// `navigateUpFromNode:` fades the submenu's actions out while the card shrinks back into its row.
+    func setActionsAlpha(_ alpha: CGFloat) {
+        divider.alpha = alpha
+        childButtons.forEach { $0.alpha = alpha }
+    }
+}
+
 // MARK: - TelegramContextMenuSourceTabsView
 
 /// Telegram's TabSelectorComponent as ContextSourceContainer sets it up: medium 14-point titles in 32-point capsules
@@ -1914,6 +2294,13 @@ private final class TelegramContextMenuSourceTabsView: UIView {
 final class TelegramContextMenuActionButton: UIControl {
     // MARK: Internal
 
+    enum Role {
+        case action
+        /// The top row of an open submenu (`_UIContextMenuSubmenuTitleView`): the chosen row again, its title
+        /// semibold and its chevron turned down; choosing it closes the submenu.
+        case submenuHeader
+    }
+
     let menuAction: TelegramContextMenuAction
     var onActivate: (() -> Void)?
     /// Whether a touch may highlight and choose the row: never for informational rows, and for a header only while
@@ -1923,11 +2310,15 @@ final class TelegramContextMenuActionButton: UIControl {
     // MARK: Private
 
     private let titleLabel = UILabel()
+    /// The submenu header's semibold title, which the system cross-fades with the regular one.
+    private let expandedTitleLabel = UILabel()
     private let iconView = UIImageView()
+    /// The system's chevron after a row that opens a submenu.
+    private let submenuIndicator = UIImageView()
     private var titleCancellable: AnyCancellable?
     private var selectableCancellable: AnyCancellable?
 
-    init(action: TelegramContextMenuAction) {
+    init(action: TelegramContextMenuAction, role: Role = .action) {
         self.menuAction = action
         self.acceptsSelection = !action.isInformational && !action.isHeader
         super.init(frame: .zero)
@@ -1935,11 +2326,8 @@ final class TelegramContextMenuActionButton: UIControl {
         let color: UIColor = action.isDestructive ? .systemRed : .label
         titleLabel.text = action.title
         titleLabel.textColor = color
-        titleLabel.font = .systemFont(
-            ofSize: action.isHeader
-                ? TelegramContextMenuLayout.headerFontSize
-                : action.isInformational || action.usesSmallText ? 14 : TelegramContextMenuLayout.actionFontSize,
-        )
+        titleLabel.font = .systemFont(ofSize: TelegramContextMenuLayout.titleFontSize(of: action))
+        titleLabel.numberOfLines = TelegramContextMenuLayout.wrapsTitle(of: action) ? 2 : 1
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
 
@@ -1948,13 +2336,46 @@ final class TelegramContextMenuActionButton: UIControl {
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
-        var constraints = [
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleLabel.trailingAnchor.constraint(
+        var constraints = [titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)]
+        if action.children.isEmpty {
+            constraints.append(titleLabel.trailingAnchor.constraint(
                 lessThanOrEqualTo: trailingAnchor,
                 constant: -TelegramContextMenuLayout.contentSideInset,
-            ),
-        ]
+            ))
+        } else {
+            submenuIndicator.image = UIImage(
+                systemName: "chevron.forward",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold),
+            )
+            submenuIndicator.tintColor = .label
+            submenuIndicator.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(submenuIndicator)
+            constraints.append(contentsOf: [
+                submenuIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+                submenuIndicator.centerXAnchor.constraint(
+                    equalTo: trailingAnchor,
+                    constant: -TelegramContextMenuLayout.submenuIndicatorCenterInset,
+                ),
+                titleLabel.trailingAnchor.constraint(
+                    lessThanOrEqualTo: submenuIndicator.leadingAnchor,
+                    constant: -TelegramContextMenuLayout.iconSpacing,
+                ),
+            ])
+        }
+        if role == .submenuHeader {
+            expandedTitleLabel.text = action.title
+            expandedTitleLabel.textColor = color
+            expandedTitleLabel.font = .systemFont(ofSize: TelegramContextMenuLayout.actionFontSize, weight: .semibold)
+            expandedTitleLabel.numberOfLines = titleLabel.numberOfLines
+            expandedTitleLabel.alpha = 0
+            expandedTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(expandedTitleLabel)
+            constraints.append(contentsOf: [
+                expandedTitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+                expandedTitleLabel.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+                expandedTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: submenuIndicator.leadingAnchor),
+            ])
+        }
         if action.image != nil {
             addSubview(iconView)
             let iconSize = action.isHeader
@@ -2013,6 +2434,14 @@ final class TelegramContextMenuActionButton: UIControl {
     override func accessibilityActivate() -> Bool {
         onActivate?()
         return onActivate != nil
+    }
+
+    /// The header of a submenu as it opens or closes: the title turns semibold and the chevron turns to point down.
+    func setSubmenuExpanded(_ expanded: Bool) {
+        titleLabel.alpha = expanded ? 0 : 1
+        expandedTitleLabel.alpha = expanded ? 1 : 0
+        let angle = CGFloat.pi / 2 * (effectiveUserInterfaceLayoutDirection == .rightToLeft ? -1 : 1)
+        submenuIndicator.transform = expanded ? CGAffineTransform(rotationAngle: angle) : .identity
     }
 }
 

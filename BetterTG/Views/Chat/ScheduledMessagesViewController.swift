@@ -193,7 +193,6 @@ final class ScheduledMessagesViewController: SettingsListViewController {
             isDestructive: true,
             children: [TelegramContextMenuAction(
                 title: L10n.telegram("ScheduledMessages.Delete"),
-                image: UIImage(systemName: "trash"),
                 isDestructive: true,
             ) { [weak self] in self?.delete(message) }],
         ))

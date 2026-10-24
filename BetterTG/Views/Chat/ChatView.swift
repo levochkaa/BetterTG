@@ -8423,21 +8423,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             })
         }
 
-        var deleteActions = [TelegramContextMenuAction]()
-        if message.properties.canBeDeletedOnlyForSelf {
-            deleteActions.append(TelegramContextMenuAction(
-                title: L10n.telegram("Conversation.DeleteMessagesForMe"),
-                image: UIImage(systemName: "trash"),
-                isDestructive: true,
-            ) { [weak self] in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: false) })
-        }
-        if message.properties.canBeDeletedForAllUsers {
-            deleteActions.append(TelegramContextMenuAction(
-                title: L10n.telegram("Conversation.DeleteMessagesForEveryone"),
-                image: UIImage(systemName: "trash.fill"),
-                isDestructive: true,
-            ) { [weak self] in self?.chatVM.deleteMessage(id: message.id, deleteForBoth: true) })
-        }
+        let deleteActions = deleteOptionActions(for: message)
         if let request = adminDeleteRequest(for: message) {
             // ChatControllerAdminBanUsers: an admin deleting another member's message gets AdminUserActionsSheet.
             elements.append(TelegramContextMenuAction(
@@ -8467,6 +8453,43 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             elements.insert(readDateAction, at: 0)
         }
         return elements
+    }
+
+    /// presentDeleteMessageOptions: the submenu of Delete, with no icons, offers deleting for everyone first (for the
+    /// other person by name in a private chat), then deleting only here, worded for Saved Messages there.
+    private func deleteOptionActions(for message: CustomMessage) -> [TelegramContextMenuAction] {
+        var actions = [TelegramContextMenuAction]()
+        if message.properties.canBeDeletedForAllUsers {
+            let title =
+                switch chatVM.customChat.type {
+                case .bot(let user),
+                     .user(let user):
+                    L10n.telegram("Conversation.DeleteMessagesFor", user.compactDisplayTitle)
+                case .group,
+                     .supergroup:
+                    L10n.telegram("Conversation.DeleteMessagesForEveryone")
+                }
+            actions.append(TelegramContextMenuAction(title: title, isDestructive: true) { [weak self] in
+                self?.chatVM.deleteMessage(id: message.id, deleteForBoth: true)
+            })
+        }
+        if message.properties.canBeDeletedOnlyForSelf {
+            let title =
+                if chatVM.customChat.isSavedMessages {
+                    // Message.effectivelyIncoming: a message forwarded into Saved Messages counts as incoming.
+                    L10n.telegram(
+                        message.message.forwardInfo == nil
+                            ? "Chat.ConfirmationDeleteFromSavedMessages"
+                            : "Chat.ConfirmationRemoveFromSavedMessages",
+                    )
+                } else {
+                    L10n.telegram("Conversation.DeleteMessagesForMe")
+                }
+            actions.append(TelegramContextMenuAction(title: title, isDestructive: true) { [weak self] in
+                self?.chatVM.deleteMessage(id: message.id, deleteForBoth: false)
+            })
+        }
+        return actions
     }
 
     /// ChatReadReportContextItem in a private chat: a compact line at the top of the menu with when the other person

@@ -156,6 +156,7 @@ import UIKit
         fallbackDampingRatio: CGFloat,
         fallbackResponse: CGFloat,
         _ animations: @escaping () -> Void,
+        completion: ((Bool) -> Void)? = nil,
     ) {
         guard let behavior, let animator else {
             UIView.animate(
@@ -163,6 +164,7 @@ import UIKit
                 bounce: max(0, 1 - fallbackDampingRatio),
                 options: [.allowUserInteraction, .beginFromCurrentState],
                 animations: animations,
+                completion: completion,
             )
             return
         }
@@ -172,7 +174,7 @@ import UIKit
                 updateReason: 0x100026,
                 animations: animations,
             )
-        }, completion: nil)
+        }, completion: completion)
     }
 }
 
