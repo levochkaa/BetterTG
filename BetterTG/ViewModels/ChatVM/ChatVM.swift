@@ -789,6 +789,12 @@ import UIKit
         )
     }
 
+    /// ChatTitleView's mute icon: the chat's own mute, not its scope's.
+    var isExplicitlyMuted: Bool {
+        let settings = chatNotificationSettings ?? customChat.chat.notificationSettings
+        return !settings.useDefaultMuteFor && settings.muteFor > 0
+    }
+
     /// RootVM.isMuted for the chat's latest settings: its own mute, else its scope's.
     var isNotificationMuted: Bool {
         let settings = chatNotificationSettings ?? customChat.chat.notificationSettings

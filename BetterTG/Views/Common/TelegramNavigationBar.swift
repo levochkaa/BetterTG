@@ -312,6 +312,11 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         case chosen(String)
     }
 
+    struct TitleIcons: Equatable {
+        var lock = false
+        var mute = false
+    }
+
     static let contentHeight: CGFloat = 44
 
     var onBack: (() -> Void)?
@@ -323,6 +328,19 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     var onProfile: (() -> Void)?
     /// Shown instead of the avatar by `setShowsMoreButton(true)`; receives the button as the menu source.
     var onMore: ((UIView) -> Void)?
+
+    /// ChatTitleView's titleLeftIcon (a secret chat's lock) and titleRightIcon (a muted chat's speaker).
+    var titleIcons = TitleIcons() {
+        didSet {
+            guard titleIcons != oldValue, selectionCount == nil else { return }
+            applyTitle(
+                title: configuredTitle,
+                status: configuredStatus,
+                statusColor: configuredStatusColor,
+                activity: configuredActivity,
+            )
+        }
+    }
 
     /// ChatTitleView's credibility icon after the title; selection titles go without it.
     var titleBadge: PeerCredibilityBadge? {
@@ -382,6 +400,43 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// The title with the lock 6 pt before it, the credibility badge after it and the speaker 3 pt after both.
+    private static func decoratedTitle(
+        _ title: String,
+        badge: PeerCredibilityBadge?,
+        icons: TitleIcons,
+        font: UIFont,
+        color: UIColor,
+    ) -> NSAttributedString {
+        func icon(_ name: String, pointSize: CGFloat, tint: UIColor) -> NSAttributedString {
+            let configuration = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
+            guard let image = UIImage(systemName: name, withConfiguration: configuration)?
+                .withTintColor(tint, renderingMode: .alwaysOriginal) else { return NSAttributedString() }
+            let attachment = NSTextAttachment(image: image)
+            attachment.bounds = CGRect(
+                x: 0,
+                y: (font.capHeight - image.size.height) / 2,
+                width: image.size.width,
+                height: image.size.height,
+            )
+            return NSAttributedString(attachment: attachment)
+        }
+        func gap(_ width: CGFloat) -> NSAttributedString {
+            NSAttributedString(string: "\u{200A}", attributes: [.font: font, .kern: width])
+        }
+        let result = NSMutableAttributedString()
+        if icons.lock {
+            result.append(icon("lock.fill", pointSize: font.pointSize * 0.62, tint: color))
+            result.append(gap(4))
+        }
+        result.append(PeerCredibilityBadge.title(title, badge: badge, font: font, color: color))
+        if icons.mute {
+            result.append(gap(2))
+            result.append(icon("speaker.slash.fill", pointSize: font.pointSize * 0.55, tint: .secondaryLabel))
+        }
+        return result
     }
 
     func useSharedBackground() {
@@ -551,10 +606,11 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         statusColor: UIColor,
         activity: ChatActivityIndicatorView.Kind? = nil,
     ) {
-        if let titleBadge, selectionCount == nil {
-            titleLabel.attributedText = PeerCredibilityBadge.title(
+        if selectionCount == nil, titleBadge != nil || titleIcons != TitleIcons() {
+            titleLabel.attributedText = Self.decoratedTitle(
                 title,
                 badge: titleBadge,
+                icons: titleIcons,
                 font: titleLabel.font,
                 color: titleLabel.textColor ?? .label,
             )

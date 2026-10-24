@@ -67,6 +67,7 @@ import UIKit
             ChatUnreadDividerProbe.runIfRequested()
             MessageTextBlocksProbe.runIfRequested()
             ChatListRowIconsProbe.runIfRequested()
+            ChatTitleIconsProbe.runIfRequested()
             TDLibVODRangeSource.runDebugProbeIfRequested()
             TDLibVODFFmpegLookahead.runDebugProbeIfRequested()
             TDLibVODFFmpegDecoder.runDebugProbeIfRequested()

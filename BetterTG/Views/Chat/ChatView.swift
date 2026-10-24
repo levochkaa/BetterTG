@@ -3934,6 +3934,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 DispatchQueue.main.async { self?.updateChatHeader() }
             }
             .store(in: &cancellables)
+        chatVM.$chatNotificationSettings
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.updateChatHeader() } }
+            .store(in: &cancellables)
         chatVM.customChat
             .$unreadCount
             .dropFirst()
@@ -3962,9 +3967,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let chat = chatVM.customChat.chat
         let (title, status, activity) = headerContent
         // The chat's own title carries its credibility icon; topics and threads have their own titles.
-        customNavigationBar.titleBadge = location.isTopicScoped || location.messageThreadID != nil
-            ? nil
-            : PeerCredibilityBadge(chat: chatVM.customChat)
+        let ownTitle = !location.isTopicScoped && location.messageThreadID == nil
+        let badge = ownTitle ? PeerCredibilityBadge(chat: chatVM.customChat) : nil
+        customNavigationBar.titleBadge = badge
+        // ChatTitleView leaves the speaker off a verified title.
+        customNavigationBar.titleIcons = .init(
+            lock: ownTitle && chatVM.customChat.secretChatID != nil,
+            mute: ownTitle && chatVM.isExplicitlyMuted && badge != .verified,
+        )
         let statusColor: UIColor = chatVM.headerStatusIsActive ? .systemBlue : .secondaryLabel
         customNavigationBar.configure(
             title: title,
