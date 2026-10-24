@@ -1339,6 +1339,7 @@ ClientRestorableNavigationEntry {
             forCellWithReuseIdentifier: SharedMediaGridCell.reuseIdentifier,
         )
         collectionView.register(SharedMediaRowCell.self, forCellWithReuseIdentifier: SharedMediaRowCell.reuseIdentifier)
+        collectionView.register(SharedLinkRowCell.self, forCellWithReuseIdentifier: SharedLinkRowCell.reuseIdentifier)
         collectionView.register(
             SharedMediaPendingCell.self,
             forCellWithReuseIdentifier: SharedMediaPendingCell.reuseIdentifier,
@@ -1475,6 +1476,16 @@ ClientRestorableNavigationEntry {
                     permit: mediaRevealSession?.permit(for: message),
                 )
                 return cell ?? UICollectionViewCell()
+            }
+            if currentSharedTab == .links,
+               let snippet = SharedLinkSnippet(message: message, includesDescription: true),
+               let cell = collectionView.dequeueReusableCell(
+                   withReuseIdentifier: SharedLinkRowCell.reuseIdentifier,
+                   for: indexPath,
+               ) as? SharedLinkRowCell
+            {
+                cell.configure(message: message, snippet: snippet, author: nil, client: client)
+                return cell
             }
             let cell = collectionView.dequeueReusableCell(
                 withReuseIdentifier: SharedMediaRowCell.reuseIdentifier,
@@ -3882,6 +3893,6 @@ private enum ProfileDateFormatting {
     static let style = Date.FormatStyle(date: .abbreviated, time: .omitted)
 }
 
-private func profileDateString(_ timestamp: Int) -> String {
+func profileDateString(_ timestamp: Int) -> String {
     Date(timeIntervalSince1970: TimeInterval(timestamp)).formatted(ProfileDateFormatting.style)
 }

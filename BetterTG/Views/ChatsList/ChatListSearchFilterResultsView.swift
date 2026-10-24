@@ -110,6 +110,7 @@ enum ChatListSearchFilter: Int, CaseIterable {
             forCellWithReuseIdentifier: ChatListSearchMediaCell.reuseIdentifier,
         )
         collectionView.register(SharedMediaRowCell.self, forCellWithReuseIdentifier: SharedMediaRowCell.reuseIdentifier)
+        collectionView.register(SharedLinkRowCell.self, forCellWithReuseIdentifier: SharedLinkRowCell.reuseIdentifier)
         addSubview(collectionView)
         spinner.translatesAutoresizingMaskIntoConstraints = false
         spinner.hidesWhenStopped = true
@@ -198,6 +199,16 @@ enum ChatListSearchFilter: Int, CaseIterable {
                 for: indexPath,
             )
             if let client { (cell as? ChatListSearchMediaCell)?.configure(message: message, client: client) }
+            return cell
+        }
+        // A global search result goes without the description (ListMessageSnippetItem's isGlobalSearchResult).
+        if filter == .links, let client, let snippet = SharedLinkSnippet(message: message, includesDescription: false),
+           let cell = collectionView.dequeueReusableCell(
+               withReuseIdentifier: SharedLinkRowCell.reuseIdentifier,
+               for: indexPath,
+           ) as? SharedLinkRowCell
+        {
+            cell.configure(message: message, snippet: snippet, author: nil, client: client)
             return cell
         }
         let cell = collectionView.dequeueReusableCell(
