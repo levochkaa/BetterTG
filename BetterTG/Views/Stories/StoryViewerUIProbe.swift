@@ -18,7 +18,10 @@
     /// - `reply [edit|like-options|send]` checks the reply panel under Bob's story and likes it and takes the like
     ///   back, then edits the empty field with the reactions over it (edit, by default), holds the like button for
     ///   the other reactions (like-options), or sends a reply (send);
-    /// - `own [footer|menu|delete]` opens the account's own stories instead, before Alice's: the footer with three
+    /// - `own [footer|menu|delete|viewers|viewers-full]` opens the account's own stories instead, before Alice's: the
+    ///   viewers list at half the screen from the footer's counts, with Alice's heart, Bob's view and Carol's
+    ///   commented repost, then a tap on Bob (viewers), or the list fully open and closed again (viewers-full); the
+    ///   footer with three
     ///   views from Alice, Bob and Carol, two reactions and a repost (footer, by default), the own More menu (menu),
     ///   or Delete's sheet, then the deletion, after which the second story, without views, shows (delete).
     /// The viewer reads only the seeded stories and chats and nothing reaches TDLib: a menu choice, the chat picked
@@ -138,6 +141,7 @@
                           menuPoster: isOwn ? ownMenuPoster : menuPoster,
                           replyPoster: .user(isBot: false, isService: false, isSelf: isOwn),
                           accountUserID: isOwn ? me : nil,
+                          interactions: isOwn ? ownInteractions() : [:],
                           onMenuItem: { record("Story viewer UI probe menu chose \($0)") },
                           client: TDLib.shared.activeClient,
                           from: presenter,
@@ -261,7 +265,7 @@
                 return ["edit", "like-options", "send"].contains(step) ? .reply(step: step) : nil
             case "own":
                 let step = value ?? "footer"
-                return ["footer", "menu", "delete"].contains(step) ? .own(step: step) : nil
+                return ["footer", "menu", "delete", "viewers", "viewers-full"].contains(step) ? .own(step: step) : nil
             default:
                 return nil
             }
@@ -431,6 +435,40 @@
                 stepPasses = viewer.probeShowsMoreMenu
                     && identifiers == ["save-to-profile", "save", "copy-link", "share"]
                 stepText = "shown=\(viewer.probeShowsMoreMenu) items=\(identifiers.joined(separator: ","))"
+            case "viewers",
+                 "viewers-full":
+                viewer.probeOpenViewList()
+                try? await Task.sleep(for: .milliseconds(1200))
+                let half = viewer.probeViewList
+                let screen = viewer.view.bounds.height
+                let rows = half.rows.map { $0.components(separatedBy: "|") }
+                stepPasses = half.display == .half && half.isPaused
+                    && abs(half.frame.minY - (screen - StoryViewListLayout.halfHeight(screenHeight: screen))) < 1
+                    && half.storyScale < 0.6 && half.footerExpand > 0.99
+                    && half.title == L10n.telegramPlural("Story.ViewList.ViewerCount", count: 3)
+                    && rows.map(\.first) == ["Alice", "Bob", "Carol"]
+                    && rows.map(\.last) == ["❤", "view", "repost"]
+                    && rows.last?[1].hasSuffix(L10n.telegram("Story.Views.Commented")) == true
+                stepText = "half=\(Int(half.frame.minY)) scale=\(String(format: "%.2f", half.storyScale)) "
+                    + "expand=\(String(format: "%.2f", half.footerExpand)) title=\(half.title ?? "nil") "
+                    + "rows=\(half.rows.joined(separator: ";"))"
+                if step == "viewers" {
+                    viewer.probeSelectViewListRow(1)
+                    try? await Task.sleep(for: .milliseconds(300))
+                } else {
+                    viewer.probeSetViewListDisplay(.full)
+                    try? await Task.sleep(for: .milliseconds(900))
+                    let full = viewer.probeViewList
+                    viewer.probeSetViewListDisplay(.hidden)
+                    try? await Task.sleep(for: .milliseconds(900))
+                    let hidden = viewer.probeViewList
+                    stepPasses = stepPasses && full.display == .full && abs(full.frame.minY - 60) < 1
+                        && full.footerAlpha < 0.05
+                        && hidden.display == .hidden && !hidden.isPaused && abs(hidden.storyScale - 1) < 0.001
+                        && hidden.footerExpand < 0.001 && hidden.footerAlpha > 0.99
+                    stepText += " full=\(Int(full.frame.minY)) footer-alpha=\(String(format: "%.2f", full.footerAlpha)) "
+                        + "closed-scale=\(String(format: "%.2f", hidden.storyScale)) paused=\(hidden.isPaused)"
+                }
             case "delete":
                 viewer.probePressDelete()
                 try? await Task.sleep(for: .milliseconds(1200))
@@ -448,6 +486,41 @@
             }
             let passes = shows && stepPasses
             record("Story viewer UI probe own \(step) \(passes ? "passed" : "failed"): \(footerText) \(stepText)")
+        }
+
+        /// Who saw the account's first story: Alice with a heart, then Bob, then Carol's repost with a caption.
+        private static func ownInteractions() -> [Int: [StoryInteraction]] {
+            let now = Int(Foundation.Date().timeIntervalSince1970)
+            let repost = makeStory(
+                id: 302,
+                chatID: carol,
+                date: now - 120,
+                file: photoFile(id: fileIDBase + 900, path: "", uniqueID: "repost"),
+                areas: [],
+                caption: "Look at this",
+            )
+            return [ownStoryIDs[0]: [
+                StoryInteraction(
+                    actorId: .messageSenderUser(MessageSenderUser(userId: alice)),
+                    interactionDate: now - 30,
+                    blockList: nil,
+                    type: .storyInteractionTypeView(TDNativeStoryInteractionTypeView(
+                        chosenReactionType: .reactionTypeEmoji(ReactionTypeEmoji(emoji: "❤")),
+                    )),
+                ),
+                StoryInteraction(
+                    actorId: .messageSenderUser(MessageSenderUser(userId: bob)),
+                    interactionDate: now - 60,
+                    blockList: nil,
+                    type: .storyInteractionTypeView(TDNativeStoryInteractionTypeView(chosenReactionType: nil)),
+                ),
+                StoryInteraction(
+                    actorId: .messageSenderUser(MessageSenderUser(userId: carol)),
+                    interactionDate: now - 120,
+                    blockList: nil,
+                    type: .storyInteractionTypeRepost(TDNativeStoryInteractionTypeRepost(story: repost)),
+                ),
+            ]]
         }
 
         private static func title(of chatID: Int64) -> String {

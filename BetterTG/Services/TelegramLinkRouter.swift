@@ -155,6 +155,22 @@ import UIKit
         }
     #endif
 
+    /// A story viewer's row (StoryItemSetContainerComponent's openPeer, navigateToPeer without the chat): the user's
+    /// or chat's profile on the active client, once the story viewer over it closes.
+    func openProfile(_ sender: MessageSender, from presenter: UIViewController?) {
+        guard TDLib.shared.isActiveAccountReady else { return }
+        resolveTask?.cancel()
+        let authority = ChatListActionAuthority()
+        resolveTask = Task { [weak self, weak presenter] in
+            switch sender {
+            case .messageSenderUser(let user):
+                await self?.openUser(user.userId, authority: authority, presenter: presenter, profile: true)
+            case .messageSenderChat(let chat):
+                await self?.openChat(chat.chatId, authority: authority, presenter: presenter, profile: true)
+            }
+        }
+    }
+
     /// A story's message area (StoryItemSetContainerViewSendMessage's openResolved .channelMessage): the message's
     /// chat on the active client, at the message, once the story viewer over it closes.
     func openMessage(chatID: Int64, messageID: Int64, from presenter: UIViewController?) {

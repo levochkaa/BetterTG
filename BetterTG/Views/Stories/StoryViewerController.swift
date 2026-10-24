@@ -28,6 +28,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private enum PanAxis {
         case dismissal
         case poster
+        /// The viewers list follows the finger over the account's own story.
+        case viewList
     }
 
     /// What the reactions above the reply panel do.
@@ -91,6 +93,19 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private let replyDimView = UIView()
     private let replyReactions = TelegramReactionStripView()
     private let footerPanel = StoryFooterPanelView()
+    /// StoryItemSetContainerComponent's viewListDisplayState for the account's own story.
+    private var viewListDisplay = StoryViewListLayout.Display.hidden
+    private var viewListPanel: StoryViewListPanel?
+    private var viewListStoryKey: StoryViewerSession.StoryKey?
+    /// The list's height while a finger moves it; nil at rest.
+    private var viewListDragHeight: CGFloat?
+    private var viewListDragStartHeight = CGFloat.zero
+    private var viewListDragFromList = false
+    private weak var viewListPan: UIPanGestureRecognizer?
+    /// The footer fades as the fully open list pushes the story up.
+    private var viewListFooterAlpha = CGFloat(1)
+    /// Whether the list last set the story's corners.
+    private var viewListShapesStory = false
 
     private lazy var tapGesture = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
     private lazy var holdGesture = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
@@ -169,6 +184,13 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         }
         guard !replyPanel.isHidden else { return 8 }
         return max(8, Self.panelBottomInset(insets) - insets.bottom + StoryReplyPanelView.height + 8)
+    }
+
+    // MARK: Viewers list
+
+    /// Only the account's own story has viewers to list; its footer shows then.
+    private var showsViewList: Bool {
+        !footerPanel.isHidden && shownStory != nil && !isClosing
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -287,6 +309,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         if size.height > availableHeight {
             size = CGSize(width: (availableHeight * 9 / 16).rounded(), height: availableHeight)
         }
+        // The viewers list's shrink is a transform over the story's resting frame.
+        contentView.transform = .identity
         contentView.frame = CGRect(
             x: ((bounds.width - size.width) / 2).rounded(),
             y: insets.top,
@@ -304,6 +328,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             height: StoryFooterPanelView.height,
         )
         layoutCube()
+        layoutViewList()
     }
 
     // MARK: Presentation
@@ -388,8 +413,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         insets.bottom > 0 ? insets.bottom + 1 : 0
     }
 
-    func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        guard !(touch.view is UIControl), !isClosing else { return false }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard !isClosing else { return false }
+        if gestureRecognizer === viewListPan { return true }
+        guard !(touch.view is UIControl) else { return false }
         // The reply panel, the reactions above it, the dimmed story under the keyboard and the footer keep their
         // touches.
         guard let touched = touch.view else { return true }
@@ -397,7 +424,14 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === viewListPan { return viewListPanShouldBegin() }
+        // While the viewers list is open the story only takes the tap that closes it and the drag that moves it.
+        if viewListDisplay != .hidden, gestureRecognizer === holdGesture { return false }
         guard gestureRecognizer === panGesture else { return true }
+        let isVertical = abs(panGesture.velocity(in: view).y) > abs(panGesture.velocity(in: view).x)
+        if viewListDisplay != .hidden { return isVertical }
+        // Telegram's swipe up on the account's own story opens its viewers.
+        if isVertical, panGesture.velocity(in: view).y < 0 { return showsViewList }
         if captionView.isScrollEnabled, captionView.bounds.contains(panGesture.location(in: captionView)) {
             return false
         }
@@ -411,8 +445,14 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer,
     ) -> Bool {
+        // The list's drag shares the touch with its scrolling, which it takes over at the top.
+        if gestureRecognizer === viewListPan,
+           otherGestureRecognizer === viewListPanel?.scrollView.panGestureRecognizer
+        {
+            return true
+        }
         // Holding a story and then dragging it down closes it, as in Telegram.
-        Set([ObjectIdentifier(gestureRecognizer), ObjectIdentifier(otherGestureRecognizer)])
+        return Set([ObjectIdentifier(gestureRecognizer), ObjectIdentifier(otherGestureRecognizer)])
             == Set([ObjectIdentifier(holdGesture), ObjectIdentifier(panGesture)])
     }
 
@@ -668,6 +708,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
     private func resetMedia() {
         mediaGeneration = UUID()
+        hideViewListImmediately()
         mediaTask?.cancel()
         mediaTask = nil
         areaTooltip?.dismiss()
@@ -1068,7 +1109,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         topShade.alpha = alpha
         bottomShade.alpha = alpha
         replyPanel.alpha = alpha
-        footerPanel.alpha = alpha
+        footerPanel.alpha = alpha * viewListFooterAlpha
     }
 
     private func setCaptionExpanded(_ expanded: Bool) {
@@ -1087,6 +1128,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
     @objc private func tapped(_ gesture: UITapGestureRecognizer) {
         guard !isClosing else { return }
+        if viewListDisplay != .hidden {
+            setViewListDisplay(.hidden)
+            return
+        }
         if isCaptionExpanded {
             setCaptionExpanded(false)
             return
@@ -1138,6 +1183,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         let velocity = gesture.velocity(in: view)
         switch gesture.state {
         case .began:
+            if viewListDisplay != .hidden || velocity.y < 0, abs(velocity.y) > abs(velocity.x) {
+                panAxis = .viewList
+                areaTooltip?.dismiss()
+                beginViewListDrag(fromList: false)
+                return
+            }
             panAxis = abs(velocity.y) > abs(velocity.x) ? .dismissal : .poster
             areaTooltip?.dismiss()
             if panAxis == .poster { beginPosterPan() }
@@ -1146,6 +1197,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             switch panAxis {
             case .dismissal: updateDismissalDrag(translation.y)
             case .poster: updatePosterPan(translation.x)
+            case .viewList: updateViewListDrag(translation.y)
             case nil: break
             }
         case .cancelled,
@@ -1163,6 +1215,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
                 }
             case .poster:
                 finishPosterPan(velocity: velocity.x)
+            case .viewList:
+                finishViewListDrag(translation: translation.y, velocity: velocity.y)
             case nil:
                 setPaused(false, for: .drag)
             }
@@ -1605,11 +1659,229 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         )
     }
 
+    /// expandViewStats and the drags' outcomes: the list opens at half the screen or fully, or closes, on Telegram's
+    /// 0.4 s spring, and the story waits while it shows.
+    private func setViewListDisplay(_ display: StoryViewListLayout.Display, animated: Bool = true) {
+        guard display == .hidden || showsViewList else { return }
+        if display != .hidden { prepareViewListPanel() }
+        viewListDisplay = display
+        viewListDragHeight = nil
+        setPaused(display != .hidden, for: .viewList)
+        viewListPanel?.isScrollEnabled = display == .full
+        if display != .full { viewListPanel?.endSearch() }
+        areaTooltip?.dismiss()
+        guard animated else {
+            view.setNeedsLayout()
+            view.layoutIfNeeded()
+            return
+        }
+        UIView.animate(
+            withDuration: 0.4,
+            delay: 0,
+            usingSpringWithDamping: 0.9,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+        ) {
+            self.layoutViewList()
+        }
+        if display == .hidden { UIAccessibility.post(notification: .layoutChanged, argument: footerPanel) }
+    }
+
+    /// The story that leaves takes its list along at once.
+    private func hideViewListImmediately() {
+        guard viewListDisplay != .hidden || viewListDragHeight != nil else { return }
+        viewListDisplay = .hidden
+        viewListDragHeight = nil
+        viewListPanel?.endSearch()
+        setPaused(false, for: .viewList)
+        layoutViewList()
+    }
+
+    /// The panel for the shown story, made the first time it opens and loading again for another story.
+    private func prepareViewListPanel() {
+        guard let story = shownStory, let key = shownKey else { return }
+        let panel: StoryViewListPanel
+        if let current = viewListPanel {
+            panel = current
+        } else {
+            panel = StoryViewListPanel()
+            panel.onSelect = { [weak self] item in self?.openViewer(item) }
+            panel.onSearchActiveChanged = { [weak self] isActive in
+                if isActive { self?.setViewListDisplay(.full) }
+            }
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(viewListPanned(_:)))
+            pan.delegate = self
+            panel.addGestureRecognizer(pan)
+            viewListPan = pan
+            view.addSubview(panel)
+            viewListPanel = panel
+            UIView.performWithoutAnimation { layoutViewList() }
+        }
+        guard viewListStoryKey != key else { return }
+        viewListStoryKey = key
+        let session = session
+        panel.configure(StoryViewListPanel.Source(
+            story: story,
+            client: session.client,
+            accountID: TDLib.shared.activeAccountID,
+            fetch: { query, offset in
+                await session.storyInteractions(storyID: key.storyID, query: query, offset: offset)
+            },
+            resolvePeer: { [weak self] sender in await self?.viewListPeer(sender) },
+        ))
+    }
+
+    /// A viewer's name and avatar from TDLib; the UI probe's come from its seeded chats.
+    private func viewListPeer(_ sender: MessageSender) async -> SettingsPeer? {
+        let id: Int64 =
+            switch sender {
+            case .messageSenderUser(let user): user.userId
+            case .messageSenderChat(let chat): chat.chatId
+            }
+        if let peer = viewerPeers[id] { return peer }
+        #if DEBUG
+            if session.isOffline { return session.cachedChat(id).map(SettingsPeer.init(chat:)) }
+        #endif
+        guard session.isCurrent, let peer = await SettingsPeer.resolve(sender, client: session.client),
+              session.isCurrent else { return nil }
+        viewerPeers[id] = peer
+        return peer
+    }
+
+    /// The list's rows: a viewer opens their profile, a forward its message and a repost its story
+    /// (openPeer, openMessage and openReposts); the account itself opens nothing.
+    private func openViewer(_ item: StoryViewList.Item) {
+        guard !isClosing, item.actorID != session.accountUserID else { return }
+        #if DEBUG
+            if session.isOffline {
+                probeMenuActionHandler?("viewer-\(item.actorID)")
+                return
+            }
+        #endif
+        viewListPanel?.endSearch()
+        switch item.kind {
+        case .view:
+            TelegramLinkRouter.shared.openProfile(item.actor, from: self)
+        case .forward(let chatID, let messageID):
+            TelegramLinkRouter.shared.openMessage(chatID: chatID, messageID: messageID, from: self)
+        case .repost(let chatID, let storyID, _):
+            StoryViewerController.present(
+                .story(chatID: chatID, storyID: storyID),
+                client: session.client,
+                from: self,
+                sourceView: nil,
+            )
+        }
+    }
+
+    /// Applies the list's height: the story shrinks above it, the footer gathers its counts over the story's bottom,
+    /// and the list itself rises from the bottom.
+    private func layoutViewList() {
+        let screenHeight = view.bounds.height
+        let height = viewListDragHeight ?? StoryViewListLayout.height(of: viewListDisplay, screenHeight: screenHeight)
+        let restingFrame = CGRect(
+            x: contentView.center.x - contentView.bounds.width / 2,
+            y: contentView.center.y - contentView.bounds.height / 2,
+            width: contentView.bounds.width,
+            height: contentView.bounds.height,
+        )
+        let layout = StoryViewListLayout.layout(
+            bounds: view.bounds.size,
+            safeBottom: view.safeAreaInsets.bottom,
+            contentFrame: restingFrame,
+            listHeight: height,
+            footerSpacing: StoryFooterPanelView.topSpacing,
+        )
+        contentView.transform = layout.contentTransform
+        // Telegram keeps the visible corners round while the story shrinks; at rest the opening and closing
+        // transitions own the corners.
+        if height > 0 || viewListShapesStory {
+            viewListShapesStory = height > 0
+            contentView.layer.cornerRadius = Self.contentCornerRadius / max(0.01, layout.contentScale)
+        }
+        if !footerPanel.isHidden {
+            footerPanel.frame.origin.y = layout.footerY
+            footerPanel.expandFraction = layout.expandFraction
+        }
+        viewListFooterAlpha = layout.footerAlpha
+        footerPanel.alpha = (isChromeHidden ? 0 : dragChromeAlpha) * viewListFooterAlpha
+        if let panel = viewListPanel {
+            // The panel stays as tall as half the screen while it rises, so its rows don't relayout on the way.
+            let panelHeight = max(layout.listFrame.height, StoryViewListLayout.halfHeight(screenHeight: screenHeight))
+            panel.frame = CGRect(
+                x: 0,
+                y: layout.listFrame.minY,
+                width: view.bounds.width,
+                height: panelHeight,
+            )
+            panel.layoutIfNeeded()
+        }
+    }
+
+    private func beginViewListDrag(fromList: Bool) {
+        let screenHeight = view.bounds.height
+        viewListDragFromList = fromList
+        if viewListDisplay == .hidden { prepareViewListPanel() }
+        viewListDragStartHeight = StoryViewListLayout.height(of: viewListDisplay, screenHeight: screenHeight)
+        viewListDragHeight = viewListDragStartHeight
+        setPaused(true, for: .viewList)
+        if viewListDisplay != .full { viewListPanel?.isScrollEnabled = false }
+    }
+
+    private func updateViewListDrag(_ translation: CGFloat) {
+        let screenHeight = view.bounds.height
+        let full = StoryViewListLayout.fullHeight(screenHeight: screenHeight)
+        viewListDragHeight = min(full, max(0, viewListDragStartHeight - translation))
+        layoutViewList()
+    }
+
+    private func finishViewListDrag(translation: CGFloat, velocity: CGFloat) {
+        let screenHeight = view.bounds.height
+        let height = viewListDragHeight ?? viewListDragStartHeight
+        let display = StoryViewListLayout.display(
+            after: viewListDisplay,
+            listHeight: height,
+            translation: translation,
+            velocity: velocity,
+            screenHeight: screenHeight,
+            fromList: viewListDragFromList,
+        )
+        setViewListDisplay(display)
+    }
+
+    /// The list's own drag: at half it moves the list, fully open it takes over the scrolling at the top as the
+    /// finger pulls down.
+    private func viewListPanShouldBegin() -> Bool {
+        guard let panel = viewListPanel, let pan = viewListPan, viewListDisplay != .hidden else { return false }
+        let velocity = pan.velocity(in: view)
+        guard abs(velocity.y) > abs(velocity.x) else { return false }
+        if viewListDisplay == .half { return true }
+        return velocity.y > 0 && panel.isAtTop
+    }
+
+    @objc private func viewListPanned(_ gesture: UIPanGestureRecognizer) {
+        let translation = gesture.translation(in: view).y
+        switch gesture.state {
+        case .began:
+            beginViewListDrag(fromList: true)
+            viewListPanel?.isScrollEnabled = false
+        case .changed:
+            updateViewListDrag(translation)
+        case .cancelled,
+             .ended,
+             .failed:
+            finishViewListDrag(translation: translation, velocity: gesture.velocity(in: view).y)
+        default:
+            break
+        }
+    }
+
     // MARK: Footer
 
     private func configureFooterPanel() {
         footerPanel.isHidden = true
         footerPanel.onDelete = { [weak self] in self?.deletePressed() }
+        footerPanel.onOpenViews = { [weak self] in self?.setViewListDisplay(.half) }
         focusedFace.contentHost.addSubview(footerPanel)
     }
 
@@ -2264,6 +2536,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         guard !isClosing else { return }
         isClosing = true
         stopClock()
+        viewListPanel?.endSearch()
+        if let panel = viewListPanel {
+            UIView.animate(withDuration: 0.2) { panel.alpha = 0 }
+        }
         areaTooltip?.dismiss()
         hideReplyReactions()
         if replyPanel.isEditing { replyPanel.endEditing() }
@@ -2410,6 +2686,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             menuPoster: StoryMoreMenu.Poster,
             replyPoster: StoryReplyPanel.Poster = .user(isBot: false, isService: false, isSelf: false),
             accountUserID: Int64? = nil,
+            interactions: [Int: [StoryInteraction]] = [:],
             onMenuItem: @escaping (String) -> Void,
             client: TDLibClient,
             from presenter: UIViewController,
@@ -2421,6 +2698,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
                 activeStories: activeStories,
                 accountUserID: accountUserID,
             )
+            session.seedOfflineInteractions(interactions, contactIDs: [])
             let posters = activeStories.map { list in
                 StoryViewerState.Poster(
                     chatID: list.chatId,
@@ -2486,6 +2764,43 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
         var probeFooterFrame: CGRect {
             footerPanel.frame
+        }
+
+        /// The footer's counts, as a tap on them.
+        func probeOpenViewList() {
+            footerPanel.onOpenViews?()
+        }
+
+        func probeSetViewListDisplay(_ display: StoryViewListLayout.Display) {
+            setViewListDisplay(display)
+        }
+
+        /// The viewers list as shown: its state, the panel's frame, the story's scale, the footer's expansion and
+        /// alpha, and the panel's rows and header.
+        var probeViewList: (
+            display: StoryViewListLayout.Display,
+            frame: CGRect,
+            storyScale: CGFloat,
+            footerExpand: CGFloat,
+            footerAlpha: CGFloat,
+            isPaused: Bool,
+            title: String?,
+            rows: [String],
+        ) {
+            (
+                viewListDisplay,
+                viewListPanel?.frame ?? .zero,
+                contentView.transform.a,
+                footerPanel.expandFraction,
+                footerPanel.alpha,
+                state.pauseReasons.contains(.viewList),
+                viewListPanel?.probeTitle,
+                viewListPanel?.probeRows ?? [],
+            )
+        }
+
+        func probeSelectViewListRow(_ index: Int) {
+            viewListPanel?.probeSelectRow(index)
         }
 
         /// The footer's delete button, as a tap on it.

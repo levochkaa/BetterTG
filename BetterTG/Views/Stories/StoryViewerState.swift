@@ -48,6 +48,8 @@ struct StoryViewerState: Equatable {
         /// The reply field edits, or reactions show over the story (updateIsProgressPaused's input and reaction
         /// context).
         case reply
+        /// The viewers list is open under the account's own story (viewListDisplayState).
+        case viewList
         #if DEBUG
             /// The UI probe holds the story still for its screenshots.
             case probe

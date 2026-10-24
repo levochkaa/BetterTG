@@ -7,8 +7,8 @@ import UIKit
 
 /// StoryFooterPanelComponent under the account's own story, where someone else's story has the reply panel: the
 /// latest viewers' avatars, the view count or No Views, the reactions in red and the reposts in green, and the delete
-/// button on the right. Telegram's viewers list behind the counts, the upload status of a story being posted (BetterTG
-/// doesn't post stories) and the channel footer with its like and share buttons are left out.
+/// button on the right. The counts open the viewers list. The upload status of a story being posted (BetterTG doesn't
+/// post stories) and the channel footer with its like and share buttons are left out.
 enum StoryFooterPanel {
     struct Configuration: Equatable {
         let viewCount: Int
@@ -82,7 +82,22 @@ final class StoryFooterPanelView: UIView {
     private static let iconSpacing = CGFloat(2)
     private static let iconSize = CGSize(width: 23, height: 23)
 
+    private static let reactionColor = UIColor(red: 1, green: 0x3B / 255, blue: 0x30 / 255, alpha: 1)
+    private static let forwardColor = UIColor(red: 0x34 / 255, green: 0xC7 / 255, blue: 0x59 / 255, alpha: 1)
+
     var onDelete: (() -> Void)?
+    /// viewStatsButton's expandViewStats: the avatars and counts open the viewers list.
+    var onOpenViews: (() -> Void)?
+
+    /// expandFraction while the viewers list opens: the avatars and the views label shrink away, an eye takes the
+    /// count, the counts gather in the middle in white, and the delete button drops 45 points as it fades.
+    var expandFraction = CGFloat.zero {
+        didSet {
+            guard expandFraction != oldValue else { return }
+            setNeedsLayout()
+            layoutIfNeeded()
+        }
+    }
 
     private(set) var configuration: StoryFooterPanel.Configuration?
 
@@ -94,6 +109,8 @@ final class StoryFooterPanelView: UIView {
     private let forwardIcon = UIImageView()
     private let forwardLabel = UILabel()
     private let deleteButton = UIButton(type: .system)
+    private let eyeIcon = UIImageView()
+    private let statsButton = UIControl()
     private var avatarTask: Task<Void, Never>?
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -103,6 +120,11 @@ final class StoryFooterPanelView: UIView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         isAccessibilityElement = false
+        statsButton.addTarget(self, action: #selector(openViews), for: .touchUpInside)
+        statsButton.isAccessibilityElement = true
+        statsButton.accessibilityTraits = .button
+        statsButton.accessibilityIdentifier = "story-footer-views"
+        addSubview(statsButton)
         let numbers = UIFont.monospacedDigitSystemFont(ofSize: 15, weight: .regular)
         for label in [countLabel, reactionLabel, forwardLabel] {
             label.font = numbers
@@ -113,10 +135,13 @@ final class StoryFooterPanelView: UIView {
         viewsLabel.textColor = .white
         addSubview(viewsLabel)
         reactionIcon.image = UIImage(systemName: "heart.fill")
-        reactionIcon.tintColor = UIColor(red: 1, green: 0x3B / 255, blue: 0x30 / 255, alpha: 1)
+        reactionIcon.tintColor = Self.reactionColor
         forwardIcon.image = UIImage(systemName: "arrow.2.squarepath")
-        forwardIcon.tintColor = UIColor(red: 0x34 / 255, green: 0xC7 / 255, blue: 0x59 / 255, alpha: 1)
-        for icon in [reactionIcon, forwardIcon] {
+        forwardIcon.tintColor = Self.forwardColor
+        eyeIcon.image = UIImage(systemName: "eye.fill")
+        eyeIcon.tintColor = .white
+        eyeIcon.alpha = 0
+        for icon in [eyeIcon, reactionIcon, forwardIcon] {
             icon.contentMode = .center
             icon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 17, weight: .medium)
             addSubview(icon)
@@ -140,32 +165,98 @@ final class StoryFooterPanelView: UIView {
         super.layoutSubviews()
         guard let configuration else { return }
         let height = bounds.height
-        var x = CGFloat(16)
+        let fraction = expandFraction
         for (index, avatar) in avatarViews.enumerated() {
+            avatar.transform = .identity
             avatar.frame = CGRect(
-                x: x + CGFloat(index) * (Self.avatarSize - Self.avatarOverlap),
+                x: 16 + CGFloat(index) * (Self.avatarSize - Self.avatarOverlap),
                 y: ((height - Self.avatarSize) / 2).rounded(.down),
                 width: Self.avatarSize,
                 height: Self.avatarSize,
             )
             if index > 0 { applyCutout(to: avatar) }
+            let scale = 1 - 0.9 * fraction
+            avatar.transform = CGAffineTransform(scaleX: scale, y: scale)
+            avatar.alpha = 1 - fraction
         }
-        if let last = avatarViews.last {
-            x = last.frame.maxX + Self.avatarViewsSpacing
+
+        // At rest: the avatars, the count and Views, then the reactions and reposts.
+        let collapsed = layoutPositions(
+            start: (avatarViews.last.map(\.frame.maxX) ?? 16)
+                + (avatarViews.isEmpty ? 0 : Self.avatarViewsSpacing),
+            showsEye: false,
+            showsViewsLabel: true,
+            configuration: configuration,
+        )
+        // Expanded: an eye with the count, the reactions and reposts, gathered in the middle.
+        let expandedWidth = layoutPositions(
+            start: 0,
+            showsEye: true,
+            showsViewsLabel: false,
+            configuration: configuration,
+        ).end
+        let expanded = layoutPositions(
+            start: ((bounds.width - expandedWidth) / 2).rounded(.down),
+            showsEye: true,
+            showsViewsLabel: false,
+            configuration: configuration,
+        )
+        func place(_ view: UIView, _ key: String) {
+            guard let from = collapsed.frames[key] ?? expanded.frames[key],
+                  let to = expanded.frames[key] ?? collapsed.frames[key] else { return }
+            view.transform = .identity
+            view.frame = CGRect(
+                x: from.minX + (to.minX - from.minX) * fraction,
+                y: ((height - from.height) / 2).rounded(.down),
+                width: from.width,
+                height: from.height,
+            )
         }
-        if configuration.viewCount != 0 {
-            x = place(countLabel, at: x)
-        }
-        x = place(viewsLabel, at: x)
-        if configuration.reactionCount != 0 {
-            x = place(reactionIcon, at: x + Self.groupSpacing, size: Self.iconSize)
-            x = place(reactionLabel, at: x + Self.iconSpacing)
-        }
-        if configuration.forwardCount != 0 {
-            x = place(forwardIcon, at: x + Self.groupSpacing, size: Self.iconSize)
-            _ = place(forwardLabel, at: x + Self.iconSpacing)
-        }
-        deleteButton.frame = CGRect(x: bounds.width - 12 - 44, y: (height - 44) / 2, width: 44, height: 44)
+        place(eyeIcon, "eye")
+        place(countLabel, "count")
+        place(viewsLabel, "views")
+        place(reactionIcon, "reactionIcon")
+        place(reactionLabel, "reaction")
+        place(forwardIcon, "forwardIcon")
+        place(forwardLabel, "forward")
+        eyeIcon.alpha = fraction
+        eyeIcon.transform = CGAffineTransform(scaleX: 0.1 + 0.9 * fraction, y: 0.1 + 0.9 * fraction)
+        // Telegram's single count shows only expanded where nobody viewed the story.
+        countLabel.alpha = configuration.viewCount != 0 ? 1 : fraction
+        viewsLabel.alpha = 1 - fraction
+        viewsLabel.transform = CGAffineTransform(scaleX: 1 - 0.9 * fraction, y: 1 - 0.9 * fraction)
+        reactionIcon.tintColor = Self.mixed(Self.reactionColor, with: .white, amount: fraction)
+        forwardIcon.tintColor = Self.mixed(Self.forwardColor, with: .white, amount: fraction)
+        deleteButton.frame = CGRect(
+            x: bounds.width - 12 - 44,
+            y: (height - 44) / 2 + 45 * fraction,
+            width: 44,
+            height: 44,
+        )
+        deleteButton.alpha = 1 - fraction
+        let statsEnd = max(collapsed.end, viewsLabel.frame.maxX) + 8
+        statsButton.frame = CGRect(x: 0, y: 0, width: min(statsEnd, deleteButton.frame.minX), height: height)
+        // viewStatsButton and the buttons take touches only at rest.
+        isUserInteractionEnabled = fraction == 0
+    }
+
+    private static func mixed(_ color: UIColor, with other: UIColor, amount: CGFloat) -> UIColor {
+        var r1 = CGFloat.zero
+        var g1 = CGFloat.zero
+        var b1 = CGFloat.zero
+        var a1 = CGFloat.zero
+        var r2 = CGFloat.zero
+        var g2 = CGFloat.zero
+        var b2 = CGFloat.zero
+        var a2 = CGFloat.zero
+        color.getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
+        other.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+        return UIColor(
+            red: r1 + (r2 - r1) * amount,
+            green: g1 + (g2 - g1) * amount,
+            blue: b1 + (b2 - b1) * amount,
+            alpha: a1 + (a2 - a1) * amount,
+        )
     }
 
     func configure(
@@ -182,7 +273,6 @@ final class StoryFooterPanelView: UIView {
             return
         }
         countLabel.text = StoryFooterPanel.countText(configuration.viewCount)
-        countLabel.isHidden = configuration.viewCount == 0
         viewsLabel.text = StoryFooterPanel.viewsLabel(count: configuration.viewCount)
         reactionLabel.text = String(configuration.reactionCount)
         reactionIcon.isHidden = configuration.reactionCount == 0
@@ -192,8 +282,8 @@ final class StoryFooterPanelView: UIView {
         forwardLabel.isHidden = configuration.forwardCount == 0
         deleteButton.isHidden = !configuration.canDelete
         if viewersChanged { loadAvatars(configuration.recentViewerIDs, avatar: avatar, client: client) }
-        // VoiceOver reads the views with their count and the reactions and reposts beside them.
-        viewsLabel.accessibilityLabel = [
+        // VoiceOver reads the views with their count and the reactions and reposts beside them; they open the list.
+        statsButton.accessibilityLabel = [
             configuration.viewCount != 0 ? countLabel.text : nil,
             viewsLabel.text,
             configuration.reactionCount != 0 ? "❤ \(configuration.reactionCount)" : nil,
@@ -201,7 +291,7 @@ final class StoryFooterPanelView: UIView {
         ]
             .compactMap(\.self)
             .joined(separator: " ")
-        accessibilityElements = configuration.canDelete ? [viewsLabel, deleteButton] : [viewsLabel]
+        accessibilityElements = configuration.canDelete ? [statsButton, deleteButton] : [statsButton]
         setNeedsLayout()
     }
 
@@ -267,18 +357,41 @@ final class StoryFooterPanelView: UIView {
         avatar.layer.mask = mask
     }
 
-    private func place(_ view: UIView, at x: CGFloat, size: CGSize? = nil) -> CGFloat {
-        let size = size ?? view.sizeThatFits(CGSize(width: bounds.width, height: bounds.height))
-        view.frame = CGRect(
-            x: x,
-            y: ((bounds.height - size.height) / 2).rounded(.down),
-            width: size.width,
-            height: size.height,
-        )
-        return view.frame.maxX
+    /// The frames of the stats from `start` in one of the two arrangements, and where they end.
+    private func layoutPositions(
+        start: CGFloat,
+        showsEye: Bool,
+        showsViewsLabel: Bool,
+        configuration: StoryFooterPanel.Configuration,
+    ) -> (frames: [String: CGRect], end: CGFloat) {
+        var frames = [String: CGRect]()
+        var x = start
+        func add(_ key: String, _ view: UIView, at origin: CGFloat, size: CGSize? = nil) {
+            let size = size ?? view.sizeThatFits(CGSize(width: bounds.width, height: bounds.height))
+            frames[key] = CGRect(x: origin, y: 0, width: size.width, height: size.height)
+            x = origin + size.width
+        }
+        if showsEye { add("eye", eyeIcon, at: x, size: Self.iconSize) }
+        if configuration.viewCount != 0 || showsEye {
+            add("count", countLabel, at: showsEye ? x + Self.iconSpacing : x)
+        }
+        if showsViewsLabel { add("views", viewsLabel, at: x) }
+        if configuration.reactionCount != 0 {
+            add("reactionIcon", reactionIcon, at: x + Self.groupSpacing, size: Self.iconSize)
+            add("reaction", reactionLabel, at: x + Self.iconSpacing)
+        }
+        if configuration.forwardCount != 0 {
+            add("forwardIcon", forwardIcon, at: x + Self.groupSpacing, size: Self.iconSize)
+            add("forward", forwardLabel, at: x + Self.iconSpacing)
+        }
+        return (frames, x)
     }
 
     @objc private func deletePressed() {
         onDelete?()
+    }
+
+    @objc private func openViews() {
+        onOpenViews?()
     }
 }

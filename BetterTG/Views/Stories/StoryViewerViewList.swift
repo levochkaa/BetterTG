@@ -218,3 +218,113 @@ enum StoryViewList {
         }
     }
 }
+
+// MARK: - StoryViewListLayout
+
+/// StoryItemSetContainerComponent's geometry while the viewers list shows: the list rises to half the screen (its
+/// minimized height, 337 points short of it) or nearly all of it (60 points short); the story shrinks into the space
+/// above, its top in place, and once the list passes half the story slides up with it while the footer fades.
+enum StoryViewListLayout {
+    enum Display: Equatable {
+        case hidden
+        case half
+        case full
+    }
+
+    struct Result: Equatable {
+        /// For the story view, about its centre.
+        let contentTransform: CGAffineTransform
+        let contentScale: CGFloat
+        /// contentScaleFraction: 0 at rest, 1 once the story has shrunk.
+        let expandFraction: CGFloat
+        let footerY: CGFloat
+        let footerAlpha: CGFloat
+        let listFrame: CGRect
+    }
+
+    static func halfHeight(screenHeight: CGFloat) -> CGFloat {
+        max(100, screenHeight - (325 + 12))
+    }
+
+    static func fullHeight(screenHeight: CGFloat) -> CGFloat {
+        screenHeight - 60
+    }
+
+    static func height(of display: Display, screenHeight: CGFloat) -> CGFloat {
+        switch display {
+        case .hidden: 0
+        case .half: halfHeight(screenHeight: screenHeight)
+        case .full: fullHeight(screenHeight: screenHeight)
+        }
+    }
+
+    /// The layout for a list `listHeight` tall over a story resting at `contentFrame`, with the footer
+    /// `footerSpacing` below it.
+    static func layout(
+        bounds: CGSize,
+        safeBottom: CGFloat,
+        contentFrame: CGRect,
+        listHeight: CGFloat,
+        footerSpacing: CGFloat,
+    ) -> Result {
+        let screenHeight = bounds.height
+        let top = contentFrame.minY
+        let half = halfHeight(screenHeight: screenHeight)
+        let listHeight = min(fullHeight(screenHeight: screenHeight), max(0, listHeight))
+        let defaultHeight = 60 + safeBottom + 1
+        let fraction = min(1, listHeight / max(1, half))
+        let listInset = defaultHeight * (1 - fraction) + fraction * half + max(0, listHeight - half)
+
+        let defaultBottomInset = screenHeight - contentFrame.maxY
+        let maxBottomInset = max(defaultBottomInset, defaultHeight)
+        let minBottomInset = max(defaultBottomInset, half)
+        let wantedBottomInset = max(defaultBottomInset, listInset)
+        let overflow = max(0, wantedBottomInset - minBottomInset)
+        let visualBottomInset = max(maxBottomInset, min(minBottomInset, wantedBottomInset))
+        let overflowFraction = min(1, max(0, overflow / max(1, screenHeight - minBottomInset - 60)))
+
+        let height = max(1, contentFrame.height)
+        let visualHeight = min(height, screenHeight - top - visualBottomInset)
+        let scale = min(1, visualHeight / height)
+        let maxScale = min(1, min(height, screenHeight - top - maxBottomInset) / height)
+        let minScale = min(1, min(height, screenHeight - top - minBottomInset) / height)
+        let expandFraction = abs(maxScale - minScale) < .ulpOfOne
+            ? 0
+            : min(1, max(0, 1 - (scale - minScale) / (maxScale - minScale)))
+        let shift = (visualHeight - height) / 2 - overflow
+        let visualBottom = top + visualHeight - overflow
+        return Result(
+            contentTransform: CGAffineTransform(translationX: 0, y: shift).scaledBy(x: scale, y: scale),
+            contentScale: scale,
+            expandFraction: expandFraction,
+            // footerPanelY: 10 points under the story at rest, overlapping its last 41 points once it shrinks.
+            footerY: visualBottom + (1 - expandFraction) * footerSpacing + expandFraction * -41,
+            footerAlpha: 1 - overflowFraction,
+            listFrame: CGRect(x: 0, y: screenHeight - listHeight, width: bounds.width, height: listHeight),
+        )
+    }
+
+    /// The pan's outcome, as the verticalPanState ends: down by 30% of the screen, or 5% with speed, hides the list;
+    /// past the half height a pull up opens it fully and a pull down settles at half. From the scrolled list either
+    /// distance or speed decides the full state.
+    static func display(
+        after current: Display,
+        listHeight: CGFloat,
+        translation: CGFloat,
+        velocity: CGFloat,
+        screenHeight: CGFloat,
+        fromList: Bool,
+    ) -> Display {
+        let fraction = translation / max(1, screenHeight)
+        if current == .hidden {
+            guard translation < -200 || (translation < -100 && velocity < -100) else { return .hidden }
+            return listHeight > halfHeight(screenHeight: screenHeight) ? .full : .half
+        }
+        if fraction >= 0.3 || (fraction >= 0.05 && velocity >= 150) { return .hidden }
+        guard listHeight > halfHeight(screenHeight: screenHeight) else { return current }
+        if fromList { return fraction <= -0.05 || velocity <= -80 ? .full : .half }
+        if fraction <= -0.05, velocity <= -80 { return .full }
+        if fraction >= 0.05, velocity >= -80 { return .half }
+        return current
+    }
+}

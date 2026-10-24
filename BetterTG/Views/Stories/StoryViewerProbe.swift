@@ -41,7 +41,7 @@ import UIKit
                     + "translate=true; "
                     + "own-menu/expired/live/button/footer/no-views/view-label/count-text=true; "
                     + "view-list-title/tabs-at-20/private-no-tabs/sort-at-10/expired-no-header/empty-texts/"
-                    + "subtitles/page-kinds=true; "
+                    + "subtitles/page-kinds/layout/drag-outcomes=true; "
                     + "reply-user/private/closed/service/bot/self/group/read-only-group/channel/live/reaction-text=true"
             } catch {
                 result = "Story viewer probe failed: \(error)"
@@ -636,6 +636,71 @@ import UIKit
             } else {
                 throw Failure(description: "the first item lost its reaction")
             }
+
+            // StoryItemSetContainerComponent's geometry on a 402 by 874 screen with the story at rest under the
+            // status bar, and the drags' outcomes.
+            typealias Layout = StoryViewListLayout
+            let screen = CGSize(width: 402, height: 874)
+            let resting = CGRect(x: 0, y: 62, width: 402, height: 715)
+            try require(
+                Layout.halfHeight(screenHeight: 874) == 537 && Layout.fullHeight(screenHeight: 874) == 814,
+                "half and full heights",
+            )
+            let rest = Layout.layout(
+                bounds: screen,
+                safeBottom: 34,
+                contentFrame: resting,
+                listHeight: 0,
+                footerSpacing: 10,
+            )
+            try require(
+                rest.contentTransform == .identity && rest.expandFraction == 0 && rest.footerY == resting.maxY + 10
+                    && rest.footerAlpha == 1,
+                "the list hidden leaves the story alone: \(rest)",
+            )
+            let half = Layout.layout(
+                bounds: screen,
+                safeBottom: 34,
+                contentFrame: resting,
+                listHeight: 537,
+                footerSpacing: 10,
+            )
+            try require(
+                abs(half.contentScale - 275 / 715) < 0.001 && half.expandFraction == 1
+                    && abs(half.footerY - (62 + 275 - 41)) < 0.5 && half.listFrame.minY == 337,
+                "half: the story fits above the list: \(half)",
+            )
+            let full = Layout.layout(
+                bounds: screen,
+                safeBottom: 34,
+                contentFrame: resting,
+                listHeight: 814,
+                footerSpacing: 10,
+            )
+            try require(full.footerAlpha < 0.01 && full.listFrame.minY == 60, "full: the footer fades: \(full)")
+            func outcome(
+                _ current: Layout.Display,
+                _ height: CGFloat,
+                _ translation: CGFloat,
+                _ velocity: CGFloat,
+                list: Bool = false,
+            ) -> Layout.Display {
+                Layout.display(
+                    after: current,
+                    listHeight: height,
+                    translation: translation,
+                    velocity: velocity,
+                    screenHeight: 874,
+                    fromList: list,
+                )
+            }
+            try require(outcome(.hidden, 250, -250, 0) == .half, "a long swipe up opens half")
+            try require(outcome(.hidden, 150, -150, -50) == .hidden, "a short slow swipe up doesn't open")
+            try require(outcome(.hidden, 600, -600, 0) == .full, "past half the swipe opens it fully")
+            try require(outcome(.half, 270, 267, 0) == .hidden, "30% down closes")
+            try require(outcome(.half, 480, 57, 200) == .hidden, "a flick down closes")
+            try require(outcome(.half, 600, -63, -20, list: true) == .full, "pulled up from the list opens fully")
+            try require(outcome(.full, 700, 114, 0) == .half, "pulled down from full settles at half")
         }
 
         private static func verifyOwnStory() throws {

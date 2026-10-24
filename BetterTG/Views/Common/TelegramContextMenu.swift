@@ -2284,7 +2284,7 @@ private final class TelegramContextSubmenuView: UIView {
 
 /// Telegram's TabSelectorComponent as ContextSourceContainer sets it up: medium 14-point titles in 32-point capsules
 /// with 12 points of inner inset, 9 points apart, and a faint capsule behind the selected one.
-private final class TelegramContextMenuSourceTabsView: UIView {
+final class TelegramContextMenuSourceTabsView: UIView {
     // MARK: Private
 
     private static let height = CGFloat(32)
