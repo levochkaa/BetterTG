@@ -85,9 +85,30 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
     /// The chat search's query while this text belongs to a found message (updateSearchTextHighlightState).
     private var searchHighlightQuery: String?
 
+    /// The text's quotes and code blocks, drawn behind it (TextNode's block quotes).
+    private var textBlocks = [MessageTextBlock]()
+    private let blockDecorationView = MessageTextBlockDecorationView()
+
     #if DEBUG
         var debugQuoteHighlightCount: Int { quoteHighlightViews.count }
         var debugCustomEmojiGeneration: Int { customEmojiGeneration }
+    #endif
+
+    #if DEBUG
+        var probeBlockFrames: [CGRect] {
+            layoutManager.ensureLayout(for: textContainer)
+            return textBlocks.compactMap { $0.frame(layoutManager: layoutManager, textContainer: textContainer) }
+        }
+
+        func probeFirstLineIndent(of blockIndex: Int) -> CGFloat? {
+            guard textBlocks.indices.contains(blockIndex) else { return nil }
+            let style = textStorage.attribute(
+                .paragraphStyle,
+                at: textBlocks[blockIndex].range.location,
+                effectiveRange: nil,
+            )
+            return (style as? NSParagraphStyle)?.firstLineHeadIndent
+        }
     #endif
 
     /// Spoiler presentation follows `spoilerState`; these mirror it for layout and hit testing.
@@ -114,6 +135,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         statusLabel.textAlignment = .right
         statusLabel.isUserInteractionEnabled = false
         addSubview(statusLabel)
+        insertSubview(blockDecorationView, at: 0)
 
         entityTapGesture.delegate = entityTapDelegate
         addGestureRecognizer(entityTapGesture)
@@ -134,6 +156,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             y: bounds.maxY - statusLabel.bounds.height,
         )
         bringSubviewToFront(statusLabel)
+        layoutTextBlocks()
         layoutCustomEmojiViews()
         layoutQuoteHighlightViews()
         layoutSpoilers()
@@ -526,6 +549,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         let result = NSMutableAttributedString(
             attributedString: richAttributedText ?? NSAttributedString(getAttributedString(from: text)),
         )
+        textBlocks = richAttributedText == nil ? MessageTextBlock.blocks(in: text) : []
+        MessageTextBlock.applyStyles(textBlocks, to: result)
         for range in state.presentation.ranges where NSMaxRange(range) <= result.length {
             result.removeAttribute(.backgroundColor, range: range)
             guard !state.revealed else { continue }
@@ -553,9 +578,14 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             }
         }
         if statusLabel.text?.isEmpty == false {
+            // ChatMessageTextBubbleContentNode puts the status under a block that ends the text.
+            if let last = textBlocks.last, NSMaxRange(last.range) >= (text.text as NSString).length {
+                result.append(NSAttributedString(string: "\n", attributes: [.font: statusLabel.font as Any]))
+            }
             result.append(statusSpacer(width: ceil(statusLabel.bounds.width) + 9))
         }
         attributedText = result
+        setNeedsLayout()
         if let emojiClient { loadCustomEmoji(from: text, client: emojiClient) }
         bringSubviewToFront(statusLabel)
         invalidateIntrinsicContentSize()
@@ -584,7 +614,29 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         manager.ensureLayout(for: container)
 
         let usedRect = manager.usedRect(for: container)
-        return (ceil(usedRect.width), ceil(usedRect.height))
+        // A block reaches past its widest line by the icon's room.
+        let blockWidth = textBlocks.compactMap { $0.frame(layoutManager: manager, textContainer: container)?.maxX }
+            .max() ?? 0
+        return (ceil(max(usedRect.width, min(maximumWidth, blockWidth))), ceil(usedRect.height))
+    }
+
+    private func layoutTextBlocks() {
+        guard !textBlocks.isEmpty else {
+            blockDecorationView.update([])
+            return
+        }
+        layoutManager.ensureLayout(for: textContainer)
+        let inset = textContainerInset
+        let items = textBlocks.compactMap { block -> (block: MessageTextBlock, frame: CGRect)? in
+            block.frame(layoutManager: layoutManager, textContainer: textContainer)
+                .map { (block, $0.offsetBy(dx: inset.left, dy: inset.top)) }
+        }
+        blockDecorationView.frame = CGRect(origin: .zero, size: CGSize(
+            width: bounds.width,
+            height: max(bounds.height, contentSize.height),
+        ))
+        blockDecorationView.update(items)
+        sendSubviewToBack(blockDecorationView)
     }
 
     private func loadCustomEmoji(from formattedText: FormattedText, client: TDLibClient) {
