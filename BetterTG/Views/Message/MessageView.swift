@@ -280,6 +280,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var onSwipeToReply: (() -> Void)?
     private var onMediaTap: (([Message], Int64) -> Void)?
     private var onSelectionToggle: (() -> Void)?
+    /// A tap on a media album's item while selecting toggles that item alone (GridMessageSelectionNode).
+    private var onAlbumItemSelectionToggle: ((Int64) -> Void)?
     private var representedGalleryMessageIDs = Set<Int64>()
     private var mediaTransitionGeneration = UUID()
     private var swipeReplyThreshold: CGFloat = 45
@@ -548,6 +550,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         onQuickReaction = nil
         onMediaTap = nil
         onSelectionToggle = nil
+        onAlbumItemSelectionToggle = nil
         onSelfSizingHeightChange = nil
         representedGalleryMessageIDs.removeAll()
         mediaTransitionGeneration = UUID()
@@ -689,6 +692,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         selected: Bool,
         onSwipeToReply: (() -> Void)?,
         onSelectionToggle: (() -> Void)?,
+        selectedAlbumItemIDs: Set<Int64>? = nil,
+        onAlbumItemSelectionToggle: ((Int64) -> Void)? = nil,
         onReactionTap: @escaping (ReactionType) -> Void,
         onReactionLongPress: ((ReactionType) -> Void)? = nil,
         onMetadataNavigate: @escaping (MessageMetadataNavigationTarget) -> Void,
@@ -718,6 +723,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         self.pollInteractionStore = pollInteractionStore
         self.onMediaTap = onMediaTap
         self.onSelectionToggle = onSelectionToggle
+        self.onAlbumItemSelectionToggle = selectionActive ? onAlbumItemSelectionToggle : nil
         spoilerSubscriptions.removeAll()
         refreshSpoilerAccessibility = nil
         var captionTexts = [Int64: FormattedText]()
@@ -854,6 +860,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             onTap: mediaAction,
         )
         mediaView.setHiddenIfChanged(!hasMedia)
+        mediaView.setAlbumSelection(selectionActive ? selectedAlbumItemIDs : nil, animated: reconfiguresSameMessage)
         setMessageHighlighted(highlightedMessageID, animated: reconfiguresSameMessage)
 
         let previewBelowText: Bool =
@@ -1218,7 +1225,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         selectionControl.isHidden = true
         selectionControl.accessibilityIdentifier = "message-selection-control"
         selectionControl.addTarget(self, action: #selector(selectionTouchBegan), for: .touchDown)
-        selectionControl.addTarget(self, action: #selector(selectionPressed), for: .touchUpInside)
+        selectionControl.addTarget(self, action: #selector(selectionPressed(_:event:)), for: .touchUpInside)
         selectionControl.addTarget(
             self,
             action: #selector(selectionTouchCancelled),
@@ -1530,11 +1537,18 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         selectionTouchBindingID = nil
     }
 
-    @objc private func selectionPressed() {
+    @objc private func selectionPressed(_: UIControl, event: UIEvent) {
         let binding = selectionTouchBindingID
         selectionTouchBindingID = nil
         guard let binding, binding == actionBindingID, selectionActive, !selectionControl.isHidden,
               isUserInteractionEnabled, !contentView.isHidden, window != nil else { return }
+        if let onAlbumItemSelectionToggle, !mediaView.isHidden,
+           let point = event.allTouches?.first?.location(in: self),
+           let itemID = mediaView.albumItemMessageID(at: point, in: self)
+        {
+            onAlbumItemSelectionToggle(itemID)
+            return
+        }
         onSelectionToggle?()
     }
 

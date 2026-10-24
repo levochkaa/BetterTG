@@ -14,6 +14,8 @@ import UIKit
         let showsProfileImage: Bool
         let canAddReactions: Bool
         let canReply: Bool
+        /// The items of a media album that are selected, while selection is on; an album can be partly selected.
+        var selectedAlbumItemIDs: Set<Int64>?
     }
 
     let id = UUID()

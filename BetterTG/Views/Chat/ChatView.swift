@@ -330,7 +330,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// Notes this chat played, which count as listened before TDLib's update arrives.
     private var playedListenableMessageIDs = Set<Int64>()
     private var restoredVideoRecordingDraftIDHandled: UUID?
+    /// Bubbles selected whole: Telegram checks a group once all of its messages are selected.
     private var selectedDisplayedMessageIDs = Set<DisplayedMessageID>()
+    /// Media albums with only some items selected, one by one (GridMessageSelectionNode).
+    private var partialAlbumSelection = [DisplayedMessageID: Set<Int64>]()
     private var isSelectingMessages = false
     /// The reply keyboard revision whose automatic opening was decided.
     private var evaluatedReplyKeyboardRevision: Int?
@@ -447,15 +450,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private var selectedDisplayedMessages: [CustomMessage] {
-        chatVM.messages.filter { selectedDisplayedMessageIDs.contains($0.displayedID) }
+        chatVM.messages.filter {
+            selectedDisplayedMessageIDs.contains($0.displayedID) || partialAlbumSelection[$0.displayedID] != nil
+        }
     }
 
     private var selectedSourceMessageIDs: [Int64] {
-        sourceMessageIDs(forDisplayedMessageIDs: selectedDisplayedMessageIDs)
+        selectedSourceMessageIDs(fullySelected: selectedDisplayedMessageIDs, partial: partialAlbumSelection)
+    }
+
+    private var hasMessageSelection: Bool {
+        !selectedDisplayedMessageIDs.isEmpty || !partialAlbumSelection.isEmpty
     }
 
     private var selectionAccessibilityAnnouncement: String {
-        let bubbleCount = selectedDisplayedMessageIDs.count
+        let bubbleCount = selectedDisplayedMessageIDs.count + partialAlbumSelection.count
         let sourceCount = selectedSourceMessageIDs.count
         if bubbleCount == sourceCount {
             return L10n.telegramPlural("VoiceOver.Chat.MessagesSelected", count: sourceCount)
@@ -1390,7 +1399,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func collectionViewDidEndMultipleSelectionInteraction(_: UICollectionView) {
         selectionInteractionActive = false
-        if selectedDisplayedMessageIDs.isEmpty { endMessageSelection() }
+        if !hasMessageSelection { endMessageSelection() }
         if let count = selectionInteractionHitLimit {
             selectionInteractionHitLimit = nil
             presentSelectionLimitAlert(count: count)
@@ -1401,7 +1410,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard isSelectingMessages,
               case .message(let id) = dataSource.itemIdentifier(for: indexPath),
               let message = message(for: id), canSelectMessage(message) else { return false }
-        let count = sourceMessageIDs(forDisplayedMessageIDs: selectedDisplayedMessageIDs.union([id])).count
+        let count = proposedSelectionCount(adding: id)
         guard count > 100 else { return true }
         if selectionInteractionActive {
             selectionInteractionHitLimit = max(selectionInteractionHitLimit ?? 0, count)
@@ -1417,6 +1426,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         selectionCapabilityTask = nil
         selectionCapabilityGeneration = nil
         selectedDisplayedMessageIDs.insert(id)
+        partialAlbumSelection.removeValue(forKey: id)
         updateMessageSelectionChrome(reconfigureIDs: [id])
     }
 
@@ -1426,7 +1436,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         selectionCapabilityTask = nil
         selectionCapabilityGeneration = nil
         selectedDisplayedMessageIDs.remove(id)
-        if selectedDisplayedMessageIDs.isEmpty, !selectionInteractionActive {
+        partialAlbumSelection.removeValue(forKey: id)
+        if !hasMessageSelection, !selectionInteractionActive {
             endMessageSelection()
         } else {
             updateMessageSelectionChrome(reconfigureIDs: [id])
@@ -3653,6 +3664,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                                     toggleMessageSelection(displayedMessageID: displayedMessageID)
                                 }
                                 : nil,
+                            selectedAlbumItemIDs: row.inputs.selectedAlbumItemIDs,
+                            onAlbumItemSelectionToggle: row.inputs.selectedAlbumItemIDs != nil
+                                ? { [weak self, weak cell] itemID in
+                                    guard let self,
+                                          currentActionMessage(authority, cell: cell, intent: .selection) != nil
+                                    else { return }
+                                    toggleAlbumItemSelection(displayedMessageID: displayedMessageID, itemID: itemID)
+                                }
+                                : nil,
                             onReactionTap: { [weak self, weak cell] type in
                                 guard let self, let current = currentActionMessage(
                                     authority,
@@ -4525,7 +4545,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if demand.structural, isSelectingMessages {
             let displayedIDs = Set(chatVM.messages.map(\.displayedID))
             selectedDisplayedMessageIDs.formIntersection(displayedIDs)
-            if selectedDisplayedMessageIDs.isEmpty, !selectionInteractionActive {
+            pruneAlbumSelection()
+            if !hasMessageSelection, !selectionInteractionActive {
                 endMessageSelection(reconfigure: false)
             } else {
                 updateMessageSelectionChrome(reconfigureIDs: [])
@@ -4587,6 +4608,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     canAddReactions: chatVM.canAddReactions,
                     canReply: presentationMode == .full && !isSelectingMessages
                         && !chatVM.isReadOnlyTopic && canonical.properties.canBeReplied,
+                    selectedAlbumItemIDs: isSelectingMessages && canSelectMessage(canonical)
+                        && selectableAlbumItemIDs(of: canonical) != nil
+                        ? selectedAlbumItems(of: canonical)
+                        : nil,
                 )
                 let mustRefresh = demand.ids.contains(id) || changedOwners.contains(id)
                     || wasSelectingMessages && !isSelectingMessages
@@ -9176,12 +9201,29 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             })
         }
         if canSelectMessage(message) {
-            elements.append(TelegramContextMenuAction(
-                title: L10n.telegram("Conversation.ContextMenuSelect"),
-                image: UIImage(systemName: "checkmark.circle"),
-            ) { [weak self] in
-                self?.beginMessageSelection(with: message.displayedID)
-            })
+            // Telegram's Select takes the message under the finger, an album's item included, and Select All takes
+            // the whole group. BetterTG selects a file album only whole.
+            let displayedID = message.displayedID
+            let albumItems = selectableAlbumItemIDs(of: message)
+            if message.sourceMessages.count <= 1 || albumItemID.map({ albumItems?.contains($0) == true }) == true {
+                elements.append(TelegramContextMenuAction(
+                    title: L10n.telegram("Conversation.ContextMenuSelect"),
+                    image: UIImage(systemName: "checkmark.circle"),
+                ) { [weak self] in
+                    self?.beginMessageSelection(with: displayedID, initialAlbumItemID: albumItemID)
+                })
+            }
+            if message.sourceMessages.count > 1 {
+                elements.append(TelegramContextMenuAction(
+                    title: L10n.telegramPlural(
+                        "Conversation.ContextMenuSelectAll",
+                        count: message.sourceMessages.count,
+                    ),
+                    image: UIImage(systemName: "checklist"),
+                ) { [weak self] in
+                    self?.beginMessageSelection(with: displayedID)
+                })
+            }
         }
 
         let deleteActions = isThreadHead ? [] : deleteOptionActions(for: message)
@@ -9560,14 +9602,27 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
-    private func beginMessageSelection(with displayedMessageID: DisplayedMessageID, selectInitialMessage: Bool = true) {
+    /// `initialAlbumItemID` starts with one item of a media album selected rather than the whole bubble.
+    private func beginMessageSelection(
+        with displayedMessageID: DisplayedMessageID,
+        selectInitialMessage: Bool = true,
+        initialAlbumItemID: Int64? = nil,
+    ) {
         guard presentationMode == .full,
               let message = message(for: displayedMessageID),
               canSelectMessage(message)
         else { return }
         view.endEditing(true)
         isSelectingMessages = true
-        selectedDisplayedMessageIDs = selectInitialMessage ? [displayedMessageID] : []
+        let albumItemID = initialAlbumItemID.flatMap { selectableAlbumItemIDs(of: message)?.contains($0) == true
+            ? $0
+            : nil
+        }
+        selectedDisplayedMessageIDs = selectInitialMessage && albumItemID == nil ? [displayedMessageID] : []
+        partialAlbumSelection = [:]
+        if selectInitialMessage, let albumItemID {
+            setAlbumSelection([albumItemID], of: message)
+        }
         collectionView.isEditing = true
         messageContextGesture.isEnabled = false
         updateStatusPanel(animated: true)
@@ -9606,15 +9661,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if selectedDisplayedMessageIDs.contains(displayedMessageID) {
             selectedDisplayedMessageIDs.remove(displayedMessageID)
         } else {
-            let proposedIDs = selectedDisplayedMessageIDs.union([displayedMessageID])
-            let proposedCount = sourceMessageIDs(forDisplayedMessageIDs: proposedIDs).count
+            // A partly selected group's check is off, so a tap on it selects the whole group.
+            let proposedCount = proposedSelectionCount(adding: displayedMessageID)
             if proposedCount > 100 {
                 presentSelectionLimitAlert(count: proposedCount)
                 return
             }
             selectedDisplayedMessageIDs.insert(selectedMessage.displayedID)
         }
-        if selectedDisplayedMessageIDs.isEmpty {
+        partialAlbumSelection.removeValue(forKey: displayedMessageID)
+        if !hasMessageSelection {
             endMessageSelection()
         } else {
             updateMessageSelectionChrome(reconfigureIDs: [displayedMessageID])
@@ -9646,6 +9702,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         selectionInteractionActive = false
         collectionView.isEditing = false
         selectedDisplayedMessageIDs.removeAll()
+        partialAlbumSelection.removeAll()
         synchronizeNativeSelection()
         messageContextGesture.isEnabled = presentationMode == .full
         customNavigationBar.setSelectionCount(nil)
@@ -9711,8 +9768,108 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return Array(Set(sourceIDs)).sorted()
     }
 
+    private func selectedSourceMessageIDs(
+        fullySelected: Set<DisplayedMessageID>,
+        partial: [DisplayedMessageID: Set<Int64>],
+    ) -> [Int64] {
+        let whole = sourceMessageIDs(forDisplayedMessageIDs: fullySelected)
+        return Array(Set(whole).union(partial.values.joined())).sorted()
+    }
+
+    /// How many messages the selection holds once `displayedID` is selected whole.
+    private func proposedSelectionCount(adding displayedID: DisplayedMessageID) -> Int {
+        var partial = partialAlbumSelection
+        partial.removeValue(forKey: displayedID)
+        return selectedSourceMessageIDs(
+            fullySelected: selectedDisplayedMessageIDs.union([displayedID]),
+            partial: partial,
+        )
+        .count
+    }
+
+    /// The items of a media album, which Telegram selects one by one: photos and videos laid out as a mosaic.
+    private func selectableAlbumItemIDs(of message: CustomMessage) -> Set<Int64>? {
+        let items = message.album.filter { item in
+            switch item.content {
+            case .messageAnimation,
+                 .messagePhoto,
+                 .messageSticker,
+                 .messageVideo:
+                true
+            default:
+                false
+            }
+        }
+        return items.count > 1 && items.count == message.sourceMessages.count ? Set(items.map(\.id)) : nil
+    }
+
+    /// The selected items of a media album: all of them when the bubble is selected whole.
+    private func selectedAlbumItems(of message: CustomMessage) -> Set<Int64> {
+        guard let items = selectableAlbumItemIDs(of: message) else { return [] }
+        if selectedDisplayedMessageIDs.contains(message.displayedID) { return items }
+        return partialAlbumSelection[message.displayedID]?.intersection(items) ?? []
+    }
+
+    /// Records an album's selected items: all of them select the bubble whole, none clear it.
+    private func setAlbumSelection(_ selected: Set<Int64>, of message: CustomMessage) {
+        let id = message.displayedID
+        guard let items = selectableAlbumItemIDs(of: message) else { return }
+        let selected = selected.intersection(items)
+        if selected == items {
+            partialAlbumSelection.removeValue(forKey: id)
+            selectedDisplayedMessageIDs.insert(id)
+        } else {
+            selectedDisplayedMessageIDs.remove(id)
+            partialAlbumSelection[id] = selected.isEmpty ? nil : selected
+        }
+    }
+
+    /// GridMessageSelectionNode's toggle: a tap on an album item while selecting selects or deselects that item.
+    private func toggleAlbumItemSelection(displayedMessageID: DisplayedMessageID, itemID: Int64) {
+        guard isSelectingMessages,
+              let message = message(for: displayedMessageID),
+              canSelectMessage(message),
+              selectableAlbumItemIDs(of: message)?.contains(itemID) == true
+        else { return }
+        selectionCapabilityTask?.cancel()
+        selectionCapabilityTask = nil
+        selectionCapabilityGeneration = nil
+        var selected = selectedAlbumItems(of: message)
+        if selected.contains(itemID) {
+            selected.remove(itemID)
+        } else {
+            let proposedCount = selectedSourceMessageIDs.count + 1
+            if proposedCount > 100 {
+                presentSelectionLimitAlert(count: proposedCount)
+                return
+            }
+            selected.insert(itemID)
+        }
+        setAlbumSelection(selected, of: message)
+        if !hasMessageSelection {
+            endMessageSelection()
+        } else {
+            updateMessageSelectionChrome(reconfigureIDs: [displayedMessageID])
+            UIAccessibility.post(notification: .announcement, argument: selectionAccessibilityAnnouncement)
+        }
+    }
+
+    /// Drops partly selected albums that left the history and items an album no longer has.
+    private func pruneAlbumSelection() {
+        guard !partialAlbumSelection.isEmpty else { return }
+        var pruned = [DisplayedMessageID: Set<Int64>]()
+        for (id, selected) in partialAlbumSelection {
+            guard let message = message(for: id), let items = selectableAlbumItemIDs(of: message) else { continue }
+            let remaining = selected.intersection(items)
+            if !remaining.isEmpty { pruned[id] = remaining }
+        }
+        partialAlbumSelection = pruned
+    }
+
     private func canSelectMessage(_ message: CustomMessage) -> Bool {
+        // ChatMessageBubbleItemNode: a thread's head is never selectable in the thread.
         !message.contentPresentation.isService && message.message.selfDestructType == nil
+            && !chatVM.isMessageThreadHead(message)
     }
 
     private func canForwardMessageContent(_ message: CustomMessage) -> Bool {
@@ -10048,7 +10205,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func forwardSelectedMessages() {
-        presentForwardPicker(forDisplayedMessageIDs: selectedDisplayedMessageIDs)
+        do {
+            let request = try MessageForwardRequest(
+                sourceLocation: chatVM.location,
+                messageIDs: selectedSourceMessageIDs,
+            )
+            presentForwardPicker(request: request, initialMode: nil, replacingForwardID: nil)
+        } catch {
+            presentForwardRequestError(error)
+        }
     }
 
     private func presentForwardPicker(forDisplayedMessageIDs displayedIDs: Set<DisplayedMessageID>) {

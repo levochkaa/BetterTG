@@ -2,6 +2,95 @@
 
 import UIKit
 
+// MARK: - MediaSelectionCheckView
+
+/// CheckNode's overlay style on an album item (GridMessageSelectionNode): a 28 pt circle 2 pt inside the item's
+/// top right corner, a 1.5 pt white ring with a soft shadow, filled with the accent and checked once selected.
+final class MediaSelectionCheckView: UIView {
+    static let size = CGFloat(28)
+
+    private(set) var isSelected = false
+
+    private let ringLayer = CAShapeLayer()
+    private let fillLayer = CAShapeLayer()
+    private let checkLayer = CAShapeLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        ringLayer.fillColor = UIColor.clear.cgColor
+        ringLayer.strokeColor = UIColor.white.cgColor
+        ringLayer.lineWidth = 1.5
+        ringLayer.shadowColor = UIColor.black.cgColor
+        ringLayer.shadowOpacity = 0.22
+        ringLayer.shadowRadius = 1.25
+        ringLayer.shadowOffset = .zero
+        fillLayer.fillColor = UIColor.systemBlue.cgColor
+        checkLayer.fillColor = UIColor.clear.cgColor
+        checkLayer.strokeColor = UIColor.white.cgColor
+        checkLayer.lineWidth = 1.5
+        checkLayer.lineCap = .round
+        checkLayer.lineJoin = .round
+        for sublayer in [ringLayer, fillLayer, checkLayer] {
+            layer.addSublayer(sublayer)
+        }
+        apply(selected: false)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let inset = 2 - 1 / max(traitCollection.displayScale, 1)
+        let ringRect = bounds.insetBy(dx: inset + 0.75, dy: inset + 0.75)
+        let fillRect = bounds.insetBy(dx: inset + 1.5, dy: inset + 1.5)
+        for sublayer in [ringLayer, fillLayer, checkLayer] {
+            sublayer.frame = bounds
+        }
+        ringLayer.path = UIBezierPath(ovalIn: ringRect).cgPath
+        fillLayer.path = UIBezierPath(ovalIn: fillRect).cgPath
+        // CheckNode's check, scaled to the size less the inset.
+        let scale = (bounds.width - inset) / 18
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let start = CGPoint(x: center.x - (4 - 0.3333) * scale, y: center.y + 0.5 * scale)
+        let corner = CGPoint(x: start.x + 2.5 * scale, y: start.y + 3 * scale)
+        let check = UIBezierPath()
+        check.move(to: start)
+        check.addLine(to: corner)
+        check.addLine(to: CGPoint(x: corner.x + 4.6667 * scale, y: corner.y - 6 * scale))
+        checkLayer.path = check.cgPath
+    }
+
+    /// Fills and draws the check, or takes them away, over 0.2 s when animated.
+    func setSelected(_ selected: Bool, animated: Bool) {
+        guard selected != isSelected else { return }
+        isSelected = selected
+        CATransaction.begin()
+        CATransaction.setDisableActions(!animated)
+        CATransaction.setAnimationDuration(0.2)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        apply(selected: selected)
+        CATransaction.commit()
+    }
+
+    /// GridMessageSelectionNode's 0.5 s spring in from 0.2 scale as selection starts.
+    func animateIn() {
+        alpha = 0
+        transform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+        UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0) {
+            self.alpha = 1
+            self.transform = .identity
+        }
+    }
+
+    private func apply(selected: Bool) {
+        fillLayer.transform = selected ? CATransform3DIdentity : CATransform3DMakeScale(0.001, 0.001, 1)
+        checkLayer.strokeEnd = selected ? 1 : 0
+    }
+}
+
 // MARK: - MessageSelectionIndicatorView
 
 final class MessageSelectionIndicatorView: UIView {

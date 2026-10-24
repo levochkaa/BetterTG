@@ -12,6 +12,7 @@ final class MessageMediaView: UIView {
     // MARK: Private
 
     private var contentView: UIView?
+    private var albumSelection: Set<Int64>?
     private var revealPermits = [Int64: MediaRevealPermit]()
     private var revealSubscription: AnyCancellable?
     private var maximumWidth = CGFloat.zero
@@ -314,6 +315,14 @@ final class MessageMediaView: UIView {
             return albumView.showsFullPhoto(for: messageID)
         }
         return (contentView as? SinglePhotoView)?.showsFullPhoto == true
+    }
+
+    /// The media album's item checks while selection is on; nil hides them. Other media ignore it. An animated
+    /// change starts from the checks the album showed before its view was configured again.
+    func setAlbumSelection(_ selected: Set<Int64>?, animated: Bool) {
+        let previous = animated ? albumSelection : nil
+        albumSelection = selected
+        (contentView as? AlbumMediaView)?.setSelection(selected, previous: previous, animated: animated)
     }
 
     /// The photo or video of an album under `point` (in `coordinateSpace`); nil outside an album.
@@ -683,6 +692,20 @@ final class AlbumMediaView: UIView, ReusableMediaView {
         tiles.first { $0.convert($0.bounds, to: coordinateSpace).contains(point) }?.messageID
     }
 
+    /// Shows each item's check while selection is on (`selected` non-nil), as ChatMessageMediaBubbleContentNode
+    /// does for every message of a group; nil takes the checks away. `previous` is what the album showed before
+    /// this view replaced it, for the change to animate from.
+    func setSelection(_ selected: Set<Int64>?, previous: Set<Int64>?, animated: Bool) {
+        for tile in tiles {
+            guard let messageID = tile.messageID else { continue }
+            tile.setSelection(
+                selected.map { $0.contains(messageID) },
+                previous: previous.map { $0.contains(messageID) },
+                animated: animated,
+            )
+        }
+    }
+
     func transitionSnapshot(for messageID: Int64) -> UIView? {
         tiles.first(where: { $0.messageID == messageID })?.makeTransitionSnapshot()
     }
@@ -726,6 +749,7 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
     private var onTap: (() -> Void)?
     private var cover: MediaConcealmentView?
     private var revealPermit: MediaRevealPermit?
+    private var selectionCheck: MediaSelectionCheckView?
 
     #if DEBUG
         private var debugHasVideoPlaybackOwner = false
@@ -786,12 +810,34 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         super.layoutSubviews()
         // RadialStatusNode is 50 pt in media bubbles and 32 pt where the media is small.
         uploadProgress.diameter = min(bounds.width, bounds.height) < 90 ? 32 : 50
+        let size = MediaSelectionCheckView.size
+        selectionCheck?.bounds = CGRect(x: 0, y: 0, width: size, height: size)
+        selectionCheck?.center = CGPoint(x: bounds.width - 2 - size / 2, y: 2 + size / 2)
     }
 
     override func accessibilityActivate() -> Bool {
         guard let onTap, !uploadProgress.isActive else { return false }
         onTap()
         return true
+    }
+
+    /// The item's check: nil hides it. `previous` is the state the tile this one replaces showed.
+    func setSelection(_ selected: Bool?, previous: Bool?, animated: Bool) {
+        guard let selected else {
+            selectionCheck?.removeFromSuperview()
+            selectionCheck = nil
+            return
+        }
+        let check = selectionCheck ?? MediaSelectionCheckView()
+        if selectionCheck == nil {
+            selectionCheck = check
+            addSubview(check)
+            setNeedsLayout()
+            layoutIfNeeded()
+            check.setSelected(previous ?? selected, animated: false)
+            if animated, previous == nil { check.animateIn() }
+        }
+        check.setSelected(selected, animated: animated)
     }
 
     func setPlaybackVisible(_ isVisible: Bool) {
@@ -920,6 +966,8 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         showsPlayIcon = false
         onTap = nil
         livePhotoBadge.isHidden = true
+        selectionCheck?.removeFromSuperview()
+        selectionCheck = nil
         messageID = nil
         #if DEBUG
             debugHasVideoPlaybackOwner = false
