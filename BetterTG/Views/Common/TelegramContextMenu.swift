@@ -294,9 +294,27 @@ extension UIViewController {
             sources: sources,
             owner: self, onDismiss: onDismiss,
         )
+        cancelCompetingPans(from: sourceView, except: gesture)
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         controller.show(in: sourceWindow)
         return true
+    }
+
+    /// The system menu takes the finger over from the views under it: a swipe to reply, a list's scroll or a row's
+    /// swipe actions that started with the same finger stop, instead of moving the source behind the open menu and
+    /// acting when the finger lifts. The window's own recognizers are left alone.
+    private func cancelCompetingPans(from sourceView: UIView, except tracking: UIGestureRecognizer?) {
+        var view: UIView? = sourceView
+        while let current = view, !(current is UIWindow) {
+            for recognizer in current.gestureRecognizers ?? [] where recognizer !== tracking {
+                guard recognizer is UIPanGestureRecognizer, recognizer.isEnabled,
+                      [.possible, .began, .changed].contains(recognizer.state)
+                else { continue }
+                recognizer.isEnabled = false
+                recognizer.isEnabled = true
+            }
+            view = current.superview
+        }
     }
 }
 
