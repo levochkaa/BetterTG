@@ -19,6 +19,10 @@ settings:
     CURRENT_PROJECT_VERSION: 1
     ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS: YES
     CLANG_CXX_LANGUAGE_STANDARD: gnu++20
+    # build.sh shares one compilation cache across worktrees. Swift stays out: with C++ interop, Xcode 27.1 and the
+    # 27.2 RC warn that libcxxshim.modulemap is ignored on every cached Swift compile job.
+    COMPILATION_CACHE_ENABLE_CACHING: YES
+    SWIFT_ENABLE_COMPILE_CACHE: NO
     CODE_SIGN_IDENTITY: Apple Development
     DEVELOPMENT_TEAM: 7Z2WHPKU8W
     SDKROOT: iphoneos

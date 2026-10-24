@@ -37,16 +37,28 @@ LAUNCH_ARGUMENTS=()
 ATTACH_CONSOLE=0
 SKIP_BUILD=0
 SIMULATOR_BOOT_TIMEOUT_SECONDS=120
+MINIMUM_FREE_DISK_GB=5
+CLEAN_DRY_RUN=0
+CACHE_RECENT_GRACE_MINUTES=15
+# Compiling builds from every worktree share one compilation cache per Xcode build.
+COMPILATION_CACHE_ROOT="$HOME/Library/Caches/BetterTG/CompilationCache"
+# Marks a Swift package graph cache as BetterTG's; the shared root also holds other projects' caches.
+PACKAGE_GRAPH_MARKER=".bettertg-package-graph"
+DERIVED_DATA_USE_STAMP=".bettertg-last-used"
 
 usage() {
   cat <<'EOF'
-Usage: ./build.sh [build|run|clean-intermediates] [options]
+Usage: ./build.sh [build|run|clean-intermediates|clean-cache] [options]
 
 Commands:
   build     Build BetterTG (default).
   run       Build, install, and launch BetterTG.
   clean-intermediates
             Remove compilation, index, module, and SDK-stat intermediates while preserving products and Swift packages.
+  clean-cache
+            Remove caches no BetterTG worktree uses: DerivedData, module and compilation caches of other Xcode
+            versions, other worktrees' DerivedData unused for --cache-recent-grace-minutes, and BetterTG Swift
+            package graph caches other than the current one. Other projects' package caches are left alone.
 
 Options:
   --device  Use the available paired physical iPhone instead of Simulator.
@@ -81,6 +93,12 @@ Options:
             Maximum time to wait for simulator boot readiness. Default: 120.
   --full-output, --verbose
             Print complete build output instead of concise progress.
+  --minimum-free-disk-gb COUNT
+            Fail a compiling build below this much free disk, deleting nothing. 0 disables the check. Default: 5.
+  --dry-run
+            For clean-cache and clean-intermediates: list what would be removed, with sizes, and remove nothing.
+  --cache-recent-grace-minutes COUNT
+            For clean-cache: keep another worktree's DerivedData and a package graph used this recently. Default: 15.
 
 Examples:
   ./build.sh run
@@ -90,12 +108,13 @@ Examples:
   ./build.sh run --device --console -- -example value
   ./build.sh run --device -- -example value
   ./build.sh run --launch-argument=-example --launch-argument value
+  ./build.sh clean-cache --dry-run
 EOF
 }
 
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    build|run|clean-intermediates)
+    build|run|clean-intermediates|clean-cache)
       ACTION="$1"
       shift
       ;;
@@ -244,6 +263,25 @@ while [[ $# -gt 0 ]]; do
     --full-output|--verbose)
       FULL_OUTPUT=1
       ;;
+    --minimum-free-disk-gb)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: --minimum-free-disk-gb requires a non-negative integer" >&2
+        exit 2
+      fi
+      MINIMUM_FREE_DISK_GB="$2"
+      shift
+      ;;
+    --dry-run)
+      CLEAN_DRY_RUN=1
+      ;;
+    --cache-recent-grace-minutes)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: --cache-recent-grace-minutes requires a non-negative integer" >&2
+        exit 2
+      fi
+      CACHE_RECENT_GRACE_MINUTES="$2"
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -304,6 +342,21 @@ validate_configuration() {
 
   if [[ ! "$SIMULATOR_BOOT_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
     echo "error: --simulator-boot-timeout-seconds must be a positive integer" >&2
+    exit 2
+  fi
+
+  if [[ ! "$MINIMUM_FREE_DISK_GB" =~ ^[0-9]+$ ]]; then
+    echo "error: --minimum-free-disk-gb must be a non-negative integer" >&2
+    exit 2
+  fi
+
+  if [[ ! "$CACHE_RECENT_GRACE_MINUTES" =~ ^[0-9]+$ ]]; then
+    echo "error: --cache-recent-grace-minutes must be a non-negative integer" >&2
+    exit 2
+  fi
+
+  if [[ "$CLEAN_DRY_RUN" == "1" && "$ACTION" != "clean-cache" && "$ACTION" != "clean-intermediates" ]]; then
+    echo "error: --dry-run is only valid for clean-cache and clean-intermediates" >&2
     exit 2
   fi
 }
@@ -407,7 +460,7 @@ acquire_build_lock() {
         "${ORIGINAL_ARGS[@]:1}"
       )
       ;;
-    build|clean-intermediates)
+    build|clean-intermediates|clean-cache)
       reentry_args=(
         "${ORIGINAL_ARGS[0]}"
         --build-lock-held
@@ -571,13 +624,142 @@ clean_derived_data_intermediates() {
       ;;
   esac
 
-  echo "Cleaning DerivedData intermediates: $DERIVED_DATA_PATH"
-  rm -rf \
-    "$DERIVED_DATA_PATH/Build/Intermediates.noindex" \
-    "$DERIVED_DATA_PATH/CompilationCache.noindex" \
-    "$DERIVED_DATA_PATH/Index.noindex" \
-    "$DERIVED_DATA_PATH/ModuleCache.noindex" \
+  local intermediates=(
+    "$DERIVED_DATA_PATH/Build/Intermediates.noindex"
+    "$DERIVED_DATA_PATH/CompilationCache.noindex"
+    "$DERIVED_DATA_PATH/Index.noindex"
+    "$DERIVED_DATA_PATH/ModuleCache.noindex"
     "$DERIVED_DATA_PATH/SDKStatCaches.noindex"
+  )
+  if [[ "$CLEAN_DRY_RUN" == "1" ]]; then
+    echo "Would clean DerivedData intermediates: $DERIVED_DATA_PATH"
+    report_removal_candidates "${intermediates[@]}"
+    return
+  fi
+  echo "Cleaning DerivedData intermediates: $DERIVED_DATA_PATH"
+  rm -rf "${intermediates[@]}"
+}
+
+# Prints each existing path with its size, then the total.
+report_removal_candidates() {
+  local total_kb=0 path size_kb
+  for path in "$@"; do
+    [[ -e "$path" ]] || continue
+    size_kb="$(du -sk "$path" 2>/dev/null | awk '{ print $1 }')"
+    size_kb="${size_kb:-0}"
+    total_kb=$((total_kb + size_kb))
+    printf '  %8s  %s\n' "$(human_size_kb "$size_kb")" "$path"
+  done
+  printf '  %8s  total\n' "$(human_size_kb "$total_kb")"
+}
+
+human_size_kb() {
+  awk -v kb="$1" 'BEGIN {
+    if (kb >= 1048576) printf "%.1fG", kb / 1048576
+    else if (kb >= 1024) printf "%.0fM", kb / 1024
+    else printf "%dK", kb
+  }'
+}
+
+# Minutes since a cache was last used, from its use stamp or the newest of the given files.
+minutes_since_use() {
+  local newest=0 path mtime
+  for path in "$@"; do
+    [[ -e "$path" ]] || continue
+    mtime="$(stat -f %m "$path" 2>/dev/null || echo 0)"
+    [[ "$mtime" -gt "$newest" ]] && newest="$mtime"
+  done
+  if [[ "$newest" == "0" ]]; then
+    echo 999999
+    return
+  fi
+  echo $((($(date +%s) - newest) / 60))
+}
+
+# Builds hold the machine-wide build lock, so nothing removed here is in use: clean-cache takes the same lock.
+clean_cache() {
+  local candidates=() worktree entry key
+  while IFS= read -r worktree; do
+    [[ -d "$worktree/.build" ]] || continue
+    for entry in "$worktree/.build/xcodebuild-derived-data"/* "$worktree/.build/tool-caches/modules"/*; do
+      [[ -d "$entry" ]] || continue
+      key="$(basename "$entry")"
+      if [[ "$key" != "$TOOLCHAIN_KEY" ]]; then
+        candidates+=("$entry")
+      elif [[ "$worktree" != "$ROOT_DIR" && "$entry" == */xcodebuild-derived-data/* ]] &&
+        [[ "$(minutes_since_use "$entry/$DERIVED_DATA_USE_STAMP" "$entry/info.plist")" -ge "$CACHE_RECENT_GRACE_MINUTES" ]]; then
+        candidates+=("$entry")
+      fi
+    done
+  done < <(git -C "$ROOT_DIR" worktree list --porcelain | awk '/^worktree / { sub(/^worktree /, ""); print }')
+
+  for entry in "$COMPILATION_CACHE_ROOT"/*; do
+    [[ -d "$entry" && "$(basename "$entry")" != "$TOOLCHAIN_KEY" ]] && candidates+=("$entry")
+  done
+
+  for entry in "$PACKAGE_CACHE_ROOT"/*; do
+    [[ -d "$entry" && "$entry" != "$CLONED_SOURCE_PACKAGES_DIR_PATH" ]] || continue
+    # Caches prepared before the marker existed are recognised by their TDLibKit checkout.
+    [[ -f "$entry/$PACKAGE_GRAPH_MARKER" || -d "$entry/checkouts/TDLibKit" ]] || continue
+    if [[ "$(minutes_since_use "$entry/$PACKAGE_GRAPH_MARKER" "$entry/.ready")" -ge "$CACHE_RECENT_GRACE_MINUTES" ]]; then
+      candidates+=("$entry")
+    fi
+  done
+
+  if [[ ${#candidates[@]} -eq 0 ]]; then
+    echo "No unused BetterTG caches."
+    return
+  fi
+  if [[ "$CLEAN_DRY_RUN" == "1" ]]; then
+    echo "Would remove unused BetterTG caches:"
+    report_removal_candidates "${candidates[@]}"
+    return
+  fi
+  echo "Removing unused BetterTG caches:"
+  report_removal_candidates "${candidates[@]}"
+  for entry in "${candidates[@]}"; do
+    case "$entry" in
+      */.build/xcodebuild-derived-data/?*|*/.build/tool-caches/modules/?*|"$COMPILATION_CACHE_ROOT"/?*|"$PACKAGE_CACHE_ROOT"/?*)
+        rm -rf "$entry"
+        ;;
+      *)
+        echo "error: refusing unexpected cache path: $entry" >&2
+        return 1
+        ;;
+    esac
+  done
+}
+
+# Fails before compiling below the free-space floor; nothing is deleted.
+disk_space_preflight() {
+  [[ "$MINIMUM_FREE_DISK_GB" != "0" ]] || return 0
+  local available_kb minimum_kb=$((MINIMUM_FREE_DISK_GB * 1024 * 1024))
+  available_kb="$(df -Pk "$ROOT_DIR" | awk 'NR == 2 { print $4 }')"
+  if [[ ! "$available_kb" =~ ^[0-9]+$ ]]; then
+    echo "error: could not determine free disk space for $ROOT_DIR" >&2
+    exit 66
+  fi
+  if [[ "$available_kb" -lt "$minimum_kb" ]]; then
+    echo "error: $(human_size_kb "$available_kb") free at $ROOT_DIR; building needs ${MINIMUM_FREE_DISK_GB}G." >&2
+    echo "Preview cleanup with ./build.sh clean-cache --dry-run or ./build.sh clean-intermediates --dry-run. Pass --minimum-free-disk-gb 0 only when the space is known to be enough." >&2
+    exit 73
+  fi
+}
+
+# Local builds share one compilation cache across worktrees for C, C++ and Objective-C (Swift caching is off in
+# project.yml). Prefix mapping records the worktree path, which also holds its DerivedData and module caches, as
+# /^root in cache keys and debug info, so a new worktree reuses what another one compiled. LLDB then needs
+# `settings set target.source-map /^root <worktree>` for full-path breakpoints and source listing in that code.
+append_shared_compilation_cache_args() {
+  # Xcode splits list settings on whitespace, so such a worktree path cannot be mapped.
+  [[ "$ROOT_DIR" != *[[:space:]]* ]] || return 0
+  xcodebuild_args+=(
+    "COMPILATION_CACHE_CAS_PATH=$COMPILATION_CACHE_ROOT/$TOOLCHAIN_KEY"
+    "COMPILATION_CACHE_LIMIT_SIZE=20G"
+    "CLANG_ENABLE_PREFIX_MAPPING=YES"
+    "CLANG_ENABLE_PROJECT_PREFIX_MAPPING=YES"
+    "CLANG_OTHER_PREFIX_MAPPINGS=$ROOT_DIR=/^root"
+  )
 }
 
 migrate_legacy_caches_if_needed() {
@@ -781,7 +963,12 @@ migrate_legacy_caches_if_needed
 
 if [[ "$ACTION" == "clean-intermediates" ]]; then
   clean_derived_data_intermediates
-  echo "Preserved build products and Swift package cache."
+  [[ "$CLEAN_DRY_RUN" == "1" ]] || echo "Preserved build products and Swift package cache."
+  exit 0
+fi
+
+if [[ "$ACTION" == "clean-cache" ]]; then
+  clean_cache
   exit 0
 fi
 
@@ -799,10 +986,12 @@ else
 fi
 
 if [[ "$SKIP_BUILD" == "0" ]]; then
+  disk_space_preflight
   echo "Generating the Xcode project..."
   run_with_filtered_output "$ROOT_DIR/script/generate_xcodeproj.sh"
 
   prepare_swift_packages
+  touch "$CLONED_SOURCE_PACKAGES_DIR_PATH/$PACKAGE_GRAPH_MARKER"
 
   echo "Updating generated TDLib models..."
   TDLIBKIT_SCHEMA_PATH="$(tdlibkit_schema_path)"
@@ -840,6 +1029,8 @@ if [[ "$SKIP_BUILD" == "0" ]]; then
     -disableAutomaticPackageResolution
     "CLANG_MODULE_CACHE_PATH=$CLANG_MODULE_CACHE_PATH"
   )
+  append_shared_compilation_cache_args
+  touch "$DERIVED_DATA_PATH/$DERIVED_DATA_USE_STAMP"
 
   if [[ "$CONFIGURATION" == "Debug" ]]; then
     # TDLibKit's generated C++ schema switch reserves a large stack frame at
