@@ -3625,7 +3625,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                                     intent: .reaction(type),
                                 )
                                 else { return }
+                                let adding = !MessageReactionStateReducer.isChosen(type, in: current.reactions)
                                 chatVM.toggleReaction(on: current, type: type, isBig: false)
+                                if adding { playReactionEffect(type, displayedID: current.displayedID) }
                             },
                             onReactionLongPress: { [weak self, weak cell] type in
                                 guard let self, let current = currentActionMessage(
@@ -6080,6 +6082,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         present(alert, animated: true)
+    }
+
+    /// ChatController's reaction selection: once the chosen reaction's chip shows, StandaloneReactionAnimation plays
+    /// over it.
+    private func playReactionEffect(_ type: ReactionType, displayedID: DisplayedMessageID) {
+        guard let emoji = type.standardEmoji, !UIAccessibility.isReduceMotionEnabled else { return }
+        let client = chatVM.client
+        // The optimistic reaction reaches the chip on the next timeline pass.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, let path = dataSource.indexPath(for: .message(displayedID)),
+                  let cell = collectionView.cellForItem(at: path) as? MessageCell,
+                  let icon = cell.reactionIconView(for: type)
+            else { return }
+            ReactionEffectOverlay.play(emoji: emoji, iconView: icon, client: client)
+        }
     }
 
     private func expandReplyQuote(for message: CustomMessage) {
@@ -9800,7 +9817,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     ] in
                         guard let self, let message, TDLib.shared.activeAccountID == accountID,
                               TDLib.shared.activeClient.id == client.id else { return }
+                        let adding = !MessageReactionStateReducer.isChosen(type, in: message.reactions)
                         chatVM.toggleReaction(on: message, type: type, isBig: false)
+                        if adding { playReactionEffect(type, displayedID: message.displayedID) }
                     }
                 }
             } catch {

@@ -241,6 +241,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var spoilerSubscriptions = Set<AnyCancellable>()
     private var refreshSpoilerAccessibility: (() -> Void)?
     private let reactionView = MessageReactionStripView()
+
     private let timestampLabel = UILabel()
     private let mediaTimestampLabel = MessageMediaStatusLabel()
     private let commentFooterView = MessageCommentFooterView()
@@ -354,6 +355,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             selectionTouchBindingID = nil
             resumeHistoryScrolling()
         }
+    }
+
+    /// The chip icon for `type`, for the chosen reaction's effect.
+    func reactionIconView(for type: ReactionType) -> UIView? {
+        reactionView.isHidden ? nil : reactionView.iconView(for: type)
     }
 
     /// ChatMessageBubbleItemNode.animateQuizInvalidOptionSelected: a wrong quiz answer makes the bubble shrink by 3 %

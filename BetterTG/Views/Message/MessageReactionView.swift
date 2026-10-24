@@ -61,6 +61,11 @@ final class MessageReactionStripView: UIView {
         return layoutMetrics(width: width).size
     }
 
+    /// The icon of the chip for `type`, where ReactionButtonsAsyncLayoutContainer's target view sits.
+    func iconView(for type: ReactionType) -> UIView? {
+        buttons.first { $0.representedType == type }?.iconView
+    }
+
     @discardableResult func configure(
         reactions: MessageReactions?,
         unreadReactions: [UnreadReaction],
@@ -234,12 +239,20 @@ private final class MessageReactionButton: UIControl {
     private var customEmojiView: CustomEmojiInlineView?
     private var reactionType: ReactionType?
     private var onTap: ((ReactionType) -> Void)?
+
     private var onLongPress: ((ReactionType) -> Void)?
     private lazy var longPressRecognizer = UILongPressGestureRecognizer(
         target: self,
         action: #selector(longPressed(_:)),
     )
     private var playbackVisible = false
+
+    var representedType: ReactionType? { reactionType }
+    /// The custom emoji once it shows, else the emoji.
+    var iconView: UIView {
+        if let customEmojiView, customEmojiView.alpha > 0 { return customEmojiView }
+        return emojiLabel
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
