@@ -459,6 +459,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// End of the visible close motion of a liquid morph, recorded at about 0.7 s (Telegram 7c2cfd6a1f).
     private static let liquidMorphCloseMotionDuration: TimeInterval = 0.7
 
+    // MARK: Motion hold
+
+    /// About as long as the menu's springs take to settle visually.
+    private static let motionHoldDuration: TimeInterval = 0.55
+
     fileprivate weak var owner: UIViewController?
 
     private var onDismiss: (() -> Void)?
@@ -528,6 +533,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private var isPerformingAction = false
     /// One touch at a time, as in the system menu: the finger that opened the menu or a later touch on it.
     private var touchSession: ContextMenuTouchSession?
+    /// Holds animated emoji on their frame while the menu moves: the reaction strip's, and the stickers of the chat
+    /// under the blur. Telegram renders them off the main thread. Here Lottie draws them on it and every frame of
+    /// theirs recomposites the blurred screen; the strip's looping custom emoji cut each menu motion to about 36 Hz on
+    /// the iPhone 17 Pro iOS 26.5 Simulator, against 60 Hz with the strip still.
+    private var motionHold: TGSPlaybackHold?
+    private var motionHoldRelease: DispatchWorkItem?
     private var touchSessionIsInitiating = false
     private var touchPoint = CGPoint.zero
     private var panOffset = CGPoint.zero
@@ -732,6 +743,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 
         backgroundEffectView.frame = view.bounds
         backgroundEffectView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        // ContextControllerImpl sets the blur at full strength and fades the view in and out; animating the blur's
+        // radius instead reblurs the whole screen every frame.
+        if presentationStyle.showsPreview {
+            backgroundEffectView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
+        }
+        backgroundEffectView.alpha = 0
         view.addSubview(backgroundEffectView)
 
         dimView.frame = view.bounds
@@ -1243,7 +1260,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private func animateIn() {
         guard !hasAnimatedIn else { return }
         hasAnimatedIn = true
+        holdAnimatedEmoji(for: Self.motionHoldDuration)
         if !startLiquidMorphIn() { animateMenuIn() }
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
+            self.backgroundEffectView.alpha = 1
+        }
         UIView.animate(
             withDuration: 0.34,
             delay: 0,
@@ -1251,9 +1272,6 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             initialSpringVelocity: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
         ) {
-            if self.presentationStyle.showsPreview {
-                self.backgroundEffectView.effect = UIBlurEffect(style: .systemUltraThinMaterial)
-            }
             self.dimView.alpha = 1
             if self.presentationStyle.showsPreview {
                 if self.presentationStyle == .message {
@@ -1458,6 +1476,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         selectableTextViews.removeAll()
         reactionTask?.cancel()
         dismissCompletion = completion
+        holdAnimatedEmoji(for: nil)
         scroller.panGestureRecognizer.isEnabled = false
         if liquidMorph != nil {
             // The morph carries the menu alone; open submenus fade.
@@ -1481,12 +1500,22 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         // The preview flies back to where the source sits on screen, in the scrolled content's coordinates.
         let returnFrame = sourceFrameAtBaseTransform().offsetBy(dx: 0, dy: contentScrollOffset)
         animateMenuOut(returnFrame: returnFrame)
+        // Fading the strip itself renders its blur and emoji layers offscreen every frame, which halved the close's
+        // frame rate on the Simulator; its snapshot fades as one layer, and the emoji are on hold anyway.
+        let stripSnapshot = reactionStrip.isHidden ? nil : reactionStrip.snapshotView(afterScreenUpdates: true)
+        if let stripSnapshot {
+            stripSnapshot.frame = reactionStrip.frame
+            reactionStrip.superview?.insertSubview(stripSnapshot, aboveSubview: reactionStrip)
+            reactionStrip.isHidden = true
+        }
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState]) {
+            self.backgroundEffectView.alpha = 0
+        }
         UIView.animate(
             withDuration: 0.24,
             delay: 0,
             options: [.curveEaseIn, .beginFromCurrentState],
         ) {
-            self.backgroundEffectView.effect = nil
             self.dimView.alpha = 0
             if self.presentationStyle != .menuOnly {
                 if self.presentationStyle == .message {
@@ -1515,6 +1544,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                     : self.originalContentCornerRadius
             }
             self.reactionStrip.alpha = 0
+            stripSnapshot?.alpha = 0
             self.sourceTabsView.alpha = 0
             self.sourceFooterLabel.alpha = 0
         } completion: { _ in self.finishDismissal() }
@@ -1523,6 +1553,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private func finishDismissal() {
         guard !didFinishDismissal else { return }
         didFinishDismissal = true
+        releaseAnimatedEmoji()
         isDismissing = true
         removeEscape()
         // The menu goes transparent before its visibility assertion ends, so UIKit's cleanup never shows it open.
@@ -1590,6 +1621,25 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         dismissMenu(completion: handler)
     }
 
+    /// Pauses animated emoji until `duration` passes, or until the menu is gone when it is nil. A later motion
+    /// extends the hold.
+    private func holdAnimatedEmoji(for duration: TimeInterval?) {
+        if motionHold == nil { motionHold = TGSPlaybackHold(pausesPlaying: true) }
+        motionHoldRelease?.cancel()
+        motionHoldRelease = nil
+        guard let duration else { return }
+        let release = DispatchWorkItem { [weak self] in self?.releaseAnimatedEmoji() }
+        motionHoldRelease = release
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: release)
+    }
+
+    private func releaseAnimatedEmoji() {
+        motionHoldRelease?.cancel()
+        motionHoldRelease = nil
+        motionHold?.release()
+        motionHold = nil
+    }
+
     // MARK: Submenus
 
     /// `navigateDownFromNode:`: the chosen row's highlight grows into the submenu's card, as wide as the parent,
@@ -1621,6 +1671,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             submenu.layoutIfNeeded()
         }
         submenus.append(submenu)
+        holdAnimatedEmoji(for: Self.motionHoldDuration)
         submenu.isExpanded = true
         ContextMenuNativeAnimation.animate(
             behavior: submenuOpenBehavior,
@@ -1644,6 +1695,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         setHighlight(nil)
         let collapsed = submenuGeometry(submenu, parentView: submenus.dropLast().last ?? menuView).collapsed
         submenus.removeLast()
+        holdAnimatedEmoji(for: Self.motionHoldDuration)
         submenu.isExpanded = false
         submenu.isUserInteractionEnabled = false
         submenu.accessibilityElementsHidden = true

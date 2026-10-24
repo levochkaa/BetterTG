@@ -88,6 +88,8 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     private var onTap: (() -> Void)?
     private var fileRequest: AnimatedFileDownload?
     private var decodeTask: Task<Void, Never>?
+    /// The layer time a hold stopped the animation at.
+    private var frozenClockTime: CFTimeInterval?
 
     /// The decoded animation's frames per second, once it has loaded.
     var framerate: Double? {
@@ -190,6 +192,7 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         decodeTask?.cancel()
         decodeTask = nil
 
+        thawAnimationClock()
         animationView.stop()
         animationView.animation = nil
         playbackMode = .loop
@@ -330,8 +333,36 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         onTap?()
     }
 
-    /// Resumes after a hold, one sticker per frame, so the chat doesn't rebuild every animation in one frame.
+    /// Stops the animation's clock on its current frame without telling Lottie. Its Core Animation engine, which
+    /// plays most stickers on the render server, rebuilds the whole animation on the main thread to pause and again
+    /// to resume; stopping the layer's time costs nothing and resumes on the same frame.
+    private func freezeAnimationClock() {
+        guard frozenClockTime == nil else { return }
+        let layer = animationView.layer
+        let time = layer.convertTime(CACurrentMediaTime(), from: nil)
+        layer.speed = 0
+        layer.timeOffset = time
+        frozenClockTime = time
+    }
+
+    private func thawAnimationClock() {
+        guard let frozenTime = frozenClockTime else { return }
+        frozenClockTime = nil
+        let layer = animationView.layer
+        layer.speed = 1
+        layer.timeOffset = 0
+        layer.beginTime = 0
+        layer.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) - frozenTime
+    }
+
+    /// Resumes after a hold, one sticker per frame, so the chat doesn't rebuild every animation in one frame. A hold
+    /// that pauses playback stops a playing sticker on its current frame.
     @objc private func playbackHoldChanged() {
+        if TGSPlaybackHold.pausesPlayback {
+            freezeAnimationClock()
+            return
+        }
+        thawAnimationClock()
         guard !TGSPlaybackHold.isActive, window != nil, playbackVisible, animationView.animation != nil,
               !animationView.isAnimationPlaying
         else { return }
@@ -355,15 +386,24 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     // MARK: Private
 
     private static var activeCount = 0
+    private static var pausingCount = 0
     private static var resumeOrder = 0
 
     static var isActive: Bool { activeCount > 0 }
 
+    /// Whether stickers already playing stop on their current frame too, not only those about to start.
+    static var pausesPlayback: Bool { pausingCount > 0 }
+
+    private let pausesPlaying: Bool
     private var isReleased = false
 
-    init() {
+    init(pausesPlaying: Bool = false) {
+        self.pausesPlaying = pausesPlaying
         if Self.activeCount == 0 { Self.resumeOrder = 0 }
         Self.activeCount += 1
+        guard pausesPlaying else { return }
+        Self.pausingCount += 1
+        if Self.pausingCount == 1 { NotificationCenter.default.post(name: Self.didChange, object: nil) }
     }
 
     /// A transition that ends without releasing (for example, a torn-down context) must not freeze stickers.
@@ -378,6 +418,7 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     func release() {
         guard !isReleased else { return }
         isReleased = true
+        if pausesPlaying { Self.pausingCount -= 1 }
         Self.activeCount -= 1
         guard Self.activeCount == 0 else { return }
         NotificationCenter.default.post(name: Self.didChange, object: nil)
