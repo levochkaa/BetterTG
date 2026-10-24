@@ -176,6 +176,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var topicReopenBarHeightConstraint: NSLayoutConstraint!
     /// ChatReportPeerTitlePanelNode for a chat from someone new (TDLib's action bar).
     private let chatActionBarView = ChatActionBarView()
+    private var cachedEmptyStateView: ChatEmptyStateView?
     private var chatActionBarHeightConstraint: NSLayoutConstraint!
     /// In place of the composer where the user can't write: Join, Mute or Unmute (ChatChannelSubscriberInputPanelNode).
     private let statusPanel = ChatStatusPanelView()
@@ -5140,10 +5141,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         #endif
     }
 
-    /// ChatBotInfoItem in a bot chat without messages, otherwise Telegram's empty placeholder.
+    /// ChatBotInfoItem in a bot chat without messages, otherwise Telegram's ChatEmptyNode. The empty state is kept
+    /// while its kind holds, so the greeting sticker doesn't change with every snapshot.
     private func emptyStateView() -> UIView {
         guard case .bot = chatVM.customChat.type, let info = chatVM.botInfo, !info.description.isEmpty else {
-            return emptyLabel()
+            let kind = ChatEmptyStateView.kind(
+                for: chatVM.customChat,
+                isBlocked: chatVM.isChatBlocked,
+                isThread: location.messageThreadID != nil || location.forumTopicID != nil,
+            )
+            if let cached = cachedEmptyStateView, cached.kind == kind { return cached }
+            let view = ChatEmptyStateView(kind: kind, client: chatVM.client)
+            view.onSendSticker = { [weak self] sticker in self?.sendGreetingSticker(sticker) }
+            // The history is flipped; its background turns back upright.
+            view.transform = CGAffineTransform(scaleX: 1, y: -1)
+            cachedEmptyStateView = view
+            return view
         }
         let container = UIView()
         let card = ChatBotInfoView(info: info, client: chatVM.client)
@@ -5163,13 +5176,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return container
     }
 
-    private func emptyLabel() -> UIView {
-        let label = UILabel()
-        label.text = L10n.telegram("Conversation.EmptyPlaceholder")
-        label.textColor = .secondaryLabel
-        label.textAlignment = .center
-        label.transform = CGAffineTransform(scaleX: 1, y: -1)
-        return label
+    /// ChatEmptyNodeGreetingChatContent's tap: the greeting sticker goes out as any chosen sticker does.
+    private func sendGreetingSticker(_ sticker: Sticker) {
+        guard presentationMode == .full, routeIsRetained, !clientOwnerRetired, chatVM.locationContextIsCurrent,
+              showsComposer, chatVM.canSendStickersAndAnimations else { return }
+        let chatVM = chatVM
+        Task { await chatVM.sendSticker(sticker) }
     }
 
     private func updateHistoryInsets() {

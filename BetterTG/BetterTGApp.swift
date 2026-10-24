@@ -62,6 +62,7 @@ import UIKit
             StoryViewerProbe.runIfRequested()
             ChatStatusPanelProbe.runIfRequested()
             ChatActionBarProbe.runIfRequested()
+            ChatEmptyStateProbe.runIfRequested()
             TDLibVODRangeSource.runDebugProbeIfRequested()
             TDLibVODFFmpegLookahead.runDebugProbeIfRequested()
             TDLibVODFFmpegDecoder.runDebugProbeIfRequested()
