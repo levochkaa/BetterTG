@@ -29,6 +29,7 @@ import UIKit
                 try verifyAreas()
                 try verifyMenuItems()
                 try verifyOwnStory()
+                try verifyViewList()
                 try verifyReplyPanel()
                 result = "Story viewer probe passed: first-unseen-entry/clock-waits-for-media/hold-pause=true; "
                     + "auto-advance/next-poster/resume/rewind/dismiss=true; single-story=true; "
@@ -39,6 +40,8 @@ import UIKit
                     + "menu-contact/muted-hidden/non-contact/service/bot/private/protected/own/panel-share/speed/"
                     + "translate=true; "
                     + "own-menu/expired/live/button/footer/no-views/view-label/count-text=true; "
+                    + "view-list-title/tabs-at-20/private-no-tabs/sort-at-10/expired-no-header/empty-texts/"
+                    + "subtitles/page-kinds=true; "
                     + "reply-user/private/closed/service/bot/self/group/read-only-group/channel/live/reaction-text=true"
             } catch {
                 result = "Story viewer probe failed: \(error)"
@@ -486,6 +489,155 @@ import UIKit
         /// Remove from Profile and Save to Gallery, then Copy Link and Share for a public story that's active or on the
         /// profile; a live stream keeps only the links and has no footer; the footer reads the reactions and reposts
         /// only once the story has views.
+        /// StoryItemSetViewListComponent's header and empty-state rules, the rows' subtitles and the mapping of
+        /// TDLib's interactions.
+        private static func verifyViewList() throws {
+            let file = StoryViewerUIProbe.photoFile(id: 1, path: "", uniqueID: "view-list")
+            func story(
+                views: Int,
+                reactions: Int,
+                privacy: TDNativeStoryPrivacySettings = .storyPrivacySettingsEveryone(
+                    TDNativeStoryPrivacySettingsEveryone(exceptUserIds: []),
+                ),
+                expired: Bool = false,
+            ) -> Story {
+                StoryViewerUIProbe.makeStory(
+                    id: 1,
+                    chatID: 7,
+                    date: 0,
+                    file: file,
+                    areas: [],
+                    privacy: privacy,
+                    own: (
+                        isPosted: false,
+                        interactions: views == 0
+                            ? nil
+                            : TDNativeStoryInteractionInfo(
+                                viewCount: views,
+                                forwardCount: 0,
+                                reactionCount: reactions,
+                                recentViewerUserIds: [],
+                            ),
+                    ),
+                    hasExpiredViewers: expired,
+                )
+            }
+            typealias Header = StoryViewList.Header
+            let few = StoryViewList.header(story: story(views: 5, reactions: 2), totalCount: nil)
+            try require(
+                few == Header(
+                    title: L10n.telegramPlural("Story.ViewList.ViewerCount", count: 5),
+                    showsTabs: false,
+                    showsSearch: false,
+                    showsSort: false,
+                ),
+                "five viewers: \(few)",
+            )
+            let allReacted = StoryViewList.header(story: story(views: 3, reactions: 3), totalCount: 3)
+            try require(allReacted.title == L10n.telegram("Story.ViewList.TitleViewers"), "all reacted: Viewers")
+            let none = StoryViewList.header(story: story(views: 0, reactions: 0), totalCount: nil)
+            try require(none.title == L10n.telegram("Story.ViewList.TitleEmpty"), "no views: \(none.title)")
+            let many = StoryViewList.header(story: story(views: 20, reactions: 9), totalCount: nil)
+            try require(many.showsTabs && many.showsSearch && !many.showsSort, "20 viewers: tabs and search")
+            let sorted = StoryViewList.header(story: story(views: 30, reactions: 10), totalCount: 30)
+            try require(sorted.showsSort, "10 reactions among 30 viewers: sort")
+            let contactsOnly = StoryViewList.header(
+                story: story(views: 30, reactions: 10, privacy: .storyPrivacySettingsCloseFriends),
+                totalCount: 30,
+            )
+            try require(
+                !contactsOnly.showsTabs && contactsOnly.showsSearch && contactsOnly.showsSort,
+                "a close friends story: search and sort, no tabs",
+            )
+            let expired = StoryViewList.header(story: story(views: 30, reactions: 10, expired: true), totalCount: nil)
+            try require(
+                !expired.showsTabs && !expired.showsSearch && !expired.showsSort,
+                "expired viewers: no tabs, search or sort",
+            )
+
+            var query = StoryViewList.Query()
+            try require(
+                StoryViewList.emptyText(query: query, story: story(views: 0, reactions: 0))
+                    == L10n.telegram("Story.Views.NoViews"),
+                "empty: no views yet",
+            )
+            try require(
+                StoryViewList.emptyText(query: query, story: story(views: 4, reactions: 0, expired: true))
+                    == L10n.telegram("Story.Views.ViewsExpired"),
+                "empty: viewers expired",
+            )
+            query.listMode = .contacts
+            try require(
+                StoryViewList.emptyText(query: query, story: story(views: 4, reactions: 0))
+                    == L10n.telegram("Story.ViewList.EmptyTextContacts"),
+                "empty: no contacts",
+            )
+            query.text = "zz"
+            try require(
+                StoryViewList.emptyText(query: query, story: story(views: 4, reactions: 0))
+                    == L10n.telegram("Story.ViewList.EmptyTextSearch"),
+                "empty: search",
+            )
+
+            let now = Date()
+            let time = now.formatted(date: .omitted, time: .shortened)
+            let viewed = StoryViewList.Item(
+                actor: .messageSenderUser(MessageSenderUser(userId: 11)),
+                date: Int(now.timeIntervalSince1970),
+                kind: .view(reaction: nil),
+            )
+            try require(
+                StoryViewList.subtitle(for: viewed, now: now) == L10n.telegram(
+                    "Chat.MessageSeenTimestamp.TodayAt",
+                    time,
+                ),
+                "today's view: \(StoryViewList.subtitle(for: viewed, now: now))",
+            )
+            let yesterday = StoryViewList.Item(
+                actor: viewed.actor,
+                date: Int(now.timeIntervalSince1970) - 86400,
+                kind: .repost(posterChatID: 11, storyID: 5, hasCaption: true),
+            )
+            try require(
+                StoryViewList.subtitle(for: yesterday, now: now)
+                    == L10n.telegram("Chat.MessageSeenTimestamp.YesterdayAt", time)
+                    + L10n.telegram("Story.Views.Commented"),
+                "yesterday's commented repost: \(StoryViewList.subtitle(for: yesterday, now: now))",
+            )
+
+            let page = StoryViewList.page(StoryInteractions(
+                totalCount: 2,
+                totalForwardCount: 0,
+                totalReactionCount: 1,
+                interactions: [
+                    StoryInteraction(
+                        actorId: .messageSenderUser(MessageSenderUser(userId: 11)),
+                        interactionDate: 100,
+                        blockList: nil,
+                        type: .storyInteractionTypeView(TDNativeStoryInteractionTypeView(
+                            chosenReactionType: .reactionTypeEmoji(ReactionTypeEmoji(emoji: "❤")),
+                        )),
+                    ),
+                    StoryInteraction(
+                        actorId: .messageSenderChat(MessageSenderChat(chatId: -100)),
+                        interactionDate: 90,
+                        blockList: nil,
+                        type: .storyInteractionTypeView(TDNativeStoryInteractionTypeView(chosenReactionType: nil)),
+                    ),
+                ],
+                nextOffset: "x",
+            ))
+            try require(
+                page.items.map(\.actorID) == [11, -100] && page.nextOffset == "x" && page.totalReactionCount == 1,
+                "page mapping: \(page.items.map(\.actorID))",
+            )
+            if case .view(.reactionTypeEmoji(let emoji)?) = page.items[0].kind {
+                try require(emoji.emoji == "❤", "the chosen reaction")
+            } else {
+                throw Failure(description: "the first item lost its reaction")
+            }
+        }
+
         private static func verifyOwnStory() throws {
             let me = Int64(7)
             func poster(username: String? = "me", active: Set<Int> = [1, 2]) -> StoryMoreMenu.Poster {

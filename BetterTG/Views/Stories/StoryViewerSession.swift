@@ -31,6 +31,9 @@ import TDLibKit
         /// The UI probe's session: it answers from seeded stories, chats and story lists, and nothing reaches TDLib.
         private(set) var isOffline = false
         private var offlineActiveStories = [Int64: ChatActiveStories]()
+        /// The probe's interactions with the account's stories, by story, newest first, and its contacts.
+        private var offlineInteractions = [Int: [StoryInteraction]]()
+        private var offlineContactIDs = Set<Int64>()
     #else
         let isOffline = false
     #endif
@@ -93,6 +96,26 @@ import TDLibKit
         let stories = await task.value
         activeStoryRequests[chatID] = nil
         return isCurrent ? stories : nil
+    }
+
+    /// getStoryInteractions for one of the account's stories, a page of `query` from `offset`.
+    func storyInteractions(storyID: Int, query: StoryViewList.Query, offset: String) async -> StoryViewList.Page? {
+        #if DEBUG
+            if isOffline { return offlineInteractionPage(storyID: storyID, query: query, offset: offset) }
+        #endif
+        guard isCurrent,
+              let interactions = try? await client.getStoryInteractions(
+                  limit: StoryViewList.pageSize,
+                  offset: offset,
+                  onlyContacts: query.listMode == .contacts,
+                  preferForwards: false,
+                  preferWithReaction: query.sortMode == .reactionsFirst,
+                  query: query.text,
+                  storyId: storyID,
+              ),
+              isCurrent
+        else { return nil }
+        return StoryViewList.page(interactions)
     }
 
     func chat(_ chatID: Int64) async -> Chat? {
@@ -200,6 +223,57 @@ import TDLibKit
             for list in activeStories {
                 offlineActiveStories[list.chatId] = list
             }
+        }
+
+        /// The probe's viewers of the account's stories; `contactIDs` answers the Contacts tab.
+        func seedOfflineInteractions(_ interactions: [Int: [StoryInteraction]], contactIDs: Set<Int64>) {
+            offlineInteractions = interactions
+            offlineContactIDs = contactIDs
+        }
+
+        /// getStoryInteractions over the seeded list, ten at a time so the probe pages: the search matches the
+        /// seeded chats' titles, and reactions come first in their date order when asked.
+        private func offlineInteractionPage(
+            storyID: Int,
+            query: StoryViewList.Query,
+            offset: String,
+        ) -> StoryViewList.Page {
+            var all = offlineInteractions[storyID] ?? []
+            if query.listMode == .contacts {
+                all = all.filter { offlineContactIDs.contains(Self.actorID($0.actorId)) }
+            }
+            if !query.text.isEmpty {
+                all = all.filter { interaction in
+                    chats[Self.actorID(interaction.actorId)]?.title.localizedCaseInsensitiveContains(query.text) == true
+                }
+            }
+            if query.sortMode == .reactionsFirst {
+                let reacted = all.filter(Self.hasReaction)
+                all = reacted + all.filter { !Self.hasReaction($0) }
+            }
+            let start = Int(offset) ?? 0
+            let end = min(all.count, start + 10)
+            let slice = start < end ? Array(all[start..<end]) : []
+            let reactions = offlineInteractions[storyID]?.count(where: Self.hasReaction) ?? 0
+            return StoryViewList.page(StoryInteractions(
+                totalCount: all.count,
+                totalForwardCount: 0,
+                totalReactionCount: reactions,
+                interactions: slice,
+                nextOffset: end < all.count ? String(end) : "",
+            ))
+        }
+
+        private static func actorID(_ sender: MessageSender) -> Int64 {
+            switch sender {
+            case .messageSenderUser(let user): user.userId
+            case .messageSenderChat(let chat): chat.chatId
+            }
+        }
+
+        private static func hasReaction(_ interaction: StoryInteraction) -> Bool {
+            if case .storyInteractionTypeView(let view) = interaction.type { return view.chosenReactionType != nil }
+            return false
         }
     #endif
 

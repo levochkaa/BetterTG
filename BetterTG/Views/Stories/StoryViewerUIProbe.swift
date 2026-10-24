@@ -180,6 +180,7 @@
             content: TDNativeStoryContent? = nil,
             caption: String = "",
             own: (isPosted: Bool, interactions: TDNativeStoryInteractionInfo?)? = nil,
+            hasExpiredViewers: Bool = false,
         ) -> Story {
             let size = PhotoSize(type: "y", photo: file, width: 720, height: 1280, progressiveSizes: [])
             let photo = Photo(hasStickers: false, minithumbnail: nil, sizes: [size])
@@ -204,7 +205,7 @@
                 canToggleIsPostedToChatPage: own != nil,
                 canGetStatistics: false,
                 canGetInteractions: own != nil,
-                hasExpiredViewers: false,
+                hasExpiredViewers: hasExpiredViewers,
                 repostInfo: nil,
                 interactionInfo: own?.interactions,
                 chosenReactionType: nil,

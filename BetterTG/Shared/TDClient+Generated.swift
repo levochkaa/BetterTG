@@ -617,6 +617,26 @@ extension TDClient {
         ))
     }
 
+    func getStoryInteractions(
+        limit: Int,
+        offset: String,
+        onlyContacts: Bool,
+        preferForwards: Bool,
+        preferWithReaction: Bool,
+        query: String,
+        storyId: Int,
+    ) async throws -> TDNativeStoryInteractions {
+        try await send(TDNativeRequests.getStoryInteractions(
+            storyId: storyId,
+            query: query,
+            onlyContacts: onlyContacts,
+            preferForwards: preferForwards,
+            preferWithReaction: preferWithReaction,
+            offset: offset,
+            limit: limit,
+        ))
+    }
+
     func getSupergroup(supergroupId: Int64) async throws -> TDNativeSupergroup {
         try await send(TDNativeRequests.getSupergroup(supergroupId: supergroupId))
     }
