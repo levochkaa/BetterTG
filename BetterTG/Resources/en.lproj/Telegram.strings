@@ -180,6 +180,7 @@
 "Conversation.StopLiveLocation" = "Stop Sharing";
 "Conversation.ContextMenuDelete" = "Delete";
 "Conversation.ContextMenuCancelSending" = "Cancel Sending";
+"Conversation.ViewInChannel" = "View in Channel";
 "Chat.MessageContextMenu.Remove" = "Remove";
 "Conversation.AutoremoveRemainingTime" = "auto-deletes in %@";
 "Conversation.AutoremoveRemainingDays_1" = "auto-deletes in %@ day";

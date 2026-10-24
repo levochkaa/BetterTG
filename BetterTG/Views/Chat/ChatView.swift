@@ -9058,7 +9058,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             elements.append(saveSoundAction)
             saveSoundIndex = elements.count - 1
         }
-        if message.properties.canBeReplied {
+        // Telegram's thread head can't be replied to, linked or deleted from the thread; it offers View in Channel.
+        let isThreadHead = chatVM.isMessageThreadHead(message)
+        if message.properties.canBeReplied, !isThreadHead {
             elements
                 .append(TelegramContextMenuAction(
                     title: L10n.telegram("Conversation.ContextMenuReply"),
@@ -9122,7 +9124,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if let speakAction = speakAction(for: message) {
             elements.append(speakAction)
         }
-        if message.properties.canGetLink {
+        if message.properties.canGetLink, !isThreadHead {
             elements.append(TelegramContextMenuAction(
                 title: L10n.telegram("Conversation.ContextMenuCopyLink"),
                 image: UIImage(systemName: "link"),
@@ -9182,8 +9184,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             })
         }
 
-        let deleteActions = deleteOptionActions(for: message)
-        if let request = adminDeleteRequest(for: message) {
+        let deleteActions = isThreadHead ? [] : deleteOptionActions(for: message)
+        if isThreadHead {
+            elements.append(viewInChannelAction(for: message))
+        } else if let request = adminDeleteRequest(for: message) {
             // ChatControllerAdminBanUsers: an admin deleting another member's message gets AdminUserActionsSheet.
             elements.append(TelegramContextMenuAction(
                 title: L10n.telegram("Common.Delete"),
@@ -9318,6 +9322,26 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .map { deadline, _ in Self.autoDeleteText(timeLeft: Int(max(0, deadline.timeIntervalSinceNow))) }
             .removeDuplicates()
             .eraseToAnyPublisher()
+    }
+
+    /// Telegram's View in Channel on a thread's head: the channel post a comment thread starts at, which TDLib names
+    /// as the discussion group copy's forward source, else the root itself in its group.
+    private func viewInChannelAction(for message: CustomMessage) -> TelegramContextMenuAction {
+        let root = message.message
+        let target: (chatID: Int64, messageID: Int64) =
+            if let source = root.forwardInfo?.source, source.chatId != 0, source.messageId != 0 {
+                (source.chatId, source.messageId)
+            } else if case .messageOriginChannel(let origin) = root.forwardInfo?.origin {
+                (origin.chatId, origin.messageId)
+            } else {
+                (root.chatId, root.id)
+            }
+        return TelegramContextMenuAction(
+            title: L10n.telegram("Conversation.ViewInChannel"),
+            image: UIImage(systemName: "arrow.right.circle"),
+        ) { [weak self] in
+            TelegramLinkRouter.shared.openMessage(chatID: target.chatID, messageID: target.messageID, from: self)
+        }
     }
 
     /// ChatReadReportContextItem in a private chat: a compact line at the top of the menu with when the other person

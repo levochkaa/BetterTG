@@ -1822,6 +1822,13 @@ import UIKit
         return video.url.pathExtension.lowercased() == "mp4"
     }
 
+    /// Telegram's `isReplyThreadHead`: the message is the root this thread's history starts with.
+    func isMessageThreadHead(_ message: CustomMessage) -> Bool {
+        guard location.messageThreadID != nil, let messageThread else { return false }
+        let rootIDs = Set(messageThread.messages.map(\.id))
+        return message.sourceMessages.contains { rootIDs.contains($0.id) }
+    }
+
     /// ChatController.dismissPeerContactOptions: `removeChatActionBar`, with the bar leaving at once.
     func dismissChatActionBar() {
         guard locationContextIsCurrent else { return }
