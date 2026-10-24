@@ -407,7 +407,7 @@ private extension UIViewController {
 
 // MARK: - TelegramContextMenuController
 
-private final class TelegramContextMenuController: UIViewController {
+private final class TelegramContextMenuController: UIViewController, UIScrollViewDelegate {
     // MARK: Fileprivate
 
     fileprivate static var activeController: TelegramContextMenuController?
@@ -450,6 +450,13 @@ private final class TelegramContextMenuController: UIViewController {
     private let backgroundEffectView = UIVisualEffectView(effect: nil)
     private let dimView = TelegramContextMenuDismissView()
     private let previewPanView = TelegramContextMenuPassthroughView()
+    /// The preview and the menu; its bounds scroll them together when a message is taller than the room above the
+    /// menu (ContextControllerExtractedPresentationNode's scrollNode).
+    private let contentContainer = TelegramContextMenuPassthroughView()
+    /// Telegram's hidden scroller: its pan, on the root view, drives `contentContainer`'s bounds.
+    private let scroller = UIScrollView()
+    /// How far the content reaches past the bottom of the screen; zero when it fits and nothing scrolls.
+    private var contentOverflow = CGFloat.zero
     private let previewContainer = UIView()
     /// Carries the system menu's flexible glass, which stretches toward a finger dragged across the menu. The glass
     /// draws past the bounds while it stretches, so this view does not clip; `menuContentView` clips the actions.
@@ -523,6 +530,16 @@ private final class TelegramContextMenuController: UIViewController {
         presentationStyle.showsPreview ? previewContainer.convert(previewContainer.bounds, to: view) : .zero
     }
 
+    /// Where the content is scrolled to: content coordinates are the screen's moved by this much.
+    private var contentScrollOffset: CGFloat {
+        contentContainer.bounds.origin.y
+    }
+
+    /// The menu's frame on screen, wherever the content is scrolled.
+    private var menuFrameInView: CGRect {
+        menuView.convert(menuView.bounds, to: view)
+    }
+
     init(
         sourceView: UIView,
         actions: [TelegramContextMenuAction],
@@ -589,6 +606,18 @@ private final class TelegramContextMenuController: UIViewController {
         layoutPreviewAndMenu()
     }
 
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === scroller else { return }
+        contentContainer.bounds.origin.y = scrollView.contentOffset.y
+        layoutReactionStrip()
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // Scrolling takes the touch: no row stays highlighted and the preview stops following it.
+        guard scrollView === scroller else { return }
+        finishTracking()
+    }
+
     fileprivate func show(in sourceWindow: UIWindow) {
         let hostView = TelegramContextMenuKeyboardHost
             .visibleKeyboardWindow(for: sourceWindow, sourceView: sourceView) ?? sourceWindow
@@ -644,9 +673,12 @@ private final class TelegramContextMenuController: UIViewController {
         dimView.onActivate = { [weak self] in self?.dismissMenu(completion: nil) }
         view.addSubview(dimView)
 
-        previewPanView.frame = view.bounds
+        contentContainer.frame = view.bounds
+        contentContainer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(contentContainer)
+        previewPanView.frame = contentContainer.bounds
         previewPanView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        view.addSubview(previewPanView)
+        contentContainer.addSubview(previewPanView)
 
         previewContainer.layer.shadowColor = UIColor.black.cgColor
         previewContainer.layer.shadowOpacity = 0.24
@@ -718,7 +750,7 @@ private final class TelegramContextMenuController: UIViewController {
         menuContentView.layer.cornerCurve = .continuous
         menuContentView.clipsToBounds = true
         menuView.addSubview(menuContentView)
-        view.addSubview(menuView)
+        contentContainer.addSubview(menuView)
 
         selectionHighlightView.backgroundColor = .contextMenuSelectionHighlight
         selectionHighlightView.layer.cornerCurve = .continuous
@@ -750,7 +782,16 @@ private final class TelegramContextMenuController: UIViewController {
         configureSourceTabs()
         reactionStrip.isHidden = reactionsProvider == nil || !activeSourceShowsReactions
         reactionStrip.alpha = 0
-        view.addSubview(reactionStrip)
+        // The strip belongs to the message: it pans and scrolls with it.
+        previewPanView.addSubview(reactionStrip)
+        scroller.isHidden = true
+        scroller.delegate = self
+        scroller.showsVerticalScrollIndicator = false
+        scroller.contentInsetAdjustmentBehavior = .never
+        scroller.alwaysBounceVertical = true
+        scroller.panGestureRecognizer.isEnabled = false
+        view.addSubview(scroller)
+        view.addGestureRecognizer(scroller.panGestureRecognizer)
         reactionStrip.onSelect = { [weak self] reaction in
             guard let self, !isPerformingAction else { return }
             isPerformingAction = true
@@ -885,21 +926,19 @@ private final class TelegramContextMenuController: UIViewController {
             let spacing: CGFloat = 10
             let reactionHeight: CGFloat = reactionStrip.isHidden ? 0 : 56
             let baseSourceFrame = sourceFrameAtBaseTransform()
-            let maximumPreviewHeight = max(44, maximumBottom - verticalInset - reactionHeight - menuHeight - spacing)
             messageContentSize = sourceView.bounds.size
-            targetMessageScale = min(
-                1,
-                availableWidth / max(1, messageContentSize.width),
-                maximumPreviewHeight / max(1, messageContentSize.height),
-            )
+            // ContextControllerExtractedPresentationNode never shrinks a tall message: it keeps its size and the
+            // content scrolls, the menu at the bottom first.
+            targetMessageScale = min(1, availableWidth / max(1, messageContentSize.width))
             let previewHeight = messageContentSize.height * targetMessageScale
             let previewWidth = messageContentSize.width * targetMessageScale
             let alignedPreviewX = baseSourceFrame.midX > view.bounds.midX
                 ? baseSourceFrame.maxX - previewWidth
                 : baseSourceFrame.minX
             let previewX = min(max(0, alignedPreviewX), view.bounds.width - previewWidth)
+            let contentTop = verticalInset + reactionHeight
             let maximumPreviewY = maximumBottom - menuHeight - spacing - previewHeight
-            let previewY = min(max(verticalInset + reactionHeight, baseSourceFrame.minY), maximumPreviewY)
+            let previewY = max(contentTop, min(baseSourceFrame.minY, maximumPreviewY))
             targetPreviewFrame = CGRect(x: previewX, y: previewY, width: previewWidth, height: previewHeight)
             let alignedMenuX = baseSourceFrame.midX > view.bounds.midX
                 ? targetPreviewFrame.maxX - menuWidth
@@ -911,6 +950,7 @@ private final class TelegramContextMenuController: UIViewController {
                 width: menuWidth,
                 height: menuHeight,
             )
+            updateContentOverflow(max(0, targetMenuFrame.maxY - maximumBottom))
         case .avatar:
             let spacing: CGFloat = 10
             let squareSize = min(
@@ -1011,7 +1051,8 @@ private final class TelegramContextMenuController: UIViewController {
                     y: targetMessageScale,
                 )
             } else {
-                previewContainer.center = CGPoint(x: sourceFrame.midX, y: sourceFrame.midY)
+                // The source sits on screen; the scrolled content is offset from it.
+                previewContainer.center = CGPoint(x: sourceFrame.midX, y: sourceFrame.midY + contentScrollOffset)
                 previewContainer.transform = CGAffineTransform(
                     scaleX: sourceFrame.width / max(1, messageContentSize.width),
                     y: sourceFrame.height / max(1, messageContentSize.height),
@@ -1051,20 +1092,43 @@ private final class TelegramContextMenuController: UIViewController {
                 }
         }
         menuView.frame = targetMenuFrame
-        if presentationStyle == .message, !reactionStrip.isHidden {
-            let width = min(availableWidth, reactionStrip.preferredWidth)
-            let proposedX = targetPreviewFrame.midX > view.bounds.midX
-                ? targetPreviewFrame.maxX - width
-                : targetPreviewFrame.minX
-            reactionStrip.frame = CGRect(
-                x: min(max(horizontalInset, proposedX), view.bounds.width - horizontalInset - width),
-                y: targetPreviewFrame.minY - 56, width: width, height: 46,
-            )
-        }
+        layoutReactionStrip()
         previewView?.frame = previewContainer.bounds
         if presentationStyle == .avatar {
             previewView?.layoutIfNeeded()
         }
+    }
+
+    /// ReactionContextNode's anchor: the strip sits above the message, and while the message reaches above the room
+    /// for it, at the top over the message, until scrolling leaves room above it again.
+    private func layoutReactionStrip() {
+        guard presentationStyle == .message, !reactionStrip.isHidden else { return }
+        let horizontalInset: CGFloat = 12
+        let availableWidth = view.bounds.width - horizontalInset * 2
+        let width = min(availableWidth, reactionStrip.preferredWidth)
+        let proposedX = targetPreviewFrame.midX > view.bounds.midX
+            ? targetPreviewFrame.maxX - width
+            : targetPreviewFrame.minX
+        let pinnedTop = max(view.safeAreaInsets.top, CGFloat(12)) + contentScrollOffset
+        reactionStrip.frame = CGRect(
+            x: min(max(horizontalInset, proposedX), view.bounds.width - horizontalInset - width),
+            y: max(pinnedTop, targetPreviewFrame.minY - 56),
+            width: width,
+            height: 46,
+        )
+    }
+
+    /// Telegram's scroller covers the overflow; the menu opens scrolled to the bottom, so it shows in full.
+    private func updateContentOverflow(_ overflow: CGFloat) {
+        let previous = contentOverflow
+        contentOverflow = overflow
+        scroller.frame = view.bounds
+        scroller.contentSize = CGSize(width: view.bounds.width, height: view.bounds.height + overflow)
+        scroller.panGestureRecognizer.isEnabled = overflow > 0 && !isDismissing
+        if previous == 0 || scroller.contentOffset.y > overflow {
+            scroller.contentOffset = CGPoint(x: 0, y: overflow)
+        }
+        contentContainer.bounds.origin.y = scroller.contentOffset.y
     }
 
     private func menuWidth(availableWidth: CGFloat) -> CGFloat {
@@ -1144,7 +1208,9 @@ private final class TelegramContextMenuController: UIViewController {
     /// Telegram's actions animation: the menu springs out of its source, starting at its edge next to the
     /// content and travelling with it, and a menu-only source also centres it on the source.
     private func animateMenuIn() {
-        let contentTravelY = presentationStyle.showsPreview ? targetPreviewFrame.midY - sourceFrame.midY : 0
+        let contentTravelY = presentationStyle.showsPreview
+            ? targetPreviewFrame.midY - (sourceFrame.midY + contentScrollOffset)
+            : 0
         let offset = menuTransitionOffset(contentTravelY: contentTravelY)
         let layer = menuView.layer
         menuView.alpha = 1
@@ -1281,6 +1347,7 @@ private final class TelegramContextMenuController: UIViewController {
         selectableTextViews.removeAll()
         reactionTask?.cancel()
         dismissCompletion = completion
+        scroller.panGestureRecognizer.isEnabled = false
         if liquidMorph != nil {
             if startLiquidMorphOut() {
                 // UIKit reports the close only once every spring settles, about 1.6 s after it starts; the motion
@@ -1297,7 +1364,8 @@ private final class TelegramContextMenuController: UIViewController {
             } completion: { _ in self.finishDismissal() }
             return
         }
-        let returnFrame = sourceFrameAtBaseTransform()
+        // The preview flies back to where the source sits on screen, in the scrolled content's coordinates.
+        let returnFrame = sourceFrameAtBaseTransform().offsetBy(dx: 0, dy: contentScrollOffset)
         animateMenuOut(returnFrame: returnFrame)
         UIView.animate(
             withDuration: 0.24,
@@ -1467,8 +1535,8 @@ private final class TelegramContextMenuController: UIViewController {
     /// scrollable chat preview keep their own gestures.
     private func touchOrigin(at point: CGPoint) -> ContextMenuTouchSession.Origin? {
         if showsSourceTabs, sourceTabsView.frame.contains(point) { return nil }
-        if !reactionStrip.isHidden, reactionStrip.frame.contains(point) { return nil }
-        if menuView.frame.contains(point) { return .menu }
+        if !reactionStrip.isHidden, reactionStrip.convert(reactionStrip.bounds, to: view).contains(point) { return nil }
+        if menuFrameInView.contains(point) { return .menu }
         guard previewFrame.contains(point) else { return .outside }
         if presentationStyle == .chatPreview { return nil }
         if selectableTextViews.contains(where: { $0.convert($0.bounds, to: view).contains(point) }) { return nil }
@@ -1480,7 +1548,7 @@ private final class TelegramContextMenuController: UIViewController {
         touchPoint = point
         touchSession?.move(to: point, insidePreview: previewFrame.contains(point))
         // The preview keeps its last position while the finger is over the menu.
-        if let anchor = touchSession?.panAnchor, !menuView.frame.contains(point) {
+        if let anchor = touchSession?.panAnchor, !menuFrameInView.contains(point) {
             let offset = ContextMenuMotion.platterOffset(
                 location: point,
                 anchor: anchor,
@@ -1538,7 +1606,7 @@ private final class TelegramContextMenuController: UIViewController {
     }
 
     private func actionIndex(at point: CGPoint) -> Int? {
-        guard menuView.frame.contains(point) else { return nil }
+        guard menuFrameInView.contains(point) else { return nil }
         return actionButtons.firstIndex { button in
             button.acceptsSelection && button.convert(button.bounds, to: view).contains(point)
         }
