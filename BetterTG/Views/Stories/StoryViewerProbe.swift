@@ -28,6 +28,7 @@ import UIKit
                 try verifyCube()
                 try verifyAreas()
                 try verifyMenuItems()
+                try verifyOwnStory()
                 try verifyReplyPanel()
                 result = "Story viewer probe passed: first-unseen-entry/clock-waits-for-media/hold-pause=true; "
                     + "auto-advance/next-poster/resume/rewind/dismiss=true; single-story=true; "
@@ -37,6 +38,7 @@ import UIKit
                     + "area-placement/rotated-hit/side-inset/reaction-skipped/tooltip-source/temperature=true; "
                     + "menu-contact/muted-hidden/non-contact/service/bot/private/protected/own/panel-share/speed/"
                     + "translate=true; "
+                    + "own-menu/expired/live/button/footer/no-views/view-label/count-text=true; "
                     + "reply-user/private/closed/service/bot/self/group/read-only-group/channel/live/reaction-text=true"
             } catch {
                 result = "Story viewer probe failed: \(error)"
@@ -471,9 +473,138 @@ import UIKit
                 "a caption to translate: \(translated)",
             )
             try require(
-                StoryMoreMenu.showsButton(for: open) && !StoryMoreMenu.showsButton(for: own)
-                    && !StoryMoreMenu.showsButton(for: nil),
+                StoryMoreMenu.showsButton(for: open, accountUserID: 2) && !StoryMoreMenu.showsButton(
+                    for: own,
+                    accountUserID: 2,
+                )
+                    && !StoryMoreMenu.showsButton(for: nil, accountUserID: 2),
+                "the More button on an editable story someone else posted",
+            )
+        }
+
+        /// performMyMoreAction's items and StoryFooterPanelComponent's counts on the account's own story: Save to or
+        /// Remove from Profile and Save to Gallery, then Copy Link and Share for a public story that's active or on the
+        /// profile; a live stream keeps only the links and has no footer; the footer reads the reactions and reposts
+        /// only once the story has views.
+        private static func verifyOwnStory() throws {
+            let me = Int64(7)
+            func poster(username: String? = "me", active: Set<Int> = [1, 2]) -> StoryMoreMenu.Poster {
+                StoryMoreMenu.Poster(
+                    chatID: me,
+                    title: "Me",
+                    compactTitle: "Me",
+                    kind: .user(isContact: false, isBot: false),
+                    isService: false,
+                    isSelf: true,
+                    username: username,
+                    storiesMuted: false,
+                    storiesHidden: false,
+                    canBeArchived: false,
+                    accountIsPremium: false,
+                    activeStoryIDs: active,
+                )
+            }
+            func items(_ story: Story, _ poster: StoryMoreMenu.Poster) -> String {
+                StoryMoreMenu.items(story: story, poster: poster)
+.map(StoryMoreMenu.identifier(of:))
+                    .joined(separator: ",")
+            }
+            let file = StoryViewerUIProbe.photoFile(id: 1, path: "", uniqueID: "own")
+            let views = TDNativeStoryInteractionInfo(
+                viewCount: 5,
+                forwardCount: 1,
+                reactionCount: 2,
+                recentViewerUserIds: [11, 12, 13, 14],
+            )
+            let active = StoryViewerUIProbe.makeStory(
+                id: 1,
+                chatID: me,
+                date: 0,
+                file: file,
+                areas: [],
+                own: (isPosted: false, interactions: views),
+            )
+            let pinned = StoryViewerUIProbe.makeStory(
+                id: 2,
+                chatID: me,
+                date: 0,
+                file: file,
+                areas: [],
+                own: (isPosted: true, interactions: nil),
+            )
+            try require(
+                items(active, poster()) == "save-to-profile,save,copy-link,share",
+                "the own story's menu: \(items(active, poster()))",
+            )
+            try require(
+                items(pinned, poster(active: [])) == "remove-from-profile,save,copy-link,share",
+                "an expired story on the profile",
+            )
+            try require(
+                items(active, poster(active: [])) == "save-to-profile,save",
+                "an expired story not on the profile has no link",
+            )
+            try require(items(active, poster(username: nil)) == "save-to-profile,save", "no username, no link")
+            let live = StoryViewerUIProbe.makeStory(
+                id: 3,
+                chatID: me,
+                date: 0,
+                file: file,
+                areas: [],
+                content: .storyContentLive(TDNativeStoryContentLive(groupCallId: 1, isRtmpStream: false)),
+                own: (isPosted: false, interactions: nil),
+            )
+            try require(items(live, poster(active: [3])) == "copy-link,share", "an own live stream")
+            try require(
+                StoryMoreMenu.showsButton(for: active, accountUserID: me)
+                    && StoryMoreMenu.isOwn(active, accountUserID: me)
+                    && !StoryMoreMenu.isOwn(active, accountUserID: nil),
                 "the More button on the account's own story",
+            )
+            let footer = StoryFooterPanel.configuration(story: active, isOwn: true)
+            try require(
+                footer == StoryFooterPanel.Configuration(
+                    viewCount: 5,
+                    reactionCount: 2,
+                    forwardCount: 1,
+                    recentViewerIDs: [11, 12, 13],
+                    canDelete: true,
+                ),
+                "the footer's counts: \(String(describing: footer))",
+            )
+            let unseen = TDNativeStoryInteractionInfo(
+                viewCount: 0,
+                forwardCount: 1,
+                reactionCount: 1,
+                recentViewerUserIds: [],
+            )
+            let noViews = StoryViewerUIProbe.makeStory(
+                id: 4,
+                chatID: me,
+                date: 0,
+                file: file,
+                areas: [],
+                own: (isPosted: false, interactions: unseen),
+            )
+            let empty = StoryFooterPanel.configuration(story: noViews, isOwn: true)
+            try require(
+                empty?.viewCount == 0 && empty?.reactionCount == 0 && empty?.forwardCount == 0
+                    && StoryFooterPanel.configuration(story: active, isOwn: false) == nil
+                    && StoryFooterPanel.configuration(story: live, isOwn: true) == nil,
+                "a story without views, someone else's story and a live stream",
+            )
+            // The language pack's "|%d| Views": the count between the bars goes, the words after them stay.
+            let label = StoryFooterPanel.viewsLabel(count: 3)
+            let plural = L10n.telegramPlural("Story.Footer.ViewCount", count: 3)
+            try require(
+                StoryFooterPanel.viewsLabel(count: 0) == L10n.telegram("Story.Footer.NoViews")
+                    && !label.contains("|") && !label.contains("3") && !label.isEmpty && plural.hasSuffix(label),
+                "the views label: \(label) from \(plural)",
+            )
+            try require(
+                StoryFooterPanel.countText(999) == "999" && StoryFooterPanel.countText(1250) == "1.2K"
+                    && StoryFooterPanel.countText(2000) == "2K" && StoryFooterPanel.countText(3_400_000) == "3.4M",
+                "countString: \(StoryFooterPanel.countText(1250))",
             )
         }
 

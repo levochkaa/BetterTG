@@ -269,7 +269,13 @@ final class StoryCubePreviewView: UIView {
 
     /// Shows `neighbor`'s story from what the viewer's session has cached; a later call with more of it loaded fills
     /// the rest in.
-    func configure(neighbor: StoryViewerState.Neighbor, chat: Chat?, story: Story?, client: TDLibClient) {
+    func configure(
+        neighbor: StoryViewerState.Neighbor,
+        chat: Chat?,
+        story: Story?,
+        accountUserID: Int64?,
+        client: TDLibClient,
+    ) {
         let next = Represented(neighbor: neighbor, hasChat: chat != nil, storyDate: story?.date)
         guard next != represented else { return }
         let previous = represented
@@ -294,7 +300,7 @@ final class StoryCubePreviewView: UIView {
             avatarView.prepareForReuse()
         }
         subtitleLabel.text = story.map { StoryTimestamp.string(date: $0.date) }
-        moreGlyph.isHidden = !StoryMoreMenu.showsButton(for: story)
+        moreGlyph.isHidden = !StoryMoreMenu.showsButton(for: story, accountUserID: accountUserID)
         setNeedsLayout()
         guard previous?.neighbor != neighbor || previous?.storyDate != story?.date else { return }
         loadMedia(of: story, client: client)

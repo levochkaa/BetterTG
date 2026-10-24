@@ -15,7 +15,8 @@ import UIKit
 /// closes after the last one. The story's areas draw their reactions and weather, and a tap on a location, message or
 /// link area offers to open it. Someone else's story has Telegram's More menu beside the close button, and under a
 /// user's or group's story Telegram's reply panel: a private reply or comment, a reaction sent as a message while the
-/// field is empty, the like button that holds another reaction, and the share button.
+/// field is empty, the like button that holds another reaction, and the share button. The account's own story has its
+/// own More menu and, in the panel's place, Telegram's footer with the views, reactions and reposts and Delete.
 final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate {
     enum Subject {
         /// One story, as a shared story or a story mention opens it (SingleStoryContentContextImpl).
@@ -89,6 +90,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     /// reactions over the story.
     private let replyDimView = UIView()
     private let replyReactions = TelegramReactionStripView()
+    private let footerPanel = StoryFooterPanelView()
 
     private lazy var tapGesture = UITapGestureRecognizer(target: self, action: #selector(tapped(_:)))
     private lazy var holdGesture = UILongPressGestureRecognizer(target: self, action: #selector(held(_:)))
@@ -107,6 +109,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private var replyReactionsTask: Task<Void, Never>?
     /// The reply panel's posters, each resolved once while the viewer is open.
     private var replyPosters = [Int64: StoryReplyPanel.Poster]()
+    /// The footer's viewers, each resolved once while the viewer is open.
+    private var viewerPeers = [Int64: SettingsPeer]()
     /// The story the panel shows, so an update to it animates the like button and a new poster's story clears it.
     private var replyPanelKey: StoryViewerSession.StoryKey?
     /// getStoryAvailableReactions with the custom emoji among them, loaded once.
@@ -156,10 +160,14 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         panAxis == .poster || cubeTurn != nil
     }
 
-    /// Toasts rise above the reply panel's resting place while it shows; the keyboard closes as one appears.
+    /// Toasts rise above the reply panel's resting place or the footer while one shows; the keyboard closes as one
+    /// appears.
     private var toastBottomInset: CGFloat {
-        guard !replyPanel.isHidden else { return 8 }
         let insets = view.safeAreaInsets
+        if !footerPanel.isHidden {
+            return max(8, view.bounds.height - insets.bottom - footerPanel.frame.minY + 8)
+        }
+        guard !replyPanel.isHidden else { return 8 }
         return max(8, Self.panelBottomInset(insets) - insets.bottom + StoryReplyPanelView.height + 8)
     }
 
@@ -289,6 +297,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         nextFace.layoutContent(frame: contentView.frame)
         layoutContent()
         layoutReplyPanel()
+        footerPanel.frame = CGRect(
+            x: 0,
+            y: contentView.frame.maxY + StoryFooterPanelView.topSpacing,
+            width: bounds.width,
+            height: StoryFooterPanelView.height,
+        )
         layoutCube()
     }
 
@@ -376,9 +390,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
     func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard !(touch.view is UIControl), !isClosing else { return false }
-        // The reply panel, the reactions above it and the dimmed story under the keyboard keep their touches.
+        // The reply panel, the reactions above it, the dimmed story under the keyboard and the footer keep their
+        // touches.
         guard let touched = touch.view else { return true }
-        return ![replyPanel, replyReactions, replyDimView].contains { touched.isDescendant(of: $0) }
+        return ![replyPanel, replyReactions, replyDimView, footerPanel].contains { touched.isDescendant(of: $0) }
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -528,6 +543,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         chromeView.addSubview(captionView)
 
         configureReplyPanel()
+        configureFooterPanel()
     }
 
     private func layoutContent() {
@@ -607,6 +623,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         resetMedia()
         let chatID = state.currentChatID
         if replyPanelKey?.chatID != chatID { applyReplyPanel(nil, key: nil) }
+        if chatID != session.accountUserID { applyFooter(nil) }
         progressStrip.configure(count: state.storyCount, index: state.storyIndex)
         renderPoster(chatID)
         refreshNeighborFaces()
@@ -758,8 +775,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             ? nil
             : NSAttributedString(getAttributedString(from: caption, .white))
         areaOverlay.update(areas: story.areas, client: session.client, loadsStickers: !session.isOffline)
-        moreButton.isHidden = !StoryMoreMenu.showsButton(for: story)
+        moreButton.isHidden = !StoryMoreMenu.showsButton(for: story, accountUserID: session.accountUserID)
         renderReplyPanel(story)
+        applyFooter(StoryFooterPanel.configuration(
+            story: story,
+            isOwn: StoryMoreMenu.isOwn(story, accountUserID: session.accountUserID),
+        ))
         updateAccessibilityLabel()
         view.setNeedsLayout()
     }
@@ -1044,6 +1065,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         topShade.alpha = alpha
         bottomShade.alpha = alpha
         replyPanel.alpha = alpha
+        footerPanel.alpha = alpha
     }
 
     private func setCaptionExpanded(_ expanded: Bool) {
@@ -1284,11 +1306,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
     // MARK: More menu
 
-    /// performMoreAction on someone else's story: the poster's details load, then Telegram's menu opens from the
-    /// button, and the story waits until it closes.
+    /// performMoreAction: the poster's details load, then Telegram's menu for the account's own or someone else's
+    /// story opens from the button, and the story waits until it closes.
     @objc private func morePressed() {
         guard !isClosing, moreTask == nil, presentedViewController == nil, !isPresentingTelegramContextMenu,
-              let key = shownKey, StoryMoreMenu.showsButton(for: shownStory) else { return }
+              let key = shownKey, StoryMoreMenu.showsButton(for: shownStory, accountUserID: session.accountUserID)
+        else { return }
         areaTooltip?.dismiss()
         setPaused(true, for: .moreMenu)
         moreTask = Task { [weak self] in
@@ -1363,6 +1386,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         switch item {
         case .speed:
             break
+        case .profile(let isPosted):
+            setPostedToProfile(!isPosted, story: story)
         case .notify(let isMuted):
             toggleStoryNotifications(of: poster, wereMuted: isMuted)
         case .copyLink:
@@ -1511,10 +1536,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         }
     }
 
-    /// requestSave: a Premium account saves the story's photo or video with Telegram's Saving and Saved tooltips;
-    /// without Premium, Telegram's toast names the subscription.
+    /// requestSave: the account's own story, or with Premium someone else's, saves its photo or video with
+    /// Telegram's Saving and Saved tooltips; without Premium, Telegram's toast names the subscription.
     private func save(_ story: Story, poster: StoryMoreMenu.Poster) {
-        guard poster.accountIsPremium else {
+        guard poster.accountIsPremium || poster.isSelf else {
             showMenuToast(L10n.telegram("Story.ToastPremiumSaveToGallery").withoutTelegramLinkMarkup)
             return
         }
@@ -1535,6 +1560,32 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         }
     }
 
+    /// updateStoriesArePinned on the account's own story, with Telegram's saved or removed tooltip; TDLib's story
+    /// update turns the menu item over.
+    private func setPostedToProfile(_ isPosted: Bool, story: Story) {
+        let client = session.client
+        let chatID = story.posterChatId
+        let storyID = story.id
+        Task {
+            _ = try? await client.send(TDNativeRequests.toggleStoryIsPostedToChatPage(
+                storyPosterChatId: chatID,
+                storyId: storyID,
+                isPostedToChatPage: isPosted,
+            ))
+        }
+        if isPosted {
+            TelegramUndoToast.show(
+                title: L10n.telegram("Story.ToastSavedToProfileTitle"),
+                text: L10n.telegram("Story.ToastSavedToProfileText"),
+                in: view,
+                bottomInset: toastBottomInset,
+                undo: nil,
+            )
+        } else {
+            showMenuToast(L10n.telegram("Story.ToastRemovedFromProfileText"))
+        }
+    }
+
     /// makeContentReportScreen with the story as its subject; the story waits while the sheet is up.
     private func report(_ story: Story) {
         ReportContentViewController.present(
@@ -1543,6 +1594,82 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             from: self,
             onReported: { [weak self] in self?.showMenuToast(L10n.telegram("Report.Succeed")) },
         )
+    }
+
+    // MARK: Footer
+
+    private func configureFooterPanel() {
+        footerPanel.isHidden = true
+        footerPanel.onDelete = { [weak self] in self?.deletePressed() }
+        focusedFace.contentHost.addSubview(footerPanel)
+    }
+
+    private func applyFooter(_ configuration: StoryFooterPanel.Configuration?) {
+        footerPanel.configure(
+            configuration,
+            avatar: { [weak self] id in await self?.viewerPeer(id) },
+            client: session.client,
+        )
+        footerPanel.isHidden = configuration == nil
+        view.setNeedsLayout()
+    }
+
+    /// A viewer's avatar from TDLib; the UI probe's come from its seeded chats.
+    private func viewerPeer(_ id: Int64) async -> SettingsPeer? {
+        if let peer = viewerPeers[id] { return peer }
+        #if DEBUG
+            if session.isOffline { return session.cachedChat(id).map(SettingsPeer.init(chat:)) }
+        #endif
+        guard session.isCurrent, let peer = await SettingsPeer.user(id, client: session.client), session.isCurrent
+        else { return nil }
+        viewerPeers[id] = peer
+        return peer
+    }
+
+    /// performDeleteAction: Telegram's sheet confirms Delete Story while the story waits under it.
+    private func deletePressed() {
+        guard !isClosing, presentedViewController == nil, !isPresentingTelegramContextMenu,
+              let story = shownStory, story.canBeDeleted else { return }
+        areaTooltip?.dismiss()
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(
+            title: L10n.telegram("Story.ContextDeleteStory"),
+            style: .destructive,
+        ) { [weak self] _ in
+            self?.delete(story)
+        })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        sheet.popoverPresentationController?.sourceView = footerPanel
+        sheet.popoverPresentationController?.sourceRect = footerPanel.bounds
+        present(sheet, animated: true)
+    }
+
+    /// StoryContainerScreen's delete: deleteStory, then the poster's next story shows, or the viewer closes after
+    /// the last one, as TDLib's deletion update would do.
+    private func delete(_ story: Story) {
+        let key = StoryViewerSession.StoryKey(chatID: story.posterChatId, storyID: story.id)
+        #if DEBUG
+            if session.isOffline {
+                probeMenuActionHandler?("delete \(story.id)")
+                apply(state.removeStory(chatID: key.chatID, storyID: key.storyID))
+                return
+            }
+        #endif
+        guard session.isCurrent, !isClosing else { return }
+        let client = session.client
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.deleteStory(
+                    storyPosterChatId: key.chatID,
+                    storyId: key.storyID,
+                ))
+                guard let self, session.isCurrent, !isClosing else { return }
+                apply(state.removeStory(chatID: key.chatID, storyID: key.storyID))
+            } catch {
+                guard let self, !isClosing else { return }
+                presentChatListActionFailure()
+            }
+        }
     }
 
     // MARK: Cube
@@ -1683,6 +1810,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
                 neighbor: neighbor,
                 chat: session.cachedChat(neighbor.chatID),
                 story: neighbor.storyID.flatMap { session.cachedStory(.init(chatID: neighbor.chatID, storyID: $0)) },
+                accountUserID: session.accountUserID,
                 client: session.client,
             )
             face.setContent(preview, frame: contentView.frame)
@@ -2271,12 +2399,18 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             initialChatID: Int64,
             menuPoster: StoryMoreMenu.Poster,
             replyPoster: StoryReplyPanel.Poster = .user(isBot: false, isService: false, isSelf: false),
+            accountUserID: Int64? = nil,
             onMenuItem: @escaping (String) -> Void,
             client: TDLibClient,
             from presenter: UIViewController,
         ) -> StoryViewerController? {
             guard let session = StoryViewerSession(client: client) else { return nil }
-            session.seedOffline(stories: stories, chats: chats, activeStories: activeStories)
+            session.seedOffline(
+                stories: stories,
+                chats: chats,
+                activeStories: activeStories,
+                accountUserID: accountUserID,
+            )
             let posters = activeStories.map { list in
                 StoryViewerState.Poster(
                     chatID: list.chatId,
@@ -2329,6 +2463,36 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
         func probeOpenMoreMenu() {
             morePressed()
+        }
+
+        var probeShowsMoreButton: Bool {
+            !moreButton.isHidden
+        }
+
+        /// The footer as shown, or nil while it's hidden.
+        var probeFooterConfiguration: StoryFooterPanel.Configuration? {
+            footerPanel.isHidden ? nil : footerPanel.configuration
+        }
+
+        var probeFooterFrame: CGRect {
+            footerPanel.frame
+        }
+
+        /// The footer's delete button, as a tap on it.
+        func probePressDelete() {
+            deletePressed()
+        }
+
+        /// The confirmation sheet's buttons while it's up.
+        var probeDeleteSheetActions: [String]? {
+            (presentedViewController as? UIAlertController)?.actions.compactMap(\.title)
+        }
+
+        /// Delete Story in the sheet, as a tap on it.
+        func probeConfirmDelete() {
+            guard let story = shownStory else { return }
+            dismiss(animated: false)
+            delete(story)
         }
 
         /// The reply panel as shown, or nil while it's hidden.

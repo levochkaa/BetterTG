@@ -17,7 +17,10 @@
     ///   starts with Playback Speed;
     /// - `reply [edit|like-options|send]` checks the reply panel under Bob's story and likes it and takes the like
     ///   back, then edits the empty field with the reactions over it (edit, by default), holds the like button for
-    ///   the other reactions (like-options), or sends a reply (send).
+    ///   the other reactions (like-options), or sends a reply (send);
+    /// - `own [footer|menu|delete]` opens the account's own stories instead, before Alice's: the footer with three
+    ///   views from Alice, Bob and Carol, two reactions and a repost (footer, by default), the own More menu (menu),
+    ///   or Delete's sheet, then the deletion, after which the second story, without views, shows (delete).
     /// The viewer reads only the seeded stories and chats and nothing reaches TDLib: a menu choice, the chat picked
     /// to share to, a like and a reply are only recorded. The story stays still until the viewer closes. Results go to
     /// the log and to
@@ -28,6 +31,7 @@
             case areas(kind: String)
             case menu(video: Bool)
             case reply(step: String)
+            case own(step: String)
         }
 
         /// One of the areas on Bob's story, with the sticker its picture shows where the overlay draws nothing, and
@@ -53,6 +57,9 @@
         private static let alice = Int64(9_100_000_001)
         private static let bob = Int64(9_100_000_002)
         private static let carol = Int64(9_100_000_003)
+        /// The account in `own` mode: its stories get the footer and the own menu.
+        private static let me = Int64(9_100_000_000)
+        private static let ownStoryIDs = [1001, 1002]
         /// Bob's first unseen story, where the viewer opens, carries the areas.
         private static let areaStoryID = 202
         private static let fileIDBase = 1_910_000_000
@@ -67,6 +74,20 @@
             storiesHidden: false,
             canBeArchived: true,
             accountIsPremium: true,
+        )
+        private static let ownMenuPoster = StoryMoreMenu.Poster(
+            chatID: me,
+            title: "Me",
+            compactTitle: "Me",
+            kind: .user(isContact: false, isBot: false),
+            isService: false,
+            isSelf: true,
+            username: "bettertg_probe_me",
+            storiesMuted: false,
+            storiesHidden: false,
+            canBeArchived: false,
+            accountIsPremium: false,
+            activeStoryIDs: Set(ownStoryIDs),
         )
         private static var lines = [String]()
 
@@ -99,18 +120,24 @@
                             named: "bettertg-story-probe.mov",
                         )
                     }
-                    fixture = try makeFixture(videoURL: videoURL)
+                    var includesOwn = false
+                    if case .own = mode { includesOwn = true }
+                    fixture = try makeFixture(videoURL: videoURL, includesOwn: includesOwn)
                 } catch {
                     record("Story viewer UI probe failed: \(error)")
                     return
                 }
+                var isOwn = false
+                if case .own = mode { isOwn = true }
                 guard let presenter,
                       let viewer = StoryViewerController.presentProbe(
                           stories: fixture.stories,
                           chats: fixture.chats,
                           activeStories: fixture.lists,
-                          initialChatID: bob,
-                          menuPoster: menuPoster,
+                          initialChatID: isOwn ? me : bob,
+                          menuPoster: isOwn ? ownMenuPoster : menuPoster,
+                          replyPoster: .user(isBot: false, isService: false, isSelf: isOwn),
+                          accountUserID: isOwn ? me : nil,
                           onMenuItem: { record("Story viewer UI probe menu chose \($0)") },
                           client: TDLib.shared.activeClient,
                           from: presenter,
@@ -130,6 +157,8 @@
                     await runMenu(viewer, video: video)
                 case .reply(let step):
                     await runReply(viewer, step: step)
+                case .own(let step):
+                    await runOwn(viewer, step: step)
                 }
             }
         }
@@ -150,6 +179,7 @@
             canBeReplied: Bool = true,
             content: TDNativeStoryContent? = nil,
             caption: String = "",
+            own: (isPosted: Bool, interactions: TDNativeStoryInteractionInfo?)? = nil,
         ) -> Story {
             let size = PhotoSize(type: "y", photo: file, width: 720, height: 1280, progressiveSizes: [])
             let photo = Photo(hasStickers: false, minithumbnail: nil, sizes: [size])
@@ -163,20 +193,20 @@
                 isBeingPosted: false,
                 isBeingEdited: false,
                 isEdited: false,
-                isPostedToChatPage: false,
+                isPostedToChatPage: own?.isPosted ?? false,
                 isVisibleOnlyForSelf: false,
                 canBeAddedToAlbum: false,
-                canBeDeleted: false,
-                canBeEdited: canBeEdited,
+                canBeDeleted: own != nil,
+                canBeEdited: canBeEdited || own != nil,
                 canBeForwarded: canBeForwarded,
-                canBeReplied: canBeReplied,
-                canSetPrivacySettings: false,
-                canToggleIsPostedToChatPage: false,
+                canBeReplied: canBeReplied && own == nil,
+                canSetPrivacySettings: own != nil,
+                canToggleIsPostedToChatPage: own != nil,
                 canGetStatistics: false,
-                canGetInteractions: false,
+                canGetInteractions: own != nil,
                 hasExpiredViewers: false,
                 repostInfo: nil,
-                interactionInfo: nil,
+                interactionInfo: own?.interactions,
                 chosenReactionType: nil,
                 privacySettings: privacy,
                 content: content,
@@ -226,6 +256,9 @@
             case "reply":
                 let step = value ?? "edit"
                 return ["edit", "like-options", "send"].contains(step) ? .reply(step: step) : nil
+            case "own":
+                let step = value ?? "footer"
+                return ["footer", "menu", "delete"].contains(step) ? .own(step: step) : nil
             default:
                 return nil
             }
@@ -363,11 +396,63 @@
             )
         }
 
+        /// The account's first story has the footer with its views, reactions and repost and the More button, and no
+        /// reply panel. Then the step's state is left on screen.
+        private static func runOwn(_ viewer: StoryViewerController, step: String) async {
+            let footer = viewer.probeFooterConfiguration
+            let frame = viewer.probeFooterFrame
+            let story = viewer.probeStorySize
+            let expected = StoryFooterPanel.Configuration(
+                viewCount: 3,
+                reactionCount: 2,
+                forwardCount: 1,
+                recentViewerIDs: [alice, bob, carol],
+                canDelete: true,
+            )
+            let shows = footer == expected && viewer.probeReplyConfiguration == nil && viewer.probeShowsMoreButton
+                && viewer.probeShownStory?.id == ownStoryIDs[0]
+            let footerText = "footer=\(Int(frame.minY))+\(Int(frame.height)) story-height=\(Int(story.height)) "
+                + "views=\(footer?.viewCount ?? -1) reactions=\(footer?.reactionCount ?? -1) "
+                + "forwards=\(footer?.forwardCount ?? -1) viewers=\(footer?.recentViewerIDs.count ?? -1) "
+                + "label=\(StoryFooterPanel.viewsLabel(count: footer?.viewCount ?? 0)) "
+                + "reply-panel=\(viewer.probeReplyConfiguration != nil) more=\(viewer.probeShowsMoreButton)"
+            var stepPasses = true
+            var stepText = ""
+            switch step {
+            case "menu":
+                viewer.probeOpenMoreMenu()
+                try? await Task.sleep(for: .milliseconds(800))
+                let identifiers = viewer.probeShownStory.map {
+                    StoryMoreMenu.items(story: $0, poster: ownMenuPoster).map(StoryMoreMenu.identifier(of:))
+                } ?? []
+                stepPasses = viewer.probeShowsMoreMenu
+                    && identifiers == ["save-to-profile", "save", "copy-link", "share"]
+                stepText = "shown=\(viewer.probeShowsMoreMenu) items=\(identifiers.joined(separator: ","))"
+            case "delete":
+                viewer.probePressDelete()
+                try? await Task.sleep(for: .milliseconds(1200))
+                let actions = viewer.probeDeleteSheetActions ?? []
+                viewer.probeConfirmDelete()
+                try? await Task.sleep(for: .milliseconds(800))
+                let next = viewer.probeShownStory?.id
+                let nextFooter = viewer.probeFooterConfiguration
+                stepPasses = actions == [L10n.telegram("Story.ContextDeleteStory"), L10n.telegram("Common.Cancel")]
+                    && next == ownStoryIDs[1] && nextFooter?.viewCount == 0 && nextFooter?.recentViewerIDs == []
+                stepText = "sheet=\(actions.joined(separator: "/")) next=\(next ?? 0) "
+                    + "next-label=\(StoryFooterPanel.viewsLabel(count: nextFooter?.viewCount ?? 0))"
+            default:
+                break
+            }
+            let passes = shows && stepPasses
+            record("Story viewer UI probe own \(step) \(passes ? "passed" : "failed"): \(footerText) \(stepText)")
+        }
+
         private static func title(of chatID: Int64) -> String {
             switch chatID {
             case alice: "Alice"
             case bob: "Bob"
             case carol: "Carol"
+            case me: "Me"
             default: String(chatID)
             }
         }
@@ -386,16 +471,26 @@
         // MARK: Fixtures
 
         /// Alice's two stories, Bob's three with the second, his first unseen, carrying the areas, and Carol's one,
-        /// each a generated picture named after its poster and place.
-        private static func makeFixture(videoURL: URL? = nil) throws -> Fixture {
+        /// each a generated picture named after its poster and place; with `includesOwn`, the account's two stories
+        /// first, the first one viewed by the others and the second saved to the profile.
+        private static func makeFixture(videoURL: URL? = nil, includesOwn: Bool = false) throws -> Fixture {
             let now = Int(Foundation.Date().timeIntervalSince1970)
             let run = UUID().uuidString
-            let posters: [(chatID: Int64, title: String, colors: [UIColor], storyIDs: [Int], maxRead: Int, age: Int)] =
+            var posters: [(chatID: Int64, title: String, colors: [UIColor], storyIDs: [Int], maxRead: Int, age: Int)] =
                 [
                     (alice, "Alice", [.systemPink, .systemOrange], [101, 102], 0, 120),
                     (bob, "Bob", [.systemIndigo, .systemTeal], [201, 202, 203], 201, 40),
                     (carol, "Carol", [.systemGreen, .systemYellow], [301], 0, 5),
                 ]
+            if includesOwn {
+                posters.insert((me, "Me", [.systemPurple, .systemBlue], ownStoryIDs, 0, 60), at: 0)
+            }
+            let views = TDNativeStoryInteractionInfo(
+                viewCount: 3,
+                forwardCount: 1,
+                reactionCount: 2,
+                recentViewerUserIds: [alice, bob, carol],
+            )
             let areas = areaSpecs()
             var fixture = Fixture()
             for poster in posters {
@@ -432,6 +527,9 @@
                         )
                         return .storyContentVideo(TDNativeStoryContentVideo(video: video, alternativeVideo: nil))
                     }
+                    let own = poster.chatID == me
+                        ? (isPosted: offset == 1, interactions: offset == 0 ? views : nil)
+                        : nil
                     fixture.stories.append(makeStory(
                         id: storyID,
                         chatID: poster.chatID,
@@ -439,6 +537,7 @@
                         file: file,
                         areas: storyAreas.map(\.area),
                         content: content,
+                        own: own,
                     ))
                     infos.append(TDNativeStoryInfo(
                         storyId: storyID,

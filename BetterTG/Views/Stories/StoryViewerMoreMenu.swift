@@ -14,10 +14,15 @@ import UniformTypeIdentifiers
 /// reported. Telegram's HD (TDLib offers stories in one quality), stealth mode (Premium) and statistics are left out.
 /// Where the reply panel has no share button, as under a channel's story, whose footer BetterTG doesn't have, Share
 /// joins the menu after Copy Link.
+/// performMyMoreAction builds the account's own story's menu: the speed, Save to or Remove from Profile, Save to
+/// Gallery, and Copy Link and Share for a public story that is still active or saved to the profile. Telegram's Who
+/// Can See, Edit Story and Edit Cover (BetterTG has no story editor yet) and stealth mode (Premium) are left out.
 enum StoryMoreMenu {
     enum Item: Equatable {
         /// Playback Speed with the viewer's rate, and Telegram's speeds a level down.
         case speed(rate: Double)
+        /// toggleStoryIsPostedToChatPage: Save to Profile for a story the profile doesn't show, Remove otherwise.
+        case profile(isPosted: Bool)
         /// togglePeerStoriesMuted: Notify About Stories while they're muted, Do Not Notify otherwise.
         case notify(isMuted: Bool)
         case copyLink
@@ -47,12 +52,16 @@ enum StoryMoreMenu {
         let compactTitle: String
         let kind: Kind
         let isService: Bool
+        /// The poster is the account itself (performMoreAction's peer id check).
+        var isSelf = false
         let username: String?
         let storiesMuted: Bool
         let storiesHidden: Bool
         /// ChatActiveStories.canBeArchived: the stories show in the main list and TDLib can move them to the archive.
         let canBeArchived: Bool
         let accountIsPremium: Bool
+        /// The poster's active stories (getChatActiveStories), so the menu knows an expired one.
+        var activeStoryIDs = Set<Int>()
     }
 
     /// speedList: Telegram's story speeds.
@@ -61,11 +70,16 @@ enum StoryMoreMenu {
     /// EnginePeer.isService: Telegram's notifications, support and replies accounts and the verification codes bot.
     static let serviceUserIDs: Set<Int64> = [777_000, 333_000, 708_513, 1_271_266_957, 489_000]
 
-    /// performMoreAction sends the account's own stories and those a channel admin may edit or delete to their own
-    /// menus, which BetterTG doesn't port; the button shows for everyone else's.
-    static func showsButton(for story: Story?) -> Bool {
+    /// performMoreAction sends the account's own stories to performMyMoreAction and those a channel admin may edit or
+    /// delete to performMyChannelMoreAction, which BetterTG doesn't port; the button shows for the rest.
+    static func showsButton(for story: Story?, accountUserID: Int64?) -> Bool {
         guard let story else { return false }
-        return !story.canBeEdited && !story.canBeDeleted
+        return isOwn(story, accountUserID: accountUserID) || (!story.canBeEdited && !story.canBeDeleted)
+    }
+
+    /// The story was posted by the account itself: its private chat's id is the user's.
+    static func isOwn(_ story: Story, accountUserID: Int64?) -> Bool {
+        accountUserID != nil && story.posterChatId == accountUserID
     }
 
     /// EngineStoryItem.isPublic: a story everyone may see.
@@ -83,6 +97,7 @@ enum StoryMoreMenu {
         baseRate: Double = 1,
         translatableLanguage: (String) -> String? = MessageTranslation.translatableLanguage(of:),
     ) -> [Item] {
+        if poster.isSelf { return ownItems(story: story, poster: poster, baseRate: baseRate) }
         if case .user(isContact: _, isBot: true) = poster.kind { return [] }
         var isLive = false
         if case .storyContentLive = story.content { isLive = true }
@@ -119,6 +134,29 @@ enum StoryMoreMenu {
         }
         if !poster.isService {
             items.append(.report)
+        }
+        return items
+    }
+
+    /// performMyMoreAction's items on the account's own story, in Telegram's order.
+    static func ownItems(story: Story, poster: Poster, baseRate: Double = 1) -> [Item] {
+        var isLive = false
+        if case .storyContentLive = story.content { isLive = true }
+        var items = [Item]()
+        if case .storyContentVideo = story.content {
+            items.append(.speed(rate: baseRate))
+        }
+        if !isLive {
+            if story.canToggleIsPostedToChatPage {
+                items.append(.profile(isPosted: story.isPostedToChatPage))
+            }
+            items.append(.save)
+        }
+        // A link opens only while the story is active or the profile shows it.
+        let isReachable = poster.activeStoryIDs.contains(story.id) || story.isPostedToChatPage
+        if isPublic(story), poster.username != nil, isReachable {
+            items.append(.copyLink)
+            items.append(.share)
         }
         return items
     }
@@ -165,6 +203,8 @@ enum StoryMoreMenu {
         switch item {
         case .speed:
             L10n.telegram("PlaybackSpeed.Title")
+        case .profile(let isPosted):
+            L10n.telegram(isPosted ? "Story.Context.RemoveFromProfile" : "Story.Context.SaveToProfile")
         case .notify(let isMuted):
             L10n.telegram(isMuted ? "StoryFeed.ContextNotifyOn" : "StoryFeed.ContextNotifyOff")
         case .copyLink:
@@ -188,6 +228,7 @@ enum StoryMoreMenu {
         let name =
             switch item {
             case .speed: "gauge.with.needle"
+            case .profile(let isPosted): isPosted ? "pin.slash" : "pin"
             case .notify(let isMuted): isMuted ? "bell" : "bell.slash"
             case .copyLink: "link"
             case .share: "arrowshape.turn.up.right"
@@ -203,6 +244,7 @@ enum StoryMoreMenu {
     static func identifier(of item: Item) -> String {
         switch item {
         case .speed: "speed"
+        case .profile(let isPosted): isPosted ? "remove-from-profile" : "save-to-profile"
         case .notify(let isMuted): isMuted ? "notify-on" : "notify-off"
         case .copyLink: "copy-link"
         case .share: "share"
@@ -221,6 +263,7 @@ enum StoryMoreMenu {
         let active = try? await client.send(TDNativeRequests.getChatActiveStories(chatId: chatID))
         var kind = Poster.Kind.other
         var isService = false
+        var isSelf = false
         var username: String?
         var compactTitle = chat.title
         switch chat.type {
@@ -230,6 +273,7 @@ enum StoryMoreMenu {
             if case .userTypeBot = user?.type { isBot = true }
             kind = .user(isContact: user?.isContact ?? false, isBot: isBot)
             isService = serviceUserIDs.contains(info.userId)
+            isSelf = me?.id == info.userId
             username = user?.usernames?.activeUsernames.first
             if let user {
                 let firstName = user.firstName.isEmpty ? user.lastName : user.firstName
@@ -251,11 +295,13 @@ enum StoryMoreMenu {
             compactTitle: compactTitle,
             kind: kind,
             isService: isService,
+            isSelf: isSelf,
             username: username,
             storiesMuted: isMuted,
             storiesHidden: isHidden,
             canBeArchived: active?.canBeArchived ?? false,
             accountIsPremium: me?.isPremium ?? false,
+            activeStoryIDs: Set(active?.stories.map(\.storyId) ?? []),
         )
     }
 

@@ -18,6 +18,8 @@ import TDLibKit
     let source: TdUpdateSource
     let client: TDLibClient
     let vodRanges: TDLibVODRangeCoordinator
+    /// The account's user, whose stories get Telegram's footer and own menu.
+    private(set) var accountUserID: Int64?
 
     var onStoryChanged: ((Story) -> Void)?
     var onStoryDeleted: ((StoryKey) -> Void)?
@@ -52,6 +54,7 @@ import TDLibKit
         self.source = source
         self.client = client
         self.vodRanges = TDLib.shared.vodRanges
+        self.accountUserID = TDLib.shared.activeAccount?.userID
         observeUpdates()
     }
 
@@ -177,9 +180,16 @@ import TDLibKit
     }
 
     #if DEBUG
-        /// Turns the session into the UI probe's: the viewer shows only these, without TDLib requests.
-        func seedOffline(stories: [Story], chats: [Chat], activeStories: [ChatActiveStories]) {
+        /// Turns the session into the UI probe's: the viewer shows only these, without TDLib requests. With
+        /// `accountUserID` set, that poster's stories are the account's own.
+        func seedOffline(
+            stories: [Story],
+            chats: [Chat],
+            activeStories: [ChatActiveStories],
+            accountUserID: Int64? = nil,
+        ) {
             isOffline = true
+            if let accountUserID { self.accountUserID = accountUserID }
             for story in stories {
                 self.stories[StoryKey(chatID: story.posterChatId, storyID: story.id)] = story
             }
