@@ -17,7 +17,7 @@ x-app: &app
 services:
     api:
         <<: *app
-        command: ['bun', 'dist/main.js']
+        command: ['bettertg-backend', 'api']
         depends_on:
             postgres:
                 condition: service_healthy
@@ -35,7 +35,7 @@ services:
 
     worker:
         <<: *app
-        command: ['bun', 'dist/worker.js']
+        command: ['bettertg-backend', 'worker']
         environment:
             DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://bettertg:bettertg@postgres:5432/bettertg}
             REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379/0}
@@ -54,7 +54,7 @@ services:
 
     migrate:
         <<: *app
-        command: ['bun', 'run', 'migration:run:prod']
+        command: ['bettertg-backend', 'migrate', 'run']
         restart: 'no'
 
     caddy:

@@ -1,7 +1,4 @@
-node_modules/
-dist/
-coverage/
+target/
 .env
 .data/
 *.log
-target/

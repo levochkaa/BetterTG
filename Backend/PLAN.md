@@ -11,7 +11,7 @@ TDLib на iPhone
 Telegram
   └─ отправляет зашифрованный Web Push
        ↓
-Caddy → NestJS ingress → BullMQ worker
+Caddy → ingress → очередь → worker
                          ├─ расшифровывает Web Push
                          ├─ отделяет видимые сообщения от service events
                          └─ собирает APNs payload
@@ -23,7 +23,7 @@ Caddy → NestJS ingress → BullMQ worker
 
 Сервер не авторизуется в Telegram, не запускает TDLib, не хранит auth key или историю сообщений и не может делать запросы от имени пользователя. Он знает только installation, APNs token и Web Push key material. При этом relay неизбежно видит в памяти расшифрованный push-preview: имя отправителя, название чата, текст уведомления и routing identifiers. Это нужно явно отразить в privacy policy до публичного запуска.
 
-Проект сразу строится как маленький модульный backend, а не одноразовый webhook. Push relay будет первой фичей; будущие возможности, не покрытые TDLib, смогут добавляться отдельными NestJS-модулями.
+Проект сразу строится как маленький модульный backend, а не одноразовый webhook. Push relay будет первой фичей; будущие возможности, не покрытые TDLib, смогут добавляться отдельными модулями.
 
 ## Подтвержденные предпосылки
 
@@ -62,14 +62,15 @@ Caddy → NestJS ingress → BullMQ worker
 
 ## Технологический фундамент
 
-Backend строится как отдельное небольшое приложение с поддерживаемыми версиями runtime и зависимостей.
+Backend строится как отдельное небольшое приложение с поддерживаемыми версиями runtime и зависимостей. Первая версия была на TypeScript (Bun, NestJS, TypeORM, BullMQ); 2026-10-25 она переписана на Rust с тем же HTTP-контрактом, схемой PostgreSQL и форматом зашифрованных значений.
 
-- TypeScript на Bun;
-- NestJS с feature modules, DTO validation и URI versioning;
-- Bun package manager и test runner;
-- PostgreSQL + TypeORM migrations;
-- Redis + BullMQ для короткой durable очереди;
-- прямой APNs provider client поверх HTTP/2 и token-based `.p8` authentication;
+- Rust, один бинарник `bettertg-backend` с командами `api`, `worker` и `migrate`;
+- axum и tokio для HTTP, ручная валидация тел в форме ответов прежнего NestJS;
+- `cargo test`, `cargo clippy`, `cargo fmt`;
+- PostgreSQL через sqlx, миграции в `schema_migrations` с подхватом базы, мигрированной TypeORM;
+- Redis-очередь на Lua-скриптах с гарантиями BullMQ: ID задачи принимается один раз, повторы с exponential backoff, возврат задач упавшего worker'а, bounded retention failed jobs;
+- прямой APNs provider client поверх HTTP/2 (`h2`) и token-based `.p8` authentication;
+- RustCrypto для Web Push (RFC 8291 и legacy `aesgcm`), App Attest и шифрования секретов;
 - Caddy для публичного HTTPS endpoint, body limits и reverse proxy;
 - Docker multi-stage image и Docker Compose;
 - OpenTelemetry для traces, metrics и structured logs;
@@ -77,38 +78,31 @@ Backend строится как отдельное небольшое прило
 
 Архитектура разделяет producer/worker, lifecycle HTTP/2 APNs connections, graceful shutdown, health checks и правила redaction.
 
-Предлагаемая структура:
+Структура:
 
 ```text
 Backend/
-  package.json
-  bun.lock
-  nest-cli.json
-  tsconfig.json
+  Cargo.toml
+  Cargo.lock
   Dockerfile
   compose.yaml
   Caddyfile
   .env.example
   src/
-    main.ts
-    app.module.ts
-    config/
-    database/
-    migrations/
-    health/
-    installations/
-    telegram-web-push/
-      crypto/
-      ingress/
-      classification/
-    notifications/
-      apns/
-      jobs/
-    observability/
-    common/
-  test/
-    fixtures/
-    e2e/
+    main.rs              — команды api, worker, migrate
+    app.rs               — сборка процессов и graceful shutdown
+    config.rs
+    db.rs, db/migrations.rs
+    queue.rs             — Redis-очередь задач
+    security.rs          — шифрование секретов и хэши токенов
+    installations.rs
+    app_attest/
+    web_push/            — ingress, ece, decryptor, payload, classifier, catalog, worker
+    apns/                — mapper, HTTP/2 client
+    http/                — маршруты и валидация
+    telemetry.rs, logging.rs
+    bin/                 — smoke-relay, update-push-catalog
+  tests/                 — очередь и relay на настоящих PostgreSQL и Redis
 ```
 
 API process принимает HTTP-запросы и кладет ciphertext в очередь. Worker расшифровывает payload и общается с APNs. Оба процесса собираются из одного image, но запускаются разными commands, чтобы позднее масштабироваться независимо.
@@ -189,12 +183,12 @@ API process принимает HTTP-запросы и кладет ciphertext в
 ### 2. Telegram Web Push ingress
 
 1. Telegram делает Web Push request на capability endpoint.
-2. Caddy принимает только HTTPS, ограничивает request body и проксирует запрос в NestJS.
+2. Caddy принимает только HTTPS, ограничивает request body и проксирует запрос в API.
 3. Ingress:
    - hash'ирует capability token и находит активную subscription;
    - проверяет method, `Content-Encoding`, content type, TTL и body size;
    - вычисляет digest ciphertext для idempotency;
-   - кладет только ciphertext и разрешенные crypto headers в BullMQ;
+   - кладет только ciphertext и разрешенные crypto headers в очередь;
    - отвечает успешным Web Push status только после durable enqueue.
 4. Если Redis недоступен, endpoint отвечает `503`, а не подтверждает потерянный push.
 5. Для неизвестного/revoked capability возвращается `404`/`410` без различимых деталей.
@@ -214,9 +208,9 @@ Worker загружает subscription secrets, расшифровывает bod
 - identifiers имеют ожидаемые numeric/string bounds;
 - после mapping итоговый APNs JSON не превышает 4096 байт.
 
-Не следует писать криптографию сразу внутри controller. Нужен изолированный `WebPushDecryptor` interface. Реализация выбирается после spike среди поддерживаемых библиотек; она обязана проходить официальные RFC 8291 test vectors и сохраненные encrypted fixtures. Если подходящей библиотеки нет, минимальная реализация на Node `crypto` допускается только в отдельном модуле с теми же vectors, negative tests и дополнительным security review.
+Не следует писать криптографию сразу внутри controller. Нужен изолированный `WebPushDecryptor` interface. Реализация выбирается после spike среди поддерживаемых библиотек; она обязана проходить официальные RFC 8291 test vectors и сохраненные encrypted fixtures. Если подходящей библиотеки нет, минимальная реализация на стандартных криптопримитивах допускается только в отдельном модуле с теми же vectors, negative tests и дополнительным security review.
 
-Raw payload и decrypted preview нельзя логировать, сохранять в PostgreSQL, оставлять в failed BullMQ jobs или отправлять в telemetry.
+Raw payload и decrypted preview нельзя логировать, сохранять в PostgreSQL, оставлять в failed jobs очереди или отправлять в telemetry.
 
 ### 4. Classification policy
 
@@ -291,7 +285,7 @@ Provider JWT кэшируется на соединении и обновляе�
 - Caddy ограничивает методы, body size, timeouts и TLS; per-installation/global rate limits реализуются в приложении/Redis, а не зависят от стороннего Caddy plugin.
 - Контроллеры используют strict DTO validation, но Web Push ingress разбирает только raw body.
 - Logs автоматически redacted; запрет на `loc_args`, APNs token, bearer tokens, endpoint token, raw/decrypted payload и Telegram identifiers проверяется тестами.
-- BullMQ хранит только ciphertext. Completed jobs удаляются сразу; failed jobs имеют малый bounded retention.
+- Очередь хранит только ciphertext. Completed jobs удаляются сразу; failed jobs имеют малый bounded retention.
 - Redis работает с persistence и `noeviction`; PostgreSQL backup должен быть зашифрован, потому что в нем есть encrypted secrets.
 - Все revoke/delete операции физически стирают encrypted token/key material, а не только ставят флаг.
 - Server-side preview processing и retention policy описываются пользователю до включения relay.
@@ -313,7 +307,7 @@ Provider JWT кэшируется на соединении и обновляе�
 
 Target для собственного участка relay: p95 от accepted ingress до первого APNs response меньше 1 секунды при нормальной работе зависимостей. Это не обещание времени доставки на устройство: Telegram и APNs находятся вне нашего контроля.
 
-Graceful shutdown перестает принимать ingress, дает активным jobs закончиться, закрывает BullMQ worker и HTTP/2 sessions, затем flush'ит telemetry.
+Graceful shutdown перестает принимать ingress, дает активным jobs закончиться, закрывает worker и HTTP/2 sessions, затем flush'ит telemetry.
 
 ## Проверка
 
@@ -340,8 +334,8 @@ Spike считается пройденным только после rich alert
 - payload shaping/localization arguments и 4096-byte trimming;
 - endpoint capability lookup, revoke, replay/idempotency и rate limits;
 - installation secret auth, APNs token rotation и App Attest verifier;
-- TypeORM migration up/down и schema drift;
-- BullMQ retry/permanent-error behavior;
+- migration up/down и schema drift;
+- retry/permanent-error behavior очереди;
 - fake APNs transport: success, timeout, `GOAWAY`, `429`, `500`, `503`, `410`, invalid token/topic/auth;
 - e2e: encrypted synthetic Web Push → queue → decrypt → expected APNs request;
 - secret-leak test для logs, traces, metrics и failed jobs;
@@ -373,9 +367,9 @@ Spike считается пройденным только после rich alert
 
 ### Этап 1 — scaffold и infrastructure
 
-- отдельный NestJS project в `Backend/`;
+- отдельный project в `Backend/`;
 - config schema с fail-fast validation;
-- PostgreSQL, Redis, TypeORM migrations, BullMQ;
+- PostgreSQL, Redis, migrations, очередь;
 - API/worker commands, Dockerfile, Compose, Caddy;
 - health endpoints, structured redacted logger, OpenTelemetry;
 - lint, unit, integration и e2e commands в CI.
@@ -393,7 +387,7 @@ Spike считается пройденным только после rich alert
 
 - opaque capability routes;
 - raw-body handling и size/method/header validation;
-- ciphertext-only BullMQ job;
+- ciphertext-only job;
 - idempotency/replay guard;
 - RFC-tested decryptor;
 - strict Telegram payload parser.
@@ -456,7 +450,7 @@ Spike считается пройденным только после rich alert
 
 - Telegram Web Push — единственный push ingress;
 - одна активная Telegram Web Push subscription на installation;
-- PostgreSQL + Redis/BullMQ с первого production deploy;
+- PostgreSQL + Redis-очередь с первого production deploy;
 - localization на устройстве через `loc-key`/`loc-args`;
 - service events в v1 не показываются; best-effort background handling добавляется отдельным этапом;
 - App Attest обязателен до открытия registration endpoint публичному интернету;

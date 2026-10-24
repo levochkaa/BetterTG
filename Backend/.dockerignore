@@ -1,6 +1,4 @@
-node_modules
-dist
-coverage
+target
 .data
 .env
 .git

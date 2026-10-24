@@ -1,22 +1,25 @@
-FROM oven/bun:1.4.0-alpine AS dependencies
+FROM rust:1.99-slim-trixie AS build
 
 WORKDIR /app
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
-
-FROM dependencies AS build
-COPY nest-cli.json tsconfig.json tsconfig.build.json ./
+COPY Cargo.toml Cargo.lock rustfmt.toml ./
+# Compile the dependencies once, against placeholder sources, so source edits rebuild only the crate.
+RUN mkdir -p src/bin \
+    && echo 'fn main() {}' > src/main.rs \
+    && touch src/lib.rs \
+    && echo 'fn main() {}' > src/bin/smoke-relay.rs \
+    && echo 'fn main() {}' > src/bin/update-push-catalog.rs \
+    && cargo build --release --locked \
+    && rm -rf src
 COPY src ./src
-RUN bun run build
-RUN bun install --frozen-lockfile --production
+RUN touch src/main.rs src/lib.rs && cargo build --release --locked --bin bettertg-backend
 
-FROM oven/bun:1.4.0-alpine AS runtime
+FROM debian:trixie-slim AS runtime
 
-RUN apk --no-cache add ca-certificates curl
-WORKDIR /app
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --uid 1000 --user-group --no-create-home --shell /usr/sbin/nologin bettertg
+COPY --from=build /app/target/release/bettertg-backend /usr/local/bin/bettertg-backend
 ENV NODE_ENV=production
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
-COPY package.json ./
-USER bun
-CMD ["bun", "dist/main.js"]
+USER bettertg
+CMD ["bettertg-backend", "api"]
