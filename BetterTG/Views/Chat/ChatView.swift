@@ -10406,6 +10406,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             if let replacingForwardID, destination != location, chatVM.pendingForward?.id == replacingForwardID {
                 chatVM.pendingForward = nil
             }
+            // ChatControllerForwardMessages' peerSelected: Saved Messages takes the messages at once, unless they
+            // already are there.
+            if chat.isSavedMessages, topic == nil, destination != location {
+                forwardToSavedMessages(draft, chat: chat, destination: destination)
+                return
+            }
             Self.openForward(
                 draft,
                 in: chat,
@@ -10417,6 +10423,40 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let navigationController = TelegramNavigationController(rootViewController: picker)
         navigationController.modalPresentationStyle = .fullScreen
         present(navigationController, animated: true)
+    }
+
+    /// The forward goes out now, with UndoOverlayController's `.forward(savedMessages: true)` at the top, which
+    /// opens Saved Messages, and a success haptic after 0.88 s.
+    private func forwardToSavedMessages(_ draft: PendingMessageForward, chat: CustomChat, destination: ChatLocation) {
+        guard let accountID = TDLib.shared.activeAccountID else { return }
+        let client = chatVM.client
+        let key = draft.prepared.request.messageIDs.count == 1
+            ? "Conversation.ForwardTooltip.SavedMessages.One"
+            : "Conversation.ForwardTooltip.SavedMessages.Many"
+        TelegramUndoToast.showSavedMessagesForward(
+            L10n.telegram(key),
+            in: view,
+            topInset: max(0, customNavigationBar.frame.maxY - view.safeAreaInsets.top) + 8,
+        ) { [weak self] in
+            guard let self, TDLib.shared.activeAccountID == accountID else { return }
+            _ = Self.openChat(chat, topic: nil, destination: destination, navigationController: navigationController)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.88) {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
+        Task { [weak self] in
+            do {
+                try await MessageForwardingService.send(
+                    draft.prepared,
+                    to: MessageForwardDestination(chatID: chat.id, topic: nil),
+                    mode: draft.mode,
+                    client: client,
+                    accountID: accountID,
+                )
+            } catch {
+                self?.presentForwardRequestError(error)
+            }
+        }
     }
 
     private func presentForwardRequestError(_ error: Error) {

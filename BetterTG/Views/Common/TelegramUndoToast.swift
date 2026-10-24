@@ -9,7 +9,11 @@ import UIKit
     // MARK: Private
 
     private weak static var current: TelegramUndoToast?
-    private static let duration: TimeInterval = 5
+
+    private var duration: TimeInterval = 5
+    /// The panel's own action (UndoOverlayControllerNode's buttonPressed with `.info`): a tap anywhere on it.
+    private var tapAction: (() -> Void)?
+    private var entersFromTop = false
 
     private let effectView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
     private let label = UILabel()
@@ -125,9 +129,68 @@ import UIKit
         toast.present()
     }
 
+    /// UndoOverlayController's `.forward(savedMessages: true)` at the top of `host`: Telegram's **marked** text
+    /// semibold, Saved Messages in the lighter accent, for three seconds; a tap anywhere opens Saved Messages.
+    static func showSavedMessagesForward(
+        _ text: String,
+        in host: UIView,
+        topInset: CGFloat,
+        open: @escaping () -> Void,
+    ) {
+        current?.dismiss(animated: false)
+        let toast = TelegramUndoToast(title: nil, text: text.withoutTelegramMarkup, actionTitle: nil, undo: nil)
+        toast.label.attributedText = savedMessagesText(text, font: toast.label.font)
+        toast.duration = 3
+        toast.entersFromTop = true
+        toast.tapAction = open
+        toast.isAccessibilityElement = true
+        toast.accessibilityLabel = text.withoutTelegramMarkup
+        toast.accessibilityTraits = .button
+        toast.addGestureRecognizer(UITapGestureRecognizer(target: toast, action: #selector(panelTapped)))
+        toast.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(toast)
+        NSLayoutConstraint.activate([
+            toast.leadingAnchor.constraint(equalTo: host.safeAreaLayoutGuide.leadingAnchor, constant: 8),
+            toast.trailingAnchor.constraint(equalTo: host.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+            toast.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor, constant: topInset),
+        ])
+        current = toast
+        toast.present()
+    }
+
+    /// The text with each `**…**` part semibold in `itemAccentColor.withMultiplied(hue: 0.933, saturation: 0.61)`.
+    private static func savedMessagesText(_ text: String, font: UIFont) -> NSAttributedString {
+        let bold = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
+            for: .systemFont(ofSize: font.pointSize, weight: .semibold),
+            maximumPointSize: 19,
+        )
+        var hue = CGFloat.zero
+        var saturation = CGFloat.zero
+        var brightness = CGFloat.zero
+        UIColor.systemBlue
+            .resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+            .getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: nil)
+        let accent = UIColor(hue: hue * 0.933, saturation: saturation * 0.61, brightness: brightness, alpha: 1)
+        let result = NSMutableAttributedString()
+        for (index, part) in text.components(separatedBy: "**").enumerated() {
+            let isBold = index % 2 == 1
+            result.append(NSAttributedString(string: part, attributes: [
+                .font: isBold ? bold : font,
+                .foregroundColor: isBold ? accent : UIColor.white,
+            ]))
+        }
+        return result
+    }
+
+    @objc private func panelTapped() {
+        let action = tapAction
+        dismiss(animated: true)
+        action?()
+    }
+
     private func present() {
         alpha = 0
-        transform = CGAffineTransform(translationX: 0, y: 16)
+        transform = CGAffineTransform(translationX: 0, y: entersFromTop ? -16 : 16)
         UIView.animate(
             withDuration: UIAccessibility.isReduceMotionEnabled ? 0.15 : 0.3,
             delay: 0,
@@ -141,7 +204,7 @@ import UIKit
         UIAccessibility.post(notification: .announcement, argument: label.text)
         let work = DispatchWorkItem { [weak self] in self?.dismiss(animated: true) }
         dismissWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.duration, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
     }
 
     private func dismiss(animated: Bool) {
@@ -154,7 +217,7 @@ import UIKit
         }
         UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState]) {
             self.alpha = 0
-            self.transform = CGAffineTransform(translationX: 0, y: 16)
+            self.transform = CGAffineTransform(translationX: 0, y: self.entersFromTop ? -16 : 16)
         } completion: { _ in
             self.removeFromSuperview()
         }

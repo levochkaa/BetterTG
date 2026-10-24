@@ -2577,3 +2577,5 @@
 "Chat.Context.Phone.ViewProfile" = "View Profile";
 "Chat.Context.Username.NotOnTelegram" = "This user doesn't exist on Telegram.";
 "Chat.Context.Command.Copy" = "Copy Command";
+"Conversation.ForwardTooltip.SavedMessages.One" = "Message forwarded to **Saved Messages**";
+"Conversation.ForwardTooltip.SavedMessages.Many" = "Messages forwarded to **Saved Messages**";
