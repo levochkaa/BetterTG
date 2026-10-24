@@ -27,8 +27,8 @@ import UIKit
                     + "panel-writable-none/banned-delete/restricted-text/channel-subscriber/basic-left-delete/"
                     + "basic-creator-left-delete/basic-read-only-restricted/user-none=true; "
                     + "restricted-default/personal/timed=true; "
-                    + "geometry-mute-165-centred/search-right/join-166-accent/long-title/help-left/"
-                    + "unblock-text-plus-32/restricted-two-lines/delete-bare=true"
+                    + "geometry-mute-centred/search-right/join-spans/help-left/unblock-centred/"
+                    + "restricted-text/delete=true"
             } catch {
                 result = "Status panel probe failed: \(error)"
             }
@@ -140,80 +140,70 @@ import UIKit
         }
 
         private static func verifyGeometry() throws {
-            let panel = ChatStatusPanelView(frame: CGRect(x: 0, y: 0, width: 386, height: 40))
+            let panel = ChatStatusPanelView(frame: CGRect(x: 0, y: 0, width: 402, height: 84))
+            let regular = UIFont.systemFont(ofSize: 17)
+            func width(_ title: String) -> CGFloat {
+                ceil((title as NSString).size(withAttributes: [.font: regular]).width)
+            }
+
             panel.update(
-                content: .init(title: "Mute", style: .action(isAccent: false), showsSearch: true),
+                content: .init(title: "Mute", style: .action(spansWidth: false), showsSearch: true),
                 animated: false,
             )
-            panel.layoutIfNeeded()
             var geometry = panel.probeGeometry
-            try require(geometry.center == CGRect(x: 110, y: 0, width: 165, height: 40), "mute \(geometry.center)")
+            let muteFrame = geometry.action ?? .zero
             try require(
-                geometry.search == CGRect(x: 346, y: 0, width: 40, height: 40),
+                abs(muteFrame.width - (width("Mute") + 24)) <= 1 && abs(muteFrame.midX - 201) <= 1
+                    && muteFrame.minY == 0 && muteFrame.height == 50,
+                "mute \(muteFrame)",
+            )
+            try require(
+                geometry.search == CGRect(x: 358, y: 0, width: 44, height: 50) && geometry.help == nil,
                 "search \(String(describing: geometry.search))",
             )
-            try require(geometry.help == nil && geometry.accentAlpha == 0, "mute extras")
 
             panel.update(
-                content: .init(title: "Join", style: .action(isAccent: true), showsSearch: true),
+                content: .init(title: "Join", style: .action(spansWidth: true), showsSearch: true),
                 animated: false,
             )
-            panel.layoutIfNeeded()
-            geometry = panel.probeGeometry
-            try require(geometry.center.width == 166 && geometry.accentAlpha == 1, "join \(geometry.center)")
-
-            let long = "Apply to Join Group"
-            panel.update(
-                content: .init(title: long, style: .action(isAccent: true), showsSearch: true),
-                animated: false,
-            )
-            panel.layoutIfNeeded()
-            geometry = panel.probeGeometry
-            let medium = UIFont.systemFont(ofSize: 17, weight: .medium)
-            let titleWidth = ceil((long as NSString).size(withAttributes: [.font: medium]).width)
-            try require(
-                abs(geometry.center.width - min(290, titleWidth + 38)) <= 1 && geometry.title == long,
-                "long title \(geometry.center) text \(titleWidth)",
-            )
-
-            panel.update(
-                content: .init(title: "Unmute", style: .action(isAccent: false), showsSearch: true, showsHelp: true),
-                animated: false,
-            )
-            panel.layoutIfNeeded()
             geometry = panel.probeGeometry
             try require(
-                geometry.help == CGRect(x: 0, y: 0, width: 40, height: 40),
+                geometry.action == CGRect(x: 44, y: 0, width: 314, height: 50),
+                "join \(String(describing: geometry.action))",
+            )
+
+            panel.update(
+                content: .init(title: "Unmute", style: .action(spansWidth: false), showsSearch: true, showsHelp: true),
+                animated: false,
+            )
+            geometry = panel.probeGeometry
+            try require(
+                geometry.help == CGRect(x: 0, y: 0, width: 44, height: 50)
+                    && abs((geometry.action?.midX ?? 0) - 201) <= 1,
                 "help \(String(describing: geometry.help))",
             )
-            try require(geometry.center.minX == 110, "help centre \(geometry.center)")
 
             panel.update(content: .init(title: "Unblock", style: .button), animated: false)
-            panel.layoutIfNeeded()
             geometry = panel.probeGeometry
-            let unblockWidth = ceil(("Unblock" as NSString)
-.size(withAttributes: [.font: UIFont.systemFont(ofSize: 17)])
-                .width)
             try require(
-                abs(geometry.center.width - (unblockWidth + 32)) <= 1 && abs(geometry.center.midX - 193) <= 1
-                    && geometry.search == nil && geometry.hasGlass,
-                "unblock \(geometry.center)",
+                abs((geometry.action?.width ?? 0) - (width("Unblock") + 24)) <= 1 && geometry.search == nil,
+                "unblock \(String(describing: geometry.action))",
             )
 
             let text = L10n.telegram("Conversation.RestrictedTextTimed", "January 1, 2030 at 10:00")
             panel.update(content: .init(title: text, style: .text), animated: false)
-            panel.layoutIfNeeded()
             geometry = panel.probeGeometry
             try require(
-                geometry.center.height == 40 && geometry.center.width <= 386 - 32 + 24 && geometry.label.height == 40
-                    && geometry.hasGlass,
-                "restricted \(geometry.center) label \(geometry.label)",
+                geometry.action == nil && geometry.text == CGRect(x: 16, y: 0, width: 370, height: 50),
+                "restricted \(String(describing: geometry.text))",
             )
 
             panel.update(content: .init(title: "Delete and Exit", style: .destructive), animated: false)
-            panel.layoutIfNeeded()
             geometry = panel.probeGeometry
-            try require(!geometry.hasGlass && geometry.search == nil, "delete \(geometry.center)")
+            try require(
+                abs((geometry.action?.width ?? 0) - (width("Delete and Exit") + 24)) <= 1 && geometry.text == nil,
+                "delete \(String(describing: geometry.action))",
+            )
         }
 
         private static func supergroup(

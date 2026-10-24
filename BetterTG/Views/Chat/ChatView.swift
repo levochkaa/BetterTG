@@ -176,8 +176,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var topicReopenBarHeightConstraint: NSLayoutConstraint!
     /// In place of the composer where the user can't write: Join, Mute or Unmute (ChatChannelSubscriberInputPanelNode).
     private let statusPanel = ChatStatusPanelView()
-    private var statusPanelHeightConstraint: NSLayoutConstraint?
-    private var statusPanelBottomConstraint: NSLayoutConstraint?
+    private var statusPanelTopConstraint: NSLayoutConstraint?
     private var statusPanelVisible: Bool?
     private var composerHidden = false
     private var scrollToLatestBottomConstraint: NSLayoutConstraint?
@@ -2741,8 +2740,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if !composerHidden { composerView.setHiddenForSearch(false) }
     }
 
-    /// ChatControllerNode places an input panel 8 pt above the safe area, the status panel 8 pt from the sides.
-    /// Without a panel it collapses onto the safe area, where the scroll-to-latest button rests.
+    /// The status panel docks at the bottom as the resting composer does, its content above the safe area. Without a
+    /// panel its top sits on the safe area, where the scroll-to-latest button rests.
     private func configureStatusPanel() {
         statusPanel.translatesAutoresizingMaskIntoConstraints = false
         statusPanel.isHidden = true
@@ -2752,15 +2751,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             self?.showChatToast(L10n.telegram("Conversation.GigagroupDescription"))
         }
         view.addSubview(statusPanel)
-        let height = statusPanel.heightAnchor.constraint(equalToConstant: 0)
-        let bottom = statusPanel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
-        statusPanelHeightConstraint = height
-        statusPanelBottomConstraint = bottom
+        let top = statusPanel.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+        statusPanelTopConstraint = top
         NSLayoutConstraint.activate([
-            statusPanel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
-            statusPanel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
-            height,
-            bottom,
+            statusPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            statusPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            statusPanel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            top,
         ])
         RootVM.shared
             .$scopeNotificationSettings
@@ -2775,7 +2772,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         case .subscriber(let action):
             .init(
                 title: action.title,
-                style: .action(isAccent: action.isJoin),
+                style: .action(spansWidth: action.isJoin),
                 showsSearch: true,
                 showsHelp: !action.isJoin && chatVM.customChat.supergroup?.isBroadcastGroup == true,
             )
@@ -2800,16 +2797,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         updateComposerHidden()
         let hasPanel = panel != nil
         let visible = hasPanel && !messageSearchActive && !isSelectingMessages
-        let height = hasPanel ? ChatStatusPanelView.contentHeight : 0
-        let layoutChanged = statusPanelHeightConstraint?.constant != height
+        let top = hasPanel ? -ChatStatusPanelView.contentHeight : 0
+        let layoutChanged = statusPanelTopConstraint?.constant != top
         let visibilityChanged = statusPanelVisible != visible
         guard layoutChanged || visibilityChanged else { return }
         let wasVisible = statusPanelVisible == true
         statusPanelVisible = visible
-        statusPanelHeightConstraint?.constant = height
-        statusPanelBottomConstraint?.constant = hasPanel ? -8 : 0
+        statusPanelTopConstraint?.constant = top
         statusPanel.isUserInteractionEnabled = visible
-        let hiddenTransform = CGAffineTransform(translationX: 0, y: ChatStatusPanelView.contentHeight + 20)
+        // The composer's search hiding: down past its own height.
+        let hiddenTransform = CGAffineTransform(
+            translationX: 0,
+            y: max(ChatStatusPanelView.contentHeight + view.safeAreaInsets.bottom, 72) + 12,
+        )
         let changes = {
             self.statusPanel.alpha = visible ? 1 : 0
             self.statusPanel.transform = visible ? .identity : hiddenTransform
@@ -4951,7 +4951,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             } else if showsComposer, composerView.frame.minY > 0 {
                 max(view.safeAreaInsets.bottom, view.bounds.maxY - composerView.frame.minY) + 10
             } else if statusPanelShowsContent, statusPanel.frame.minY > 0 {
-                view.bounds.maxY - statusPanel.frame.minY + 8
+                view.bounds.maxY - statusPanel.frame.minY + 10
             } else {
                 view.safeAreaInsets.bottom + 8
             }
