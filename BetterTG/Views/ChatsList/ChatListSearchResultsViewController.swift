@@ -306,11 +306,7 @@ import UIKit
         tableView.delegate = self
         let pressGesture = ContextMenuPressGestureRecognizer(target: self, action: #selector(chatLongPressed(_:)))
         pressGesture.pressedViewProvider = { [weak self] gesture in
-            guard let self,
-                  let indexPath = tableView.indexPathForRow(at: gesture.location(in: tableView)),
-                  pressedChat(at: indexPath) != nil
-            else { return nil }
-            return tableView.cellForRow(at: indexPath)?.contentView
+            self?.pressedChat(at: gesture.location(in: self?.tableView))?.view
         }
         tableView.addGestureRecognizer(pressGesture)
         tableView.register(ChatListSearchPeerCell.self, forCellReuseIdentifier: ChatListSearchPeerCell.reuseIdentifier)
@@ -721,14 +717,21 @@ import UIKit
         }
     }
 
-    private func pressedChat(at indexPath: IndexPath) -> CustomChat? {
+    /// The chat under `point` in the table: a found chat's row or a person in the People row.
+    private func pressedChat(at point: CGPoint) -> (chat: CustomChat, view: UIView, isTopPeer: Bool)? {
+        guard let indexPath = tableView.indexPathForRow(at: point),
+              let cell = tableView.cellForRow(at: indexPath)
+        else { return nil }
         switch dataSource.itemIdentifier(for: indexPath) {
         case .globalPeer(let chatID)?,
              .localPeer(let chatID)?,
              .recentPeer(let chatID)?:
-            chatsByID[chatID]
+            return chatsByID[chatID].map { ($0, cell.contentView, false) }
+        case .topPeers?:
+            return (cell as? ChatListSearchTopPeersCell)?.peer(at: point, in: tableView)
+                .map { ($0.chat, $0.view, true) }
         default:
-            nil
+            return nil
         }
     }
 
@@ -736,27 +739,25 @@ import UIKit
     /// `.search` source.
     @objc private func chatLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
         guard gesture.state == .began, actionAuthority.scope(owner: self).isCurrent,
-              let indexPath = tableView.indexPathForRow(at: gesture.location(in: tableView)),
-              let chat = pressedChat(at: indexPath),
-              let cell = tableView.cellForRow(at: indexPath)
+              let pressed = pressedChat(at: gesture.location(in: tableView))
         else { return }
-        let actions = menu(for: chat)
+        let actions = menu(for: pressed.chat, isTopPeer: pressed.isTopPeer)
         guard !actions.isEmpty else { return }
         presentTelegramContextMenu(
-            sourceView: cell.contentView,
+            sourceView: pressed.view,
             actions: actions,
             tracking: gesture,
             presentationStyle: .chatPreview,
-            previewController: ChatViewController(customChat: chat, presentationMode: .contextPreview),
+            previewController: ChatViewController(customChat: pressed.chat, presentationMode: .contextPreview),
         )
     }
 
     /// Remove from Recents for a recently found chat, Add to Contacts for someone not in them, then the chat list's
     /// items for a chat the account has or Join for a channel or group it hasn't joined.
-    private func menu(for chat: CustomChat) -> [TelegramContextMenuAction] {
+    private func menu(for chat: CustomChat, isTopPeer: Bool) -> [TelegramContextMenuAction] {
         let client = actionAuthority.client
         var actions = [TelegramContextMenuAction]()
-        if recentChatIDs.contains(chat.id) {
+        if !isTopPeer, recentChatIDs.contains(chat.id) {
             let chatID = chat.id
             actions.append(TelegramContextMenuAction(
                 title: L10n.telegram("ChatList.Context.RemoveFromRecents"),
@@ -788,6 +789,23 @@ import UIKit
         if isJoined {
             var chatActions = chatMenu?(chat) ?? []
             if !actions.isEmpty, !chatActions.isEmpty { chatActions[0].startsNewSection = true }
+            if isTopPeer {
+                // A person in the People row leaves it with Remove from Recents, before Delete (removeRecentPeer).
+                let chatID = chat.id
+                let deleteIndex = chatActions.lastIndex { $0.isDestructive } ?? chatActions.endIndex
+                chatActions.insert(TelegramContextMenuAction(
+                    title: L10n.telegram("ChatList.Context.RemoveFromRecents"),
+                    image: UIImage(systemName: "xmark.circle"),
+                    isDestructive: true,
+                    startsNewSection: true,
+                ) { [weak self] in
+                    Task { _ = try? await client.removeTopChat(category: .topChatCategoryUsers, chatId: chatID) }
+                    self?.topPeerIDs.removeAll { $0 == chatID }
+                    self?.applySnapshot(reloadingSections: [.topPeers])
+                }, at: deleteIndex)
+                if chatActions.indices
+                    .contains(deleteIndex + 1) { chatActions[deleteIndex + 1].startsNewSection = false }
+            }
             actions.append(contentsOf: chatActions)
         } else if let supergroup = chat.supergroup {
             let chatID = chat.id

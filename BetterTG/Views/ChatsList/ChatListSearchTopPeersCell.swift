@@ -55,6 +55,15 @@ final class ChatListSearchTopPeersCell: UITableViewCell, UICollectionViewDataSou
         collectionView.reloadData()
     }
 
+    /// The person under `point` (in `coordinateSpace`) and the view to lift for their menu.
+    func peer(at point: CGPoint, in coordinateSpace: UIView) -> (chat: CustomChat, view: UIView)? {
+        let location = coordinateSpace.convert(point, to: collectionView)
+        guard let indexPath = collectionView.indexPathForItem(at: location), chats.indices.contains(indexPath.item),
+              let cell = collectionView.cellForItem(at: indexPath)
+        else { return nil }
+        return (chats[indexPath.item], cell.contentView)
+    }
+
     func collectionView(_: UICollectionView, numberOfItemsInSection _: Int) -> Int {
         chats.count
     }

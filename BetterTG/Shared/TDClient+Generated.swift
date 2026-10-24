@@ -820,6 +820,10 @@ extension TDClient {
         try await send(TDNativeRequests.removeRecentlyFoundChat(chatId: chatId))
     }
 
+    func removeTopChat(category: TDNativeTopChatCategory, chatId: Int64) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.removeTopChat(category: category, chatId: chatId))
+    }
+
     func reorderChatFolders(chatFolderIds: [Int], mainChatListPosition: Int) async throws -> TDNativeOk {
         try await send(TDNativeRequests.reorderChatFolders(
             chatFolderIds: chatFolderIds,
