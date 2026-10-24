@@ -35,6 +35,9 @@ enum TelegramContextMenuLayout {
     static let submenuParentScale = CGFloat(0.97)
     /// The room a row's chevron takes beyond the usual trailing inset.
     static let submenuIndicatorReserve = CGFloat(26)
+    /// The room a row's avatar set takes: three 24 pt avatars overlapping by 10 pt, 4 pt inside the side inset and
+    /// 8 pt clear of the text.
+    static let avatarSetReserve: CGFloat = 64
     /// ChatDeleteMessageContextItem: 13 / 17 of the list font under the title, 2 pt below it, 12 pt above and below
     /// the pair.
     static let subtitleFontSize = CGFloat(13)
@@ -1258,14 +1261,22 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     }
 
     private func menuWidth(availableWidth: CGFloat) -> CGFloat {
-        let font = UIFont.systemFont(ofSize: TelegramContextMenuLayout.actionFontSize)
-        // A submenu opens as wide as the menu, so its actions count too.
+        /// A submenu opens as wide as the menu, so its actions count too.
         func withSubmenus(_ actions: [TelegramContextMenuAction]) -> [TelegramContextMenuAction] {
             actions.flatMap { [$0] + withSubmenus($0.children) }
         }
         let naturalWidth = withSubmenus(actions).reduce(CGFloat.zero) { width, action in
-            let titleWidth = ceil((action.title as NSString).size(withAttributes: [.font: font]).width)
+            let font = UIFont.systemFont(ofSize: TelegramContextMenuLayout.titleFontSize(of: action))
+            func measure(_ text: String) -> CGFloat {
+                ceil((text as NSString).size(withAttributes: [.font: font]).width)
+            }
+            var titleWidth = measure(action.title)
                 + (action.children.isEmpty ? 0 : TelegramContextMenuLayout.submenuIndicatorReserve)
+            if action.avatarUpdates != nil {
+                // ChatReadReportContextItem's text arrives later: room for "Nobody Viewed" beside the avatars.
+                titleWidth = max(titleWidth, measure(L10n.telegram("Conversation.ContextMenuNoViews")))
+                    + TelegramContextMenuLayout.avatarSetReserve
+            }
             let contentWidth = titleWidth + TelegramContextMenuLayout.contentSideInset * 2
             guard action.image != nil else { return max(width, contentWidth) }
             return max(
