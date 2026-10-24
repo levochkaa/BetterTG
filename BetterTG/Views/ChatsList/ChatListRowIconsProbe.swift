@@ -77,11 +77,12 @@ import UIKit
                     try verifyText()
                     try render()
                     try await renderCustomEmoji()
+                    renderTopPeers()
                     result = "Row icons probe passed: forward/story/voice/location/caption-text/assets=true; "
                         + "photo-caption/video-play/round/spoiler-mini/secret-none=true; "
                         + "album-three/first-caption/last-label/width=true; "
                         + "folded/italic/spoiler/strikethrough/accessibility=true; activity-kinds=true; rendered=true; "
-                        + "custom-emoji=true"
+                        + "custom-emoji=true; top-peers-rendered=true"
                 } catch {
                     result = "Row icons probe failed: \(error)"
                 }
@@ -367,6 +368,51 @@ import UIKit
                let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
             {
                 try? data.write(to: directory.appendingPathComponent("row-emoji.png"), options: .atomic)
+            }
+        }
+
+        /// The search's People row with three fixture people, one with unread messages, to Documents/top-peers.png.
+        private static func renderTopPeers() {
+            let position = ChatPosition(isPinned: false, list: .chatListMain, order: 1, source: nil)
+            let names = ["Alice", "Bob Longername", "Carol"]
+            let chats = names.enumerated().map { index, name in
+                let user = User(
+                    accentColorId: index, activeStoryState: nil, addedToAttachmentMenu: false,
+                    backgroundCustomEmojiId: 0,
+                    emojiStatus: nil, firstName: name, haveAccess: true, id: 70 + Int64(index), isCloseFriend: false,
+                    isContact: true, isMutualContact: false, isPremium: false, isSupport: false, languageCode: "",
+                    lastName: "", paidMessageStarCount: 0, phoneNumber: "", profileAccentColorId: -1,
+                    profileBackgroundCustomEmojiId: 0, profilePhoto: nil, restrictionInfo: nil,
+                    restrictsNewChats: false,
+                    status: .userStatusEmpty, type: .userTypeRegular, upgradedGiftColors: nil, usernames: nil,
+                    verificationStatus: nil,
+                )
+                return ProbeFixtures.chat(
+                    position,
+                    title: name,
+                    id: 70 + Int64(index),
+                    user: user,
+                    unread: index == 1
+                    ? 4
+                    : 0,
+                )
+            }
+            let cell = ChatListSearchTopPeersCell(
+                style: .default,
+                reuseIdentifier: ChatListSearchTopPeersCell.reuseIdentifier,
+            )
+            cell.frame = CGRect(x: 0, y: 0, width: 402, height: ChatListSearchTopPeersCell.height)
+            cell.overrideUserInterfaceStyle = .dark
+            cell.configure(chats: chats, client: TDLib.shared.activeClient)
+            cell.layoutIfNeeded()
+            let image = UIGraphicsImageRenderer(bounds: cell.bounds).image { context in
+                cell.layer.render(in: context.cgContext)
+            }
+            withExtendedLifetime(chats) {}
+            if let data = image.pngData(),
+               let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            {
+                try? data.write(to: directory.appendingPathComponent("top-peers.png"), options: .atomic)
             }
         }
 

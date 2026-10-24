@@ -10,12 +10,17 @@ import UIKit
 /// chats, then messages from the searched chat list. Every result belongs to the client that issued its query.
 @MainActor final class ChatListSearchResultsViewController: UIViewController, UITableViewDelegate {
     private enum Section: Hashable {
+        /// The empty search's People row and recently found chats (ChatListSearchListPaneNode with no query).
+        case topPeers
+        case recent
         case localPeers
         case globalPeers
         case messages
     }
 
     private enum Item: Hashable {
+        case topPeers
+        case recentPeer(Int64)
         case localPeer(Int64)
         case globalPeer(Int64)
         case message(MessageKey)
@@ -66,6 +71,10 @@ import UIKit
     private var messageChats = [MessageKey: CustomChat]()
     private var nextMessagesOffset = ""
     private var isLoadingMessages = false
+    /// TDLib's top chats with people and recently found chats, shown before a query is typed.
+    private var topPeerIDs = [Int64]()
+    private var recentChatIDs = [Int64]()
+    private var emptyStateTask: Task<Void, Never>?
 
     init(rootVM: RootVM, chatList: ChatList, actionAuthority: ChatListActionAuthority) {
         self.rootVM = rootVM
@@ -136,6 +145,12 @@ import UIKit
         return ids.filter { seen.insert($0).inserted }
     }
 
+    /// Search opened with no query: its People row and recent chats reload, as they may have changed since.
+    func refreshEmptyState() {
+        guard isViewLoaded, query.isEmpty else { return }
+        loadEmptyState()
+    }
+
     func updateQuery(_ rawQuery: String) {
         let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard query != self.query else { return }
@@ -154,10 +169,15 @@ import UIKit
         guard actionAuthority.scope(owner: self).isCurrent,
               let item = dataSource.itemIdentifier(for: indexPath) else { return }
         switch item {
+        case .topPeers:
+            return
+        case .recentPeer(let chatID):
+            guard let chat = chatsByID[chatID] else { return }
+            openFoundChat(chat)
         case .globalPeer(let chatID),
              .localPeer(let chatID):
             guard let chat = chatsByID[chatID] else { return }
-            NavigationStorage.shared.push(.customChat(chat))
+            openFoundChat(chat)
         case .message(let key):
             guard let chat = chatsByID[key.chatID] else { return }
             NavigationStorage.shared.push(.customChat(chat, targetMessageID: key.messageID))
@@ -168,12 +188,31 @@ import UIKit
 
     func tableView(_: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         switch dataSource.itemIdentifier(for: indexPath) {
+        case .topPeers: ChatListSearchTopPeersCell.height
         case .globalPeer,
-             .localPeer: Self.peerRowHeight
+             .localPeer,
+             .recentPeer: Self.peerRowHeight
         case .message: Self.messageRowHeight
         case .messagesLoading,
              nil: Self.loadingRowHeight
         }
+    }
+
+    /// A recently found chat comes off the list with a swipe (removeRecentlySearchedPeer).
+    func tableView(
+        _: UITableView,
+        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath,
+    ) -> UISwipeActionsConfiguration? {
+        guard case .recentPeer(let chatID) = dataSource.itemIdentifier(for: indexPath) else { return nil }
+        let client = actionAuthority.client
+        let delete = UIContextualAction(style: .destructive, title: L10n.telegram("Common.Delete")) {
+            [weak self] _, _, completion in
+            Task { _ = try? await client.removeRecentlyFoundChat(chatId: chatID) }
+            self?.recentChatIDs.removeAll { $0 == chatID }
+            self?.applySnapshot()
+            completion(true)
+        }
+        return UISwipeActionsConfiguration(actions: [delete])
     }
 
     func tableView(_: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool {
@@ -191,6 +230,17 @@ import UIKit
               ) as? ChatListSearchSectionHeaderView
         else { return nil }
         switch identifier {
+        case .topPeers:
+            header.configure(title: L10n.telegram("DialogList.RecentTitlePeople"), actionTitle: nil, action: nil)
+        case .recent:
+            header.configure(
+                title: L10n.telegram("DialogList.SearchSectionRecent"),
+                actionTitle: L10n.telegram("WebSearch.RecentSectionClear"),
+                action: { [weak self, weak header] in
+                    guard let self, let header else { return }
+                    confirmClearingRecent(from: header)
+                },
+            )
         case .localPeers:
             header.configure(title: L10n.telegram("DialogList.SearchSectionDialogs"), actionTitle: nil, action: nil)
         case .globalPeers:
@@ -223,7 +273,7 @@ import UIKit
         let showsMessages = !filter.listsChats
         tableView.isHidden = showsMessages
         filterResults.isHidden = !showsMessages
-        guard showsMessages, !query.isEmpty, actionAuthority.scope(owner: self).isCurrent else {
+        guard showsMessages, actionAuthority.scope(owner: self).isCurrent else {
             if !showsMessages { filterResults.reset() }
             return
         }
@@ -252,6 +302,10 @@ import UIKit
         tableView.delegate = self
         tableView.register(ChatListSearchPeerCell.self, forCellReuseIdentifier: ChatListSearchPeerCell.reuseIdentifier)
         tableView.register(ChatListCell.self, forCellReuseIdentifier: ChatListCell.reuseIdentifier)
+        tableView.register(
+            ChatListSearchTopPeersCell.self,
+            forCellReuseIdentifier: ChatListSearchTopPeersCell.reuseIdentifier,
+        )
         tableView.register(
             ChatListSearchLoadingCell.self,
             forCellReuseIdentifier: ChatListSearchLoadingCell.reuseIdentifier,
@@ -304,6 +358,29 @@ import UIKit
     private func cell(for item: Item, at indexPath: IndexPath, in table: UITableView) -> UITableViewCell {
         let client = actionAuthority.client
         switch item {
+        case .topPeers:
+            guard let cell = table.dequeueReusableCell(
+                withIdentifier: ChatListSearchTopPeersCell.reuseIdentifier,
+                for: indexPath,
+            ) as? ChatListSearchTopPeersCell else { return UITableViewCell() }
+            cell.configure(chats: topPeerIDs.compactMap { chatsByID[$0] }, client: client)
+            cell.onSelect = { [weak self] chat in self?.openFoundChat(chat) }
+            return cell
+        case .recentPeer(let chatID):
+            guard let chat = chatsByID[chatID],
+                  let cell = table.dequeueReusableCell(
+                      withIdentifier: ChatListSearchPeerCell.reuseIdentifier,
+                      for: indexPath,
+                  ) as? ChatListSearchPeerCell
+            else { return UITableViewCell() }
+            cell.configure(
+                chat: chat,
+                subtitle: Self.subtitle(for: chat, isGlobal: false),
+                unreadCount: chat.unreadCount,
+                isMuted: rootVM.isMuted(chat),
+                client: client,
+            )
+            return cell
         case .globalPeer(let chatID),
              .localPeer(let chatID):
             guard let chat = chatsByID[chatID],
@@ -362,6 +439,7 @@ import UIKit
             localChatIDs = []
             isLoadingMessages = false
             applySnapshot()
+            loadEmptyState()
             return
         }
         // Chats and contacts stay until this query's offline results replace them a moment later.
@@ -604,6 +682,65 @@ import UIKit
         return true
     }
 
+    /// ChatListSearchContainerNode before a query: TDLib's top people and the chats found recently.
+    private func loadEmptyState() {
+        emptyStateTask?.cancel()
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        let requestGeneration = generation
+        emptyStateTask = Task { [weak self] in
+            async let top = client.getTopChats(category: .topChatCategoryUsers, limit: 30)
+            async let recent = client.searchRecentlyFoundChats(query: "", typeFilter: nil, limit: 50)
+            let topIDs = await (try? top)?.chatIds ?? []
+            let recentIDs = await (try? recent)?.chatIds ?? []
+            guard let self, isCurrent(requestGeneration, scope), query.isEmpty,
+                  let hydratedTop = await hydrate(topIDs, generation: requestGeneration, scope: scope, client: client),
+                  let hydratedRecent = await hydrate(
+                      recentIDs,
+                      generation: requestGeneration,
+                      scope: scope,
+                      client: client,
+                  )
+            else { return }
+            topPeerIDs = hydratedTop
+            recentChatIDs = hydratedRecent
+            applySnapshot(reloadingSections: [.topPeers])
+        }
+    }
+
+    /// A chat picked from the results joins the recently found ones, as Telegram's addRecentlySearchedPeer does.
+    private func openFoundChat(_ chat: CustomChat) {
+        let client = actionAuthority.client
+        let chatID = chat.id
+        Task { _ = try? await client.addRecentlyFoundChat(chatId: chatID) }
+        NavigationStorage.shared.push(.customChat(chat))
+    }
+
+    /// ChatListSearchContainerNode.clearRecentSearch: a menu from Clear asks before clearing the list.
+    private func confirmClearingRecent(from source: UIView) {
+        let client = actionAuthority.client
+        let actions = [
+            {
+                var title = TelegramContextMenuAction(title: L10n.telegram("ChatList.ClearSearchHistory"))
+                title.isInformational = true
+                return title
+            }(),
+            TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.ClearSearchHistory.Confirm"),
+                isDestructive: true,
+            ) {
+                [weak self] in
+                Task { [weak self] in
+                    _ = try? await client.clearRecentlyFoundChats()
+                    guard let self else { return }
+                    recentChatIDs = []
+                    applySnapshot()
+                }
+            },
+        ]
+        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .menuOnly)
+    }
+
     private func isCurrent(_ requestGeneration: UInt64, _ scope: ChatListActionScope) -> Bool {
         requestGeneration == generation && scope.isCurrent
     }
@@ -633,6 +770,16 @@ import UIKit
     private func applySnapshot(reloadingSections: [Section] = []) {
         guard isViewLoaded else { return }
         var snapshot = NSDiffableDataSourceSnapshot<Section, Item>()
+        if query.isEmpty {
+            if !topPeerIDs.isEmpty {
+                snapshot.appendSections([.topPeers])
+                snapshot.appendItems([.topPeers])
+            }
+            if !recentChatIDs.isEmpty {
+                snapshot.appendSections([.recent])
+                snapshot.appendItems(recentChatIDs.map(Item.recentPeer))
+            }
+        }
         if !localChatIDs.isEmpty {
             snapshot.appendSections([.localPeers])
             snapshot.appendItems(localChatIDs.map(Item.localPeer))

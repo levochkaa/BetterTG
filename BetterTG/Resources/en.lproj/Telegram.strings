@@ -2529,3 +2529,7 @@
 "ChatList.Search.NoResultsFitlerVoice" = "Voice and video messages from all your chats will be shown here.";
 "ChatList.Search.FilterChannels" = "Channels";
 "ChatList.Search.FilterApps" = "Apps";
+"DialogList.SearchSectionRecent" = "Recent";
+"DialogList.RecentTitlePeople" = "People";
+"ChatList.ClearSearchHistory" = "Are you sure you want to clear your search history?";
+"ChatList.ClearSearchHistory.Confirm" = "Clear";

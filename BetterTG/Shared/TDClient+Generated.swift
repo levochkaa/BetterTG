@@ -44,6 +44,10 @@ extension TDClient {
         ))
     }
 
+    func addRecentlyFoundChat(chatId: Int64) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.addRecentlyFoundChat(chatId: chatId))
+    }
+
     func canSendMessageToUser(onlyLocal: Bool, userId: Int64) async throws -> TDNativeCanSendMessageToUserResult {
         try await send(TDNativeRequests.canSendMessageToUser(userId: userId, onlyLocal: onlyLocal))
     }
@@ -74,6 +78,10 @@ extension TDClient {
 
     func checkAuthenticationPasswordRecoveryCode(recoveryCode: String) async throws -> TDNativeOk {
         try await send(TDNativeRequests.checkAuthenticationPasswordRecoveryCode(recoveryCode: recoveryCode))
+    }
+
+    func clearRecentlyFoundChats() async throws -> TDNativeOk {
+        try await send(TDNativeRequests.clearRecentlyFoundChats())
     }
 
     func closeChat(chatId: Int64) async throws -> TDNativeOk {
@@ -659,6 +667,10 @@ extension TDClient {
         ))
     }
 
+    func getTopChats(category: TDNativeTopChatCategory, limit: Int) async throws -> TDNativeChats {
+        try await send(TDNativeRequests.getTopChats(category: category, limit: limit))
+    }
+
     func getUser(userId: Int64) async throws -> TDNativeUser {
         try await send(TDNativeRequests.getUser(userId: userId))
     }
@@ -800,6 +812,10 @@ extension TDClient {
         ))
     }
 
+    func removeRecentlyFoundChat(chatId: Int64) async throws -> TDNativeOk {
+        try await send(TDNativeRequests.removeRecentlyFoundChat(chatId: chatId))
+    }
+
     func reorderChatFolders(chatFolderIds: [Int], mainChatListPosition: Int) async throws -> TDNativeOk {
         try await send(TDNativeRequests.reorderChatFolders(
             chatFolderIds: chatFolderIds,
@@ -907,6 +923,14 @@ extension TDClient {
 
     func searchPublicChats(query: String, typeFilter: TDNativeSearchChatTypeFilter?) async throws -> TDNativeChats {
         try await send(TDNativeRequests.searchPublicChats(query: query, typeFilter: typeFilter))
+    }
+
+    func searchRecentlyFoundChats(
+        query: String,
+        typeFilter: TDNativeSearchChatTypeFilter?,
+        limit: Int,
+    ) async throws -> TDNativeChats {
+        try await send(TDNativeRequests.searchRecentlyFoundChats(query: query, typeFilter: typeFilter, limit: limit))
     }
 
     func sendChatAction(

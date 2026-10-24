@@ -542,6 +542,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                     preservingViewport: isRestoringSearchFocus,
                 )
             }
+            updateSearchResults(animated: !isRestoringSearchFocus, searchActive: active)
             if active {
                 customNavigationBar.applyScroll(offset: 0, animated: true)
             } else if isShowingSearchResults {
@@ -603,14 +604,17 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         updateSearchResults(animated: false)
     }
 
-    private func updateSearchResults(animated: Bool) {
+    /// Telegram shows the search's recent and top people as soon as search is focused, before a query.
+    private func updateSearchResults(animated: Bool, searchActive: Bool? = nil) {
         searchResultsController.updateQuery(searchQuery)
         let showsResults = !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || (searchActive ?? customNavigationBar.isSearchActive)
         guard showsResults != isShowingSearchResults else { return }
         isShowingSearchResults = showsResults
         updateHeaderPanels(animated: animated)
         let resultsView = searchResultsController.view!
         if showsResults {
+            searchResultsController.refreshEmptyState()
             resultsView.isHidden = false
             customNavigationBar.applyScroll(offset: 0, animated: animated)
         } else if let currentFolderController {
