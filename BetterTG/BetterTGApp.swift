@@ -60,7 +60,7 @@ import UIKit
             VideoNoteSegmentComposer.runDebugProbeIfRequested()
             VideoNoteRecordingDraftStore.runDebugProbeIfRequested()
             StoryViewerProbe.runIfRequested()
-            ChatSubscriberPanelProbe.runIfRequested()
+            ChatStatusPanelProbe.runIfRequested()
             TDLibVODRangeSource.runDebugProbeIfRequested()
             TDLibVODFFmpegLookahead.runDebugProbeIfRequested()
             TDLibVODFFmpegDecoder.runDebugProbeIfRequested()

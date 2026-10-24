@@ -6,6 +6,8 @@ import ImageIO
 import TDLibKit
 import UIKit
 
+// MARK: - ChatVM
+
 @MainActor final class ChatVM: ObservableObject {
     // MARK: Internal
 
@@ -70,6 +72,18 @@ import UIKit
                  .unmute: false
             }
         }
+    }
+
+    /// The input panels of inputPanelForChatPresentationIntefaceState that stand in for the composer.
+    enum StatusPanel: Equatable {
+        case subscriber(SubscriberPanelAction)
+        /// ChatUnblockInputPanelNode.
+        case unblock
+        /// ChatRestrictedInputPanelNode with its text.
+        case restricted(String)
+        /// DeleteChatInputPanelNode: a group the user left or was removed from, a channel or group they were banned
+        /// from.
+        case deleteChat
     }
 
     // MARK: Private
@@ -180,6 +194,8 @@ import UIKit
     @Published private(set) var chatNotificationSettings: ChatNotificationSettings?
     /// ChatChannelSubscriberInputPanelNode's `isJoining`: from the Join tap until TDLib answers, a channel shows Mute.
     @Published private(set) var isJoiningChat = false
+    /// ChatUnblockInputPanelNode's `unblockingPeer`.
+    @Published private(set) var isUnblockingChat = false
 
     @Published var replyMessage: CustomMessage? {
         didSet {
@@ -689,17 +705,19 @@ import UIKit
     }
 
     var canShowComposer: Bool {
-        !previewing && (canWriteAnyMessage || pendingForward != nil)
+        !previewing && !showsUnblockPanel && (canWriteAnyMessage || pendingForward != nil)
     }
 
-    /// inputPanelForChatPresentationIntefaceState's subscriber panel in place of the composer: a channel the user may
-    /// not post to or hasn't joined, a broadcast group the user can't write to, and a group the user hasn't joined.
-    /// A channel or group the user was banned from (DeleteChatInputPanelNode), a restricted member
-    /// (ChatRestrictedInputPanelNode), threads, topics and direct messages chats are left to their own panels.
-    var subscriberPanelAction: SubscriberPanelAction? {
-        guard !previewing, !canShowComposer, location.messageThreadID == nil, location.forumTopicID == nil,
-              let supergroup = customChat.supergroup else { return nil }
-        return Self.subscriberPanelAction(for: supergroup, isJoining: isJoiningChat, isMuted: isNotificationMuted)
+    /// The panel in the composer's place for the whole chat; threads, topics and direct messages chats keep theirs.
+    var statusPanel: StatusPanel? {
+        guard !previewing, location.messageThreadID == nil, location.forumTopicID == nil else { return nil }
+        if showsUnblockPanel { return .unblock }
+        return Self.statusPanel(
+            for: customChat.type,
+            canWrite: canShowComposer,
+            isJoining: isJoiningChat,
+            isMuted: isNotificationMuted,
+        )
     }
 
     /// RootVM.isMuted for the chat's latest settings: its own mute, else its scope's.
@@ -1085,6 +1103,13 @@ import UIKit
               let option = content.poll.options.first(where: { $0.id == reply.pollOptionId })
         else { return nil }
         return (option, content.poll.allowsMultipleAnswers)
+    }
+
+    /// ChatUnblockInputPanelNode replaces the composer of a person the user blocked; a blocked bot's composer offers
+    /// Restart Bot instead, and a secret chat keeps its own.
+    private var showsUnblockPanel: Bool {
+        guard isChatBlocked, case .user = customChat.type, customChat.secretChatID == nil else { return false }
+        return !customChat.isSavedMessages
     }
 
     private var usesOrdinaryDeliveryReceipts: Bool {
@@ -1481,6 +1506,57 @@ import UIKit
         }
     }
 
+    /// The panel a group or channel shows where the user can't write: Delete and Exit once they left or were removed,
+    /// the restriction for a member of an ordinary group, else the subscriber panel.
+    static func statusPanel(
+        for type: CustomChat.CustomChatType,
+        canWrite: Bool,
+        isJoining: Bool,
+        isMuted: Bool,
+    ) -> StatusPanel? {
+        switch type {
+        case .bot,
+             .user:
+            return nil
+        case .group(let group):
+            guard group.status.isChatMember else { return .deleteChat }
+            return canWrite ? nil : .restricted(restrictionText(status: group.status))
+        case .supergroup(let supergroup):
+            guard !supergroup.isDirectMessagesGroup else { return nil }
+            if case .chatMemberStatusBanned = supergroup.status { return .deleteChat }
+            guard !canWrite else { return nil }
+            if !supergroup.isChannel, !supergroup.isBroadcastGroup, supergroup.status.isChatMember {
+                return .restricted(restrictionText(status: supergroup.status))
+            }
+            return subscriberPanelAction(for: supergroup, isJoining: isJoining, isMuted: isMuted)
+                .map { .subscriber($0) }
+        }
+    }
+
+    /// ChatRestrictedInputPanelNode's text from `hasBannedPermission(.banSendText)`: the member's own restriction,
+    /// with its end date unless it is forever, else the group's.
+    static func restrictionText(status: ChatMemberStatus) -> String {
+        guard case .chatMemberStatusRestricted(let restricted) = status,
+              !restricted.permissions.canSendBasicMessages
+        else {
+            return L10n.telegram("Conversation.DefaultRestrictedText")
+        }
+        let until = restricted.restrictedUntilDate
+        guard until != 0, until != Int(Int32.max) else { return L10n.telegram("Conversation.RestrictedText") }
+        return L10n.telegram(
+            "Conversation.RestrictedTextTimed",
+            fullDateString(Date(timeIntervalSince1970: TimeInterval(until))),
+        )
+    }
+
+    /// Telegram's stringForFullDate: "Time.PreciseDate_m<month>" with the day, year and short time.
+    static func fullDateString(_ date: Date) -> String {
+        let components = Calendar.current.dateComponents([.day, .month, .year], from: date)
+        let time = date.formatted(date: .omitted, time: .shortened)
+        guard let day = components.day, let month = components.month, let year = components.year else { return time }
+        return L10n.telegram("Time.PreciseDate_m\(month)", "\(day)", "\(year)", time)
+    }
+
     /// `actionForPeer` for a supergroup the user can't write to: a channel offers Join until joined (or while joining),
     /// then Mute or Unmute; a group the user isn't in offers Apply to Join, Join for a forum, or Join Group; a
     /// broadcast
@@ -1491,20 +1567,8 @@ import UIKit
         isMuted: Bool,
     ) -> SubscriberPanelAction? {
         guard !supergroup.isDirectMessagesGroup else { return nil }
-        let isMember: Bool
-        switch supergroup.status {
-        case .chatMemberStatusCreator(let creator):
-            isMember = creator.isMember
-        case .chatMemberStatusAdministrator,
-             .chatMemberStatusMember:
-            isMember = true
-        case .chatMemberStatusRestricted(let restricted):
-            isMember = restricted.isMember
-        case .chatMemberStatusLeft:
-            isMember = false
-        case .chatMemberStatusBanned:
-            return nil
-        }
+        if case .chatMemberStatusBanned = supergroup.status { return nil }
+        let isMember = supergroup.status.isChatMember
         if supergroup.isChannel {
             guard isMember || isJoining else { return .join }
         } else if !isMember {
@@ -1657,6 +1721,39 @@ import UIKit
         isJoiningChat = true
         defer { isJoiningChat = false }
         return try await client.send(TDNativeRequests.joinChat(chatId: chatID))
+    }
+
+    /// ChatController.unblockPeer: `setMessageSenderBlockList` without a list, the panel dimmed until TDLib answers;
+    /// `updateChatBlockList` then brings the composer.
+    func unblockChat() {
+        guard locationContextIsCurrent, !isUnblockingChat, let userID = customChat.user?.id else { return }
+        isUnblockingChat = true
+        let client = client
+        Task { [weak self] in
+            _ = try? await client.send(TDNativeRequests.setMessageSenderBlockList(
+                senderId: .messageSenderUser(MessageSenderUser(userId: userID)),
+                blockList: nil,
+            ))
+            self?.isUnblockingChat = false
+        }
+    }
+
+    /// ChatController.deleteChat's removePeerChat for a group the user left or a chat they were removed from, as the
+    /// chat list's Delete does: a basic group's history goes with the chat from the lists, a supergroup is left.
+    /// Telegram's accompanying block of the peer is left out.
+    func removeChatFromList() {
+        guard locationContextIsCurrent else { return }
+        let client = client
+        let chatID = chatID
+        let isBasicGroup = customChat.group != nil
+        Task {
+            _ =
+                if isBasicGroup {
+                    try? await client.deleteChatHistory(chatId: chatID, removeFromChatList: true, revoke: false)
+                } else {
+                    try? await client.send(TDNativeRequests.leaveChat(chatId: chatID))
+                }
+        }
     }
 
     /// An album this chat is still announcing: show it once every member arrived, or a moment after the send call.
@@ -8611,5 +8708,19 @@ import UIKit
             .compactMap(\.self)
         // Expiry only ends the assertion; canonical work and accepted RPCs keep their owners.
         voiceBackgroundCheckpoint.protect(tasks)
+    }
+}
+
+private extension ChatMemberStatus {
+    /// Telegram's `participationStatus == .member`.
+    var isChatMember: Bool {
+        switch self {
+        case .chatMemberStatusCreator(let creator): creator.isMember
+        case .chatMemberStatusAdministrator,
+             .chatMemberStatusMember: true
+        case .chatMemberStatusRestricted(let restricted): restricted.isMember
+        case .chatMemberStatusBanned,
+             .chatMemberStatusLeft: false
+        }
     }
 }

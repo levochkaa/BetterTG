@@ -175,10 +175,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private let topicReopenBar = TopicReopenBarView()
     private var topicReopenBarHeightConstraint: NSLayoutConstraint!
     /// In place of the composer where the user can't write: Join, Mute or Unmute (ChatChannelSubscriberInputPanelNode).
-    private let subscriberPanel = ChatSubscriberPanelView()
-    private var subscriberPanelHeightConstraint: NSLayoutConstraint?
-    private var subscriberPanelBottomConstraint: NSLayoutConstraint?
-    private var subscriberPanelVisible: Bool?
+    private let statusPanel = ChatStatusPanelView()
+    private var statusPanelHeightConstraint: NSLayoutConstraint?
+    private var statusPanelBottomConstraint: NSLayoutConstraint?
+    private var statusPanelVisible: Bool?
+    private var composerHidden = false
     private var scrollToLatestBottomConstraint: NSLayoutConstraint?
     private let voicePlaybackHeader = VoicePlaybackHeaderView()
     private var voicePlaybackHeaderHeightConstraint: NSLayoutConstraint!
@@ -494,8 +495,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return true
     }
 
-    private var subscriberPanelShowsContent: Bool {
-        subscriberPanelVisible == true
+    private var statusPanelShowsContent: Bool {
+        statusPanelVisible == true
+    }
+
+    private var currentStatusPanel: ChatVM.StatusPanel? {
+        guard statusPanel.superview != nil, !clientOwnerRetired, chatVM.locationContextIsCurrent else { return nil }
+        return chatVM.statusPanel
     }
 
     convenience init(
@@ -2077,8 +2083,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             navigationBarHeightConstraint.constant = view.safeAreaInsets.top + customNavigationBar.visibleContentHeight
             if active { abandonRestoredViewport() }
             else { retryClientRestoration() }
-            composerView.setHiddenForSearch(active)
-            updateSubscriberPanel(animated: true)
+            updateStatusPanel(animated: true)
             updateScrollToLatestButtonVisibility(animated: true)
             if !active {
                 resetMessageSearch()
@@ -2603,13 +2608,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if showsComposer {
             constraints.append(contentsOf: installComposer())
         }
-        if presentationMode == .full, !showsComposer {
-            configureSubscriberPanel()
+        if presentationMode == .full {
+            configureStatusPanel()
         }
         if presentationMode == .full {
             configureScrollToLatestButton(bottomAnchor: showsComposer
                 ? composerView.topAnchor
-                : subscriberPanel.topAnchor)
+                : statusPanel.topAnchor)
             configureMessageSelectionToolbar()
             configureMessageSearchPanel()
         }
@@ -2693,9 +2698,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             handleReplyKeyboardButton(button, keyboardMessageID: messageID)
         }
         // Under the controls added after it, as at load, when the composer arrives later.
-        if subscriberPanel.superview != nil {
-            view.insertSubview(composerKeyboardEdgeView, belowSubview: subscriberPanel)
-            view.insertSubview(composerView, belowSubview: subscriberPanel)
+        if statusPanel.superview != nil {
+            view.insertSubview(composerKeyboardEdgeView, belowSubview: statusPanel)
+            view.insertSubview(composerView, belowSubview: statusPanel)
         } else {
             view.addSubview(composerKeyboardEdgeView)
             view.addSubview(composerView)
@@ -2721,7 +2726,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// Once a chat opened without the composer may be written to, the composer takes the subscriber panel's place.
     private func installComposerIfNeeded() {
         guard presentationMode == .full, showsComposer, composerView.superview == nil,
-              subscriberPanel.superview != nil else { return }
+              statusPanel.superview != nil else { return }
         NSLayoutConstraint.activate(installComposer())
         scrollToLatestBottomConstraint?.isActive = false
         scrollToLatestBottomConstraint = scrollToLatestButton.bottomAnchor.constraint(
@@ -2731,80 +2736,94 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         scrollToLatestBottomConstraint?.isActive = true
         composerView.update(from: chatVM)
         view.layoutIfNeeded()
-        composerView.setHiddenForSearch(messageSearchActive || isSelectingMessages)
+        composerHidden = false
+        updateComposerHidden()
+        if !composerHidden { composerView.setHiddenForSearch(false) }
     }
 
-    /// ChatControllerNode places an input panel 8 pt above the safe area, the subscriber panel 8 pt from the sides.
-    /// Without an action it collapses onto the safe area, where the scroll-to-latest button rests.
-    private func configureSubscriberPanel() {
-        subscriberPanel.translatesAutoresizingMaskIntoConstraints = false
-        subscriberPanel.isHidden = true
-        subscriberPanel.onAction = { [weak self] in self?.performSubscriberPanelAction() }
-        subscriberPanel.onSearch = { [weak self] in self?.beginMessageSearch() }
-        subscriberPanel.onHelp = { [weak self] in
+    /// ChatControllerNode places an input panel 8 pt above the safe area, the status panel 8 pt from the sides.
+    /// Without a panel it collapses onto the safe area, where the scroll-to-latest button rests.
+    private func configureStatusPanel() {
+        statusPanel.translatesAutoresizingMaskIntoConstraints = false
+        statusPanel.isHidden = true
+        statusPanel.onAction = { [weak self] in self?.performStatusPanelAction() }
+        statusPanel.onSearch = { [weak self] in self?.beginMessageSearch() }
+        statusPanel.onHelp = { [weak self] in
             self?.showChatToast(L10n.telegram("Conversation.GigagroupDescription"))
         }
-        view.addSubview(subscriberPanel)
-        let height = subscriberPanel.heightAnchor.constraint(equalToConstant: 0)
-        let bottom = subscriberPanel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
-        subscriberPanelHeightConstraint = height
-        subscriberPanelBottomConstraint = bottom
+        view.addSubview(statusPanel)
+        let height = statusPanel.heightAnchor.constraint(equalToConstant: 0)
+        let bottom = statusPanel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+        statusPanelHeightConstraint = height
+        statusPanelBottomConstraint = bottom
         NSLayoutConstraint.activate([
-            subscriberPanel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
-            subscriberPanel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+            statusPanel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
+            statusPanel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
             height,
             bottom,
         ])
         RootVM.shared
             .$scopeNotificationSettings
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.updateSubscriberPanel(animated: true) }
+            .sink { [weak self] _ in self?.updateStatusPanel(animated: true) }
             .store(in: &cancellables)
-        updateSubscriberPanel(animated: false)
+        updateStatusPanel(animated: false)
     }
 
-    /// The panel steps aside for search and selection as the composer does, and goes once the user may write.
-    private func updateSubscriberPanel(animated: Bool) {
-        guard subscriberPanel.superview != nil else { return }
-        let action = composerView.superview == nil && !clientOwnerRetired && chatVM.locationContextIsCurrent
-            ? chatVM.subscriberPanelAction
-            : nil
-        if let action {
-            subscriberPanel.update(
-                content: .init(
-                    title: action.title,
-                    isAccent: action.isJoin,
-                    showsHelp: !action.isJoin && chatVM.customChat.supergroup?.isBroadcastGroup == true,
-                ),
-                animated: animated && subscriberPanelShowsContent,
+    private func statusPanelContent(_ panel: ChatVM.StatusPanel) -> ChatStatusPanelView.Content {
+        switch panel {
+        case .subscriber(let action):
+            .init(
+                title: action.title,
+                style: .action(isAccent: action.isJoin),
+                showsSearch: true,
+                showsHelp: !action.isJoin && chatVM.customChat.supergroup?.isBroadcastGroup == true,
             )
+        case .unblock:
+            .init(title: L10n.telegram("Conversation.Unblock"), style: .button)
+        case .restricted(let text):
+            .init(title: text, style: .text)
+        case .deleteChat:
+            .init(title: L10n.telegram("GroupInfo.DeleteAndExit"), style: .destructive)
         }
-        let hasPanel = action != nil
+    }
+
+    /// The panel steps aside for search and selection as the composer does. The composer, when installed, hides
+    /// while a panel stands in for it.
+    private func updateStatusPanel(animated: Bool) {
+        guard statusPanel.superview != nil else { return }
+        let panel = currentStatusPanel
+        if let panel {
+            statusPanel.update(content: statusPanelContent(panel), animated: animated && statusPanelShowsContent)
+        }
+        statusPanel.isBusy = panel == .unblock && chatVM.isUnblockingChat
+        updateComposerHidden()
+        let hasPanel = panel != nil
         let visible = hasPanel && !messageSearchActive && !isSelectingMessages
-        let height = hasPanel ? ChatSubscriberPanelView.contentHeight : 0
-        let layoutChanged = subscriberPanelHeightConstraint?.constant != height
-        let visibilityChanged = subscriberPanelVisible != visible
+        let height = hasPanel ? ChatStatusPanelView.contentHeight : 0
+        let layoutChanged = statusPanelHeightConstraint?.constant != height
+        let visibilityChanged = statusPanelVisible != visible
         guard layoutChanged || visibilityChanged else { return }
-        let wasVisible = subscriberPanelVisible == true
-        subscriberPanelVisible = visible
-        subscriberPanelHeightConstraint?.constant = height
-        subscriberPanelBottomConstraint?.constant = hasPanel ? -8 : 0
-        subscriberPanel.isUserInteractionEnabled = visible
-        let hiddenTransform = CGAffineTransform(translationX: 0, y: ChatSubscriberPanelView.contentHeight + 20)
+        let wasVisible = statusPanelVisible == true
+        statusPanelVisible = visible
+        statusPanelHeightConstraint?.constant = height
+        statusPanelBottomConstraint?.constant = hasPanel ? -8 : 0
+        statusPanel.isUserInteractionEnabled = visible
+        let hiddenTransform = CGAffineTransform(translationX: 0, y: ChatStatusPanelView.contentHeight + 20)
         let changes = {
-            self.subscriberPanel.alpha = visible ? 1 : 0
-            self.subscriberPanel.transform = visible ? .identity : hiddenTransform
+            self.statusPanel.alpha = visible ? 1 : 0
+            self.statusPanel.transform = visible ? .identity : hiddenTransform
             if layoutChanged { self.view.layoutIfNeeded() }
         }
         guard animated, view.window != nil else {
-            subscriberPanel.isHidden = !visible
+            statusPanel.isHidden = !visible
             changes()
             view.setNeedsLayout()
             return
         }
         if visible, !wasVisible {
-            subscriberPanel.isHidden = false
-            subscriberPanel.transform = hiddenTransform
+            statusPanel.isHidden = false
+            statusPanel.transform = hiddenTransform
         }
         UIView.animate(
             withDuration: visible ? 0.24 : 0.28,
@@ -2814,31 +2833,48 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             options: [.allowUserInteraction, .beginFromCurrentState],
             animations: changes,
         ) { _ in
-            guard self.subscriberPanelVisible == false else { return }
-            self.subscriberPanel.isHidden = true
+            guard self.statusPanelVisible == false else { return }
+            self.statusPanel.isHidden = true
         }
         view.setNeedsLayout()
     }
 
-    /// ChatChannelSubscriberInputPanelNode.buttonPressed: Join sends `joinChat`; Mute and Unmute toggle the chat's
-    /// mute.
-    private func performSubscriberPanelAction() {
+    /// Search, selection and a status panel each hide the composer; it slides back once none does.
+    private func updateComposerHidden() {
+        guard composerView.superview != nil else { return }
+        let hidden = messageSearchActive || isSelectingMessages || currentStatusPanel != nil
+        guard composerHidden != hidden else { return }
+        composerHidden = hidden
+        composerView.setHiddenForSearch(hidden)
+    }
+
+    /// The status panel's button: Join (`joinChat`), Mute or Unmute (togglePeerMuted), Unblock
+    /// (ChatController.unblockPeer) and Delete and Exit (ChatController.deleteChat).
+    private func performStatusPanelAction() {
         guard presentationMode == .full, routeIsRetained, !clientOwnerRetired, chatVM.locationContextIsCurrent,
-              let action = chatVM.subscriberPanelAction else { return }
-        guard action.isJoin else {
-            chatVM.toggleSubscriberMute()
-            return
-        }
-        let isChannel = chatVM.customChat.supergroup?.isChannel == true
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let result = try await chatVM.joinSubscribedChat()
-                if case .chatJoinResultRequestSent = result { presentJoinRequestSent() }
-            } catch {
-                guard routeIsRetained, chatVM.locationContextIsCurrent else { return }
-                presentJoinError(error, isChannel: isChannel)
+              let panel = chatVM.statusPanel else { return }
+        switch panel {
+        case .subscriber(let action) where action.isJoin:
+            let isChannel = chatVM.customChat.supergroup?.isChannel == true
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let result = try await chatVM.joinSubscribedChat()
+                    if case .chatJoinResultRequestSent = result { presentJoinRequestSent() }
+                } catch {
+                    guard routeIsRetained, chatVM.locationContextIsCurrent else { return }
+                    presentJoinError(error, isChannel: isChannel)
+                }
             }
+        case .subscriber:
+            chatVM.toggleSubscriberMute()
+        case .unblock:
+            chatVM.unblockChat()
+        case .restricted:
+            break
+        case .deleteChat:
+            chatVM.removeChatFromList()
+            navigationController?.popToRootViewController(animated: true)
         }
     }
 
@@ -3732,7 +3768,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         }
                         if !composerAwaitsSentMediaInsertion { composerView.update(from: chatVM) }
                     }
-                    updateSubscriberPanel(animated: true)
+                    updateStatusPanel(animated: true)
                     updateHighlightState()
                     updatePinnedMessageBanner(animated: true)
                     presentMicrophoneErrorIfNeeded()
@@ -4914,8 +4950,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 ) + 8
             } else if showsComposer, composerView.frame.minY > 0 {
                 max(view.safeAreaInsets.bottom, view.bounds.maxY - composerView.frame.minY) + 10
-            } else if subscriberPanelShowsContent, subscriberPanel.frame.minY > 0 {
-                view.bounds.maxY - subscriberPanel.frame.minY + 8
+            } else if statusPanelShowsContent, statusPanel.frame.minY > 0 {
+                view.bounds.maxY - statusPanel.frame.minY + 8
             } else {
                 view.safeAreaInsets.bottom + 8
             }
@@ -6279,8 +6315,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let bottomInset =
             if showsComposer, composerView.frame.minY > 0 {
                 max(0, view.bounds.maxY - view.safeAreaInsets.bottom - composerView.frame.minY) + 8
-            } else if subscriberPanelShowsContent {
-                max(0, view.bounds.maxY - view.safeAreaInsets.bottom - subscriberPanel.frame.minY) + 8
+            } else if statusPanelShowsContent {
+                max(0, view.bounds.maxY - view.safeAreaInsets.bottom - statusPanel.frame.minY) + 8
             } else {
                 CGFloat(8)
             }
@@ -8885,8 +8921,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         selectedDisplayedMessageIDs = selectInitialMessage ? [displayedMessageID] : []
         collectionView.isEditing = true
         messageContextGesture.isEnabled = false
-        composerView.setHiddenForSearch(true)
-        updateSubscriberPanel(animated: true)
+        updateStatusPanel(animated: true)
         updateScrollToLatestButtonVisibility(animated: true)
         messageSelectionToolbar.isHidden = false
         messageSelectionToolbar.alpha = 0
@@ -8965,8 +9000,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         synchronizeNativeSelection()
         messageContextGesture.isEnabled = presentationMode == .full
         customNavigationBar.setSelectionCount(nil)
-        composerView.setHiddenForSearch(messageSearchActive)
-        updateSubscriberPanel(animated: true)
+        updateStatusPanel(animated: true)
         updatePinnedMessageBanner(animated: true)
         UIView.animate(
             withDuration: 0.2,

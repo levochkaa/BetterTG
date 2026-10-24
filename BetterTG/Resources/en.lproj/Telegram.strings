@@ -2416,3 +2416,8 @@
 "Channel.ErrorAccessDenied" = "Sorry, this channel is private.";
 "Group.ErrorAccessDenied" = "Sorry, this group is private.";
 "Conversation.GigagroupDescription" = "Only admins can send messages in this group.";
+"Conversation.Unblock" = "Unblock";
+"GroupInfo.DeleteAndExit" = "Delete and Exit";
+"Conversation.RestrictedText" = "The admins of this group have restricted you from writing here.";
+"Conversation.RestrictedTextTimed" = "The admins of this group have restricted you from writing here until %@.";
+"Conversation.DefaultRestrictedText" = "Writing messages isn’t allowed in this group.";
