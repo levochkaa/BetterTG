@@ -139,14 +139,17 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         guard let selected = text(in: textRange), !selected.isEmpty else {
             return UIMenu(children: suggestedActions)
         }
+        // ChatTextInputPanelNode's Format menu: Quote and Spoiler first, Code (a block) last.
         let format = UIMenu(title: L10n.telegram("TextFormat.Format"), children: [
+            formattingAction(title: L10n.telegram("TextFormat.Quote"), type: .textEntityTypeBlockQuote),
+            formattingAction(title: L10n.telegram("TextFormat.Spoiler"), type: .textEntityTypeSpoiler),
             formattingAction(title: L10n.telegram("TextFormat.Bold"), type: .textEntityTypeBold),
             formattingAction(title: L10n.telegram("TextFormat.Italic"), type: .textEntityTypeItalic),
             formattingAction(title: L10n.telegram("TextFormat.Monospace"), type: .textEntityTypeCode),
             UIAction(title: L10n.telegram("TextFormat.Link")) { [weak self] _ in self?.showLinkAlert() },
             formattingAction(title: L10n.telegram("TextFormat.Strikethrough"), type: .textEntityTypeStrikethrough),
             formattingAction(title: L10n.telegram("TextFormat.Underline"), type: .textEntityTypeUnderline),
-            formattingAction(title: L10n.telegram("TextFormat.Spoiler"), type: .textEntityTypeSpoiler),
+            formattingAction(title: L10n.telegram("TextFormat.Code"), type: .textEntityTypePre),
         ])
         var actions = suggestedActions
         actions.insert(format, at: min(1, actions.count))

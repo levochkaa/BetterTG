@@ -2479,3 +2479,5 @@
 "Message.ScamAccount" = "Scam";
 "Message.FakeAccount" = "Fake";
 "Conversation.ContextMenuSpeak" = "Speak";
+"TextFormat.Quote" = "Quote";
+"TextFormat.Code" = "Code";
