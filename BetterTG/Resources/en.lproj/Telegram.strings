@@ -2527,3 +2527,5 @@
 "ChatList.Search.NoResultsFitlerFiles" = "Files from all your chats will be shown here.";
 "ChatList.Search.NoResultsFitlerMusic" = "Music from all your chats will be shown here.";
 "ChatList.Search.NoResultsFitlerVoice" = "Voice and video messages from all your chats will be shown here.";
+"ChatList.Search.FilterChannels" = "Channels";
+"ChatList.Search.FilterApps" = "Apps";

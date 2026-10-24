@@ -45,6 +45,8 @@ import UIKit
     private let filterPicker = FolderPickerView()
     private let filterResults = ChatListSearchFilterResultsView()
     private var filter = ChatListSearchFilter.chats
+    /// The chat type the table's search ran with: none for Chats, channels or bots for their tabs.
+    private var searchedChatType: SearchChatTypeFilter?
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
     private let emptyView = ChatListSearchEmptyView()
     private var dataSource: UITableViewDiffableDataSource<Section, Item>!
@@ -218,7 +220,7 @@ import UIKit
 
     /// The Chats tab shows the chats and messages found; another tab its kind of message from all chats.
     private func applyFilter() {
-        let showsMessages = filter != .chats
+        let showsMessages = !filter.listsChats
         tableView.isHidden = showsMessages
         filterResults.isHidden = !showsMessages
         guard showsMessages, !query.isEmpty, actionAuthority.scope(owner: self).isCurrent else {
@@ -266,7 +268,9 @@ import UIKit
         )
         filterPicker.onSelection = { [weak self] id in
             guard let self, let filter = ChatListSearchFilter(rawValue: id), filter != self.filter else { return }
+            let restartsChats = filter.listsChats && filter.chatTypeFilter != searchedChatType
             self.filter = filter
+            if restartsChats { startSearch() }
             applyFilter()
         }
         view.addSubview(filterPicker)
@@ -348,6 +352,8 @@ import UIKit
         generation &+= 1
         let requestGeneration = generation
         let query = query
+        let tableFilter = filter.listsChats ? filter : .chats
+        searchedChatType = tableFilter.chatTypeFilter
         globalChatIDs = []
         messageKeys = []
         messageChats = [:]
@@ -365,12 +371,19 @@ import UIKit
         let scope = actionAuthority.scope(owner: self)
         let client = actionAuthority.client
         searchTask = Task { [weak self] in
-            await self?.search(query: query, generation: requestGeneration, scope: scope, client: client)
+            await self?.search(
+                query: query,
+                filter: tableFilter,
+                generation: requestGeneration,
+                scope: scope,
+                client: client,
+            )
         }
     }
 
     private func search(
         query: String,
+        filter: ChatListSearchFilter,
         generation requestGeneration: UInt64,
         scope: ChatListActionScope,
         client: TDLibClient,
@@ -388,16 +401,18 @@ import UIKit
 
         // Chats and contacts: TDLib's offline search, then contacts without a chat in any list.
         var ids = [Int64]()
-        if Self.matchesSavedMessages(query), let accountUserID,
+        let typeFilter = filter.chatTypeFilter
+        if filter == .chats, Self.matchesSavedMessages(query), let accountUserID,
            let saved = try? await client.createPrivateChat(force: false, userId: accountUserID)
         {
             ids.append(saved.id)
         }
-        let chats = try? await client.searchChats(limit: 50, query: query, typeFilter: nil)
+        let chats = try? await client.searchChats(limit: 50, query: query, typeFilter: typeFilter)
         guard isCurrent(requestGeneration, scope) else { return }
         // Telegram lists the account itself only as Saved Messages, matched by that title above.
         ids += (chats?.chatIds ?? []).filter { $0 != accountUserID }
-        let contacts = try? await client.searchContacts(query: query, limit: 50)
+        // Contacts are people, which the Channels and Apps tabs leave out.
+        let contacts = filter == .chats ? try? await client.searchContacts(query: query, limit: 50) : nil
         guard isCurrent(requestGeneration, scope) else { return }
         for userID in contacts?.userIds ?? [] where userID != accountUserID && !ids.contains(userID) {
             // A private chat's ID is its user's ID. TDLib opens a contact's chat locally, as searchChats does.
@@ -424,18 +439,24 @@ import UIKit
 
         let chatList = chatList
         let messagesLimit = Self.messagesFirstPageLimit
-        async let serverChats = client.searchChatsOnServer(limit: 50, query: query, typeFilter: nil)
-        async let publicChats = client.searchPublicChats(query: query, typeFilter: nil)
-        async let foundMessages = client.searchMessages(
-            chatList: chatList,
-            query: query,
-            offset: "",
-            limit: messagesLimit,
-            filter: nil,
-            chatTypeFilter: nil,
-            minDate: 0,
-            maxDate: 0,
-        )
+        async let serverChats = client.searchChatsOnServer(limit: 50, query: query, typeFilter: typeFilter)
+        async let publicChats = client.searchPublicChats(query: query, typeFilter: typeFilter)
+        // The Channels tab finds channel posts too; the Apps tab finds no messages.
+        let messageTypeFilter: SearchMessagesChatTypeFilter? = filter == .channels
+            ? .searchMessagesChatTypeFilterChannel
+            : nil
+        async let foundMessages = filter == .apps
+            ? nil
+            : client.searchMessages(
+                chatList: chatList,
+                query: query,
+                offset: "",
+                limit: messagesLimit,
+                filter: nil,
+                chatTypeFilter: messageTypeFilter,
+                minDate: 0,
+                maxDate: 0,
+            )
 
         // The account's own chats found on the server join the local section, as Telegram's remote peers do.
         let server = try? await serverChats
@@ -490,13 +511,19 @@ import UIKit
                     scheduleMoreMessagesCheck()
                 }
             }
+            let channelPosts =
+                if case .searchChatTypeFilterChannel? = searchedChatType {
+                    true
+                } else {
+                    false
+                }
             let found = try? await client.searchMessages(
                 chatList: chatList,
                 query: query,
                 offset: offset,
                 limit: Self.messagesPageLimit,
                 filter: nil,
-                chatTypeFilter: nil,
+                chatTypeFilter: channelPosts ? .searchMessagesChatTypeFilterChannel : nil,
                 minDate: 0,
                 maxDate: 0,
             )
