@@ -181,6 +181,9 @@
 "Conversation.ContextMenuDelete" = "Delete";
 "Conversation.ContextMenuCancelSending" = "Cancel Sending";
 "Chat.MessageContextMenu.Remove" = "Remove";
+"Conversation.AutoremoveRemainingTime" = "auto-deletes in %@";
+"Conversation.AutoremoveRemainingDays_1" = "auto-deletes in %@ day";
+"Conversation.AutoremoveRemainingDays_any" = "auto-deletes in %@ days";
 "Chat.SlowmodeTooltip" = "Slowmode is enabled. You can send\nyour next message in %@.";
 "Conversation.MessageDialogRetry" = "Resend";
 "Conversation.MessageDialogRetryAll" = "Resend %1$d Messages";

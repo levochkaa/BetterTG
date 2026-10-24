@@ -852,6 +852,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         controller.insertInlineQuery(text)
     }
 
+    /// stringForRemainingTime: whole days past a day, else hours, minutes and seconds.
+    static func autoDeleteText(timeLeft: Int) -> String {
+        if timeLeft >= 24 * 60 * 60 {
+            let days = Int((Double(timeLeft) / (24 * 60 * 60)).rounded())
+            return L10n.telegramPlural("Conversation.AutoremoveRemainingDays", count: days)
+        }
+        let hours = timeLeft / 3600
+        let minutes = timeLeft / 60 % 60
+        let seconds = timeLeft % 60
+        let time = hours > 0
+            ? String(format: "%d:%02d:%02d", hours, minutes, seconds)
+            : String(format: "%d:%02d", minutes, seconds)
+        return L10n.telegram("Conversation.AutoremoveRemainingTime", time)
+    }
+
     /// The destination's full chat on top of the stack: popped back to when open, pushed otherwise.
     private static func openChat(
         _ chat: CustomChat,
@@ -9182,29 +9197,33 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             })
         } else if !deleteActions.isEmpty {
             // ChatInterfaceStateContextMenus: a message that is still sending offers Cancel Sending with the Clear
-            // icon, and one forwarded into Saved Messages from someone else Remove.
+            // icon, one that auto-deletes Delete with when it goes (ChatDeleteMessageContextItem), and one forwarded
+            // into Saved Messages from someone else Remove.
             let isSending =
                 if case .messageSendingStatePending = message.message.sendingState {
                     true
                 } else {
                     false
                 }
+            let autoDeleteCountdown = isSending ? nil : autoDeleteCountdown(for: message.message)
             let deleteTitle =
                 if isSending {
                     "Conversation.ContextMenuCancelSending"
-                } else if chatVM.customChat.isSavedMessages,
+                } else if autoDeleteCountdown == nil, chatVM.customChat.isSavedMessages,
                           Self.isEffectivelyIncomingInSavedMessages(message.message)
                 {
                     "Chat.MessageContextMenu.Remove"
                 } else {
                     "Conversation.ContextMenuDelete"
                 }
-            elements.append(TelegramContextMenuAction(
+            var deleteAction = TelegramContextMenuAction(
                 title: L10n.telegram(deleteTitle),
                 image: UIImage(systemName: isSending ? "xmark" : "trash"),
                 isDestructive: true,
                 children: deleteActions,
-            ))
+            )
+            deleteAction.subtitleUpdates = autoDeleteCountdown
+            elements.append(deleteAction)
         }
         if let saveSoundIndex, elements.indices.contains(saveSoundIndex + 1) {
             elements[saveSoundIndex + 1].startsNewSection = true
@@ -9267,6 +9286,38 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             })
         }
         return actions
+    }
+
+    /// ChatDeleteMessageContextItem's status for a message the chat's timer deletes, or a secret chat's once it is
+    /// read (AutoremoveTimeoutMessageAttribute), counted down every 0.5 s. TDLib reports the time left as of the
+    /// message it returns, so the menu asks for the message again.
+    private func autoDeleteCountdown(for message: Message) -> AnyPublisher<String, Never>? {
+        let isSecretChat =
+            if case .chatTypeSecret = chatVM.customChat.chat.type {
+                true
+            } else {
+                false
+            }
+        let timeLeft = { (message: Message) -> TimeInterval? in
+            if message.autoDeleteIn > 0 { return message.autoDeleteIn }
+            return isSecretChat && message.selfDestructIn > 0 ? message.selfDestructIn : nil
+        }
+        guard let initial = timeLeft(message) else { return nil }
+        let deadline = CurrentValueSubject<Date, Never>(Date(timeIntervalSinceNow: initial))
+        let client = chatVM.client
+        let chatID = message.chatId
+        let messageID = message.id
+        Task {
+            guard let current = try? await client.getMessage(chatId: chatID, messageId: messageID),
+                  let left = timeLeft(current)
+            else { return }
+            deadline.send(Date(timeIntervalSinceNow: left))
+        }
+        let ticks = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect().map { _ in () }.prepend(())
+        return deadline.combineLatest(ticks)
+            .map { deadline, _ in Self.autoDeleteText(timeLeft: Int(max(0, deadline.timeIntervalSinceNow))) }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
     }
 
     /// ChatReadReportContextItem in a private chat: a compact line at the top of the menu with when the other person

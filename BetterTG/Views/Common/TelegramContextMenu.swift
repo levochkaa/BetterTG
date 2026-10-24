@@ -35,9 +35,19 @@ enum TelegramContextMenuLayout {
     static let submenuParentScale = CGFloat(0.97)
     /// The room a row's chevron takes beyond the usual trailing inset.
     static let submenuIndicatorReserve = CGFloat(26)
+    /// ChatDeleteMessageContextItem: 13 / 17 of the list font under the title, 2 pt below it, 12 pt above and below
+    /// the pair.
+    static let subtitleFontSize = CGFloat(13)
+    static let subtitleSpacing = CGFloat(2)
+    static let subtitleVerticalInset = CGFloat(12)
+    static let titleLineHeight = ceil(UIFont.systemFont(ofSize: actionFontSize).lineHeight)
+    static let subtitleLineHeight = ceil(UIFont.systemFont(ofSize: subtitleFontSize).lineHeight)
+    static let subtitledActionHeight = titleLineHeight + subtitleSpacing + subtitleLineHeight
+        + subtitleVerticalInset * 2
 
     static func height(of action: TelegramContextMenuAction) -> CGFloat {
-        action.isHeader ? headerHeight : actionHeight
+        if action.isHeader { return headerHeight }
+        return action.subtitleUpdates == nil ? actionHeight : subtitledActionHeight
     }
 
     /// Telegram's `.twoLinesMax` action text: a title too long for the menu wraps onto a second line and the row
@@ -59,7 +69,7 @@ enum TelegramContextMenuLayout {
     }
 
     static func wrapsTitle(of action: TelegramContextMenuAction) -> Bool {
-        !action.isHeader && action.titleUpdates == nil
+        !action.isHeader && action.titleUpdates == nil && action.subtitleUpdates == nil
     }
 
     static func titleFontSize(of action: TelegramContextMenuAction) -> CGFloat {
@@ -104,6 +114,9 @@ struct TelegramContextMenuAction {
     /// ChatReadReportContextItem's AnimatedAvatarSetNode: up to three people at the trailing edge, with placeholder
     /// circles until the first value arrives.
     var avatarUpdates: AnyPublisher<TelegramContextMenuAvatars, Never>?
+    /// ChatDeleteMessageContextItem's status: a line under the title in the row's colour after a small timer, such as
+    /// when an auto-deleting message goes.
+    var subtitleUpdates: AnyPublisher<String, Never>?
 
     init(
         title: String,
@@ -2462,6 +2475,8 @@ final class TelegramContextMenuActionButton: UIControl {
     private var titleCancellable: AnyCancellable?
     private var selectableCancellable: AnyCancellable?
     private var avatarsCancellable: AnyCancellable?
+    private var subtitleCancellable: AnyCancellable?
+    private let subtitleLabel = UILabel()
     /// ChatReadReportContextItem's shimmer where the title will show until it arrives.
     private var titlePlaceholder: TelegramContextMenuShimmerView?
     private var avatarsView: TelegramContextMenuAvatarsView?
@@ -2484,7 +2499,44 @@ final class TelegramContextMenuActionButton: UIControl {
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false
 
-        var constraints = [titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor)]
+        var constraints = [NSLayoutConstraint]()
+        if action.subtitleUpdates != nil {
+            // The title and the status are centred as a pair; the timer sits 1 pt below the status's centre. The
+            // status runs on below a submenu's chevron, which keeps to the title's line, and shrinks to fit.
+            let timerView = UIImageView(image: UIImage(
+                systemName: "timer",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .medium),
+            ))
+            timerView.tintColor = color
+            timerView.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(timerView)
+            subtitleLabel.textColor = color
+            subtitleLabel.font = .systemFont(ofSize: TelegramContextMenuLayout.subtitleFontSize)
+            subtitleLabel.adjustsFontSizeToFitWidth = true
+            subtitleLabel.minimumScaleFactor = 0.8
+            subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(subtitleLabel)
+            let spacing = TelegramContextMenuLayout.subtitleSpacing
+            constraints.append(contentsOf: [
+                titleLabel.centerYAnchor.constraint(
+                    equalTo: centerYAnchor,
+                    constant: -(TelegramContextMenuLayout.subtitleLineHeight + spacing) / 2,
+                ),
+                subtitleLabel.centerYAnchor.constraint(
+                    equalTo: centerYAnchor,
+                    constant: (TelegramContextMenuLayout.titleLineHeight + spacing) / 2,
+                ),
+                timerView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+                timerView.centerYAnchor.constraint(equalTo: subtitleLabel.centerYAnchor, constant: 1),
+                subtitleLabel.leadingAnchor.constraint(equalTo: timerView.trailingAnchor, constant: 2),
+                subtitleLabel.trailingAnchor.constraint(
+                    lessThanOrEqualTo: trailingAnchor,
+                    constant: -TelegramContextMenuLayout.contentSideInset,
+                ),
+            ])
+        } else {
+            constraints.append(titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor))
+        }
         if action.avatarUpdates != nil {
             // The avatar set ends 4 pt inside the side inset; the text keeps 8 pt clear of it.
             let avatarsView = TelegramContextMenuAvatarsView()
@@ -2513,7 +2565,7 @@ final class TelegramContextMenuActionButton: UIControl {
             submenuIndicator.translatesAutoresizingMaskIntoConstraints = false
             addSubview(submenuIndicator)
             constraints.append(contentsOf: [
-                submenuIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
+                submenuIndicator.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
                 submenuIndicator.centerXAnchor.constraint(
                     equalTo: trailingAnchor,
                     constant: -TelegramContextMenuLayout.submenuIndicatorCenterInset,
@@ -2624,6 +2676,15 @@ final class TelegramContextMenuActionButton: UIControl {
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] avatars in
                     self?.avatarsView?.show(avatars)
+                }
+        }
+        if let updates = action.subtitleUpdates {
+            self.subtitleCancellable = updates
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] subtitle in
+                    guard let self else { return }
+                    subtitleLabel.text = subtitle
+                    accessibilityValue = subtitle
                 }
         }
     }
