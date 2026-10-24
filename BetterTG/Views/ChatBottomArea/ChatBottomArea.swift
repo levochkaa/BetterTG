@@ -662,7 +662,11 @@ final class ChatComposerView: UIView {
         } else if let reply = chatVM.replyMessage {
             showsReplyPreview = true
             closeReplyButton.isHidden = false
-            let title = replyAuthorName(for: reply) ?? L10n.telegram("Conversation.ContextMenuReply")
+            // ChatInputMessageAccessoryPanel: "Reply to" the author, or "Reply to Quote by" them.
+            let author = replyAuthorName(for: reply) ?? L10n.betterTG("Message.Generic")
+            let title = chatVM.replyQuote == nil
+                ? L10n.telegram("Conversation.ReplyMessagePanelTitle", author)
+                : L10n.telegram("Chat.ReplyPanel.ReplyToQuoteBy", author)
             let openReplyOptions = { [weak self] in
                 guard let self else { return }
                 if let onOpenReplyOptions {
@@ -2032,10 +2036,11 @@ final class ChatComposerView: UIView {
 
     /// ReplyAccessoryPanelNode names the message's effective author: a channel post or an anonymous admin's message
     /// reads as its sender chat, as the bubbles' reply headers do. A chat TDLib hasn't returned yet updates the panel.
+    /// The replied message's author by EnginePeer.displayTitle: a user's full name, or the chat's title.
     private func replyAuthorName(for message: CustomMessage) -> String? {
         switch message.message.senderId {
         case .messageSenderUser:
-            return message.senderUser?.firstName
+            return message.senderUser.map(ServiceMessageText.displayTitle)
         case .messageSenderChat(let sender):
             if sender.chatId == chatVM.chatID { return chatVM.customChat.chat.title }
             return MessagePeerNames.chat(sender.chatId, client: chatVM.client) { [weak self] _ in

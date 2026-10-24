@@ -2579,3 +2579,5 @@
 "Chat.Context.Command.Copy" = "Copy Command";
 "Conversation.ForwardTooltip.SavedMessages.One" = "Message forwarded to **Saved Messages**";
 "Conversation.ForwardTooltip.SavedMessages.Many" = "Messages forwarded to **Saved Messages**";
+"Conversation.ReplyMessagePanelTitle" = "Reply to %@";
+"Chat.ReplyPanel.ReplyToQuoteBy" = "Reply to Quote by %@";
