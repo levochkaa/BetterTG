@@ -2603,3 +2603,5 @@
 "HashtagSearch.NoResultsQueryDescription" = "There were no results for %@.\nTry another hashtag.";
 "HashtagSearch.NoResultsQueryCashtagDescription" = "There were no results for %@.\nTry another cashtag.";
 "Resolve.ChannelErrorNotFound" = "Sorry, this channel doesn't seem to exist.";
+"Conversation.ContextMenuMention" = "Mention";
+"Conversation.ContextMenuSendMessage" = "Send Message";

@@ -1747,6 +1747,57 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     #endif
 
+    /// ChatController's openPeerContextMenu for a member's avatar: Open Profile, Send Message, Mention where the user
+    /// can write, and Search Messages from them where the chat searches by member.
+    private func senderAvatarMenu(for user: User) -> [TelegramContextMenuAction] {
+        var actions = [
+            TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuOpenProfile"),
+                image: UIImage(systemName: "person.crop.circle"),
+            ) { [weak self] in
+                TelegramLinkRouter.shared.openUser(user.id, profile: true, from: self)
+            },
+            TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuSendMessage"),
+                image: UIImage(systemName: "bubble.left"),
+            ) { [weak self] in
+                TelegramLinkRouter.shared.openUser(user.id, from: self)
+            },
+        ]
+        if showsComposer, chatVM.canWriteBasicMessages {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuMention"),
+                image: UIImage(systemName: "at"),
+            ) { [weak self] in
+                self?.composerView.insertMention(of: user)
+            })
+        }
+        if canSearchMessagesByMember {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuSearchMessages"),
+                image: UIImage(systemName: "magnifyingglass"),
+            ) { [weak self] in
+                self?.searchMessages(from: user)
+            })
+        }
+        return actions
+    }
+
+    /// activateSearch(domain: .member(peer)): the chat's search opens on the member's messages.
+    private func searchMessages(from user: User) {
+        beginMessageSearch()
+        guard messageSearchActive, canSearchMessagesByMember else { return }
+        messageSearchChoosesMember = true
+        selectMessageSearchMember(ChatSearchMemberListView.Member(
+            sender: .messageSenderUser(MessageSenderUser(userId: user.id)),
+            title: ServiceMessageText.displayTitle(user),
+            compactTitle: user.firstName.isEmpty ? user.lastName : user.firstName,
+            file: user.profilePhoto?.small,
+            minithumbnail: user.profilePhoto?.minithumbnail,
+            placeholder: user.telegramAvatarPlaceholder,
+        ))
+    }
+
     private func applyPendingLinkDraft() {
         guard let text = pendingLinkDraft else { return }
         pendingLinkDraft = nil
@@ -3701,6 +3752,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                             selected: row.inputs.selected, renderValue: row.value,
                         )
                         cell.showsThreadStatus = location.messageThreadID == nil && !location.isTopicScoped
+                        cell.senderAvatarActions = { [weak self, weak cell] in
+                            guard let self,
+                                  let user = currentActionMessage(authority, cell: cell, intent: .senderAvatar)?
+                                    .senderUser
+                            else { return [] }
+                            return senderAvatarMenu(for: user)
+                        }
                         cell.configure(
                             message: message,
                             chat: chatVM.customChat,

@@ -278,6 +278,20 @@ final class ChatComposerView: UIView {
         return NSRange(location: start, length: min(selection.length, length - start))
     }
 
+    private static func mentionText(_ mention: ChatMentionSuggestion) -> FormattedText {
+        if let username = mention.username, !username.isEmpty {
+            return FormattedText(entities: [], text: "@" + username + " ")
+        }
+        return FormattedText(
+            entities: [TextEntity(
+                length: (mention.compactTitle as NSString).length,
+                offset: 0,
+                type: .textEntityTypeMentionName(.init(userId: mention.userID)),
+            )],
+            text: mention.compactTitle + " ",
+        )
+    }
+
     func insertEmoji(_ emoji: String, customID: Int64? = nil) {
         textView.insertEmoji(emoji, customID: customID)
     }
@@ -844,6 +858,16 @@ final class ChatComposerView: UIView {
         )
         let chatVM = chatVM
         Task { await chatVM.sendSticker(sticker, options: options) }
+    }
+
+    /// chatComposerInsertMention, from a member's avatar menu: the mention goes in at the caret and the input takes the
+    /// keyboard.
+    func insertMention(of user: User) {
+        guard let mention = ChatMentionSuggestion(user: user) else { return }
+        textView.replaceText(in: textView.selectedRange, with: ComposerText.uiKit(ComposerText.attributed(
+            Self.mentionText(mention),
+        )))
+        textView.becomeFirstResponder()
     }
 
     private func configureViews() {
@@ -2269,20 +2293,10 @@ final class ChatComposerView: UIView {
     /// username their short name as a text mention (ChatTextInputTextMentionAttribute).
     private func insertMention(_ mention: ChatMentionSuggestion) {
         guard let query = textView.mentionQueryRange() else { return }
-        let piece =
-            if let username = mention.username, !username.isEmpty {
-                FormattedText(entities: [], text: "@" + username + " ")
-            } else {
-                FormattedText(
-                    entities: [TextEntity(
-                        length: (mention.compactTitle as NSString).length,
-                        offset: 0,
-                        type: .textEntityTypeMentionName(.init(userId: mention.userID)),
-                    )],
-                    text: mention.compactTitle + " ",
-                )
-            }
-        textView.replaceText(in: query.range, with: ComposerText.uiKit(ComposerText.attributed(piece)))
+        textView.replaceText(
+            in: query.range,
+            with: ComposerText.uiKit(ComposerText.attributed(Self.mentionText(mention))),
+        )
     }
 
     /// WebpagePreviewAccessoryPanelNode: the site, then the page's title or description; a tap opens the options.

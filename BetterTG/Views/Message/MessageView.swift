@@ -228,6 +228,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     /// set before `configure`, off in threads and topics.
     var showsThreadStatus = true
 
+    /// The sender avatar's own menu, in place of the avatar's Open Profile / Search / Save Image.
+    var senderAvatarActions: (() -> [TelegramContextMenuAction])? {
+        didSet { avatarView.contextMenuActions = senderAvatarActions }
+    }
+
     private var selectionTouchBindingID: UUID?
     private let rowStack = UIStackView()
     private let bubbleContainerView = TelegramContextMenuExtractableView()
@@ -241,6 +246,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var bubbleInsetViews = [ObjectIdentifier: MessageBubbleInsetView]()
     private var usesFullBleedMedia = false
     private let avatarView = ProfileAvatarView()
+
     private let forwardView = ForwardHeaderView()
     private let replyView = ReplySnippetView()
     private let mediaView = MessageMediaView()

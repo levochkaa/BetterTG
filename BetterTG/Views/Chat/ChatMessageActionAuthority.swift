@@ -14,6 +14,8 @@ import UIKit
         case reactionList(ReactionType)
         case metadata(MessageMetadataNavigationTarget)
         case content(MessageContentAction)
+        /// The sender's avatar menu (ChatController's openPeerContextMenu).
+        case senderAvatar
     }
 
     struct State {
@@ -138,6 +140,8 @@ import UIKit
                   case .messageChecklist(let content) = raw.content, content.list.canMarkTasksAsDone,
                   let task = content.list.tasks.first(where: { $0.id == toggle.taskID }),
                   (task.completedBy == nil) == toggle.isDone else { return nil }
+        case .senderAvatar:
+            guard message.senderUser != nil else { return nil }
         case .content,
              .media,
              .selection:
