@@ -23,6 +23,9 @@ final class TelegramListNavigationBar: UIView {
         didSet { updateTitleInteraction() }
     }
 
+    /// The proxy shield's tap: Telegram opens the proxy settings.
+    var onProxyTap: (() -> Void)?
+
     // MARK: Private
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
@@ -38,6 +41,9 @@ final class TelegramListNavigationBar: UIView {
     private let rightButton = UIButton(type: .system)
     /// An optional second button left of the right one, such as the chat list's compose button.
     private let secondaryRightButton = UIButton(type: .system)
+    /// ChatListController's proxyButton, left of the right buttons while a proxy is saved.
+    private let proxyButton = ChatListProxyButton()
+    private var proxyTitleConstraint: NSLayoutConstraint?
     /// Telegram's Done while a list edits (ChatListControllerImpl.editPressed outside the root list).
     private let doneButton = UIButton(type: .system)
     private var doneAction: (() -> Void)?
@@ -142,6 +148,22 @@ final class TelegramListNavigationBar: UIView {
     }
 
     /// Telegram's editing state outside the root list: Done replaces the right buttons, and a selection title such as
+    /// ChatTitleProxyNode's status, or nil to hide the shield. The title keeps clear of it while it shows.
+    func setProxyStatus(_ status: ChatListProxyStatus?) {
+        proxyButton.status = status
+        let shows = status != nil
+        proxyButton.isHidden = !shows
+        if shows, proxyTitleConstraint == nil {
+            let constraint = titleControl.trailingAnchor.constraint(
+                lessThanOrEqualTo: proxyButton.leadingAnchor,
+                constant: -8,
+            )
+            constraint.isActive = true
+            proxyTitleConstraint = constraint
+        }
+        proxyTitleConstraint?.isActive = shows
+    }
+
     /// "2 Topics Selected" replaces the title and status (ChatTitleComponent's custom content). A nil title shows the
     /// regular one; a nil action ends editing.
     func setEditing(title: String?, done: (() -> Void)?) {
@@ -207,6 +229,10 @@ final class TelegramListNavigationBar: UIView {
         leftButton.addTarget(self, action: #selector(leftPressed), for: .touchUpInside)
         rightButton.addTarget(self, action: #selector(rightPressed), for: .touchUpInside)
         secondaryRightButton.addTarget(self, action: #selector(secondaryRightPressed), for: .touchUpInside)
+        proxyButton.translatesAutoresizingMaskIntoConstraints = false
+        proxyButton.isHidden = true
+        proxyButton.addAction(UIAction { [weak self] _ in self?.onProxyTap?() }, for: .touchUpInside)
+        addSubview(proxyButton)
         doneButton.translatesAutoresizingMaskIntoConstraints = false
         doneButton.tintColor = .systemBlue
         doneButton.setTitle(L10n.telegram("Common.Done"), for: .normal)
@@ -298,6 +324,10 @@ final class TelegramListNavigationBar: UIView {
             secondaryRightButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             secondaryRightButton.widthAnchor.constraint(equalToConstant: 44),
             secondaryRightButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
+            proxyButton.trailingAnchor.constraint(equalTo: rightmostTitleNeighbor.leadingAnchor),
+            proxyButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            proxyButton.widthAnchor.constraint(equalToConstant: 44),
+            proxyButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
             doneButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
             doneButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             doneButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
@@ -355,6 +385,7 @@ final class TelegramListNavigationBar: UIView {
             self.leftButton.alpha = active ? 0 : 1
             self.rightButton.alpha = active ? 0 : 1
             self.secondaryRightButton.alpha = active ? 0 : 1
+            self.proxyButton.alpha = active ? 0 : 1
             self.doneButton.alpha = active ? 0 : 1
             self.textActionButton.alpha = active ? 0 : 1
             self.searchView.transform = active
@@ -974,5 +1005,79 @@ private final class TelegramNavigationTitleControl: UIControl {
     override func cancelTracking(with event: UIEvent?) {
         isHighlighted = false
         super.cancelTracking(with: event)
+    }
+}
+
+// MARK: - ChatListProxyButton
+
+/// ChatTitleProxyNode in a 44 pt button: the shield with a check while connected through the proxy, with the power
+/// sign while no proxy is on, and with a small spinner while connecting.
+final class ChatListProxyButton: UIControl {
+    override var isHighlighted: Bool {
+        didSet { alpha = isHighlighted ? 0.4 : 1 }
+    }
+
+    var status: ChatListProxyStatus? {
+        didSet { update() }
+    }
+
+    private let shieldView = UIImageView(image: UIImage(
+        systemName: "shield",
+        withConfiguration: UIImage.SymbolConfiguration(pointSize: 22, weight: .regular),
+    ))
+    private let badgeView = UIImageView()
+    private let activityIndicator = UIActivityIndicatorView(style: .medium)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        for view in [shieldView, badgeView, activityIndicator] as [UIView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            view.isUserInteractionEnabled = false
+            addSubview(view)
+        }
+        shieldView.tintColor = .systemBlue
+        badgeView.tintColor = .systemBlue
+        activityIndicator.color = .systemBlue
+        activityIndicator.transform = CGAffineTransform(scaleX: 0.5, y: 0.5)
+        NSLayoutConstraint.activate([
+            shieldView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            shieldView.centerYAnchor.constraint(equalTo: centerYAnchor),
+            badgeView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            badgeView.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -1),
+            activityIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
+            activityIndicator.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -1),
+        ])
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = L10n.telegram("SocksProxySetup.Title")
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private func update() {
+        let badge: String? =
+            switch status {
+            case .connected: "checkmark"
+            case .available: "power"
+            case .connecting,
+                 nil: nil
+            }
+        badgeView.image = badge.map {
+            UIImage(systemName: $0, withConfiguration: UIImage.SymbolConfiguration(pointSize: 9, weight: .bold))
+        } ?? nil
+        if status == .connecting {
+            activityIndicator.startAnimating()
+        } else {
+            activityIndicator.stopAnimating()
+        }
+        accessibilityValue =
+            switch status {
+            case .connected: L10n.telegram("SocksProxySetup.ProxyStatusConnected")
+            case .connecting: L10n.telegram("SocksProxySetup.ProxyStatusConnecting")
+            case .available,
+                 nil: nil
+            }
     }
 }

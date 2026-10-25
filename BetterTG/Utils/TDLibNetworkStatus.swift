@@ -59,3 +59,63 @@ extension TDLib {
         .eraseToAnyPublisher()
     }
 }
+
+// MARK: - ProxyStatusStore
+
+/// ProxySettings as the chat list reads them: whether a proxy is saved and whether one is on. TDLib sends no updates
+/// for its proxies, so they are read once the account is ready and again after the proxy screens change them.
+@MainActor final class ProxyStatusStore {
+    struct State: Equatable {
+        var hasProxy = false
+        var isEnabled = false
+    }
+
+    static let shared = ProxyStatusStore()
+
+    @Published private(set) var state = State()
+
+    private var refreshTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
+
+    private init() {
+        nc.publisher(&cancellables, for: .authorizationStateReady) { [weak self] _ in
+            DispatchQueue.main.async { self?.refresh() }
+        }
+    }
+
+    func refresh() {
+        refreshTask?.cancel()
+        let client = TDLib.shared.activeClient
+        refreshTask = Task { [weak self] in
+            let proxies = await (try? client.send(TDNativeRequests.getProxies()))?.proxies
+            guard let self, !Task.isCancelled, let proxies, TDLib.shared.activeClient.id == client.id else { return }
+            state = State(hasProxy: !proxies.isEmpty, isEnabled: proxies.contains(where: \.isEnabled))
+        }
+    }
+}
+
+@MainActor extension TDLib {
+    /// ChatListController's proxyButton: nil without a saved proxy; available while no proxy is on, else connecting
+    /// until TDLib is online through it.
+    var chatListProxyStatus: AnyPublisher<ChatListProxyStatus?, Never> {
+        ProxyStatusStore.shared
+            .$state
+            .combineLatest(connectionStates)
+            .map { proxy, connection -> ChatListProxyStatus? in
+                guard proxy.hasProxy else { return nil }
+                guard proxy.isEnabled else { return .available }
+                return connection == .connectionStateReady ? .connected : .connecting
+            }
+            .removeDuplicates()
+            .eraseToAnyPublisher()
+    }
+}
+
+// MARK: - ChatListProxyStatus
+
+/// ChatTitleProxyStatus.
+enum ChatListProxyStatus {
+    case available
+    case connecting
+    case connected
+}

@@ -325,8 +325,13 @@ final class ProxyServerPreviewViewController: UIViewController {
                 presentFailure()
                 return
             }
+            ProxyStatusStore.shared.refresh()
             let online = await Self.waitUntilOnline(timeout: 15)
-            guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled else {
+                ProxyStatusStore.shared.refresh()
+                return
+            }
+            defer { ProxyStatusStore.shared.refresh() }
             setInProgress(false)
             if online {
                 let presenter = presentingViewController

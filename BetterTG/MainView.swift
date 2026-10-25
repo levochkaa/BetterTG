@@ -557,6 +557,15 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             .chatListNetworkStatus
             .sink { [weak self] status in self?.customNavigationBar.setNetworkStatus(status) }
             .store(in: &cancellables)
+        customNavigationBar.onProxyTap = { [weak self] in
+            self?.navigationController?.pushViewController(ProxySettingsViewController(), animated: true)
+        }
+        TDLib.shared
+            .chatListProxyStatus
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in self?.customNavigationBar.setProxyStatus(status) }
+            .store(in: &cancellables)
+        ProxyStatusStore.shared.refresh()
         view.addSubview(customNavigationBar)
         navigationBarHeightConstraint = customNavigationBar.heightAnchor.constraint(
             equalToConstant: currentNavigationContentHeight + view.safeAreaInsets.top,

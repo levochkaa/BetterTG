@@ -176,6 +176,7 @@ final class ProxySettingsViewController: SettingsListViewController {
             self.proxies = proxies?.proxies ?? []
             reload()
             pingAll()
+            ProxyStatusStore.shared.refresh()
         }
     }
 
