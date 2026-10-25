@@ -1214,11 +1214,14 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private var reconcilingMediaRevisions = false
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     private lazy var chromeTapGesture: UITapGestureRecognizer = {
-        let gesture = UITapGestureRecognizer(target: self, action: #selector(toggleChromeVisibility))
+        let gesture = UITapGestureRecognizer(target: self, action: #selector(galleryTapped(_:)))
         gesture.cancelsTouchesInView = false
         gesture.delegate = self
         return gesture
     }()
+
+    /// GalleryPagerNode's side fades, 70 pt of 35% black at the edge a tap moves from.
+    private let edgeFadeViews = [GalleryEdgeFadeView(isLeft: true), GalleryEdgeFadeView(isLeft: false)]
 
     private lazy var interactiveDismissPanGesture: UIPanGestureRecognizer = {
         let gesture = UIPanGestureRecognizer(target: self, action: #selector(handleInteractiveDismissPan(_:)))
@@ -2206,6 +2209,18 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         collectionView.addGestureRecognizer(interactiveDismissPanGesture)
         collectionView.register(MediaGalleryCell.self, forCellWithReuseIdentifier: MediaGalleryCell.reuseIdentifier)
         view.addSubview(collectionView)
+        for fade in edgeFadeViews {
+            fade.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(fade)
+            NSLayoutConstraint.activate([
+                fade.topAnchor.constraint(equalTo: view.topAnchor),
+                fade.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+                fade.widthAnchor.constraint(equalToConstant: 70),
+                fade.isLeft
+                    ? fade.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+                    : fade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            ])
+        }
     }
 
     private func configureToolbar() {
@@ -2793,6 +2808,32 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         cancelDelete()
         cancelOpenInChat()
         dismiss(animated: true)
+    }
+
+    /// GalleryPagerNode's tap: within min(44, a sixth of the width) of a side, with Show Next Media on Tap, it shows
+    /// the item on that side under the side's fade; anywhere else, or with no item there, it shows or hides the
+    /// chrome.
+    @objc private func galleryTapped(_ gesture: UITapGestureRecognizer) {
+        let point = gesture.location(in: view)
+        let width = view.bounds.width
+        let edge = min(44, floor(width / 6))
+        let isLeft = point.x < edge
+        if MediaDisplaySettings.showNextMediaOnTap, !UIAccessibility.isVoiceOverRunning, messages.count > 1,
+           exportTask == nil, deleteTask == nil, isLeft || point.x > width - edge
+        {
+            let target = selectedIndex + (isLeft ? -1 : 1)
+            if messages.indices.contains(target) {
+                edgeFadeViews[isLeft ? 0 : 1].flash()
+                collectionView.scrollToItem(
+                    at: IndexPath(item: target, section: 0),
+                    at: .centeredHorizontally,
+                    animated: false,
+                )
+                updateSelection(from: collectionView)
+                return
+            }
+        }
+        toggleChromeVisibility()
     }
 
     @objc private func toggleChromeVisibility() {
@@ -7829,6 +7870,42 @@ final class ZoomableGalleryImageView: UIScrollView, UIScrollViewDelegate, Galler
                 width: size.width,
                 height: size.height,
             ), animated: true)
+        }
+    }
+}
+
+// MARK: - GalleryEdgeFadeView
+
+/// GalleryPagerNode's leftFadeNode and rightFadeNode: a gradient from 35% black at the edge to clear, shown as a tap
+/// there moves to the next item and faded out over 0.16 s.
+private final class GalleryEdgeFadeView: UIView {
+    override class var layerClass: AnyClass {
+        CAGradientLayer.self
+    }
+
+    let isLeft: Bool
+
+    init(isLeft: Bool) {
+        self.isLeft = isLeft
+        super.init(frame: .zero)
+        isUserInteractionEnabled = false
+        alpha = 0
+        guard let gradient = layer as? CAGradientLayer else { return }
+        let colors = [UIColor.black.withAlphaComponent(0.35).cgColor, UIColor.black.withAlphaComponent(0).cgColor]
+        gradient.colors = isLeft ? colors : colors.reversed()
+        gradient.startPoint = CGPoint(x: 0, y: 0.5)
+        gradient.endPoint = CGPoint(x: 1, y: 0.5)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func flash() {
+        layer.removeAllAnimations()
+        alpha = 1
+        UIView.animate(withDuration: 0.16, delay: 0.08, options: [.curveEaseOut, .allowUserInteraction]) {
+            self.alpha = 0
         }
     }
 }

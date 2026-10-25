@@ -1345,6 +1345,9 @@
 "Settings.Tips" = "Telegram Features";
 "Settings.TipsUsername" = "TelegramTips";
 "Settings.PauseMusicOnRecording" = "Pause Music While Recoding";
+"Appearance.Other" = "Other";
+"Appearance.ShowNextMediaOnTap" = "Show Next Media on Tap";
+"Appearance.ShowNextMediaOnTapInfo" = "Tap near the edge of the screen while viewing media to navigate between photos.";
 "MessageCalendar.Title" = "Calendar";
 "Calendar.ShortSun" = "S";
 "Calendar.ShortMon" = "M";
