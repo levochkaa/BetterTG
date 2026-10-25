@@ -6205,6 +6205,40 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(controller, animated: true)
     }
 
+    /// ChatAgeRestrictionAlertController: 18+ media shows after View Anyway; Always Show 18+ Media, while the account
+    /// may, also turns on Show 18+ Content (`ignore_sensitive_content_restrictions`).
+    private func confirmSensitiveMedia(_ message: Message) {
+        let alert = UIAlertController(
+            title: L10n.telegram("SensitiveContent.Title"),
+            message: L10n.telegram("SensitiveContent.Text"),
+            preferredStyle: .alert,
+        )
+        let reveal = { [weak self] in
+            guard let self, mediaRevealSession?.reveal(message, confirmedSensitive: true) == true else { return }
+            reconfigureMessage(id: message.id)
+            DispatchQueue.main.async { [weak self] in self?.updateInlineVideoPlaybackVisibility() }
+        }
+        let viewAnyway = UIAlertAction(title: L10n.telegram("SensitiveContent.ViewAnyway"), style: .default) { _ in
+            reveal()
+        }
+        alert.addAction(viewAnyway)
+        if SensitiveContentStore.canIgnore(clientID: chatVM.client.id) {
+            let client = chatVM.client
+            alert.addAction(UIAlertAction(title: L10n.telegram("SensitiveContent.ShowAlways"), style: .default) { _ in
+                reveal()
+                Task {
+                    _ = try? await client.setOption(
+                        name: SensitiveContentStore.ignoreOptionName,
+                        value: .optionValueBoolean(TDNativeOptionValueBoolean(value: true)),
+                    )
+                }
+            })
+        }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.preferredAction = viewAnyway
+        present(alert, animated: true)
+    }
+
     private func showMedia(_ messages: [Message], selection: Int64) {
         guard let galleryPlaybackContext, galleryPlaybackContext.isCurrent,
               let captured = messages.first(where: { $0.id == selection }),
@@ -6220,6 +6254,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return
         case .openSecret:
             presentSecretMedia(current)
+            return
+        case .confirmSensitive:
+            confirmSensitiveMedia(current)
             return
         case .open:
             break

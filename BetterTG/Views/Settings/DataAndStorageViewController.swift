@@ -62,7 +62,7 @@ final class DataAndStorageViewController: SettingsListViewController {
                     }),
                 ),
             ],
-        ), SettingsSection(
+        )] + sensitiveContentSections() + [SettingsSection(
             header: L10n.telegram("ChatSettings.ConnectionType.Title").uppercased(),
             rows: [SettingsRow(
                 title: L10n.telegram("SocksProxySetup.Title"),
@@ -72,6 +72,49 @@ final class DataAndStorageViewController: SettingsListViewController {
                 self?.navigationController?.pushViewController(ProxySettingsViewController(), animated: true)
             }],
         )]
+    }
+
+    /// Show 18+ Content (`ignore_sensitive_content_restrictions`) while the account may turn it on.
+    private func sensitiveContentSections() -> [SettingsSection] {
+        let clientID = client.id
+        guard SensitiveContentStore.canIgnore(clientID: clientID) else { return [] }
+        return [SettingsSection(
+            footer: L10n.telegram("Settings.SensitiveContentInfo"),
+            rows: [SettingsRow(
+                title: L10n.telegram("Settings.SensitiveContent"),
+                accessory: .toggle(isOn: SensitiveContentStore.ignores(clientID: clientID)) { [weak self] isOn in
+                    self?.setShowsSensitiveContent(isOn)
+                },
+            )],
+        )]
+    }
+
+    /// toggleSensitiveContent: turning it on asks to confirm the age first.
+    private func setShowsSensitiveContent(_ isOn: Bool) {
+        let apply = { [weak self] in
+            self?.perform { client in
+                _ = try await client.setOption(
+                    name: SensitiveContentStore.ignoreOptionName,
+                    value: .optionValueBoolean(TDNativeOptionValueBoolean(value: isOn)),
+                )
+            } completion: {}
+        }
+        guard isOn else {
+            apply()
+            return
+        }
+        let alert = UIAlertController(
+            title: L10n.telegram("SensitiveContent.Enable.Title"),
+            message: L10n.telegram("SensitiveContent.Enable.Text"),
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel) { [weak self] _ in
+            self?.reload()
+        })
+        alert.addAction(UIAlertAction(title: L10n.telegram("SensitiveContent.Enable.Confirm"), style: .default) { _ in
+            apply()
+        })
+        present(alert, animated: true)
     }
 
     /// AUTO-DOWNLOAD MEDIA: Using Cellular and Using Wi-Fi with what they download, and Reset Auto-Download Settings

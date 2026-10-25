@@ -18,14 +18,17 @@ import UIKit
         let files: [Int]
         let hasSpoiler: Bool
         let isSecret: Bool
+        /// TDLib marks the media 18+ (`has_sensitive_content`); it shows once confirmed or with Show 18+ Content.
+        let isSensitive: Bool
 
-        /// Neither a spoiler nor self-destructing: any client may show these pixels.
-        var isPublic: Bool { !hasSpoiler && !isSecret }
+        /// Neither a spoiler, self-destructing nor 18+: any client may show these pixels.
+        var isPublic: Bool { !hasSpoiler && !isSecret && !isSensitive }
 
         init?(message: Message) {
             self.chatID = message.chatId
             self.messageID = message.id
             self.revision = message.editDate
+            self.isSensitive = SensitiveContentStore.isSensitive(message)
             switch message.content {
             case .messagePhoto(let value):
                 self.kind = .photo
@@ -56,7 +59,8 @@ import UIKit
     }
 
     /// `openSecret`: self-destructing media opens only in the secret preview, which consumes it.
-    enum TapResult { case rejected, revealed, open, openSecret }
+    /// `confirmSensitive`: 18+ media reveals after ChatAgeRestrictionAlertController's View Anyway.
+    enum TapResult { case rejected, revealed, open, openSecret, confirmSensitive }
 
     struct RevisionChange {
         let messages: [Message]
@@ -72,6 +76,11 @@ import UIKit
     /// The accepted key a public-to-public change replaced. A timeline row built a moment before the change still
     /// renders it until the next snapshot lands; covering public media for that frame only flashes a placeholder.
     private var predecessors = [Int64: Key]()
+
+    /// Show 18+ Content for the route's client.
+    private var showsSensitive: Bool {
+        SensitiveContentStore.shows(chatID: context.location.chatID, clientID: context.location.clientID)
+    }
 
     init(context: MediaGalleryPlaybackContext) { self.context = context }
 
@@ -91,6 +100,8 @@ import UIKit
         if MediaRevealPermit.allows(current, permit: permit(for: current), requiresPermit: true) { return .open }
         if let key = Key(message: current), key.isSecret, key.kind != .voiceNote,
            self.current(key) { return .openSecret }
+        if let key = Key(message: current), key.isSensitive, !showsSensitive, self.current(key),
+           revealed[key.messageID] != key { return .confirmSensitive }
         return reveal(current) ? .revealed : .rejected
     }
 
@@ -129,8 +140,11 @@ import UIKit
         }
     }
 
-    @discardableResult func reveal(_ message: Message) -> Bool {
-        guard let key = Key(message: message), current(key), !key.isSecret, key.hasSpoiler,
+    /// A spoiler's tap, or 18+ media once its alert was confirmed (`confirmedSensitive`).
+    @discardableResult func reveal(_ message: Message, confirmedSensitive: Bool = false) -> Bool {
+        guard let key = Key(message: message), current(key), !key.isSecret,
+              key.hasSpoiler || key.isSensitive,
+              !key.isSensitive || confirmedSensitive || showsSensitive,
               revealed[key.messageID] != key else { return false }
         revealed[key.messageID] = key
         return true
@@ -144,7 +158,7 @@ import UIKit
         for message in messages {
             guard let earlier = previous.revealed[message.id], let key = Key(message: message),
                   earlier.revision == key.revision, earlier.kind == key.kind else { continue }
-            reveal(message)
+            reveal(message, confirmedSensitive: true)
         }
     }
 
@@ -154,7 +168,8 @@ import UIKit
     }
 
     fileprivate func allows(_ key: Key) -> Bool {
-        current(key) && !key.isSecret && (!key.hasSpoiler || revealed[key.messageID] == key)
+        let covered = key.hasSpoiler || (key.isSensitive && !showsSensitive)
+        return current(key) && !key.isSecret && (!covered || revealed[key.messageID] == key)
     }
 }
 
@@ -180,7 +195,9 @@ import UIKit
     static func allows(_ message: Message, permit: Self?, requiresPermit: Bool = false) -> Bool {
         guard let key = MediaRevealSession.Key(message: message) else { return true }
         if let permit { return permit.matches(message) && permit.allowsPixels }
-        return !requiresPermit && !key.isSecret && !key.hasSpoiler
+        let sensitiveCovered = key.isSensitive
+            && !SensitiveContentStore.shows(chatID: key.chatID, clientID: TDLib.shared.activeUpdateSource?.clientID)
+        return !requiresPermit && !key.isSecret && !key.hasSpoiler && !sensitiveCovered
     }
 
     func matches(_ message: Message) -> Bool { isCurrent && key == MediaRevealSession.Key(message: message) }
@@ -200,14 +217,22 @@ final class MediaConcealmentView: UIControl, ReusableMediaView, GalleryMediaView
     private var ticker: Timer?
     private var deadlineChanges: AnyCancellable?
 
+    // MARK: 18+ media
+
+    private var sensitiveLabel: UILabel?
+
     init(message: Message, size: CGSize? = nil, clientID: Int32? = nil, onTap: (() -> Void)? = nil) {
         super.init(frame: .zero)
         self.onTap = onTap
         backgroundColor = .secondarySystemBackground
         clipsToBounds = true
-        let secret = MediaRevealSession.Key(message: message)?.isSecret == true
+        let key = MediaRevealSession.Key(message: message)
+        let secret = key?.isSecret == true
+        let sensitive = key?.isSensitive == true && !secret
         if secret, message.selfDestructType != nil {
             configureSelfDestructing(message: message, clientID: clientID)
+        } else if sensitive {
+            configureSensitive(message: message)
         } else {
             let symbol = UIImageView(image: UIImage(systemName: secret ? "lock.fill" : "eye.slash.fill"))
             symbol.tintColor = .secondaryLabel
@@ -230,6 +255,8 @@ final class MediaConcealmentView: UIControl, ReusableMediaView, GalleryMediaView
         accessibilityLabel =
             if selfDestructing != nil {
                 SecretMediaPreviewViewController.title(for: message)
+            } else if sensitive {
+                L10n.telegram("Chat.SensitiveContent")
             } else {
                 secret
                     ? L10n.betterTG("Accessibility.ProtectedMedia")
@@ -253,6 +280,14 @@ final class MediaConcealmentView: UIControl, ReusableMediaView, GalleryMediaView
         updateSelfDestructState()
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // wideLayout: the full "18+ Content" where it fits, else "18+".
+        sensitiveLabel?.text = L10n.telegram(bounds.width >= 160
+            ? "Chat.SensitiveContent"
+            : "Chat.SensitiveContentShort")
+    }
+
     private static func minithumbnail(of message: Message) -> Data? {
         switch message.content {
         case .messagePhoto(let value): value.photo.minithumbnail?.data
@@ -272,6 +307,53 @@ final class MediaConcealmentView: UIControl, ReusableMediaView, GalleryMediaView
     func setPlaybackVisible(_: Bool) {}
 
     @objc private func tapped() { onTap?() }
+
+    /// ChatMessageInteractiveMediaNode's ExtendedMediaOverlayNode with the eye icon: the blurred thumbnail and a
+    /// capsule reading "18+ Content", or "18+" where the media is narrow.
+    private func configureSensitive(message: Message) {
+        if let data = Self.minithumbnail(of: message), let image = UIImage(data: data) {
+            let imageView = UIImageView(image: image)
+            imageView.contentMode = .scaleAspectFill
+            imageView.frame = bounds
+            imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            addSubview(imageView)
+            let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+            blur.frame = bounds
+            blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            blur.isUserInteractionEnabled = false
+            addSubview(blur)
+        }
+        let capsule = UIView()
+        capsule.backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        capsule.layer.cornerRadius = 14
+        capsule.isUserInteractionEnabled = false
+        capsule.translatesAutoresizingMaskIntoConstraints = false
+        let icon = UIImageView(image: UIImage(
+            systemName: "eye.slash.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold),
+        ))
+        icon.tintColor = .white
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 14, weight: .semibold)
+        label.textColor = .white
+        label.text = L10n.telegram("Chat.SensitiveContent")
+        sensitiveLabel = label
+        let stack = UIStackView(arrangedSubviews: [icon, label])
+        stack.spacing = 5
+        stack.alignment = .center
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        capsule.addSubview(stack)
+        addSubview(capsule)
+        NSLayoutConstraint.activate([
+            capsule.centerXAnchor.constraint(equalTo: centerXAnchor),
+            capsule.centerYAnchor.constraint(equalTo: centerYAnchor),
+            capsule.heightAnchor.constraint(equalToConstant: 28),
+            capsule.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -12),
+            stack.leadingAnchor.constraint(equalTo: capsule.leadingAnchor, constant: 10),
+            stack.trailingAnchor.constraint(equalTo: capsule.trailingAnchor, constant: -10),
+            stack.centerYAnchor.constraint(equalTo: capsule.centerYAnchor),
+        ])
+    }
 
     // MARK: Self-destructing media
 

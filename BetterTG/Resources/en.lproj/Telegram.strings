@@ -1345,6 +1345,17 @@
 "Settings.Tips" = "Telegram Features";
 "Settings.TipsUsername" = "TelegramTips";
 "Settings.PauseMusicOnRecording" = "Pause Music While Recoding";
+"Settings.SensitiveContent" = "Show 18+ Content";
+"Settings.SensitiveContentInfo" = "Do not hide media that contain content suitable only for adults.";
+"Chat.SensitiveContent" = "18+ Content";
+"Chat.SensitiveContentShort" = "18+";
+"SensitiveContent.Title" = "18+ Content";
+"SensitiveContent.Text" = "This media may contain sensitive content suitable only for adults.\nDo you still want to view it?";
+"SensitiveContent.ShowAlways" = "Always show 18+ media";
+"SensitiveContent.ViewAnyway" = "View Anyway";
+"SensitiveContent.Enable.Title" = "18+ Content";
+"SensitiveContent.Enable.Text" = "Confirm that you are over 18 years old and update settings to see potentially explicit and sensitive content.";
+"SensitiveContent.Enable.Confirm" = "Confirm";
 "PrivacySettings.DataSettings" = "Data Settings";
 "PrivacySettings.DataSettingsHelp" = "Control which of your data is stored in the cloud and used by Telegram to enable advanced features.";
 "Privacy.ContactsTitle" = "CONTACTS";

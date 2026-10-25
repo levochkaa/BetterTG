@@ -65,6 +65,11 @@ extension RootVM {
             DiceEmojiStore.update(event.value.emojis, clientID: event.source.clientID)
         }
         nc.scopedPublisher(&cancellables, for: .updateOption) { event in
+            SensitiveContentStore.update(
+                option: event.value.name,
+                value: event.value.value,
+                clientID: event.source.clientID,
+            )
             guard event.value.name == MessageQuoteLengthStore.optionName else { return }
             let length: Int64? =
                 if case .optionValueInteger(let value) = event.value.value {
