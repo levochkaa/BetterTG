@@ -66,6 +66,9 @@ final class TelegramListNavigationBar: UIView {
     private let secondaryRightAction: (() -> Void)?
     private let showsBackButton: Bool
     private var currentScrollOffset = CGFloat.zero
+    /// How far the list is pulled past its top.
+    private var currentOverscroll = CGFloat.zero
+    private var searchTopConstraint: NSLayoutConstraint!
 
     var rightButtonView: UIView { rightButton }
 
@@ -114,16 +117,20 @@ final class TelegramListNavigationBar: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// `offset` is the list's distance from its top; a negative one pulls the list past it. ChatListNavigationBar
+    /// leaves that pull unclipped: the bar grows with it and the search field rides down above the first row.
     func applyScroll(offset: CGFloat, animated: Bool = false) {
         let clipped = min(max(0, offset), ChatListNavigationSearchView.scrollHeight)
         currentScrollOffset = clipped
+        currentOverscroll = isSearchActive ? 0 : max(0, -offset)
+        searchTopConstraint.constant = Self.titleHeight + currentOverscroll
         guard !isSearchActive else {
             searchView.applyScroll(offset: clipped, animated: false)
             onVisibleHeightChange?(ChatListNavigationSearchView.scrollHeight)
             return
         }
         searchView.applyScroll(offset: clipped, animated: animated)
-        onVisibleHeightChange?(Self.expandedContentHeight - clipped)
+        onVisibleHeightChange?(Self.expandedContentHeight - clipped + currentOverscroll)
     }
 
     func focusSearch() {
@@ -320,6 +327,10 @@ final class TelegramListNavigationBar: UIView {
         separator.backgroundColor = .separator
         addSubview(separator)
 
+        searchTopConstraint = searchView.topAnchor.constraint(
+            equalTo: safeAreaLayoutGuide.topAnchor,
+            constant: Self.titleHeight,
+        )
         // The title keeps clear of the leftmost right button.
         let rightmostTitleNeighbor = secondaryRightButton.isHidden ? rightButton : secondaryRightButton
         NSLayoutConstraint.activate([
@@ -377,7 +388,7 @@ final class TelegramListNavigationBar: UIView {
             networkActivityIndicator.centerXAnchor.constraint(equalTo: networkActivityContainer.centerXAnchor),
             networkActivityIndicator.centerYAnchor.constraint(equalTo: networkActivityContainer.centerYAnchor),
 
-            searchView.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: Self.titleHeight),
+            searchTopConstraint,
             searchView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
             searchView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
             searchView.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.scrollHeight),
@@ -397,9 +408,13 @@ final class TelegramListNavigationBar: UIView {
     private func setSearchActive(_ active: Bool) {
         let parentView = superview
         parentView?.layoutIfNeeded()
+        if active {
+            currentOverscroll = 0
+            searchTopConstraint.constant = Self.titleHeight
+        }
         onVisibleHeightChange?(active
             ? ChatListNavigationSearchView.scrollHeight
-            : Self.expandedContentHeight - currentScrollOffset)
+            : Self.expandedContentHeight - currentScrollOffset + currentOverscroll)
         onSearchActiveChange?(active)
 
         UIView.animate(

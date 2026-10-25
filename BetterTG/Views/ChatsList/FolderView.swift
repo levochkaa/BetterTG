@@ -498,11 +498,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         return tableView.isDragging || tableView.isDecelerating
     }
 
+    /// The list's distance from its top up to the search field's height; negative while the list is pulled past
+    /// its top, which the navigation bar follows.
     var searchScrollOffset: CGFloat {
         guard isViewLoaded, didSetInitialSearchOffset else { return initialSearchScrollOffset }
         return min(
             ChatListNavigationSearchView.scrollHeight,
-            max(0, tableView.contentOffset.y + tableView.adjustedContentInset.top),
+            tableView.contentOffset.y + tableView.adjustedContentInset.top,
         )
     }
 
