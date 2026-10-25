@@ -132,10 +132,13 @@ final class SettingsViewController: UITableViewController {
              .chatFolders,
              .dataAndStorage,
              .devices,
+             .faq,
              .language,
              .notifications,
              .privacy,
-             .savedMessages:
+             .savedMessages,
+             .support,
+             .tips:
             cell.accessoryType = .disclosureIndicator
         case .animatedMedia:
             let toggle = UISwitch()
@@ -179,6 +182,15 @@ final class SettingsViewController: UITableViewController {
             navigationController?.pushViewController(PrivacySettingsViewController(), animated: true)
         case .dataAndStorage:
             navigationController?.pushViewController(DataAndStorageViewController(), animated: true)
+        case .support:
+            confirmSupport()
+        case .faq:
+            openFaq()
+        case .tips:
+            // PeerInfoScreen's openTips: Telegram's features channel by its username.
+            if let url = URL(string: "https://t.me/" + L10n.telegram("Settings.TipsUsername")) {
+                TelegramLinkRouter.shared.open(url, from: self)
+            }
         case .logOut:
             confirmLogout(from: indexPath)
         case .animatedMedia,
@@ -204,6 +216,8 @@ final class SettingsViewController: UITableViewController {
                 ? []
                 : [.notifications, .privacy, .dataAndStorage]
             return accountRows + [.appearance, .language]
+        case .support:
+            return TDLib.shared.activeAccountID == nil ? [] : [.support, .faq, .tips]
         case .media:
             return [.animatedMedia]
         case .about:
@@ -343,6 +357,36 @@ final class SettingsViewController: UITableViewController {
         }
     }
 
+    /// PeerInfoScreen's `.support`: the note that volunteers answer, with FAQ, then OK opens the support chat.
+    private func confirmSupport() {
+        let alert = UIAlertController(title: nil, message: L10n.telegram("Settings.FAQ_Intro"), preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Settings.FAQ_Button"), style: .default) { [weak self] _ in
+            self?.openFaq()
+        })
+        let ok = UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
+            self?.openSupportChat()
+        }
+        alert.addAction(ok)
+        alert.preferredAction = ok
+        present(alert, animated: true)
+    }
+
+    private func openSupportChat() {
+        guard let accountID = TDLib.shared.activeAccountID else { return }
+        let client = TDLib.shared.activeClient
+        Task { [weak self] in
+            guard let user = try? await client.getSupportUser(),
+                  let self, TDLib.shared.activeAccountID == accountID
+            else { return }
+            TelegramLinkRouter.shared.openUser(user.id, from: self)
+        }
+    }
+
+    /// Telegram FAQ: Settings.FAQ_URL in the browser, as the in-app link to the FAQ section opens it.
+    private func openFaq() {
+        if let url = URL(string: L10n.telegram("Settings.FAQ_URL")) { UIApplication.shared.open(url) }
+    }
+
     private func performAccountOperation(_ operation: @escaping @MainActor () throws -> Void) {
         Task { @MainActor [weak self] in
             do {
@@ -393,6 +437,7 @@ private extension SettingsViewController {
         case apps
         case shortcuts
         case appearance
+        case support
         case media
         case about
         case accountActions
@@ -408,7 +453,8 @@ private extension SettingsViewController {
                  .appearance,
                  .apps,
                  .profile,
-                 .shortcuts: nil
+                 .shortcuts,
+                 .support: nil
             }
         }
     }
@@ -427,6 +473,9 @@ private extension SettingsViewController {
         case dataAndStorage
         case appearance
         case language
+        case support
+        case faq
+        case tips
         case animatedMedia
         case version
         case logOut
@@ -464,6 +513,12 @@ private extension SettingsViewController {
                 L10n.telegram("Conversation.Theme")
             case .language:
                 L10n.telegram("Settings.AppLanguage")
+            case .support:
+                L10n.telegram("Settings.Support")
+            case .faq:
+                L10n.telegram("Settings.FAQ")
+            case .tips:
+                L10n.telegram("Settings.Tips")
             case .animatedMedia:
                 L10n.betterTG("Settings.AnimatedMedia")
             case .version:
@@ -492,11 +547,14 @@ private extension SettingsViewController {
                  .chatFolders,
                  .dataAndStorage,
                  .devices,
+                 .faq,
                  .logOut,
                  .notifications,
                  .privacy,
                  .profile,
-                 .savedMessages:
+                 .savedMessages,
+                 .support,
+                 .tips:
                 nil
             }
         }
@@ -525,6 +583,9 @@ private extension SettingsViewController {
             case .dataAndStorage: "externaldrive.fill"
             case .appearance: "paintpalette.fill"
             case .language: "globe"
+            case .support: "bubble.left.and.text.bubble.right.fill"
+            case .faq: "questionmark.circle.fill"
+            case .tips: "lightbulb.fill"
             case .animatedMedia: "sparkles.tv"
             case .version: "info.circle.fill"
             case .logOut: "rectangle.portrait.and.arrow.right"
@@ -548,6 +609,9 @@ private extension SettingsViewController {
             case .dataAndStorage: .systemGreen
             case .animatedMedia: .systemPurple
             case .logOut: .systemRed
+            case .support: .systemOrange
+            case .faq: .systemCyan
+            case .tips: .systemYellow
             }
         }
 

@@ -1338,6 +1338,12 @@
 "Resolve.ErrorNotFound" = "Sorry, this user doesn't seem to exist.";
 "StickerPack.ErrorNotFound" = "Sorry, this sticker set doesn't seem to exist.";
 "Settings.FAQ_URL" = "https://telegram.org/faq#general";
+"Settings.Support" = "Ask a Question";
+"Settings.FAQ" = "Telegram FAQ";
+"Settings.FAQ_Intro" = "Please note that Telegram Support is done by volunteers. We try to respond as quickly as possible, but it may take a while.\n\nPlease take a look at the Telegram FAQ: it has important troubleshooting tips and answers to most questions.";
+"Settings.FAQ_Button" = "FAQ";
+"Settings.Tips" = "Telegram Features";
+"Settings.TipsUsername" = "TelegramTips";
 "Settings.PrivacyPolicy_URL" = "https://telegram.org/privacy";
 "Compose.NewMessage" = "New Message";
 "Contacts.Search.NoResults" = "No Results";
