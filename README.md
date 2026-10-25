@@ -1,105 +1,67 @@
 <div align="center">
-    <img src="https://github.com/levochkaa/BetterTG/blob/main/BetterTG/Assets.xcassets/AppIcon_README.imageset/bettertg256.png?raw=true" alt="AppIcon">
+  <img src="BetterTG/Assets.xcassets/AppIcon_README.imageset/bettertg256.png" alt="BetterTG icon" width="128">
 </div>
-<h1 align="center">BetterTG</h1>
-<p align="center">A Telegram client for iOS</p>
 
-![](https://img.shields.io/badge/platform-iOS-000000?style=flat&logo=apple&logoColor=white)
-![](https://img.shields.io/badge/minimum%20OS-iOS%2026-blueviolet?style=flat&logo=apple&logoColor=white)
-![](https://img.shields.io/badge/UIKit-2396F3?style=flat&logo=apple&logoColor=white)
-![](https://img.shields.io/badge/Telegram-2CA5E0?style=flat&logo=telegram&logoColor=white)
-[![GPLv3 License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg?style=flat)](https://opensource.org/licenses/)
+# BetterTG
 
-# Currently implemented
+BetterTG is an open-source Telegram client for iPhone. It is written natively in UIKit on top of [TDLib](https://github.com/tdlib/td), follows the official Telegram app's behaviour and keeps a look of its own.
 
-- login
-- all chats with people from main folder/archive
-- sending/reading text/photo/voice/album messages
-- replying to/editing messages
-- draft, forwarded from
-- animojis (tgs, webp, sometimes webm)
-- pinned chats
-- searching your/global chats
-- custom settings sheet
-- unique UI
-- last seen online
-- formatting/formatted messages
+BetterTG was created by [Lev Poznyakov](https://github.com/levochkaa). It is in development; 0.1.0 is the first version.
 
-# Installation
+Website: [bettertg.su](https://bettertg.su)
 
-Download an .ipa file from [releases tab](https://github.com/levochkaa/BetterTG/releases/latest) and install through [Sideloadly](https://altstore.io)
-or [AltStore (suggested)](https://altstore.io).
+## Features
 
-**Soon, I will buy Paid Apple Developer account, I promise.**
+- A chat list with folders, the archive, pinned chats and search across chats, messages and public channels.
+- Messages with formatting, replies, edits, forwards, reactions, polls, locations and contacts.
+- Photos, videos, albums, files, GIFs, stickers, and custom and animated emoji.
+- Voice and video messages, recorded and played in the chat.
+- Groups with forum topics, channels with comments, stories, bots with keyboards, inline bots and mini apps.
+- Profiles and Telegram's settings: privacy, notifications, data and storage, devices, passcode and proxy.
+- Several accounts on one device.
+- Rich notifications with avatars, media and quick replies, through the [push relay](#push-notifications).
 
-# Screenshots
+## Repository
 
-<span><img src=".github/images/screenshots/1.png" alt="screenshots/1" width="270px"></span>
-<span><img src=".github/images/screenshots/2.png" alt="screenshots/2" width="270px"></span>
-<span><img src=".github/images/screenshots/3.png" alt="screenshots/3" width="270px"></span>
-<span><img src=".github/images/screenshots/4.png" alt="screenshots/4" width="270px"></span>
-<span><img src=".github/images/screenshots/5.png" alt="screenshots/5" width="270px"></span>
-<span><img src=".github/images/screenshots/6.png" alt="screenshots/6" width="270px"></span>
-<span><img src=".github/images/screenshots/7.png" alt="screenshots/7" width="270px"></span>
-<span><img src=".github/images/screenshots/8.png" alt="screenshots/8" width="270px"></span>
-<span><img src=".github/images/screenshots/9.png" alt="screenshots/9" width="270px"></span>
-<span><img src=".github/images/screenshots/10.png" alt="screenshots/10" width="270px"></span>
-<span><img src=".github/images/screenshots/11.png" alt="screenshots/11" width="270px"></span>
-<span><img src=".github/images/screenshots/12.png" alt="screenshots/12" width="270px"></span>
-<span><img src=".github/images/screenshots/13.png" alt="screenshots/13" width="270px"></span>
-<span><img src=".github/images/screenshots/14.png" alt="screenshots/14" width="270px"></span>
-<span><img src=".github/images/screenshots/15.png" alt="screenshots/15" width="270px"></span>
-<span><img src=".github/images/screenshots/16.png" alt="screenshots/16" width="270px"></span>
-<span><img src=".github/images/screenshots/17.png" alt="screenshots/17" width="270px"></span>
-<span><img src=".github/images/screenshots/18.png" alt="screenshots/18" width="270px"></span>
+| Path | Contents |
+| --- | --- |
+| `BetterTG` | The app: UIKit screens, TDLib services and media playback |
+| `BetterTGNotificationService` | The notification service extension behind rich notifications |
+| `Packages/FFmpegBridge` | FFmpeg for video, GIF and voice message playback and voice encoding |
+| `Packages/RLottie` | Telegram's rlottie fork for animated stickers and emoji |
+| `Backend` | The Rust push relay ([README](Backend/README.md)) |
+| `Website` | [bettertg.su](https://bettertg.su), with the privacy policy and terms |
+| `Configuration` | Signing identity and push relay settings |
+| `script`, `fastlane` | Build, setup and release tooling |
+| `docs` | Notes on individual features and on releasing |
 
-# Important
+## Building
 
-- Performance with animoji's is terrible, I recommend disabling them in settings
+You need a Mac with Xcode 27.1 at `/Applications/Xcode-27.1.0.app` (pass `--xcode PATH` for another location), [XcodeGen](https://github.com/yonaskolb/XcodeGen), [SwiftFormat](https://github.com/nicklockwood/SwiftFormat) and jq (`brew install xcodegen swiftformat jq`), and a Telegram `api_id` and `api_hash` from [my.telegram.org](https://my.telegram.org) → API development tools.
 
-# Contributing
-
-## Step 1 - Clone the repo
-
-```shell
-git clone https://github.com/levochkaa/BetterTG.git
+```bash
+./setup.sh               # asks for the api_id and api_hash
+./build.sh build         # build for the Simulator
+./build.sh run           # build and launch in the Simulator
+./build.sh run --device  # build and launch on a connected iPhone
 ```
 
-## Step 2 - Download XCode
+A device build needs your own team and bundle ID: `./setup.sh --team TEAMID --bundle-id com.example.BetterTG`. `./setup.sh --help` and `./build.sh --help` list every option. [docs/releasing.md](docs/releasing.md) covers TestFlight and App Store builds.
 
-Latest **Xcode** version is used for this project.\
-I suggest using [**Xcodes**](https://github.com/RobotsAndPencils/XcodesApp) for downloading XCode.
+## Push notifications
 
-## Step 3 - `api_id` and `api_hash`
+Telegram delivers notifications to third-party apps only through Web Push, which an iPhone app can't receive on its own. BetterTG's relay in [Backend](Backend) receives them at `push.bettertg.su`, decrypts each one to show the sender and a preview, and hands it to Apple's push service. It doesn't sign in to Telegram, and it keeps a decrypted notification for 15 minutes at most. The [Privacy Policy](https://bettertg.su/privacy) lists everything the relay stores.
 
-Go to [this site](https://my.telegram.org/).\
-Log in, open **API development tools**, fill up the info.\
-Then click **Save changes**
-at the bottom of the page. \
-Leave the page **open** for the next step.
+Turning off Notifications via BetterTG Server in Settings → Notifications and Sounds deletes the device's data from the relay; BetterTG then notifies only while it is open. A fork signed with its own bundle ID can't use the official relay: [Backend/SELF-HOSTING.md](Backend/SELF-HOSTING.md) explains how to run one, or `./setup.sh --no-relay` builds without it.
 
-## Step 4 - Development environment
+## Contributing
 
-You need to have [Homebrew](https://brew.sh) installed. \
-Now run these commands:
+Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, conventions and pull requests.
 
-```shell
-brew install swift-sh
-sudo chmod +x environment.swift
-sudo chmod +x gyb.sh
-./environment.swift <api_id> <api_hash>
-```
+## License
 
-Everything is set up now! **GL HF**
+BetterTG is released under the [GNU General Public License v3.0](LICENSE). You may use, change and share it, commercially too, as long as what you distribute stays under the same license and comes with its source code.
 
-## Push notification capabilities
+Copyright © 2022–2026 Lev Poznyakov and the BetterTG contributors. BetterTG ports code and assets from [Telegram for iOS](https://github.com/TelegramMessenger/Telegram-iOS), licensed under GPL-2.0-or-later, and includes the open-source components listed in Settings → Licenses, whose texts are in [BetterTG/Resources/Licenses](BetterTG/Resources/Licenses).
 
-Rich notifications require the Apple Developer team to configure these identifiers:
-
-- App Group `group.com.levochkaaa.BetterTG`, assigned to both `com.levochkaaa.BetterTG` and `com.levochkaaa.BetterTG.NotificationService`.
-- Communication Notifications capability on the main `com.levochkaaa.BetterTG` App ID.
-
-Both targets consume the dynamic `TDLibKitShared` product from the exact
-TDLibKit 2.0.1-tdlib-1.8.69-ea3f69ce release in `levochkaa/TDLibKit` while importing the `TDLibKit` module. The containing app
-embeds the framework once; the notification extension links it through
-`@executable_path/../../Frameworks` without embedding a second copy.
+BetterTG is an independent project. It is not affiliated with, endorsed by or sponsored by Telegram. Telegram is a trademark of its owner.
