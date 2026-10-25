@@ -27,10 +27,13 @@ final class DeleteAccountOptionsViewController: SettingsListViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("DeleteAccount.AlternativeOptionsTitle")
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            systemItem: .close,
+        // ItemListNavigationButton's `.icon(.close)`; the classic bar draws an item's own image, not a system item.
+        let close = UIBarButtonItem(
+            image: UIImage(systemName: "xmark"),
             primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
         )
+        close.accessibilityLabel = L10n.telegram("Common.Close")
+        navigationItem.leftBarButtonItem = close
     }
 
     override func makeSections() -> [SettingsSection] {

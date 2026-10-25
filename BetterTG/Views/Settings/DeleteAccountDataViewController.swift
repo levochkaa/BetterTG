@@ -77,7 +77,7 @@ UITextFieldDelegate {
 
     /// DeleteAccountDataController's `secondaryActionDisabled`: Continue works once until its step fails.
     private var isProceeding = false
-    private var countries = [PhoneNumberInfo]()
+    private var countryLookup = 0
     private var country: PhoneNumberInfo?
     private let codeField = UITextField()
     private let numberField = UITextField()
@@ -107,10 +107,13 @@ UITextFieldDelegate {
         super.viewDidLoad()
         title = L10n.telegram("DeleteAccount.DeleteMyAccountTitle")
         view.backgroundColor = .systemGroupedBackground
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            systemItem: .close,
+        // ItemListNavigationButton's `.icon(.close)`; the classic bar draws an item's own image, not a system item.
+        let close = UIBarButtonItem(
+            image: UIImage(systemName: "xmark"),
             primaryAction: UIAction { [weak self] _ in self?.dismiss(animated: true) },
         )
+        close.accessibilityLabel = L10n.telegram("Common.Close")
+        navigationItem.leftBarButtonItem = close
         navigationItem.hidesBackButton = true
 
         tableView.translatesAutoresizingMaskIntoConstraints = false
@@ -296,6 +299,7 @@ UITextFieldDelegate {
         numberField.keyboardType = .phonePad
         numberField.font = .monospacedDigitSystemFont(ofSize: 17, weight: .regular)
         numberField.delegate = self
+        numberField.addAction(UIAction { [weak self] _ in self?.updateCountry() }, for: .editingChanged)
         passwordField.placeholder = L10n.telegram("LoginPassword.PasswordPlaceholder")
         passwordField.isSecureTextEntry = true
         passwordField.textContentType = .password
@@ -343,6 +347,7 @@ UITextFieldDelegate {
             contextIsCurrent: { [weak self] in self?.contextIsCurrent == true },
         ) { [weak self] selected in
             guard let self else { return }
+            countryLookup += 1
             country = selected
             codeField.text = "+" + selected.phoneNumberPrefix
             tableView.reloadRows(at: [IndexPath(row: 0, section: 0)], with: .none)
@@ -352,12 +357,34 @@ UITextFieldDelegate {
         present(TelegramNavigationController(rootViewController: picker), animated: true)
     }
 
-    /// The country whose calling code is typed, as DeleteAccountPhoneItem names it on its button.
+    /// The country of the typed number, as DeleteAccountPhoneItem names it on its button: TDLib's getPhoneNumberInfo
+    /// tells countries that share a calling code apart by the number, as +7 for Russia and Kazakhstan.
     private func updateCountry() {
         let code = (codeField.text ?? "").filter(\.isNumber)
-        let match = code.isEmpty ? nil : countries.first { $0.phoneNumberPrefix == code }
-        guard match != country else { return }
-        country = match
+        let number = (numberField.text ?? "").filter(\.isNumber)
+        countryLookup += 1
+        let lookup = countryLookup
+        guard !code.isEmpty, contextIsCurrent else {
+            show(country: nil)
+            return
+        }
+        let client = client
+        Task { [weak self] in
+            let info = try? await client.send(TDNativeRequests.getPhoneNumberInfo(phoneNumberPrefix: code + number))
+            guard let self, lookup == countryLookup, contextIsCurrent else { return }
+            show(country: info?.country.map {
+                PhoneNumberInfo(
+                    country: $0.countryCode,
+                    phoneNumberPrefix: info?.countryCallingCode ?? code,
+                    name: $0.name,
+                )
+            })
+        }
+    }
+
+    private func show(country: PhoneNumberInfo?) {
+        guard country != self.country else { return }
+        self.country = country
         tableView.reloadRows(at: [IndexPath(row: 0, section: 0)], with: .none)
     }
 
@@ -401,20 +428,9 @@ UITextFieldDelegate {
             }
         case .groups(let preloaded):
             peers = preloaded.shuffled()
-        case .phone:
-            Task { [weak self] in
-                guard let result = try? await client.getCountries().countries else { return }
-                let mapped = result.compactMap { country -> PhoneNumberInfo? in
-                    country.callingCodes.first.map {
-                        PhoneNumberInfo(country: country.countryCode, phoneNumberPrefix: $0, name: country.name)
-                    }
-                }
-                guard let self, contextIsCurrent else { return }
-                countries = mapped
-                updateCountry()
-            }
         case .messages,
-             .password:
+             .password,
+             .phone:
             break
         }
     }
