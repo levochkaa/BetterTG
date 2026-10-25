@@ -583,7 +583,9 @@ final class ChatComposerView: UIView {
         textView.setPlaceholder(chatVM.composerPlaceholder)
         canPostSilently = chatVM.isBroadcastChannel && canWrite && canWriteText
         textView.customEmojiClient = chatVM.client
+        let previousText = textView.text
         textView.setAttributedText(targetText)
+        let replacedText = textView.text != previousText
         // ChatTextInputPanelNode's contextPlaceholder: an inline bot's placeholder follows "@bot " inside the input.
         textView.setContextPlaceholder(
             canWrite && canWriteText ? chatVM.inlineBotPlaceholder : nil,
@@ -839,6 +841,9 @@ final class ChatComposerView: UIView {
         updateRecordingGesturePresentation()
         updateReplyKeyboard()
         isApplyingState = false
+        // ChatInterfaceStateContextQueries follows the input state: text replaced here, as a send clears it, takes
+        // its sticker, emoji, hashtag and mention suggestions along.
+        if replacedText { refreshMentionQuery() }
         if shouldFocus, lastReplyID != nil || lastEditID != nil {
             textView.becomeFirstResponder()
         }
