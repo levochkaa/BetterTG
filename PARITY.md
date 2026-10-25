@@ -4889,8 +4889,8 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   `getMessage`, preserves topic scope, and reconfigures same-ID captions. Profile search passes TDLib `totalCount`; loaded-page appends and
   deletes update messages before re-clamping that total.
 - Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-121611-18495-8647.log`; final source/delta review CLEAN. PID `18804`
-  exposes a real `Caption, …` label at 378×28 and `1 of 88`; captioned video proof shows scrub/transport entirely above
-  its caption, with footer below. Screenshots: `.build/ui-probe-evidence/profile-gallery-caption-entities-final.png` and
+  exposes a caption label at 378×28 and `1 of 88`; captioned video proof shows scrub/transport entirely above
+  the caption, with footer below. Screenshots: `.build/ui-probe-evidence/profile-gallery-caption-entities-final.png` and
   `.build/ui-probe-evidence/profile-gallery-caption-video-controls.png`. No entity URL, Share or server mutation was activated.
 - Runtime blockers: reachable sampled captions contain no spoiler or concealed `textUrl`, and no long caption was safely selected, so
   reveal/confirmation/scroll-hold are source-reviewed and build-proved but not deliberately exercised on account data.
@@ -4909,7 +4909,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   to `mainFrameTimestamp`, loops muted only central, pauses/resets offscreen; nested pan activates only above 1× while pinch/double-tap
   remains available. Late network completions require current account, visible/top profile and no competing presentation.
 - Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-124706-24968-7861.log`; final source/delta review CLEAN. Runtime PID
-  `24630` exposes `<group> profile photo` as 96×96 button, opens real `Profile photo, Mar 19, 2026` in the modal pager with plain
+  `24630` exposes the group profile photo as 96×96 button, opens real `Profile photo, Mar 19, 2026` in the modal pager with plain
   `avatar-gallery-close`, then restores the exact 96×96 source. Screenshot:
   `.build/ui-probe-evidence/profile-avatar-gallery-final.png`; no mutation occurred.
 - Blockers/deferred: current safe group has one static photo, so user >100 pagination, animated avatar loop and zoom gestures are not
@@ -4951,7 +4951,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   animation authority. One run-loop-coalesced render updates title/status color/bio/details/avatar/placeholder/AX traits+hint/tap
   availability and Dynamic Type header height together.
 - Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-130032-28652-16080.log`; final source/delta review CLEAN. PID `29034`
-  exposes the stable 96×96 `<group> profile photo`, title, `4 members`, actions, tabs and media after live subscriptions attach.
+  exposes the stable 96×96 group profile photo, title, `4 members`, actions, tabs and media after live subscriptions attach.
 - Runtime blocker: no deliberate server title/photo/status/full-info mutation was performed on the safe account; update transitions are
   source-reviewed and build-proved, while the runtime smoke is a no-regression readback.
 
@@ -5020,7 +5020,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 - Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-134050-43746-25199.log`; final focused delta review CLEAN. PID `44134`
   exposed exact footer frames `Close 4×790 52×50`, `More actions 294×790 52×50`, `Share 346×790 52×50` and the sole UIKit menu action
   `Open in Chat`. Selecting the first profile item (`1 of 1688`) completed gallery fade and profile removal, returning to
-  the source group chat with the exact `Photo, 13:31` bubble visible. Evidence:
+  the source chat with the exact `Photo, 13:31` bubble visible. Evidence:
   `.build/ui-probe-evidence/gallery-open-in-chat-menu.png` and
   `.build/ui-probe-evidence/gallery-open-in-chat-result.png`; no Telegram mutation occurred.
 - Runtime blocker/deferred: the safe smoke did not switch accounts or delete the selected message during the subsecond dismissal window;
@@ -5047,7 +5047,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
   idempotent cleanup.
 - Proof: warning-free `.build/logs/xcodebuild/build-Debug-20260831-140818-50364-12175.log`; final focused Telegram/TDLib/Photos delta
   review CLEAN. PID `50749` opened the real first profile photo through the secured Share preflight and displayed the system sheet with
-  managed `bettertg-photo-<message-id>` / `JPEG Image · 6 KB`; the sheet was dismissed without choosing an external destination.
+  managed `bettertg-photo-<id>` / `JPEG Image · 6 KB`; the sheet was dismissed without choosing an external destination.
   PID `49849` exposed `Save Photo` and `Open in Chat` as the two More actions. Evidence:
   `.build/ui-probe-evidence/gallery-save-export-menu.png` and
   `.build/ui-probe-evidence/gallery-secured-share-sheet.png`.
