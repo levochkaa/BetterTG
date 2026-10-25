@@ -156,6 +156,7 @@ targets:
         CODE_SIGN_STYLE: Automatic
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: BetterTGNotificationService/Info.plist
+        INFOPLIST_KEY_CFBundleDisplayName: BetterTG
         IPHONEOS_DEPLOYMENT_TARGET: 26.0
         LD_RUNPATH_SEARCH_PATHS:
           - $(inherited)
