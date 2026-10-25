@@ -5216,8 +5216,8 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
             revealPermit: revealPermit,
             startTimestamp: startTimestamp,
         ),
-            revealPermit?.matches(playbackContext) != false, playbackContext.isCurrent,
-            playbackContext.location.matches(message: message)
+              revealPermit?.matches(playbackContext) != false, playbackContext.isCurrent,
+              playbackContext.location.matches(message: message)
         else { return nil }
         self.tdlib = tdlib
         self.playbackContext = playbackContext

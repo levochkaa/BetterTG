@@ -181,7 +181,7 @@ final class BotPeerRequestViewController: SettingsListViewController, UISearchRe
                     guard await (try? client.send(TDNativeRequests.shareUsersWithBot(
                         source: source, buttonId: buttonID, sharedUserIds: [id], onlyCheck: true,
                     ))) != nil, let user = try? await client.getUser(userId: id),
-                                    let peer = await SettingsPeer.user(id, client: client) else { continue }
+                          let peer = await SettingsPeer.user(id, client: client) else { continue }
                     found.append(Candidate(
                         id: id,
                         peer: peer,

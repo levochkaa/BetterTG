@@ -836,7 +836,7 @@ ClientRestorableNavigationEntry {
                         actorID: accountUserID,
                         chatID: customChat.id,
                     ),
-                        membersChild.transferParent(from: self, to: replacement) else { return nil }
+                          membersChild.transferParent(from: self, to: replacement) else { return nil }
                     replacement.membersChild = membersChild
                 }
                 clientOwnerRetired = true

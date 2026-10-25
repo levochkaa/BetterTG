@@ -94,7 +94,7 @@ enum VideoEditCover {
             sourcePixelSize: pixelSize,
             maximumSide: galleryCoverSide,
         ),
-            let data = jpegData(for: rendered)
+              let data = jpegData(for: rendered)
         else { return nil }
         let directory = FileManager.default
             .temporaryDirectory

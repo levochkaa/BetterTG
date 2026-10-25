@@ -178,8 +178,8 @@ import UserNotifications
             guard let messageRoute = PushNotificationRoute(
                 userInfo: notification.request.content.userInfo,
             ),
-                stateRoute.refersToSameConversation(as: messageRoute),
-                let messageId = messageRoute.serverMessageId
+                  stateRoute.refersToSameConversation(as: messageRoute),
+                  let messageId = messageRoute.serverMessageId
             else { return nil }
 
             switch stateRoute.event {

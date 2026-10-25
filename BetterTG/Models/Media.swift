@@ -139,7 +139,7 @@ final class Media: ObservableObject {
                 priority: 1,
                 synchronous: true,
             ), file.local.isDownloadingCompleted,
-            let image = UIImage(contentsOfFile: file.local.path) else { continue }
+                  let image = UIImage(contentsOfFile: file.local.path) else { continue }
             return image
         }
         return nil

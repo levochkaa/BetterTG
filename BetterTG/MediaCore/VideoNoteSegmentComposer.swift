@@ -96,10 +96,10 @@ enum VideoNoteSegmentComposer {
             withMediaType: .video,
             preferredTrackID: kCMPersistentTrackID_Invalid,
         ),
-            let compositionAudioTrack = composition.addMutableTrack(
-                withMediaType: .audio,
-                preferredTrackID: kCMPersistentTrackID_Invalid,
-            )
+              let compositionAudioTrack = composition.addMutableTrack(
+                  withMediaType: .audio,
+                  preferredTrackID: kCMPersistentTrackID_Invalid,
+              )
         else { throw VideoNoteSegmentComposerError.invalidSegment }
 
         var cursor = CMTime.zero

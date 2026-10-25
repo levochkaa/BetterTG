@@ -893,7 +893,7 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
                 attributes as CFDictionary,
                 &snapshot,
             ) == kCVReturnSuccess,
-                let snapshot
+                  let snapshot
             else {
                 transitionSourcePixelBuffer = nil
                 transitionFrameIndex = 0
@@ -1188,7 +1188,7 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
             arrayToFill: nil,
             entriesNeededOut: &timingCount,
         ) == noErr,
-            timingCount > 0
+              timingCount > 0
         else { throw VideoNoteAssetWriterError.appendFailed }
         var timing = Array(repeating: CMSampleTimingInfo.invalid, count: timingCount)
         guard CMSampleBufferGetSampleTimingInfoArray(
@@ -1214,7 +1214,7 @@ final class VideoNoteAssetWriter: @unchecked Sendable {
             sampleTimingArray: &timing,
             sampleBufferOut: &adjustedSampleBuffer,
         ) == noErr,
-            let adjustedSampleBuffer
+              let adjustedSampleBuffer
         else { throw VideoNoteAssetWriterError.appendFailed }
         return adjustedSampleBuffer
     }

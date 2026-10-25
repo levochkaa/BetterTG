@@ -283,7 +283,7 @@ import TDLibKit
                 senderId: nil,
                 topicId: nil,
             ),
-                let next = found.messages
+                  let next = found.messages
                     .filter({ $0.id > finished.messageID && $0.selfDestructType == nil })
                     .min(by: { $0.id < $1.id }),
                   case .messageVoiceNote(let content) = next.content, let file = try? await client.downloadFile(

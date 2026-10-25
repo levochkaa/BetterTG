@@ -2848,8 +2848,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 priority: 32,
                 synchronous: true,
             ), file.local.isDownloadingCompleted, !file.local.path.isEmpty, let self, chatVM.locationContextIsCurrent,
-            TDLib.shared.activeClient.id == client.id,
-            Media.shared.savedMediaPath.isEmpty else { return }
+                  TDLib.shared.activeClient.id == client.id,
+                  Media.shared.savedMediaPath.isEmpty else { return }
             Media.shared.toggle(with: file.local.path, duration: content.voiceNote.duration, item: item)
             if !next.isOutgoing, !content.isListened {
                 _ = try? await client.openMessageContent(chatId: next.chatId, messageId: next.id)
@@ -6492,7 +6492,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 priority: 32,
                 synchronous: true,
             ), file.local.isDownloadingCompleted, !file.local.path.isEmpty, let self, chatVM.locationContextIsCurrent,
-            TDLib.shared.activeClient.id == client.id else { return }
+                  TDLib.shared.activeClient.id == client.id else { return }
             let path = file.local.path
             let start = min(time, TimeInterval(duration))
             if Media.shared.savedMediaPath == path {

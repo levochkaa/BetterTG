@@ -388,7 +388,8 @@ final class NotificationTDLibSession: @unchecked Sendable {
                 limit: 3,
                 onlyLocal: false,
             ), isCurrent(ticket),
-            let message = history.messages.first(where: { target.matches(message: $0, chatID: chatID) }) {
+               let message = history.messages.first(where: { target.matches(message: $0, chatID: chatID) })
+            {
                 logger.log("rich_notification.message_fetched source=chat_history")
                 RichNotificationDiagnostics.record("message_fetched", fields: ["source": "chat_history"])
                 return message
