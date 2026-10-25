@@ -145,6 +145,8 @@ final class MessageMediaView: UIView {
                         onTap: openGallery,
                     )
                     animationView.accessibilityLabel = L10n.telegram("Message.Animation")
+                    // ChatMessageInteractiveMediaNode letterboxes an inline-playing video in black (`.fill(.black)`).
+                    animationView.backgroundColor = .black
                     view = animationView
                 } else {
                     let animationView = InlineAnimationMediaView()
@@ -155,6 +157,7 @@ final class MessageMediaView: UIView {
                         autoDownloads: TDMediaPrefetcher.allowsAutoDownload(of: item, client: client),
                         onTap: openGallery,
                     )
+                    animationView.backgroundColor = .black
                     view = animationView
                 }
             case .messageSticker(let sticker):

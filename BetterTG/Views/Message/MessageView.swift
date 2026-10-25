@@ -829,10 +829,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             centered: isCentered,
         )
 
+        // ChatMessageBubbleItemNode: stickers and instant videos stand alone; a GIF is media in its bubble.
         let isUnframedMediaMessage =
             switch message.message.content {
-            case .messageAnimation,
-                 .messageSticker,
+            case .messageSticker,
                  .messageVideoNote: true
             default: false
             }
@@ -865,7 +865,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             }
         // The comments bar sits on the bubble, as under Telegram's media posts.
         // ChatMessageMediaBubbleContentNode on a plain background: a photo or video fills its bubble to the stroke
-        // inset, so the bubble shows only as its tail; stickers, GIFs and round videos stand alone.
+        // inset, so the bubble shows only as its tail; stickers and round videos stand alone.
         let bubbleFill: UIColor = isCentered || (commentSource == nil && isStandaloneUnframedMedia)
             ? .clear
             : .secondarySystemBackground
