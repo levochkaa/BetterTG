@@ -188,6 +188,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = RootViewController(rootVM: .shared)
         window.makeKeyAndVisible()
         self.window = window
+        AppPasscode.shared.sceneDidConnect(windowScene)
         #if DEBUG
             MediaGalleryTransitionTarget.runDebugProbeIfRequested(in: window)
             VideoNoteHoldProbe.runIfRequested(in: window)
@@ -253,11 +254,13 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneDidEnterBackground(_: UIScene) {
         log("Lifecycle callback: SceneDelegate.sceneDidEnterBackground")
+        AppPasscode.shared.sceneDidEnterBackground()
         TDLib.shared.releaseForNotificationService()
     }
 
-    func sceneWillEnterForeground(_: UIScene) {
+    func sceneWillEnterForeground(_ scene: UIScene) {
         log("Lifecycle callback: SceneDelegate.sceneWillEnterForeground")
+        if let windowScene = scene as? UIWindowScene { AppPasscode.shared.sceneWillEnterForeground(windowScene) }
         logPendingRichNotificationDiagnostics()
         TDLib.shared.resumeAfterNotificationService()
     }

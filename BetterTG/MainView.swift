@@ -557,6 +557,13 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             .chatListNetworkStatus
             .sink { [weak self] status in self?.customNavigationBar.setNetworkStatus(status) }
             .store(in: &cancellables)
+        customNavigationBar.onLockTap = { AppPasscode.shared.lockNow() }
+        AppPasscode.shared
+            .$isSet
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isSet in self?.customNavigationBar.setLockVisible(isSet) }
+            .store(in: &cancellables)
         customNavigationBar.onProxyTap = { [weak self] in
             self?.navigationController?.pushViewController(ProxySettingsViewController(), animated: true)
         }

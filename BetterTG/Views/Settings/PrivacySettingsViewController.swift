@@ -55,6 +55,18 @@ final class PrivacySettingsViewController: SettingsListViewController {
                 accessory: .disclosure,
             ) { [weak self] in self?.openWebsites() })
         }
+        let biometry = AppPasscode.shared.biometryType
+        securityRows.append(SettingsRow(
+            title: L10n.telegram(biometry == .faceID
+                ? "PrivacySettings.PasscodeAndFaceId"
+                : biometry == .touchID ? "PrivacySettings.PasscodeAndTouchId" : "PrivacySettings.Passcode"),
+            detail: L10n.telegram(AppPasscode.shared.isSet
+                ? "PrivacySettings.PasscodeOn"
+                : "PrivacySettings.PasscodeOff"),
+            symbol: "lock.fill",
+            symbolTint: .systemGreen,
+            accessory: .disclosure,
+        ) { [weak self] in self?.openPasscode() })
         let security = SettingsSection(footer: L10n.telegram("Settings.AutoDeleteInfo"), rows: securityRows + [
             SettingsRow(
                 title: L10n.telegram("PrivacySettings.TwoStepAuth"),
@@ -129,6 +141,22 @@ final class PrivacySettingsViewController: SettingsListViewController {
             phoneNumber = me?.phoneNumber ?? ""
             reload()
         }
+    }
+
+    /// Telegram asks for the passcode before its settings open.
+    private func openPasscode() {
+        guard AppPasscode.shared.isSet else {
+            navigationController?.pushViewController(PasscodeOptionsViewController(), animated: true)
+            return
+        }
+        let verify = PasscodeSetupViewController(mode: .verify { [weak self] in
+            guard let navigationController = self?.navigationController else { return }
+            var stack = navigationController.viewControllers
+            stack.removeLast()
+            stack.append(PasscodeOptionsViewController())
+            navigationController.setViewControllers(stack, animated: true)
+        })
+        navigationController?.pushViewController(verify, animated: true)
     }
 
     private func openWebsites() {

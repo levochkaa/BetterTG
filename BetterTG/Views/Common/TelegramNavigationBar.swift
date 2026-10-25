@@ -26,6 +26,9 @@ final class TelegramListNavigationBar: UIView {
     /// The proxy shield's tap: Telegram opens the proxy settings.
     var onProxyTap: (() -> Void)?
 
+    /// ChatListTitleLockView's tap: the app locks.
+    var onLockTap: (() -> Void)?
+
     // MARK: Private
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
@@ -43,6 +46,8 @@ final class TelegramListNavigationBar: UIView {
     private let secondaryRightButton = UIButton(type: .system)
     /// ChatListController's proxyButton, left of the right buttons while a proxy is saved.
     private let proxyButton = ChatListProxyButton()
+    /// ChatListTitleLockView: the open padlock after the title while a passcode is set.
+    private let lockButton = UIButton(type: .system)
     private var proxyTitleConstraint: NSLayoutConstraint?
     /// Telegram's Done while a list edits (ChatListControllerImpl.editPressed outside the root list).
     private let doneButton = UIButton(type: .system)
@@ -148,6 +153,11 @@ final class TelegramListNavigationBar: UIView {
     }
 
     /// Telegram's editing state outside the root list: Done replaces the right buttons, and a selection title such as
+    /// Shows the padlock after the title while the app has a passcode.
+    func setLockVisible(_ visible: Bool) {
+        lockButton.isHidden = !visible
+    }
+
     /// ChatTitleProxyNode's status, or nil to hide the shield. The title keeps clear of it while it shows.
     func setProxyStatus(_ status: ChatListProxyStatus?) {
         proxyButton.status = status
@@ -275,6 +285,17 @@ final class TelegramListNavigationBar: UIView {
         titleRow.directionalLayoutMargins = .zero
         titleRow.addArrangedSubview(networkActivityContainer)
         titleRow.addArrangedSubview(titleLabel)
+        lockButton.setImage(UIImage(
+            systemName: "lock.open.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold),
+        ), for: .normal)
+        lockButton.tintColor = .label
+        lockButton.accessibilityLabel = L10n.telegram("PasscodeSettings.Title")
+        lockButton.isHidden = true
+        lockButton.addAction(UIAction { [weak self] _ in self?.onLockTap?() }, for: .touchUpInside)
+        // ChatListTitleView: outside the title, whose views take no touches.
+        lockButton.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(lockButton)
         titleStack.translatesAutoresizingMaskIntoConstraints = false
         titleStack.axis = .vertical
         titleStack.alignment = .center
@@ -324,6 +345,11 @@ final class TelegramListNavigationBar: UIView {
             secondaryRightButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             secondaryRightButton.widthAnchor.constraint(equalToConstant: 44),
             secondaryRightButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
+            // Centered 12 pt before the title's text.
+            lockButton.centerXAnchor.constraint(equalTo: titleLabel.leadingAnchor, constant: -12),
+            lockButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            lockButton.widthAnchor.constraint(equalToConstant: 28),
+            lockButton.heightAnchor.constraint(equalToConstant: 32),
             proxyButton.trailingAnchor.constraint(equalTo: rightmostTitleNeighbor.leadingAnchor),
             proxyButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             proxyButton.widthAnchor.constraint(equalToConstant: 44),
@@ -382,6 +408,7 @@ final class TelegramListNavigationBar: UIView {
             options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseInOut],
         ) {
             self.titleControl.alpha = active ? 0 : 1
+            self.lockButton.alpha = active ? 0 : 1
             self.leftButton.alpha = active ? 0 : 1
             self.rightButton.alpha = active ? 0 : 1
             self.secondaryRightButton.alpha = active ? 0 : 1
