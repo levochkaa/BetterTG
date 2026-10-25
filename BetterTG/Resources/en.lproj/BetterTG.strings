@@ -16,6 +16,13 @@
 "Settings.AnimatedMediaInfo" = "Animated stickers and media can use more processing power.";
 "Settings.AnimatedMediaFormats" = "TGS, WebP and WebM";
 "Settings.Version" = "BetterTG Version";
+"Settings.Licenses" = "Licenses";
+"Settings.PrivacyPolicy" = "Privacy Policy";
+"Settings.TermsOfService" = "Terms of Service";
+
+"Licenses.SourceCode" = "Source Code";
+"Licenses.SourceCodeInfo" = "BetterTG is free software: you can redistribute and change it under the GNU General Public License, version 3.";
+"Licenses.Components" = "Open-Source Components";
 
 "Localization.LanguagePacksInfo" = "Telegram translations are downloaded from the server. BetterTG-specific text uses a separate bundled catalog.";
 "Localization.DownloadError" = "The language pack couldn't be downloaded. Check your connection and try again.";

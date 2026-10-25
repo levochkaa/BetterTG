@@ -215,6 +215,7 @@ public typealias StoryInteractions = TDNativeStoryInteractions
 public typealias StoryVideo = TDNativeStoryVideo
 public typealias Supergroup = TDNativeSupergroup
 public typealias SupergroupFullInfo = TDNativeSupergroupFullInfo
+public typealias TermsOfService = TDNativeTermsOfService
 public typealias Text = TDNativeText
 public typealias TextEntity = TDNativeTextEntity
 public typealias TextEntityType = TDNativeTextEntityType

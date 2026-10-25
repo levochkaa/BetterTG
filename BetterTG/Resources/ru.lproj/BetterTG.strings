@@ -16,6 +16,13 @@
 "Settings.AnimatedMediaInfo" = "Анимированные стикеры и медиа могут использовать больше ресурсов устройства.";
 "Settings.AnimatedMediaFormats" = "TGS, WebP и WebM";
 "Settings.Version" = "Версия BetterTG";
+"Settings.Licenses" = "Лицензии";
+"Settings.PrivacyPolicy" = "Политика конфиденциальности";
+"Settings.TermsOfService" = "Условия использования";
+
+"Licenses.SourceCode" = "Исходный код";
+"Licenses.SourceCodeInfo" = "BetterTG — свободная программа: её можно распространять и изменять на условиях GNU General Public License версии 3.";
+"Licenses.Components" = "Компоненты с открытым кодом";
 
 "Localization.LanguagePacksInfo" = "Переводы Telegram загружаются с сервера. Собственный текст BetterTG хранится в отдельном встроенном каталоге.";
 "Localization.DownloadError" = "Не удалось загрузить языковой пакет. Проверьте подключение и попробуйте снова.";

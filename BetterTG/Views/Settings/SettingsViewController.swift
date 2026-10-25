@@ -134,11 +134,14 @@ final class SettingsViewController: UITableViewController {
              .devices,
              .faq,
              .language,
+             .licenses,
              .notifications,
              .powerSaving,
              .privacy,
+             .privacyPolicy,
              .savedMessages,
              .support,
+             .termsOfService,
              .tips:
             cell.accessoryType = .disclosureIndicator
         case .animatedMedia:
@@ -194,6 +197,12 @@ final class SettingsViewController: UITableViewController {
             if let url = URL(string: "https://t.me/" + L10n.telegram("Settings.TipsUsername")) {
                 TelegramLinkRouter.shared.open(url, from: self)
             }
+        case .licenses:
+            navigationController?.pushViewController(LicensesViewController(), animated: true)
+        case .privacyPolicy:
+            if let url = URL(string: "https://bettertg.su/privacy") { WebBrowser.open(url, from: self) }
+        case .termsOfService:
+            if let url = URL(string: "https://bettertg.su/terms") { WebBrowser.open(url, from: self) }
         case .logOut:
             confirmLogout(from: indexPath)
         case .animatedMedia,
@@ -224,7 +233,7 @@ final class SettingsViewController: UITableViewController {
         case .media:
             return [.animatedMedia]
         case .about:
-            return [.version]
+            return [.version, .licenses, .privacyPolicy, .termsOfService]
         case .accountActions:
             return [.logOut]
         }
@@ -482,6 +491,9 @@ private extension SettingsViewController {
         case tips
         case animatedMedia
         case version
+        case licenses
+        case privacyPolicy
+        case termsOfService
         case logOut
 
         // MARK: Internal
@@ -529,6 +541,12 @@ private extension SettingsViewController {
                 L10n.betterTG("Settings.AnimatedMedia")
             case .version:
                 L10n.betterTG("Settings.Version")
+            case .licenses:
+                L10n.betterTG("Settings.Licenses")
+            case .privacyPolicy:
+                L10n.betterTG("Settings.PrivacyPolicy")
+            case .termsOfService:
+                L10n.betterTG("Settings.TermsOfService")
             case .logOut:
                 L10n.telegram("Settings.Logout")
             }
@@ -556,12 +574,15 @@ private extension SettingsViewController {
                  .dataAndStorage,
                  .devices,
                  .faq,
+                 .licenses,
                  .logOut,
                  .notifications,
                  .privacy,
+                 .privacyPolicy,
                  .profile,
                  .savedMessages,
                  .support,
+                 .termsOfService,
                  .tips:
                 nil
             }
@@ -598,6 +619,9 @@ private extension SettingsViewController {
             case .tips: "lightbulb.fill"
             case .animatedMedia: "sparkles.tv"
             case .version: "info.circle.fill"
+            case .licenses: "text.book.closed.fill"
+            case .privacyPolicy: "hand.raised.fill"
+            case .termsOfService: "doc.text.fill"
             case .logOut: "rectangle.portrait.and.arrow.right"
             }
         }
@@ -615,7 +639,10 @@ private extension SettingsViewController {
             case .devices: .systemOrange
             case .chatFolders: .systemCyan
             case .notifications: .systemRed
-            case .privacy: .systemGray
+            case .licenses,
+                 .privacy,
+                 .termsOfService: .systemGray
+            case .privacyPolicy: .systemIndigo
             case .dataAndStorage: .systemGreen
             case .animatedMedia: .systemPurple
             case .logOut: .systemRed
