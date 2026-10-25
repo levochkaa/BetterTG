@@ -113,12 +113,12 @@ targets:
         Debug:
           APP_ATTEST_ENVIRONMENT: development
           APS_ENVIRONMENT: development
-          BETTERTG_RELAY_BASE_URL: http://127.0.0.1:8080
+          BETTERTG_RELAY_BASE_URL: https://push.bettertg.su
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
         Release:
           APP_ATTEST_ENVIRONMENT: production
           APS_ENVIRONMENT: production
-          BETTERTG_RELAY_BASE_URL: ""
+          BETTERTG_RELAY_BASE_URL: https://push.bettertg.su
     postCompileScripts:
       - name: SwiftFormat
         shell: /bin/sh

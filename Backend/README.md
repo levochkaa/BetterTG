@@ -106,7 +106,7 @@ openssl rand -base64 32
 ```
 
 6. Set `ENCRYPTION_CURRENT_KEY_ID`, `ENCRYPTION_KEYS`, and `MANAGEMENT_TOKEN_PEPPER`. Never reuse the example development values.
-7. Configure `BETTERTG_RELAY_BASE_URL` for the iOS Release configuration. The repository intentionally leaves it empty until a production domain exists.
+7. `BETTERTG_RELAY_BASE_URL` points both iOS configurations at the production relay, `https://push.bettertg.su`. Launch the app with `-push-relay-url <url>` to use a local stack instead.
 8. Enable Push Notifications and App Attest for `com.levochkaaa.BetterTG` in the Apple developer account and ensure the provisioning profile contains both entitlements.
 
 The production process refuses non-HTTPS public URLs, App Attest bypass, development encryption keys, custom APNs hosts, or missing APNs credentials when dry-run is disabled.
