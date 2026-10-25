@@ -27,7 +27,8 @@ struct GalleryPlayableMessage {
 
     var isAnimation: Bool { identity.kind == .animation }
 
-    @MainActor init?(message: Message, revealPermit: MediaRevealPermit? = nil) {
+    /// `startTimestamp` overrides the video's own start, as a caption's media timestamp does.
+    @MainActor init?(message: Message, revealPermit: MediaRevealPermit? = nil, startTimestamp: TimeInterval? = nil) {
         guard MediaRevealPermit.allows(message, permit: revealPermit) else { return nil }
         let kind: Kind
         switch message.content {
@@ -40,7 +41,7 @@ struct GalleryPlayableMessage {
             self.fileName = value.video.fileName
             self.supportsStreaming = value.video.supportsStreaming
             self.isSecret = value.isSecret
-            self.startTimestamp = TimeInterval(value.startTimestamp)
+            self.startTimestamp = startTimestamp ?? TimeInterval(value.startTimestamp)
         case .messageAnimation(let value):
             guard !telegramAnimationUsesFFmpeg(value.animation) else { return nil }
             kind = .animation

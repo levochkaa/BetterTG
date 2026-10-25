@@ -49,6 +49,8 @@ enum MessageContentAction {
     case richContentLayoutChanged
     /// An expandable quote in the text was tapped (requestToggleBlockCollapsed): it opens or folds again.
     case toggleTextQuote(blockIndex: Int)
+    /// A media timestamp in the text was tapped (seekToTimecode): the time in seconds.
+    case mediaTimestamp(Int)
     /// The disc over an uploading photo or video was tapped: delete the sending message, as Telegram does.
     case cancelSending(messageID: Int64)
     /// An inline keyboard button under the message or inside one of its rich message blocks.
@@ -3837,7 +3839,8 @@ final class TelegramContactDetailsViewController: UIViewController {
                     pollInteractionStore: pollInteractionStore,
                 ) { action in
                     switch action {
-                    case .richContentLayoutChanged,
+                    case .mediaTimestamp,
+                         .richContentLayoutChanged,
                          .toggleTextQuote:
                         break
                     case .openContact:

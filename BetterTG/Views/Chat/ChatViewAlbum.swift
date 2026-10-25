@@ -13,6 +13,8 @@ import VideoToolbox
 
 enum GalleryPlaybackCommand: Equatable {
     case jump(TimeInterval)
+    /// A caption's media timestamp (UniversalVideoGalleryItemNode's `.timecode`): the video moves to the time.
+    case seek(TimeInterval)
     case togglePictureInPicture
     case togglePlayback
 }
@@ -275,7 +277,9 @@ private final class GalleryCaptionTextView: UITextView, UITextViewDelegate {
         let accessibilityLabel: String
         let range: NSRange
         let requiresConfirmation: Bool
-        let url: URL
+        let url: URL?
+        /// A media timestamp's time in seconds, which moves the video instead of opening a link.
+        var mediaTimestamp: Int?
     }
 
     override var canBecomeFirstResponder: Bool { false }
@@ -283,6 +287,7 @@ private final class GalleryCaptionTextView: UITextView, UITextViewDelegate {
     var onBackgroundTap: (() -> Void)?
     var onInteractionChanged: ((Bool) -> Void)?
     var onOpenURL: ((URL, Bool) -> Void)?
+    var onMediaTimestamp: ((Int) -> Void)?
     var onRevealSpoilers: (() -> Void)?
 
     private var entityActions = [EntityAction]()
@@ -399,9 +404,19 @@ private final class GalleryCaptionTextView: UITextView, UITextViewDelegate {
         }
         entityActions = formattedText.entities.compactMap { entity in
             let range = NSRange(location: entity.offset, length: entity.length)
-            guard NSMaxRange(range) <= caption.length,
-                  let action = Self.entityAction(entity, text: formattedText.text)
-            else { return nil }
+            guard NSMaxRange(range) <= caption.length else { return nil }
+            if case .textEntityTypeMediaTimestamp(let value) = entity.type {
+                // GalleryController's caption: a timestamp takes the link colour and moves the video.
+                caption.addAttribute(.foregroundColor, value: UIColor.systemBlue, range: range)
+                return EntityAction(
+                    accessibilityLabel: (formattedText.text as NSString).substring(with: range),
+                    range: range,
+                    requiresConfirmation: false,
+                    url: nil,
+                    mediaTimestamp: value.mediaTimestamp,
+                )
+            }
+            guard let action = Self.entityAction(entity, text: formattedText.text) else { return nil }
             return EntityAction(
                 accessibilityLabel: action.1,
                 range: range,
@@ -427,7 +442,7 @@ private final class GalleryCaptionTextView: UITextView, UITextViewDelegate {
         }) {
             customActions.append(UIAccessibilityCustomAction(name: action.accessibilityLabel) { [weak self] _ in
                 guard let self else { return false }
-                onOpenURL?(action.url, action.requiresConfirmation)
+                perform(action)
                 return true
             })
         }
@@ -476,10 +491,18 @@ private final class GalleryCaptionTextView: UITextView, UITextViewDelegate {
             return
         }
         if let action = entityActions.first(where: { NSLocationInRange(characterIndex, $0.range) }) {
-            onOpenURL?(action.url, action.requiresConfirmation)
+            perform(action)
             return
         }
         onBackgroundTap?()
+    }
+
+    private func perform(_ action: EntityAction) {
+        if let seconds = action.mediaTimestamp {
+            onMediaTimestamp?(seconds)
+        } else if let url = action.url {
+            onOpenURL?(url, action.requiresConfirmation)
+        }
     }
 
     private func characterIndex(at location: CGPoint) -> Int? {
@@ -1090,6 +1113,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             }
         }
     }
+
+    /// seekToTimecode's `.timecode` open: the message's video starts at the time once instead of its own start.
+    var initialPlaybackTimestamp: (messageID: Int64, time: TimeInterval)?
 
     fileprivate let transitionSource: MediaGalleryTransitionTarget?
     fileprivate let transitionSourceProvider: ((Int64) -> MediaGalleryTransitionTarget?)?
@@ -2331,6 +2357,9 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         captionTextView.onRevealSpoilers = { [weak self] in
             self?.revealSelectedCaptionSpoilers()
         }
+        captionTextView.onMediaTimestamp = { [weak self] seconds in
+            self?.performOnSelectedItem(.seek(TimeInterval(seconds)))
+        }
         captionView.contentView.addSubview(captionTextView)
         view.addSubview(captionView)
         captionHeightConstraint = captionView.heightAnchor.constraint(equalToConstant: 0)
@@ -2693,12 +2722,17 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             owner.invalidate()
             videoPlaybackOwners[message.id] = nil
         }
+        let startTimestamp = initialPlaybackTimestamp?.messageID == message.id
+            ? initialPlaybackTimestamp?.time
+            : nil
         guard let playbackContext,
               let owner = GalleryVideoPlaybackOwner(
                   message: message, tdlib: tdlib, playbackContext: playbackContext,
                   revealPermit: mediaRevealSession?.permit(for: message),
+                  startTimestamp: startTimestamp,
               )
         else { return nil }
+        if startTimestamp != nil { initialPlaybackTimestamp = nil }
         owner.galleryController = self
         videoPlaybackOwners[message.id] = owner
         return owner
@@ -5134,10 +5168,15 @@ final class GallerySampleBufferPictureInPictureAdapter: NSObject,
         playbackContext: MediaGalleryPlaybackContext,
         revealPermit: MediaRevealPermit? = nil,
         deferPlaybackUntilVisible: Bool = false,
+        startTimestamp: TimeInterval? = nil,
     ) {
-        guard let source = GalleryPlayableMessage(message: message, revealPermit: revealPermit),
-              revealPermit?.matches(playbackContext) != false, playbackContext.isCurrent,
-              playbackContext.location.matches(message: message)
+        guard let source = GalleryPlayableMessage(
+            message: message,
+            revealPermit: revealPermit,
+            startTimestamp: startTimestamp,
+        ),
+            revealPermit?.matches(playbackContext) != false, playbackContext.isCurrent,
+            playbackContext.location.matches(message: message)
         else { return nil }
         self.tdlib = tdlib
         self.playbackContext = playbackContext
@@ -8716,6 +8755,9 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         case .jump(let interval):
             guard canSeekPlayback else { return }
             jumpPlayback(by: interval)
+        case .seek(let time):
+            guard canSeekPlayback else { return }
+            seekPlayback(to: time)
         case .togglePictureInPicture:
             togglePictureInPicture()
         case .togglePlayback:
@@ -9674,6 +9716,15 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         }
         updateTimeLabel(current: target)
         updateControlIcons()
+    }
+
+    /// processAction's `.timecode`: the video moves to the time and keeps playing or paused.
+    private func seekPlayback(to time: TimeInterval) {
+        revealControlsAndReschedule()
+        let target = playbackDuration > 0 ? min(max(0, time), playbackDuration) : max(0, time)
+        let shouldResume = !isUserPaused && playbackIsRequested
+        playbackPause()
+        commitSeek(to: target, shouldResume: shouldResume)
     }
 
     private func jumpPlayback(by interval: TimeInterval) {

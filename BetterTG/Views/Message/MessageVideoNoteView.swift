@@ -45,8 +45,9 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
 
     private weak static var activePlaybackView: VideoNotePlaybackView?
 
-    /// The instant video the playlist plays next; it starts once its view shows it with the file loaded.
-    private static var playlistRequest: (item: PlaylistItem, expiresAt: TimeInterval)?
+    /// The instant video the playlist plays next, from a media timestamp's time if one was tapped; it starts once its
+    /// view shows it with the file loaded.
+    private static var playlistRequest: (item: PlaylistItem, time: TimeInterval?, expiresAt: TimeInterval)?
     private static let playlistRequests = PassthroughSubject<Void, Never>()
     /// How long a request waits for its view to appear and its file to load.
     private static let playlistRequestLifetime: TimeInterval = 15
@@ -189,8 +190,8 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         FloatingVideoNotePlayer.shared.pause()
     }
 
-    static func requestPlaylistPlayback(_ item: PlaylistItem) {
-        playlistRequest = (item, ProcessInfo.processInfo.systemUptime + playlistRequestLifetime)
+    static func requestPlaylistPlayback(_ item: PlaylistItem, at time: TimeInterval? = nil) {
+        playlistRequest = (item, time, ProcessInfo.processInfo.systemUptime + playlistRequestLifetime)
         playlistRequests.send()
     }
 
@@ -857,6 +858,13 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
               !isSecret, !isRevoked, representedPath != nil, playbackVisible || window != nil
         else { return }
         Self.playlistRequest = nil
+        // seekToTimecode: a timestamp plays the note from there, even while it plays.
+        if let time = request.time {
+            guard beginExclusivePlayback() else { return }
+            markViewed()
+            player.play(from: time)
+            return
+        }
         guard !player.isPlaybackRequested, beginExclusivePlayback() else { return }
         markViewed()
         if case .ended = currentPlayerState {

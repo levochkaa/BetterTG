@@ -19,6 +19,9 @@ struct MessageTextSpoilerPresentation {
         case botCommand(String)
         /// A hashtag or cashtag, which Telegram's tap searches for (openHashtag).
         case hashtag(String)
+        /// A media timestamp (`textEntityTypeMediaTimestamp`) in seconds, which Telegram's tap plays the message's
+        /// media from (seekToTimecode).
+        case mediaTimestamp(Int)
     }
 
     let text: FormattedText
@@ -125,6 +128,8 @@ struct MessageTextSpoilerPresentation {
             case .textEntityTypeCashtag,
                  .textEntityTypeHashtag:
                 return conceals(range, revealed: revealed) ? .reveal : .hashtag(raw)
+            case .textEntityTypeMediaTimestamp(let value):
+                return conceals(range, revealed: revealed) ? .reveal : .mediaTimestamp(value.mediaTimestamp)
             case .textEntityTypeEmailAddress: url = URL(string: "mailto:\(raw)")
             case .textEntityTypePhoneNumber: url = URL(string: "tel:\(raw)")
             default: continue

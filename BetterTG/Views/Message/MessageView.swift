@@ -964,6 +964,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             textView.isHidden = false
             textView.onRevealSpoilers = { [weak message] in message?.spoilersRevealed = true }
             textView.onToggleQuoteBlock = { index in onContentAction(.toggleTextQuote(blockIndex: index)) }
+            textView.onMediaTimestamp = { seconds in onContentAction(.mediaTimestamp(seconds)) }
             textView.configure(
                 formattedText: formatted,
                 client: client,

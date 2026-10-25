@@ -1238,6 +1238,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return EnergyUsage.shared.allows(.autoplayVideo)
     }
 
+    private static func playsMediaTimestamp(_ message: Message) -> Bool {
+        guard message.selfDestructType == nil else { return false }
+        switch message.content {
+        case .messageAudio,
+             .messageVideo,
+             .messageVoiceNote: return true
+        case .messageVideoNote(let content): return !content.isSecret
+        default: return false
+        }
+    }
+
     /// A bot start link for a chat the router has just created shows Start before the chat appears.
     func beginBotStart(parameter: String) {
         chatVM.beginBotStart(parameter: parameter)
@@ -6239,7 +6250,96 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(alert, animated: true)
     }
 
-    private func showMedia(_ messages: [Message], selection: Int64) {
+    /// ChatControllerInteraction.seekToTimecode for a media timestamp in a message's text: the message's own video,
+    /// voice note, track or instant video plays from the time, else the media of the message it replies to.
+    private func openMediaTimestamp(_ seconds: Int, in message: CustomMessage) {
+        let time = TimeInterval(max(0, seconds))
+        if let own = message.sourceMessages.first(where: Self.playsMediaTimestamp) {
+            playMedia(of: own, at: time)
+            return
+        }
+        let client = chatVM.client
+        let source = message.message
+        Task { [weak self] in
+            guard let replied = try? await client.getRepliedMessage(chatId: source.chatId, messageId: source.id),
+                  let self, chatVM.locationContextIsCurrent, TDLib.shared.activeClient.id == client.id,
+                  Self.playsMediaTimestamp(replied) else { return }
+            playMedia(of: replied, at: time)
+        }
+    }
+
+    /// openMessage's `.timecode` mode: a video opens in the gallery at the time, from the history around it when it
+    /// isn't loaded (navigateToMessage's timestamp); an instant video plays in its row; a voice note or track plays
+    /// in the header player.
+    private func playMedia(of message: Message, at time: TimeInterval) {
+        switch message.content {
+        case .messageVideo:
+            guard message.chatId == chatVM.chatID else { return }
+            guard chatVM.displayedMessageID(containing: message.id) == nil else {
+                showMedia([message], selection: message.id, startTimestamp: time)
+                return
+            }
+            Task { [weak self] in
+                guard let self, await prepareGalleryReturn(to: message.id) else { return }
+                scrollToMessage(id: message.id)
+                showMedia([message], selection: message.id, startTimestamp: time)
+            }
+        case .messageVideoNote:
+            guard message.chatId == chatVM.chatID, let source = navigationClientSource else { return }
+            scrollToMessage(id: message.id)
+            VideoNotePlaybackView.requestPlaylistPlayback(
+                .init(source: source, chatID: message.chatId, messageID: message.id),
+                at: time,
+            )
+        case .messageVoiceNote(let content):
+            let item = Media.NowPlaying(accountID: location.accountID, chatID: message.chatId, messageID: message.id)
+            playAudio(content.voiceNote.voice, duration: content.voiceNote.duration, item: item, at: time) {
+                guard !message.isOutgoing, !content.isListened else { return }
+                _ = try? await $0.openMessageContent(chatId: message.chatId, messageId: message.id)
+            }
+        case .messageAudio(let content):
+            let item = Media.NowPlaying.music(chatID: message.chatId, messageID: message.id)
+            playAudio(content.audio.audio, duration: content.audio.duration, item: item, at: time) { _ in
+                Media.shared.setDisplay(.music(content.audio, item: item))
+            }
+        default:
+            break
+        }
+    }
+
+    /// The voice note or track downloaded, then played from the time: seeking the playing one, or loading it there.
+    private func playAudio(
+        _ file: File,
+        duration: Int,
+        item: Media.NowPlaying,
+        at time: TimeInterval,
+        started: @escaping @MainActor (TDLibClient) async -> Void,
+    ) {
+        let client = chatVM.client
+        Task { [weak self] in
+            guard let file = try? await client.downloadFile(
+                fileId: file.id,
+                limit: 0,
+                offset: 0,
+                priority: 32,
+                synchronous: true,
+            ), file.local.isDownloadingCompleted, !file.local.path.isEmpty, let self, chatVM.locationContextIsCurrent,
+            TDLib.shared.activeClient.id == client.id else { return }
+            let path = file.local.path
+            let start = min(time, TimeInterval(duration))
+            if Media.shared.savedMediaPath == path {
+                Media.shared.seek(to: start)
+                if !Media.shared.isPlaying { Media.shared.toggle(with: path, duration: duration, item: item) }
+            } else {
+                Media.shared.prepare(with: path, duration: duration, at: start, item: item)
+                Media.shared.toggle(with: path, duration: duration, item: item)
+            }
+            await started(client)
+        }
+    }
+
+    /// `startTimestamp` starts the selected video there (seekToTimecode).
+    private func showMedia(_ messages: [Message], selection: Int64, startTimestamp: TimeInterval? = nil) {
         guard let galleryPlaybackContext, galleryPlaybackContext.isCurrent,
               let captured = messages.first(where: { $0.id == selection }),
               let displayedID = chatVM.displayedMessageID(containing: selection),
@@ -6289,7 +6389,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         mediaRevealSession?.reconcile(galleryMessages)
         let transferredOwners = galleryMessages.compactMap { message -> GalleryVideoPlaybackOwner? in
-            guard let owner = inlineVideoPlaybackOwners[message.id], owner.matches(message: message) else { return nil }
+            // A timestamp starts the video afresh rather than where the inline playback is.
+            guard startTimestamp == nil || message.id != selection,
+                  let owner = inlineVideoPlaybackOwners[message.id], owner.matches(message: message) else { return nil }
             return owner
         }
         let transferredOwner = transferredOwners.first { $0.messageID == selection }
@@ -6328,6 +6430,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if chatVM.canWriteBasicMessages {
             gallery.onReplyToMessageID = { [weak self] messageID in self?.replyFromGallery(to: messageID) }
         }
+        if let startTimestamp { gallery.initialPlaybackTimestamp = (selection, startTimestamp) }
         if isChatMedia { gallery.enableChatHistoryPaging(client: chatVM.client, location: location) }
         // End the composer's editing session before UIKit retains it for the modal transition.
         // Otherwise cancelling an interactive dismissal can restore its keyboard over the gallery.
@@ -6673,6 +6776,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         switch action {
         case .richContentLayoutChanged:
             collectionView.collectionViewLayout.invalidateLayout()
+        case .mediaTimestamp(let seconds):
+            openMediaTimestamp(seconds, in: message)
         case .toggleTextQuote(let index):
             // ChatMessageTextBubbleContentNode's expandedBlockIds; the published change reconfigures the row.
             if message.expandedQuoteBlocks.contains(index) {

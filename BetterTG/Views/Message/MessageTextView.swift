@@ -47,6 +47,8 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
 
     var onRevealSpoilers: (() -> Void)?
     var onUnhandledTap: (() -> Void)?
+    /// A media timestamp's tap, in seconds.
+    var onMediaTimestamp: ((Int) -> Void)?
     var onOpenRichURL: ((URL) -> Bool)?
     /// The last text selected for Quote while the menu was open. Menu actions run after dismissal clears the
     /// selection, so the reply options' Quote Selected Part reads it from here.
@@ -621,6 +623,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             width: maximumLayoutWidth,
             expanded: expandedQuoteBlocks,
         )
+        if richAttributedText == nil { applyEntityLinkColor(text, to: result) }
         for range in state.presentation.ranges where NSMaxRange(range) <= result.length {
             result.removeAttribute(.backgroundColor, range: range)
             guard !state.revealed else { continue }
@@ -879,6 +882,27 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         return spacer
     }
 
+    /// stringWithAppliedEntities: hashtags, cashtags, bot commands and media timestamps take the link colour, as
+    /// links do.
+    private func applyEntityLinkColor(_ text: FormattedText, to result: NSMutableAttributedString) {
+        let color = linkTextAttributes[.foregroundColor] as? UIColor ?? .systemBlue
+        for entity in text.entities where entity.offset + entity.length <= result.length {
+            switch entity.type {
+            case .textEntityTypeBotCommand,
+                 .textEntityTypeCashtag,
+                 .textEntityTypeHashtag,
+                 .textEntityTypeMediaTimestamp:
+                result.addAttribute(
+                    .foregroundColor,
+                    value: color,
+                    range: NSRange(location: entity.offset, length: entity.length),
+                )
+            default:
+                break
+            }
+        }
+    }
+
     @objc private func handleEntityTap(_ gesture: UITapGestureRecognizer) {
         if contextQuoteAction != nil {
             scheduleQuoteMenu()
@@ -905,6 +929,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             case .hashtag(let hashtag):
                 if let chat = self?.nearestViewController as? ChatViewController {
                     chat.openHashtag(hashtag)
+                    handled = true
+                }
+            case .mediaTimestamp(let seconds):
+                if let onMediaTimestamp = self?.onMediaTimestamp {
+                    onMediaTimestamp(seconds)
                     handled = true
                 }
             case .reveal:
