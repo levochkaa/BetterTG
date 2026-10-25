@@ -111,7 +111,14 @@ final class PrivacySettingsViewController: SettingsListViewController {
                 self?.navigationController?.pushViewController(DataPrivacySettingsViewController(), animated: true)
             }],
         )
-        return [security, privacy, account, dataSettings]
+        let openLinksIn = SettingsSection(rows: [SettingsRow(
+            title: L10n.telegram("ChatSettings.OpenLinksIn"),
+            detail: WebBrowser.current.title,
+            accessory: .disclosure,
+        ) { [weak self] in
+            self?.navigationController?.pushViewController(WebBrowserSettingsViewController(), animated: true)
+        }])
+        return [security, privacy, account, dataSettings, openLinksIn]
     }
 
     private static func monthsText(_ days: Int) -> String {

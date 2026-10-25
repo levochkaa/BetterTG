@@ -111,7 +111,8 @@ import UIKit
     /// Opens a Telegram link in the app, and any other link in Safari.
     func open(_ url: URL, from presenter: UIViewController?) {
         guard handle(url, from: presenter) else {
-            UIApplication.shared.open(url)
+            // Open Links In: the in-app browser or the chosen one.
+            WebBrowser.open(url, from: presenter ?? NavigationStorage.shared.navigationController.topViewController)
             return
         }
     }
@@ -1117,10 +1118,14 @@ import UIKit
         case .settingsSectionNotifications: make = { NotificationSettingsViewController() }
         case .settingsSectionPrivacyAndSecurity: make = { PrivacySettingsViewController() }
         case .settingsSectionFaq:
-            if let url = URL(string: L10n.telegram("Settings.FAQ_URL")) { UIApplication.shared.open(url) }
+            if let url = URL(string: L10n.telegram("Settings.FAQ_URL")) {
+                WebBrowser.open(url, from: NavigationStorage.shared.navigationController.topViewController)
+            }
             return
         case .settingsSectionPrivacyPolicy:
-            if let url = URL(string: L10n.telegram("Settings.PrivacyPolicy_URL")) { UIApplication.shared.open(url) }
+            if let url = URL(string: L10n.telegram("Settings.PrivacyPolicy_URL")) {
+                WebBrowser.open(url, from: NavigationStorage.shared.navigationController.topViewController)
+            }
             return
         default: make = { SettingsViewController() }
         }

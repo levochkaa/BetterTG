@@ -1345,6 +1345,11 @@
 "Settings.Tips" = "Telegram Features";
 "Settings.TipsUsername" = "TelegramTips";
 "Settings.PauseMusicOnRecording" = "Pause Music While Recoding";
+"ChatSettings.OpenLinksIn" = "Open Links in";
+"WebBrowser.Title" = "Web Browser";
+"WebBrowser.Telegram" = "Telegram";
+"WebBrowser.OpenLinksIn.Title" = "OPEN LINKS IN";
+"WebBrowser.OpenLinksInfo" = "Open links inside Telegram instead of your default browser for more privacy.";
 "Settings.SensitiveContent" = "Show 18+ Content";
 "Settings.SensitiveContentInfo" = "Do not hide media that contain content suitable only for adults.";
 "Chat.SensitiveContent" = "18+ Content";

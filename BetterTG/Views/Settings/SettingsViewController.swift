@@ -385,9 +385,9 @@ final class SettingsViewController: UITableViewController {
         }
     }
 
-    /// Telegram FAQ: Settings.FAQ_URL in the browser, as the in-app link to the FAQ section opens it.
+    /// Telegram FAQ: Settings.FAQ_URL in the chosen browser, as the in-app link to the FAQ section opens it.
     private func openFaq() {
-        if let url = URL(string: L10n.telegram("Settings.FAQ_URL")) { UIApplication.shared.open(url) }
+        if let url = URL(string: L10n.telegram("Settings.FAQ_URL")) { WebBrowser.open(url, from: self) }
     }
 
     private func performAccountOperation(_ operation: @escaping @MainActor () throws -> Void) {

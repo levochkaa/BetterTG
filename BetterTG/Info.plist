@@ -30,6 +30,20 @@
 		<string>yandextaxi</string>
 		<string>yangoride</string>
 		<string>rizogo</string>
+		<string>googlechrome</string>
+		<string>firefox</string>
+		<string>firefox-focus</string>
+		<string>opera-http</string>
+		<string>touch-http</string>
+		<string>ddgQuickLink</string>
+		<string>microsoft-edge-http</string>
+		<string>yandexbrowser-open-url</string>
+		<string>brave</string>
+		<string>dolphin</string>
+		<string>onionhttp</string>
+		<string>ucbrowser</string>
+		<string>alook</string>
+		<string>vivaldi</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
