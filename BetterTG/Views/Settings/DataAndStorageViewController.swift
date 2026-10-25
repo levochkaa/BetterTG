@@ -6,9 +6,8 @@ import UIKit
 // MARK: - DataAndStorageViewController
 
 /// Telegram's Data and Storage (DataAndStorageSettingsController): Storage Usage and Network Usage with their
-/// totals, Raise to Listen, and Connection Type's Proxy with the type of the proxy in use. BetterTG loads media as it
-/// shows it and has no automatic download policy, so
-/// Telegram's auto-download presets are not offered.
+/// totals, Auto-Download Media on cellular and Wi-Fi with Reset, Pause Music While Recording and Raise to Listen, and
+/// Connection Type's Proxy with the type of the proxy in use.
 final class DataAndStorageViewController: SettingsListViewController {
     private var storageSize: Int64?
     private var networkBytes: Int64?
@@ -46,7 +45,7 @@ final class DataAndStorageViewController: SettingsListViewController {
             ) { [weak self] in
                 self?.navigationController?.pushViewController(NetworkUsageViewController(), animated: true)
             },
-        ]), SettingsSection(
+        ]), autoDownloadSection(), SettingsSection(
             header: L10n.telegram("ChatSettings.Other").uppercased(),
             footer: L10n.telegram("Settings.RaiseToListenInfo"),
             rows: [
@@ -73,6 +72,49 @@ final class DataAndStorageViewController: SettingsListViewController {
                 self?.navigationController?.pushViewController(ProxySettingsViewController(), animated: true)
             }],
         )]
+    }
+
+    /// AUTO-DOWNLOAD MEDIA: Using Cellular and Using Wi-Fi with what they download, and Reset Auto-Download Settings
+    /// while either differs from Telegram's defaults.
+    private func autoDownloadSection() -> SettingsSection {
+        let connections: [(MediaAutoDownload.NetworkType, String)] = [
+            (.cellular, "ChatSettings.AutoDownloadUsingCellular"),
+            (.wifi, "ChatSettings.AutoDownloadUsingWiFi"),
+        ]
+        var rows = connections.map { networkType, title in
+            SettingsRow(
+                title: L10n.telegram(title),
+                detail: AutoDownloadSummary.connection(networkType),
+                style: .subtitle,
+                accessory: .disclosure,
+            ) { [weak self] in
+                self?.navigationController?.pushViewController(
+                    AutoDownloadConnectionViewController(networkType: networkType),
+                    animated: true,
+                )
+            }
+        }
+        rows.append(SettingsRow(
+            title: L10n.telegram("ChatSettings.AutoDownloadReset"),
+            style: .action(destructive: false),
+            isEnabled: !MediaAutoDownload.shared.isDefault,
+        ) { [weak self] in self?.confirmAutoDownloadReset() })
+        return SettingsSection(header: L10n.telegram("ChatSettings.AutoDownloadTitle"), rows: rows)
+    }
+
+    /// resetAutomaticDownload: Telegram's sheet with the note and a destructive Reset.
+    private func confirmAutoDownloadReset() {
+        let sheet = UIAlertController(
+            title: nil,
+            message: L10n.telegram("AutoDownloadSettings.ResetHelp"),
+            preferredStyle: .actionSheet,
+        )
+        sheet.addAction(UIAlertAction(title: L10n.telegram("AutoDownloadSettings.Reset"), style: .destructive) { _ in
+            MediaAutoDownload.shared.reset()
+            self.reload()
+        })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        present(sheet, animated: true)
     }
 
     private func load() {

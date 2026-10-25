@@ -1442,6 +1442,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         applyComposerSendGlides(to: cell)
+        startPrefetch(at: indexPath)
         if case .message(let displayedMessageID) = dataSource.itemIdentifier(for: indexPath) {
             prefetchedPlaybackFiles[displayedMessageID] = nil
         }
@@ -1476,30 +1477,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func collectionView(_: UICollectionView, prefetchItemsAt indexPaths: [IndexPath]) {
         for indexPath in indexPaths {
-            guard case .message(let displayedMessageID) = dataSource.itemIdentifier(for: indexPath),
-                  let message = message(for: displayedMessageID),
-                  prefetchTasks[displayedMessageID] == nil
-            else { continue }
-            let messages = message.album.isEmpty ? [message.message] : message.album
-            mediaRevealSession?.reconcile(messages)
-            let permits = Dictionary(uniqueKeysWithValues: messages.compactMap { item in
-                mediaRevealSession?.permit(for: item).map { (item.id, $0) }
-            })
-            let client = chatVM.client
-            let generation = UUID()
-            let entry = PrefetchTaskEntry(generation: generation)
-            prefetchTasks[displayedMessageID] = entry
-            let playbackFileIDs = messages.flatMap(TDMediaPrefetcher.playbackFileIDs(in:))
-            if !playbackFileIDs.isEmpty { prefetchedPlaybackFiles[displayedMessageID] = (client, playbackFileIDs) }
-            entry.task = Task { [weak self] in
-                for item in messages where !Task.isCancelled {
-                    await TDMediaPrefetcher.prefetch(message: item, client: client, revealPermit: permits[item.id])
-                }
-                await MainActor.run {
-                    guard self?.prefetchTasks[displayedMessageID]?.generation == generation else { return }
-                    self?.prefetchTasks[displayedMessageID] = nil
-                }
-            }
+            startPrefetch(at: indexPath)
         }
     }
 
@@ -1847,6 +1825,35 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return values
         }
     #endif
+
+    /// Loads a row's media ahead of display, and starts what auto-download allows (Telegram fetches as its node
+    /// appears, so a row shown without a prefetch starts here too).
+    private func startPrefetch(at indexPath: IndexPath) {
+        guard case .message(let displayedMessageID) = dataSource.itemIdentifier(for: indexPath),
+              let message = message(for: displayedMessageID),
+              prefetchTasks[displayedMessageID] == nil
+        else { return }
+        let messages = message.album.isEmpty ? [message.message] : message.album
+        mediaRevealSession?.reconcile(messages)
+        let permits = Dictionary(uniqueKeysWithValues: messages.compactMap { item in
+            mediaRevealSession?.permit(for: item).map { (item.id, $0) }
+        })
+        let client = chatVM.client
+        let generation = UUID()
+        let entry = PrefetchTaskEntry(generation: generation)
+        prefetchTasks[displayedMessageID] = entry
+        let playbackFileIDs = messages.flatMap { TDMediaPrefetcher.playbackFileIDs(in: $0, client: client) }
+        if !playbackFileIDs.isEmpty { prefetchedPlaybackFiles[displayedMessageID] = (client, playbackFileIDs) }
+        entry.task = Task { [weak self] in
+            for item in messages where !Task.isCancelled {
+                await TDMediaPrefetcher.prefetch(message: item, client: client, revealPermit: permits[item.id])
+            }
+            await MainActor.run {
+                guard self?.prefetchTasks[displayedMessageID]?.generation == generation else { return }
+                self?.prefetchTasks[displayedMessageID] = nil
+            }
+        }
+    }
 
     /// The input's auto-delete timer: ChatTimerScreen where this account may change it, else TooltipController's
     /// "Messages in this chat are automatically deleted" for four seconds.

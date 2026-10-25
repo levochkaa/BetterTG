@@ -25,6 +25,9 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
     private var generation = UUID()
     private var playbackVisible = false
     private var energyObserver: NSObjectProtocol?
+    private let downloadStatus = MediaDownloadStatusView()
+    /// The GIF auto-download left for a tap.
+    private var deferredDownload: DeferredMediaDownload?
     /// A bubble opens the gallery on tap, as Telegram's `ChatMessageInteractiveMediaNode` does; panel cells pass nil.
     private var onTap: (() -> Void)?
     private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
@@ -41,6 +44,11 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
         addSubview(thumbnailView)
         playerLayer.videoGravity = .resizeAspect
         layer.addSublayer(playerLayer)
+        addSubview(downloadStatus)
+        NSLayoutConstraint.activate([
+            downloadStatus.centerXAnchor.constraint(equalTo: centerXAnchor),
+            downloadStatus.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
         self.energyObserver = NotificationCenter.default.addObserver(
             forName: EnergyUsage.didChange,
             object: nil,
@@ -74,8 +82,15 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
         return true
     }
 
-    /// Without a display size the owner sizes the view.
-    func configure(animation: Animation, displaySize: CGSize?, client: TDLibClient, onTap: (() -> Void)? = nil) {
+    /// Without a display size the owner sizes the view. `autoDownloads` false (auto-download's video setting for the
+    /// chat) leaves the GIF to a tap on its thumbnail's download arrow.
+    func configure(
+        animation: Animation,
+        displaySize: CGSize?,
+        client: TDLibClient,
+        autoDownloads: Bool = true,
+        onTap: (() -> Void)? = nil,
+    ) {
         prepareForReuse()
         self.onTap = onTap
         if onTap != nil, tapRecognizer.view == nil { addGestureRecognizer(tapRecognizer) }
@@ -95,6 +110,18 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
         let file = animation.animation
         if file.local.isDownloadingCompleted, !file.local.path.isEmpty {
             installPlayer(path: file.local.path)
+            return
+        }
+        guard autoDownloads else {
+            deferredDownload = DeferredMediaDownload(file: file, client: client, status: downloadStatus) {
+                [weak self] file in
+                guard let self else { return }
+                deferredDownload = nil
+                installPlayer(path: file.local.path)
+            }
+            if tapRecognizer.view == nil { addGestureRecognizer(tapRecognizer) }
+            tapRecognizer.isEnabled = true
+            isUserInteractionEnabled = true
             return
         }
         guard let request = AnimatedFileDownload(fileID: file.id, client: client) else { return }
@@ -121,6 +148,8 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
         playerLayer.player = nil
         player = nil
         playbackVisible = false
+        deferredDownload = nil
+        downloadStatus.hide()
         thumbnailView.cancel()
         thumbnailView.isHidden = false
         NSLayoutConstraint.deactivate([widthConstraint, heightConstraint])
@@ -131,7 +160,14 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
         updatePlayback()
     }
 
-    @objc private func tapped() { onTap?() }
+    @objc private func tapped() {
+        // A GIF still to download downloads, or stops downloading, instead of opening.
+        if let deferredDownload {
+            deferredDownload.isDownloading ? deferredDownload.cancel() : deferredDownload.start()
+            return
+        }
+        onTap?()
+    }
 
     private func installPlayer(path: String) {
         let player = AVQueuePlayer()

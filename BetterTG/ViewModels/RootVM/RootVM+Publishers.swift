@@ -32,6 +32,7 @@ extension RootVM {
             synchronizeAuthorization()
             guard loggedIn else { return }
             loadScopeNotificationSettings()
+            MediaAutoDownload.shared.loadPresets(client: td)
             ensureBaseChatLists()
             allFolders.forEach { self.loadMoreChats(in: $0) }
         }

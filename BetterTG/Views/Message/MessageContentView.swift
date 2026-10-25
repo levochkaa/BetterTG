@@ -148,6 +148,7 @@ final class MessageMediaView: UIView {
                         animation: animation.animation,
                         displaySize: displaySize,
                         client: client,
+                        autoDownloads: TDMediaPrefetcher.allowsAutoDownload(of: item, client: client),
                         onTap: openGallery,
                     )
                     view = animationView
@@ -418,9 +419,12 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
     private let imageView = TDImageLoadingView()
     private let livePhotoBadge = LivePhotoBadgeView()
     private let uploadProgress = MediaUploadProgressView()
+    private let downloadStatus = MediaDownloadStatusView()
     private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 280)
     private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 220)
     private var onTap: (() -> Void)?
+    /// The photo auto-download left for a tap.
+    private var deferredDownload: DeferredMediaDownload?
 
     var showsFullPhoto: Bool { imageView.hasFullImage }
 
@@ -432,6 +436,7 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
         addSubview(imageView)
         addSubview(livePhotoBadge)
         addSubview(uploadProgress)
+        addSubview(downloadStatus)
         livePhotoBadge.frame = CGRect(x: 8, y: 8, width: 21, height: 21)
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: topAnchor),
@@ -440,6 +445,8 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
             imageView.bottomAnchor.constraint(equalTo: bottomAnchor),
             uploadProgress.centerXAnchor.constraint(equalTo: centerXAnchor),
             uploadProgress.centerYAnchor.constraint(equalTo: centerYAnchor),
+            downloadStatus.centerXAnchor.constraint(equalTo: centerXAnchor),
+            downloadStatus.centerYAnchor.constraint(equalTo: centerYAnchor),
             heightConstraint,
             widthConstraint,
         ])
@@ -467,6 +474,8 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
             : L10n.betterTG("Accessibility.OpenPhoto")
         widthConstraint.constant = displaySize.width
         heightConstraint.constant = displaySize.height
+        deferredDownload = nil
+        downloadStatus.hide()
         if let local = telegramLocalPhotoFile(for: message, photo: photo, preferred: .yBox) {
             imageView.load(
                 file: local,
@@ -474,6 +483,19 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
                 maximumPixelSize: 960,
                 client: client,
             )
+        } else if let message, let file = photo.sizes.getSize(.yBox)?.photo,
+                  !file.local.isDownloadingCompleted,
+                  !TDMediaPrefetcher.allowsAutoDownload(of: message, client: client)
+        {
+            // ChatMessageInteractiveMediaNode: a photo auto-download leaves keeps its blurred thumbnail and the
+            // download arrow until tapped.
+            imageView.loadPlaceholder(data: photo.minithumbnail?.data, client: client)
+            deferredDownload = DeferredMediaDownload(file: file, client: client, status: downloadStatus) {
+                [weak self] _ in
+                guard let self else { return }
+                deferredDownload = nil
+                imageView.load(photo: photo, preferredSize: .yBox, client: client, preservingImage: true)
+            }
         } else {
             imageView.load(photo: photo, preferredSize: .yBox, client: client)
         }
@@ -486,6 +508,8 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
     func prepareForReuse() {
         imageView.cancel()
         uploadProgress.reset()
+        deferredDownload = nil
+        downloadStatus.hide()
         onTap = nil
     }
 
@@ -496,6 +520,11 @@ final class SinglePhotoView: UIControl, ReusableMediaView {
     @objc private func tapped() {
         // While the photo uploads only the disc reacts (ChatMessageInteractiveMediaNode.imageTap).
         guard !uploadProgress.isActive else { return }
+        // A photo still to download downloads, or stops downloading, instead of opening.
+        if let deferredDownload {
+            deferredDownload.isDownloading ? deferredDownload.cancel() : deferredDownload.start()
+            return
+        }
         onTap?()
     }
 }
@@ -747,6 +776,9 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
     private let playIcon = UIImageView()
     private let livePhotoBadge = LivePhotoBadgeView()
     private let uploadProgress = MediaUploadProgressView()
+    private let downloadStatus = MediaDownloadStatusView()
+    /// The photo auto-download left for a tap.
+    private var deferredDownload: DeferredMediaDownload?
     private var showsPlayIcon = false
     private weak var videoPlaybackOwner: GalleryVideoPlaybackOwner?
     private var videoPlaybackAttachmentToken: VideoPlaybackAttachmentToken?
@@ -788,6 +820,7 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         addSubview(playIcon)
         addSubview(livePhotoBadge)
         addSubview(uploadProgress)
+        addSubview(downloadStatus)
         livePhotoBadge.frame = CGRect(x: 8, y: 8, width: 21, height: 21)
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(tapped))
         tapGesture.cancelsTouchesInView = false
@@ -798,6 +831,8 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
             playIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
             uploadProgress.centerXAnchor.constraint(equalTo: centerXAnchor),
             uploadProgress.centerYAnchor.constraint(equalTo: centerYAnchor),
+            downloadStatus.centerXAnchor.constraint(equalTo: centerXAnchor),
+            downloadStatus.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         uploadProgress.showsUploadedCheck = true
         uploadProgress.onActiveChange = { [weak self] active in
@@ -901,6 +936,18 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
                     maximumPixelSize: 960,
                     client: client,
                 )
+            } else if let file = photo.photo.sizes.getSize(.yBox)?.photo,
+                      !file.local.isDownloadingCompleted,
+                      !TDMediaPrefetcher.allowsAutoDownload(of: message, client: client)
+            {
+                // As a single photo: the blurred thumbnail and the download arrow until tapped.
+                imageView.loadPlaceholder(data: photo.photo.minithumbnail?.data, client: client)
+                deferredDownload = DeferredMediaDownload(file: file, client: client, status: downloadStatus) {
+                    [weak self] _ in
+                    guard let self else { return }
+                    deferredDownload = nil
+                    imageView.load(photo: photo.photo, preferredSize: .yBox, client: client, preservingImage: true)
+                }
             } else {
                 imageView.load(photo: photo.photo, preferredSize: .yBox, client: client)
             }
@@ -967,6 +1014,8 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
         imageView.cancel()
         imageView.isHidden = false
         uploadProgress.reset()
+        deferredDownload = nil
+        downloadStatus.hide()
         showsPlayIcon = false
         onTap = nil
         livePhotoBadge.isHidden = true
@@ -1014,6 +1063,10 @@ private final class AlbumMediaTileView: UIControl, ReusableMediaView, UIGestureR
 
     @objc private func tapped() {
         guard !uploadProgress.isActive else { return }
+        if let deferredDownload {
+            deferredDownload.isDownloading ? deferredDownload.cancel() : deferredDownload.start()
+            return
+        }
         onTap?()
     }
 }
@@ -1568,6 +1621,15 @@ final class TDImageLoadingView: UIImageView {
     }
 }
 
+// MARK: - File + autoDownloadSize
+
+extension File {
+    /// The size shouldDownloadMediaAutomatically compares, TDLib's expected one while the exact one is unknown.
+    var autoDownloadSize: Int64 {
+        Int64(size > 0 ? size : expectedSize)
+    }
+}
+
 // MARK: - TDMediaPrefetcher
 
 enum TDMediaPrefetcher {
@@ -1579,18 +1641,38 @@ enum TDMediaPrefetcher {
         case ffmpegVideo
     }
 
-    /// The voice or video-note files a prefetch starts outside the shared demand and doesn't wait for.
-    static func playbackFileIDs(in message: Message) -> [Int] {
+    /// The voice, video-note, video, document and music files a prefetch starts outside the shared demand and
+    /// doesn't wait for.
+    @MainActor static func playbackFileIDs(in message: Message, client: TDLibClient) -> [Int] {
         // A self-destructing voice note is loaded only by the play-once overlay that consumes it.
         guard message.selfDestructType == nil else { return [] }
-        let file: File? =
-            switch message.content {
-            case .messageVoiceNote(let voice): voice.voiceNote.voice
-            case .messageVideoNote(let video): video.videoNote.video
-            default: nil
-            }
-        guard let file, !file.local.isDownloadingCompleted else { return [] }
-        return [file.id]
+        return autoDownloadFiles(in: message, client: client)
+            .filter { !$0.local.isDownloadingCompleted }
+            .map(\.id)
+    }
+
+    /// Whether a message's photo or GIF downloads by itself on the current network, for the views that show it.
+    @MainActor static func allowsAutoDownload(of message: Message, client: TDLibClient) -> Bool {
+        let peerType = TelegramChatListStore.shared.autoDownloadPeerType(
+            chatID: message.chatId,
+            sender: message.senderId,
+            clientID: client.id,
+        )
+        let autoDownload = MediaAutoDownload.shared
+        switch message.content {
+        case .messagePhoto:
+            return autoDownload.shouldDownload(.photo, size: nil, peerType: peerType)
+        case .messageAnimation(let animation):
+            return autoDownload.shouldDownload(
+                .video,
+                size: animation.animation.animation.autoDownloadSize,
+                peerType: peerType,
+            )
+        case .messageVideoNote(let video):
+            return autoDownload.shouldDownload(.video, size: video.videoNote.video.autoDownloadSize, peerType: peerType)
+        default:
+            return true
+        }
     }
 
     @MainActor static func prefetch(
@@ -1600,25 +1682,29 @@ enum TDMediaPrefetcher {
     ) async {
         guard MediaRevealPermit.allows(message, permit: revealPermit, requiresPermit: true),
               let source = TDLib.shared.activeUpdateSource, source.clientID == client.id else { return }
+        let allowsMedia = allowsAutoDownload(of: message, client: client)
+        let largeFiles = autoDownloadFiles(in: message, client: client).map { (
+            file: $0,
+            decodeKind: DecodeKind.unpooledMedia,
+        ) }
         let files: [(file: File, decodeKind: DecodeKind)] =
             switch message.content {
             case .messagePhoto(let photo):
-                photo.photo.sizes.getSize(.yBox).map { [($0.photo, .none)] } ?? []
+                allowsMedia ? photo.photo.sizes.getSize(.yBox).map { [($0.photo, .none)] } ?? [] : []
             case .messageAudio(let audio):
                 [audio.audio.albumCoverThumbnail?.file]
                     .compactMap(\.self)
-                    .map { ($0, .none) }
+                    .map { ($0, .none) } + largeFiles
             case .messageDocument(let document):
                 [document.document.thumbnail?.file]
                     .compactMap(\.self)
-                    .map { ($0, .none) }
-            case .messageVoiceNote(let voice):
-                [(voice.voiceNote.voice, .unpooledMedia)]
+                    .map { ($0, .none) } + largeFiles
+            case .messageVoiceNote:
+                largeFiles
             case .messageVideoNote(let video):
-                [video.videoNote.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
-                    + [(video.videoNote.video, .unpooledMedia)]
+                [video.videoNote.thumbnail?.file].compactMap(\.self).map { ($0, .none) } + largeFiles
             case .messageAnimation(let animation):
-                if telegramAnimationUsesFFmpeg(animation.animation) {
+                if telegramAnimationUsesFFmpeg(animation.animation), allowsMedia {
                     [animation.animation.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
                         + [(animation.animation.animation, .ffmpegVideo)]
                 } else {
@@ -1633,7 +1719,7 @@ enum TDMediaPrefetcher {
                 MessageContentPresentation.diceStickers(dice.value == 0 ? dice.initialState : dice.finalState)
                     .flatMap { stickerFiles($0) }
             case .messageVideo(let video):
-                [video.video.thumbnail?.file].compactMap(\.self).map { ($0, .none) }
+                [video.video.thumbnail?.file].compactMap(\.self).map { ($0, .none) } + largeFiles
             default:
                 []
             }
@@ -1686,6 +1772,34 @@ enum TDMediaPrefetcher {
             case .ffmpegVideo:
                 _ = await FFmpegVideoRepository.asset(at: downloaded.local.path)
             }
+        }
+    }
+
+    /// The message's large files shouldDownloadMediaAutomatically lets download by themselves now: a voice message,
+    /// a video message, video, document or music up to its type's size for the chat's kind.
+    @MainActor private static func autoDownloadFiles(in message: Message, client: TDLibClient) -> [File] {
+        let autoDownload = MediaAutoDownload.shared
+        let peerType = TelegramChatListStore.shared.autoDownloadPeerType(
+            chatID: message.chatId,
+            sender: message.senderId,
+            clientID: client.id,
+        )
+        func allowed(_ category: MediaAutoDownload.Category, _ file: File, isVoice: Bool = false) -> Bool {
+            autoDownload.shouldDownload(category, size: file.autoDownloadSize, peerType: peerType, isVoice: isVoice)
+        }
+        switch message.content {
+        case .messageVoiceNote(let voice):
+            return allowed(.file, voice.voiceNote.voice, isVoice: true) ? [voice.voiceNote.voice] : []
+        case .messageVideoNote(let video):
+            return allowed(.video, video.videoNote.video) ? [video.videoNote.video] : []
+        case .messageVideo(let video):
+            return allowed(.video, video.video.video) ? [video.video.video] : []
+        case .messageDocument(let document):
+            return allowed(.file, document.document.document) ? [document.document.document] : []
+        case .messageAudio(let audio):
+            return allowed(.file, audio.audio.audio) ? [audio.audio.audio] : []
+        default:
+            return []
         }
     }
 

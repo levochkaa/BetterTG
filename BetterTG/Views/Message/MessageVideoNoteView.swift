@@ -56,6 +56,10 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     private let thumbnailView = TDImageLoadingView()
     private let playerSurface = LocalVideoSurfaceView()
     private let playIcon = UIImageView()
+    private let downloadStatus = MediaDownloadStatusView()
+    /// The video message auto-download left for a tap, and whether that tap asked it to play once downloaded.
+    private var deferredDownload: DeferredMediaDownload?
+    private var playsWhenDownloaded = false
     private let durationLabel = UILabel()
     private let secretBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
     private let progressLayer = CAShapeLayer()
@@ -246,6 +250,24 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         }
         observeBinding(backend)
         update(file: videoNote.video)
+        if !isSecret, representedPath == nil,
+           !TDMediaPrefetcher.allowsAutoDownload(of: message, client: TDLib.shared.activeClient)
+        {
+            // Auto-download's video setting leaves the note to a tap on the download arrow, which then plays it.
+            deferredDownload = DeferredMediaDownload(
+                file: videoNote.video,
+                client: TDLib.shared.activeClient,
+                status: downloadStatus,
+            ) { [weak self] file in
+                guard let self else { return }
+                deferredDownload = nil
+                update(file: file)
+                if playsWhenDownloaded {
+                    playsWhenDownloaded = false
+                    tapped()
+                }
+            }
+        }
         if !isSecret { startDownloadIfNeeded() }
         renderPlayerState(.idle)
         return false
@@ -261,6 +283,9 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         if Self.activePlaybackView === self {
             Self.activePlaybackView = nil
         }
+        deferredDownload = nil
+        playsWhenDownloaded = false
+        downloadStatus.hide()
         playerSurface.isHidden = true
         thumbnailView.cancel()
         thumbnailView.image = nil
@@ -377,6 +402,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         playIcon.tintColor = .white
         playIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 28, weight: .bold)
         addSubview(playIcon)
+        addSubview(downloadStatus)
 
         durationLabel.translatesAutoresizingMaskIntoConstraints = false
         durationLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
@@ -406,6 +432,8 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
             playerSurface.bottomAnchor.constraint(equalTo: bottomAnchor),
             playIcon.centerXAnchor.constraint(equalTo: centerXAnchor),
             playIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            downloadStatus.centerXAnchor.constraint(equalTo: centerXAnchor),
+            downloadStatus.centerYAnchor.constraint(equalTo: centerYAnchor),
             durationLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
             durationLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
             durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 38),
@@ -499,6 +527,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     private func startDownloadIfNeeded() {
         guard let backend, backend.isCurrent(), !isRevoked,
               !isSecret,
+              deferredDownload == nil,
               playbackVisible || window != nil,
               representedPath == nil,
               downloadTask == nil,
@@ -733,6 +762,16 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     }
 
     @objc private func tapped() {
+        if let deferredDownload, !isSecret {
+            if deferredDownload.isDownloading {
+                playsWhenDownloaded = false
+                deferredDownload.cancel()
+            } else {
+                playsWhenDownloaded = true
+                deferredDownload.start()
+            }
+            return
+        }
         guard !isSecret, representedPath != nil, playbackVisible, backend?.isCurrent() == true,
               !isRevoked else { return }
         if player.isPlaybackRequested {

@@ -185,6 +185,28 @@ import TDLibKit
         }
     }
 
+    /// MediaAutoDownloadPeerType for a message in the chat: a contact's or another private chat, a group (a contact
+    /// writing there counts as a contact, as shouldDownloadMediaAutomatically does) or a channel. A chat TDLib hasn't
+    /// sent counts as another private chat.
+    func autoDownloadPeerType(chatID: Int64, sender: MessageSender?, clientID: Int32) -> MediaAutoDownload.PeerType {
+        guard self.clientID == clientID, let record = records[chatID] else { return .otherPrivate }
+        func isContact(_ sender: MessageSender?) -> Bool {
+            guard case .messageSenderUser(let user) = sender else { return false }
+            return users[user.userId]?.isContact == true
+        }
+        switch record.type {
+        case .chatTypePrivate(let value):
+            return users[value.userId]?.isContact == true ? .contact : .otherPrivate
+        case .chatTypeSecret(let value):
+            return users[value.userId]?.isContact == true ? .contact : .otherPrivate
+        case .chatTypeBasicGroup:
+            return isContact(sender) ? .contact : .group
+        case .chatTypeSupergroup(let value):
+            if value.isChannel { return .channel }
+            return isContact(sender) ? .contact : .group
+        }
+    }
+
     /// The community's name for this client, nil until TDLib has sent it.
     func communityName(_ id: Int64, clientID: Int32) -> String? {
         guard self.clientID == clientID else { return nil }

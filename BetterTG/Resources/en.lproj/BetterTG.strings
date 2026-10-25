@@ -322,6 +322,7 @@
 "Accessibility.Playing" = "Playing";
 "Accessibility.Loading" = "Loading";
 "Accessibility.PlaybackFailed" = "Playback failed";
+"Accessibility.Download" = "Download";
 "Accessibility.Downloading" = "Downloading";
 "Accessibility.Paused" = "Paused";
 "Accessibility.ReadyToPlay" = "Ready to play";

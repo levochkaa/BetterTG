@@ -322,6 +322,7 @@
 "Accessibility.Playing" = "Воспроизводится";
 "Accessibility.Loading" = "Загрузка";
 "Accessibility.PlaybackFailed" = "Ошибка воспроизведения";
+"Accessibility.Download" = "Загрузить";
 "Accessibility.Downloading" = "Загружается";
 "Accessibility.Paused" = "Пауза";
 "Accessibility.ReadyToPlay" = "Готово к воспроизведению";
