@@ -11,7 +11,8 @@ import UIKit
 class TemplatableImageView: UIImageView {
     override var image: UIImage? {
         get { super.image }
-        set { super.image = newValue?.withRenderingMode(templateColor == nil ? .automatic : .alwaysTemplate) }
+        // Without a template colour the image passes through untouched: avatars and media load through here.
+        set { super.image = templateColor == nil ? newValue : newValue?.withRenderingMode(.alwaysTemplate) }
     }
 
     var templateColor: UIColor? {
@@ -20,7 +21,7 @@ class TemplatableImageView: UIImageView {
             tintColor = templateColor
             // A presented sheet dims template images; a repainted emoji keeps its colour as Telegram's does.
             tintAdjustmentMode = templateColor == nil ? .automatic : .normal
-            image = super.image
+            super.image = super.image?.withRenderingMode(templateColor == nil ? .automatic : .alwaysTemplate)
         }
     }
 }

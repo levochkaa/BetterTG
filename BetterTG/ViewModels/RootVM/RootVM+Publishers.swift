@@ -280,7 +280,7 @@ extension RootVM {
                 guard let latest = store.customChat(id: id, in: folder.chatList) else {
                     // A renewing client has not listed this chat yet.
                     if renewalHeldFolderIDs.contains(folder.id) { continue }
-                    if updated.contains(where: { $0.id == id }) {
+                    if folder.chatsByID[id] != nil {
                         updated.removeAll { $0.id == id }
                         membershipChanged = true
                     }
@@ -293,7 +293,7 @@ extension RootVM {
                 SavedMediaDebugProbe.runIfRequested(chat: latest)
                 ParityFixtureDebugProbe.runIfRequested(chat: latest)
                 #endif
-                if let existing = updated.first(where: { $0.id == id }) {
+                if let existing = folder.chatsByID[id] {
                     existing.chat = latest.chat
                     // A held list keeps its order until the renewed client's order is complete, so rows do not
                     // swap while positions arrive one update at a time.

@@ -68,6 +68,8 @@ final class TelegramListNavigationBar: UIView {
     private var currentScrollOffset = CGFloat.zero
     /// How far the list is pulled past its top.
     private var currentOverscroll = CGFloat.zero
+    /// The last scroll state applied: the search field's collapse, the pull and whether search was active.
+    private var appliedScroll: (CGFloat, CGFloat, Bool)?
     private var searchTopConstraint: NSLayoutConstraint!
 
     var rightButtonView: UIView { rightButton }
@@ -121,8 +123,13 @@ final class TelegramListNavigationBar: UIView {
     /// leaves that pull unclipped: the bar grows with it and the search field rides down above the first row.
     func applyScroll(offset: CGFloat, animated: Bool = false) {
         let clipped = min(max(0, offset), ChatListNavigationSearchView.scrollHeight)
+        let overscroll = isSearchActive ? 0 : max(0, -offset)
+        // ChatListNavigationBar's applyScroll returns early too: a list scrolled past the search field changes
+        // nothing here, and restyling the field on every scroll event cost the scrolling list frames.
+        if !animated, let last = appliedScroll, last == (clipped, overscroll, isSearchActive) { return }
+        appliedScroll = (clipped, overscroll, isSearchActive)
         currentScrollOffset = clipped
-        currentOverscroll = isSearchActive ? 0 : max(0, -offset)
+        currentOverscroll = overscroll
         searchTopConstraint.constant = Self.titleHeight + currentOverscroll
         guard !isSearchActive else {
             searchView.applyScroll(offset: clipped, animated: false)

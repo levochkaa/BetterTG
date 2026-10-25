@@ -23,6 +23,8 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     private var searchCenterYConstraint: NSLayoutConstraint!
     private var requestedScrollOffset = CGFloat.zero
     private var lastContentAlpha: CGFloat = 1
+    /// The alpha the text colours and placeholder were last built with.
+    private var appliedTextAlpha: CGFloat?
 
     var isActive: Bool { searchField.isFirstResponder }
     var hasMarkedText: Bool { searchField.markedTextRange != nil }
@@ -61,9 +63,9 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
             self.lastContentAlpha = contentAlpha
             self.updateSearchContentAlpha(contentAlpha)
             self.isUserInteractionEnabled = self.isActive || fieldHeight > 12
-            self.layoutIfNeeded()
         }
         guard animated else {
+            // The frame's layout pass applies the constraints; forcing it on every scroll event cost frames.
             changes()
             return
         }
@@ -73,14 +75,17 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
             usingSpringWithDamping: 0.9,
             initialSpringVelocity: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
-            animations: changes,
-        )
+        ) {
+            changes()
+            self.layoutIfNeeded()
+        }
     }
 
     func setPlaceholder(_ value: String) {
         guard placeholder != value else { return }
         placeholder = value
         searchField.placeholder = value
+        appliedTextAlpha = nil
         updateSearchContentAlpha(lastContentAlpha)
     }
 
@@ -187,6 +192,9 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
 
     private func updateSearchContentAlpha(_ alpha: CGFloat) {
         searchField.leftView?.alpha = alpha
+        // The colours and placeholder change only with the alpha; rebuilding them on every scroll step cost frames.
+        guard alpha != appliedTextAlpha else { return }
+        appliedTextAlpha = alpha
         searchField.textColor = UIColor.label.withAlphaComponent(alpha)
         searchField.tintColor = UIColor.systemBlue.withAlphaComponent(alpha)
         searchField.attributedPlaceholder = NSAttributedString(

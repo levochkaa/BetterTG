@@ -12,7 +12,12 @@ import TDLibKit
         case folder(ChatFolderInfo, ChatFolder)
     }
 
-    @Published var chats: [CustomChat]
+    @Published var chats: [CustomChat] {
+        didSet { chatsByID = Self.index(chats) }
+    }
+
+    /// The folder's chats by ID, so a chat update finds its row without walking the list.
+    private(set) var chatsByID: [Int64: CustomChat]
     @Published var isLoading = false
     @Published var loadError: String?
     var hasMoreChats = true
@@ -46,7 +51,12 @@ import TDLibKit
 
     init(chats: [CustomChat], type: CustomFolderType) {
         self.chats = chats
+        self.chatsByID = Self.index(chats)
         self.type = type
+    }
+
+    private static func index(_ chats: [CustomChat]) -> [Int64: CustomChat] {
+        Dictionary(chats.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// Takes the folder's new definition from TDLib. Only a folder keeps its identity; main and archive don't change.

@@ -15,6 +15,13 @@ import TDLibKit
         case chats(Set<Int64>)
     }
 
+    /// A person, basic group or supergroup whose chats a peer update redraws.
+    private enum PeerKey: Hashable {
+        case user(Int64)
+        case basicGroup(Int64)
+        case supergroup(Int64)
+    }
+
     static let shared = TelegramChatListStore()
 
     let changes = PassthroughSubject<Change, Never>()
@@ -25,12 +32,25 @@ import TDLibKit
     private(set) var folderConfiguration: UpdateChatFolders?
 
     private var records = [Int64: ChatListRecord]()
+    /// The chats of each peer, so a peer update finds them without going through every chat. A chat's type never
+    /// changes, so the index is set once per chat.
+    private var chatIDsByPeer = [PeerKey: Set<Int64>]()
     private var users = [Int64: User]()
     private var groups = [Int64: BasicGroup]()
     private var supergroups = [Int64: Supergroup]()
     /// TDLib names communities only by updateCommunity; service messages about them need the name.
     private var communityNames = [Int64: String]()
     private var onlineMemberCounts = [Int64: Int]()
+
+    /// A person's update redraws their private chat (not a secret one); a group's, its chat.
+    private static func peerKey(of record: ChatListRecord) -> PeerKey? {
+        switch record.type {
+        case .chatTypePrivate(let peer): .user(peer.userId)
+        case .chatTypeBasicGroup(let peer): .basicGroup(peer.basicGroupId)
+        case .chatTypeSupergroup(let peer): .supergroup(peer.supergroupId)
+        case .chatTypeSecret: nil
+        }
+    }
 
     /// The chat's online members as TDLib last reported them for this client; 0 when unknown.
     func onlineMemberCount(chatID: Int64, clientID: Int32) -> Int {
@@ -42,6 +62,7 @@ import TDLibKit
             self.accountID = accountID
             self.clientID = clientID
             records = [:]
+            chatIDsByPeer = [:]
             users = [:]
             groups = [:]
             supergroups = [:]
@@ -55,33 +76,25 @@ import TDLibKit
             folderConfiguration = value
             changes.send(.folders)
         case .updateNewChat(let value):
-            records[value.chat.id] = ChatListRecord(value.chat)
+            let record = ChatListRecord(value.chat)
+            records[value.chat.id] = record
+            if let key = Self.peerKey(of: record) { chatIDsByPeer[key, default: []].insert(value.chat.id) }
             changes.send(.chats([value.chat.id]))
         case .updateUser(let value):
             users[value.user.id] = value.user
             ChatListSenderNames.shared.receive(value.user, clientID: clientID)
-            changedPeers { record in
-                if case .chatTypePrivate(let peer) = record.type { peer.userId == value.user.id } else { false }
-            }
+            changedPeers(.user(value.user.id))
         case .updateUserStatus(let value):
             // ChatListItem's online marker follows the person's presence.
             guard let user = users[value.userId] else { break }
             users[value.userId] = user.replacingStatus(value.status)
-            changedPeers { record in
-                if case .chatTypePrivate(let peer) = record.type { peer.userId == value.userId } else { false }
-            }
+            changedPeers(.user(value.userId))
         case .updateBasicGroup(let value):
             groups[value.basicGroup.id] = value.basicGroup
-            changedPeers { record in
-                if case .chatTypeBasicGroup(let peer) = record.type { peer.basicGroupId == value.basicGroup.id }
-                else { false }
-            }
+            changedPeers(.basicGroup(value.basicGroup.id))
         case .updateSupergroup(let value):
             supergroups[value.supergroup.id] = value.supergroup
-            changedPeers { record in
-                if case .chatTypeSupergroup(let peer) = record.type { peer.supergroupId == value.supergroup.id }
-                else { false }
-            }
+            changedPeers(.supergroup(value.supergroup.id))
         case .updateCommunity(let value):
             communityNames[value.community.id] = value.community.name
         case .updateChatPosition(let value):
@@ -282,9 +295,9 @@ import TDLibKit
         changes.send(.chats([id]))
     }
 
-    private func changedPeers(where matches: (ChatListRecord) -> Bool) {
-        let ids = Set(records.values.filter(matches).map(\.id))
-        if !ids.isEmpty { changes.send(.chats(ids)) }
+    private func changedPeers(_ key: PeerKey) {
+        guard let ids = chatIDsByPeer[key], !ids.isEmpty else { return }
+        changes.send(.chats(ids))
     }
 }
 

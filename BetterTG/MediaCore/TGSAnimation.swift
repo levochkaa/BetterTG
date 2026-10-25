@@ -103,6 +103,8 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     private var playbackVisible = false
     /// A looping sticker held to one pass by Power Saving has played it.
     private var energyPassPlayed = false
+    /// The loaded animation a TGSSetupHold keeps from being built.
+    private var deferredAnimation: LottieAnimation?
     /// The loops `loopLimit` allows have played.
     private var limitedLoopsPlayed = false
     private var onTap: (() -> Void)?
@@ -154,6 +156,12 @@ final class TGSStickerView: UIControl, AnimatedFileView {
             self,
             selector: #selector(playbackHoldChanged),
             name: TGSPlaybackHold.didChange,
+            object: nil,
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(setupHoldChanged),
+            name: TGSSetupHold.didChange,
             object: nil,
         )
         NotificationCenter.default.addObserver(
@@ -214,6 +222,7 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         fileRequest = nil
         representedFileID = nil
         loadedPath = nil
+        deferredAnimation = nil
         onTap = nil
         onFirstFrameReady = nil
         isUserInteractionEnabled = false
@@ -275,6 +284,12 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     }
 
     private func show(animation: LottieAnimation?) {
+        if let animation, TGSSetupHold.isActive, animationView.animation == nil {
+            // A scrolling list keeps the thumbnail; the animation is built once the list settles.
+            deferredAnimation = animation
+            return
+        }
+        deferredAnimation = nil
         guard let animation else {
             animationView.stop()
             animationView.animation = nil
@@ -457,6 +472,15 @@ final class TGSStickerView: UIControl, AnimatedFileView {
 
     /// Resumes after a hold, one sticker per frame, so the chat doesn't rebuild every animation in one frame. A hold
     /// that pauses playback stops a playing sticker on its current frame.
+    /// Builds a deferred animation once the setup hold ends, one sticker per frame.
+    @objc private func setupHoldChanged() {
+        guard !TGSSetupHold.isActive, let animation = deferredAnimation else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + TGSSetupHold.nextSetupDelay()) { [weak self] in
+            guard let self, deferredAnimation === animation, !TGSSetupHold.isActive else { return }
+            show(animation: animation)
+        }
+    }
+
     @objc private func playbackHoldChanged() {
         if TGSPlaybackHold.pausesPlayback {
             freezeAnimationClock()
@@ -469,6 +493,44 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         DispatchQueue.main.asyncAfter(deadline: .now() + TGSPlaybackHold.nextResumeDelay()) { [weak self] in
             self?.updatePlayback()
         }
+    }
+}
+
+// MARK: - TGSSetupHold
+
+/// Keeps stickers and emoji that finish loading from building their Lottie animation while a hold is active. The Core
+/// Animation engine builds every animation's layers and keyframes on the main thread, and a chat list scrolled past
+/// rows with emoji statuses and custom emoji built several per frame and stuttered; Telegram renders them off the main
+/// thread. Rows keep their thumbnails while the list moves and build the animations once it settles, one per frame.
+@MainActor final class TGSSetupHold {
+    static let didChange = Notification.Name("TGSSetupHoldDidChange")
+
+    private static var activeCount = 0
+    private static var setupOrder = 0
+
+    static var isActive: Bool { activeCount > 0 }
+
+    private var isReleased = false
+
+    init() {
+        if Self.activeCount == 0 { Self.setupOrder = 0 }
+        Self.activeCount += 1
+    }
+
+    isolated deinit { release() }
+
+    /// Spreads the deferred builds over frames, one per 1/60 s.
+    static func nextSetupDelay() -> TimeInterval {
+        defer { setupOrder += 1 }
+        return TimeInterval(setupOrder) / 60
+    }
+
+    func release() {
+        guard !isReleased else { return }
+        isReleased = true
+        Self.activeCount -= 1
+        guard Self.activeCount == 0 else { return }
+        NotificationCenter.default.post(name: Self.didChange, object: nil)
     }
 }
 
