@@ -94,7 +94,8 @@ enum PeerCredibilityBadge: Equatable {
         return result
     }
 
-    private func image(font: UIFont) -> UIImage {
+    /// The icon sized to the title's font.
+    func image(font: UIFont) -> UIImage {
         switch self {
         case .verified:
             let configuration = UIImage.SymbolConfiguration(pointSize: font.pointSize * 0.85, weight: .semibold)

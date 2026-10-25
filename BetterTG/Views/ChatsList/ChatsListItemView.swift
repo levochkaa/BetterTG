@@ -49,6 +49,11 @@ final class ChatListCell: UITableViewCell {
     private let storyRingView = StoryAvatarRingView(activeLineWidth: 2.33, inactiveLineWidth: 1.33)
     private lazy var storyTapGesture = UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
     private let titleLabel = UILabel()
+    /// ChatListItem's icons after the title: the emoji status or Premium star, then the credibility badge.
+    private let titleIconsView = UIStackView()
+    private let emojiStatusView = PeerEmojiStatusView()
+    private let credibilityView = UIImageView()
+    private var titleIconsLeading: NSLayoutConstraint!
     private let messageLabel = UILabel()
     /// ChatListItem's `forumThread`: the topic of a forum's last message, on its own line above the text.
     private let topicIconView = ChatListTopicIconView()
@@ -187,12 +192,9 @@ final class ChatListCell: UITableViewCell {
     /// Telegram draws a secret chat's title in green after a lock (`ChatListItem`, `secretTitleColor`).
     private static func title(for chat: CustomChat, font: UIFont) -> NSAttributedString {
         guard chat.secretChatID != nil else {
-            // ChatListItem's credibility icon after the title.
-            return PeerCredibilityBadge.title(
-                chat.displayTitle,
-                badge: PeerCredibilityBadge(chat: chat),
-                font: font,
-                color: .label,
+            return NSAttributedString(
+                string: chat.displayTitle,
+                attributes: [.font: font, .foregroundColor: UIColor.label],
             )
         }
         let configuration = UIImage.SymbolConfiguration(font: font, scale: .small)
@@ -286,6 +288,7 @@ final class ChatListCell: UITableViewCell {
         configuredClient = client
         pinned = chat.position.isPinned
         titleLabel.attributedText = Self.title(for: chat, font: titleLabel.font)
+        updateTitleIcons(for: chat, client: client)
         let shownMessage = chat.draftMessage == nil ? chat.lastMessage : nil
         let album = shownMessage.map { message in
             ChatListAlbumMessages.shared.messages(endingWith: message, client: client) { [weak self] in
@@ -397,6 +400,18 @@ final class ChatListCell: UITableViewCell {
             .compactMap(\.self)
             .joined(separator: ", ")
         accessibilityTraits = .button
+    }
+
+    /// ChatListItem's title icons: none for a SCAM or FAKE peer's emoji status, and the verified badge in the
+    /// Premium star's place.
+    private func updateTitleIcons(for chat: CustomChat, client: TDLibClient) {
+        let badge = PeerCredibilityBadge(chat: chat)
+        let status = PeerEmojiStatus(chat: chat, badge: badge)
+        emojiStatusView.configure(status, client: client)
+        emojiStatusView.isHidden = status == nil
+        credibilityView.image = badge?.image(font: titleLabel.font)
+        credibilityView.isHidden = badge == nil
+        titleIconsLeading.constant = status == nil && badge == nil ? 0 : 3
     }
 
     /// ChatListItem's `forumThread`: a forum's last message names its topic, the icon and title in the author colour
@@ -564,7 +579,8 @@ final class ChatListCell: UITableViewCell {
         contentView.addSubview(rowView)
 
         for item in [
-            avatarView, storyRingView, titleLabel, headerAccessoryRow, messageLabel, trailingBadges, separatorView,
+            avatarView, storyRingView, titleLabel, titleIconsView, headerAccessoryRow, messageLabel, trailingBadges,
+            separatorView,
             topicIconView, topicLabel,
         ] {
             item.translatesAutoresizingMaskIntoConstraints = false
@@ -580,6 +596,18 @@ final class ChatListCell: UITableViewCell {
         avatarView.addGestureRecognizer(storyTapGesture)
         storyTapGesture.isEnabled = false
         separatorView.backgroundColor = .separator
+
+        // ChatListItem keeps 4 pt between the title's icons and centres them on its line.
+        titleIconsView.axis = .horizontal
+        titleIconsView.alignment = .center
+        titleIconsView.spacing = 4
+        titleIconsView.addArrangedSubview(emojiStatusView)
+        titleIconsView.addArrangedSubview(credibilityView)
+        emojiStatusView.isHidden = true
+        // The title truncates before its icons do.
+        credibilityView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        credibilityView.contentMode = .center
+        credibilityView.isHidden = true
 
         headerAccessoryRow.axis = .horizontal
         headerAccessoryRow.alignment = .center
@@ -923,6 +951,8 @@ final class ChatListCell: UITableViewCell {
         // The stack collapses a hidden slot or badge to zero width.
         accessoryWidthConstraint.priority = .required - 1
         let mentionBadgeWidth = mentionBadgeView.widthAnchor.constraint(equalToConstant: 20)
+        // The icons start 3 pt after the title's last glyph.
+        titleIconsLeading = titleIconsView.leadingAnchor.constraint(equalTo: titleLabel.trailingAnchor)
         mentionBadgeWidth.priority = .required - 1
         NSLayoutConstraint.activate([
             avatarView.leadingAnchor.constraint(equalTo: rowView.leadingAnchor, constant: 10),
@@ -935,6 +965,11 @@ final class ChatListCell: UITableViewCell {
             storyRingView.heightAnchor.constraint(equalToConstant: 60),
             titleLabel.leadingAnchor.constraint(equalTo: avatarView.trailingAnchor, constant: 10),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: headerAccessoryRow.leadingAnchor, constant: -6),
+            titleIconsLeading,
+            titleIconsView.trailingAnchor.constraint(lessThanOrEqualTo: headerAccessoryRow.leadingAnchor, constant: -6),
+            titleIconsView.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            emojiStatusView.widthAnchor.constraint(equalToConstant: PeerEmojiStatusView.side),
+            emojiStatusView.heightAnchor.constraint(equalToConstant: PeerEmojiStatusView.side),
             headerAccessoryRow.trailingAnchor.constraint(equalTo: rowView.trailingAnchor, constant: -14),
             headerAccessoryRow.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             messageLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
@@ -1025,8 +1060,9 @@ final class ChatListCell: UITableViewCell {
         titleLabel.adjustsFontForContentSizeCategory = usesCardStyle
         messageLabel.adjustsFontForContentSizeCategory = usesCardStyle
         if let chat = configuredChat {
-            // The secret chat lock is sized to the title font.
+            // The secret chat lock and the credibility badge are sized to the title font.
             titleLabel.attributedText = Self.title(for: chat, font: titleLabel.font)
+            if let client = configuredClient { updateTitleIcons(for: chat, client: client) }
         }
         updateBackground(highlighted: showsHighlight, animated: false)
     }
