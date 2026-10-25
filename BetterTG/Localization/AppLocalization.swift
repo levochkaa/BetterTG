@@ -539,11 +539,11 @@ final class AppLocalization: @unchecked Sendable {
             }
             return (bundledTelegramString(key + "_any"), "en")
         }
-        // Telegram's plural strings take the count as %@, and a few as %d.
-        let argument: CVarArg = result.0.contains("%d")
-            ? Int32(clamping: count)
-            : (formattedCount ?? Self.formattedNumber(count)) as NSString
-        return Self.format(result.0, localeID: result.1, arguments: [argument])
+        // Telegram's plural strings take the count as %@, and a few as %d; its generated strings put the count in
+        // with the grouping separator either way (formatNumberWithGroupingSeparator).
+        let template = result.0.replacing(/%(\d+\$)?d/) { "%\($0.1 ?? "")@" }
+        let argument = (formattedCount ?? Self.formattedNumber(count)) as NSString
+        return Self.format(template, localeID: result.1, arguments: [argument])
     }
 
     func betterTGString(_ key: String, arguments: [CVarArg] = []) -> String {
