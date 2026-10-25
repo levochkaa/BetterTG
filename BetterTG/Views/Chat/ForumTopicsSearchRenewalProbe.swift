@@ -7,7 +7,7 @@ import UIKit
 
 /// The production controller, its classic navigation search field and its table run against isolated view models.
 /// No TDLib lease, RPC, global account mutation or navigation write is issued. Ported from the astra probe
-/// (2787f32), which drove a UISearchController: the classic field is active exactly while it is focused, so an
+/// (6716537), which drove a UISearchController: the classic field is active exactly while it is focused, so an
 /// unfocused search renews through the navigation replacement path instead of in place.
 @MainActor enum ForumTopicsSearchRenewalProbe {
     // MARK: Private
