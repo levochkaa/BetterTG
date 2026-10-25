@@ -2710,3 +2710,7 @@
 "StickerPack.EmojiCount_any" = "%@ emoji";
 "StickerPacksSettings.DynamicOrder" = "Dynamic Pack Order";
 "StickerPacksSettings.DynamicOrderInfo" = "Recently used sticker packs will be displayed above the older ones.";
+"StickerPacksSettings.TrendingStickers" = "Trending Stickers";
+"Stickers.Search" = "Search Stickers";
+"Stickers.Installed" = "ADDED";
+"FeaturedStickers.OtherSection" = "OTHER STICKERS";

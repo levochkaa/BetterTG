@@ -564,23 +564,6 @@ UISearchBarDelegate {
         }
     }
 
-    /// StickerPaneSearchContentNode: the installed packs matching the query (searchStickerSets), then the server's
-    /// (searchStickerSetsRemotely), for a single emoji or at least two characters.
-    private static func foundStickerSets(query: String, client: TDLibClient) async -> [TDNativeStickerSetInfo] {
-        let isSingleEmoji = query.count == 1 && query.unicodeScalars.contains { $0.properties.isEmojiPresentation }
-        guard query.count >= 2 || isSingleEmoji else { return [] }
-        async let installedRequest = client.send(TDNativeRequests.searchInstalledStickerSets(
-            stickerType: .stickerTypeRegular, query: query, limit: 20,
-        ))
-        async let remoteRequest = client.send(TDNativeRequests.searchStickerSets(
-            stickerType: .stickerTypeRegular, query: query,
-        ))
-        let installed = await (try? installedRequest)?.sets ?? []
-        let remote = await (try? remoteRequest)?.sets ?? []
-        var seen = Set<Int64>()
-        return (installed + remote).filter { seen.insert($0.id).inserted }
-    }
-
     func scrollToTop() {
         let inset = collectionView.adjustedContentInset
         collectionView.setContentOffset(CGPoint(x: -inset.left, y: -inset.top), animated: true)
@@ -935,7 +918,7 @@ UISearchBarDelegate {
                 query: query,
                 stickerType: .stickerTypeRegular,
             )
-            async let packsRequest = Self.foundStickerSets(query: query, client: client)
+            async let packsRequest = StickerSetSearch.sets(matching: query, client: client)
             let result = try? await request
             let packs = await packsRequest
             guard !Task.isCancelled, contextIsCurrent, mode == .stickers else { return }

@@ -49,7 +49,8 @@ enum StickerPackOrder {
 
 // MARK: - InstalledStickerSetsViewController
 
-/// InstalledStickerPacksController. Stickers: Archived Stickers and Emoji with their counts, Suggest Stickers by
+/// InstalledStickerPacksController. Stickers: Trending Stickers, Archived Stickers and Emoji with their counts, Suggest
+/// Stickers by
 /// Emoji, Large Emoji (TDLib's `disable_animated_emoji`), Dynamic Pack Order, then My Stickers with the @stickers note.
 /// Emoji: Archived
 /// Emoji and the custom emoji sets. A set opens its preview; Telegram's Delete swipe asks whether to archive or delete
@@ -88,6 +89,7 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
     private let mode: Mode
     private var sets: [TDNativeStickerSetInfo]?
     private var archivedCount = 0
+    private var trendingCount = 0
     private var emojiCount = 0
     private var largeEmoji = true
     private var loadTask: Task<Void, Never>?
@@ -159,6 +161,18 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
         guard let sets else { return [] }
         var sections = [SettingsSection]()
         var shortcuts = [SettingsRow]()
+        if trendingCount > 0 {
+            var trending = SettingsRow(
+                title: L10n.telegram("StickerPacksSettings.TrendingStickers"),
+                symbol: "flame",
+                accessory: .disclosure,
+            ) { [weak self] in
+                guard let self else { return }
+                FeaturedStickersViewController.present(from: self)
+            }
+            trending.badge = trendingCount.formatted(.number)
+            shortcuts.append(trending)
+        }
         if archivedCount > 0 {
             shortcuts.append(SettingsRow(
                 title: L10n.telegram(mode == .stickers
@@ -322,8 +336,15 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
                 limit: 1,
             ))
             var emojiCount = 0
+            var trendingCount = 0
             var largeEmoji = true
             if mode == .stickers {
+                let trending = try? await client.send(TDNativeRequests.getTrendingStickerSets(
+                    stickerType: .stickerTypeRegular,
+                    offset: 0,
+                    limit: 100,
+                ))
+                trendingCount = trending?.sets.count ?? 0
                 let emoji = try? await client.send(TDNativeRequests.getInstalledStickerSets(
                     stickerType: .stickerTypeCustomEmoji,
                 ))
@@ -338,6 +359,7 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
             sets = installed.sets
             archivedCount = archived?.totalCount ?? 0
             self.emojiCount = emojiCount
+            self.trendingCount = trendingCount
             self.largeEmoji = largeEmoji
             reload()
             updateNavigationItems()

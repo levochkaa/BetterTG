@@ -44,6 +44,8 @@ struct SettingsRow {
     var action: (() -> Void)?
     /// Telegram's revealed row option, such as Terminate, Unblock or Remove from Exceptions.
     var swipeAction: (title: String, handler: () -> Void)?
+    /// ItemListDisclosureItem's `.badge` label: the text on an accent pill before the disclosure arrow.
+    var badge: String?
 }
 
 // MARK: - SettingsPeer
@@ -414,6 +416,54 @@ class SettingsListViewController: UITableViewController {
             indicator.startAnimating()
             cell.accessoryView = indicator
         }
+        if let badge = row.badge {
+            if case .disclosure = row.accessory {
+                cell.accessoryType = .none
+            }
+            cell.accessoryView = SettingsBadgeAccessoryView(text: badge, showsDisclosure: cell.accessoryView == nil)
+        }
+    }
+}
+
+// MARK: - SettingsBadgeAccessoryView
+
+/// ItemListDisclosureItem's badge: the text in 15 pt white on a 20 pt accent pill, 6 pt before the arrow.
+private final class SettingsBadgeAccessoryView: UIView {
+    init(text: String, showsDisclosure: Bool) {
+        super.init(frame: .zero)
+        let label = UILabel()
+        label.text = text
+        label.font = .systemFont(ofSize: 15)
+        label.textColor = .white
+        label.textAlignment = .center
+        let pill = UIView()
+        pill.backgroundColor = .tintColor
+        pill.layer.cornerRadius = 10
+        pill.addSubview(label)
+        let labelSize = label.intrinsicContentSize
+        let pillWidth = max(20, ceil(labelSize.width) + 12)
+        pill.frame = CGRect(x: 0, y: 0, width: pillWidth, height: 20)
+        label.frame = pill.bounds
+        addSubview(pill)
+        var width = pillWidth
+        if showsDisclosure {
+            let arrow = UIImageView(image: UIImage(
+                systemName: "chevron.forward",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold),
+            ))
+            arrow.tintColor = .tertiaryLabel
+            arrow.sizeToFit()
+            arrow.frame.origin = CGPoint(x: pillWidth + 6, y: (20 - arrow.bounds.height) / 2)
+            addSubview(arrow)
+            width = arrow.frame.maxX
+        }
+        frame = CGRect(x: 0, y: 0, width: width, height: 20)
+        isAccessibilityElement = true
+        accessibilityLabel = text
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 }
 
