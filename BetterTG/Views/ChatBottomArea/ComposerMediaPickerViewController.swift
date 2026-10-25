@@ -52,7 +52,9 @@ UIPageViewControllerDelegate {
     var onDismiss: (() -> Void)?
     var onEmoji: ((String) -> Void)?
     var onCustomEmoji: ((Sticker) -> Void)?
-    var onSticker: ((Sticker) -> Void)?
+    /// A sticker tapped; `fromPack` when it was chosen in its installed pack's section rather than Favorites, Recently
+    /// Used or a search.
+    var onSticker: ((_ sticker: Sticker, _ fromPack: Bool) -> Void)?
     /// The chat's items at the top of a sticker's peek menu, Send Silently and Schedule Message
     /// (ChatEntityKeyboardInputNode); nil where the picker chooses a sticker without sending it.
     var stickerSendActions: ((Sticker) -> [TelegramContextMenuAction])?
@@ -488,7 +490,7 @@ UISearchBarDelegate {
     private var onInlineAnimation: ((Int64, String) -> Void)? { container?.onInlineAnimation }
     private var onEmoji: ((String) -> Void)? { container?.onEmoji }
     private var onCustomEmoji: ((Sticker) -> Void)? { container?.onCustomEmoji }
-    private var onSticker: ((Sticker) -> Void)? { container?.onSticker }
+    private var onSticker: ((Sticker, Bool) -> Void)? { container?.onSticker }
     private var stickerSendActions: ((Sticker) -> [TelegramContextMenuAction])? { container?.stickerSendActions }
     private var allowsStickersAndGIFs: Bool { container?.allowsStickersAndGIFs ?? false }
     private var presentationStyle: ComposerMediaPickerViewController.PresentationStyle {
@@ -612,7 +614,15 @@ UISearchBarDelegate {
                     return
                 }
                 onCustomEmoji?(sticker)
-            } else { onSticker?(sticker) }
+            } else {
+                let fromPack =
+                    if case .groupedSticker(.pack, _) = item {
+                        true
+                    } else {
+                        false
+                    }
+                onSticker?(sticker, fromPack)
+            }
         case .animation(let id):
             guard let animation = animations[id] else { return }
             onAnimation?(animation)
@@ -1367,7 +1377,13 @@ UISearchBarDelegate {
 
     private func openStickerSet(_ setID: Int64) {
         guard contextIsCurrent, presenter.presentedViewController == nil else { return }
-        let sendSticker = allowsStickersAndGIFs ? onSticker : nil
+        // A sticker sent from the pack's screen leaves the pack order alone.
+        let sendSticker: ((Sticker) -> Void)? =
+            if allowsStickersAndGIFs, let onSticker {
+                { onSticker($0, false) }
+            } else {
+                nil
+            }
         StickerPackPreviewViewController.present(setID: setID, client: client, from: presenter, onSend: sendSticker)
     }
 

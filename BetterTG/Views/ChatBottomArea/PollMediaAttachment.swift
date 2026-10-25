@@ -611,7 +611,7 @@ struct PollDraftMedia {
         let picker = ComposerMediaPickerViewController(accountID: accountID, chatID: chatID, client: client)
         picker.showsStickersOnly = true
         picker.stickersSubtitle = L10n.telegram("StickerPicker.PollSubtitle.PollOption")
-        picker.onSticker = { [self, weak picker] sticker in
+        picker.onSticker = { [self, weak picker] sticker, _ in
             let media = PollDraftMedia.sticker(sticker)
             isLoading = true
             // The sheet and a pack it opened close together, from the poll creator's sheet.

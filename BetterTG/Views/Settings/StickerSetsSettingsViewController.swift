@@ -34,10 +34,24 @@ enum StickerSuggestionMode: String, CaseIterable {
     }
 }
 
+// MARK: - StickerPackOrder
+
+/// StickerSettings' dynamicPackOrder: a sticker sent from its pack in the keyboard moves the pack to the top.
+enum StickerPackOrder {
+    private static let defaultsKey = "BetterTG.dynamicStickerPackOrder"
+
+    /// On by default, as in Telegram.
+    static var isDynamic: Bool {
+        get { UserDefaults.standard.object(forKey: defaultsKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: defaultsKey) }
+    }
+}
+
 // MARK: - InstalledStickerSetsViewController
 
 /// InstalledStickerPacksController. Stickers: Archived Stickers and Emoji with their counts, Suggest Stickers by
-/// Emoji, Large Emoji (TDLib's `disable_animated_emoji`), then My Stickers with the @stickers note. Emoji: Archived
+/// Emoji, Large Emoji (TDLib's `disable_animated_emoji`), Dynamic Pack Order, then My Stickers with the @stickers note.
+/// Emoji: Archived
 /// Emoji and the custom emoji sets. A set opens its preview; Telegram's Delete swipe asks whether to archive or delete
 /// it, with Undo; Edit selects sets to delete, archive or share and drags them into a new order.
 final class InstalledStickerSetsViewController: SettingsListViewController, UITextViewDelegate {
@@ -174,7 +188,7 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
         suggestionSection = nil
         if mode == .stickers {
             suggestionSection = sections.count
-            sections.append(SettingsSection(rows: [
+            sections.append(SettingsSection(footer: L10n.telegram("StickerPacksSettings.DynamicOrderInfo"), rows: [
                 SettingsRow(
                     title: L10n.telegram("Stickers.SuggestStickers"),
                     detail: StickerSuggestionMode.current.title,
@@ -183,6 +197,10 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
                 SettingsRow(
                     title: L10n.telegram("Appearance.LargeEmoji"),
                     accessory: .toggle(isOn: largeEmoji) { [weak self] isOn in self?.setLargeEmoji(isOn) },
+                ),
+                SettingsRow(
+                    title: L10n.telegram("StickerPacksSettings.DynamicOrder"),
+                    accessory: .toggle(isOn: StickerPackOrder.isDynamic) { StickerPackOrder.isDynamic = $0 },
                 ),
             ]))
         }

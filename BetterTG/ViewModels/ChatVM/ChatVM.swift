@@ -1875,6 +1875,28 @@ import UIKit
         return video.url.pathExtension.lowercased() == "mp4"
     }
 
+    /// The options with updateOrderOfInstalledStickerSets on when `condition` holds; nil stands for the defaults.
+    private static func movingPackUp(
+        _ options: TDNativeMessageSendOptions?,
+        when condition: Bool,
+    ) -> TDNativeMessageSendOptions? {
+        guard condition else { return options }
+        let options = options ?? sendOptions()
+        return TDNativeMessageSendOptions(
+            suggestedPostInfo: options.suggestedPostInfo,
+            disableNotification: options.disableNotification,
+            fromBackground: options.fromBackground,
+            protectContent: options.protectContent,
+            allowPaidBroadcast: options.allowPaidBroadcast,
+            paidMessageStarCount: options.paidMessageStarCount,
+            updateOrderOfInstalledStickerSets: true,
+            schedulingState: options.schedulingState,
+            effectId: options.effectId,
+            sendingId: options.sendingId,
+            onlyPreview: options.onlyPreview,
+        )
+    }
+
     /// StickerSettings' emojiStickerSuggestionMode over getStickers: None suggests nothing; My Sets keeps the
     /// installed sets' stickers and the favourite and recent ones, searchStickers' `.installed` scope.
     private static func suggestedStickers(for emoji: String, chatID: Int64, client: TDLibClient) async -> [Sticker] {
@@ -4275,7 +4297,9 @@ import UIKit
         }
     }
 
-    func sendSticker(_ sticker: Sticker, options: TDNativeMessageSendOptions? = nil) async {
+    /// `fromPack`: the sticker was chosen in its installed pack's section, which Dynamic Pack Order moves to the top
+    /// (sendMessage's updateOrderOfInstalledStickerSets, ChatEntityKeyboardInputNode's bubbleUpEmojiOrStickersets).
+    func sendSticker(_ sticker: Sticker, options: TDNativeMessageSendOptions? = nil, fromPack: Bool = false) async {
         // A sticker or GIF chosen while the composer's message is still sending goes out after it, as Telegram
         // queues sends, instead of being dropped.
         await waitForComposerSend()
@@ -4309,7 +4333,7 @@ import UIKit
                         width: sticker.width,
                     ),
                 )),
-                options: options ?? defaultSendOptions,
+                options: Self.movingPackUp(options ?? defaultSendOptions, when: fromPack && StickerPackOrder.isDynamic),
                 replyMarkup: nil,
                 replyTo: context.replyTo,
                 topicId: context.destinationTopic,

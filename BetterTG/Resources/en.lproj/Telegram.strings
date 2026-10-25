@@ -2708,3 +2708,5 @@
 "StickerPacks.DeleteEmojiPacksConfirmation_any" = "Delete %@ Emoji Packs";
 "StickerPack.EmojiCount_1" = "1 emoji";
 "StickerPack.EmojiCount_any" = "%@ emoji";
+"StickerPacksSettings.DynamicOrder" = "Dynamic Pack Order";
+"StickerPacksSettings.DynamicOrderInfo" = "Recently used sticker packs will be displayed above the older ones.";

@@ -1568,10 +1568,10 @@ final class ChatComposerView: UIView {
         }
         picker.onDeleteBackward = { [weak self] in self?.textView.deleteBackwardFromPanel() }
         picker.onSwitchToKeyboard = { [weak self] in self?.textView.becomeFirstResponder() }
-        picker.onSticker = { [weak self] sticker in
+        picker.onSticker = { [weak self] sticker, fromPack in
             guard let self, chatVM.locationContextIsCurrent else { return }
             let chatVM = chatVM
-            Task { await chatVM.sendSticker(sticker) }
+            Task { await chatVM.sendSticker(sticker, fromPack: fromPack) }
         }
         picker.stickerSendActions = { [weak self] sticker in self?.stickerPeekSendActions?(sticker) ?? [] }
         picker.onAnimation = { [weak self] animation in

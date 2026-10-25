@@ -8556,10 +8556,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             self?.composerView.insertEmoji(sticker.emoji, customID: type.customEmojiId)
         }
         picker.onDismiss = { [weak self] in self?.retryClientRestoration() }
-        picker.onSticker = { [weak self, weak picker, weak chatVM] sticker in
+        picker.onSticker = { [weak self, weak picker, weak chatVM] sticker, fromPack in
             picker?.navigationController?.dismiss(animated: true) {
                 self?.retryClientRestoration()
-                Task { await chatVM?.sendSticker(sticker) }
+                Task { await chatVM?.sendSticker(sticker, fromPack: fromPack) }
             }
         }
         picker.stickerSendActions = { [weak self, weak picker] sticker in

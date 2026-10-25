@@ -128,7 +128,7 @@
                 packTitle: "Peek Probe",
                 pack: Array(stickers[6...]),
             )
-            picker.onSticker = { record("Sticker peek probe sent \($0.emoji) by tap") }
+            picker.onSticker = { sticker, _ in record("Sticker peek probe sent \(sticker.emoji) by tap") }
             picker.onProbeStickerAction = { action, sticker in
                 record("Sticker peek probe action \(action) for \(sticker.emoji)")
             }
