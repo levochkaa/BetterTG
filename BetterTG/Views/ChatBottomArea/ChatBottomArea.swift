@@ -2435,6 +2435,7 @@ final class ChatComposerView: UIView {
                 startLockedRecordingForAccessibility()
             } else {
                 toggleMediaRecordingMode()
+                showMediaRecordingModeTooltip()
             }
             return
         }
@@ -2573,6 +2574,27 @@ final class ChatComposerView: UIView {
                 onLockVideoNoteRecording?()
             }
         }
+    }
+
+    /// ChatController's displayMediaRecordingModeTooltip: how to record in the mode the tap left, and how to switch
+    /// where both are allowed.
+    private func showMediaRecordingModeTooltip() {
+        guard !videoNoteState.isActive, !chatVM.recordingVoiceNote, let host = window else { return }
+        let canSwitch = chatVM.canRecordVoiceNote && chatVM.canRecordVideoNote
+        let key =
+            switch (selectedMediaRecordingMode, canSwitch) {
+            case (.voice, true): "Conversation.HoldForAudio"
+            case (.voice, false): "Conversation.HoldForAudioOnly"
+            case (.video, true): "Conversation.HoldForVideo"
+            case (.video, false): "Conversation.HoldForVideoOnly"
+            }
+        TelegramTextTooltipView.show(
+            L10n.telegram(key),
+            source: actionButton.convert(actionButton.bounds, to: host),
+            in: host,
+            topInset: host.safeAreaInsets.top,
+            padding: 2,
+        )
     }
 
     private func toggleMediaRecordingMode() {

@@ -2605,3 +2605,7 @@
 "Resolve.ChannelErrorNotFound" = "Sorry, this channel doesn't seem to exist.";
 "Conversation.ContextMenuMention" = "Mention";
 "Conversation.ContextMenuSendMessage" = "Send Message";
+"Conversation.HoldForAudio" = "Hold to record audio. Tap to switch to video.";
+"Conversation.HoldForAudioOnly" = "Hold to record audio.";
+"Conversation.HoldForVideo" = "Hold to record video. Tap to switch to audio.";
+"Conversation.HoldForVideoOnly" = "Hold to record video.";

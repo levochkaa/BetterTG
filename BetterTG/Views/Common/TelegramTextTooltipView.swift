@@ -82,6 +82,7 @@ enum TelegramTooltipShape {
     private var dismissWork: DispatchWorkItem?
 
     private var topInset = CGFloat.zero
+    private var padding = CGFloat(8)
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -101,8 +102,9 @@ enum TelegramTooltipShape {
         addSubview(bubble)
     }
 
-    /// `source` is in `host`'s coordinates; `topInset` keeps the tooltip under the status bar.
-    static func show(_ text: String, source: CGRect, in host: UIView, topInset: CGFloat) {
+    /// `source` is in `host`'s coordinates; `topInset` keeps the tooltip under the status bar, and `padding` is how
+    /// near the screen's edges it may come (TooltipController's 8 pt, or 2 pt for the record button's).
+    static func show(_ text: String, source: CGRect, in host: UIView, topInset: CGFloat, padding: CGFloat = 8) {
         if let current, current.superview === host, current.source == source {
             current.update(text, animated: true)
             current.restartTimer()
@@ -113,6 +115,7 @@ enum TelegramTooltipShape {
         tooltip.frame = host.bounds
         tooltip.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         tooltip.source = source
+        tooltip.padding = padding
         host.addSubview(tooltip)
         current = tooltip
         tooltip.update(text, animated: false, topInset: topInset)
@@ -136,7 +139,7 @@ enum TelegramTooltipShape {
         label.text = text
         // TooltipControllerNode: the text fits the screen less 20 pt and the 8 pt padding on each side, rounded up
         // to even points; the bubble is 12 pt wider and 34 pt taller, with the text at (6, 17).
-        let maxWidth = bounds.width - 20 - 16
+        let maxWidth = bounds.width - 20 - padding * 2
         let fitting = label.sizeThatFits(CGSize(width: maxWidth, height: .greatestFiniteMagnitude))
         let textSize = CGSize(
             width: ceil(min(fitting.width, maxWidth) / 2) * 2,
@@ -145,7 +148,7 @@ enum TelegramTooltipShape {
         let size = CGSize(width: textSize.width + 12, height: textSize.height + 34)
         let arrowOnBottom = source.minY - 54 > self.topInset
         let y = arrowOnBottom ? source.minY - size.height : source.maxY
-        let x = floor(min(max(8, source.midX - size.width / 2), bounds.width - size.width - 8))
+        let x = floor(min(max(padding, source.midX - size.width / 2), bounds.width - size.width - padding))
         bubble.frame = CGRect(origin: CGPoint(x: x, y: y), size: size)
         label.frame = CGRect(origin: CGPoint(x: 6, y: 17), size: textSize)
         effectView.frame = bubble.bounds
