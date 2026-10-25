@@ -24,6 +24,11 @@
 "Licenses.SourceCodeInfo" = "BetterTG — свободная программа: её можно распространять и изменять на условиях GNU General Public License версии 3.";
 "Licenses.Components" = "Компоненты с открытым кодом";
 
+"Notifications.Relay" = "Уведомления через сервер BetterTG";
+"Notifications.RelayInfo" = "Сторонним приложениям Telegram присылает уведомления через Web Push, а сервер BetterTG доставляет их на iPhone. Сервер расшифровывает каждое уведомление, чтобы показать отправителя и текст, и хранит его не дольше 15 минут. Если выключить, данные устройства удалятся с сервера, а уведомления будут приходить, только пока BetterTG открыт.";
+"Notifications.RelayOffConfirmation" = "Уведомления будут приходить, только пока BetterTG открыт, а данные устройства удалятся с сервера BetterTG.";
+"Notifications.RelayOff" = "Выключить";
+
 "Localization.LanguagePacksInfo" = "Переводы Telegram загружаются с сервера. Собственный текст BetterTG хранится в отдельном встроенном каталоге.";
 "Localization.DownloadError" = "Не удалось загрузить языковой пакет. Проверьте подключение и попробуйте снова.";
 

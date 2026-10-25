@@ -384,10 +384,11 @@ class SettingsListViewController: UITableViewController {
         message: String?,
         actionTitle: String,
         isDestructive: Bool = true,
+        cancel: (() -> Void)? = nil,
         perform: @escaping () -> Void,
     ) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel) { _ in cancel?() })
         alert.addAction(UIAlertAction(title: actionTitle, style: isDestructive ? .destructive : .default) { _ in
             perform()
         })

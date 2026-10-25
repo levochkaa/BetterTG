@@ -133,6 +133,18 @@ struct PushRelayConfiguration {
     let baseURL: URL
 }
 
+// MARK: - PushRelaySettings
+
+/// Settings' Notifications via BetterTG Server: whether the app registers with the relay, on by default.
+enum PushRelaySettings {
+    private static let key = "BetterTG.pushRelay.enabled"
+
+    static var isEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+}
+
 // MARK: - RelayAPIError
 
 struct RelayAPIError: Error, LocalizedError {

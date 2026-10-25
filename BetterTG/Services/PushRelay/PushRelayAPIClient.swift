@@ -64,6 +64,15 @@ actor PushRelayAPIClient {
         )
     }
 
+    /// Deletes the installation with its subscription and, when no other installation uses it, its App Attest key.
+    func deleteInstallation(_ installation: RelayInstallationCredentials) async throws {
+        _ = try await data(
+            path: "api/v1/installations/\(installation.installationId)",
+            method: "DELETE",
+            headers: authorization(installation),
+        )
+    }
+
     func deleteTelegramSubscription(
         _ subscription: RelayTelegramSubscription,
         installation: RelayInstallationCredentials,

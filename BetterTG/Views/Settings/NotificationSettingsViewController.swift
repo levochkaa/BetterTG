@@ -9,7 +9,8 @@ import UIKit
 /// Telegram's Notifications and Sounds (NotificationsAndSoundsController): private chats, groups and channels with
 /// their state and exception counts, Stories, Reactions, In-App Notifications, the Badge Counter's Count Unread
 /// Messages, New Contacts (`disable_contact_registered_notifications`), and Reset All Notifications. TDLib counts
-/// unread chats without telling channels apart, so Include Channels has no counterpart.
+/// unread chats without telling channels apart, so Include Channels has no counterpart. BetterTG adds the switch for
+/// its push relay.
 final class NotificationSettingsViewController: SettingsListViewController {
     private var settings = [NotificationScope: ScopeNotificationSettings]()
     private var exceptionCounts = [NotificationScope: Int]()
@@ -70,6 +71,9 @@ final class NotificationSettingsViewController: SettingsListViewController {
                     accessory: .toggle(isOn: contactJoinedEnabled) { [weak self] isOn in self?.setContactJoined(isOn) },
                 )],
             ))
+        }
+        if PushRelayCoordinator.shared.isAvailable {
+            sections.append(relaySection())
         }
         return sections + [
             SettingsSection(footer: L10n.telegram("Notifications.ResetAllNotificationsHelp"), rows: [SettingsRow(
@@ -197,6 +201,26 @@ final class NotificationSettingsViewController: SettingsListViewController {
                 },
             )],
         )
+    }
+
+    /// Notifications via BetterTG Server: off, after a confirmation, deletes the device's data from the relay.
+    private func relaySection() -> SettingsSection {
+        SettingsSection(footer: L10n.betterTG("Notifications.RelayInfo"), rows: [SettingsRow(
+            title: L10n.betterTG("Notifications.Relay"),
+            accessory: .toggle(isOn: PushRelayCoordinator.shared.isEnabled) { [weak self] isOn in
+                guard !isOn else {
+                    PushRelayCoordinator.shared.setEnabled(true)
+                    return
+                }
+                self?.confirm(
+                    message: L10n.betterTG("Notifications.RelayOffConfirmation"),
+                    actionTitle: L10n.betterTG("Notifications.RelayOff"),
+                    cancel: { [weak self] in self?.reload() },
+                ) {
+                    PushRelayCoordinator.shared.setEnabled(false)
+                }
+            },
+        )])
     }
 
     private func setContactJoined(_ isOn: Bool) {

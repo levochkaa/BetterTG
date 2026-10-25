@@ -33,6 +33,11 @@ import UserNotifications
     private var handledQuickReplyRequestIdentifiers = Set<String>()
     private var cancellables = Set<AnyCancellable>()
 
+    /// Whether the build has a relay, so Settings can offer to turn it off.
+    var isAvailable: Bool { configuration != nil }
+
+    var isEnabled: Bool { PushRelaySettings.isEnabled }
+
     override private init() {
         self.configuration = .current
         if let configuration {
@@ -107,6 +112,11 @@ import UserNotifications
 
         log("Push relay enabled: \(configuration?.baseURL.absoluteString ?? "unknown URL")")
 
+        if !PushRelaySettings.isEnabled {
+            // Finishes a deletion that failed before.
+            scheduleSynchronization()
+        }
+
         Task {
             await retryPendingRevocation()
             do {
@@ -121,6 +131,18 @@ import UserNotifications
             log("Requesting APNs device token")
             UIApplication.shared.registerForRemoteNotifications()
         }
+    }
+
+    /// The synchronization registers with the relay or deletes the device's data from it, so a switch waits for a
+    /// registration still running.
+    func setEnabled(_ enabled: Bool) {
+        guard PushRelaySettings.isEnabled != enabled else { return }
+        PushRelaySettings.isEnabled = enabled
+        log("Push relay \(enabled ? "enabled" : "disabled") in Settings")
+        registrationRefreshTask?.cancel()
+        registrationRefreshTask = nil
+        registeredAuthorizationEpoch = nil
+        scheduleSynchronization()
     }
 
     func didRegisterForRemoteNotifications(deviceToken: Data) {
@@ -326,6 +348,11 @@ import UserNotifications
     }
 
     private func synchronize() async throws {
+        if !PushRelaySettings.isEnabled {
+            guard let api else { return }
+            try await deleteRelayData(api: api)
+            return
+        }
         guard telegramReady else {
             log("Push relay synchronization waiting for TDLib authorization")
             return
@@ -580,6 +607,32 @@ import UserNotifications
         } catch let error as RelayAPIError where error.statusCode == 404 {
             log("Telegram Web Push subscription was already revoked")
         }
+    }
+
+    /// Settings turned the relay off: Telegram stops sending to the endpoint, and the relay deletes the installation
+    /// with its subscription and App Attest key. Without a ready TDLib client, Telegram drops the endpoint once the
+    /// relay rejects it. A failure retries with the synchronization, also after a relaunch.
+    private func deleteRelayData(api: PushRelayAPIClient) async throws {
+        let state = try await stateStore.load()
+        guard state.installation != nil || state.subscription != nil || state.appAttestKeyId != nil else { return }
+        log("Deleting push relay data")
+        if let subscription = state.subscription, telegramReady {
+            do {
+                try await deregisterFromTDLib(subscription)
+            } catch {
+                log("TDLib Web Push deregistration failed: \(error.localizedDescription)")
+            }
+        }
+        if let installation = state.installation {
+            do {
+                try await api.deleteInstallation(installation)
+            } catch let error as RelayAPIError where [401, 404].contains(error.statusCode) {
+                log("Push relay installation was already deleted")
+            }
+        }
+        try await stateStore.save(PushRelayPersistentState())
+        registeredAuthorizationEpoch = nil
+        log("Push relay data deleted")
     }
 
     private func clearSubscriptionState() async throws {

@@ -24,6 +24,11 @@
 "Licenses.SourceCodeInfo" = "BetterTG is free software: you can redistribute and change it under the GNU General Public License, version 3.";
 "Licenses.Components" = "Open-Source Components";
 
+"Notifications.Relay" = "Notifications via BetterTG Server";
+"Notifications.RelayInfo" = "Telegram sends notifications to third-party apps through Web Push, and the BetterTG server delivers them to your iPhone. It decrypts each one to show the sender and a preview and keeps none longer than 15 minutes. Turning this off deletes your device's data from the server, and notifications then arrive only while BetterTG is open.";
+"Notifications.RelayOffConfirmation" = "BetterTG will notify you only while it's open, and your device's data will be deleted from the BetterTG server.";
+"Notifications.RelayOff" = "Turn Off";
+
 "Localization.LanguagePacksInfo" = "Telegram translations are downloaded from the server. BetterTG-specific text uses a separate bundled catalog.";
 "Localization.DownloadError" = "The language pack couldn't be downloaded. Check your connection and try again.";
 
