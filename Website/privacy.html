@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy — BetterTG</title>
+  <link rel="icon" href="/icon.png">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <a class="back" href="/">← BetterTG</a>
+    <h1>Privacy Policy</h1>
+    <p class="secondary">Effective October 25, 2026</p>
+
+    <p>BetterTG is an open-source Telegram client for iOS made by Lev Poznyakov. This policy explains what data the app and its push notification server handle. "We" means the BetterTG project.</p>
+
+    <h2>Your Telegram data</h2>
+    <p>BetterTG connects to Telegram's servers directly through TDLib, Telegram's official client library. Your messages, contacts, media and account details travel between your device and Telegram and are stored on your device. Telegram handles them under the <a href="https://telegram.org/privacy">Telegram Privacy Policy</a>. BetterTG doesn't send them to us, with the one exception of push notifications described below.</p>
+
+    <h2>Push notifications</h2>
+    <p>Telegram delivers notifications to apps like BetterTG only through Web Push, which an iPhone app can't receive on its own. While <strong>Notifications via BetterTG Server</strong> is on in Settings → Notifications and Sounds, which it is by default, BetterTG registers your device with our push server at push.bettertg.su. The server relays Telegram's notifications to Apple Push Notification service, which shows them on your device.</p>
+    <p>For each registered device the server stores:</p>
+    <ul>
+      <li>a random installation ID and a secret the app uses to manage it;</li>
+      <li>the device's Apple push token, encrypted;</li>
+      <li>the push environment, the app's bundle ID, the app and iOS versions;</li>
+      <li>an App Attest public key and its receipt, encrypted, which prove that requests come from a genuine copy of the app;</li>
+      <li>the Web Push keys Telegram encrypts notifications with, the private ones encrypted;</li>
+      <li>when the device registered, was last seen and last received a notification.</li>
+    </ul>
+    <p>Telegram sends each notification to the server encrypted. The server decrypts it in memory to build the notification you see, so it processes what the notification contains: the sender's name, the chat's title, a preview of the message and the identifiers of the chat and message. An encrypted notification waits in a queue until it is delivered, and one that can't be delivered is kept for up to an hour. The decrypted content is kept for up to 15 minutes so that the app's notification extension can fetch it, then deleted. The server doesn't keep message content anywhere else.</p>
+    <p>The server can't sign in to Telegram, read your chats or send messages for you. It never receives your phone number or your Telegram login.</p>
+
+    <h2>Logs</h2>
+    <p>The server's logs and metrics leave out message content, push tokens, keys and chat or message identifiers. Your IP address is held for up to a minute to limit request rates. The web server doesn't keep access logs.</p>
+
+    <h2>Turning it off and deleting your data</h2>
+    <p>Turning off <strong>Notifications via BetterTG Server</strong> stops Telegram from sending notifications for your device to us and deletes its registration, push token and keys from the server at once. If the device is offline, the app deletes them when it next connects. With the setting off, BetterTG shows notifications only while it is running.</p>
+    <p>Logging out of an account deletes that account's Web Push keys from the server. If you delete the app with the setting on, the server disables your device's registration once Apple reports that its push token is no longer valid. Turn the setting off before deleting the app to remove the registration at once.</p>
+
+    <h2>Analytics and advertising</h2>
+    <p>BetterTG has no analytics, advertising or tracking. If you choose to share crash reports with app developers in iOS settings, Apple passes them to us under Apple's privacy policy.</p>
+
+    <h2>Services we rely on</h2>
+    <ul>
+      <li>Telegram, for everything you do in your account.</li>
+      <li>Apple, for push notifications and App Attest.</li>
+      <li>A rented server that runs the push relay.</li>
+    </ul>
+
+    <h2>Your own server</h2>
+    <p>BetterTG and its push server are open source. A copy of the app built from the source can use its own push server or none, and then this policy's push section doesn't apply to it.</p>
+
+    <h2>Changes</h2>
+    <p>We post changes to this policy on this page with a new effective date.</p>
+
+    <h2>Contact</h2>
+    <p>Ask questions in <a href="https://github.com/levochkaa/BetterTG/issues">GitHub issues</a>. Report security problems privately through <a href="https://github.com/levochkaa/BetterTG/security/advisories/new">GitHub security advisories</a>.</p>
+
+    <footer>
+      <a href="/">BetterTG</a><a href="/terms">Terms of Service</a>
+    </footer>
+  </main>
+</body>
+</html>

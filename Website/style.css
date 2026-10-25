@@ -1,0 +1,122 @@
+:root {
+  color-scheme: light dark;
+  --text: #1c1c1e;
+  --secondary: #6c6c70;
+  --background: #f2f2f7;
+  --card: #ffffff;
+  --accent: #007aff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #f2f2f7;
+    --secondary: #98989f;
+    --background: #000000;
+    --card: #1c1c1e;
+    --accent: #0a84ff;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text);
+  font: 17px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px 20px 64px;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+h1 {
+  font-size: 34px;
+  line-height: 1.2;
+  margin: 0 0 8px;
+}
+
+h2 {
+  font-size: 22px;
+  margin: 32px 0 8px;
+}
+
+ul {
+  padding-left: 22px;
+}
+
+li + li {
+  margin-top: 6px;
+}
+
+.secondary {
+  color: var(--secondary);
+}
+
+.hero {
+  text-align: center;
+  padding: 40px 0 24px;
+}
+
+.hero img {
+  width: 128px;
+  height: 128px;
+  border-radius: 28px;
+}
+
+.hero p {
+  font-size: 20px;
+  margin: 0;
+}
+
+.button {
+  display: inline-block;
+  margin-top: 24px;
+  padding: 12px 24px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.button:hover {
+  text-decoration: none;
+  opacity: 0.85;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 4px 24px 20px;
+  margin-top: 24px;
+}
+
+.back {
+  display: inline-block;
+  margin-bottom: 24px;
+}
+
+footer {
+  margin-top: 40px;
+  font-size: 14px;
+  text-align: center;
+  color: var(--secondary);
+}
+
+footer a + a {
+  margin-left: 16px;
+}
