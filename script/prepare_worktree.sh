@@ -3,33 +3,51 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SECRET_RELATIVE_PATH="BetterTG/Secret/Secret.swift"
-DESTINATION_PATH="$ROOT_DIR/$SECRET_RELATIVE_PATH"
+LOCAL_CONFIG_RELATIVE_PATH="Configuration/Local.xcconfig"
 
-if [[ -f "$DESTINATION_PATH" ]]; then
-  echo "$SECRET_RELATIVE_PATH is already available"
-  exit 0
-fi
+primary_root() {
+  local common_git_dir
+  common_git_dir="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-common-dir)"
+  if [[ "$(basename "$common_git_dir")" != ".git" ]]; then
+    echo "error: cannot locate the primary BetterTG checkout from $common_git_dir" >&2
+    exit 1
+  fi
+  dirname "$common_git_dir"
+}
 
-if [[ -e "$DESTINATION_PATH" || -L "$DESTINATION_PATH" ]]; then
-  echo "error: $DESTINATION_PATH exists but is not a regular file" >&2
-  exit 1
-fi
+# Copies an ignored setup.sh output from the primary checkout into a new worktree.
+copy_from_primary() {
+  local relative_path="$1" required="$2"
+  local destination="$ROOT_DIR/$relative_path"
 
-COMMON_GIT_DIR="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-common-dir)"
-if [[ "$(basename "$COMMON_GIT_DIR")" != ".git" ]]; then
-  echo "error: cannot locate the primary BetterTG checkout from $COMMON_GIT_DIR" >&2
-  exit 1
-fi
+  if [[ -f "$destination" ]]; then
+    echo "$relative_path is already available"
+    return 0
+  fi
+  if [[ -e "$destination" || -L "$destination" ]]; then
+    echo "error: $destination exists but is not a regular file" >&2
+    exit 1
+  fi
 
-PRIMARY_ROOT="$(dirname "$COMMON_GIT_DIR")"
-SOURCE_PATH="$PRIMARY_ROOT/$SECRET_RELATIVE_PATH"
+  local primary source
+  primary="$(primary_root)"
+  source="$primary/$relative_path"
+  if [[ ! -f "$source" ]]; then
+    if [[ "$required" == "1" ]]; then
+      if [[ "$primary" == "$ROOT_DIR" ]]; then
+        echo "error: missing $relative_path. Run ./setup.sh first." >&2
+      else
+        echo "error: missing $relative_path in the primary checkout at $primary. Run ./setup.sh there first." >&2
+      fi
+      exit 1
+    fi
+    return 0
+  fi
 
-if [[ ! -f "$SOURCE_PATH" ]]; then
-  echo "error: missing $SECRET_RELATIVE_PATH in the primary checkout at $PRIMARY_ROOT" >&2
-  echo "Generate it there first by following README.md step 3." >&2
-  exit 1
-fi
+  mkdir -p "$(dirname "$destination")"
+  install -m 600 "$source" "$destination"
+  echo "Prepared $relative_path from the primary checkout"
+}
 
-mkdir -p "$(dirname "$DESTINATION_PATH")"
-install -m 600 "$SOURCE_PATH" "$DESTINATION_PATH"
-echo "Prepared $SECRET_RELATIVE_PATH from the primary checkout"
+copy_from_primary "$SECRET_RELATIVE_PATH" 1
+copy_from_primary "$LOCAL_CONFIG_RELATIVE_PATH" 0

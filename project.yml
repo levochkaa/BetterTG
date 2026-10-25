@@ -12,6 +12,9 @@ options:
   generateEmptyDirectories: true
   defaultSourceDirectoryType: syncedFolder
   createIntermediateGroups: true
+configFiles:
+  Debug: Configuration/BetterTG.xcconfig
+  Release: Configuration/BetterTG.xcconfig
 settings:
   base:
     DEVELOPMENT_LANGUAGE: en
@@ -24,7 +27,6 @@ settings:
     COMPILATION_CACHE_ENABLE_CACHING: YES
     SWIFT_ENABLE_COMPILE_CACHE: NO
     CODE_SIGN_IDENTITY: Apple Development
-    DEVELOPMENT_TEAM: 7Z2WHPKU8W
     SDKROOT: iphoneos
     STRING_CATALOG_GENERATE_SYMBOLS: YES
     SWIFT_OBJC_INTEROP_MODE: objcxx
@@ -55,7 +57,6 @@ targets:
       - path: BetterTG
         excludes:
           - Info.plist
-          - Secret/Secret.swift.gyb
           - "**/.DS_Store"
     dependencies:
       - package: FFmpegBridge
@@ -99,7 +100,7 @@ targets:
         OTHER_LDFLAGS:
           - $(inherited)
           - -lz
-        PRODUCT_BUNDLE_IDENTIFIER: com.levochkaaa.BetterTG
+        PRODUCT_BUNDLE_IDENTIFIER: $(BETTERTG_BUNDLE_ID)
         PRODUCT_NAME: $(TARGET_NAME)
         PROVISIONING_PROFILE_SPECIFIER: ""
         SUPPORTED_PLATFORMS: iphoneos iphonesimulator
@@ -113,12 +114,10 @@ targets:
         Debug:
           APP_ATTEST_ENVIRONMENT: development
           APS_ENVIRONMENT: development
-          BETTERTG_RELAY_BASE_URL: https://push.bettertg.su
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
         Release:
           APP_ATTEST_ENVIRONMENT: production
           APS_ENVIRONMENT: production
-          BETTERTG_RELAY_BASE_URL: https://push.bettertg.su
     postCompileScripts:
       - name: SwiftFormat
         shell: /bin/sh
@@ -159,7 +158,7 @@ targets:
         LD_RUNPATH_SEARCH_PATHS:
           - $(inherited)
           - "@executable_path/../../Frameworks"
-        PRODUCT_BUNDLE_IDENTIFIER: com.levochkaaa.BetterTG.NotificationService
+        PRODUCT_BUNDLE_IDENTIFIER: $(BETTERTG_BUNDLE_ID).NotificationService
         PRODUCT_NAME: $(TARGET_NAME)
         PROVISIONING_PROFILE_SPECIFIER: ""
         SKIP_INSTALL: YES

@@ -6,11 +6,13 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.levochkaaa.BetterTG</string>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 			<key>CFBundleURLSchemes</key>
 			<array><string>bettertg</string></array>
 		</dict>
 	</array>
+	<key>BetterTGAppGroup</key>
+	<string>$(BETTERTG_APP_GROUP)</string>
 	<key>BetterTGRelayBaseURL</key>
 	<string>$(BETTERTG_RELAY_BASE_URL)</string>
 	<key>LSApplicationQueriesSchemes</key>

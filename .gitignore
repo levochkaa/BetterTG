@@ -10,6 +10,7 @@ xcuserdata/
 xcshareddata/
 
 Secret.swift
+Configuration/Local.xcconfig
 
 BetterTG.app
 BetterTG.dmg

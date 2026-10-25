@@ -7,7 +7,8 @@ ORIGINAL_ARGS=("$@")
 
 PROJECT_NAME="BetterTG"
 APP_NAME="BetterTG"
-BUNDLE_ID="com.levochkaaa.BetterTG"
+# Read from the built app, because setup.sh lets a fork sign with its own bundle ID.
+BUNDLE_ID=""
 SCHEME="BetterTG"
 DEFAULT_XCODE_PATH="/Applications/Xcode-27.1.0.app"
 XCODE_PATH="$DEFAULT_XCODE_PATH"
@@ -1076,6 +1077,7 @@ if [[ ! -d "$APP_BUNDLE" ]]; then
   fi
   exit 1
 fi
+BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_BUNDLE/Info.plist")"
 
 if [[ "$USE_DEVICE" == "1" ]]; then
   launch_on_device

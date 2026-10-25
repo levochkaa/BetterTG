@@ -1,0 +1,11 @@
+// BetterTG.xcconfig
+// Signing identity and push relay of the official build. ./setup.sh writes a fork's values to Local.xcconfig,
+// which git ignores and which overrides these.
+
+DEVELOPMENT_TEAM = 7Z2WHPKU8W
+BETTERTG_BUNDLE_ID = com.levochkaaa.BetterTG
+BETTERTG_APP_GROUP = group.$(BETTERTG_BUNDLE_ID)
+// `//` starts an xcconfig comment, so `$()` splits it. An empty value turns the relay off.
+BETTERTG_RELAY_BASE_URL = https:/$()/push.bettertg.su
+
+#include? "Local.xcconfig"

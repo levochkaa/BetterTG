@@ -3,7 +3,8 @@
 import Foundation
 
 enum BetterTGAppGroup {
-    static let identifier = "group.com.levochkaaa.BetterTG"
+    /// `BETTERTG_APP_GROUP` from the build settings, so a fork signed with its own bundle ID gets its own group.
+    static let identifier = Bundle.main.object(forInfoDictionaryKey: "BetterTGAppGroup") as? String ?? ""
 
     static var defaults: UserDefaults? {
         UserDefaults(suiteName: identifier)
