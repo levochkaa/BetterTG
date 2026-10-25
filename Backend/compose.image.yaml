@@ -1,0 +1,11 @@
+# Runs the prebuilt image instead of building Backend/Dockerfile on the VPS.
+services:
+    api:
+        image: bettertg-backend:${BETTERTG_BACKEND_REV:?}
+        pull_policy: never
+    worker:
+        image: bettertg-backend:${BETTERTG_BACKEND_REV:?}
+        pull_policy: never
+    migrate:
+        image: bettertg-backend:${BETTERTG_BACKEND_REV:?}
+        pull_policy: never

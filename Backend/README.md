@@ -59,6 +59,27 @@ Point the host reverse proxy at `127.0.0.1:8080`. PostgreSQL and Redis remain bo
 When APNs keys are bind-mounted with mode `0600`, set `BETTERTG_WORKER_UID` and
 `BETTERTG_WORKER_GID` to the numeric owner reported by `id -u` and `id -g` on the VPS.
 
+`Dockerfile` compiles inside the image, which a one-CPU, 2 GB VPS can't afford. Cross-compile the binary on a Mac
+instead, in an arm64 Rust container at native speed:
+
+```bash
+docker run --rm -v "$PWD":/src:ro -v bettertg-x86-target:/target -w /src rust:1.99-slim-trixie bash -c '
+  apt-get update -qq && apt-get install -y -qq gcc-x86-64-linux-gnu libc6-dev-amd64-cross
+  rustup target add x86_64-unknown-linux-gnu
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc \
+    cargo build --release --locked --bin bettertg-backend --target x86_64-unknown-linux-gnu --target-dir /target'
+```
+
+Copy `x86_64-unknown-linux-gnu/release/bettertg-backend` from the `bettertg-x86-target` volume to the VPS with
+`Dockerfile.runtime`, `compose.yaml`, `compose.vps.yaml` and `compose.image.yaml`, set `BETTERTG_BACKEND_REV` in its
+`.env`, then wrap the binary in the runtime image and start the stack from it:
+
+```bash
+docker build -f Dockerfile.runtime -t bettertg-backend:$BETTERTG_BACKEND_REV .
+docker compose -f compose.yaml -f compose.vps.yaml -f compose.image.yaml up -d --no-build \
+  postgres redis migrate api worker
+```
+
 Development defaults use APNs dry-run and bypass App Attest. These modes are rejected as production App Attest configuration and must not be exposed publicly. Swagger UI for the management API is at `/api/docs` while `SWAGGER_ENABLED=true`.
 
 ## Verification

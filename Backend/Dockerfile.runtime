@@ -1,0 +1,11 @@
+# The runtime stage of Backend/Dockerfile around a binary cross-compiled elsewhere: the VPS is too small to build it.
+FROM debian:trixie-slim
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --uid 1000 --user-group --no-create-home --shell /usr/sbin/nologin bettertg
+COPY bettertg-backend /usr/local/bin/bettertg-backend
+ENV NODE_ENV=production
+USER bettertg
+CMD ["bettertg-backend", "api"]
