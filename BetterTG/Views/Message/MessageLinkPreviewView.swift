@@ -75,6 +75,8 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
                 maximumWidth: Utils.maxMessageContentWidth - 24,
             )
             bodyTextView.onUnhandledTap = { [weak self] in self?.openLink() }
+            // A timestamp in an embedded video's description plays it from there (seekToTimecode).
+            bodyTextView.onMediaTimestamp = { [weak self] seconds in self?.presentPlayer(at: seconds) }
             text.addArrangedSubview(bodyTextView)
         } else if !preview.author.isEmpty {
             text.addArrangedSubview(label(preview.author, size: 14, weight: .regular, color: .secondaryLabel))
@@ -137,7 +139,7 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
         if preview.instantViewVersion > 0 {
             content.addArrangedSubview(instantViewButton())
         }
-        let tap = UITapGestureRecognizer(target: self, action: #selector(openLink))
+        let tap = UITapGestureRecognizer(target: self, action: #selector(previewTapped(_:)))
         tap.delegate = self
         addGestureRecognizer(tap)
         accessibilityLabel = [
@@ -242,6 +244,24 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
             InstantViewController(url: preview.url, siteName: preview.siteName, client: client),
             animated: true,
         )
+    }
+
+    /// ChatMessageWebpageBubbleContentNode's tap: an embedded player's picture opens the player, as openMessage opens
+    /// WebEmbedVideoContent in the gallery; anywhere else opens the link.
+    @objc private func previewTapped(_ gesture: UITapGestureRecognizer) {
+        if !imageView.isHidden, imageView.window != nil,
+           imageView.bounds.contains(gesture.location(in: imageView)),
+           WebEmbedPlayerViewController(preview: preview) != nil
+        {
+            presentPlayer(at: nil)
+            return
+        }
+        openLink()
+    }
+
+    private func presentPlayer(at timestamp: Int?) {
+        guard let player = WebEmbedPlayerViewController(preview: preview, timestamp: timestamp) else { return }
+        nearestViewController?.present(player, animated: true)
     }
 
     @objc private func openLink() {

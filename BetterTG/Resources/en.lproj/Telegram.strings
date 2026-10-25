@@ -1345,6 +1345,7 @@
 "Settings.Tips" = "Telegram Features";
 "Settings.TipsUsername" = "TelegramTips";
 "Settings.PauseMusicOnRecording" = "Pause Music While Recoding";
+"Web.OpenExternal" = "Open in Safari";
 "ChatList.Search.FilterDownloads" = "Downloads";
 "DownloadList.DownloadingHeader" = "Downloading";
 "DownloadList.DownloadedHeader" = "Recently Downloaded";

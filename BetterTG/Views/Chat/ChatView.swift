@@ -6415,6 +6415,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             playMedia(of: own, at: time)
             return
         }
+        // The media can be the link preview's embedded player too.
+        if case .messageText(let text) = message.message.content, let preview = text.linkPreview,
+           let player = WebEmbedPlayerViewController(preview: preview, timestamp: seconds)
+        {
+            present(player, animated: true)
+            return
+        }
         let client = chatVM.client
         let source = message.message
         Task { [weak self] in

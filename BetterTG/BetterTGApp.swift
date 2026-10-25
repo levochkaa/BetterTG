@@ -219,6 +219,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             MessageForwardingDebugProbe.runIfRequested(in: window)
             MessageReactionDebugProbe.runIfRequested(in: window)
             PinnedMessageDebugProbe.runIfRequested(in: window)
+            WebEmbedPlayerViewController.runIfRequested(in: window)
             ForumTopicDebugProbe.runIfRequested(in: window)
             ContextMenuLiquidMorphProbe.runIfRequested(in: window)
             TelegramClassicNavigationChromeProbe.runIfRequested(in: window)
