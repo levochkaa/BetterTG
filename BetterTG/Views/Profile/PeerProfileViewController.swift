@@ -690,8 +690,13 @@ ClientRestorableNavigationEntry {
 
     private static func statusText(for customChat: CustomChat) -> String {
         switch customChat.type {
-        case .bot:
-            L10n.telegram("Bot.GenericBotStatus")
+        case .bot(let user):
+            // PeerInfoData's `.bot`: the bot's monthly users once Telegram counts any.
+            if case .userTypeBot(let bot) = user.type, bot.activeUserCount > 0 {
+                L10n.telegramPlural("Conversation.StatusBotSubscribers", count: bot.activeUserCount)
+            } else {
+                L10n.telegram("Bot.GenericBotStatus")
+            }
         case .user(let user):
             statusText(for: user.status)
         case .group(let group):
@@ -1912,7 +1917,8 @@ ClientRestorableNavigationEntry {
     }
 
     private func handleUserStatusUpdate(_ update: UpdateUserStatus) {
-        guard contextIsCurrent, update.userId == customChat.user?.id else { return }
+        // A bot's status is its users, not a presence.
+        guard contextIsCurrent, update.userId == customChat.user?.id, customChat.bot == nil else { return }
         currentStatusText = isSelfProfile ? "" : Self.statusText(for: update.status)
         currentStatusIsOnline = !isSelfProfile && Self.isOnline(update.status)
         scheduleMetadataRender()
@@ -1934,8 +1940,8 @@ ClientRestorableNavigationEntry {
         if !name.isEmpty, !isSelfProfile {
             currentChatTitle = name
         }
-        currentStatusText = isSelfProfile ? "" : Self.statusText(for: update.user.status)
-        currentStatusIsOnline = !isSelfProfile && Self.isOnline(update.user.status)
+        currentStatusText = isSelfProfile ? "" : Self.statusText(for: customChat)
+        currentStatusIsOnline = !isSelfProfile && customChat.bot == nil && Self.isOnline(update.user.status)
         currentDetailTexts = update.user.usernames?.activeUsernames.map { "@\($0)" } ?? []
         if !update.user.phoneNumber.isEmpty {
             currentDetailTexts.append("+\(update.user.phoneNumber)")

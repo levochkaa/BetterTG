@@ -2794,3 +2794,5 @@
 "AuthSessions.LogOutApplications" = "Disconnect All Websites";
 "AuthSessions.LogOutApplicationsHelp" = "You can log in on websites that support signing in with Telegram.";
 "AuthSessions.LoggedInWithTelegram" = "CONNECTED WEBSITES";
+"Conversation.StatusBotSubscribers_1" = "1 user";
+"Conversation.StatusBotSubscribers_any" = "%d users";
