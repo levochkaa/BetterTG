@@ -244,7 +244,7 @@ import UIKit
     }
 
     /// OpenResolvedUrl's cases BetterTG has screens for. Sign-in links stay out of the browser; the rest of Telegram's
-    /// link types (other web apps, proxies, payments, Premium, gifts, calls) open their t.me page in Safari.
+    /// link types (other web apps, payments, Premium, gifts, calls) open their t.me page in Safari.
     private func route(
         _ type: TDNativeInternalLinkType,
         url: URL,
@@ -331,6 +331,10 @@ import UIKit
                 LanguagePackPreviewViewController(identifier: value.languagePackId),
                 animated: true,
             )
+        case .internalLinkTypeProxy(let value):
+            // OpenResolvedUrl's `.proxy`: ProxyServerPreviewScreen for the server.
+            guard let proxy = value.proxy, let host = presentationHost(presenter) else { return }
+            ProxyServerPreviewViewController.present(proxy, from: host)
         case .internalLinkTypeSettings(let value):
             openSettings(value.section)
         case .internalLinkTypeMyProfilePage:

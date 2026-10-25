@@ -2757,3 +2757,12 @@
 "SocksProxySetup.RequiredCredentials" = "CREDENTIALS";
 "SocksProxySetup.SecretPlaceholder" = "Secret";
 "GroupInfo.SharedMediaNone" = "None";
+"SocksProxySetup.Secret" = "Secret";
+"SocksProxySetup.Status" = "Status";
+"SocksProxySetup.CheckStatus" = "Check Status";
+"SocksProxySetup.Warning.Title" = "Warning";
+"SocksProxySetup.Warning.Text" = "This action will expose your IP address to the admin of the proxy server.";
+"SocksProxySetup.Warning.Proceed" = "Proceed";
+"SocksProxySetup.ConnectAndSave" = "Connect Proxy";
+"SocksProxySetup.FailedToConnect" = "Failed to connect";
+"SocksProxySetup.ProxyEnabled" = "Proxy\nEnabled";
