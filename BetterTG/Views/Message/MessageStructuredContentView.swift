@@ -571,7 +571,19 @@ final class MessageStructuredContentView: UIView {
             case .location(let location):
                 LocationMessageContentView(content: location, onAction: onAction)
             case .linkPreview(let preview):
-                MessageLinkPreviewView(preview: preview, client: client)
+                MessageLinkPreviewView(
+                    preview: preview,
+                    client: client,
+                    autoDownloads: MediaAutoDownload.shared.shouldDownload(
+                        .photo,
+                        size: nil,
+                        peerType: TelegramChatListStore.shared.autoDownloadPeerType(
+                            chatID: chatID,
+                            sender: nil,
+                            clientID: client.id,
+                        ),
+                    ),
+                )
             case .none:
                 nil
             case .poll(let poll):

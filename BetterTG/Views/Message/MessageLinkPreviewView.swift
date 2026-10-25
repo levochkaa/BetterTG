@@ -14,8 +14,13 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
     private let preview: LinkPreview
     private let imageView = TDImageLoadingView()
     private let bodyTextView = MessageTextContentView()
+    private let downloadStatus = MediaDownloadStatusView()
+    /// The large photo auto-download left for a tap.
+    private var deferredDownload: DeferredMediaDownload?
 
-    init(preview: LinkPreview, client: TDLibClient) {
+    /// `autoDownloads` false (auto-download's photo setting for the chat) leaves a large photo to a tap on its
+    /// download arrow, as ChatMessageAttachedContentNode's `automaticDownload` does.
+    init(preview: LinkPreview, client: TDLibClient, autoDownloads: Bool = true) {
         self.preview = preview
         super.init(frame: .zero)
         layer.cornerRadius = 5
@@ -77,7 +82,39 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
             imageView.contentMode = .scaleAspectFill
             imageView.clipsToBounds = true
             imageView.layer.cornerRadius = 4
-            imageView.load(file: media.file, placeholderData: media.placeholder, maximumPixelSize: 720, client: client)
+            if preview.showLargeMedia, !autoDownloads, !media.file.local.isDownloadingCompleted {
+                imageView.loadPlaceholder(data: media.placeholder, client: client)
+                imageView.isUserInteractionEnabled = true
+                imageView.addSubview(downloadStatus)
+                NSLayoutConstraint.activate([
+                    downloadStatus.centerXAnchor.constraint(equalTo: imageView.centerXAnchor),
+                    downloadStatus.centerYAnchor.constraint(equalTo: imageView.centerYAnchor),
+                ])
+                self
+                    .deferredDownload = DeferredMediaDownload(
+                        file: media.file,
+                        client: client,
+                        status: downloadStatus,
+                    ) {
+                        [weak self] file in
+                        guard let self else { return }
+                        self.deferredDownload = nil
+                        imageView.load(
+                            file: file,
+                            placeholderData: media.placeholder,
+                            maximumPixelSize: 720,
+                            client: client,
+                            preservingImage: true,
+                        )
+                    }
+            } else {
+                imageView.load(
+                    file: media.file,
+                    placeholderData: media.placeholder,
+                    maximumPixelSize: 720,
+                    client: client,
+                )
+            }
             if preview.showLargeMedia {
                 if preview.showMediaAboveDescription { content.addArrangedSubview(imageView) }
                 content.addArrangedSubview(text)
@@ -156,7 +193,7 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
     func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         var target = touch.view
         while let view = target, view !== self {
-            if view === bodyTextView { return false }
+            if view === bodyTextView || view === downloadStatus { return false }
             target = view.superview
         }
         return true
