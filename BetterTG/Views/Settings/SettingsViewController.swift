@@ -194,7 +194,7 @@ final class SettingsViewController: UITableViewController {
         case .support:
             confirmSupport()
         case .faq:
-            openFaq()
+            TelegramSupport.openFaq(from: self)
         case .tips:
             // PeerInfoScreen's openTips: Telegram's features channel by its username.
             if let url = URL(string: "https://t.me/" + L10n.telegram("Settings.TipsUsername")) {
@@ -379,32 +379,10 @@ final class SettingsViewController: UITableViewController {
 
     /// PeerInfoScreen's `.support`: the note that volunteers answer, with FAQ, then OK opens the support chat.
     private func confirmSupport() {
-        let alert = UIAlertController(title: nil, message: L10n.telegram("Settings.FAQ_Intro"), preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: L10n.telegram("Settings.FAQ_Button"), style: .default) { [weak self] _ in
-            self?.openFaq()
-        })
-        let ok = UIAlertAction(title: L10n.telegram("Common.OK"), style: .default) { [weak self] _ in
-            self?.openSupportChat()
-        }
-        alert.addAction(ok)
-        alert.preferredAction = ok
-        present(alert, animated: true)
-    }
-
-    private func openSupportChat() {
-        guard let accountID = TDLib.shared.activeAccountID else { return }
-        let client = TDLib.shared.activeClient
-        Task { [weak self] in
-            guard let user = try? await client.getSupportUser(),
-                  let self, TDLib.shared.activeAccountID == accountID
-            else { return }
-            TelegramLinkRouter.shared.openUser(user.id, from: self)
-        }
-    }
-
-    /// Telegram FAQ: Settings.FAQ_URL in the chosen browser, as the in-app link to the FAQ section opens it.
-    private func openFaq() {
-        if let url = URL(string: L10n.telegram("Settings.FAQ_URL")) { WebBrowser.open(url, from: self) }
+        present(TelegramSupport.alert(
+            openFaq: { [weak self] in self.map(TelegramSupport.openFaq) },
+            openChat: { [weak self] in self.map(TelegramSupport.openChat) },
+        ), animated: true)
     }
 
     private func performAccountOperation(_ operation: @escaping @MainActor () throws -> Void) {
