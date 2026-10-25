@@ -1158,28 +1158,35 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return true
     }
 
-    /// The incoming messages that start a run (chatMessageMerge): the older neighbour right above is from another
-    /// author, more than ten minutes earlier, a service message or has an inline keyboard, or a header sits between.
-    private static func runStartIDs(
+    /// The incoming messages that start and end a run (chatMessageMerge): the first carries the author's name, the
+    /// last the avatar. A run breaks at another author, more than ten minutes, a service message, an inline keyboard
+    /// on the older message, or a header between.
+    private static func runs(
         _ itemIDs: [ChatTimelineItemID],
         models: [DisplayedMessageID: CustomMessage],
-    ) -> Set<DisplayedMessageID> {
-        var result = Set<DisplayedMessageID>()
-        for (index, item) in itemIDs.enumerated() {
-            guard case .message(let id) = item, let message = models[id], !message.message.isOutgoing,
-                  !message.contentPresentation.isService else { continue }
-            var merged = false
-            if itemIDs.indices.contains(index + 1), case .message(let olderID) = itemIDs[index + 1],
-               let older = models[olderID], !older.contentPresentation.isService,
-               older.message.senderId == message.message.senderId,
-               abs(message.message.date - older.message.date) < 10 * 60
-            {
-                merged = true
-                if case .replyMarkupInlineKeyboard = older.message.replyMarkup { merged = false }
-            }
-            if !merged { result.insert(id) }
+    ) -> (starts: Set<DisplayedMessageID>, ends: Set<DisplayedMessageID>) {
+        func message(at index: Int) -> CustomMessage? {
+            guard itemIDs.indices.contains(index), case .message(let id) = itemIDs[index] else { return nil }
+            return models[id]
         }
-        return result
+        func merges(newer: CustomMessage, older: CustomMessage) -> Bool {
+            guard !newer.contentPresentation.isService, !older.contentPresentation.isService,
+                  newer.message.senderId == older.message.senderId,
+                  newer.message.isOutgoing == older.message.isOutgoing,
+                  abs(newer.message.date - older.message.date) < 10 * 60 else { return false }
+            if case .replyMarkupInlineKeyboard = older.message.replyMarkup { return false }
+            return true
+        }
+        var starts = Set<DisplayedMessageID>()
+        var ends = Set<DisplayedMessageID>()
+        for (index, item) in itemIDs.enumerated() {
+            guard case .message(let id) = item, let current = models[id], !current.message.isOutgoing,
+                  !current.contentPresentation.isService else { continue }
+            // Rows run newest first: the older neighbour follows, the newer one precedes.
+            if message(at: index + 1).map({ !merges(newer: current, older: $0) }) ?? true { starts.insert(id) }
+            if message(at: index - 1).map({ !merges(newer: $0, older: current) }) ?? true { ends.insert(id) }
+        }
+        return (starts, ends)
     }
 
     /// A bot start link for a chat the router has just created shows Start before the chat appears.
@@ -3939,6 +3946,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                             timelineRowID: row.id,
                             showsProfileImage: row.inputs.showsProfileImage,
                             commentsLoading: commentsThreadLoad?.displayedID == displayedMessageID,
+                            showsAvatarImage: row.inputs.showsAvatarImage,
                             senderName: row.inputs.showsSenderName
                                 ? senderName(of: message, rank: row.inputs.senderRank, displayedID: displayedMessageID)
                                 : nil,
@@ -4782,7 +4790,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             )
             : timelineSnapshots.committed.ids
         let models = Dictionary(chatVM.messages.map { ($0.displayedID, $0) }, uniquingKeysWith: { _, latest in latest })
-        let namedMessageIDs = chatVM.showsSenderNames ? Self.runStartIDs(itemIDs, models: models) : []
+        let messageRuns = chatVM.customChat.shouldShowProfileImage
+            ? Self.runs(itemIDs, models: models)
+            : (starts: [], ends: [])
+        let namedMessageIDs = chatVM.showsSenderNames ? messageRuns.starts : []
         let changedOwners = messageRenderOwners.replace(chatVM.messages)
         if demand.structural || !changedOwners.isEmpty { subscribeToMessages() }
         var rows = [ChatTimelineItemID: ChatTimelineRenderRow]()
@@ -4829,6 +4840,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         && selectableAlbumItemIDs(of: canonical) != nil
                         ? selectedAlbumItems(of: canonical)
                         : nil,
+                    showsAvatarImage: messageRuns.ends.contains(id),
                     showsSenderName: namedMessageIDs.contains(id),
                     senderRank: namedMessageIDs.contains(id) ? senderRank(of: canonical) : nil,
                 )

@@ -16,6 +16,8 @@ import UIKit
         let canReply: Bool
         /// The items of a media album that are selected, while selection is on; an album can be partly selected.
         var selectedAlbumItemIDs: Set<Int64>?
+        /// The last bubble of a run from one author carries the avatar; the others keep its room.
+        var showsAvatarImage = true
         /// The first bubble of a run from one author in a group carries the author's name, with this rank.
         var showsSenderName = false
         var senderRank: MessageSenderName.Rank?

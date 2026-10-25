@@ -722,6 +722,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         timelineRowID: UUID? = nil,
         showsProfileImage: Bool? = nil,
         commentsLoading: Bool = false,
+        showsAvatarImage: Bool = true,
         senderName: MessageSenderName? = nil,
     ) {
         // A reconfigure of the same message animates only its highlight change.
@@ -1028,6 +1029,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
         if let sender = message.senderUser, showsProfileImage, !message.message.isOutgoing {
             avatarView.setHiddenIfChanged(false)
+            // ChatMessageItemView: only a run's last bubble shows the avatar; the others keep its room.
+            avatarView.alpha = showsAvatarImage ? 1 : 0
+            avatarView.isUserInteractionEnabled = showsAvatarImage
+            avatarView.accessibilityElementsHidden = !showsAvatarImage
             avatarView.configure(
                 file: sender.profilePhoto?.small,
                 largeFile: sender.profilePhoto?.big,
