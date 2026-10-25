@@ -6,12 +6,13 @@ import UIKit
 // MARK: - ChatListSearchFilter
 
 /// ChatListSearchFilter's tabs over the chat list's search: Chats, then the message kinds Telegram searches across
-/// all chats, with its ids.
+/// all chats, with its ids; Downloads lists the download list instead, and only while it has files.
 enum ChatListSearchFilter: Int, CaseIterable {
     case chats = 0
     case channels = 2
     case apps = 3
     case media = 5
+    case downloads = 6
     case links = 7
     case files = 8
     case music = 9
@@ -23,6 +24,7 @@ enum ChatListSearchFilter: Int, CaseIterable {
         case .channels: L10n.telegram("ChatList.Search.FilterChannels")
         case .apps: L10n.telegram("ChatList.Search.FilterApps")
         case .media: L10n.telegram("ChatList.Search.FilterMedia")
+        case .downloads: L10n.telegram("ChatList.Search.FilterDownloads")
         case .links: L10n.telegram("ChatList.Search.FilterLinks")
         case .files: L10n.telegram("ChatList.Search.FilterFiles")
         case .music: L10n.telegram("ChatList.Search.FilterMusic")
@@ -35,7 +37,8 @@ enum ChatListSearchFilter: Int, CaseIterable {
         switch self {
         case .apps,
              .channels,
-             .chats: nil
+             .chats,
+             .downloads: nil
         case .media: .searchMessagesFilterPhotoAndVideo
         case .links: .searchMessagesFilterUrl
         case .files: .searchMessagesFilterDocument
@@ -47,7 +50,7 @@ enum ChatListSearchFilter: Int, CaseIterable {
     /// Telegram's empty state for the tab ("Fitler" is Telegram's own key).
     /// The Chats, Channels and Apps tabs list chats; the others list messages of a kind.
     var listsChats: Bool {
-        messagesFilter == nil
+        messagesFilter == nil && self != .downloads
     }
 
     /// TDLib's chat type for the Channels and Apps tabs' chat searches.
@@ -63,7 +66,8 @@ enum ChatListSearchFilter: Int, CaseIterable {
         switch self {
         case .apps,
              .channels,
-             .chats: L10n.telegram("ChatList.Search.NoResultsDescription")
+             .chats,
+             .downloads: L10n.telegram("ChatList.Search.NoResultsDescription")
         case .media: L10n.telegram("ChatList.Search.NoResultsFitlerMedia")
         case .links: L10n.telegram("ChatList.Search.NoResultsFitlerLinks")
         case .files: L10n.telegram("ChatList.Search.NoResultsFitlerFiles")

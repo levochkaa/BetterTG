@@ -53,6 +53,9 @@ import UIKit
     /// ChatListSearchFiltersContainerNode's tabs, in BetterTG's folder strip.
     private let filterPicker = FolderPickerView()
     private let filterResults = ChatListSearchFilterResultsView()
+    private let downloadsView = ChatListDownloadsView()
+    /// Whether TDLib's download list has files, which adds the Downloads tab (`hasDownloads`).
+    private var hasDownloads = false
     private var filter = ChatListSearchFilter.chats
     /// The chat type the table's search ran with: none for Chats, channels or bots for their tabs.
     private var searchedChatType: SearchChatTypeFilter?
@@ -80,6 +83,11 @@ import UIKit
     private var recentChatIDs = [Int64]()
     private var emptyStateTask: Task<Void, Never>?
 
+    /// ChatListSearchPaneContainerNode's tabs: Downloads only while the download list has files.
+    private var visibleFilters: [ChatListSearchFilter] {
+        ChatListSearchFilter.allCases.filter { $0 != .downloads || hasDownloads }
+    }
+
     init(rootVM: RootVM, chatList: ChatList, actionAuthority: ChatListActionAuthority) {
         self.rootVM = rootVM
         self.chatList = chatList
@@ -100,6 +108,7 @@ import UIKit
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         configureTableView()
+        observeDownloads()
         TDLib.shared
             .activeClientChanges
             .receive(on: DispatchQueue.main)
@@ -162,7 +171,10 @@ import UIKit
 
     /// Search opened with no query: its People row and recent chats reload, as they may have changed since.
     func refreshEmptyState() {
-        guard isViewLoaded, query.isEmpty else { return }
+        guard isViewLoaded else { return }
+        // The list's files can change while the search is closed, and the first check can come before TDLib starts.
+        refreshDownloadsAvailability()
+        guard query.isEmpty else { return }
         loadEmptyState()
     }
 
@@ -285,14 +297,65 @@ import UIKit
 
     /// The Chats tab shows the chats and messages found; another tab its kind of message from all chats.
     private func applyFilter() {
-        let showsMessages = !filter.listsChats
-        tableView.isHidden = showsMessages
+        let showsDownloads = filter == .downloads
+        let showsMessages = !filter.listsChats && !showsDownloads
+        tableView.isHidden = showsMessages || showsDownloads
         filterResults.isHidden = !showsMessages
+        downloadsView.isHidden = !showsDownloads
+        if showsDownloads {
+            filterResults.reset()
+            guard actionAuthority.scope(owner: self).isCurrent else { return }
+            downloadsView.show(query: query, client: actionAuthority.client)
+            return
+        }
+        downloadsView.reset()
         guard showsMessages, actionAuthority.scope(owner: self).isCurrent else {
             if !showsMessages { filterResults.reset() }
             return
         }
         filterResults.show(filter: filter, query: query, client: actionAuthority.client, chatList: chatList)
+    }
+
+    private func updateFilterPicker() {
+        if !hasDownloads, filter == .downloads {
+            filter = .chats
+            applyFilter()
+        }
+        filterPicker.configure(
+            items: visibleFilters.map { .init(id: $0.rawValue, title: $0.title) },
+            selectedID: filter.rawValue,
+        )
+    }
+
+    private func refreshDownloadsAvailability() {
+        let client = actionAuthority.client
+        Task { [weak self] in
+            let has = await FileDownloads.hasDownloads(client: client)
+            guard let self, client.id == actionAuthority.client.id, has != hasDownloads else { return }
+            hasDownloads = has
+            updateFilterPicker()
+        }
+    }
+
+    /// The download list's file counts as TDLib reports them, then as its updates change them.
+    private func observeDownloads() {
+        refreshDownloadsAvailability()
+        let apply: (DownloadedFileCounts, Int32) -> Void = { [weak self] counts, clientID in
+            guard let self, clientID == actionAuthority.client.id else { return }
+            let has = counts.activeCount + counts.pausedCount + counts.completedCount > 0
+            guard has != hasDownloads else { return }
+            hasDownloads = has
+            updateFilterPicker()
+        }
+        nc.scopedPublisher(&cancellables, for: .updateFileAddedToDownloads) { event in
+            apply(event.value.counts, event.source.clientID)
+        }
+        nc.scopedPublisher(&cancellables, for: .updateFileRemovedFromDownloads) { event in
+            apply(event.value.counts, event.source.clientID)
+        }
+        nc.scopedPublisher(&cancellables, for: .updateFileDownload) { event in
+            apply(event.value.counts, event.source.clientID)
+        }
     }
 
     private func openFilteredMessage(_ message: Message) {
@@ -337,7 +400,7 @@ import UIKit
         view.addSubview(tableView)
         filterPicker.translatesAutoresizingMaskIntoConstraints = false
         filterPicker.configure(
-            items: ChatListSearchFilter.allCases.map { .init(id: $0.rawValue, title: $0.title) },
+            items: visibleFilters.map { .init(id: $0.rawValue, title: $0.title) },
             selectedID: filter.rawValue,
         )
         filterPicker.onSelection = { [weak self] id in
@@ -352,6 +415,14 @@ import UIKit
         filterResults.isHidden = true
         filterResults.onOpen = { [weak self] message in self?.openFilteredMessage(message) }
         view.addSubview(filterResults)
+        downloadsView.translatesAutoresizingMaskIntoConstraints = false
+        downloadsView.isHidden = true
+        downloadsView.onOpen = { [weak self] message in self?.openFilteredMessage(message) }
+        downloadsView.onManageStorage = { [weak self] in
+            self?.navigationController?.pushViewController(StorageUsageViewController(), animated: true)
+        }
+        downloadsView.presenter = { [weak self] in self }
+        view.addSubview(downloadsView)
         NSLayoutConstraint.activate([
             filterPicker.topAnchor.constraint(equalTo: view.topAnchor),
             filterPicker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -365,6 +436,10 @@ import UIKit
             filterResults.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             filterResults.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             filterResults.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            downloadsView.topAnchor.constraint(equalTo: filterPicker.bottomAnchor),
+            downloadsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            downloadsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            downloadsView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         dataSource = UITableViewDiffableDataSource<
             Section,

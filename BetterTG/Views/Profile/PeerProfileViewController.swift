@@ -1000,7 +1000,10 @@ ClientRestorableNavigationEntry {
                 guard let self, sharedItemDownload?.fileID == fileID, file.expectedSize > 0 else { return }
                 setSharedItemProgress(Float(file.local.downloadedSize) / Float(file.expectedSize), for: messageID)
             }
+        let source = FileDownloads.Source(chatID: message.chatId, messageID: messageID)
         let task = Task { [weak self] in
+            // Shared media's fetch is userInitiated: the file joins the download list.
+            _ = await FileDownloads.add(fileID: fileID, source: source, client: client)
             let downloaded = try? await client.downloadFile(
                 fileId: fileID, limit: 0, offset: 0, priority: 32, synchronous: true,
             )
@@ -1124,7 +1127,14 @@ ClientRestorableNavigationEntry {
         setSharedItemProgress(nil, for: download.messageID)
         guard cancelInTDLib else { return }
         let client = client
-        Task { _ = try? await client.cancelDownloadFile(fileId: download.fileID, onlyIfPending: false) }
+        Task {
+            _ = try? await client.cancelDownloadFile(fileId: download.fileID, onlyIfPending: false)
+            // A cancelled download leaves the download list, as Telegram's cancelInteractiveFetch does.
+            _ = try? await client.send(TDNativeRequests.removeFileFromDownloads(
+                fileId: download.fileID,
+                deleteFromCache: false,
+            ))
+        }
     }
 
     /// Redraws one row once a sender it names is known.

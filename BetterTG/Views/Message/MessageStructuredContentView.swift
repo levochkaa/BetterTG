@@ -551,6 +551,7 @@ final class MessageStructuredContentView: UIView {
                     client: client,
                     onAction: onAction,
                     nowPlayingItem: chatID == 0 ? nil : .music(chatID: chatID, messageID: messageID),
+                    downloadSource: chatID == 0 ? nil : FileDownloads.Source(chatID: chatID, messageID: messageID),
                 )
             case .checklist(let checklist):
                 ChecklistMessageContentView(
@@ -571,7 +572,12 @@ final class MessageStructuredContentView: UIView {
                     onAction: onAction,
                 )
             case .document(let document):
-                TelegramFileMessageView(document: document, client: client, onAction: onAction)
+                TelegramFileMessageView(
+                    document: document,
+                    client: client,
+                    onAction: onAction,
+                    downloadSource: chatID == 0 ? nil : FileDownloads.Source(chatID: chatID, messageID: messageID),
+                )
             case .game(let game):
                 GameMessageContentView(game: game, messageID: messageID, client: client, onAction: onAction)
             case .location(let location):
@@ -673,6 +679,7 @@ private final class AttachmentAlbumMessageView: UIView, MessageSupplementView {
                 itemViews.append(AttachmentAlbumItemView(
                     messageID: message.id,
                     document: document,
+                    chatID: message.chatId,
                     client: client,
                     spoilerState: textSpoilers?.states[message.id],
                     onAction: onAction,
@@ -742,6 +749,7 @@ private final class AttachmentAlbumItemView: UIView {
             client: client,
             onAction: onAction,
             nowPlayingItem: .music(chatID: chatID, messageID: messageID),
+            downloadSource: FileDownloads.Source(chatID: chatID, messageID: messageID),
         )
         super.init(frame: .zero)
         configure(fileView: fileView, caption: audio.caption, client: client, spoilerState: spoilerState)
@@ -750,12 +758,18 @@ private final class AttachmentAlbumItemView: UIView {
     init(
         messageID: Int64,
         document: MessageDocument,
+        chatID: Int64,
         client: TDLibClient,
         spoilerState: MessageTextSpoilerState?,
         onAction: @escaping (MessageContentAction) -> Void,
     ) {
         self.messageID = messageID
-        self.fileView = TelegramFileMessageView(document: document.document, client: client, onAction: onAction)
+        self.fileView = TelegramFileMessageView(
+            document: document.document,
+            client: client,
+            onAction: onAction,
+            downloadSource: FileDownloads.Source(chatID: chatID, messageID: messageID),
+        )
         super.init(frame: .zero)
         configure(fileView: fileView, caption: document.caption, client: client, spoilerState: spoilerState)
     }
@@ -885,6 +899,9 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
         }
     }
 
+    /// The message the file came from, which puts a download into TDLib's download list.
+    var downloadSource: FileDownloads.Source?
+
     private let actionButton = UIButton(type: .system)
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
@@ -934,11 +951,13 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
         client: TDLibClient,
         onAction: @escaping (MessageContentAction) -> Void,
         nowPlayingItem: Media.NowPlaying? = nil,
+        downloadSource: FileDownloads.Source? = nil,
     ) {
         self.client = client
         self.content = .audio(audio)
         self.onAction = onAction
         self.nowPlayingItem = nowPlayingItem
+        self.downloadSource = downloadSource
         self.representedFile = audio.audio
         super.init(frame: .zero)
         configureViews()
@@ -951,11 +970,13 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
         document: Document,
         client: TDLibClient,
         onAction: @escaping (MessageContentAction) -> Void,
+        downloadSource: FileDownloads.Source? = nil,
     ) {
         self.client = client
         self.content = .document(document)
         self.onAction = onAction
         self.nowPlayingItem = nil
+        self.downloadSource = downloadSource
         self.representedFile = document.document
         super.init(frame: .zero)
         configureViews()
@@ -1126,8 +1147,16 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
             downloadTask = nil
             let client = client
             let fileID = representedFile.id
+            let inDownloadList = downloadSource != nil
             downloadTask = Task { [weak self] in
                 _ = try? await client.cancelDownloadFile(fileId: fileID, onlyIfPending: false)
+                // messageMediaFileCancelInteractiveFetch: a cancelled file leaves the download list too.
+                if inDownloadList {
+                    _ = try? await client.send(TDNativeRequests.removeFileFromDownloads(
+                        fileId: fileID,
+                        deleteFromCache: false,
+                    ))
+                }
                 let file = try? await client.getFile(fileId: fileID)
                 guard let self, !Task.isCancelled, let file else { return }
                 await MainActor.run {
@@ -1144,14 +1173,22 @@ final class TelegramFileMessageView: UIView, MessageSupplementView {
         let client = client
         let fileID = representedFile.id
         downloadTask?.cancel()
+        let downloadSource = downloadSource
         downloadTask = Task { [weak self] in
-            let file = try? await client.downloadFile(
-                fileId: fileID,
-                limit: 0,
-                offset: 0,
-                priority: 16,
-                synchronous: false,
-            )
+            // A message's file joins the download list, as Telegram's userInitiated fetch does.
+            var file: File?
+            if let downloadSource {
+                file = await FileDownloads.add(fileID: fileID, source: downloadSource, client: client)
+            }
+            if file == nil {
+                file = try? await client.downloadFile(
+                    fileId: fileID,
+                    limit: 0,
+                    offset: 0,
+                    priority: FileDownloads.priority,
+                    synchronous: false,
+                )
+            }
             guard let self, !Task.isCancelled, let file else { return }
             await MainActor.run {
                 guard self.representedFile.id == fileID else { return }
