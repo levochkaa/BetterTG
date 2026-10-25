@@ -333,6 +333,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private lazy var rowBottomConstraint = rowStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
     /// The bubble's merged neighbours from this configuration, applied with its fill.
     private var pendingBubbleMerge = MessageBubbleMerge()
+    /// The configured message's side, for the media corners its merged neighbours narrow.
+    private var timelineIsOutgoing = false
 
     var contextPreviewView: UIView { bubbleContainerView }
 
@@ -810,6 +812,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             centered: isCentered,
         )
         pendingBubbleMerge = isCentered ? MessageBubbleMerge() : bubbleMerge
+        timelineIsOutgoing = message.message.isOutgoing
         // ChatMessageItemLayoutConstants: past the timeline's 8 pt, the bubble's body sits 10 pt from the edge (3 pt
         // edge inset, the 1 pt stroke inset and 6 pt for the tail), an avatar at 8 pt with the body 48 pt in; a
         // bubble keeps 2⅓ pt above and below except where the same author's bubble continues.
@@ -860,11 +863,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             } else {
                 nil
             }
-        let hasBubbleText = message.formattedText != nil || message.forwardPresentation != nil || message
-            .replyPresentation != nil || senderName != nil
         // The comments bar sits on the bubble, as under Telegram's media posts.
-        let bubbleFill: UIColor = isCentered
-            || (commentSource == nil && (isStandaloneUnframedMedia || (usesFullBleedMedia && !hasBubbleText)))
+        // ChatMessageMediaBubbleContentNode on a plain background: a photo or video fills its bubble to the stroke
+        // inset, so the bubble shows only as its tail; stickers, GIFs and round videos stand alone.
+        let bubbleFill: UIColor = isCentered || (commentSource == nil && isStandaloneUnframedMedia)
             ? .clear
             : .secondarySystemBackground
         bubbleBackground.fillColor = bubbleFill
@@ -1427,6 +1429,16 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
         if !usesFullBleedMedia || visibleItems.last === mediaView {
             mediaCorners.formUnion([.layerMinXMaxYCorner, .layerMaxXMaxYCorner])
+        }
+        if usesFullBleedMedia {
+            // The bubble's mask rounds the media where a merged neighbour narrows the corner.
+            let outgoing = timelineIsOutgoing
+            if pendingBubbleMerge.withOlder {
+                mediaCorners.remove(outgoing ? .layerMaxXMinYCorner : .layerMinXMinYCorner)
+            }
+            if pendingBubbleMerge.withNewer {
+                mediaCorners.remove(outgoing ? .layerMaxXMaxYCorner : .layerMinXMaxYCorner)
+            }
         }
         mediaView.setBubbleCorners(mediaCorners)
         // Telegram drops the bar's separator right under media.
