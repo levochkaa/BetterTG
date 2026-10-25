@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 SECRET_RELATIVE_PATH="BetterTG/Secret/Secret.swift"
 LOCAL_CONFIG_RELATIVE_PATH="Configuration/Local.xcconfig"
 # The App Store Connect API key of the fastlane lanes.
@@ -14,7 +14,7 @@ primary_root() {
     echo "error: cannot locate the primary BetterTG checkout from $common_git_dir" >&2
     exit 1
   fi
-  dirname "$common_git_dir"
+  (cd "$(dirname "$common_git_dir")" && pwd -P)
 }
 
 # Copies an ignored setup.sh output from the primary checkout into a new worktree.
