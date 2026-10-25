@@ -2655,3 +2655,5 @@
 "ArchiveInfo.StoriesTitle" = "Stories";
 "ArchiveInfo.StoriesText" = "Archive Stories from your contacts separately from chats with them.";
 "ArchiveInfo.CloseAction" = "Got it";
+"ChatList.ToastFolderMutedV2" = "All chats in {folder} are now muted";
+"ChatList.ToastFolderUnmutedV2" = "All chats in {folder} are now unmuted";

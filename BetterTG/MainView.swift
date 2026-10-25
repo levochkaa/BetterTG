@@ -1159,6 +1159,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                         )
                     },
                 )
+                // The toast with the folder's name in bold (ChatList.ToastFolderMutedV2 / UnmutedV2).
+                guard let self, scope.isCurrent else { return }
+                let text = L10n.telegram(muted ? "ChatList.ToastFolderMutedV2" : "ChatList.ToastFolderUnmutedV2")
+                    .replacing("{folder}", with: "**\(folder.name.replacing("**", with: ""))**")
+                TelegramUndoToast.show(text: text, in: view, bottomInset: 66, undo: nil)
             } catch {
                 guard scope.isCurrent else { return }
                 self?.presentFolderError(error)
