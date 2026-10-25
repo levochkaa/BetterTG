@@ -48,7 +48,7 @@ packages:
     exactVersion: 1.7.3
   TDLibKit:
     url: https://github.com/levochkaa/TDLibKit.git
-    exactVersion: 2.0.1-tdlib-1.8.69-ea3f69ce
+    exactVersion: 2.0.2-tdlib-1.8.69-ea3f69ce
 targets:
   BetterTG:
     type: application
