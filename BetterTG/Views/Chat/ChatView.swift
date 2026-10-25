@@ -894,6 +894,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return L10n.telegram("Conversation.AutoremoveRemainingTime", time)
     }
 
+    /// timeIntervalString: the period in seconds, minutes, hours, days, weeks, months or years.
+    static func timeIntervalText(_ seconds: Int) -> String {
+        let (key, count) =
+            switch seconds {
+            case ..<60: ("MessageTimer.Seconds", max(1, seconds))
+            case ..<(60 * 60): ("MessageTimer.Minutes", seconds / 60)
+            case ..<(60 * 60 * 24): ("MessageTimer.Hours", seconds / (60 * 60))
+            case ..<(60 * 60 * 24 * 7): ("MessageTimer.Days", seconds / (60 * 60 * 24))
+            case ..<(60 * 60 * 24 * 30): ("MessageTimer.Weeks", seconds / (60 * 60 * 24 * 7))
+            case ..<(60 * 60 * 24 * 365): ("MessageTimer.Months", seconds / (60 * 60 * 24 * 30))
+            default: ("MessageTimer.Years", seconds / (60 * 60 * 24 * 365))
+            }
+        return L10n.telegramPlural(key, count: max(1, count))
+    }
+
     /// The destination's full chat on top of the stack: popped back to when open, pushed otherwise.
     private static func openChat(
         _ chat: CustomChat,
@@ -1746,6 +1761,35 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return values
         }
     #endif
+
+    /// The input's auto-delete timer: ChatTimerScreen where this account may change it, else TooltipController's
+    /// "Messages in this chat are automatically deleted" for four seconds.
+    private func autoDeleteTimerTapped(_ source: UIView) {
+        let current = chatVM.messageAutoDeleteTime
+        if chatVM.canSetAutoDelete {
+            view.endEditing(true)
+            PeerProfileTimerPickerViewController(mode: .autoDelete(
+                current: current,
+                format: { Self.timeIntervalText($0) },
+                onApply: { [weak self] seconds in
+                    Task { [weak self] in
+                        guard let self, await chatVM.setMessageAutoDeleteTime(seconds) else { return }
+                        showChatToast(seconds > 0
+                            ? L10n.telegram("Conversation.AutoremoveChanged", Self.timeIntervalText(seconds))
+                            : L10n.telegram("Conversation.AutoremoveOff"))
+                    }
+                },
+            )).present(from: self)
+        } else if current > 0, let window = view.window {
+            TelegramTextTooltipView.show(
+                L10n.telegram("Conversation.AutoremoveTimerSetToastText", Self.timeIntervalText(current)),
+                source: source.convert(source.bounds, to: window),
+                in: window,
+                topInset: window.safeAreaInsets.top,
+                duration: 4,
+            )
+        }
+    }
 
     /// ChatController's openPeerContextMenu for a member's avatar: Open Profile, Send Message, Mention where the user
     /// can write, and Search Messages from them where the chat searches by member.
@@ -2879,6 +2923,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         }
         composerView.onOpenScheduledMessages = { [weak self] in self?.openScheduledMessages() }
+        composerView.onAutoDeleteTimer = { [weak self] source in self?.autoDeleteTimerTapped(source) }
         composerView.onOpenBotMenuWebApp = { [weak self] button in self?.openBotMenuWebApp(button) }
         composerView.onVoiceGestureActivityChange = { [weak self] active in
             guard let self, voiceGestureDefersSystemGestures != active else { return }

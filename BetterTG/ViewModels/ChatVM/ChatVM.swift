@@ -197,6 +197,8 @@ import UIKit
     @Published var hasScheduledMessages = false
     /// ChatInterfaceState's `silentPosting`: a channel's posts go out without a sound, kept for each account's chat.
     @Published private(set) var silentPosting = false
+    /// The chat's auto-delete timer (`messageAutoDeleteTime`), or a secret chat's self-destruct timer.
+    @Published var messageAutoDeleteTime = 0
     /// A composer send that only scheduled its message; the chat opens Scheduled Messages, as Telegram does.
     let scheduledComposerSend = PassthroughSubject<Void, Never>()
     @Published var memberCount = 0
@@ -1199,6 +1201,24 @@ import UIKit
         customChat.supergroup?.isChannel == true
     }
 
+    /// Telegram's canSetupAutoremoveTimeout: a secret chat, a person who isn't a bot, or a group or channel whose
+    /// info this account can change.
+    var canSetAutoDelete: Bool {
+        if customChat.secretChatID != nil { return true }
+        switch customChat.type {
+        case .user: return !customChat.isSavedMessages
+        case .bot: return false
+        case .group(let group):
+            return peerProfileCanChangeInfo(
+                chatType: customChat.chat.type, permissions: customChat.chat.permissions, status: group.status,
+            )
+        case .supergroup(let group):
+            return peerProfileCanChangeInfo(
+                chatType: customChat.chat.type, permissions: customChat.chat.permissions, status: group.status,
+            )
+        }
+    }
+
     /// Sends without a menu choice in a channel with silent posting on go out without a sound
     /// (ChatControllerLoadDisplayNode's `effectiveSilentPosting`).
     var defaultSendOptions: TDNativeMessageSendOptions? {
@@ -1841,6 +1861,20 @@ import UIKit
     private nonisolated static func sendsAsAnimation(_ image: SelectedImage) -> Bool {
         guard let video = image.video, video.sendsAsGIF, image.selfDestructTimer == nil else { return false }
         return video.url.pathExtension.lowercased() == "mp4"
+    }
+
+    /// setChatMessageAutoDeleteTime from the input's timer, with PeerInfoScreen's "Messages will be auto-deleted" or
+    /// "Auto-delete is off" toast text.
+    func setMessageAutoDeleteTime(_ seconds: Int) async -> Bool {
+        do {
+            _ = try await client.send(TDNativeRequests.setChatMessageAutoDeleteTime(
+                chatId: customChat.id, messageAutoDeleteTime: seconds,
+            ))
+            messageAutoDeleteTime = seconds
+            return true
+        } catch {
+            return false
+        }
     }
 
     func loadSilentPosting() {

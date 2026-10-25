@@ -83,6 +83,7 @@ enum TelegramTooltipShape {
 
     private var topInset = CGFloat.zero
     private var padding = CGFloat(8)
+    private var duration: TimeInterval = 2
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -104,8 +105,16 @@ enum TelegramTooltipShape {
 
     /// `source` is in `host`'s coordinates; `topInset` keeps the tooltip under the status bar, and `padding` is how
     /// near the screen's edges it may come (TooltipController's 8 pt, or 2 pt for the record button's).
-    static func show(_ text: String, source: CGRect, in host: UIView, topInset: CGFloat, padding: CGFloat = 8) {
+    static func show(
+        _ text: String,
+        source: CGRect,
+        in host: UIView,
+        topInset: CGFloat,
+        padding: CGFloat = 8,
+        duration: TimeInterval = 2,
+    ) {
         if let current, current.superview === host, current.source == source {
+            current.duration = duration
             current.update(text, animated: true)
             current.restartTimer()
             return
@@ -116,6 +125,7 @@ enum TelegramTooltipShape {
         tooltip.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         tooltip.source = source
         tooltip.padding = padding
+        tooltip.duration = duration
         host.addSubview(tooltip)
         current = tooltip
         tooltip.update(text, animated: false, topInset: topInset)
@@ -164,7 +174,7 @@ enum TelegramTooltipShape {
         dismissWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.dismiss(animated: true) }
         dismissWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: work)
     }
 
     private func dismiss(animated: Bool) {

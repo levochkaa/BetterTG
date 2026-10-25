@@ -77,6 +77,8 @@ final class ChatComposerView: UIView {
     var onScheduleMessage: (() -> Void)?
     /// The input panel's scheduled messages button.
     var onOpenScheduledMessages: (() -> Void)?
+    /// The input's auto-delete timer; the button is the source for a tooltip.
+    var onAutoDeleteTimer: ((UIView) -> Void)?
     /// The menu button of a bot whose menu is a Web App (`botMenuButton == .webView`): the chat opens it.
     var onOpenBotMenuWebApp: ((TDNativeBotMenuButton) -> Void)?
     /// The peek menu of a sticker suggested for the typed emoji, from the chat.
@@ -112,6 +114,9 @@ final class ChatComposerView: UIView {
     private let replyKeyboardButton = UIButton(type: .system)
     /// ChatTextInputPanelNode's scheduled messages accessory, shown while the input is empty.
     private let scheduledMessagesButton = UIButton(type: .system)
+    /// ChatTextInputAccessoryItem's `.messageAutoremoveTimeout`: the timer's short interval, or a clock while a secret
+    /// chat has none.
+    private let autoDeleteButton = UIButton(type: .system)
     /// ChatTextInputAccessoryItem's `.silentPost`: a channel's bell, slashed while posts go out silently.
     private let silentPostButton = UIButton(type: .system)
     private var canPostSilently = false
@@ -276,6 +281,21 @@ final class ChatComposerView: UIView {
     static func restorationSelection(_ selection: NSRange, length: Int) -> NSRange {
         let start = min(selection.location, length)
         return NSRange(location: start, length: min(selection.length, length - start))
+    }
+
+    /// shortTimeIntervalString: "30s", "5m", "1h", "1d", "1w", "1mo" or "1y".
+    static func shortTimeInterval(_ seconds: Int) -> String {
+        let (key, count) =
+            switch seconds {
+            case ..<60: ("MessageTimer.ShortSeconds", max(1, seconds))
+            case ..<(60 * 60): ("MessageTimer.ShortMinutes", seconds / 60)
+            case ..<(60 * 60 * 24): ("MessageTimer.ShortHours", seconds / (60 * 60))
+            case ..<(60 * 60 * 24 * 7): ("MessageTimer.ShortDays", seconds / (60 * 60 * 24))
+            case ..<(60 * 60 * 24 * 31): ("MessageTimer.ShortWeeks", seconds / (60 * 60 * 24 * 7))
+            case ..<(60 * 60 * 24 * 365): ("MessageTimer.ShortMonths", seconds / (60 * 60 * 24 * 30))
+            default: ("MessageTimer.ShortYears", seconds / (60 * 60 * 24 * 365))
+            }
+        return L10n.telegramPlural(key, count: max(1, count), formattedCount: "\(max(1, count))")
     }
 
     private static func mentionText(_ mention: ChatMentionSuggestion) -> FormattedText {
@@ -752,6 +772,7 @@ final class ChatComposerView: UIView {
         updateSuggestions(enabled: canWrite && canWriteText)
         updateScheduledMessagesButton()
         updateSilentPostButton()
+        updateAutoDeleteButton()
         mediaInputCanWriteText = canWriteText
         mediaInputStickersEnabled = chatVM.canSendStickersAndAnimations
         mediaInputIsAvailable = canWrite
@@ -1003,6 +1024,7 @@ final class ChatComposerView: UIView {
         inputRow.addArrangedSubview(botMenuButton)
         inputRow.addArrangedSubview(attachmentButton)
         inputRow.addArrangedSubview(textView)
+        inputRow.addArrangedSubview(autoDeleteButton)
         inputRow.addArrangedSubview(scheduledMessagesButton)
         inputRow.addArrangedSubview(silentPostButton)
         inputRow.addArrangedSubview(mediaInputButton)
@@ -1020,6 +1042,8 @@ final class ChatComposerView: UIView {
             attachmentButton.heightAnchor.constraint(equalToConstant: 36),
             scheduledMessagesButton.widthAnchor.constraint(equalToConstant: 34),
             scheduledMessagesButton.heightAnchor.constraint(equalToConstant: 36),
+            autoDeleteButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 28),
+            autoDeleteButton.heightAnchor.constraint(equalToConstant: 36),
             silentPostButton.widthAnchor.constraint(equalToConstant: 34),
             silentPostButton.heightAnchor.constraint(equalToConstant: 36),
             mediaInputButton.widthAnchor.constraint(equalToConstant: 34),
@@ -1037,6 +1061,22 @@ final class ChatComposerView: UIView {
         scheduledMessagesButton.tintColor = .secondaryLabel
         scheduledMessagesButton.accessibilityLabel = L10n.telegram("ScheduledMessages.Title")
         scheduledMessagesButton.isHidden = true
+        // AccessoryItemIconButton: the interval in 14 pt medium, 5 pt in from each side.
+        var autoDeleteConfiguration = UIButton.Configuration.plain()
+        autoDeleteConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 5, bottom: 0, trailing: 5)
+        autoDeleteConfiguration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+            pointSize: 19,
+            weight: .regular,
+        )
+        autoDeleteConfiguration.baseForegroundColor = .secondaryLabel
+        autoDeleteConfiguration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer {
+            var attributes = $0
+            attributes.font = .systemFont(ofSize: 14, weight: .medium)
+            return attributes
+        }
+        autoDeleteButton.configuration = autoDeleteConfiguration
+        autoDeleteButton.isHidden = true
+        autoDeleteButton.setContentHuggingPriority(.required, for: .horizontal)
         silentPostButton.setPreferredSymbolConfiguration(
             UIImage.SymbolConfiguration(pointSize: 19, weight: .regular),
             forImageIn: .normal,
@@ -1228,6 +1268,10 @@ final class ChatComposerView: UIView {
             for: .touchUpInside,
         )
         silentPostButton.addAction(UIAction { [weak self] _ in self?.toggleSilentPost() }, for: .touchUpInside)
+        autoDeleteButton.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            onAutoDeleteTimer?(autoDeleteButton)
+        }, for: .touchUpInside)
         closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)
         botMenuButton.addAction(
             UIAction { [weak self] _ in
@@ -1375,6 +1419,30 @@ final class ChatComposerView: UIView {
         }
     }
 
+    /// ChatInterfaceInputContexts' `.messageAutoremoveTimeout` item: outside Saved Messages while the input is empty,
+    /// for a chat with a timer, or any secret chat.
+    private func updateAutoDeleteButton() {
+        let time = chatVM.messageAutoDeleteTime
+        let isSecret = chatVM.customChat.secretChatID != nil
+        let shows = !chatVM.customChat.isSavedMessages && (time > 0 || isSecret)
+            && chatVM.editCustomMessage == nil && chatVM.text.characters.isEmpty
+            && !mediaInputResponder.isFirstResponder
+        if autoDeleteButton.isHidden == shows { autoDeleteButton.isHidden = !shows }
+        guard shows else { return }
+        if time > 0 {
+            autoDeleteButton.configuration?.image = nil
+            autoDeleteButton.configuration?.title = Self.shortTimeInterval(time)
+            autoDeleteButton.accessibilityLabel = L10n.telegram(
+                "VoiceOver.SelfDestructTimerOn",
+                Self.shortTimeInterval(time),
+            )
+        } else {
+            autoDeleteButton.configuration?.title = nil
+            autoDeleteButton.configuration?.image = UIImage(systemName: "timer")
+            autoDeleteButton.accessibilityLabel = L10n.telegram("VoiceOver.SelfDestructTimerOff")
+        }
+    }
+
     /// ChatInterfaceInputContexts' `.silentPost` item: in a channel the user posts to, while the input is empty
     /// outside editing and the media panel.
     private func updateSilentPostButton() {
@@ -1457,6 +1525,7 @@ final class ChatComposerView: UIView {
         updateReplyKeyboardButton()
         updateScheduledMessagesButton()
         updateSilentPostButton()
+        updateAutoDeleteButton()
     }
 
     /// The keyboard icon returns to text input (`.text`); stickers and emoji open the panel on that tab, as

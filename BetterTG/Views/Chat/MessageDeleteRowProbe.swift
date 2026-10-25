@@ -20,7 +20,7 @@ import UIKit
                 do {
                     try verify()
                     try await render()
-                    result = "Delete row probe passed: minutes/hours/days/height/rendered=true"
+                    result = "Delete row probe passed: minutes/hours/days/height/timer/rendered=true"
                 } catch {
                     result = "Delete row probe failed: \(error)"
                 }
@@ -52,6 +52,19 @@ import UIKit
                 let text = ChatViewController.autoDeleteText(timeLeft: timeLeft)
                 try require(text == expected, "\(timeLeft) s: \(text), expected \(expected)")
             }
+            // The input's timer and its tooltip: shortTimeIntervalString and timeIntervalString.
+            let shortCases: [(Int, String)] = [
+                (30, "30s"), (300, "5m"), (3600, "1h"), (86400, "1d"), (86400 * 7, "1w"), (86400 * 31, "1mo"),
+                (86400 * 365, "1y"),
+            ]
+            for (seconds, expected) in shortCases {
+                let text = ChatComposerView.shortTimeInterval(seconds)
+                try require(text.lowercased() == expected, "short \(seconds) s: \(text), expected \(expected)")
+            }
+            try require(
+                ChatViewController.timeIntervalText(86400 * 7) == L10n.telegramPlural("MessageTimer.Weeks", count: 1),
+                "week interval \(ChatViewController.timeIntervalText(86400 * 7))",
+            )
             try require(
                 L10n.telegramPlural("Conversation.AutoremoveRemainingDays", count: 2).contains("2"),
                 "days wording \(L10n.telegramPlural("Conversation.AutoremoveRemainingDays", count: 2))",
