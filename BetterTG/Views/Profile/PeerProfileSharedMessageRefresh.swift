@@ -300,8 +300,10 @@ private extension PeerProfileViewController.SharedTab {
                 false
             }
         case .groupsInCommon,
-             .members:
-            // Groups lists chats and Members lists people; no message belongs to them.
+             .members,
+             .similarBots,
+             .similarChannels:
+            // Groups and the recommendations list chats, Members lists people; no message belongs to them.
             false
         case .links:
             switch message.content {

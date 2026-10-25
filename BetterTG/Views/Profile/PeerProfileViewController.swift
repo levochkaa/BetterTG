@@ -8,8 +8,8 @@ import UIKit
 
 @MainActor final class PeerProfileViewController: UIViewController, UICollectionViewDelegate,
 ClientRestorableNavigationEntry {
-    /// Telegram's panes in its order (Members for a large group, `peerInfoAvailableMediaPanes`, then Groups for a
-    /// user). A pane shows only when it has content.
+    /// Telegram's panes in its order (Members for a large group, `peerInfoAvailableMediaPanes`, Groups for a user,
+    /// then a channel's Similar Channels or a bot's Similar Bots). A pane shows only when it has content.
     enum SharedTab: Int, CaseIterable {
         case members = 7
         case media = 0
@@ -19,6 +19,8 @@ ClientRestorableNavigationEntry {
         case links = 4
         case gifs = 5
         case groupsInCommon = 6
+        case similarChannels = 8
+        case similarBots = 9
 
         var title: String {
             switch self {
@@ -30,6 +32,8 @@ ClientRestorableNavigationEntry {
             case .gifs: L10n.telegram("PeerInfo.PaneGifs")
             case .groupsInCommon: L10n.telegram("PeerInfo.PaneGroups")
             case .members: L10n.telegram("PeerInfo.PaneMembers")
+            case .similarChannels: L10n.telegram("PeerInfo.PaneRecommended")
+            case .similarBots: L10n.telegram("PeerInfo.PaneRecommendedBots")
             }
         }
 
@@ -43,6 +47,8 @@ ClientRestorableNavigationEntry {
             case .gifs: L10n.betterTG("Profile.SharedGIFsLoadFailed")
             case .groupsInCommon: L10n.betterTG("Profile.SharedGroupsLoadFailed")
             case .members: L10n.betterTG("Profile.SharedMembersLoadFailed")
+            case .similarBots,
+                 .similarChannels: L10n.betterTG("Profile.SimilarLoadFailed")
             }
         }
 
@@ -56,6 +62,8 @@ ClientRestorableNavigationEntry {
             case .gifs: L10n.betterTG("Profile.SharedGIFsEmpty")
             case .groupsInCommon: L10n.betterTG("Profile.SharedGroupsEmpty")
             case .members: L10n.betterTG("Profile.NoMembers")
+            case .similarBots,
+                 .similarChannels: L10n.betterTG("Profile.SimilarEmpty")
             }
         }
 
@@ -69,8 +77,15 @@ ClientRestorableNavigationEntry {
             case .links: .searchMessagesFilterUrl
             case .gifs: .searchMessagesFilterAnimation
             case .groupsInCommon,
-                 .members: nil
+                 .members,
+                 .similarBots,
+                 .similarChannels: nil
             }
+        }
+
+        /// PeerInfoRecommendedPeersPane: the recommendations TDLib returns at once.
+        var isSimilar: Bool {
+            self == .similarChannels || self == .similarBots
         }
 
         /// Media and GIFs show a grid of previews; the other panes list their items.
@@ -275,6 +290,14 @@ ClientRestorableNavigationEntry {
     private var groupsInCommonHasMore = true
     private var groupsInCommonTask: Task<Void, Never>?
     private var groupsInCommonGeneration = UInt64.zero
+    /// getChatSimilarChatCount or getBotSimilarBotCount; the pane shows once it is above zero.
+    private var similarCount: Int?
+    private var similarCountTask: Task<Void, Never>?
+    private var similarChats = [Int64]()
+    private var similarByID = [Int64: CustomChat]()
+    private var similarTask: Task<Void, Never>?
+    private var similarGeneration = UInt64.zero
+    private var similarLoaded = false
     private weak var activeAvatarGallery: ProfileAvatarGalleryViewController?
     private lazy var mediaPlaybackContext = MediaGalleryPlaybackContext(
         client: client,
@@ -440,6 +463,11 @@ ClientRestorableNavigationEntry {
         }
     }
 
+    /// A channel's recommendations, outside its topics.
+    private var listsSimilarChannels: Bool {
+        topic == nil && customChat.supergroup?.isChannel == true
+    }
+
     init(
         customChat: CustomChat, topic: MessageTopic?, client: TDLibClient, accountID: UUID,
         restoration: PeerProfileRestorationState? = nil,
@@ -500,6 +528,8 @@ ClientRestorableNavigationEntry {
         historyTask?.cancel()
         sharedTabCountTask?.cancel()
         groupsInCommonTask?.cancel()
+        similarCountTask?.cancel()
+        similarTask?.cancel()
         moreMenuTask?.cancel()
     }
 
@@ -703,6 +733,17 @@ ClientRestorableNavigationEntry {
         }
     }
 
+    /// RecommendedPeersListEntry: a channel's subscribers or a bot's monthly users, when known.
+    private static func similarSubtitle(_ chat: CustomChat) -> String? {
+        if let bot = chat.bot {
+            guard bot.activeUserCount > 0 else { return nil }
+            return L10n.telegramPlural("SharedMedia.SimilarBot.Users", count: bot.activeUserCount)
+        }
+        let count = chat.supergroup?.memberCount ?? 0
+        guard count > 0 else { return nil }
+        return L10n.telegramPlural("SharedMedia.SimilarChannel.Subscribers", count: count)
+    }
+
     func scrollViewWillBeginDragging(_: UIScrollView) {
         sharedViewportGeneration &+= 1
         let hadPendingViewport = restoredViewport != nil
@@ -765,6 +806,8 @@ ClientRestorableNavigationEntry {
                 historyTask?.cancel()
                 sharedTabCountTask?.cancel()
                 groupsInCommonTask?.cancel()
+                similarCountTask?.cancel()
+                similarTask?.cancel()
                 infoTask?.cancel()
                 permissionTask?.cancel()
                 chatMetadataTask?.cancel()
@@ -791,6 +834,13 @@ ClientRestorableNavigationEntry {
             collectionView.deselectItem(at: indexPath, animated: true)
             guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath) else { return }
             membersPane?.open(id)
+            return
+        }
+        if currentSharedTab.isSimilar {
+            // PeerInfoRecommendedPeersPane opens the channel or the bot (`openPeer`).
+            guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath), let chat = similarByID[id]
+            else { return }
+            NavigationStorage.shared.push(.customChat(chat))
             return
         }
         if currentSharedTab == .groupsInCommon {
@@ -824,6 +874,8 @@ ClientRestorableNavigationEntry {
             switch currentSharedTab {
             case .groupsInCommon: groupsInCommon.count
             case .members: membersPane?.items.count ?? 0
+            case .similarBots,
+                 .similarChannels: similarChats.count
             case .audio,
                  .files,
                  .gifs,
@@ -1453,6 +1505,15 @@ ClientRestorableNavigationEntry {
                 }
                 return cell ?? UICollectionViewCell()
             }
+            if currentSharedTab.isSimilar {
+                guard let chat = similarByID[id],
+                      let cell = collectionView.dequeueReusableCell(
+                          withReuseIdentifier: SharedGroupRowCell.reuseIdentifier, for: indexPath,
+                      ) as? SharedGroupRowCell
+                else { return UICollectionViewCell() }
+                cell.configure(chat: chat, subtitle: Self.similarSubtitle(chat), accountID: accountID, client: client)
+                return cell
+            }
             if currentSharedTab == .groupsInCommon {
                 guard let chat = groupsByID[id],
                       let cell = collectionView.dequeueReusableCell(
@@ -1686,6 +1747,9 @@ ClientRestorableNavigationEntry {
                 groupsInCommonGeneration &+= 1
                 groupsInCommonTask?.cancel()
                 groupsInCommonTask = nil
+                similarGeneration &+= 1
+                similarTask?.cancel()
+                similarTask = nil
                 membersPane?.suspend()
                 if source.map({ $0.accountID != accountID }) ?? false || !keepsGalleryThroughClientRenewal {
                     revokeSharedMessages(Set(messagesByID.keys), closesGallery: true)
@@ -2295,6 +2359,10 @@ ClientRestorableNavigationEntry {
             if groupsInCommon.isEmpty, historyError == nil { loadMore() }
             return
         }
+        if currentSharedTab.isSimilar {
+            if !similarLoaded, historyError == nil { loadMore() }
+            return
+        }
         sharedMessageRefresh?.resume(
             needsPage: messagesByID.isEmpty || historyRequest.needsResume,
             hasError: historyError != nil,
@@ -2416,6 +2484,8 @@ ClientRestorableNavigationEntry {
                 historyError = nil
                 membersPane.loadMore()
                 if membersPane.rows.isEmpty { applySnapshot() }
+            } else if currentSharedTab.isSimilar {
+                loadSimilar()
             } else {
                 loadMoreGroupsInCommon()
             }
@@ -2501,6 +2571,10 @@ ClientRestorableNavigationEntry {
         }
         if currentSharedTab == .groupsInCommon {
             applyGroupsSnapshot(animated: animated, completion: completion)
+            return
+        }
+        if currentSharedTab.isSimilar {
+            applySimilarSnapshot(animated: animated, completion: completion)
             return
         }
         let messages = sortedSharedMessages
@@ -2950,6 +3024,12 @@ ClientRestorableNavigationEntry {
         groupsByID = [:]
         groupsInCommonOffset = 0
         groupsInCommonHasMore = true
+        similarGeneration &+= 1
+        similarTask?.cancel()
+        similarTask = nil
+        similarChats = []
+        similarByID = [:]
+        similarLoaded = false
         configureSharedMessageRefresh()
         collectionView.collectionViewLayout.invalidateLayout()
         // An empty snapshot comes first: chat IDs and message IDs never share a cell across panes.
@@ -2957,9 +3037,90 @@ ClientRestorableNavigationEntry {
         loadMore()
     }
 
+    /// PeerInfoData appends Similar Channels or Similar Bots once the recommendations are known.
+    private func loadSimilarCount() {
+        guard similarCountTask == nil, similarCount == nil, contextIsCurrent else { return }
+        let client = client
+        let chatID = customChat.id
+        let botID = customChat.bot == nil ? nil : customChat.user?.id
+        guard listsSimilarChannels || botID != nil else { return }
+        similarCountTask = Task { [weak self] in
+            let count: TDNativeCount? =
+                if let botID {
+                    try? await client.send(TDNativeRequests.getBotSimilarBotCount(botUserId: botID, returnLocal: false))
+                } else {
+                    try? await client.send(TDNativeRequests.getChatSimilarChatCount(chatId: chatID, returnLocal: false))
+                }
+            guard let self, !Task.isCancelled, contextIsCurrent else { return }
+            similarCountTask = nil
+            similarCount = count?.count ?? 0
+            updateSharedTabAvailability()
+        }
+    }
+
+    /// PeerInfoRecommendedPeersPane: getChatSimilarChats for a channel, getBotSimilarBots for a bot.
+    private func loadSimilar() {
+        guard restoredViewport == nil, similarTask == nil, !similarLoaded, contextIsCurrent else { return }
+        let client = client
+        let chatID = customChat.id
+        let botID = customChat.bot == nil ? nil : customChat.user?.id
+        let generation = similarGeneration
+        historyError = nil
+        similarTask = Task { [weak self] in
+            do {
+                var chatIDs = [Int64]()
+                if let botID {
+                    let bots = try await client.send(TDNativeRequests.getBotSimilarBots(botUserId: botID))
+                    for userID in bots.userIds {
+                        guard self?.readsSimilar(generation) == true else { return }
+                        if let chat = try? await client.createPrivateChat(force: false, userId: userID) {
+                            chatIDs.append(chat.id)
+                        }
+                    }
+                } else {
+                    chatIDs = try await client.send(TDNativeRequests.getChatSimilarChats(chatId: chatID)).chatIds
+                }
+                var loaded = [CustomChat]()
+                for id in chatIDs {
+                    guard self?.readsSimilar(generation) == true else { return }
+                    if let chat = await RootVM.shared.getCustomChatForNavigation(from: id, client: client) {
+                        loaded.append(chat)
+                    }
+                }
+                guard let self, readsSimilar(generation) else { return }
+                similarTask = nil
+                similarLoaded = true
+                for chat in loaded where similarByID[chat.id] == nil {
+                    similarByID[chat.id] = chat
+                    similarChats.append(chat.id)
+                }
+                applySnapshot()
+            } catch {
+                guard let self, readsSimilar(generation) else { return }
+                similarTask = nil
+                historyError = currentSharedTab.loadFailedText
+                applySnapshot()
+            }
+        }
+        if similarChats.isEmpty { applySnapshot() }
+    }
+
+    private func readsSimilar(_ generation: UInt64) -> Bool {
+        !Task.isCancelled && similarGeneration == generation && contextIsCurrent && currentSharedTab.isSimilar
+    }
+
+    private func applySimilarSnapshot(animated: Bool, completion: (() -> Void)?) {
+        var snapshot = NSDiffableDataSourceSnapshot<Section, Int64>()
+        snapshot.appendSections([.messages])
+        snapshot.appendItems(similarChats)
+        dataSource.apply(snapshot, animatingDifferences: animated) { completion?() }
+        updateEmptyBackground(isEmpty: similarChats.isEmpty, isLoading: similarTask != nil)
+    }
+
     /// Telegram shows a pane only when it has content (`peerInfoAvailableMediaPanes`). TDLib's local counts answer at
     /// once; a count TDLib does not know locally comes from the server, and its pane shows meanwhile.
     private func loadSharedTabAvailability() {
+        loadSimilarCount()
         sharedTabCountTask?.cancel()
         let client = client
         let chatID = customChat.id
@@ -3013,6 +3174,8 @@ ClientRestorableNavigationEntry {
             switch tab {
             case .members: showsMembers
             case .groupsInCommon: listsGroups && (groupsInCommonCount ?? 0) > 0
+            case .similarChannels: listsSimilarChannels && (similarCount ?? 0) > 0
+            case .similarBots: customChat.bot != nil && (similarCount ?? 0) > 0
             case .audio,
                  .files,
                  .gifs,

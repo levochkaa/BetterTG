@@ -470,6 +470,8 @@
 "Profile.SharedVoiceEmpty" = "Нет голосовых сообщений";
 "Profile.SharedGIFsEmpty" = "Нет GIF";
 "Profile.SharedGroupsEmpty" = "Нет общих групп";
+"Profile.SimilarLoadFailed" = "Не удалось загрузить рекомендации.";
+"Profile.SimilarEmpty" = "Нет рекомендаций";
 "Profile.Title" = "Профиль";
 "Profile.ForumStatus" = "форум";
 "Profile.ReloadFailed" = "Не удалось обновить профиль.";

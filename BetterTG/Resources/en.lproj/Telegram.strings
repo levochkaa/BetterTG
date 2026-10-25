@@ -2714,3 +2714,9 @@
 "Stickers.Search" = "Search Stickers";
 "Stickers.Installed" = "ADDED";
 "FeaturedStickers.OtherSection" = "OTHER STICKERS";
+"PeerInfo.PaneRecommended" = "Similar Channels";
+"PeerInfo.PaneRecommendedBots" = "Similar Bots";
+"SharedMedia.SimilarChannel.Subscribers_1" = "%@ subscriber";
+"SharedMedia.SimilarChannel.Subscribers_any" = "%@ subscribers";
+"SharedMedia.SimilarBot.Users_1" = "%@ monthly user";
+"SharedMedia.SimilarBot.Users_any" = "%@ monthly users";

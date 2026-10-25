@@ -470,6 +470,8 @@
 "Profile.SharedVoiceEmpty" = "No voice messages";
 "Profile.SharedGIFsEmpty" = "No GIFs";
 "Profile.SharedGroupsEmpty" = "No groups in common";
+"Profile.SimilarLoadFailed" = "Couldn't load recommendations.";
+"Profile.SimilarEmpty" = "No recommendations";
 "Profile.Title" = "Profile";
 "Profile.ForumStatus" = "forum";
 "Profile.ReloadFailed" = "Couldn't reload profile.";
