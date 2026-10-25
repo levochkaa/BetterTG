@@ -55,6 +55,10 @@ actor CustomEmojiStickerRepository {
 // MARK: - CustomEmojiInlineView
 
 final class CustomEmojiInlineView: UIView {
+    // MARK: Private
+
+    private static let accentPackIDs: Set<Int64> = [773_947_703_670_341_676, 2_964_141_614_563_343]
+
     // MARK: Internal
 
     var onFirstFrameReady: (() -> Void)?
@@ -69,12 +73,28 @@ final class CustomEmojiInlineView: UIView {
         didSet { contentView?.loopLimit = loopLimit }
     }
 
-    // MARK: Private
+    /// InlineStickerItemLayer's dynamicColor, kept across configurations: the colour a template emoji (TDLib's
+    /// `needs_repainting`) takes, as the text, list or button around it; other emoji keep their own colours.
+    var templateColor: UIColor? {
+        didSet { contentView?.templateColor = repaints ? templateColor : nil }
+    }
+
+    /// EmojiStatusComponent's and ReactionButtonComponent's accentTint: emoji from Telegram's two default status
+    /// packs take the template colour as well.
+    var repaintsAccentPacks = false
 
     private var contentView: (UIView & AnimatedFileView)?
     private var playbackVisible = false
+    /// Whether the configured emoji takes the template colour.
+    private var repaints = false
 
     func configure(sticker: Sticker, client: TDLibClient) {
+        repaints =
+            if case .stickerFullTypeCustomEmoji(let emoji) = sticker.fullType, emoji.needsRepainting {
+                true
+            } else {
+                repaintsAccentPacks && Self.accentPackIDs.contains(sticker.setId)
+            }
         let view: UIView & AnimatedFileView =
             switch sticker.format {
             case .stickerFormatTgs:
@@ -88,8 +108,14 @@ final class CustomEmojiInlineView: UIView {
     }
 
     /// A sticker set's own thumbnail (ItemListStickerPackItem's StickerPackThumbnailItem); false for a JPEG, PNG, GIF
-    /// or MPEG-4 one, which the caller replaces with the set's first sticker.
-    @discardableResult func configure(setThumbnail thumbnail: Thumbnail, client: TDLibClient) -> Bool {
+    /// or MPEG-4 one, which the caller replaces with the set's first sticker. `isTemplate` is the set's
+    /// `needs_repainting`, which paints the thumbnail in the template colour.
+    @discardableResult func configure(
+        setThumbnail thumbnail: Thumbnail,
+        client: TDLibClient,
+        isTemplate: Bool = false,
+    ) -> Bool {
+        repaints = isTemplate
         let view: (UIView & AnimatedFileView)? =
             switch thumbnail.format {
             case .thumbnailFormatTgs: TGSStickerView()
@@ -121,6 +147,7 @@ final class CustomEmojiInlineView: UIView {
         contentView = view
         view.energySaving = energySaving
         view.loopLimit = loopLimit
+        view.templateColor = repaints ? templateColor : nil
         view.translatesAutoresizingMaskIntoConstraints = false
         addSubview(view)
         NSLayoutConstraint.activate([

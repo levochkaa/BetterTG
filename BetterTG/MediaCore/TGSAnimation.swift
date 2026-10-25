@@ -71,6 +71,14 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         didSet { if loopLimit != oldValue { energySavingChanged() } }
     }
 
+    var templateColor: UIColor? {
+        didSet {
+            guard templateColor != oldValue else { return }
+            thumbnailView.templateColor = templateColor
+            applyTemplateColor()
+        }
+    }
+
     var playbackMode = PlaybackMode.loop {
         didSet {
             guard playbackMode != oldValue, let animation = animationView.animation else { return }
@@ -154,6 +162,10 @@ final class TGSStickerView: UIControl, AnimatedFileView {
             name: EnergyUsage.didChange,
             object: nil,
         )
+        // Lottie takes a fixed colour; a dynamic template colour is resolved again for the new appearance.
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
+            self.applyTemplateColor()
+        }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -272,6 +284,7 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         }
 
         animationView.animation = animation
+        applyTemplateColor()
         animationView.currentProgress = initialProgress(for: animation)
         animationView.forceDisplayUpdate()
         animationView.isHidden = false
@@ -387,6 +400,26 @@ final class TGSStickerView: UIControl, AnimatedFileView {
 
     @objc private func tapped() {
         onTap?()
+    }
+
+    /// Every fill and stroke takes the template colour, which paints the emoji as its alpha in it. Lottie keeps the
+    /// provider only once an animation is loaded, so loading one applies it again.
+    private func applyTemplateColor() {
+        guard animationView.animation != nil else { return }
+        let keypath = AnimationKeypath(keypath: "**.Color")
+        guard let color = templateColor?.resolvedColor(with: traitCollection) else {
+            animationView.removeValueProvider(for: keypath)
+            return
+        }
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        animationView.setValueProvider(
+            ColorValueProvider(LottieColor(r: red, g: green, b: blue, a: alpha)),
+            keypath: keypath,
+        )
     }
 
     /// A role or setting change starts over: the first frame while held, the shared phase while looping.

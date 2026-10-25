@@ -823,7 +823,11 @@ final class SettingsStickerSetCell: UITableViewCell {
         add = set.add
         addButton.isHidden = set.add == nil
         addButton.configuration?.title = L10n.telegram("Stickers.Install")
-        if let thumbnail = set.info.thumbnail, thumbnailView.configure(setThumbnail: thumbnail, client: client) {
+        // ItemListStickerPackItem paints a template set's thumbnail in the primary text colour.
+        thumbnailView.templateColor = .label
+        if let thumbnail = set.info.thumbnail,
+           thumbnailView.configure(setThumbnail: thumbnail, client: client, isTemplate: set.info.needsRepainting)
+        {
             // The set's own thumbnail.
         } else if let cover = set.info.covers.first {
             thumbnailView.configure(sticker: cover, client: client)

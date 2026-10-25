@@ -198,6 +198,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             FFmpegSampleBufferRenderer.runDebugProbeIfRequested(in: window)
             TDLibVODFFmpegSampleBufferPlayer.runDebugProbeIfRequested(in: window)
             MessageContentDebugProbe.runIfRequested(in: window)
+            TemplateEmojiProbe.runIfRequested(in: window)
             ServiceMessageTextProbe.runIfRequested()
             VoicePlaybackHeaderProbe.runIfRequested(in: window)
             SecretMediaPreviewProbe.runIfRequested(in: window)

@@ -117,6 +117,9 @@ final class ChatListTopicIconView: UIView {
                 guard let self, emojiView === view else { return }
                 circle.isHidden = true
             }
+            // ChatListItem's topic icon themeColor: a template emoji takes the accent colour.
+            view.templateColor = .systemBlue
+            view.repaintsAccentPacks = true
             view.configure(sticker: sticker, client: client)
             view.setPlaybackVisible(window != nil)
         }

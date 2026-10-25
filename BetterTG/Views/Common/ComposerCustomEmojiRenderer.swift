@@ -48,6 +48,8 @@ import UIKit
                 }
                 let placement = Placement(id: request.0, range: request.1)
                 placement.view.isUserInteractionEnabled = false
+                // A template emoji takes the composer's text colour.
+                placement.view.templateColor = textView.textColor ?? .label
                 textView.addSubview(placement.view)
                 return placement
             }

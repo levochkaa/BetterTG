@@ -336,6 +336,13 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
         didSet { if loopLimit != oldValue { energySavingChanged() } }
     }
 
+    var templateColor: UIColor? {
+        didSet {
+            thumbnailView.templateColor = templateColor
+            frameView.templateColor = templateColor
+        }
+    }
+
     /// Auto-download's video setting for a GIF in a chat: true leaves the file to a tap on the download arrow.
     var requiresTapToDownload = false
 
@@ -344,7 +351,7 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
     private let thumbnailView = TDImageLoadingView()
     private let downloadStatus = MediaDownloadStatusView()
     private var deferredDownload: DeferredMediaDownload?
-    private let frameView = UIImageView()
+    private let frameView = TemplatableImageView()
     private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 180)
     private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 180)
     private var representedFileID: Int?

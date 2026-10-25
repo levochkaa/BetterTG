@@ -351,6 +351,9 @@ private final class MessageReactionButton: UIControl {
         let view = CustomEmojiInlineView()
         // ReactionButtonListComponent: reactions stop animating with Emoji Animations off.
         view.energySaving = EnergySavingRole(item: .loopEmoji, whenOff: .still)
+        // ReactionButtonComponent's accentTint: a template reaction takes the count's colour.
+        view.templateColor = countLabel.textColor
+        view.repaintsAccentPacks = true
         customEmojiView = view
         view.translatesAutoresizingMaskIntoConstraints = false
         view.alpha = 0

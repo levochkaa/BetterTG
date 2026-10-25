@@ -168,6 +168,8 @@ private final class TelegramReactionStripButton: UIControl {
         if let sticker = reaction.sticker {
             let animation = CustomEmojiInlineView()
             animation.energySaving = EnergySavingRole(item: .loopEmoji, whenOff: .still)
+            // ReactionContextNode's `.primary` tint mode for a template reaction.
+            animation.templateColor = .label
             animation.isUserInteractionEnabled = false
             animation.onFirstFrameReady = { [weak self] in self?.emoji.isHidden = true }
             animation.configure(sticker: sticker, client: reaction.client)

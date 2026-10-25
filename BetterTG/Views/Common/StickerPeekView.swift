@@ -488,6 +488,8 @@ private final class StickerPeekContentView: UIView {
         emojiLabel.isAccessibilityElement = false
         addSubview(emojiLabel)
         addSubview(stickerView)
+        // StickerPreviewPeekContent paints a template emoji in the primary text colour.
+        stickerView.templateColor = .label
         stickerView.configure(sticker: sticker, client: client)
         stickerView.setPlaybackVisible(true)
         isAccessibilityElement = true

@@ -1304,7 +1304,7 @@ final class FileMediaPreviewView: UIControl, ReusableMediaView {
 
 // MARK: - TDImageLoadingView
 
-final class TDImageLoadingView: UIImageView {
+final class TDImageLoadingView: TemplatableImageView {
     // MARK: Private
 
     private struct RequestIdentity: Equatable {

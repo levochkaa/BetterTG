@@ -96,6 +96,9 @@ final class PeerEmojiStatusView: UIView {
         // ChatListItem stops status emoji with Emoji Animations off.
         view.energySaving = EnergySavingRole(item: .loopEmoji, whenOff: .still)
         view.loopLimit = loopLimit
+        // EmojiStatusComponent's themeColor: a template status takes the accent colour.
+        view.templateColor = .systemBlue
+        view.repaintsAccentPacks = true
         view.frame = bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.isUserInteractionEnabled = false

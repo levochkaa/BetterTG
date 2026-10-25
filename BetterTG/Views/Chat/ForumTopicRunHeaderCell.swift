@@ -237,6 +237,9 @@ private final class ForumTopicRunIconView: UIView {
             view.trailingAnchor.constraint(equalTo: trailingAnchor),
             view.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        // ChatListItem's topic icon themeColor: a template emoji takes the accent colour.
+        view.templateColor = .systemBlue
+        view.repaintsAccentPacks = true
         view.configure(sticker: sticker, client: client)
         view.onFirstFrameReady = { [weak self, weak view] in
             guard let self, customEmojiView === view else { return }

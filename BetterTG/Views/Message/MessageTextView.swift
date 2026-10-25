@@ -755,6 +755,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             let emojiView = CustomEmojiInlineView()
             emojiView.isUserInteractionEnabled = false
             emojiView.energySaving = EnergySavingRole(item: .loopEmoji, whenOff: .once)
+            emojiView.templateColor = templateColor(at: request.range.location)
             emojiView.configure(sticker: sticker, client: client)
             emojiView.onFirstFrameReady = { [weak self, weak emojiView] in
                 guard let self, let emojiView,
@@ -772,6 +773,19 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             ))
         }
         setNeedsLayout()
+    }
+
+    /// InteractiveTextNodeWithEntities' item.textColor: a template emoji takes the colour of the text it stands in,
+    /// a link's included, before the emoji hides that text.
+    private func templateColor(at location: Int) -> UIColor {
+        let fallback = textColor ?? .label
+        guard location < textStorage.length else { return fallback }
+        if textStorage.attribute(.link, at: location, effectiveRange: nil) != nil {
+            return linkTextAttributes[.foregroundColor] as? UIColor ?? .systemBlue
+        }
+        guard let color = textStorage.attribute(.foregroundColor, at: location, effectiveRange: nil) as? UIColor,
+              color != .clear else { return fallback }
+        return color
     }
 
     private func clearCustomEmojiViews() {

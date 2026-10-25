@@ -234,10 +234,17 @@ final class AnimatedWebPView: UIControl, AnimatedFileView {
         didSet { if loopLimit != oldValue { energySavingChanged() } }
     }
 
+    var templateColor: UIColor? {
+        didSet {
+            thumbnailView.templateColor = templateColor
+            frameView.templateColor = templateColor
+        }
+    }
+
     // MARK: Private
 
     private let thumbnailView = TDImageLoadingView()
-    private let frameView = UIImageView()
+    private let frameView = TemplatableImageView()
     private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 180)
     private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 180)
     private var representedFileID: Int?

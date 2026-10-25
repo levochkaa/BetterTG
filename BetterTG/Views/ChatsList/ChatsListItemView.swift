@@ -788,6 +788,11 @@ final class ChatListCell: UITableViewCell {
                 customEmojiViews.append((0, view))
             }
             var entry = customEmojiViews[index]
+            // ChatListItem's text emoji: a template one takes the colour of the preview text it stands in.
+            entry.view.templateColor = placement.range.location < text.length
+                ? text.attribute(.foregroundColor, at: placement.range.location, effectiveRange: nil) as? UIColor
+                    ?? messageLabel.textColor
+                : messageLabel.textColor
             if entry.id != placement.id, let client {
                 entry.view.configure(sticker: placement.sticker, client: client)
                 entry.id = placement.id
