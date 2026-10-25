@@ -55,6 +55,9 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
     private let proximityControl = VideoNoteProximityControl()
     private let thumbnailView = TDImageLoadingView()
     private let playerSurface = LocalVideoSurfaceView()
+    /// ChatMessageInteractiveInstantVideoNode's automatic playback: the downloaded note loops silently until a tap
+    /// plays it with sound.
+    private let autoplayView = MutedVideoLoopView()
     private let playIcon = UIImageView()
     private let downloadStatus = MediaDownloadStatusView()
     /// The video message auto-download left for a tap, and whether that tap asked it to play once downloaded.
@@ -162,6 +165,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         layer.cornerRadius = bounds.width / 2
         thumbnailView.layer.cornerRadius = bounds.width / 2
         playerSurface.layer.cornerRadius = bounds.width / 2
+        autoplayView.layer.cornerRadius = bounds.width / 2
         secretBlurView.layer.cornerRadius = bounds.width / 2
         progressLayer.frame = bounds
         progressLayer.path = UIBezierPath(ovalIn: bounds.insetBy(dx: 2, dy: 2)).cgPath
@@ -286,6 +290,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         deferredDownload = nil
         playsWhenDownloaded = false
         downloadStatus.hide()
+        autoplayView.setFile(path: nil)
         playerSurface.isHidden = true
         thumbnailView.cancel()
         thumbnailView.image = nil
@@ -345,6 +350,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
 
     private func applyPlaybackVisibility(_ isVisible: Bool) {
         playbackVisible = isVisible
+        defer { updateAutoplay() }
         if !isVisible {
             if isSecret {
                 concealSecret()
@@ -383,6 +389,15 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         player.attach(to: playerSurface.playerLayer)
         player.setMuted(false)
         addSubview(playerSurface)
+        autoplayView.translatesAutoresizingMaskIntoConstraints = false
+        autoplayView.clipsToBounds = true
+        addSubview(autoplayView)
+        NSLayoutConstraint.activate([
+            autoplayView.topAnchor.constraint(equalTo: topAnchor),
+            autoplayView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            autoplayView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            autoplayView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
         playerSurface.playerLayer
             .publisher(for: \.isReadyForDisplay, options: [.initial, .new])
             .receive(on: DispatchQueue.main)
@@ -561,8 +576,17 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
         guard representedPath != file.local.path else { return }
         representedPath = file.local.path
         player.load(url: URL(filePath: file.local.path), autoplay: false, loops: false)
+        autoplayView.setFile(path: file.local.path)
+        updateAutoplay()
         startRequestedPlaylistPlayback()
         reclaimFromFloatingPlayer()
+    }
+
+    /// The silent loop runs while the note shows and isn't playing, or paused, with sound.
+    private func updateAutoplay() {
+        autoplayView.setActive(
+            playbackVisible && !isSecret && !isRevoked && !hasStartedPlayback && !player.isPlaybackRequested,
+        )
     }
 
     private func renderPlayerState(_ state: LocalMediaPlayer.State) {
@@ -608,6 +632,7 @@ final class VideoNotePlaybackView: UIControl, ReusableMediaView {
                 ? L10n.betterTG("Accessibility.Downloading")
                 : L10n.betterTG("Accessibility.ReadyToPlay")
         }
+        updateAutoplay()
     }
 
     private func revealSecretAndPlay() {

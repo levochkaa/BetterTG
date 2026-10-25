@@ -666,6 +666,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         configureNavigationBar()
         configureDataSource()
         observeState()
+        // Power Saving's autoplay settings pause or resume the inline playback on screen.
+        NotificationCenter.default
+            .publisher(for: EnergyUsage.didChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateInlineVideoPlaybackVisibility() }
+            .store(in: &cancellables)
         updateSnapshot(animated: false)
         restoreVideoRecordingIfNeeded()
         if let targetMessageID {
@@ -1222,6 +1228,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         default:
             return nil
         }
+    }
+
+    /// Power Saving's Autoplay GIFs or Autoplay Videos for the message's inline playback.
+    private static func allowsInlinePlayback(of message: Message) -> Bool {
+        if case .messageAnimation = message.content {
+            return EnergyUsage.shared.allows(.autoplayGif)
+        }
+        return EnergyUsage.shared.allows(.autoplayVideo)
     }
 
     /// A bot start link for a chat the router has just created shows Start before the chat appears.
@@ -7312,8 +7326,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func inlineVideoPlaybackOwner(for message: Message) -> GalleryVideoPlaybackOwner? {
         // ChatMessageInteractiveMediaNode turns automatic playback off for an unsent message, so a sending video
-        // shows its thumbnail under the upload disc until TDLib replaces it with the sent message.
-        guard message.sendingState == nil else { return nil }
+        // shows its thumbnail under the upload disc until TDLib replaces it with the sent message; with Power
+        // Saving's autoplay off the bubble keeps its thumbnail and play icon too.
+        guard message.sendingState == nil, Self.allowsInlinePlayback(of: message) else { return nil }
         if let owner = inlineVideoPlaybackOwners[message.id] {
             if owner.matches(message: message) { return owner }
             owner.invalidate()
@@ -7431,7 +7446,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 }
             }
             .compactMap { messageID, frame -> InlineMediaPlaybackPolicy.Candidate? in
-                guard let owner = inlineVideoPlaybackOwners[messageID] else { return nil }
+                guard let owner = inlineVideoPlaybackOwners[messageID],
+                      EnergyUsage.shared.allows(owner.isAnimation ? .autoplayGif : .autoplayVideo)
+                else { return nil }
                 let intersection = visibleRect.intersection(frame)
                 guard !intersection.isNull, !intersection.isEmpty else { return nil }
                 return .init(

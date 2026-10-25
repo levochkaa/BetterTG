@@ -1394,6 +1394,8 @@
 "AutoDownloadSettings.OffForAll" = "Off for all chats";
 "AutoDownloadSettings.Delimeter" = ", ";
 "AutoDownloadSettings.LastDelimeter" = " and ";
+"PowerSavingScreen.OptionAutoplayVideoTitle" = "Autoplay Videos";
+"PowerSavingScreen.OptionAutoplayVideoText" = "Autoplay and loop videos and video messages in chats.";
 "PowerSavingScreen.OptionAutoplayGifTitle" = "Autoplay GIFs";
 "PowerSavingScreen.OptionAutoplayGifText" = "Autoplay and loop GIFs in chats and in the keyboard.";
 "PowerSavingScreen.OptionAutoplayStickersTitle" = "Sticker Animations";

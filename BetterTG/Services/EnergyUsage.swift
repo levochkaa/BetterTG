@@ -26,16 +26,18 @@ struct EnergySavingRole {
 
 /// Telegram's EnergyUsageSettings with SharedAccountContext's power saving: the battery level below which Power Saving
 /// Mode turns every resource-intensive process off (4% and below never, 96% and above always), and the processes
-/// themselves, kept on the device. BetterTG has counterparts for Autoplay GIFs, Sticker Animations and Emoji
-/// Animations; it doesn't autoplay videos, keeps no background time or preloading, and draws the system's materials.
+/// themselves, kept on the device. BetterTG has counterparts for Autoplay Videos, Autoplay GIFs, Sticker Animations
+/// and Emoji Animations; it keeps no background time or preloading, and draws the system's materials.
 @MainActor final class EnergyUsage {
     enum Item: String, CaseIterable {
+        case autoplayVideo
         case autoplayGif
         case loopStickers
         case loopEmoji
 
         var symbol: String {
             switch self {
+            case .autoplayVideo: "video.fill"
             case .autoplayGif: "play.rectangle.fill"
             case .loopStickers: "face.smiling.inverse"
             case .loopEmoji: "smiley.fill"
@@ -44,7 +46,8 @@ struct EnergySavingRole {
 
         var tint: UIColor {
             switch self {
-            case .autoplayGif: .systemBlue
+            case .autoplayVideo: .systemBlue
+            case .autoplayGif: .systemCyan
             case .loopStickers: .systemGreen
             case .loopEmoji: .systemTeal
             }
@@ -52,6 +55,7 @@ struct EnergySavingRole {
 
         var title: String {
             switch self {
+            case .autoplayVideo: L10n.telegram("PowerSavingScreen.OptionAutoplayVideoTitle")
             case .autoplayGif: L10n.telegram("PowerSavingScreen.OptionAutoplayGifTitle")
             case .loopStickers: L10n.telegram("PowerSavingScreen.OptionAutoplayStickersTitle")
             case .loopEmoji: L10n.telegram("PowerSavingScreen.OptionAutoplayEmojiTitle")
@@ -60,6 +64,7 @@ struct EnergySavingRole {
 
         var text: String {
             switch self {
+            case .autoplayVideo: L10n.telegram("PowerSavingScreen.OptionAutoplayVideoText")
             case .autoplayGif: L10n.telegram("PowerSavingScreen.OptionAutoplayGifText")
             case .loopStickers: L10n.telegram("PowerSavingScreen.OptionAutoplayStickersText")
             case .loopEmoji: L10n.telegram("PowerSavingScreen.OptionAutoplayEmojiText")
