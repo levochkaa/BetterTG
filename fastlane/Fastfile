@@ -18,6 +18,9 @@ XCODE_PATH = ENV.fetch("BETTERTG_XCODE", "/Applications/Xcode-27.1.0.app")
 # Xcode's ipatool, which the export runs, is a /usr/bin/ruby script: Bundler's and this Ruby's variables would make
 # it load gems built for another Ruby.
 EXPORT_UNSET_ENV = %w[RUBYLIB RUBYOPT BUNDLE_BIN_PATH _ORIGINAL_GEM_PATH BUNDLE_GEMFILE GEM_HOME GEM_PATH].freeze
+# The export packs the IPA with /usr/bin/rsync, which starts its other end as the first rsync in PATH: Homebrew's
+# rsync 3 rejects the system one's --extended-attributes and the export fails with "Copy failed".
+EXPORT_PATH = (%w[/usr/bin /bin /usr/sbin /sbin] + ENV.fetch("PATH", "").split(":")).uniq.join(":")
 
 # The export and upload tools use the Xcode that ./build.sh archives with.
 developer_dir = File.join(XCODE_PATH, "Contents", "Developer")
@@ -59,11 +62,13 @@ def api_key
   end
 end
 
-# Xcode's automatic signing reads the API key from a .p8 file.
+# Xcode's automatic signing reads the API key from a .p8 file. Its PEM parser wants the base64 in 64-character lines,
+# as Apple's .p8 has it; a key pasted into api_key.json often has it on one line.
 def with_api_key_file
   Dir.mktmpdir("bettertg-asc-") do |directory|
     path = File.join(directory, "AuthKey_#{api_key[:key_id]}.p8")
-    File.write(path, api_key[:key])
+    body = api_key[:key].gsub(/-----(BEGIN|END) PRIVATE KEY-----|\s/, "")
+    File.write(path, "-----BEGIN PRIVATE KEY-----\n#{body.scan(/.{1,64}/).join("\n")}\n-----END PRIVATE KEY-----\n")
     File.chmod(0o600, path)
     yield path
   end
@@ -111,7 +116,7 @@ def build_ipa(build_number)
       "--authentication-key-issuer-id", api_key[:issuer_id]
     )
     sh(
-      "/usr/bin/env", *EXPORT_UNSET_ENV.flat_map { |name| ["-u", name] },
+      "/usr/bin/env", *EXPORT_UNSET_ENV.flat_map { |name| ["-u", name] }, "PATH=#{EXPORT_PATH}",
       "xcrun", "xcodebuild", "-exportArchive",
       "-archivePath", archive_path,
       "-exportPath", export_path,
