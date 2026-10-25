@@ -364,6 +364,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pendingDeleteSnapshotWorkItem: DispatchWorkItem?
     private var pendingDeleteSnapshotDeadline: CFTimeInterval?
     private lazy var importBarrier = ChatComposerImportBarrier(location: location)
+    /// The open document picker replaces the edited message's media instead of adding files to the composer.
+    private var documentPickerReplacesEditedMedia = false
     private var clientPreparationTask: Task<Void, Never>?
     private var clientPreparationSource: TdUpdateSource?
     private var preparedClient: (source: TdUpdateSource, client: TDLibClient, chat: CustomChat, topic: ForumTopic?)?
@@ -1395,6 +1397,23 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         _: UIDocumentPickerViewController,
         didPickDocumentsAt urls: [URL],
     ) {
+        if documentPickerReplacesEditedMedia {
+            documentPickerReplacesEditedMedia = false
+            guard let url = urls.first, chatVM.editCustomMessage != nil else { return }
+            let chatVM = chatVM
+            Task { [weak self] in
+                let documents = await Task.detached(priority: .userInitiated) {
+                    SelectedDocumentFileStore.copy([url])
+                }.value
+                guard let document = documents.first else { return }
+                do {
+                    try await chatVM.replaceEditedMedia(withDocumentAt: document.url)
+                } catch {
+                    self?.chatVM.sendErrorMessage = error.localizedDescription
+                }
+            }
+            return
+        }
         guard !urls.isEmpty, let token = importBarrier.begin() else { return }
         let barrier = importBarrier
         Task { [weak self] in
@@ -1415,7 +1434,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
     }
 
-    func documentPickerWasCancelled(_: UIDocumentPickerViewController) { retryClientRestoration() }
+    func documentPickerWasCancelled(_: UIDocumentPickerViewController) {
+        documentPickerReplacesEditedMedia = false
+        retryClientRestoration()
+    }
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         applyComposerSendGlides(to: cell)
@@ -8246,7 +8268,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// panel, in ChatControllerOpenAttachmentMenu's order and under its rules. View Once is offered in a private chat
     /// with someone other than the user (`hasTimer`), and Saved Messages sets reminders.
     private func showAttachmentSheet() {
-        guard presentationMode == .full, chatVM.editCustomMessage == nil else { return }
+        guard presentationMode == .full else { return }
+        guard chatVM.editCustomMessage == nil else { return showEditMediaSheet() }
         var tabs: [AttachmentSheetTab] = [.gallery]
         if chatVM.canAttachDocuments { tabs.append(.file) }
         let canSendLocationAndContact = chatVM.canSendLocationAndContact
@@ -8291,6 +8314,57 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         sheet.onSend = { [weak self] request in self?.sendAttachmentMedia(request) }
         sheet.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
         present(sheet.makeNavigationController(), animated: true)
+    }
+
+    /// ChatControllerOpenAttachmentMenu's `.edit` subject: the gallery for one photo or video and Files, as the edited
+    /// message's media options allow; the pick replaces the message's media with the input as its caption. Without
+    /// the gallery the file picker opens at once.
+    private func showEditMediaSheet() {
+        let options = chatVM.editMediaOptions
+        guard options.photoOrVideo || options.file else { return }
+        guard options.photoOrVideo else { return showDocumentPicker(replacingEditedMedia: true) }
+        let configuration = AttachmentSheetConfiguration(
+            allowsPhotos: chatVM.canAttachPhotos,
+            allowsVideos: chatVM.canAttachVideos,
+            allowsCamera: false,
+            tabs: options.file ? [.gallery, .file] : [.gallery],
+            caption: String(chatVM.editMessageText.characters).trimmingCharacters(in: .whitespacesAndNewlines),
+            selectionLimit: 1,
+        )
+        let sheet = AttachmentSheetViewController(configuration: configuration)
+        sheet.onSelectTab = { [weak self] tab in
+            guard tab == .file else { return }
+            self?.showDocumentPicker(replacingEditedMedia: true)
+        }
+        sheet.onSend = { [weak self] request in self?.replaceEditedMedia(request) }
+        sheet.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
+        present(sheet.makeNavigationController(), animated: true)
+    }
+
+    /// editMessageMediaWithLegacySignals: the picked asset is prepared as a send would, then replaces the media.
+    private func replaceEditedMedia(_ request: AttachmentMediaSendRequest) {
+        guard chatVM.editCustomMessage != nil else { return }
+        PhotoAssetSelectionLoader.load(
+            request.assets,
+            cropAdjustments: request.cropAdjustments,
+            videoEdits: request.videoEdits,
+            livePhotoAssetIDs: request.livePhotoAssetIDs,
+            highQualityPhotos: request.highQualityPhotos,
+            spoilerAssetIDs: request.spoilerAssetIDs,
+            selfDestructTimer: nil,
+            videoPreset: request.videoPreset,
+        ) { [weak self] images in
+            guard let self, let image = images.first else { return }
+            let chatVM = chatVM
+            let asFile = request.mode == .files
+            Task { [weak self] in
+                do {
+                    try await chatVM.replaceEditedMedia(with: image, asFile: asFile)
+                } catch {
+                    self?.chatVM.sendErrorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 
     /// The attachment panel's other buttons, opened once the sheet has closed.
@@ -8540,11 +8614,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if !composerAwaitsSentMediaInsertion { composerView.update(from: chatVM) }
     }
 
-    private func showDocumentPicker() {
+    private func showDocumentPicker(replacingEditedMedia: Bool = false) {
         guard chatVM.canAttachDocuments else { return }
+        documentPickerReplacesEditedMedia = replacingEditedMedia
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
         picker.presentationController?.delegate = self
-        picker.allowsMultipleSelection = true
+        picker.allowsMultipleSelection = !replacingEditedMedia
         picker.delegate = self
         present(picker, animated: true)
     }

@@ -1241,6 +1241,31 @@ import UIKit
         isBroadcastChannel && silentPosting ? Self.sendOptions(silent: true) : nil
     }
 
+    /// messageMediaEditingOptions for the message being edited: a photo, video, GIF, document or audio takes a photo
+    /// or video and a file; an album keeps its kind (a photo or video album takes only photos and videos, a file album
+    /// only files, a music album nothing); nothing replaces the media of a secret chat, self-destructing media, a
+    /// sticker, a video message or a voice message.
+    var editMediaOptions: (photoOrVideo: Bool, file: Bool) {
+        guard let message = editCustomMessage?.message, message.selfDestructType == nil else { return (false, false) }
+        if case .chatTypeSecret = customChat.chat.type { return (false, false) }
+        let isPhotoOrVideo: Bool
+        switch message.content {
+        case .messagePhoto,
+             .messageVideo:
+            isPhotoOrVideo = true
+        case .messageAnimation,
+             .messageDocument:
+            isPhotoOrVideo = false
+        case .messageAudio:
+            guard message.mediaAlbumId == 0 else { return (false, false) }
+            isPhotoOrVideo = false
+        default:
+            return (false, false)
+        }
+        guard message.mediaAlbumId != 0 else { return (true, true) }
+        return isPhotoOrVideo ? (true, false) : (false, true)
+    }
+
     /// ChatUnblockInputPanelNode replaces the composer of a person the user blocked; a blocked bot's composer offers
     /// Restart Bot instead, and a secret chat keeps its own.
     private var showsUnblockPanel: Bool {
@@ -4965,50 +4990,11 @@ import UIKit
         do {
             var messageContents = [InputMessageContent]()
             for (index, image) in images.enumerated() {
-                let caption = index == 0 ? caption : noCaption
-                let showsCaptionAbove = index == 0 && captionIsAbove
-                if mode == .files {
-                    messageContents.append(Self.makeInputMessageFile(image, caption: caption))
-                    continue
-                }
-                let selfDestructType: TDNativeMessageSelfDestructType? =
-                    switch image.selfDestructTimer {
-                    case .viewOnce: .messageSelfDestructTypeImmediately
-                    case .seconds(let seconds): .messageSelfDestructTypeTimer(.init(selfDestructTime: seconds))
-                    case nil: nil
-                    }
-                if let video = image.video, Self.sendsAsAnimation(image) {
-                    messageContents.append(makeInputMessageAnimation(
-                        video,
-                        thumbnail: image.url,
-                        caption: caption,
-                        hasSpoiler: image.hasSpoiler,
-                        showCaptionAboveMedia: showsCaptionAbove,
-                    ))
-                    continue
-                }
-                if let video = image.video {
-                    messageContents.append(makeInputMessageVideo(
-                        video,
-                        thumbnail: image.url,
-                        caption: caption,
-                        hasSpoiler: image.hasSpoiler,
-                        showCaptionAboveMedia: showsCaptionAbove,
-                        selfDestructType: selfDestructType,
-                    ))
-                    continue
-                }
-                await messageContents.append(makeInputMessageContent(
-                    for: image.url,
-                    caption: caption,
-                    livePhotoVideoURL: image
-                        .isLivePhotoEnabled && canSendLivePhotos
-                        ? image.livePhotoVideoURL
-                        : nil,
-                    livePhotoConversion: image.livePhotoConversion,
-                    hasSpoiler: image.hasSpoiler,
-                    showCaptionAboveMedia: showsCaptionAbove,
-                    selfDestructType: selfDestructType,
+                await messageContents.append(makeMediaContent(
+                    for: image,
+                    asFile: mode == .files,
+                    caption: index == 0 ? caption : noCaption,
+                    showsCaptionAbove: index == 0 && captionIsAbove,
                 ))
             }
             guard locationContextIsCurrent else { throw ChatSendContextError.accountUnavailable }
@@ -5087,6 +5073,100 @@ import UIKit
             displayedImages.removeAll { sentIDs.contains($0.id) }
             releaseOutgoingMedia(images, leasedAs: provisionalMessageIDs, from: boundCount, in: context)
             try? await cancelChatAction(in: context)
+            throw error
+        }
+    }
+
+    /// editMessageMediaWithMessages: the edited message's media becomes the picked item, sent as a file in Send as
+    /// File, with the input's text as its caption; the edit ends once TDLib has it. The picked files are leased to
+    /// the message as a send's are, so the bubble can still draw them before they go.
+    func replaceEditedMedia(with image: SelectedImage, asFile: Bool) async throws {
+        let options = editMediaOptions
+        guard let message = editCustomMessage?.message, asFile ? options.file : options.photoOrVideo else {
+            removeTemporaryImages([image])
+            return
+        }
+        let context: ResolvedSendContext
+        do {
+            context = try resolveEditContext(for: message)
+            try SelectedDocumentFileStore.lease(
+                image.fileURLs,
+                accountID: context.accountID,
+                chatID: context.chatID,
+                messageID: message.id,
+                defersRemoval: true,
+            )
+        } catch {
+            removeTemporaryImages([image])
+            throw error
+        }
+        let content = await makeMediaContent(
+            for: image,
+            asFile: asFile,
+            caption: editedMediaCaption(),
+            showsCaptionAbove: Self.showsCaptionAboveMedia(message.content),
+        )
+        do {
+            try await sendEditedMedia(content, of: message, in: context)
+            SelectedDocumentFileStore.complete(
+                accountID: context.accountID,
+                chatID: context.chatID,
+                messageID: message.id,
+            )
+        } catch {
+            SelectedDocumentFileStore.unlease(
+                accountID: context.accountID,
+                chatID: context.chatID,
+                messageID: message.id,
+            )
+            removeTemporaryImages([image])
+            throw error
+        }
+    }
+
+    /// The same for a document picked from Files.
+    func replaceEditedMedia(withDocumentAt url: URL) async throws {
+        guard let message = editCustomMessage?.message, editMediaOptions.file else {
+            SelectedDocumentFileStore.remove([url])
+            return
+        }
+        let context: ResolvedSendContext
+        do {
+            context = try resolveEditContext(for: message)
+            try SelectedDocumentFileStore.lease(
+                [url],
+                accountID: context.accountID,
+                chatID: context.chatID,
+                messageID: message.id,
+                defersRemoval: false,
+            )
+        } catch {
+            SelectedDocumentFileStore.remove([url])
+            throw error
+        }
+        let caption = editedMediaCaption()
+        let content = InputMessageContent.inputMessageDocument(TDNativeInputMessageDocument(
+            document: TDNativeInputDocument(
+                document: .inputFileLocal(InputFileLocal(path: url.path(percentEncoded: false))),
+                thumbnail: nil,
+                disableContentTypeDetection: false,
+            ),
+            caption: caption.text.isEmpty ? nil : caption,
+        ))
+        do {
+            try await sendEditedMedia(content, of: message, in: context)
+            SelectedDocumentFileStore.complete(
+                accountID: context.accountID,
+                chatID: context.chatID,
+                messageID: message.id,
+            )
+        } catch {
+            SelectedDocumentFileStore.unlease(
+                accountID: context.accountID,
+                chatID: context.chatID,
+                messageID: message.id,
+            )
+            SelectedDocumentFileStore.remove([url])
             throw error
         }
     }
@@ -6184,6 +6264,72 @@ import UIKit
         guard location.messageThreadID != nil, let messageThread,
               message.chatId == location.chatID else { return false }
         return messageThread.messages.contains { $0.id == message.id }
+    }
+
+    /// One picked item's content: the file itself for Send as File, else a GIF for a muted video, a video or a photo,
+    /// with its spoiler and self-destruct timer.
+    private func makeMediaContent(
+        for image: SelectedImage,
+        asFile: Bool,
+        caption: FormattedText,
+        showsCaptionAbove: Bool,
+    ) async -> InputMessageContent {
+        if asFile { return Self.makeInputMessageFile(image, caption: caption) }
+        let selfDestructType: TDNativeMessageSelfDestructType? =
+            switch image.selfDestructTimer {
+            case .viewOnce: .messageSelfDestructTypeImmediately
+            case .seconds(let seconds): .messageSelfDestructTypeTimer(.init(selfDestructTime: seconds))
+            case nil: nil
+            }
+        if let video = image.video, Self.sendsAsAnimation(image) {
+            return makeInputMessageAnimation(
+                video,
+                thumbnail: image.url,
+                caption: caption,
+                hasSpoiler: image.hasSpoiler,
+                showCaptionAboveMedia: showsCaptionAbove,
+            )
+        }
+        if let video = image.video {
+            return makeInputMessageVideo(
+                video,
+                thumbnail: image.url,
+                caption: caption,
+                hasSpoiler: image.hasSpoiler,
+                showCaptionAboveMedia: showsCaptionAbove,
+                selfDestructType: selfDestructType,
+            )
+        }
+        return await makeInputMessageContent(
+            for: image.url,
+            caption: caption,
+            livePhotoVideoURL: image.isLivePhotoEnabled && canSendLivePhotos ? image.livePhotoVideoURL : nil,
+            livePhotoConversion: image.livePhotoConversion,
+            hasSpoiler: image.hasSpoiler,
+            showCaptionAboveMedia: showsCaptionAbove,
+            selfDestructType: selfDestructType,
+        )
+    }
+
+    private func editedMediaCaption() -> FormattedText {
+        let caption = ComposerTextBreaker.trimmed(editMessageText)
+        return FormattedText(entities: getEntities(from: caption), text: caption.string)
+    }
+
+    private func sendEditedMedia(
+        _ content: InputMessageContent,
+        of message: Message,
+        in context: ResolvedSendContext,
+    ) async throws {
+        _ = try await client.send(TDNativeRequests.editMessageMedia(
+            chatId: context.chatID,
+            messageId: message.id,
+            replyMarkup: nil,
+            inputMessageContent: content,
+        ))
+        guard locationContextIsCurrent, editCustomMessage?.id == message.id else { return }
+        cancelMessageEditing()
+        sendErrorMessage = nil
     }
 
     /// The read state the chat opened with, from TDLib's current chat; the whole chat only, as threads and topics

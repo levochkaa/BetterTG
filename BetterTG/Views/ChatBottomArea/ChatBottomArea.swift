@@ -1353,9 +1353,10 @@ final class ChatComposerView: UIView {
 
     /// Telegram's attach button opens the attachment sheet. While editing, the custom menu morphs out of the button.
     @objc private func showAttachmentActions() {
-        // Editing a message takes only text and emoji, as in Telegram: new media, stickers or GIFs would be sent as
-        // new messages instead of changing the edited one.
-        guard chatVM.editCustomMessage == nil else {
+        // Editing a message with replaceable media opens the attachment menu to replace it
+        // (`presentAttachmentMenu(subject: .edit)`); otherwise an edit takes only text and emoji.
+        let editOptions = chatVM.editMediaOptions
+        guard chatVM.editCustomMessage == nil || editOptions.photoOrVideo || editOptions.file else {
             nearestViewController?.presentTelegramContextMenu(
                 sourceView: attachmentButton,
                 actions: [
