@@ -50,6 +50,11 @@ final class ChatListCell: UITableViewCell {
     private lazy var storyTapGesture = UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
     private let titleLabel = UILabel()
     private let messageLabel = UILabel()
+    /// ChatListItem's `forumThread`: the topic of a forum's last message, on its own line above the text.
+    private let topicIconView = ChatListTopicIconView()
+    private let topicLabel = UILabel()
+    private var messageBelowTopicConstraint: NSLayoutConstraint!
+    private var topicCancellable: AnyCancellable?
     /// ChatListMediaPreviewNodes before the text, in the gap the text leaves for them.
     private let mediaPreviewViews = (0..<ChatListMediaPreviews.limit).map { _ in ChatListMediaPreviewView() }
     private var mediaPreviews: ChatListMediaPreviews?
@@ -289,6 +294,7 @@ final class ChatListCell: UITableViewCell {
             chatID: chat.id,
             client: client,
         )
+        configureTopicLine(for: chat, client: client)
         setNeedsLayout()
         let chatID = chat.id
         activityCancellable = ChatListActivities.shared
@@ -378,6 +384,47 @@ final class ChatListCell: UITableViewCell {
             .compactMap(\.self)
             .joined(separator: ", ")
         accessibilityTraits = .button
+    }
+
+    /// ChatListItem's `forumThread`: a forum's last message names its topic, the icon and title in the author colour
+    /// while unread, on the line above the text, which then keeps one line.
+    private func configureTopicLine(for chat: CustomChat, client: TDLibClient) {
+        let chatID = chat.id
+        var info: ForumTopicInfo?
+        var isUnread = false
+        if chat.supergroup?.isForum == true, chat.draftMessage == nil,
+           let message = chat.lastMessage, case .messageTopicForum(let topic) = message.topicId
+        {
+            info = ChatListForumTopics.shared.info(chatID: chatID, topicID: topic.forumTopicId, client: client)
+            isUnread = !message.isOutgoing && message.id > chat.chat.lastReadInboxMessageId
+            topicCancellable = ChatListForumTopics.shared
+                .changes
+                .filter { $0 == chatID }
+                .sink { [weak self] _ in self?.reconfigure(chatID: chatID) }
+        } else {
+            topicCancellable = nil
+        }
+        let showsTopic = info != nil
+        topicLabel.isHidden = !showsTopic
+        topicIconView.isHidden = !showsTopic
+        if let info {
+            topicIconView.configure(info: info, client: client)
+            topicLabel.text = info.name
+            topicLabel.textColor = isUnread ? .label : .secondaryLabel
+        }
+        topicLabel.font = messageLabel.font
+        let styleConstraints = usesCardStyle ? cardTextConstraints : plainTextConstraints
+        let messageTop = styleConstraints.first { $0.firstItem === messageLabel }
+        let cardTitleBottom = cardTextConstraints.first { $0.firstItem === titleLabel }
+        // A card centres the three lines as it centres two.
+        cardTitleBottom?.constant = showsTopic ? -12 : -2
+        if showsTopic {
+            messageTop?.isActive = false
+            messageBelowTopicConstraint.isActive = true
+        } else {
+            messageBelowTopicConstraint.isActive = false
+            messageTop?.isActive = true
+        }
     }
 
     /// The avatar opens stories only while the chat has some and the list offers it; otherwise a tap selects the row.
@@ -505,6 +552,7 @@ final class ChatListCell: UITableViewCell {
 
         for item in [
             avatarView, storyRingView, titleLabel, headerAccessoryRow, messageLabel, trailingBadges, separatorView,
+            topicIconView, topicLabel,
         ] {
             item.translatesAutoresizingMaskIntoConstraints = false
             rowView.addSubview(item)
@@ -560,6 +608,11 @@ final class ChatListCell: UITableViewCell {
         )
         messageLabel.lineBreakMode = .byTruncatingTail
         messageLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        topicLabel.font = messageLabel.font
+        topicLabel.lineBreakMode = .byTruncatingTail
+        topicLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        topicLabel.isHidden = true
+        topicIconView.isHidden = true
         dateLabel.textColor = .secondaryLabel
         dateLabel.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(
             for: .systemFont(ofSize: 13),
@@ -905,6 +958,16 @@ final class ChatListCell: UITableViewCell {
         ]
         NSLayoutConstraint.activate(rowInsetConstraints)
         // Plain rows follow Telegram's title-then-message stack; a card centres the pair, as BetterTG's did.
+        NSLayoutConstraint.activate([
+            topicIconView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+            topicIconView.centerYAnchor.constraint(equalTo: topicLabel.centerYAnchor),
+            topicIconView.widthAnchor.constraint(equalToConstant: 16),
+            topicIconView.heightAnchor.constraint(equalToConstant: 16),
+            topicLabel.leadingAnchor.constraint(equalTo: topicIconView.trailingAnchor, constant: 4),
+            topicLabel.trailingAnchor.constraint(lessThanOrEqualTo: messageLabel.trailingAnchor),
+            topicLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
+        ])
+        messageBelowTopicConstraint = messageLabel.topAnchor.constraint(equalTo: topicLabel.bottomAnchor, constant: 1)
         plainTextConstraints = [
             titleLabel.topAnchor.constraint(equalTo: rowView.topAnchor, constant: 9),
             messageLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 3),
@@ -924,6 +987,11 @@ final class ChatListCell: UITableViewCell {
         }
         NSLayoutConstraint.deactivate(usesCardStyle ? plainTextConstraints : cardTextConstraints)
         NSLayoutConstraint.activate(usesCardStyle ? cardTextConstraints : plainTextConstraints)
+        if !topicLabel.isHidden {
+            (usesCardStyle ? cardTextConstraints : plainTextConstraints)
+                .first { $0.firstItem === messageLabel }?
+                .isActive = false
+        }
         rowView.layer.cornerRadius = usesCardStyle ? Self.cardCornerRadius : 0
         rowView.layer.cornerCurve = .continuous
         rowView.clipsToBounds = usesCardStyle
