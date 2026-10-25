@@ -133,6 +133,10 @@ final class MessageMediaView: UIView {
                 } else if telegramAnimationUsesFFmpeg(animation.animation) {
                     let animationView = FFmpegAnimatedVideoView()
                     animationView.energySaving = EnergySavingRole(item: .autoplayGif, whenOff: .still)
+                    animationView.requiresTapToDownload = !TDMediaPrefetcher.allowsAutoDownload(
+                        of: item,
+                        client: client,
+                    )
                     animationView.configure(
                         file: animation.animation.animation,
                         client: client,

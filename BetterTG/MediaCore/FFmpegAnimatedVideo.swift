@@ -332,9 +332,14 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
         didSet { energySavingChanged() }
     }
 
+    /// Auto-download's video setting for a GIF in a chat: true leaves the file to a tap on the download arrow.
+    var requiresTapToDownload = false
+
     // MARK: Private
 
     private let thumbnailView = TDImageLoadingView()
+    private let downloadStatus = MediaDownloadStatusView()
+    private var deferredDownload: DeferredMediaDownload?
     private let frameView = UIImageView()
     private lazy var widthConstraint = widthAnchor.constraint(equalToConstant: 180)
     private lazy var heightConstraint = heightAnchor.constraint(equalToConstant: 180)
@@ -386,8 +391,11 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
         frameView.isHidden = true
         frameView.isUserInteractionEnabled = false
         addSubview(frameView)
+        addSubview(downloadStatus)
 
         NSLayoutConstraint.activate([
+            downloadStatus.centerXAnchor.constraint(equalTo: centerXAnchor),
+            downloadStatus.centerYAnchor.constraint(equalTo: centerYAnchor),
             thumbnailView.topAnchor.constraint(equalTo: topAnchor),
             thumbnailView.leadingAnchor.constraint(equalTo: leadingAnchor),
             thumbnailView.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -445,6 +453,23 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
             thumbnailView.load(file: thumbnail.file, accountID: request.source.accountID, client: client)
         }
 
+        if requiresTapToDownload, !file.local.isDownloadingCompleted {
+            // The thumbnail with the download arrow; once downloaded the GIF configures as usual.
+            deferredDownload = DeferredMediaDownload(file: file, client: client, status: downloadStatus) {
+                [weak self] completed in
+                guard let self else { return }
+                configure(
+                    file: completed,
+                    client: client,
+                    thumbnail: thumbnail,
+                    displaySize: displaySize,
+                    onTap: onTap,
+                )
+            }
+            isUserInteractionEnabled = true
+            return
+        }
+
         request.start(file: file, onFile: { [weak self, weak request] file in
             guard let self, let request, fileRequest === request else { return }
             update(file: file)
@@ -457,6 +482,8 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
     func prepareForReuse() {
         fileRequest?.cancel()
         fileRequest = nil
+        deferredDownload = nil
+        downloadStatus.hide()
         configurationGeneration = UUID()
         decoderSetupGeneration = UUID()
         decoderSetupTask?.cancel()
@@ -670,6 +697,10 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
     }
 
     @objc private func tapped() {
+        if let deferredDownload {
+            deferredDownload.isDownloading ? deferredDownload.cancel() : deferredDownload.start()
+            return
+        }
         onTap?()
     }
 
