@@ -16,6 +16,8 @@ struct MessageTextLink: Equatable {
         /// A text mention of a user, with its text.
         case userMention(Int64, text: String)
         case botCommand(String)
+        /// A hashtag or cashtag as written, "@chat" included.
+        case hashtag(String)
     }
 
     let target: Target
@@ -27,6 +29,7 @@ struct MessageTextLink: Equatable {
         switch target {
         case .url(let url): url.replacing("mailto:", with: "")
         case .botCommand(let text),
+             .hashtag(let text),
              .mention(let text): text
         case .userMention(_, let text): text
         }
@@ -153,6 +156,7 @@ struct MessageMentionMenu {
                 destination: .user(userID),
             )
         case .botCommand,
+             .hashtag,
              .url:
             return nil
         }
@@ -232,6 +236,33 @@ enum MessageCommandMenu {
                 copied(L10n.telegram("Conversation.TextCopied"))
             },
         )]
+    }
+}
+
+// MARK: - MessageHashtagMenu
+
+/// Telegram's menu for a hashtag in a message (ChatControllerOpenHashtagContextMenu): Search and Copy Hashtag.
+enum MessageHashtagMenu {
+    static func actions(
+        hashtag: String,
+        search: @escaping () -> Void,
+        copied: @escaping (String) -> Void,
+    ) -> [TelegramContextMenuAction] {
+        [
+            TelegramContextMenuAction(
+                title: L10n.telegram("Chat.Context.Hashtag.Search"),
+                image: UIImage(systemName: "magnifyingglass"),
+                handler: search,
+            ),
+            TelegramContextMenuAction(
+                title: L10n.telegram("Chat.Context.Hashtag.Copy"),
+                image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
+                handler: {
+                    UIPasteboard.general.string = hashtag
+                    copied(L10n.telegram("Conversation.HashtagCopied"))
+                },
+            ),
+        ]
     }
 }
 

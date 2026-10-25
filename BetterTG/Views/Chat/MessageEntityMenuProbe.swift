@@ -13,6 +13,26 @@ import UIKit
             let description: String
         }
 
+        /// `-ui-probe-hashtag-search`: the hashtag search for #telegram from the BetterTG test group, on Public Posts.
+        static func openHashtagSearchIfRequested() {
+            guard ProcessInfo.processInfo.arguments.contains("-ui-probe-hashtag-search") else { return }
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(4))
+                let client = TDLib.shared.activeClient
+                guard let chat = await RootVM.shared.getCustomChatForNavigation(
+                    from: -1_004_361_744_153,
+                    client: client,
+                )
+                else { return log("Hashtag search probe: no test group") }
+                NavigationStorage.shared.navigationController.pushViewController(
+                    HashtagSearchViewController(
+                        query: "#telegram", chat: chat, chatOnly: false, startsOnPublicPosts: true, client: client,
+                    ),
+                    animated: true,
+                )
+            }
+        }
+
         static func runIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-entity-menus") else { return }
             Task { @MainActor in
@@ -70,7 +90,12 @@ import UIKit
             try require(target(at: "/go") == .botCommand("/go"), "command")
             try require(target(at: "Ann") == .userMention(42, text: "Ann"), "text mention")
             try require(target(at: "+123") == nil, "phone has no menu yet")
-            try require(target(at: "#tag") == nil, "hashtag has no menu yet")
+            try require(target(at: "#tag") == .hashtag("#tag"), "hashtag")
+            try require(
+                presentation.action(at: (text as NSString).range(of: "#tag").location, revealed: false)
+                == .hashtag("#tag"),
+                "hashtag tap",
+            )
             try require(target(at: "hidden.io") == nil, "url under a spoiler")
             try require(target(at: "hidden.io", revealed: true) == .url("hidden.io"), "revealed url")
             try require(
@@ -114,6 +139,11 @@ import UIKit
                 L10n.telegram("Chat.Context.Username.Copy"),
                 L10n.telegram("Chat.Context.Username.NotOnTelegram"),
             ] && unknown[1].isInformational, "unknown mention \(unknown.map(\.title))")
+            let hashtag = MessageHashtagMenu.actions(hashtag: "#tag", search: {}, copied: { _ in }).map(\.title)
+            try require(hashtag == [
+                L10n.telegram("Chat.Context.Hashtag.Search"),
+                L10n.telegram("Chat.Context.Hashtag.Copy"),
+            ], "hashtag menu \(hashtag)")
             let command = MessageCommandMenu.actions(command: "/go", copied: { _ in }).map(\.title)
             try require(command == [L10n.telegram("Chat.Context.Command.Copy")], "command \(command)")
             try require(

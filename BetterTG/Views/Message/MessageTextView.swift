@@ -901,6 +901,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
                     chat.sendBotCommand(command)
                     handled = true
                 }
+            case .hashtag(let hashtag):
+                if let chat = self?.nearestViewController as? ChatViewController {
+                    chat.openHashtag(hashtag)
+                    handled = true
+                }
             case .reveal:
                 handled = true
             case .none:

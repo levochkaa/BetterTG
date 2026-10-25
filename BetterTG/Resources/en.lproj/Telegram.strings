@@ -2592,3 +2592,14 @@
 "Conversation.CopyProtectionInfoPrivate" = "**%@** disabled copying and forwarding in this chat.";
 "Conversation.CopyProtectionInfoPrivateYou" = "You disabled copying and forwarding in this chat.";
 "ChatContextMenu.TextSelectionTip2" = "Hold on a word, then move cursor to select more| text to copy or quote.";
+"Chat.Context.Hashtag.Search" = "Search";
+"Chat.Context.Hashtag.Copy" = "Copy Hashtag";
+"Conversation.HashtagCopied" = "Hashtag copied to clipboard";
+"HashtagSearch.ThisChat" = "This Chat";
+"HashtagSearch.MyMessages" = "My Messages";
+"HashtagSearch.PublicPosts" = "Public Posts";
+"HashtagSearch.SearchPlaceholder" = "Hashtag search";
+"HashtagSearch.NoResults" = "No Results";
+"HashtagSearch.NoResultsQueryDescription" = "There were no results for %@.\nTry another hashtag.";
+"HashtagSearch.NoResultsQueryCashtagDescription" = "There were no results for %@.\nTry another cashtag.";
+"Resolve.ChannelErrorNotFound" = "Sorry, this channel doesn't seem to exist.";

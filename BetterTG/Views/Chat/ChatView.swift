@@ -1168,6 +1168,56 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         Task { [weak self] in await self?.chatVM.sendBotCommandText(command) }
     }
 
+    /// ChatControllerImpl.openHashtag: "#tag@chat" searches that chat only; any other hashtag searches this chat, the
+    /// user's messages and public posts, starting on public posts in a public channel.
+    func openHashtag(_ hashtag: String) {
+        guard presentationMode == .full, !clientOwnerRetired, chatVM.locationContextIsCurrent,
+              let navigationController else { return }
+        let parts = hashtag.split(separator: "@", maxSplits: 1).map(String.init)
+        let query = parts.first ?? hashtag
+        let client = chatVM.client
+        guard parts.count == 2 else {
+            let customChat = chatVM.customChat
+            let isPublicChannel = chatVM.isBroadcastChannel
+                && customChat.supergroup?.usernames?.activeUsernames.isEmpty == false
+            navigationController.pushViewController(
+                HashtagSearchViewController(
+                    query: query,
+                    chat: customChat,
+                    chatOnly: false,
+                    startsOnPublicPosts: isPublicChannel,
+                    client: client,
+                ),
+                animated: true,
+            )
+            return
+        }
+        let username = parts[1]
+        Task { [weak self, weak navigationController] in
+            var chat: CustomChat?
+            if let found = try? await client.send(TDNativeRequests.searchPublicChat(username: username)) {
+                chat = await RootVM.shared.getCustomChatForNavigation(from: found.id, client: client)
+            }
+            guard let self, let navigationController, chatVM.locationContextIsCurrent else { return }
+            guard let chat else {
+                let alert = UIAlertController(
+                    title: nil,
+                    message: L10n.telegram("Resolve.ChannelErrorNotFound"),
+                    preferredStyle: .alert,
+                )
+                alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+                present(alert, animated: true)
+                return
+            }
+            navigationController.pushViewController(
+                HashtagSearchViewController(
+                    query: query, chat: chat, chatOnly: true, startsOnPublicPosts: false, client: client,
+                ),
+                animated: true,
+            )
+        }
+    }
+
     /// ChatControllerImpl.openPeer for the peer already on screen: a link to one of its messages scrolls there and a
     /// bot start link shows Start here, and an attachment menu bot link launches its bot here, instead of a second
     /// copy of the chat. False when this isn't that chat.
@@ -8701,6 +8751,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
         case .botCommand(let command):
             let actions = MessageCommandMenu.actions(command: command, copied: copied)
+            showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
+        case .hashtag(let hashtag):
+            let actions = MessageHashtagMenu.actions(
+                hashtag: hashtag,
+                search: { [weak self] in self?.openHashtag(hashtag) },
+                copied: copied,
+            )
             showLinkMenu(link, actions: actions, textView: textView, cell: cell, gesture: gesture)
         case .mention(let text),
              .userMention(_, let text):

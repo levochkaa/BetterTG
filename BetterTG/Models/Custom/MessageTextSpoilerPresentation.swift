@@ -17,6 +17,8 @@ struct MessageTextSpoilerPresentation {
         case openUser(Int64)
         /// A bot command (`textEntityTypeBotCommand`), which Telegram's tap sends to the chat (sendBotCommand).
         case botCommand(String)
+        /// A hashtag or cashtag, which Telegram's tap searches for (openHashtag).
+        case hashtag(String)
     }
 
     let text: FormattedText
@@ -120,6 +122,9 @@ struct MessageTextSpoilerPresentation {
                 return conceals(range, revealed: revealed) ? .reveal : .openUser(value.userId)
             case .textEntityTypeBotCommand:
                 return conceals(range, revealed: revealed) ? .reveal : .botCommand(raw)
+            case .textEntityTypeCashtag,
+                 .textEntityTypeHashtag:
+                return conceals(range, revealed: revealed) ? .reveal : .hashtag(raw)
             case .textEntityTypeEmailAddress: url = URL(string: "mailto:\(raw)")
             case .textEntityTypePhoneNumber: url = URL(string: "tel:\(raw)")
             default: continue
@@ -145,6 +150,8 @@ struct MessageTextSpoilerPresentation {
             case .textEntityTypeMention: return (.mention(raw), range)
             case .textEntityTypeMentionName(let value): return (.userMention(value.userId, text: raw), range)
             case .textEntityTypeBotCommand: return (.botCommand(raw), range)
+            case .textEntityTypeCashtag,
+                 .textEntityTypeHashtag: return (.hashtag(raw), range)
             default: continue
             }
         }

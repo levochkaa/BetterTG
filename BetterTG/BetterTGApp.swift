@@ -72,6 +72,7 @@ import UIKit
             MessageReadReportProbe.runIfRequested()
             MessageDeleteRowProbe.runIfRequested()
             MessageEntityMenuProbe.runIfRequested()
+            MessageEntityMenuProbe.openHashtagSearchIfRequested()
             TDLibVODRangeSource.runDebugProbeIfRequested()
             TDLibVODFFmpegLookahead.runDebugProbeIfRequested()
             TDLibVODFFmpegDecoder.runDebugProbeIfRequested()
