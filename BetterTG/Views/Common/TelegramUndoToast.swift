@@ -59,6 +59,22 @@ import UIKit
             }
             label.attributedText = attributed
             label.numberOfLines = 0
+        } else if text.contains("**") {
+            // UndoOverlayController's markdown: `**` marks semibold parts, such as the chats a forward went to.
+            let bold = UIFontMetrics(forTextStyle: .subheadline).scaledFont(
+                for: .systemFont(ofSize: 15, weight: .semibold),
+                maximumPointSize: 19,
+            )
+            let attributed = NSMutableAttributedString()
+            for (index, part) in text.components(separatedBy: "**").enumerated() {
+                attributed.append(NSAttributedString(string: part, attributes: [
+                    .font: index % 2 == 1 ? bold : bodyFont,
+                    .foregroundColor: UIColor.white,
+                ]))
+            }
+            label.attributedText = attributed
+            label.numberOfLines = 2
+            label.accessibilityLabel = text.withoutTelegramMarkup
         } else {
             label.text = text
             label.numberOfLines = 2

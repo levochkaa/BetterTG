@@ -11,6 +11,13 @@ import UIKit
     let folder: CustomFolder
     var onSelect: ((Chat, Bool) -> Void)?
     var onScroll: ((CGFloat) -> Void)?
+    /// A tap while choosing several chats (PeerSelectionControllerNode's selection) toggles the chat instead.
+    var onToggle: ((Chat) -> Void)?
+
+    private var isSelecting = false
+    private var selectedChatIDs = Set<Int64>()
+    /// The selection panel's height over the folder bar.
+    private var extraBottomInset = CGFloat.zero
 
     private let client: TDLibClient
     private let accountID: UUID
@@ -114,6 +121,7 @@ import UIKit
                         for: index,
                     ) as? ForwardDestinationCell else { return UITableViewCell() }
             cell.configure(chat: chat, enabled: true, client: client)
+            cell.setSelection(active: isSelecting, selected: selectedChatIDs.contains(id), animated: false)
             return cell
         }
         updateTableInsets()
@@ -157,6 +165,23 @@ import UIKit
         } else { changes() }
     }
 
+    /// The chats chosen across the pages, with their checks shown while choosing several.
+    func setSelection(active: Bool, selected: Set<Int64>, animated: Bool) {
+        isSelecting = active
+        selectedChatIDs = selected
+        guard isViewLoaded else { return }
+        for cell in tableView.visibleCells {
+            guard let cell = cell as? ForwardDestinationCell, let indexPath = tableView.indexPath(for: cell),
+                  let id = dataSource.itemIdentifier(for: indexPath) else { continue }
+            cell.setSelection(active: active, selected: selected.contains(id), animated: animated)
+        }
+    }
+
+    func setExtraBottomInset(_ inset: CGFloat) {
+        extraBottomInset = inset
+        if isViewLoaded { updateTableInsets() }
+    }
+
     func updateQuery(_ value: String) {
         guard value != query else { return }
         query = value
@@ -189,6 +214,10 @@ import UIKit
         tableView.deselectRow(at: indexPath, animated: true)
         guard contextIsCurrent, let id = dataSource.itemIdentifier(for: indexPath), let chat = chatsByID[id],
               eligibilityByChatID[id]?.isAllowed == true, allowsType(of: id) else { return }
+        if isSelecting {
+            onToggle?(chat)
+            return
+        }
         onSelect?(chat, forumChatIDs.contains(id))
     }
 
@@ -207,7 +236,7 @@ import UIKit
         let insets = UIEdgeInsets(
             top: view.safeAreaInsets.top + headerHeight,
             left: 0,
-            bottom: view.safeAreaInsets.bottom + 58,
+            bottom: view.safeAreaInsets.bottom + 58 + extraBottomInset,
             right: 0,
         )
         guard tableView.contentInset != insets else { return }
@@ -461,6 +490,9 @@ private final class ForwardDestinationCell: UITableViewCell {
     private let avatarView = ProfileAvatarView()
     private let titleLabel = UILabel()
     private let labels = UIStackView()
+    /// ChatListItem's selection check, before the avatar while choosing several chats.
+    private let checkView = ForwardSelectionCheckView()
+    private var avatarLeading: NSLayoutConstraint?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -475,6 +507,19 @@ private final class ForwardDestinationCell: UITableViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         avatarView.prepareForReuse()
+    }
+
+    func setSelection(active: Bool, selected: Bool, animated: Bool) {
+        checkView.setSelected(selected, animated: animated)
+        accessibilityTraits = active ? (selected ? [.button, .selected] : [.button]) : [.button]
+        let leading: CGFloat = active ? 54 : 16
+        guard avatarLeading?.constant != leading || checkView.alpha != (active ? 1 : 0) else { return }
+        avatarLeading?.constant = leading
+        let changes = {
+            self.checkView.alpha = active ? 1 : 0
+            self.contentView.layoutIfNeeded()
+        }
+        if animated { UIView.animate(withDuration: 0.2, animations: changes) } else { changes() }
     }
 
     func configure(
@@ -524,8 +569,13 @@ private final class ForwardDestinationCell: UITableViewCell {
     }
 
     private func configureViews() {
+        checkView.translatesAutoresizingMaskIntoConstraints = false
+        checkView.alpha = 0
+        contentView.addSubview(checkView)
         avatarView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(avatarView)
+        let avatarLeading = avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
+        self.avatarLeading = avatarLeading
 
         labels.translatesAutoresizingMaskIntoConstraints = false
         labels.axis = .vertical
@@ -539,7 +589,11 @@ private final class ForwardDestinationCell: UITableViewCell {
 
         NSLayoutConstraint.activate([
             contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
-            avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            avatarLeading,
+            checkView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 18),
+            checkView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            checkView.widthAnchor.constraint(equalToConstant: 22),
+            checkView.heightAnchor.constraint(equalToConstant: 22),
             avatarView.topAnchor.constraint(greaterThanOrEqualTo: contentView.topAnchor, constant: 7),
             avatarView.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -7),
             avatarView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -551,5 +605,70 @@ private final class ForwardDestinationCell: UITableViewCell {
             labels.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -7),
             labels.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -16),
         ])
+    }
+}
+
+// MARK: - ForwardSelectionCheckView
+
+/// CheckNode in the chat list's selection: a grey ring, or the accent circle with a white check once chosen.
+final class ForwardSelectionCheckView: UIView {
+    private let ring = CAShapeLayer()
+    private let fill = CAShapeLayer()
+    private let check = CAShapeLayer()
+
+    private var isChosen = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        ring.fillColor = UIColor.clear.cgColor
+        ring.lineWidth = 1.5
+        check.fillColor = UIColor.clear.cgColor
+        check.strokeColor = UIColor.white.cgColor
+        check.lineWidth = 1.8
+        check.lineCap = .round
+        check.lineJoin = .round
+        for shape in [ring, fill, check] {
+            layer.addSublayer(shape)
+        }
+        setSelected(false, animated: false)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in self.updateColors() }
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let circle = UIBezierPath(ovalIn: bounds.insetBy(dx: 0.75, dy: 0.75)).cgPath
+        ring.path = circle
+        fill.path = UIBezierPath(ovalIn: bounds).cgPath
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: bounds.width * 0.28, y: bounds.height * 0.52))
+        path.addLine(to: CGPoint(x: bounds.width * 0.44, y: bounds.height * 0.67))
+        path.addLine(to: CGPoint(x: bounds.width * 0.73, y: bounds.height * 0.36))
+        check.path = path.cgPath
+        updateColors()
+    }
+
+    func setSelected(_ selected: Bool, animated: Bool) {
+        let changed = isChosen != selected
+        isChosen = selected
+        updateColors()
+        fill.opacity = selected ? 1 : 0
+        check.opacity = selected ? 1 : 0
+        guard animated, changed, selected else { return }
+        let pop = CASpringAnimation(keyPath: "transform.scale")
+        pop.fromValue = 0.6
+        pop.toValue = 1
+        pop.damping = 12
+        pop.duration = pop.settlingDuration
+        layer.add(pop, forKey: "pop")
+    }
+
+    private func updateColors() {
+        ring.strokeColor = UIColor.tertiaryLabel.resolvedColor(with: traitCollection).cgColor
+        fill.fillColor = UIColor.systemBlue.resolvedColor(with: traitCollection).cgColor
     }
 }

@@ -41,6 +41,9 @@ final class TelegramListNavigationBar: UIView {
     /// Telegram's Done while a list edits (ChatListControllerImpl.editPressed outside the root list).
     private let doneButton = UIButton(type: .system)
     private var doneAction: (() -> Void)?
+    /// A text button at the trailing edge in place of the right buttons, such as PeerSelectionController's Select.
+    private let textActionButton = UIButton(type: .system)
+    private var textAction: (() -> Void)?
     private var title: String
     /// A selection count such as "2 Topics Selected" replacing the title while editing.
     private var editingTitle: String?
@@ -151,6 +154,14 @@ final class TelegramListNavigationBar: UIView {
         updateTitle()
     }
 
+    /// Shows `title` as a text button at the trailing edge in place of the right buttons; nil removes it.
+    func setTextAction(_ title: String?, action: (() -> Void)?) {
+        textAction = title == nil ? nil : action
+        textActionButton.setTitle(title, for: .normal)
+        textActionButton.isHidden = title == nil
+        rightButton.isHidden = title != nil || doneAction != nil
+    }
+
     private func updateTitle() {
         titleLabel.text = networkStatus ?? editingTitle ?? title
         subtitleLabel.isHidden = subtitleLabel.text?.isEmpty != false || editingTitle != nil
@@ -204,6 +215,13 @@ final class TelegramListNavigationBar: UIView {
         doneButton.isHidden = true
         doneButton.addAction(UIAction { [weak self] _ in self?.doneAction?() }, for: .touchUpInside)
         addSubview(doneButton)
+        textActionButton.translatesAutoresizingMaskIntoConstraints = false
+        textActionButton.tintColor = .systemBlue
+        textActionButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        textActionButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        textActionButton.isHidden = true
+        textActionButton.addAction(UIAction { [weak self] _ in self?.textAction?() }, for: .touchUpInside)
+        addSubview(textActionButton)
 
         titleLabel.textColor = .label
         titleLabel.font = .preferredFont(forTextStyle: .headline)
@@ -283,6 +301,9 @@ final class TelegramListNavigationBar: UIView {
             doneButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
             doneButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             doneButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
+            textActionButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            textActionButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            textActionButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
 
             titleControl.leadingAnchor.constraint(greaterThanOrEqualTo: leftButton.trailingAnchor, constant: 8),
             titleControl.trailingAnchor.constraint(
@@ -335,6 +356,7 @@ final class TelegramListNavigationBar: UIView {
             self.rightButton.alpha = active ? 0 : 1
             self.secondaryRightButton.alpha = active ? 0 : 1
             self.doneButton.alpha = active ? 0 : 1
+            self.textActionButton.alpha = active ? 0 : 1
             self.searchView.transform = active
                 ? CGAffineTransform(translationX: 0, y: -Self.titleHeight)
                 : .identity

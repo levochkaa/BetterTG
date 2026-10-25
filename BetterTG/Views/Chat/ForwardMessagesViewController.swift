@@ -33,6 +33,9 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     }
 
     var onSelect: ((CustomChat, ForumTopic?, PendingMessageForward) -> Void)?
+    /// PeerSelectionController's multiplePeersSelected: the chats chosen with Select, in the order they were chosen,
+    /// and the comment that goes before the forward.
+    var onMultipleSelect: (([CustomChat], String, PendingMessageForward) -> Void)?
     /// The chat chosen in the reply, switch inline and story share purposes.
     var onChosenChat: ((CustomChat, ForumTopic?) -> Void)?
 
@@ -68,6 +71,10 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     private var transition: (from: Int, to: Int, fromOffset: CGFloat, toOffset: CGFloat)?
     private var isChangingPage = false
     private var query = ""
+    private var isSelecting = false
+    private var selectedChatIDs = [Int64]()
+    private let selectionPanel = ForwardSelectionPanelView()
+    private var selectionDraft: PendingMessageForward?
 
     private var currentPage: ForwardDestinationListViewController? {
         pageController.viewControllers?.first as? ForwardDestinationListViewController
@@ -261,6 +268,12 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
                     page.updateQuery(self.query)
                     page.setSearchActive(self.customNavigationBar.isSearchActive, animated: false)
                     page.onSelect = { [weak self] chat, forum in self?.selectChat(chat, isForum: forum) }
+                    page.onToggle = { [weak self] chat in self?.toggleSelection(chat) }
+                    page.setSelection(
+                        active: self.isSelecting,
+                        selected: Set(self.selectedChatIDs),
+                        animated: false,
+                    )
                     page.onScroll = { [weak self, weak page] offset in
                         guard let self, currentPage === page else { return }
                         customNavigationBar.applyScroll(offset: offset)
@@ -268,6 +281,11 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
                     return page
                 }
                 configureFolderBar(folders, selectedID: folders.first?.id)
+                if purpose == .forward {
+                    customNavigationBar.setTextAction(L10n.telegram("Common.Select")) { [weak self] in
+                        self?.beginSelection()
+                    }
+                }
                 // The main screen's folder bar: unread counters and renamed folders follow the account's state.
                 folderBarCancellable = FolderUnreadStore.shared
                     .objectWillChange
@@ -403,6 +421,100 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
             folders: folders.map { current[$0.id] ?? $0 },
             selectedID: selectedID,
             unreadStates: FolderUnreadStore.shared.states(for: client.id),
+        )
+    }
+
+    /// beginSelection: Select gives way to the checks and the panel with the comment field.
+    private func beginSelection() {
+        guard !isSelecting, purpose == .forward, preparedForward != nil, contextIsCurrent else { return }
+        isSelecting = true
+        customNavigationBar.setTextAction(nil, action: nil)
+        pages.forEach { $0.setSelection(active: true, selected: [], animated: $0 === currentPage) }
+        selectionPanel.translatesAutoresizingMaskIntoConstraints = false
+        selectionPanel.onSend = { [weak self] in self?.sendToSelection() }
+        view.insertSubview(selectionPanel, belowSubview: folderPicker)
+        let resting = selectionPanel.bottomAnchor.constraint(equalTo: folderPicker.topAnchor)
+        resting.priority = .defaultLow
+        NSLayoutConstraint.activate([
+            selectionPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            selectionPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            selectionPanel.bottomAnchor.constraint(lessThanOrEqualTo: folderPicker.topAnchor),
+            selectionPanel.bottomAnchor.constraint(lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor),
+            resting,
+        ])
+        selectionPanel.configure(
+            title: request.messageIDs.count == 1
+                ? L10n.telegram("Conversation.ForwardOptions.ForwardTitleSingle")
+                : L10n.telegramPlural("Conversation.ForwardOptions.ForwardTitle", count: request.messageIDs.count),
+            text: "",
+        )
+        view.layoutIfNeeded()
+        pages.forEach { $0.setExtraBottomInset(selectionPanel.bounds.height) }
+        selectionPanel.transform = CGAffineTransform(translationX: 0, y: selectionPanel.bounds.height)
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+            self.selectionPanel.transform = .identity
+        }
+        Task { [weak self] in
+            guard let self, let draft = await makeDraft() else { return }
+            selectionDraft = draft
+            selectionPanel.configure(title: draft.title, text: draft.text)
+        }
+    }
+
+    private func toggleSelection(_ chat: Chat) {
+        guard isSelecting else { return }
+        if let index = selectedChatIDs.firstIndex(of: chat.id) {
+            selectedChatIDs.remove(at: index)
+        } else {
+            selectedChatIDs.append(chat.id)
+        }
+        UISelectionFeedbackGenerator().selectionChanged()
+        let selected = Set(selectedChatIDs)
+        pages.forEach { $0.setSelection(active: true, selected: selected, animated: $0 === currentPage) }
+        selectionPanel.setSendEnabled(!selectedChatIDs.isEmpty)
+    }
+
+    /// requestSend: the chosen chats and the comment go back to the chat, which sends and reports them.
+    private func sendToSelection() {
+        guard selectionTask == nil, !selectedChatIDs.isEmpty, contextIsCurrent else { return }
+        let chatIDs = selectedChatIDs
+        let comment = selectionPanel.comment
+        view.endEditing(true)
+        selectionTask = Task { [weak self] in
+            guard let self else { return }
+            defer { selectionTask = nil }
+            var chats = [CustomChat]()
+            for chatID in chatIDs {
+                if let chat = await RootVM.shared.getCustomChatForNavigation(from: chatID, client: client) {
+                    chats.append(chat)
+                }
+            }
+            let resolvedDraft: PendingMessageForward? =
+                if let selectionDraft {
+                    selectionDraft
+                } else {
+                    await makeDraft()
+                }
+            guard !Task.isCancelled, contextIsCurrent, !chats.isEmpty, let draft = resolvedDraft else {
+                if !Task.isCancelled, contextIsCurrent { showError(L10n.betterTG("Forward.SourceUnavailable")) }
+                return
+            }
+            dismiss(animated: true) { [onMultipleSelect] in onMultipleSelect?(chats, comment, draft) }
+        }
+    }
+
+    /// The forward the destination's composer would show: the chosen mode, the authors and the first message.
+    private func makeDraft() async -> PendingMessageForward? {
+        guard let preparedForward, let firstID = request.messageIDs.first,
+              let message = try? await client.getMessage(chatId: request.sourceChatID, messageId: firstID)
+        else { return nil }
+        let authors = await forwardAuthors()
+        return PendingMessageForward(
+            prepared: preparedForward,
+            mode: mode,
+            authors: authors.joined(separator: ", "),
+            authorCount: authors.count,
+            messageSummary: ChatSummary.summary(for: message),
         )
     }
 
