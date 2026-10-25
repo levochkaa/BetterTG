@@ -227,6 +227,20 @@ ClientRestorableNavigationEntry {
     private let sharedTabs = FolderPickerView()
     private var selectedSharedTab = SharedTab.media
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
+    /// SparseItemGrid's zoom level: the photos and videos to a row, 3 at first, pinched between 2 and 12.
+    private var mediaColumns: Int = {
+        #if DEBUG
+            // `-debug-media-columns N`: the grid's first zoom level, to check it without a pinch.
+            let arguments = ProcessInfo.processInfo.arguments
+            if let index = arguments.firstIndex(of: "-debug-media-columns"), index + 1 < arguments.count,
+               let columns = Int(arguments[index + 1]), (2...12).contains(columns)
+            {
+                return columns
+            }
+        #endif
+        return 3
+    }()
+
     private var dataSource: UICollectionViewDiffableDataSource<Section, Int64>!
     private var messagesByID = [Int64: Message]()
     private var cancellables = Set<AnyCancellable>()
@@ -1426,6 +1440,7 @@ ClientRestorableNavigationEntry {
         collectionView.addGestureRecognizer(UILongPressGestureRecognizer(
             target: self, action: #selector(sharedRowLongPressed(_:)),
         ))
+        collectionView.addGestureRecognizer(UIPinchGestureRecognizer(target: self, action: #selector(mediaPinched(_:))))
         collectionView.alwaysBounceVertical = true
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.register(
@@ -1490,7 +1505,7 @@ ClientRestorableNavigationEntry {
     }
 
     private func makeLayout() -> UICollectionViewLayout {
-        UICollectionViewCompositionalLayout { [weak self] _, _ in
+        UICollectionViewCompositionalLayout { [weak self] _, environment in
             guard self?.currentSharedTab.isGrid == true else {
                 let size = NSCollectionLayoutSize(
                     widthDimension: .fractionalWidth(1),
@@ -1503,19 +1518,26 @@ ClientRestorableNavigationEntry {
                 section.interGroupSpacing = 1
                 return section
             }
-            let itemSize = NSCollectionLayoutSize(
-                widthDimension: .fractionalWidth(1 / 3),
-                heightDimension: .fractionalHeight(1),
+            // SparseItemGrid: square tiles a point apart across the full width, the zoom level's count to a row.
+            let columns = self?.currentSharedTab == .media ? self?.mediaColumns ?? 3 : 3
+            let width = environment.container.effectiveContentSize.width
+            let side = floor((width - CGFloat(columns - 1)) / CGFloat(columns))
+            let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(
+                widthDimension: .absolute(side),
+                heightDimension: .absolute(side),
+            ))
+            let group = NSCollectionLayoutGroup.horizontal(
+                layoutSize: NSCollectionLayoutSize(
+                    widthDimension: .fractionalWidth(1),
+                    heightDimension: .absolute(side),
+                ),
+                repeatingSubitem: item,
+                count: columns,
             )
-            let item = NSCollectionLayoutItem(layoutSize: itemSize)
-            item.contentInsets = NSDirectionalEdgeInsets(top: 1, leading: 1, bottom: 1, trailing: 1)
-            let groupSize = NSCollectionLayoutSize(
-                widthDimension: .fractionalWidth(1),
-                heightDimension: .fractionalWidth(1 / 3),
-            )
-            let group = NSCollectionLayoutGroup.horizontal(layoutSize: groupSize, repeatingSubitem: item, count: 3)
+            group.interItemSpacing = .fixed(1)
             let section = NSCollectionLayoutSection(group: group)
-            section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 1, bottom: 20, trailing: 1)
+            section.interGroupSpacing = 1
+            section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 20, trailing: 0)
             return section
         }
     }
@@ -3467,6 +3489,26 @@ ClientRestorableNavigationEntry {
         navigationController?.pushViewController(editor, animated: true)
     }
 
+    /// SparseItemGrid's pinch: spreading the fingers shows fewer, larger photos and videos to a row, pinching more.
+    @objc private func mediaPinched(_ gesture: UIPinchGestureRecognizer) {
+        guard currentSharedTab == .media, gesture.state == .changed else { return }
+        let columns =
+            if gesture.scale > 1.3, mediaColumns > 2 {
+                mediaColumns - 1
+            } else if gesture.scale < 0.75, mediaColumns < 12 {
+                mediaColumns + 1
+            } else {
+                mediaColumns
+            }
+        guard columns != mediaColumns else { return }
+        gesture.scale = 1
+        mediaColumns = columns
+        UIView.animate(withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.25) {
+            self.collectionView.collectionViewLayout.invalidateLayout()
+            self.collectionView.layoutIfNeeded()
+        }
+    }
+
     @objc private func retrySharedMedia() {
         sharedMessageRefresh?.retry()
         loadMore()
@@ -3517,7 +3559,10 @@ final class SharedMediaGridCell: UICollectionViewCell {
     private let imageView = TDImageLoadingView()
     /// PeerInfoGifPaneNode plays the pane's GIFs in place, muted and looping.
     private let animationView = InlineAnimationMediaView()
-    private let videoBadge = UIImageView(image: UIImage(systemName: "play.fill"))
+    /// PeerInfoVisualMediaPaneNode's DurationLayer: a video's length, or on a narrow tile the play circle.
+    private let durationLabel = UILabel()
+    private let minPlayView = UIImageView()
+    private var videoDuration: Int?
     private var representedMessage: Message?
     private var loadingIsPaused = false
     private var context: MediaGalleryPlaybackContext?
@@ -3549,12 +3594,24 @@ final class SharedMediaGridCell: UICollectionViewCell {
         animationView.isAccessibilityElement = false
         animationView.isHidden = true
         contentView.addSubview(animationView)
-        videoBadge.translatesAutoresizingMaskIntoConstraints = false
-        videoBadge.tintColor = .white
-        videoBadge.backgroundColor = UIColor.black.withAlphaComponent(0.35)
-        videoBadge.layer.cornerRadius = 10
-        videoBadge.contentMode = .center
-        contentView.addSubview(videoBadge)
+        durationLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        durationLabel.textColor = .white
+        durationLabel.layer.shadowColor = UIColor.black.cgColor
+        durationLabel.layer.shadowOpacity = 0.5
+        durationLabel.layer.shadowRadius = 1.25
+        durationLabel.layer.shadowOffset = .zero
+        durationLabel.isHidden = true
+        contentView.addSubview(durationLabel)
+        minPlayView.image = UIImage(
+            systemName: "play.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .bold),
+        )
+        minPlayView.tintColor = .white
+        minPlayView.contentMode = .center
+        minPlayView.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        minPlayView.layer.cornerRadius = 10
+        minPlayView.isHidden = true
+        contentView.addSubview(minPlayView)
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: contentView.topAnchor),
             imageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -3564,14 +3621,35 @@ final class SharedMediaGridCell: UICollectionViewCell {
             animationView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             animationView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
             animationView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            videoBadge.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -6),
-            videoBadge.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
-            videoBadge.widthAnchor.constraint(equalToConstant: 24),
-            videoBadge.heightAnchor.constraint(equalToConstant: 24),
         ])
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    /// DurationLayer's place: its image's corner 3 pt from the tile's bottom right, the text 6 pt and 2 pt inside
+    /// it; under 80 pt wide the 20 pt circle instead; both scaled down on a tile under 74 pt tall.
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let size = contentView.bounds.size
+        let isMin = size.width < 80 || videoDuration == -1
+        let factor = min(1, size.height / 74)
+        durationLabel.isHidden = videoDuration == nil || isMin
+        minPlayView.isHidden = videoDuration == nil || !isMin
+        let corner = CGPoint(x: size.width - 3, y: size.height - 3)
+        durationLabel.transform = .identity
+        durationLabel.sizeToFit()
+        let text = durationLabel.bounds.size
+        durationLabel.center = CGPoint(x: corner.x - 6 - text.width / 2, y: corner.y - 2 - text.height / 2)
+        minPlayView.transform = .identity
+        minPlayView.bounds = CGRect(x: 0, y: 0, width: 20, height: 20)
+        minPlayView.center = CGPoint(x: corner.x - 10, y: corner.y - 10)
+        for badge in [durationLabel, minPlayView] {
+            // The layer scales about the corner.
+            let offset = CGPoint(x: badge.center.x - corner.x, y: badge.center.y - corner.y)
+            badge.center = CGPoint(x: corner.x + offset.x * factor, y: corner.y + offset.y * factor)
+            badge.transform = CGAffineTransform(scaleX: factor, y: factor)
+        }
+    }
 
     override func prepareForReuse() {
         super.prepareForReuse()
@@ -3671,7 +3749,7 @@ final class SharedMediaGridCell: UICollectionViewCell {
         cover?.removeFromSuperview()
         cover = nil
         renderedAllowsPixels = allowsPixels
-        videoBadge.isHidden = true
+        videoDuration = nil
         if renderedAllowsPixels {
             accessibilityLabel = "\(MessageTextSpoilerPresentation.summary(for: message)), \(profileDateString(message.date))"
             accessibilityHint = L10n.betterTG("Accessibility.OpenMedia")
@@ -3715,7 +3793,6 @@ final class SharedMediaGridCell: UICollectionViewCell {
             } else {
                 imageView.loadPlaceholder(data: photo.photo.minithumbnail?.data, client: client)
             }
-            videoBadge.isHidden = true
         case .messageVideo(let video):
             if let thumbnail = video.video.thumbnail {
                 imageView.load(
@@ -3728,7 +3805,13 @@ final class SharedMediaGridCell: UICollectionViewCell {
             } else {
                 imageView.loadPlaceholder(data: video.video.minithumbnail?.data, client: client)
             }
-            videoBadge.isHidden = false
+            // stringForDuration.
+            let duration = video.video.duration
+            videoDuration = duration
+            durationLabel.text = duration >= 3600
+                ? String(format: "%d:%02d:%02d", duration / 3600, duration / 60 % 60, duration % 60)
+                : String(format: "%d:%02d", duration / 60, duration % 60)
+            setNeedsLayout()
         case .messageAnimation(let animation):
             if let thumbnail = animation.animation.thumbnail {
                 imageView.load(
@@ -3744,7 +3827,6 @@ final class SharedMediaGridCell: UICollectionViewCell {
             animationView.isHidden = false
             animationView.configure(animation: animation.animation, displaySize: nil, client: client)
             animationView.setPlaybackVisible(true)
-            videoBadge.isHidden = true
         default:
             if let preview = SharedMediaGridPreview(message: message) {
                 if let file = preview.file {
@@ -3758,10 +3840,11 @@ final class SharedMediaGridCell: UICollectionViewCell {
                 } else {
                     imageView.loadPlaceholder(data: preview.minithumbnail, client: client)
                 }
-                videoBadge.isHidden = !preview.isVideo
+                // A video whose length isn't known shows the play circle.
+                videoDuration = preview.isVideo ? -1 : nil
+                setNeedsLayout()
             } else {
                 imageView.loadPlaceholder(data: nil, origin: nil)
-                videoBadge.isHidden = true
             }
         }
     }
