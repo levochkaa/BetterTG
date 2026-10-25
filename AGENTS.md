@@ -41,6 +41,7 @@
 - Main project: `BetterTG.xcodeproj`.
 - Main scheme: `BetterTG`.
 - Prefer narrow, codebase-consistent UIKit changes and preserve unrelated local edits.
+- `Parity/` is the Telegram parity ledger, one file per section: start with `Parity/README.md` and `Parity/checkpoint.md`. `Parity/goal.md` is the goal prompt.
 
 ## Git Workflow
 

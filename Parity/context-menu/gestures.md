@@ -1,0 +1,39 @@
+# Context-menu gestures — 2026-10-12
+
+Source: `/Users/lev/Developer/CustomContextMenu` (UIKitCore iOS 27.0 24A434): `App/MenuMotion.swift`,
+`App/MenuTouchRecognizer.swift`, `App/CustomMenu.swift`, `App/NativeUIKit.swift`, `Tests/InteractionChecks.swift`,
+`Research/Interaction/README.md`. Constants are taken from the source, none tuned by eye.
+
+| Area | Port | BetterTG adaptation |
+| --- | --- | --- |
+| Motion model | `ContextMenuMotion`, `ContextMenuSpring`, `ContextMenuTouchSession` verbatim: press progress and scale, radial rubber band 15 / 0.2, preview offset clamped toward the menu, closed-form spring, release rules | `platterOffset` also clamps for a menu above the preview |
+| Press before open | `ContextMenuPressGestureRecognizer` on messages, chat rows, avatars and folder tabs: progress after 0.15 s, 20 pt allowable movement, hold 0.4 s (0.325 s on iPad), growth by 8 pt on the long side and shadow 0.3 / radius 20 on a 0.6 / 0.4 s spring at up to 120 Hz; release 0.85 / 0.35 s; Reduce Motion keeps scale 1 | The effect runs on the source view instead of a pre-presented overlay; `presentTelegramContextMenu` takes the grown view over and restores its base transform. Folder tabs (`.menuOnly`) settle back when the menu opens and cast no shadow (text only). Replaces the Telegram 0.1 / 0.26 s recognizer, the 0.3 s long presses and the 0.98 shrink |
+| Open menu touches | One `ContextMenuTouchRecognizer` on the menu root (cancels and delays nothing) plus the opening finger: preview pan after 10 pt with rubber band only while the finger is off the menu and spring back on release; dismissal tap 45 pt / 1.5 s; outside finger hands off to scrubbing; 0.15 s selection delay for touches that begin on the menu; release outcomes A–N | Touches in the reaction strip, in the selectable quote text and in the scrollable chat preview stay with those views. The opening finger still scrubs reactions |
+| Native calls | `ContextMenuNativeAnimation`: `UIViewSpringAnimationBehavior` pan behavior (0.15 / 0.996, tracking 0.8 / 0.4 smoothed 0.08, release 0.85 / 0.5) and highlight behaviors, `_animateUsingSpringBehavior:tracking:` inside 48–120 Hz reason 0x100026, each selector-checked with the public `UIView.animate(springDuration:bounce:)` fallback | The menu glass is the system's flexible `_UIViewGlass` set with `_setBackground:` (variant 0, not adaptive, flexible, flex variant 5, no grouping; `_setEnabledWithoutSolarium:` only where iOS 27 has it), whose `_UIFlexInteraction` stretches the glass toward a finger that touches the open menu and drags; public interactive `UIGlassEffect` only without those calls. Before `de791738` iOS 26 lacked `_setEnabledWithoutSolarium:`, fell back to the public glass and never bent, since the menu's rows sit beside that glass |
+| Highlight | Shared highlight: frame 1 / 0.12 s, alpha 1 / 0.3 s, appears in place below 0.05 presentation opacity, inset 10 with radius min(menu radius − 10, h / 2), selection haptic on every change | Menu radius 30 keeps the existing 20 pt highlight |
+| Escape | Escape key and `accessibilityPerformEscape` dismiss; the dim view is a VoiceOver Close element; focus moves into the menu | The menu root takes focus only when nothing is focused; otherwise the focused view's controller carries the Escape command, so the composer keeps its keyboard |
+| Menu look | Unchanged: Telegram spring appearance, reactions strip, quote selection, submenus, keyboard-window hosting | — |
+
+Proofs:
+
+- Deterministic: `-ui-probe-context-menu-interaction` (`ContextMenuInteractionProbe`, DEBUG only) passed on iPhone 18 Pro
+  iOS 27.0: 10,201 rubber-band vectors, native pan trace and preview centers, press samples, hold durations, 60/120 Hz
+  spring independence and momentum, 12 native release cases, selection delay; private spring behavior available.
+- Simulator smoke (iPhone 18 Pro, iOS 27.0, idb): chat-row preview opens on hold and stays open on release (A); outside
+  tap dismisses (M); row tap after a preview menu opens the chat (F9); message menu with reactions, tap on copy runs
+  copy (N, pasteboard checked); tap on the preview edge dismisses (E); a slow drag from the message onto reply opens the
+  menu under the same finger and selects reply (G); Escape with the keyboard up dismisses the menu and keeps the
+  keyboard; avatar menu, outside drag over 45 pt (J) and preview move 30 pt (K) keep it open; folder-tab menu, row
+  touch dragged off the menu keeps it open (F); folder taps and list scrolling still work.
+- Xcode MCP 10-17, one finger with `mt`: on the BetterTG test chat row, the opening finger dragged through archive and
+  released outside kept the menu open with nothing chosen (B); dragged above the preview, it kept the menu open (C);
+  dragged into archive and back to the preview, it kept it open (D). With the menu open, a touch below the menu dragged
+  onto pin pinned the chat (H; unpinned again with a tap); on the chat preview the touch goes to the scrollable topic
+  list by design (`touchOrigin` returns nil for `.chatPreview`), so I was checked on a message: a touch on the bubble
+  dragged onto copy copied the message (I, pasteboard checked).
+- Not proven: preview pan visuals mid-drag; VoiceOver escape (the Simulator doesn't run VoiceOver); 120 Hz and haptics on
+  a physical device. iOS 26 runs the same gesture code; its morph is checked under "Liquid morph" below. Device-interaction multi-touch was
+  first rejected by automatic approval review under the old AGENTS.md rule; `27635bdf` allows Xcode MCP, and the next
+  section has the multi-touch proofs.
+
+Glass flex, 10-24 (iPhone 17 Pro iOS 26.5 `8108A92F`, headless, agent-device in T3's Device panel, LLDB): before `de791738` the menu's `_UIFlexInteraction` sat on the public fallback `UIVisualEffectView` and a touch on a row dragged out of the menu left the glass still in every frame; after it the interaction sits on the menu view itself and the same drag moves and stretches the glass toward the finger and back, as the system menu and CustomContextMenu's own menu do on iOS 27 (ContextMenuLab on iPhone 18 Pro iOS 27.0, the same drag through idb). As in the system menu (CustomContextMenu trace N1), the finger that opened the menu does not bend it.

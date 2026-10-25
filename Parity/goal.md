@@ -4,7 +4,7 @@
 
 ## Контекст и источники
 
-Прочитай AGENTS.md/CLAUDE.md, project.yml, build.sh, оба PARITY.md и PARITY_PROMPT.md из astra. Сохраняй чужие изменения. Telegram reference — ../Telegram-iOS: telegram-upstream/master (сейчас f1dd7a2dbd, release-13.0.0) для поведения, TDLib-логики и новых механик, pre-Liquid history для классического chrome. Фиксируй SHA/path каждого reference. Swiftgram upstream — только toggles. Не переноси Texture/SignalKit/Postbox/Display/ComponentFlow.
+Прочитай AGENTS.md/CLAUDE.md, project.yml, build.sh и Parity/ (начни с Parity/README.md и Parity/checkpoint.md). На этапе 0 источниками были оба PARITY.md и PARITY_PROMPT.md из astra. Сохраняй чужие изменения. Telegram reference — ../Telegram-iOS: telegram-upstream/master (сейчас f1dd7a2dbd, release-13.0.0) для поведения, TDLib-логики и новых механик, pre-Liquid history для классического chrome. Фиксируй SHA/path каждого reference. Swiftgram upstream — только toggles. Не переноси Texture/SignalKit/Postbox/Display/ComponentFlow.
 
 - `main` (локальный, не запушен; при написании 24d5b2f) — главный источник по toolchain, зависимостям и текущему UI: TDLibKit из levochkaa/TDLibKit с пином из project.yml main (сейчас `2.0.0-tdlib-1.8.68-c15d3f5a`, нативные модели), Xcode 27 по умолчанию, build.sh, пикер папок с liquid lens, кастомное контекстное меню.
 - `codex/parity-continuation` (aec5611, 5–6 сентября) — parity-код, уже переведённый на TDLibKit 2, и UI-решения, которые пользователь задал явно (раздел «Идентичность BetterTG»).
@@ -14,7 +14,7 @@
 ## Этап 0 — свести всё в одну ветку
 
 1. Создай отдельный worktree и ветку `codex/parity` от текущего локального main. Не трогай checkout main, сам main и исходные ветки, не удаляй их. Запиши SHA всех трёх источников.
-2. Сведи parity-continuation и a21e в `codex/parity` через merge, чтобы история всех трёх источников осталась достижимой. Порядок промежуточных merge выбери сам (например, сначала перенеси astra на main/TDLibKit 2 в отдельной ветке), но каждый merge-коммит должен собираться без warnings. Стратегию запиши в PARITY.md.
+2. Сведи parity-continuation и a21e в `codex/parity` через merge, чтобы история всех трёх источников осталась достижимой. Порядок промежуточных merge выбери сам (например, сначала перенеси astra на main/TDLibKit 2 в отдельной ветке), но каждый merge-коммит должен собираться без warnings. Стратегию запиши в Parity/stage-0.
 3. Код astra переведи на TDLibKit 2 API из main. Удали Packages/TDLibKitDynamic и все использования моделей 1.x.
 4. Конфликты решай по смыслу, по трёхсторонней разнице от e88036e. Дифф astra — ревизия качества и найденные дефекты. Дифф parity-continuation — правки пользователя, адаптация к TDLibKit 2 и слияние с main. Сохраняй намерения обеих сторон, ни одна ветка не выигрывает целиком:
    - Toolchain, зависимости, build, TDLib API — main. Конфликты с октябрьскими коммитами main (Xcode 27, TDLibKit 1.8.68, liquid lens, контекстное меню, бейджи папок) решай в пользу main, сохраняя parity-функциональность.
@@ -22,8 +22,8 @@
    - Логика, ownership, lifecycle, изоляция аккаунтов, медиа — по умолчанию astra как более поздняя ревизия того же flow, если она исправляет конкретный дефект или упрощает ownership и не ломает правки пользователя. Проверяй это по текущему коду, а не по отчётам astra. Flows, которых astra не касалась, бери из parity-continuation/main.
    - MobileVLCKit удали: обе parity-ветки уже перешли на MediaCore/FFmpeg. SwiftMath и прочие зависимости оставь, если их использует production-код.
    - Debug probes astra оставь только за launch-аргументами/DEBUG: при обычном запуске они не срабатывают и в production-пути не попадают.
-5. Объедини PARITY.md в один: flows, implementation/audit status, исторические proofs с датами и ограничениями, ledger решений слияния (область → какой источник взят и почему, что перенесено с другой стороны). Замени PARITY_PROMPT.md этим промптом.
-6. Этап 0 закрыт, когда есть одна ветка, ./build.sh build проходит без warnings на Xcode 27, приложение запускается, smoke ключевых flows в Simulator пройден (список чатов и папки, открытие чата, отправка текста и медиа в Saved Messages, галерея, голосовые и кружки, профиль, Forward to, контекстное меню) и PARITY.md сведён. Только после этого переходи к ревизии и новым gaps.
+5. Сведи ledger в Parity/: flows, implementation/audit status, исторические proofs с датами и ограничениями, ledger решений слияния (область → какой источник взят и почему, что перенесено с другой стороны). Замени Parity/goal.md этим промптом.
+6. Этап 0 закрыт, когда есть одна ветка, ./build.sh build проходит без warnings на Xcode 27, приложение запускается, smoke ключевых flows в Simulator пройден (список чатов и папки, открытие чата, отправка текста и медиа в Saved Messages, галерея, голосовые и кружки, профиль, Forward to, контекстное меню) и Parity/ сведён. Только после этого переходи к ревизии и новым gaps.
 
 ## Идентичность BetterTG
 
@@ -54,7 +54,7 @@ Telegram добавил liquid morph кнопки в кастомное меню
 - Перенеси механизм в BetterTG поверх нашего меню. Небольшой Objective-C runtime adapter допустим.
 - Морф включается на источнике и только для отдельных кнопок и контролов, которые открывают меню: превью фото/видео, галерея и плеер (например moreButton в ChatViewAlbum, скорость или качество видео, кнопки превью медиа перед отправкой). Не применяй его к папкам, сообщениям и строкам списков.
 - Поведение по Telegram: меню открывается на месте источника; закрытие перехватывает ещё открывающееся меню; морф идёт на 120 Hz с ограничением по времени; закрытие не мигает открытым меню. При Reduce Motion, отсутствии runtime или если источник ушёл из окна — текущий fallback.
-- Системный UIMenu на UIButton UIKit морфит сам. Для перечисленных контролов используй наше меню с морфом, если так меню остаются единообразными. Решение по каждому контролу запиши в PARITY.md.
+- Системный UIMenu на UIButton UIKit морфит сам. Для перечисленных контролов используй наше меню с морфом, если так меню остаются единообразными. Решение по каждому контролу запиши в Parity/context-menu/liquid-morph.md.
 
 ## Затем — ревизия и parity
 
@@ -77,9 +77,9 @@ Scope:
 ## Правила выполнения
 
 - Production UI только на UIKit, без SwiftUI/hosting/representable.
-- Запрещены browser/computer use и XcodeBuildMCP. Build и run только через ./build.sh. Smoke — ./build.sh run + device-interaction/idb; физическое устройство — ./build.sh run --device, когда нужны камера, PiP или 120 Hz. Не закрывай Simulator и не переводи на него фокус.
+- Запрещены browser/computer use. Build и run только через ./build.sh. Smoke — ./build.sh run + Xcode MCP device interaction, idb или XcodeBuildMCP (AGENTS.md); физическое устройство — ./build.sh run --device, когда нужны камера, PiP или 120 Hz. Не закрывай Simulator и не переводи на него фокус.
 - Без push/PR. Не сбрасывай пользовательские базы, аккаунты и drafts. Тестовые отправки и удаления — только в Saved Messages или в созданных тобой приватных test-группах и форумах. Никогда не отправляй другим людям и не удаляй чужой или пользовательский контент.
-- После каждого среза: один вызов swiftformat на все изменённые .swift, ./build.sh build без warnings (не подавляй их), review изменённого пути и его consumers, обновление PARITY.md, focused commit по AGENTS.md (`<feature|fix|tech>(<scope>): <summary>` и `Co-authored-by: Codex <noreply@openai.com>`) без чужих hunks.
+- После каждого среза: один вызов swiftformat на все изменённые .swift, ./build.sh build без warnings (не подавляй их), review изменённого пути и его consumers, строка в Parity/checkpoint.md (Parity/README.md, «Recording»), focused commit по AGENTS.md (`<feature|fix|tech>(<scope>): <summary>` и `Co-authored-by:` с моделью, которая писала код) без чужих hunks.
 - Работай малыми срезами с учётом бюджета. Не начинай срез, если не хватит ресурса на review, проверку и commit. При риске доведи или откати только своё, добейся чистого build и запиши checkpoint: последний проверенный commit, audit cursor, findings, blockers, следующий шаг.
 - Не больше 2 subagents одновременно. Read-only аудит возвращает findings с доказательствами. Fix/feature делай в отдельном worktree с форматированием, warning-free build и commit; primary проверяет diff и берёт только проверенное. У сессии Simulator/device один владелец.
 - Различай виды proof: source review, build, детерминированный probe, Simulator smoke, физическое устройство. Simulator не доказывает аппаратную камеру, системный PiP и 120 Hz. Probe, после которого приложение упало, не считается app-flow smoke.

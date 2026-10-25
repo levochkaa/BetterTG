@@ -24,7 +24,7 @@ Debug builds sign in to [Telegram's test server](https://core.telegram.org/api/a
 - `./build.sh build` must finish without warnings. There is no test target yet, so check your change in the Simulator or on a device.
 - Keep debug probes behind launch arguments and out of release code paths.
 - When you add an open-source dependency, add its license text to `BetterTG/Resources/Licenses` and list it in `LicensesViewController` in the same change.
-- [PARITY.md](PARITY.md) tracks parity with Telegram for iOS. Add a row when your change closes a gap.
+- [Parity](Parity/README.md) tracks parity with Telegram for iOS. Add a row to [Parity/checkpoint.md](Parity/checkpoint.md) when your change closes a gap.
 - The push relay in `Backend` has its own checks; see [Backend/README.md](Backend/README.md#verification).
 - [AGENTS.md](AGENTS.md) holds the same rules for coding agents, and `CLAUDE.md` links to it.
 
