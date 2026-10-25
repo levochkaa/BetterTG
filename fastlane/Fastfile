@@ -1,38 +1,189 @@
-update_fastlane
-default_platform(:ios)
+# Fastfile
+# TestFlight and App Store builds of BetterTG, after DoodleMaster's lanes. A lane archives through ./build.sh,
+# exports an App Store IPA with Xcode's automatic signing and uploads it with an App Store Connect API key.
+# docs/releasing.md describes the setup.
 
-platform :ios do
-  ltbn = latest_testflight_build_number(api_key_path: "fastlane/api_key.json")
+skip_docs
 
-  lane :beta do
-    increment_build_number(build_number: ltbn + 1, xcodeproj: "BetterTG.xcodeproj")
-    get_certificates
-    get_provisioning_profile
-    build_app(
-      scheme: "BetterTG",
-      configuration: "Debug",
+require "fileutils"
+require "json"
+require "plist"
+require "tmpdir"
+require "yaml"
+require_relative "identity"
+
+REPO_ROOT = File.expand_path("..", __dir__)
+DISTRIBUTION_DIR = File.join(REPO_ROOT, ".build", "distribution")
+XCODE_PATH = ENV.fetch("BETTERTG_XCODE", "/Applications/Xcode-27.1.0.app")
+# Xcode's ipatool, which the export runs, is a /usr/bin/ruby script: Bundler's and this Ruby's variables would make
+# it load gems built for another Ruby.
+EXPORT_UNSET_ENV = %w[RUBYLIB RUBYOPT BUNDLE_BIN_PATH _ORIGINAL_GEM_PATH BUNDLE_GEMFILE GEM_HOME GEM_PATH].freeze
+
+# The export and upload tools use the Xcode that ./build.sh archives with.
+developer_dir = File.join(XCODE_PATH, "Contents", "Developer")
+ENV["DEVELOPER_DIR"] ||= developer_dir if File.directory?(developer_dir)
+
+def marketing_version
+  version = YAML.load_file(File.join(REPO_ROOT, "project.yml")).dig("settings", "base", "MARKETING_VERSION").to_s.strip
+  UI.user_error!("Could not read MARKETING_VERSION from project.yml") if version.empty?
+  version
+end
+
+# fastlane/api_key.json, or BETTERTG_ASC_API_KEY_ID, BETTERTG_ASC_API_KEY_ISSUER_ID and the .p8 key in
+# BETTERTG_ASC_API_KEY_PATH or BETTERTG_ASC_API_KEY_CONTENT.
+def api_key
+  @api_key ||= begin
+    json_path = File.join(__dir__, "api_key.json")
+    if ENV["BETTERTG_ASC_API_KEY_ID"].to_s.empty? && File.exist?(json_path)
+      json = JSON.parse(File.read(json_path))
+      app_store_connect_api_key(
+        key_id: json.fetch("key_id"),
+        issuer_id: json.fetch("issuer_id"),
+        key_content: json.fetch("key"),
+        duration: 1200,
+        in_house: false
+      )
+    else
+      key_id = ENV["BETTERTG_ASC_API_KEY_ID"].to_s.strip
+      issuer_id = ENV["BETTERTG_ASC_API_KEY_ISSUER_ID"].to_s.strip
+      key_path = ENV["BETTERTG_ASC_API_KEY_PATH"].to_s.strip
+      key_content = ENV["BETTERTG_ASC_API_KEY_CONTENT"].to_s.strip.gsub("\\n", "\n")
+      if key_id.empty? || issuer_id.empty? || (key_path.empty? && key_content.empty?)
+        UI.user_error!("Add fastlane/api_key.json or set BETTERTG_ASC_API_KEY_ID, BETTERTG_ASC_API_KEY_ISSUER_ID " \
+                       "and BETTERTG_ASC_API_KEY_PATH or BETTERTG_ASC_API_KEY_CONTENT")
+      end
+      key = { key_id: key_id, issuer_id: issuer_id, duration: 1200, in_house: false }
+      key_path.empty? ? key[:key_content] = key_content : key[:key_filepath] = File.expand_path(key_path)
+      app_store_connect_api_key(**key)
+    end
+  end
+end
+
+# Xcode's automatic signing reads the API key from a .p8 file.
+def with_api_key_file
+  Dir.mktmpdir("bettertg-asc-") do |directory|
+    path = File.join(directory, "AuthKey_#{api_key[:key_id]}.p8")
+    File.write(path, api_key[:key])
+    File.chmod(0o600, path)
+    yield path
+  end
+end
+
+def build_number_for(options)
+  return Integer(options[:build_number].to_s, 10) if options[:build_number]
+  return Integer(get_ipa_info_plist_value(ipa: options[:ipa], key: "CFBundleVersion"), 10) if options[:ipa]
+
+  latest_testflight_build_number(
+    api_key: api_key,
+    app_identifier: BetterTGIdentity.bundle_id,
+    initial_build_number: 0
+  ) + 1
+end
+
+def git_summary
+  "#{sh('git', 'rev-parse', '--short', 'HEAD', log: false).strip} #{sh('git', 'log', '-1', '--pretty=%s', log: false).strip}"
+end
+
+# Archives through ./build.sh and exports an App Store IPA from the archive, both with automatic signing.
+def build_ipa(build_number)
+  directory = File.join(DISTRIBUTION_DIR, "#{marketing_version}-#{build_number}")
+  FileUtils.rm_rf(directory)
+  FileUtils.mkdir_p(directory)
+  archive_path = File.join(directory, "BetterTG.xcarchive")
+  export_path = File.join(directory, "export")
+  options_path = File.join(directory, "ExportOptions.plist")
+  File.write(options_path, {
+    method: "app-store-connect",
+    signingStyle: "automatic",
+    teamID: BetterTGIdentity.team_id,
+    manageAppVersionAndBuildNumber: false,
+    uploadSymbols: true,
+  }.to_plist)
+
+  with_api_key_file do |key_path|
+    sh(
+      File.join(REPO_ROOT, "build.sh"), "archive",
+      "--xcode", XCODE_PATH,
+      "--archive-path", archive_path,
+      "--build-number", build_number.to_s,
+      "--authentication-key-path", key_path,
+      "--authentication-key-id", api_key[:key_id],
+      "--authentication-key-issuer-id", api_key[:issuer_id]
     )
-    upload_to_testflight(
-      ipa: "BetterTG.ipa",
-      api_key_path: "fastlane/api_key.json",
-      changelog: "",
+    sh(
+      "/usr/bin/env", *EXPORT_UNSET_ENV.flat_map { |name| ["-u", name] },
+      "xcrun", "xcodebuild", "-exportArchive",
+      "-archivePath", archive_path,
+      "-exportPath", export_path,
+      "-exportOptionsPlist", options_path,
+      "-allowProvisioningUpdates",
+      "-authenticationKeyPath", key_path,
+      "-authenticationKeyID", api_key[:key_id],
+      "-authenticationKeyIssuerID", api_key[:issuer_id]
     )
-    increment_build_number(build_number: 1, xcodeproj: "BetterTG.xcodeproj")
   end
 
-  lane :release do
-    increment_build_number(build_number: ltbn + 1, xcodeproj: "BetterTG.xcodeproj")
-    get_certificates
-    get_provisioning_profile
-    build_app(
-      scheme: "BetterTG",
-      configuration: "Release",
-    )
-    upload_to_app_store(
-      api_key_path: "fastlane/api_key.json",
+  ipas = Dir[File.join(export_path, "*.ipa")]
+  UI.user_error!("The export made #{ipas.size} IPAs; expected one") unless ipas.one?
+  UI.success("Exported #{ipas.first}")
+  ipas.first
+end
+
+# Uploads to TestFlight, waits for processing and gives the build to `groups`. External groups need Beta App
+# Review, which pilot requests with the changelog as What to Test.
+def distribute_testflight(options, external:, default_groups:)
+  build_number = build_number_for(options)
+  ipa = options[:ipa] || build_ipa(build_number)
+  groups = (options[:groups] || default_groups).to_s.split(",").map(&:strip).reject(&:empty?)
+  changelog = options[:changelog] || "BetterTG #{marketing_version} (#{build_number}): #{git_summary}"
+  pilot(
+    api_key: api_key,
+    app_identifier: BetterTGIdentity.bundle_id,
+    app_platform: "ios",
+    ipa: ipa,
+    changelog: changelog,
+    distribute_external: external,
+    notify_external_testers: external,
+    groups: groups.empty? ? nil : groups,
+    wait_processing_interval: 30
+  )
+  UI.success("TestFlight: BetterTG #{marketing_version} (#{build_number}) for #{groups.empty? ? 'internal testers' : groups.join(', ')}")
+end
+
+platform :ios do
+  desc "Build and upload to TestFlight for internal testers. Options: build_number, ipa, changelog, groups"
+  lane :internal do |options|
+    distribute_testflight(options, external: false, default_groups: ENV["BETTERTG_TESTFLIGHT_INTERNAL_GROUPS"])
+  end
+
+  desc "Build, upload and send to external TestFlight groups after Beta App Review. Options: build_number, ipa, " \
+       "changelog, groups (default: BETTERTG_TESTFLIGHT_EXTERNAL_GROUPS or External)"
+  lane :external do |options|
+    distribute_testflight(options, external: true, default_groups: ENV.fetch("BETTERTG_TESTFLIGHT_EXTERNAL_GROUPS", "External"))
+  end
+
+  desc "Build and upload a release to App Store Connect without metadata. Options: build_number, ipa, submit"
+  lane :release do |options|
+    build_number = build_number_for(options)
+    ipa = options[:ipa] || build_ipa(build_number)
+    submit = %w[1 true yes].include?(options[:submit].to_s.downcase)
+    deliver(
+      api_key: api_key,
+      app_identifier: BetterTGIdentity.bundle_id,
+      ipa: ipa,
+      app_version: marketing_version,
       skip_metadata: true,
       skip_screenshots: true,
+      run_precheck_before_submit: false,
+      submit_for_review: submit,
+      automatic_release: false,
+      force: true
     )
-    increment_build_number(build_number: 1, xcodeproj: "BetterTG.xcodeproj")
+    UI.success("App Store Connect: BetterTG #{marketing_version} (#{build_number})#{submit ? ', submitted for review' : ''}")
+  end
+
+  desc "Print the next build number from TestFlight"
+  lane :next_build_number do
+    UI.message("Next build number: #{build_number_for({})}")
   end
 end

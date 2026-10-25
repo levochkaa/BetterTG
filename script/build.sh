@@ -13,6 +13,12 @@ SCHEME="BetterTG"
 DEFAULT_XCODE_PATH="/Applications/Xcode-27.1.0.app"
 XCODE_PATH="$DEFAULT_XCODE_PATH"
 CONFIGURATION="Debug"
+CONFIGURATION_SET=0
+ARCHIVE_PATH=""
+BUILD_NUMBER=""
+AUTHENTICATION_KEY_PATH=""
+AUTHENTICATION_KEY_ID=""
+AUTHENTICATION_KEY_ISSUER_ID=""
 DERIVED_DATA_PATH=""
 DERIVED_DATA_OVERRIDDEN=0
 PACKAGE_CACHE_ROOT="$HOME/Library/Developer/Xcode/PackageGraphCaches"
@@ -49,11 +55,12 @@ DERIVED_DATA_USE_STAMP=".bettertg-last-used"
 
 usage() {
   cat <<'EOF'
-Usage: ./build.sh [build|run|clean-intermediates|clean-cache] [options]
+Usage: ./build.sh [build|run|archive|clean-intermediates|clean-cache] [options]
 
 Commands:
   build     Build BetterTG (default).
   run       Build, install, and launch BetterTG.
+  archive   Archive BetterTG for distribution to --archive-path. Default configuration: Release.
   clean-intermediates
             Remove compilation, index, module, and SDK-stat intermediates while preserving products and Swift packages.
   clean-cache
@@ -80,7 +87,13 @@ Options:
   --xcodebuild-log-dir PATH
             Full xcodebuild log directory. Default: .build/logs/xcodebuild.
   --configuration Debug|Release, --debug, --release
-            Build configuration. Default: Debug.
+            Build configuration. Default: Debug, Release for archive.
+  --archive-path PATH
+            For archive: where to write the .xcarchive.
+  --build-number NUMBER
+            For archive: the archive's CURRENT_PROJECT_VERSION.
+  --authentication-key-path PATH, --authentication-key-id ID, --authentication-key-issuer-id ID
+            For archive: an App Store Connect API key that lets Xcode manage signing without a signed-in account.
   --launch-argument VALUE
             Argument passed to the launched app. Repeat for multiple arguments.
   -- ARGUMENT...
@@ -109,13 +122,14 @@ Examples:
   ./build.sh run --device --console -- -example value
   ./build.sh run --device -- -example value
   ./build.sh run --launch-argument=-example --launch-argument value
+  ./build.sh archive --archive-path .build/archives/BetterTG.xcarchive --build-number 42
   ./build.sh clean-cache --dry-run
 EOF
 }
 
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    build|run|clean-intermediates|clean-cache)
+    build|run|archive|clean-intermediates|clean-cache)
       ACTION="$1"
       shift
       ;;
@@ -200,8 +214,8 @@ while [[ $# -gt 0 ]]; do
         exit 2
       fi
       case "$2" in
-        Debug|debug) CONFIGURATION="Debug" ;;
-        Release|release) CONFIGURATION="Release" ;;
+        Debug|debug) CONFIGURATION="Debug"; CONFIGURATION_SET=1 ;;
+        Release|release) CONFIGURATION="Release"; CONFIGURATION_SET=1 ;;
         *)
           echo "error: unsupported configuration '$2' (expected Debug or Release)" >&2
           exit 2
@@ -211,9 +225,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     --debug)
       CONFIGURATION="Debug"
+      CONFIGURATION_SET=1
       ;;
     --release)
       CONFIGURATION="Release"
+      CONFIGURATION_SET=1
       ;;
     --launch-argument)
       if [[ $# -lt 2 ]]; then
@@ -240,6 +256,26 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-code-signing)
       CODE_SIGNING_ALLOWED="NO"
+      ;;
+    --archive-path|--build-number|--authentication-key-path|--authentication-key-id|--authentication-key-issuer-id)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        echo "error: $1 requires a value" >&2
+        exit 2
+      fi
+      case "$1" in
+        --archive-path)
+          ARCHIVE_PATH="$2"
+          [[ "$ARCHIVE_PATH" == /* ]] || ARCHIVE_PATH="$PWD/$ARCHIVE_PATH"
+          ;;
+        --build-number) BUILD_NUMBER="$2" ;;
+        --authentication-key-path)
+          AUTHENTICATION_KEY_PATH="$2"
+          [[ "$AUTHENTICATION_KEY_PATH" == /* ]] || AUTHENTICATION_KEY_PATH="$PWD/$AUTHENTICATION_KEY_PATH"
+          ;;
+        --authentication-key-id) AUTHENTICATION_KEY_ID="$2" ;;
+        --authentication-key-issuer-id) AUTHENTICATION_KEY_ISSUER_ID="$2" ;;
+      esac
+      shift
       ;;
     --console)
       ATTACH_CONSOLE=1
@@ -297,6 +333,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 validate_configuration() {
+  if [[ "$ACTION" == "archive" && "$CONFIGURATION_SET" == "0" ]]; then
+    CONFIGURATION="Release"
+  fi
+
   case "$CONFIGURATION" in
     Debug|Release)
       ;;
@@ -333,6 +373,32 @@ validate_configuration() {
 
   if [[ "$ACTION" == "run" && "$CODE_SIGNING_ALLOWED" == "NO" ]]; then
     echo "error: --no-code-signing cannot be used for run" >&2
+    exit 2
+  fi
+
+  if [[ "$ACTION" == "archive" ]]; then
+    if [[ -z "$ARCHIVE_PATH" ]]; then
+      echo "error: archive requires --archive-path" >&2
+      exit 2
+    fi
+    if [[ "$USE_DEVICE" == "1" || -n "$SIMULATOR_ID" || "$CODE_SIGNING_ALLOWED" == "NO" ]]; then
+      echo "error: archive builds for any iPhone and signs; drop --device, --simulator-id and --no-code-signing" >&2
+      exit 2
+    fi
+    if [[ -n "$BUILD_NUMBER" && ! "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+      echo "error: --build-number must be a positive integer" >&2
+      exit 2
+    fi
+    local authentication_count=0
+    [[ -z "$AUTHENTICATION_KEY_PATH" ]] || authentication_count=$((authentication_count + 1))
+    [[ -z "$AUTHENTICATION_KEY_ID" ]] || authentication_count=$((authentication_count + 1))
+    [[ -z "$AUTHENTICATION_KEY_ISSUER_ID" ]] || authentication_count=$((authentication_count + 1))
+    if [[ "$authentication_count" != "0" && "$authentication_count" != "3" ]]; then
+      echo "error: pass all of --authentication-key-path, --authentication-key-id and --authentication-key-issuer-id" >&2
+      exit 2
+    fi
+  elif [[ -n "$ARCHIVE_PATH$BUILD_NUMBER$AUTHENTICATION_KEY_PATH$AUTHENTICATION_KEY_ID$AUTHENTICATION_KEY_ISSUER_ID" ]]; then
+    echo "error: --archive-path, --build-number and --authentication-key-* are only valid for archive" >&2
     exit 2
   fi
 
@@ -461,7 +527,7 @@ acquire_build_lock() {
         "${ORIGINAL_ARGS[@]:1}"
       )
       ;;
-    build|clean-intermediates|clean-cache)
+    build|archive|clean-intermediates|clean-cache)
       reentry_args=(
         "${ORIGINAL_ARGS[0]}"
         --build-lock-held
@@ -973,7 +1039,10 @@ if [[ "$ACTION" == "clean-cache" ]]; then
   exit 0
 fi
 
-if [[ "$USE_DEVICE" == "1" ]]; then
+if [[ "$ACTION" == "archive" ]]; then
+  destination="generic/platform=iOS"
+  product_platform="iphoneos"
+elif [[ "$USE_DEVICE" == "1" ]]; then
   echo "Finding a connected iPhone..."
   DEVICE_ID="$(resolve_connected_iphone_id "$DEVICE_ID")"
   destination="platform=iOS,id=$DEVICE_ID"
@@ -1057,15 +1126,39 @@ if [[ "$SKIP_BUILD" == "0" ]]; then
     )
   fi
 
-  echo "Building $APP_NAME for $destination..."
+  xcodebuild_action="build"
+  if [[ "$ACTION" == "archive" ]]; then
+    xcodebuild_action="archive"
+    xcodebuild_args+=(-allowProvisioningUpdates -archivePath "$ARCHIVE_PATH")
+    if [[ -n "$AUTHENTICATION_KEY_PATH" ]]; then
+      xcodebuild_args+=(
+        -authenticationKeyPath "$AUTHENTICATION_KEY_PATH"
+        -authenticationKeyID "$AUTHENTICATION_KEY_ID"
+        -authenticationKeyIssuerID "$AUTHENTICATION_KEY_ISSUER_ID"
+      )
+    fi
+    if [[ -n "$BUILD_NUMBER" ]]; then
+      xcodebuild_args+=("CURRENT_PROJECT_VERSION=$BUILD_NUMBER")
+    fi
+  fi
+
+  if [[ "$ACTION" == "archive" ]]; then
+    echo "Archiving $APP_NAME to $ARCHIVE_PATH..."
+  else
+    echo "Building $APP_NAME for $destination..."
+  fi
   build_started_at=$SECONDS
-  run_xcodebuild xcodebuild "${xcodebuild_args[@]}" build
-  echo "$APP_NAME built in $((SECONDS - build_started_at))s."
+  run_xcodebuild xcodebuild "${xcodebuild_args[@]}" "$xcodebuild_action"
+  if [[ "$ACTION" == "archive" ]]; then
+    echo "$APP_NAME archived in $((SECONDS - build_started_at))s."
+  else
+    echo "$APP_NAME built in $((SECONDS - build_started_at))s."
+  fi
 else
   echo "Skipping build and reusing the existing $CONFIGURATION app product."
 fi
 
-if [[ "$BUILD_ONLY" == "1" || "$ACTION" == "build" ]]; then
+if [[ "$BUILD_ONLY" == "1" || "$ACTION" == "build" || "$ACTION" == "archive" ]]; then
   exit 0
 fi
 

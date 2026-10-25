@@ -78,6 +78,8 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: BetterTG/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: BetterTG
+        # As Telegram-iOS declares, so TestFlight doesn't hold each build for the export compliance question.
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: NO
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.social-networking
         INFOPLIST_KEY_NSCameraUsageDescription: We use the camera when you take photos or record video messages in chats.
         INFOPLIST_KEY_NSContactsUsageDescription: We use your contacts only when you choose to share one in a chat.
