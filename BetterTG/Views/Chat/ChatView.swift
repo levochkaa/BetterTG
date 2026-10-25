@@ -1189,6 +1189,38 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return (starts, ends)
     }
 
+    private static func senderID(_ sender: MessageSender) -> Int64 {
+        switch sender {
+        case .messageSenderUser(let user): user.userId
+        case .messageSenderChat(let chat): chat.chatId
+        }
+    }
+
+    /// ChatSendAsPeerListContextItem's second line: "personal account", a channel's subscribers, "discussion group" or
+    /// a group's members.
+    private static func sendAsSubtitle(_ sender: MessageSender, client: TDLibClient) async -> String? {
+        guard case .messageSenderChat(let value) = sender else {
+            return L10n.telegram("VoiceChat.PersonalAccount")
+        }
+        guard let chat = try? await client.getChat(chatId: value.chatId) else { return nil }
+        switch chat.type {
+        case .chatTypeSupergroup(let type):
+            guard let supergroup = try? await client.send(TDNativeRequests.getSupergroup(
+                supergroupId: type.supergroupId,
+            )) else { return nil }
+            if supergroup.isChannel {
+                return L10n.telegramPlural("Conversation.StatusSubscribers", count: supergroup.memberCount)
+            }
+            return L10n.telegram("VoiceChat.DiscussionGroup")
+        case .chatTypeBasicGroup(let type):
+            guard let group = try? await client.send(TDNativeRequests.getBasicGroup(basicGroupId: type.basicGroupId))
+            else { return nil }
+            return L10n.telegramPlural("Conversation.StatusMembers", count: group.memberCount)
+        default:
+            return nil
+        }
+    }
+
     /// A bot start link for a chat the router has just created shows Start before the chat appears.
     func beginBotStart(parameter: String) {
         chatVM.beginBotStart(parameter: parameter)
@@ -1795,6 +1827,56 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     /// The input's auto-delete timer: ChatTimerScreen where this account may change it, else TooltipController's
     /// "Messages in this chat are automatically deleted" for four seconds.
+    /// openSendAsPeer: Send Message As... over ChatSendAsPeerListContextItem's senders, each with its avatar and its
+    /// personal account, subscribers, discussion group or members line, the current one ringed. A sender that needs
+    /// Premium shows Telegram's note instead of being chosen.
+    private func presentSendAsMenu(from source: UIView) {
+        let senders = chatVM.messageSenders
+        guard !senders.isEmpty, chatVM.locationContextIsCurrent else { return }
+        let client = chatVM.client
+        let current = chatVM.messageSenderID ?? senders.first?.sender
+        Task { [weak self] in
+            let isPremium = await (try? client.getMe())?.isPremium ?? false
+            var actions = [TelegramContextMenuAction]()
+            var header = TelegramContextMenuAction(title: L10n.telegram("Conversation.SendMesageAs").uppercased())
+            header.isHeader = true
+            actions.append(header)
+            for item in senders {
+                guard let peer = await SettingsPeer.resolve(item.sender, client: client) else { continue }
+                let subtitle = await Self.sendAsSubtitle(item.sender, client: client)
+                let locked = item.needsPremium && !isPremium
+                let isCurrent = current.map { Self.senderID($0) == Self.senderID(item.sender) } ?? false
+                var action = TelegramContextMenuAction(title: peer.title) { [weak self] in
+                    guard let self, chatVM.locationContextIsCurrent else { return }
+                    if locked {
+                        TelegramUndoToast.show(
+                            text: L10n.telegram("Conversation.SendMesageAsPremiumInfo"),
+                            in: view,
+                            bottomInset: composerView.bounds.height + 8,
+                            undo: nil,
+                        )
+                        return
+                    }
+                    guard !isCurrent else { return }
+                    let chatVM = chatVM
+                    Task { _ = await chatVM.setMessageSender(item.sender) }
+                }
+                action.secondLine = subtitle.map { (text: $0, showsArrow: false) }
+                action.leadingPeer = TelegramContextMenuPeerIcon(peer: peer, client: client, isSelected: isCurrent)
+                actions.append(action)
+            }
+            guard let self, chatVM.locationContextIsCurrent, actions.count > 1, source.window != nil else { return }
+            composerView.setSendAsMenuOpen(true)
+            let presented = presentTelegramContextMenu(
+                sourceView: source,
+                actions: actions,
+                presentationStyle: .menuOnly,
+                onDismiss: { [weak self] in self?.composerView.setSendAsMenuOpen(false) },
+            )
+            if !presented { composerView.setSendAsMenuOpen(false) }
+        }
+    }
+
     private func autoDeleteTimerTapped(_ source: UIView) {
         let current = chatVM.messageAutoDeleteTime
         if chatVM.canSetAutoDelete {
@@ -2956,6 +3038,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         composerView.onOpenScheduledMessages = { [weak self] in self?.openScheduledMessages() }
         composerView.onAutoDeleteTimer = { [weak self] source in self?.autoDeleteTimerTapped(source) }
+        composerView.onSendAs = { [weak self] source in self?.presentSendAsMenu(from: source) }
         composerView.onOpenBotMenuWebApp = { [weak self] button in self?.openBotMenuWebApp(button) }
         composerView.onVoiceGestureActivityChange = { [weak self] active in
             guard let self, voiceGestureDefersSystemGestures != active else { return }

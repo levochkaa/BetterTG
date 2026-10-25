@@ -199,6 +199,10 @@ import UIKit
     @Published private(set) var silentPosting = false
     /// The chat's auto-delete timer (`messageAutoDeleteTime`), or a secret chat's self-destruct timer.
     @Published var messageAutoDeleteTime = 0
+    /// ChatSendAsPeers: the senders getChatAvailableMessageSenders offers, kept only when there is a choice.
+    @Published private(set) var messageSenders = [TDNativeChatMessageSender]()
+    /// The chat's `messageSenderId`: who the composer's messages go out as.
+    @Published var messageSenderID: MessageSender?
     /// CachedChannelAdminRanks: each administrator's rank for the author line of group messages.
     @Published private(set) var administratorRanks = [Int64: MessageSenderName.Rank]()
     /// A composer send that only scheduled its message; the chat opens Scheduled Messages, as Telegram does.
@@ -1936,6 +1940,34 @@ import UIKit
             }
             guard let self, locationContextIsCurrent else { return }
             administratorRanks = ranks
+        }
+    }
+
+    /// The supergroup's or channel's possible senders; Telegram shows the Send As button once there are two.
+    func loadMessageSenders() {
+        guard case .supergroup = customChat.type else { return }
+        let client = client
+        let chatID = customChat.id
+        Task { [weak self] in
+            let senders = try? await client.send(TDNativeRequests.getChatAvailableMessageSenders(chatId: chatID))
+            guard let self, locationContextIsCurrent else { return }
+            let list = senders?.senders ?? []
+            messageSenders = list.count > 1 ? list : []
+        }
+    }
+
+    /// updatePeerSendAsPeer: the chat's messages go out as `sender` from now on.
+    func setMessageSender(_ sender: MessageSender) async -> Bool {
+        do {
+            _ = try await client.send(TDNativeRequests.setChatMessageSender(
+                chatId: customChat.id,
+                messageSenderId: sender,
+            ))
+            guard locationContextIsCurrent else { return false }
+            messageSenderID = sender
+            return true
+        } catch {
+            return false
         }
     }
 

@@ -79,6 +79,8 @@ final class ChatComposerView: UIView {
     var onOpenScheduledMessages: (() -> Void)?
     /// The input's auto-delete timer; the button is the source for a tooltip.
     var onAutoDeleteTimer: ((UIView) -> Void)?
+    /// The Send As avatar was tapped; the chat lists the senders over it.
+    var onSendAs: ((UIView) -> Void)?
     /// The menu button of a bot whose menu is a Web App (`botMenuButton == .webView`): the chat opens it.
     var onOpenBotMenuWebApp: ((TDNativeBotMenuButton) -> Void)?
     /// The peek menu of a sticker suggested for the typed emoji, from the chat.
@@ -131,6 +133,7 @@ final class ChatComposerView: UIView {
     /// ChatTextInputPanelNode's menu button: a bot's command list labelled "Menu", or its Web App labelled with the
     /// button's text, while the input is empty.
     private let botMenuButton = UIButton(type: .system)
+    private let sendAsButton = ComposerSendAsButton()
     private var botMenuButtonSymbol = "line.3.horizontal"
     /// The input context panel: a bot's commands or an inline bot's results above the input.
     private let suggestionsView = ChatInputSuggestionsView()
@@ -768,6 +771,7 @@ final class ChatComposerView: UIView {
         if showsBotStart, textView.isFirstResponder { textView.resignFirstResponder() }
         let showsBotMenu = chatVM.showsBotMenuButton && canWrite && canWriteText
         botMenuButton.isHidden = !showsBotMenu
+        updateSendAsButton(canWrite: canWrite && canWriteText)
         if showsBotMenu { updateBotMenuButton(expanded: targetText.characters.isEmpty) }
         updateSuggestions(enabled: canWrite && canWriteText)
         updateScheduledMessagesButton()
@@ -889,6 +893,11 @@ final class ChatComposerView: UIView {
             Self.mentionText(mention),
         )))
         textView.becomeFirstResponder()
+    }
+
+    /// While the senders' menu is open the avatar gives way to the menu button's close icon.
+    func setSendAsMenuOpen(_ open: Bool) {
+        sendAsButton.setMenuOpen(open)
     }
 
     private func configureViews() {
@@ -1021,6 +1030,7 @@ final class ChatComposerView: UIView {
         botMenuButton.isHidden = true
         botMenuButton.setContentHuggingPriority(.required, for: .horizontal)
         botMenuButton.setContentCompressionResistancePriority(.required - 1, for: .horizontal)
+        inputRow.addArrangedSubview(sendAsButton)
         inputRow.addArrangedSubview(botMenuButton)
         inputRow.addArrangedSubview(attachmentButton)
         inputRow.addArrangedSubview(textView)
@@ -1040,6 +1050,8 @@ final class ChatComposerView: UIView {
             ),
             attachmentButton.widthAnchor.constraint(equalToConstant: 34),
             attachmentButton.heightAnchor.constraint(equalToConstant: 36),
+            sendAsButton.widthAnchor.constraint(equalToConstant: 33),
+            sendAsButton.heightAnchor.constraint(equalToConstant: 36),
             scheduledMessagesButton.widthAnchor.constraint(equalToConstant: 34),
             scheduledMessagesButton.heightAnchor.constraint(equalToConstant: 36),
             autoDeleteButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 28),
@@ -1273,6 +1285,10 @@ final class ChatComposerView: UIView {
             onAutoDeleteTimer?(autoDeleteButton)
         }, for: .touchUpInside)
         closeReplyButton.addTarget(self, action: #selector(cancelReplyOrEdit), for: .touchUpInside)
+        sendAsButton.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            onSendAs?(sendAsButton)
+        }, for: .touchUpInside)
         botMenuButton.addAction(
             UIAction { [weak self] _ in
                 guard let self else { return }
@@ -2265,6 +2281,16 @@ final class ChatComposerView: UIView {
         chatVM.pendingForward = transform(forward)
     }
 
+    /// ChatTextInputPanelNode's send-as avatar: the current sender in the menu button's place while the chat offers a
+    /// choice and no message is being edited.
+    private func updateSendAsButton(canWrite: Bool) {
+        let senders = chatVM.messageSenders
+        let shows = canWrite && !senders.isEmpty && chatVM.editCustomMessage == nil
+        if sendAsButton.isHidden == shows { sendAsButton.isHidden = !shows }
+        guard shows, let sender = chatVM.messageSenderID ?? senders.first?.sender else { return }
+        sendAsButton.show(sender, client: chatVM.client)
+    }
+
     /// ChatTextInputPanelNode's menu button reads "Menu", or a Web App menu's text with the app icon, while the input
     /// is empty and folds to its icon while typing.
     private func updateBotMenuButton(expanded: Bool) {
@@ -3133,5 +3159,100 @@ extension ChatComposerView: UIGestureRecognizerDelegate {
         guard gestureRecognizer === recordingGestureRecognizer else { return true }
         return !inputRow.isHidden && !actionButton.isHidden
             && actionButton.bounds.contains(touch.location(in: actionButton))
+    }
+}
+
+// MARK: - ComposerSendAsButton
+
+/// ChatTextInputPanelNode's sendAsAvatarButtonNode: the sender's 33 pt avatar, which shrinks to 0.85 while pressed
+/// and gives way to the menu button's close icon, an accent circle with a cross, while the senders are listed.
+final class ComposerSendAsButton: UIControl {
+    override var isHighlighted: Bool {
+        didSet {
+            UIView.animate(withDuration: 0.2) {
+                self.avatarView.transform = self.isHighlighted ? CGAffineTransform(scaleX: 0.85, y: 0.85) : .identity
+            }
+        }
+    }
+
+    private let avatarView = ProfileAvatarView()
+    private let closeView = UIImageView()
+    private var shownSenderID: Int64?
+    private var loadTask: Task<Void, Never>?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isHidden = true
+        avatarView.showsContextMenu = false
+        avatarView.isUserInteractionEnabled = false
+        addSubview(avatarView)
+        closeView.image = UIImage(
+            systemName: "xmark",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold),
+        )
+        closeView.contentMode = .center
+        // The cross is white on the accent; the view's own tint would turn `.tintColor` white too.
+        closeView.backgroundColor = .systemBlue
+        closeView.tintColor = .white
+        closeView.isUserInteractionEnabled = false
+        closeView.alpha = 0
+        closeView.transform = CGAffineTransform(scaleX: 0.001, y: 0.001)
+        addSubview(closeView)
+        isAccessibilityElement = true
+        accessibilityTraits = .button
+        accessibilityLabel = L10n.telegram("Conversation.SendMesageAs")
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        loadTask?.cancel()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let side: CGFloat = 33
+        let frame = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
+        avatarView.bounds = CGRect(origin: .zero, size: frame.size)
+        avatarView.center = CGPoint(x: frame.midX, y: frame.midY)
+        closeView.bounds = avatarView.bounds
+        closeView.center = avatarView.center
+        closeView.layer.cornerRadius = side / 2
+    }
+
+    /// The sender's avatar, loaded once per sender.
+    func show(_ sender: MessageSender, client: TDLibClient) {
+        let id: Int64 =
+            switch sender {
+            case .messageSenderUser(let user): user.userId
+            case .messageSenderChat(let chat): chat.chatId
+            }
+        guard shownSenderID != id else { return }
+        shownSenderID = id
+        loadTask?.cancel()
+        loadTask = Task { [weak self] in
+            guard let peer = await SettingsPeer.resolve(sender, client: client), !Task.isCancelled, let self else {
+                return
+            }
+            avatarView.configure(
+                file: peer.file,
+                minithumbnail: peer.minithumbnail,
+                placeholder: peer.placeholder,
+                accountUserID: 0,
+                client: client,
+            )
+            accessibilityValue = peer.title
+        }
+    }
+
+    func setMenuOpen(_ open: Bool) {
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0) {
+            self.avatarView.alpha = open ? 0 : 1
+            self.avatarView.transform = open ? CGAffineTransform(scaleX: 0.001, y: 0.001) : .identity
+            self.closeView.alpha = open ? 1 : 0
+            self.closeView.transform = open ? .identity : CGAffineTransform(scaleX: 0.001, y: 0.001)
+        }
     }
 }

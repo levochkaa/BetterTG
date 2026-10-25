@@ -81,7 +81,7 @@ enum TelegramContextMenuLayout {
     }
 
     static func titleLeadingInset(of action: TelegramContextMenuAction) -> CGFloat {
-        action.image == nil ? contentSideInset : iconSideInset + iconSlotWidth + iconSpacing
+        action.hasLeadingIcon ? iconSideInset + iconSlotWidth + iconSpacing : contentSideInset
     }
 
     static func titleTrailingInset(of action: TelegramContextMenuAction) -> CGFloat {
@@ -123,6 +123,14 @@ struct TelegramContextMenuAction {
     /// ContextMenuActionItem's `.secondLineWithAttributedValue`: a fixed line under the title in the secondary colour,
     /// such as a peer row's "View Profile" with its arrow.
     var secondLine: (text: String, showsArrow: Bool)?
+    /// ContextMenuActionItem's `iconSource` with a peer's avatar, such as ChatSendAsPeerListContextItem's senders: the
+    /// 30 pt avatar in the icon slot, ringed in the accent colour when chosen.
+    var leadingPeer: TelegramContextMenuPeerIcon?
+
+    /// An icon or a peer's avatar takes the leading slot.
+    var hasLeadingIcon: Bool {
+        image != nil || leadingPeer != nil
+    }
 
     init(
         title: String,
@@ -138,6 +146,58 @@ struct TelegramContextMenuAction {
         self.startsNewSection = startsNewSection
         self.children = children
         self.handler = handler
+    }
+}
+
+// MARK: - TelegramContextMenuPeerIcon
+
+struct TelegramContextMenuPeerIcon {
+    let peer: SettingsPeer
+    let client: TDLibClient
+    let isSelected: Bool
+}
+
+// MARK: - TelegramContextMenuPeerIconView
+
+/// ChatSendAsPeerListContextItem's avatar: 30 pt, and when chosen 35 pt with a 1 pt accent ring around it.
+final class TelegramContextMenuPeerIconView: UIView {
+    static let side: CGFloat = 35
+
+    private let avatarView = ProfileAvatarView()
+    private let ring = CAShapeLayer()
+
+    init(icon: TelegramContextMenuPeerIcon) {
+        super.init(frame: .zero)
+        isUserInteractionEnabled = false
+        avatarView.showsContextMenu = false
+        avatarView.isUserInteractionEnabled = false
+        avatarView.isAccessibilityElement = false
+        // The account's own avatar, not Saved Messages.
+        avatarView.configure(
+            file: icon.peer.file,
+            minithumbnail: icon.peer.minithumbnail,
+            placeholder: icon.peer.placeholder,
+            accountUserID: 0,
+            client: icon.client,
+        )
+        addSubview(avatarView)
+        ring.fillColor = nil
+        ring.strokeColor = UIColor.tintColor.cgColor
+        ring.isHidden = !icon.isSelected
+        layer.addSublayer(ring)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        avatarView.frame = bounds.insetBy(dx: (bounds.width - 30) / 2, dy: (bounds.height - 30) / 2)
+        let lineWidth = 1 + 1 / max(1, traitCollection.displayScale)
+        ring.lineWidth = lineWidth
+        ring.frame = bounds
+        ring.path = UIBezierPath(ovalIn: bounds.insetBy(dx: lineWidth / 2, dy: lineWidth / 2)).cgPath
     }
 }
 
@@ -1299,7 +1359,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                     + TelegramContextMenuLayout.avatarSetReserve
             }
             let contentWidth = titleWidth + TelegramContextMenuLayout.contentSideInset * 2
-            guard action.image != nil else { return max(width, contentWidth) }
+            guard action.hasLeadingIcon else { return max(width, contentWidth) }
             return max(
                 width,
                 titleWidth
@@ -2686,7 +2746,26 @@ final class TelegramContextMenuActionButton: UIControl {
                 expandedTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: submenuIndicator.leadingAnchor),
             ])
         }
-        if action.image != nil {
+        if let leadingPeer = action.leadingPeer {
+            let avatar = TelegramContextMenuPeerIconView(icon: leadingPeer)
+            avatar.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(avatar)
+            constraints.append(contentsOf: [
+                avatar.centerXAnchor.constraint(
+                    equalTo: leadingAnchor,
+                    constant: TelegramContextMenuLayout.iconSideInset + TelegramContextMenuLayout.iconSlotWidth / 2,
+                ),
+                avatar.centerYAnchor.constraint(equalTo: centerYAnchor),
+                avatar.widthAnchor.constraint(equalToConstant: TelegramContextMenuPeerIconView.side),
+                avatar.heightAnchor.constraint(equalToConstant: TelegramContextMenuPeerIconView.side),
+                titleLabel.leadingAnchor.constraint(
+                    equalTo: leadingAnchor,
+                    constant: TelegramContextMenuLayout.iconSideInset
+                        + TelegramContextMenuLayout.iconSlotWidth
+                        + TelegramContextMenuLayout.iconSpacing,
+                ),
+            ])
+        } else if action.image != nil {
             addSubview(iconView)
             let iconSize = action.isHeader
                 ? TelegramContextMenuLayout.headerIconSize

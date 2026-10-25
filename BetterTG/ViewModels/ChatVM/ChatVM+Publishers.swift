@@ -39,6 +39,12 @@ extension ChatVM {
         chatUnreadReactionCount = customChat.chat.unreadReactionCount
         hasScheduledMessages = customChat.chat.hasScheduledMessages
         messageAutoDeleteTime = customChat.chat.messageAutoDeleteTime
+        messageSenderID = customChat.chat.messageSenderId
+        observeCurrentUpdate(.updateChatMessageSender) { [weak self] update, _ in
+            guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
+            messageSenderID = update.messageSenderId
+        }
+        loadMessageSenders()
         observeCurrentUpdate(.updateChatMessageAutoDeleteTime) { [weak self] update, _ in
             guard let self, locationContextIsCurrent, update.chatId == customChat.id else { return }
             messageAutoDeleteTime = update.messageAutoDeleteTime
