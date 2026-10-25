@@ -125,6 +125,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         var end: CFTimeInterval { start + animation.duration }
     }
 
+    /// ApplicationSpecificNotice's chatTextSelectionTips: how many times a menu has shown the text selection tip.
+    private static let textSelectionTipCountKey = "chatTextSelectionTips"
+
     private static var videoNoteCapturePermissionDenied: Bool {
         let camera = AVCaptureDevice.authorizationStatus(for: .video)
         return camera == .denied || camera == .restricted
@@ -8601,31 +8604,60 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             )
             return
         }
+        let quoteSelection = quoteTarget.flatMap { target -> TelegramContextQuoteSelection? in
+            // ChatMessageTextBubbleContentNode: text is selected to quote it or, where it can't be replied to,
+            // to copy part of it.
+            let canQuote = allowsQuoteSelection(in: message, sourceMessageID: target.sourceMessageID)
+            guard canQuote || allowsCopySelection(in: message, sourceMessageID: target.sourceMessageID)
+            else { return nil }
+            var selection = TelegramContextQuoteSelection(
+                textView: target.textView,
+                allowsCopy: message.properties.canBeCopied,
+                allowsQuote: canQuote,
+            ) { [weak self, weak message] range in
+                guard let self, let message else { return }
+                chatVM.beginQuoteReply(to: message, range: range, sourceMessageID: target.sourceMessageID)
+            }
+            selection.translate = selectionTranslateAction(canCopy: message.properties.canBeCopied)
+            return selection
+        }
         presentTelegramContextMenu(
             sourceView: cell.contextPreviewView,
             actions: messageActions,
             tracking: gesture,
             reactionsProvider: contextReactionsProvider(for: message),
-            quoteSelection: quoteTarget.flatMap { target -> TelegramContextQuoteSelection? in
-                // ChatMessageTextBubbleContentNode: text is selected to quote it or, where it can't be replied to,
-                // to copy part of it.
-                let canQuote = allowsQuoteSelection(in: message, sourceMessageID: target.sourceMessageID)
-                guard canQuote || allowsCopySelection(in: message, sourceMessageID: target.sourceMessageID)
-                else { return nil }
-                var selection = TelegramContextQuoteSelection(
-                    textView: target.textView,
-                    allowsCopy: message.properties.canBeCopied,
-                    allowsQuote: canQuote,
-                ) { [weak self, weak message] range in
-                    guard let self, let message else { return }
-                    chatVM.beginQuoteReply(to: message, range: range, sourceMessageID: target.sourceMessageID)
-                }
-                selection.translate = selectionTranslateAction(canCopy: message.properties.canBeCopied)
-                return selection
-            },
+            quoteSelection: quoteSelection,
             sources: taskSources,
+            tip: taskSources.isEmpty ? contextMenuTip(for: message, selectsText: quoteSelection != nil) : nil,
             onDismiss: { [weak self] in self?.retryClientRestoration() },
         )
+    }
+
+    /// ChatControllerOpenMessageContextMenu's tip: why the message can't be copied or forwarded, or, three times in
+    /// all, how to select the text of a message of three words or more.
+    private func contextMenuTip(for message: CustomMessage, selectsText: Bool) -> TelegramContextMenuTip? {
+        guard !message.contentPresentation.isService else { return nil }
+        let properties = message.properties
+        if properties.hasProtectedContentByCurrentUser {
+            return .copyProtection(L10n.telegram("Conversation.CopyProtectionInfoPrivateYou"))
+        }
+        let chat = chatVM.customChat
+        if chat.chat.hasProtectedContent || properties.hasProtectedContentByOtherUser {
+            if let user = chat.user {
+                let name = user.firstName.isEmpty ? user.lastName : user.firstName
+                return .copyProtection(L10n.telegram("Conversation.CopyProtectionInfoPrivate", name))
+            }
+            return .copyProtection(L10n.telegram(chatVM.isBroadcastChannel
+                    ? "Conversation.CopyProtectionInfoChannel"
+                    : "Conversation.CopyProtectionInfoGroup"))
+        }
+        let text = message.formattedText?.text ?? ""
+        let defaults = UserDefaults.standard
+        let shownCount = defaults.integer(forKey: Self.textSelectionTipCountKey)
+        guard selectsText, !text.isEmpty, shownCount < 3,
+              text.components(separatedBy: .whitespacesAndNewlines).count >= 3 else { return nil }
+        defaults.set(shownCount + 1, forKey: Self.textSelectionTipCountKey)
+        return .textSelection
     }
 
     private func beginLinkPress(_ link: MessageTextLink, in textView: MessageTextContentView) -> UIView {

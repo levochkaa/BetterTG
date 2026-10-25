@@ -334,6 +334,7 @@ extension UIViewController {
         reactionsProvider: TelegramContextReactionsProvider? = nil,
         quoteSelection: TelegramContextQuoteSelection? = nil,
         sources: [TelegramContextMenuSource] = [],
+        tip: TelegramContextMenuTip? = nil,
         onDismiss: (() -> Void)? = nil,
     ) -> Bool {
         let sources = sources.count > 1 ? sources : []
@@ -364,6 +365,7 @@ extension UIViewController {
             reactionsProvider: reactionsProvider,
             quoteSelection: quoteSelection,
             sources: sources,
+            tip: tip,
             owner: self, onDismiss: onDismiss,
         )
         cancelCompetingPans(from: sourceView, except: gesture)
@@ -510,6 +512,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private let presentationStyle: TelegramContextMenuPresentationStyle
     private let previewController: UIViewController?
     private let quoteSelection: TelegramContextQuoteSelection?
+    /// ContextController's tip: a panel 10 pt under a message's menu, as wide as the menu.
+    private let tipView: TelegramContextMenuTipView?
     private var selectableTextViews = [MessageTextContentView]()
     private let reactionsProvider: TelegramContextReactionsProvider?
     private let reactionStrip = TelegramReactionStripView()
@@ -662,6 +666,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         reactionsProvider: TelegramContextReactionsProvider?,
         quoteSelection: TelegramContextQuoteSelection?,
         sources: [TelegramContextMenuSource],
+        tip: TelegramContextMenuTip?,
         owner: UIViewController,
         onDismiss: (() -> Void)?,
     ) {
@@ -675,6 +680,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         self.previewController = previewController
         self.reactionsProvider = reactionsProvider
         self.quoteSelection = quoteSelection
+        self.tipView = presentationStyle == .message ? tip.map(TelegramContextMenuTipView.init) : nil
         self.sources = sources
         self.owner = owner
         self.onDismiss = onDismiss
@@ -873,6 +879,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         menuContentView.clipsToBounds = true
         menuView.addSubview(menuContentView)
         contentContainer.addSubview(menuView)
+        if let tipView {
+            tipView.alpha = 0
+            contentContainer.addSubview(tipView)
+        }
 
         selectionHighlightView.backgroundColor = .contextMenuSelectionHighlight
         selectionHighlightView.layer.cornerCurve = .continuous
@@ -1053,6 +1063,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         switch presentationStyle {
         case .message:
             let spacing: CGFloat = 10
+            let tipHeight = tipView?.height(forWidth: menuWidth) ?? 0
+            let tipBlock = tipView == nil ? 0 : spacing + tipHeight
             let reactionHeight: CGFloat = reactionStrip.isHidden ? 0 : 56
             let baseSourceFrame = sourceFrameAtBaseTransform()
             messageContentSize = sourceView.bounds.size
@@ -1066,7 +1078,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                 : baseSourceFrame.minX
             let previewX = min(max(0, alignedPreviewX), view.bounds.width - previewWidth)
             let contentTop = verticalInset + reactionHeight
-            let maximumPreviewY = maximumBottom - menuHeight - spacing - previewHeight
+            let maximumPreviewY = maximumBottom - menuHeight - tipBlock - spacing - previewHeight
             let previewY = max(contentTop, min(baseSourceFrame.minY, maximumPreviewY))
             targetPreviewFrame = CGRect(x: previewX, y: previewY, width: previewWidth, height: previewHeight)
             let alignedMenuX = baseSourceFrame.midX > view.bounds.midX
@@ -1079,7 +1091,13 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                 width: menuWidth,
                 height: menuHeight,
             )
-            updateContentOverflow(max(0, targetMenuFrame.maxY - maximumBottom))
+            tipView?.frame = CGRect(
+                x: targetMenuFrame.minX,
+                y: targetMenuFrame.maxY + spacing,
+                width: menuWidth,
+                height: tipHeight,
+            )
+            updateContentOverflow(max(0, targetMenuFrame.maxY + tipBlock - maximumBottom))
         case .avatar:
             let spacing: CGFloat = 10
             let squareSize = min(
@@ -1368,6 +1386,30 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             to: NSValue(cgPoint: .zero),
             isAdditive: true,
         )
+        // The tip is part of Telegram's actions stack: it springs out of the same point with the menu.
+        if let tipView {
+            let tipLayer = tipView.layer
+            tipView.alpha = 1
+            tipLayer.addTelegramAnimation(
+                keyPath: "opacity",
+                from: 0,
+                to: 1,
+                duration: 0.05,
+                isRemovedOnCompletion: true,
+            )
+            tipLayer.addTelegramSpring(keyPath: "transform.scale", from: 0.01, to: 1)
+            let start = CGPoint(
+                x: offset.x + (menuView.center.x - tipView.center.x) * 0.99,
+                y: offset.y + (menuView.center.y - tipView.center.y) * 0.99,
+            )
+            tipLayer.addTelegramSpring(
+                keyPath: "position",
+                from: NSValue(cgPoint: start),
+                to: NSValue(cgPoint: .zero),
+                isAdditive: true,
+            )
+            tipView.animateSelection()
+        }
     }
 
     private func animateMenuOut(returnFrame: CGRect) {
@@ -1384,8 +1426,25 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             to: NSValue(cgPoint: offset),
             isAdditive: true,
         )
-        // Open submenus shrink with the menu into the same point.
+        // Open submenus and the tip shrink with the menu into the same point.
         let menuCenter = menuView.center
+        if let tipView {
+            let tipLayer = tipView.layer
+            let tipPresentation = tipLayer.presentation()
+            let tipScale = (tipPresentation?.value(forKeyPath: "transform.scale") as? NSNumber)?.doubleValue ?? 1
+            tipLayer.addTelegramAnimation(keyPath: "opacity", from: tipPresentation?.opacity ?? tipLayer.opacity, to: 0)
+            tipLayer.addTelegramAnimation(keyPath: "transform.scale", from: tipScale, to: 0.01)
+            let travel = CGPoint(
+                x: offset.x + (menuCenter.x - tipView.center.x) * 0.99,
+                y: offset.y + (menuCenter.y - tipView.center.y) * 0.99,
+            )
+            tipLayer.addTelegramAnimation(
+                keyPath: "position",
+                from: NSValue(cgPoint: .zero),
+                to: NSValue(cgPoint: travel),
+                isAdditive: true,
+            )
+        }
         for submenu in submenuViews {
             let cardLayer = submenu.layer
             let cardPresentation = cardLayer.presentation()
@@ -1733,6 +1792,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         ) {
             self.layoutSubmenus()
             submenu.materializeGlass()
+            // Telegram's tip belongs to the actions it is under; a pushed list has none.
+            self.tipView?.alpha = 0
             // The header starts on the source row and takes its place; left under the translucent card, the row
             // would read as a second copy of it.
             button.alpha = 0
@@ -1769,6 +1830,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         ) {
             self.layoutSubmenus()
             submenu.setGlassAlpha(0)
+            if self.submenus.isEmpty { self.tipView?.alpha = 1 }
             submenu.bounds = CGRect(origin: .zero, size: collapsed.size)
             submenu.center = CGPoint(x: collapsed.midX, y: collapsed.midY)
             submenu.layoutIfNeeded()

@@ -2587,3 +2587,8 @@
 "Conversation.SilentBroadcastTooltipOff" = "Members will not be notified when you post";
 "VoiceOver.SilentPostOn" = "Silent Broadcast On";
 "VoiceOver.SilentPostOff" = "Silent Broadcast Off";
+"Conversation.CopyProtectionInfoGroup" = "Admins restricted members to copy or forward content from this group.";
+"Conversation.CopyProtectionInfoChannel" = "Copying and forwarding is not allowed in this channel.";
+"Conversation.CopyProtectionInfoPrivate" = "**%@** disabled copying and forwarding in this chat.";
+"Conversation.CopyProtectionInfoPrivateYou" = "You disabled copying and forwarding in this chat.";
+"ChatContextMenu.TextSelectionTip2" = "Hold on a word, then move cursor to select more| text to copy or quote.";
