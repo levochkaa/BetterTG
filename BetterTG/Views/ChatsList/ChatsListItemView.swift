@@ -13,7 +13,9 @@ final class ChatListCell: UITableViewCell {
     /// A card row: the 76 pt card and 4 pt above and below it.
     static let cardRowHeight = CGFloat(84)
 
-    private static let cardHorizontalInset = CGFloat(20)
+    /// The search field's inset above the list, so the cards span as wide as the header's content and their avatars
+    /// line up with its buttons.
+    private static let cardHorizontalInset = CGFloat(12)
     private static let cardVerticalInset = CGFloat(4)
     /// UITableView's inset-grouped section radius, as the Settings cards have it.
     private static let cardCornerRadius = CGFloat(26)
