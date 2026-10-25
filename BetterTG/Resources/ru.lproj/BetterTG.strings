@@ -9,6 +9,9 @@
 "Accounts.PersistenceFailed" = "BetterTG не удалось сохранить список аккаунтов.";
 "Accounts.RemoveFromDevice" = "%@ будет удалён с этого устройства.";
 "Accounts.ThisAccount" = "этот аккаунт";
+"Accounts.AddTestServerAccount" = "Добавить аккаунт тестового сервера";
+"Accounts.TestServer" = "Тестовый сервер";
+"Accounts.ProductionServer" = "Основной сервер";
 
 "Settings.MediaSection" = "Медиа";
 "Settings.AboutSection" = "О приложении";

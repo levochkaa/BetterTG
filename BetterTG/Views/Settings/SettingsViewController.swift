@@ -123,7 +123,8 @@ final class SettingsViewController: UITableViewController {
         switch row {
         case .account(let id):
             cell.accessoryType = id == TDLib.shared.activeAccountID ? .checkmark : .none
-        case .addAccount:
+        case .addAccount,
+             .addTestServerAccount:
             configuration.textProperties.color = .systemBlue
             cell.contentConfiguration = configuration
         case .app(let botUserID):
@@ -166,6 +167,8 @@ final class SettingsViewController: UITableViewController {
             performAccountOperation { try TDLib.shared.switchToAccount(id) }
         case .addAccount:
             performAccountOperation { try TDLib.shared.addAccount() }
+        case .addTestServerAccount:
+            performAccountOperation { try TDLib.shared.addAccount(usesTestServer: true) }
         case .app(let botUserID):
             openBotApp(botUserID)
         case .appearance:
@@ -218,7 +221,12 @@ final class SettingsViewController: UITableViewController {
             return TDLib.shared.activeAccountID == nil ? [] : [.profile]
         case .accounts:
             let accountRows: [Row] = TDLib.shared.sortedAccounts.map { .account($0.id) }
-            return accountRows + [.addAccount]
+            #if DEBUG
+                // Telegram's debug accounts screen logs in on Production or Test.
+                return accountRows + [.addAccount, .addTestServerAccount]
+            #else
+                return accountRows + [.addAccount]
+            #endif
         case .apps:
             return appEntries().map { .app($0.bot.botUserId) }
         case .shortcuts:
@@ -475,6 +483,8 @@ private extension SettingsViewController {
         case profile
         case account(UUID)
         case addAccount
+        /// Debug builds' sign-in on Telegram's test server.
+        case addTestServerAccount
         /// A side menu bot by its user ID.
         case app(Int64)
         case savedMessages
@@ -509,6 +519,8 @@ private extension SettingsViewController {
                 account?.localizedTitle ?? L10n.betterTG("Accounts.Account")
             case .addAccount:
                 L10n.telegram("Settings.AddAccount")
+            case .addTestServerAccount:
+                L10n.betterTG("Accounts.AddTestServerAccount")
             case .app:
                 ""
             case .profile:
@@ -555,9 +567,7 @@ private extension SettingsViewController {
         @MainActor var subtitle: String? {
             switch self {
             case .account(let id):
-                id == TDLib.shared.activeAccountID
-                    ? L10n.betterTG("Accounts.Current")
-                    : account?.phoneNumber.map { "+\($0)" }
+                accountSubtitle(isCurrent: id == TDLib.shared.activeAccountID)
             case .appearance:
                 AppAppearance.current.title
             case .powerSaving:
@@ -569,6 +579,7 @@ private extension SettingsViewController {
             case .version:
                 Utils.applicationVersion
             case .addAccount,
+                 .addTestServerAccount,
                  .app,
                  .chatFolders,
                  .dataAndStorage,
@@ -604,6 +615,7 @@ private extension SettingsViewController {
             case .profile: "person.crop.circle"
             case .account: "person.crop.circle.fill"
             case .addAccount: "plus.circle.fill"
+            case .addTestServerAccount: "testtube.2"
             case .app: "square.grid.2x2.fill"
             case .savedMessages: "bookmark.fill"
             case .devices: "laptopcomputer.and.iphone"
@@ -630,6 +642,7 @@ private extension SettingsViewController {
             switch self {
             case .account: .systemTeal
             case .addAccount,
+                 .addTestServerAccount,
                  .app,
                  .appearance,
                  .language,
@@ -664,6 +677,15 @@ private extension SettingsViewController {
         }
 
         var isDestructive: Bool { self == .logOut }
+
+        /// Current Account or the phone number, then Test Server for a test server account.
+        @MainActor private func accountSubtitle(isCurrent: Bool) -> String? {
+            let parts = [
+                isCurrent ? L10n.betterTG("Accounts.Current") : account?.phoneNumber.map { "+\($0)" },
+                account?.usesTestServer == true ? L10n.betterTG("Accounts.TestServer") : nil,
+            ].compactMap(\.self)
+            return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        }
     }
 }
 

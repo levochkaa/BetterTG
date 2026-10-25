@@ -5,6 +5,17 @@ import CoreImage.CIFilterBuiltins
 import TDLibKit
 import UIKit
 
+// MARK: - LoginServerSwitch
+
+/// The sign-in's Telegram server: production, or the test server debug builds can switch to.
+struct LoginServerSwitch {
+    let usesTestServer: () -> Bool
+    /// Starts the sign-in again on the chosen server.
+    let select: (_ usesTestServer: Bool) throws -> Void
+}
+
+// MARK: - LoginViewController
+
 final class LoginViewController: UIViewController {
     // MARK: Private
 
@@ -15,6 +26,7 @@ final class LoginViewController: UIViewController {
     private let hasOtherAccounts: () -> Bool
     private let otherAccountUserIDs: () -> [Int64]
     private let restartSignIn: (() throws -> Void)?
+    private let serverSwitch: LoginServerSwitch?
     private var selectedCountry = PhoneNumberInfo(
         country: "RU",
         phoneNumberPrefix: "7",
@@ -44,6 +56,11 @@ final class LoginViewController: UIViewController {
     private let noteLabel = UILabel()
     private let backButton = UIButton(type: .system)
     private let accountsButton = UIButton(type: .system)
+    private let serverLabel = UILabel()
+    #if DEBUG
+        /// AuthorizationSequencePhoneEntryControllerNode's debugTapCounter: the last tap's time and the run of taps.
+        private var debugTapCounter = (time: 0.0, count: 0)
+    #endif
 
     // MARK: Internal
 
@@ -61,6 +78,12 @@ final class LoginViewController: UIViewController {
             otherAccountUserIDs: { TDLib.shared.accounts.filter { $0.id != accountID }.compactMap(\.userID) },
             restartSignIn: accountID
                 .map { accountID in { try TDLib.shared.restartActiveSignIn(accountID: accountID) } },
+            serverSwitch: accountID.map { accountID in
+                LoginServerSwitch(
+                    usesTestServer: { TDLib.shared.accounts.first { $0.id == accountID }?.usesTestServer == true },
+                    select: { try TDLib.shared.restartActiveSignIn(accountID: accountID, usesTestServer: $0) },
+                )
+            },
         )
     }
 
@@ -70,12 +93,14 @@ final class LoginViewController: UIViewController {
         hasOtherAccounts: @escaping () -> Bool,
         otherAccountUserIDs: @escaping () -> [Int64] = { [] },
         restartSignIn: (() throws -> Void)? = nil,
+        serverSwitch: LoginServerSwitch? = nil,
     ) {
         self.authorization = authorization
         self.authorizationUpdates = updates
         self.hasOtherAccounts = hasOtherAccounts
         self.otherAccountUserIDs = otherAccountUserIDs
         self.restartSignIn = restartSignIn
+        self.serverSwitch = serverSwitch
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -95,6 +120,14 @@ final class LoginViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
+        if serverSwitch?.usesTestServer() == true {
+            // Test server numbers are +99966 XYYYY, X being the data center; no country has that code.
+            selectedCountry = PhoneNumberInfo(
+                country: "",
+                phoneNumberPrefix: "99966",
+                name: L10n.betterTG("Accounts.TestServer"),
+            )
+        }
         configureViews()
         configureConstraints()
         configurePublishers()
@@ -182,6 +215,25 @@ final class LoginViewController: UIViewController {
         backButton.translatesAutoresizingMaskIntoConstraints = false
         backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
         view.addSubview(backButton)
+
+        serverLabel.translatesAutoresizingMaskIntoConstraints = false
+        serverLabel.text = L10n.betterTG("Accounts.TestServer")
+        serverLabel.font = UIFontMetrics(forTextStyle: .footnote).scaledFont(for: .systemFont(
+            ofSize: 13,
+            weight: .semibold,
+        ))
+        serverLabel.adjustsFontForContentSizeCategory = true
+        serverLabel.textColor = .systemOrange
+        view.addSubview(serverLabel)
+
+        #if DEBUG
+            // Telegram's sign-in opens its debug options after ten quick taps; here a tap anywhere off the controls
+            // counts, and the options switch the sign-in between the production and test servers.
+            let debugTap = UITapGestureRecognizer(target: self, action: #selector(debugTapped))
+            debugTap.cancelsTouchesInView = false
+            debugTap.delegate = self
+            view.addGestureRecognizer(debugTap)
+        #endif
 
         titleLabel.font = .preferredFont(forTextStyle: .largeTitle)
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -274,6 +326,8 @@ final class LoginViewController: UIViewController {
             accountsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
             backButton.centerYAnchor.constraint(equalTo: accountsButton.centerYAnchor),
             backButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 4),
+            serverLabel.centerYAnchor.constraint(equalTo: accountsButton.centerYAnchor),
+            serverLabel.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
         ])
     }
 
@@ -362,6 +416,7 @@ final class LoginViewController: UIViewController {
         backButton.isEnabled = enabled
         accountsButton.isEnabled = current
         accountsButton.isHidden = !hasOtherAccounts()
+        serverLabel.isHidden = serverSwitch?.usesTestServer() != true
         if !current || stage == nil || !content.acceptsInput {
             inputField.resignFirstResponder()
             secondaryField.resignFirstResponder()
@@ -626,6 +681,50 @@ final class LoginViewController: UIViewController {
         present(alert, animated: true)
     }
 
+    #if DEBUG
+        /// AuthorizationSequencePhoneEntryControllerNode's debugTap: ten taps, each within 0.4 s of the last.
+        @objc private func debugTapped(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended else { return }
+            let timestamp = CACurrentMediaTime()
+            if debugTapCounter.time < timestamp - 0.4 {
+                debugTapCounter = (timestamp, 0)
+            }
+            debugTapCounter = (timestamp, debugTapCounter.count + 1)
+            guard debugTapCounter.count >= 10 else { return }
+            debugTapCounter.count = 0
+            presentServerSwitch()
+        }
+
+        /// DebugAccountsController's Production and Test choice for this sign-in; the current server is disabled.
+        private func presentServerSwitch() {
+            guard let serverSwitch, let token = authorization.capture() else { return }
+            view.endEditing(true)
+            let usesTestServer = serverSwitch.usesTestServer()
+            let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+            for (title, testServer) in [
+                (L10n.betterTG("Accounts.ProductionServer"), false),
+                (L10n.betterTG("Accounts.TestServer"), true),
+            ] {
+                let action = UIAlertAction(title: title, style: .default) { [weak self] _ in
+                    guard let self, authorization.permits(token) else { return }
+                    do {
+                        try serverSwitch.select(testServer)
+                    } catch {
+                        showError(error.localizedDescription)
+                    }
+                }
+                action.isEnabled = testServer != usesTestServer
+                alert.addAction(action)
+            }
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+            if let popover = alert.popoverPresentationController {
+                popover.sourceView = view
+                popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+            }
+            present(alert, animated: true)
+        }
+    #endif
+
     private func showError(_ message: String) {
         let alert = UIAlertController(
             title: L10n.betterTG("Login.ErrorTitle"),
@@ -636,3 +735,15 @@ final class LoginViewController: UIViewController {
         present(alert, animated: true)
     }
 }
+
+#if DEBUG
+
+    // MARK: - LoginViewController + UIGestureRecognizerDelegate
+
+    extension LoginViewController: UIGestureRecognizerDelegate {
+        /// Taps on buttons and fields act on them and don't count toward the debug options.
+        func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            !(touch.view is UIControl)
+        }
+    }
+#endif

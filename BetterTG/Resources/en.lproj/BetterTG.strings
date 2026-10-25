@@ -9,6 +9,9 @@
 "Accounts.PersistenceFailed" = "BetterTG couldn't save the account list.";
 "Accounts.RemoveFromDevice" = "%@ will be removed from this device.";
 "Accounts.ThisAccount" = "this account";
+"Accounts.AddTestServerAccount" = "Add Test Server Account";
+"Accounts.TestServer" = "Test Server";
+"Accounts.ProductionServer" = "Production Server";
 
 "Settings.MediaSection" = "Media";
 "Settings.AboutSection" = "About";

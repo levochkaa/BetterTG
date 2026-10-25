@@ -11,6 +11,8 @@ struct TelegramAccount: Codable, Equatable, Identifiable {
     var userID: Int64?
     var createdAt: Date
     var lastActiveAt: Date
+    /// Signs in to Telegram's test server (`use_test_dc`), as Telegram's debug accounts do. Debug builds offer it.
+    var usesTestServer = false
 
     var title: String {
         if let displayName, !displayName.isEmpty {
@@ -20,6 +22,20 @@ struct TelegramAccount: Codable, Equatable, Identifiable {
             return "+\(phoneNumber)"
         }
         return "New Account"
+    }
+}
+
+extension TelegramAccount {
+    /// Accounts saved before the test server flag decode as production accounts.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
+        self.phoneNumber = try container.decodeIfPresent(String.self, forKey: .phoneNumber)
+        self.userID = try container.decodeIfPresent(Int64.self, forKey: .userID)
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.lastActiveAt = try container.decode(Date.self, forKey: .lastActiveAt)
+        self.usesTestServer = try container.decodeIfPresent(Bool.self, forKey: .usesTestServer) ?? false
     }
 }
 

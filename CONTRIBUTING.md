@@ -12,6 +12,10 @@ Thanks for helping. Bug reports, fixes, features, docs and forks are all welcome
 
 Follow [Building](README.md#building) in the README. `./setup.sh` keeps your `api_id`, `api_hash` and signing settings in files git ignores, and `./script/prepare_worktree.sh` copies them into new worktrees.
 
+### Telegram's test server
+
+Debug builds sign in to [Telegram's test server](https://core.telegram.org/api/auth#test-accounts) as well: Settings → Accounts → Add Test Server Account, or ten quick taps on the background of the sign-in screen, which switch that sign-in between the production and test servers. A test server account shows "Test Server" on the sign-in screen and in the account list. Its numbers are `+99966 X YYYY`, X being the data center (1 to 3), and its code is X repeated five times. Test accounts are fake and shared, so they suit screenshots.
+
 ## Making a change
 
 - Write all UI in UIKit, with Auto Layout and Combine. Don't add SwiftUI.

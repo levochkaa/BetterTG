@@ -175,7 +175,7 @@ final class NotificationTDLibSession: @unchecked Sendable {
             let directory = try TelegramAccountRegistry().databaseDirectory(for: account.id)
             guard isCurrent(ticket) else { return }
             _ = try await client.setTdlibParameters(
-                useTestDc: false,
+                useTestDc: account.usesTestServer,
                 databaseDirectory: directory.path,
                 filesDirectory: directory.path,
                 databaseEncryptionKey: Data(),

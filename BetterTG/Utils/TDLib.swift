@@ -250,7 +250,8 @@ final class TDLib: @unchecked Sendable {
         }
     }
 
-    @MainActor func addAccount() throws {
+    /// Starts a sign-in in a new account slot, on Telegram's test server when `usesTestServer` is set.
+    @MainActor func addAccount(usesTestServer: Bool = false) throws {
         let now = Date()
         let account = TelegramAccount(
             id: UUID(),
@@ -259,6 +260,7 @@ final class TDLib: @unchecked Sendable {
             userID: nil,
             createdAt: now,
             lastActiveAt: now,
+            usesTestServer: usesTestServer,
         )
         _ = try registry.databaseDirectory(for: account.id)
 
@@ -339,8 +341,9 @@ final class TDLib: @unchecked Sendable {
 
     /// Discards the unfinished sign-in of `accountID` and starts a new one in a fresh account slot. TDLib offers no way
     /// back from QR code confirmation to phone entry (`setAuthenticationPhoneNumber` is rejected there), so the
-    /// attempt's unauthorized client is closed and its directory removed, as switching away from it does.
-    @MainActor func restartActiveSignIn(accountID: UUID) throws {
+    /// attempt's unauthorized client is closed and its directory removed, as switching away from it does. The new slot
+    /// keeps the server unless `usesTestServer` picks one: a client's server is fixed by its parameters.
+    @MainActor func restartActiveSignIn(accountID: UUID, usesTestServer: Bool? = nil) throws {
         guard let discarded = activeAccount, discarded.id == accountID, discarded.userID == nil,
               !isActiveAccountReady, activeAccountAwaitsSignIn else { throw TelegramAccountError.unavailable }
         let previous = activeClientSnapshot()
@@ -352,6 +355,7 @@ final class TDLib: @unchecked Sendable {
             userID: nil,
             createdAt: now,
             lastActiveAt: now,
+            usesTestServer: usesTestServer ?? discarded.usesTestServer,
         )
         _ = try registry.databaseDirectory(for: replacement.id)
         var updatedAccounts = accounts.filter { $0.id != discarded.id }
@@ -520,12 +524,13 @@ final class TDLib: @unchecked Sendable {
     private func configureIfNeeded(client: TDLibClient, accountID: UUID) {
         guard configuredClientIDs.insert(client.id).inserted else { return }
         log("TDLib requested client parameters for account \(accountID.uuidString)")
+        let usesTestServer = accounts.first { $0.id == accountID }?.usesTestServer ?? false
         Task { [self] in
             do {
                 let directory = try registry.databaseDirectory(for: accountID)
                 // TDLib defers pre-authentication setOption responses until it receives these parameters.
                 _ = try await client.setTdlibParameters(
-                    useTestDc: false,
+                    useTestDc: usesTestServer,
                     databaseDirectory: directory.path,
                     filesDirectory: directory.path,
                     databaseEncryptionKey: Data(),
@@ -765,8 +770,13 @@ private extension AuthorizationState {
             "waitEmailAddress"
         case .authorizationStateWaitEmailCode:
             "waitEmailCode"
-        case .authorizationStateWaitCode:
-            "waitCode"
+        case .authorizationStateWaitCode(let value):
+            // An SMS code's length, which on the test server has been five or six digits.
+            if case .authenticationCodeTypeSms(let sms) = value.codeInfo.type {
+                "waitCode(sms, length \(sms.length))"
+            } else {
+                "waitCode"
+            }
         case .authorizationStateWaitOtherDeviceConfirmation:
             "waitOtherDeviceConfirmation"
         case .authorizationStateWaitRegistration:

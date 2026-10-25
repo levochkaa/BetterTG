@@ -250,7 +250,8 @@ import UIKit
         guard !value.isEmpty, !trimmed.isEmpty || isPassword else { return nil }
         let trimmedSecondary = secondary.trimmingCharacters(in: .whitespacesAndNewlines)
         switch stage {
-        case .phoneNumber: return .phoneNumber(prefix + value)
+        // A number typed with its own "+", such as the test server's +99966…, keeps its country code.
+        case .phoneNumber: return .phoneNumber(trimmed.hasPrefix("+") ? trimmed : prefix + value)
         case .code: return .code(trimmed)
         case .twoFactor: return .password(value)
         case .passwordRecovery: return .recoveryCode(trimmed)
