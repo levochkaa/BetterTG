@@ -118,14 +118,25 @@ import UIKit
         if !query.isEmpty, searchTask == nil, completedGeneration != generation { startSearch() }
     }
 
-    /// Telegram's ContactsPeerItem status: a global result shows its address and audience, a local bot says so.
+    /// Telegram's ContactsPeerItem status: a global result shows its address and audience, a local bot its users
+    /// once Telegram counts them, or that it is a bot.
     private static func subtitle(for chat: CustomChat, isGlobal: Bool) -> String? {
-        guard isGlobal else { return chat.bot == nil ? nil : L10n.telegram("Bot.GenericBotStatus") }
+        let botUsers = chat.bot.flatMap { bot in
+            bot.activeUserCount > 0
+                ? L10n.telegramPlural("Conversation.StatusBotSubscribers", count: bot.activeUserCount)
+                : nil
+        }
+        guard isGlobal else {
+            return chat.bot == nil ? nil : botUsers ?? L10n.telegram("Bot.GenericBotStatus")
+        }
         var parts = [String]()
         if let username = (chat.supergroup?.usernames ?? chat.user?.usernames)?.activeUsernames.first,
            !username.isEmpty
         {
             parts.append("@" + username)
+        }
+        if let botUsers {
+            parts.append(botUsers)
         }
         if let supergroup = chat.supergroup, supergroup.memberCount > 0 {
             parts.append(L10n.telegramPlural(
