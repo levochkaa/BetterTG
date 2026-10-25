@@ -4455,6 +4455,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let ownTitle = !location.isTopicScoped && location.messageThreadID == nil
         let badge = ownTitle ? PeerCredibilityBadge(chat: chatVM.customChat) : nil
         customNavigationBar.titleBadge = badge
+        customNavigationBar.setTitleStatus(
+            ownTitle ? PeerEmojiStatus(chat: chatVM.customChat, badge: badge) : nil,
+            client: chatVM.client,
+        )
         // ChatTitleView leaves the speaker off a verified title.
         customNavigationBar.titleIcons = .init(
             lock: ownTitle && chatVM.customChat.secretChatID != nil,

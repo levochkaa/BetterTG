@@ -485,7 +485,12 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private let backButton = UIButton(type: .system)
     private let titleControl = TelegramNavigationTitleControl()
     private let titleStack = UIStackView()
+    /// ChatTitleView's title line: the lock and the title, the status icon 3 pt after it, then the credibility badge
+    /// and the speaker, which stay whole while the title truncates.
+    private let titleRow = UIStackView()
     private let titleLabel = UILabel()
+    private let titleStatusView = PeerEmojiStatusView()
+    private let titleTrailingLabel = UILabel()
     private let statusLabel = UILabel()
     /// ChatTitleActivityNode's indicator before an activity's status, centred with it.
     private let statusActivityView = ChatActivityIndicatorView(frame: CGRect(
@@ -525,41 +530,65 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// The title with the lock 6 pt before it, the credibility badge after it and the speaker 3 pt after both.
+    /// The title with the lock 6 pt before it.
     private static func decoratedTitle(
         _ title: String,
-        badge: PeerCredibilityBadge?,
-        icons: TitleIcons,
+        lock: Bool,
         font: UIFont,
         color: UIColor,
     ) -> NSAttributedString {
-        func icon(_ name: String, pointSize: CGFloat, tint: UIColor) -> NSAttributedString {
-            let configuration = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
-            guard let image = UIImage(systemName: name, withConfiguration: configuration)?
-                .withTintColor(tint, renderingMode: .alwaysOriginal) else { return NSAttributedString() }
-            let attachment = NSTextAttachment(image: image)
-            attachment.bounds = CGRect(
-                x: 0,
-                y: (font.capHeight - image.size.height) / 2,
-                width: image.size.width,
-                height: image.size.height,
-            )
-            return NSAttributedString(attachment: attachment)
-        }
-        func gap(_ width: CGFloat) -> NSAttributedString {
-            NSAttributedString(string: "\u{200A}", attributes: [.font: font, .kern: width])
-        }
         let result = NSMutableAttributedString()
-        if icons.lock {
-            result.append(icon("lock.fill", pointSize: font.pointSize * 0.62, tint: color))
-            result.append(gap(4))
+        if lock {
+            result.append(titleIcon("lock.fill", pointSize: font.pointSize * 0.62, tint: color, font: font))
+            result.append(titleGap(4, font: font))
         }
-        result.append(PeerCredibilityBadge.title(title, badge: badge, font: font, color: color))
-        if icons.mute {
-            result.append(gap(2))
-            result.append(icon("speaker.slash.fill", pointSize: font.pointSize * 0.55, tint: .secondaryLabel))
+        result.append(NSAttributedString(string: title, attributes: [.font: font, .foregroundColor: color]))
+        return result
+    }
+
+    /// The credibility badge after the title and the speaker 3 pt after both.
+    private static func titleTrailing(badge: PeerCredibilityBadge?, mute: Bool, font: UIFont) -> NSAttributedString {
+        let result = NSMutableAttributedString()
+        if let badge { result.append(badge.attributedSuffix(font: font)) }
+        if mute {
+            result.append(titleGap(2, font: font))
+            result.append(titleIcon(
+                "speaker.slash.fill",
+                pointSize: font.pointSize * 0.55,
+                tint: .secondaryLabel,
+                font: font,
+            ))
         }
         return result
+    }
+
+    private static func titleGap(_ width: CGFloat, font: UIFont) -> NSAttributedString {
+        NSAttributedString(string: "\u{200A}", attributes: [.font: font, .kern: width])
+    }
+
+    private static func titleIcon(
+        _ name: String,
+        pointSize: CGFloat,
+        tint: UIColor,
+        font: UIFont,
+    ) -> NSAttributedString {
+        let configuration = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
+        guard let image = UIImage(systemName: name, withConfiguration: configuration)?
+            .withTintColor(tint, renderingMode: .alwaysOriginal) else { return NSAttributedString() }
+        let attachment = NSTextAttachment(image: image)
+        attachment.bounds = CGRect(
+            x: 0,
+            y: (font.capHeight - image.size.height) / 2,
+            width: image.size.width,
+            height: image.size.height,
+        )
+        return NSAttributedString(attachment: attachment)
+    }
+
+    /// ChatTitleView's emoji status (or Premium star) after the title; selection titles go without it.
+    func setTitleStatus(_ status: PeerEmojiStatus?, client: TDLibClient?) {
+        titleStatusView.configure(status, client: client)
+        titleStatusView.isHidden = status == nil || selectionCount != nil
     }
 
     func useSharedBackground() {
@@ -729,17 +758,25 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         statusColor: UIColor,
         activity: ChatActivityIndicatorView.Kind? = nil,
     ) {
-        if selectionCount == nil, titleBadge != nil || titleIcons != TitleIcons() {
+        let decorated = selectionCount == nil
+        if decorated, titleBadge != nil || titleIcons != TitleIcons() {
             titleLabel.attributedText = Self.decoratedTitle(
                 title,
-                badge: titleBadge,
-                icons: titleIcons,
+                lock: titleIcons.lock,
                 font: titleLabel.font,
                 color: titleLabel.textColor ?? .label,
             )
+            titleTrailingLabel.attributedText = Self.titleTrailing(
+                badge: titleBadge,
+                mute: titleIcons.mute,
+                font: titleLabel.font,
+            )
         } else {
             titleLabel.text = title
+            titleTrailingLabel.attributedText = nil
         }
+        titleTrailingLabel.isHidden = titleTrailingLabel.attributedText?.length ?? 0 == 0
+        titleStatusView.isHidden = !decorated || titleStatusView.status == nil
         statusLabel.text = status
         statusLabel.textColor = statusColor
         statusRow.isHidden = status.isEmpty
@@ -778,9 +815,25 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.textColor = .label
         titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.setContentCompressionResistancePriority(.defaultHigh - 1, for: .horizontal)
+        titleTrailingLabel.font = titleLabel.font
+        titleTrailingLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        titleTrailingLabel.isHidden = true
+        titleStatusView.isHidden = true
+        titleStatusView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            titleStatusView.widthAnchor.constraint(equalToConstant: titleStatusView.side),
+            titleStatusView.heightAnchor.constraint(equalToConstant: titleStatusView.side),
+        ])
+        titleRow.axis = .horizontal
+        titleRow.alignment = .center
+        titleRow.addArrangedSubview(titleLabel)
+        titleRow.addArrangedSubview(titleStatusView)
+        titleRow.addArrangedSubview(titleTrailingLabel)
+        titleRow.setCustomSpacing(3, after: titleLabel)
         statusLabel.font = .preferredFont(forTextStyle: .caption1)
         statusLabel.textColor = .secondaryLabel
-        titleStack.addArrangedSubview(titleLabel)
+        titleStack.addArrangedSubview(titleRow)
         statusRow.axis = .horizontal
         statusRow.alignment = .center
         statusActivityView.translatesAutoresizingMaskIntoConstraints = false

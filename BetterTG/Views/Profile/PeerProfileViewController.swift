@@ -166,6 +166,11 @@ ClientRestorableNavigationEntry {
     private let storyRingView = StoryAvatarRingView(activeLineWidth: 3, inactiveLineWidth: 1.5)
     private lazy var avatarTapGesture = UITapGestureRecognizer(target: self, action: #selector(avatarPressed))
     private let titleLabel = UILabel()
+    /// PeerInfoHeaderNode's title line: the name, the emoji status (or Premium star) 4 pt after it and the credibility
+    /// badge 4 pt after that, centred together.
+    private let titleRow = UIStackView()
+    private let titleStatusView = PeerEmojiStatusView(side: 26, loopLimit: nil)
+    private let titleBadgeView = UIImageView()
     private let statusLabel = UILabel()
     private let bioLabel = UILabel()
     private let detailsLabel = UILabel()
@@ -1336,8 +1341,24 @@ ClientRestorableNavigationEntry {
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 2
+        titleLabel.setContentCompressionResistancePriority(.defaultHigh - 1, for: .horizontal)
+        titleStatusView.isHidden = true
+        titleBadgeView.contentMode = .center
+        titleBadgeView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        titleBadgeView.isHidden = true
+        titleRow.axis = .horizontal
+        titleRow.alignment = .center
+        titleRow.spacing = 4
+        titleRow.addArrangedSubview(titleLabel)
+        titleRow.addArrangedSubview(titleStatusView)
+        titleRow.addArrangedSubview(titleBadgeView)
         applyProfileTitle()
-        headerStack.addArrangedSubview(titleLabel)
+        headerStack.addArrangedSubview(titleRow)
+        NSLayoutConstraint.activate([
+            titleStatusView.widthAnchor.constraint(equalToConstant: titleStatusView.side),
+            titleStatusView.heightAnchor.constraint(equalToConstant: titleStatusView.side),
+            titleRow.widthAnchor.constraint(lessThanOrEqualTo: headerStack.widthAnchor),
+        ])
 
         statusLabel.font = .preferredFont(forTextStyle: .subheadline)
         statusLabel.adjustsFontForContentSizeCategory = true
@@ -1363,7 +1384,7 @@ ClientRestorableNavigationEntry {
         detailsLabel.numberOfLines = 3
         detailsLabel.isHidden = true
         headerStack.addArrangedSubview(detailsLabel)
-        for label in [titleLabel, statusLabel, bioLabel, detailsLabel] {
+        for label in [statusLabel, bioLabel, detailsLabel] {
             label.widthAnchor.constraint(equalTo: headerStack.widthAnchor).isActive = true
         }
 
@@ -1478,6 +1499,11 @@ ClientRestorableNavigationEntry {
         guard width > 0 else { return }
         let oldInset = collectionView.contentInset.top
         let distanceFromTop = collectionView.contentOffset.y + oldInset
+        // The two-line title wraps within the header's 20 pt insets, less its icons.
+        let titleIconsWidth = [titleStatusView, titleBadgeView]
+            .filter { !$0.isHidden }
+            .reduce(CGFloat(0)) { $0 + titleRow.spacing + $1.intrinsicContentSize.width }
+        titleLabel.preferredMaxLayoutWidth = max(0, width - 40 - titleIconsWidth)
         let size = profileHeaderView.systemLayoutSizeFitting(
             CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
             withHorizontalFittingPriority: .required,
@@ -1489,7 +1515,8 @@ ClientRestorableNavigationEntry {
         #if DEBUG
             ProfileHeaderLayoutProbe.recordIfRequested(
                 header: profileHeaderView, avatar: avatarView,
-                labels: [titleLabel, statusLabel, bioLabel, detailsLabel],
+                title: titleRow,
+                labels: [statusLabel, bioLabel, detailsLabel],
             )
         #endif
         guard abs(oldInset - height) > 0.5 else { return }
@@ -2720,20 +2747,17 @@ ClientRestorableNavigationEntry {
         displayedStatusText
     }
 
-    /// PeerInfoHeaderNode's title with the credibility icon after it; a topic's profile is titled by the topic.
+    /// PeerInfoHeaderNode's title with the emoji status and credibility icon after it; a topic's profile is titled by
+    /// the topic.
     private func applyProfileTitle() {
         let badge = topic == nil ? PeerCredibilityBadge(chat: customChat) : nil
-        guard let badge else {
-            titleLabel.text = profileTitle()
-            return
-        }
-        titleLabel.attributedText = PeerCredibilityBadge.title(
-            profileTitle(),
-            badge: badge,
-            font: titleLabel.font,
-            color: .label,
-        )
-        titleLabel.accessibilityLabel = "\(profileTitle()), \(badge.accessibilityLabel)"
+        let status = topic == nil ? PeerEmojiStatus(chat: customChat, badge: badge) : nil
+        titleLabel.text = profileTitle()
+        titleLabel.accessibilityLabel = badge.map { "\(profileTitle()), \($0.accessibilityLabel)" }
+        titleStatusView.configure(status, client: client)
+        titleStatusView.isHidden = status == nil
+        titleBadgeView.image = badge?.image(font: titleLabel.font)
+        titleBadgeView.isHidden = badge == nil
     }
 
     private func profileTitle() -> String {

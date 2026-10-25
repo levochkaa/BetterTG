@@ -7,7 +7,8 @@ import UIKit
 @MainActor enum ProfileHeaderLayoutProbe {
     private static var lastResult: String?
 
-    static func recordIfRequested(header: UIView, avatar: UIView, labels: [UILabel]) {
+    /// `title` is the name with its icons, centred within the labels' width.
+    static func recordIfRequested(header: UIView, avatar: UIView, title: UIView, labels: [UILabel]) {
         guard ProcessInfo.processInfo.arguments.contains("-ui-probe-profile-header-layout"),
               header.window != nil, header.bounds.width > 40 else { return }
         header.layoutIfNeeded()
@@ -18,10 +19,13 @@ import UIKit
             return abs(frame.width - availableWidth) < 0.5
                 && abs(frame.midX - header.bounds.midX) < 0.5
         }
+        let titleFrame = title.convert(title.bounds, to: header)
+        let titleCentred = titleFrame.width <= availableWidth + 0.5 && abs(titleFrame.midX - header.bounds.midX) < 0.5
         let avatarUnchanged = abs(avatar.bounds.width - 96) < 0.5 && abs(avatar.bounds.height - 96) < 0.5
-        let result = "Profile header layout probe \(labelsFillWidth && avatarUnchanged ? "passed" : "failed"): "
-            + "actual-profile=true; visible-labels-fill-width=\(labelsFillWidth); avatar-96pt=\(avatarUnchanged); "
-            + "header-width=\(header.bounds.width); title-width=\(labels.first?.bounds.width ?? 0); "
+        let passed = labelsFillWidth && titleCentred && avatarUnchanged
+        let result = "Profile header layout probe \(passed ? "passed" : "failed"): "
+            + "actual-profile=true; visible-labels-fill-width=\(labelsFillWidth); title-centred=\(titleCentred); "
+            + "avatar-96pt=\(avatarUnchanged); header-width=\(header.bounds.width); title-width=\(titleFrame.width); "
             + "visible-label-count=\(visibleLabels.count); category=\(header.traitCollection.preferredContentSizeCategory.rawValue); "
             + "text/metadata-logged=false; synthetic-content/server-writes=0; "
             + "other-widths/Dynamic-Type/RTL=unverified"
