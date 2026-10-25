@@ -49,6 +49,9 @@
                     onHide: { [weak self] in
                         self?.hideBanner()
                     },
+                    onInlineButton: PinnedMessageBannerView.inlineButton(of: message).map { button in
+                        { [weak self] in self?.statusLabel.text = "Pressed \(button.text)" }
+                    },
                 )
                 view.addSubview(banner)
                 bannerHeightConstraint = banner.heightAnchor.constraint(
@@ -113,8 +116,28 @@
         }
 
         static func runIfRequested(in window: UIWindow) {
-            guard ProcessInfo.processInfo.arguments.contains("-ui-probe-pinned-message") else { return }
-            let message = makeMessage(id: 9001, text: "Pinned preview remains one line and opens the exact message")
+            let arguments = ProcessInfo.processInfo.arguments
+            guard arguments.contains("-ui-probe-pinned-message") || arguments.contains("-ui-probe-pinned-inline-button")
+            else { return }
+            // `-ui-probe-pinned-inline-button`: the pin carries a single inline button, as a bot's post does.
+            let inlineButton = ProcessInfo.processInfo.arguments.contains("-ui-probe-pinned-inline-button")
+            let message = makeMessage(
+                id: 9001,
+                text: "Pinned preview remains one line and opens the exact message",
+                replyMarkup: inlineButton
+                    ? .replyMarkupInlineKeyboard(ReplyMarkupInlineKeyboard(
+                        rows: [[InlineKeyboardButton(
+                            text: "Open Site",
+                            iconCustomEmojiId: 0,
+                            style: .buttonStyleDefault,
+                            type: .inlineKeyboardButtonTypeUrl(
+                                InlineKeyboardButtonTypeUrl(url: "https://telegram.org"),
+                            ),
+                        )]],
+                        forceReply: false,
+                    ))
+                    : nil,
+            )
             let newer = makeMessage(id: 9002, text: "Newer pin")
             let modeProof = MessagePinMode.savedMessages.onlyForSelf
                 && MessagePinMode.savedMessages.disableNotification
@@ -146,8 +169,10 @@
 
             let controller = ProbeViewController(message: message)
             controller.modalPresentationStyle = .fullScreen
-            topPresenter(from: window.rootViewController)?.present(controller, animated: false)
-            controller.view.layoutIfNeeded()
+            // The root controller's view joins the window after the scene connects.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak window] in
+                topPresenter(from: window?.rootViewController)?.present(controller, animated: false)
+            }
 
             let proof = "Pinned message probe: modes=\(modeProof), visibility=\(visibilityProof), "
                 + "404-only-clear=\(errorProof), newest-only=true, banner-height=50, local-hide=true, "
@@ -158,7 +183,7 @@
             }
         }
 
-        private static func makeMessage(id: Int64, text: String) -> Message {
+        private static func makeMessage(id: Int64, text: String, replyMarkup: ReplyMarkup? = nil) -> Message {
             Message(
                 authorSignature: "",
                 autoDeleteIn: 0,
@@ -191,7 +216,7 @@
                 mediaAlbumId: 0,
                 paidMessageStarCount: 0,
                 receiverId: nil,
-                replyMarkup: nil,
+                replyMarkup: replyMarkup,
                 replyTo: nil,
                 restrictionInfo: nil,
                 schedulingState: nil,

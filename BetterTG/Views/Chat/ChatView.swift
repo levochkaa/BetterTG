@@ -4824,6 +4824,17 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         closePinnedMessageBanner()
                     }
                 },
+                // actionButtonPressed: the button acts as it does under the message.
+                onInlineButton: PinnedMessageBannerView.inlineButton(of: message).map { button in
+                    { [weak self] in
+                        guard let self, chatVM.locationContextIsCurrent else { return }
+                        inlineKeyboardActions.perform(
+                            InlineKeyboardButtonPress(messageID: message.id, type: button.type),
+                            in: message,
+                            client: chatVM.client,
+                        )
+                    }
+                },
             )
             pinnedMessageBanner.isHidden = false
         }

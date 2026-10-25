@@ -16,6 +16,7 @@ final class PinnedMessageBannerView: UIView {
         let isRound: Bool
         let index: Int
         let totalCount: Int
+        let inlineButtonTitle: String?
     }
 
     static let contentHeight = CGFloat(50)
@@ -32,10 +33,14 @@ final class PinnedMessageBannerView: UIView {
     private let textStack = UIStackView()
     private let openControl = UIControl()
     private let actionButton = UIButton(type: .system)
+    /// ChatPinnedMessageTitlePanelNode's action button: the pin's single inline button as a 28 pt accent pill.
+    private let inlineButton = UIButton(configuration: .filled())
+    private var textTrailingToInlineButton: NSLayoutConstraint!
     private var thumbnailWidthConstraint: NSLayoutConstraint!
     private var textLeadingConstraint: NSLayoutConstraint!
     private var onOpen: (() -> Void)?
     private var onHide: (() -> Void)?
+    private var onInlineButton: (() -> Void)?
 
     private lazy var contextGesture = ContextMenuPressGestureRecognizer(
         target: self,
@@ -101,6 +106,23 @@ final class PinnedMessageBannerView: UIView {
         openControl.accessibilityIdentifier = "pinned-message-open"
         openControl.addTarget(self, action: #selector(openPressed), for: .touchUpInside)
         addSubview(openControl)
+
+        var configuration = UIButton.Configuration.filled()
+        configuration.cornerStyle = .capsule
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10)
+        configuration.titleLineBreakMode = .byTruncatingTail
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var attributes = attributes
+            let font = UIFont.systemFont(ofSize: 15, weight: .semibold)
+            attributes.font = font.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: 15) } ?? font
+            return attributes
+        }
+        inlineButton.configuration = configuration
+        inlineButton.translatesAutoresizingMaskIntoConstraints = false
+        inlineButton.accessibilityIdentifier = "pinned-message-inline-button"
+        inlineButton.isHidden = true
+        inlineButton.addTarget(self, action: #selector(inlineButtonPressed), for: .touchUpInside)
+        addSubview(inlineButton)
         contextGesture.isEnabled = false
         addGestureRecognizer(contextGesture)
 
@@ -108,6 +130,10 @@ final class PinnedMessageBannerView: UIView {
         self.textLeadingConstraint = textStack.leadingAnchor.constraint(
             equalTo: thumbnailView.trailingAnchor,
             constant: 0,
+        )
+        self.textTrailingToInlineButton = textStack.trailingAnchor.constraint(
+            lessThanOrEqualTo: inlineButton.leadingAnchor,
+            constant: -7,
         )
         NSLayoutConstraint.activate([
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -141,6 +167,12 @@ final class PinnedMessageBannerView: UIView {
             openControl.leadingAnchor.constraint(equalTo: leadingAnchor),
             openControl.trailingAnchor.constraint(equalTo: actionButton.leadingAnchor),
             openControl.bottomAnchor.constraint(equalTo: bottomAnchor),
+            // The pill ends 11 pt from the edge, its title at most 150 pt wide and the pill at least 40.
+            inlineButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -11),
+            inlineButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            inlineButton.heightAnchor.constraint(equalToConstant: 28),
+            inlineButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
+            inlineButton.widthAnchor.constraint(lessThanOrEqualToConstant: 170),
         ])
     }
 
@@ -158,6 +190,14 @@ final class PinnedMessageBannerView: UIView {
             return L10n.telegram("Conversation.PinnedMessage") + " #\(index + 1)"
         }
         return L10n.telegram("Conversation.PinnedMessage")
+    }
+
+    /// The pin's inline keyboard button the banner shows, when the keyboard is that one button.
+    static func inlineButton(of message: Message) -> InlineKeyboardButton? {
+        guard message.restrictionInfo?.restrictionReason.isEmpty != false,
+              case .replyMarkupInlineKeyboard(let keyboard) = message.replyMarkup,
+              keyboard.rows.count == 1, keyboard.rows[0].count == 1 else { return nil }
+        return keyboard.rows[0][0]
     }
 
     private static func previewText(for message: Message) -> String {
@@ -181,7 +221,8 @@ final class PinnedMessageBannerView: UIView {
         return redacted.length == 0 ? L10n.betterTG("Message.Spoiler") : String(redacted)
     }
 
-    /// `index` counts from the oldest of `totalCount` pins.
+    /// `index` counts from the oldest of `totalCount` pins. With `onInlineButton` the pin's single inline button
+    /// takes the place of the close and list buttons.
     func configure(
         message: Message,
         index: Int = 0,
@@ -190,7 +231,9 @@ final class PinnedMessageBannerView: UIView {
         client: TDLibClient?,
         onOpen: @escaping () -> Void,
         onHide: @escaping () -> Void,
+        onInlineButton: (() -> Void)? = nil,
     ) {
+        let inlineButtonTitle = onInlineButton == nil ? nil : Self.inlineButton(of: message)?.text
         let preview = Self.previewText(for: message)
         let thumbnail = MessageReplyThumbnail.make(for: message.content)
         let content = RenderedContent(
@@ -203,10 +246,12 @@ final class PinnedMessageBannerView: UIView {
             isRound: thumbnail?.isRound ?? false,
             index: index,
             totalCount: totalCount,
+            inlineButtonTitle: inlineButtonTitle,
         )
         if renderedContent == content {
             self.onOpen = onOpen
             self.onHide = onHide
+            self.onInlineButton = onInlineButton
             return
         }
         let animatesStripe = renderedContent?.totalCount == totalCount && window != nil
@@ -217,6 +262,11 @@ final class PinnedMessageBannerView: UIView {
         actionButton.accessibilityLabel = showsListButton
             ? L10n.telegram("Chat.PinnedListPreview.ShowAllMessages")
             : L10n.betterTG("Accessibility.HidePinnedMessage")
+        inlineButton.configuration?.title = inlineButtonTitle
+        inlineButton.accessibilityLabel = inlineButtonTitle
+        inlineButton.isHidden = inlineButtonTitle == nil
+        actionButton.isHidden = inlineButtonTitle != nil
+        textTrailingToInlineButton.isActive = inlineButtonTitle != nil
         titleLabel.text = Self.title(index: index, totalCount: totalCount)
         accentView.update(index: index, count: totalCount, animated: animatesStripe)
         bodyLabel.text = preview
@@ -238,6 +288,7 @@ final class PinnedMessageBannerView: UIView {
         }
         self.onOpen = onOpen
         self.onHide = onHide
+        self.onInlineButton = onInlineButton
         openControl.isAccessibilityElement = true
         openControl.accessibilityLabel = "\(titleLabel.text ?? ""), \(bodyLabel.text ?? "")"
         openControl.accessibilityHint = L10n.betterTG("Accessibility.OpenPinnedMessageHint")
@@ -255,6 +306,7 @@ final class PinnedMessageBannerView: UIView {
         bodyLabel.text = nil
         onOpen = nil
         onHide = nil
+        onInlineButton = nil
         openControl.accessibilityLabel = nil
         openControl.accessibilityHint = nil
         actionButton.accessibilityLabel = nil
@@ -292,6 +344,10 @@ final class PinnedMessageBannerView: UIView {
 
     @objc private func actionPressed() {
         onHide?()
+    }
+
+    @objc private func inlineButtonPressed() {
+        onInlineButton?()
     }
 }
 
