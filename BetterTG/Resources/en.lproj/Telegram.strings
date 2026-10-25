@@ -2635,3 +2635,5 @@
 "MessageTimer.ShortMonths_any" = "%@mo";
 "MessageTimer.ShortYears_1" = "%@y";
 "MessageTimer.ShortYears_any" = "%@y";
+"Chat.PinnedListPreview.UnpinAllMessages" = "Unpin All Messages";
+"Chat.PinnedListPreview.HidePinnedMessages" = "Hide Pinned Messages";

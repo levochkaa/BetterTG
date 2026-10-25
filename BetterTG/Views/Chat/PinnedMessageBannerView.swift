@@ -20,6 +20,11 @@ final class PinnedMessageBannerView: UIView {
 
     static let contentHeight = CGFloat(50)
 
+    /// ChatPinnedMessageTitlePanelNode's context container: a long press previews the pinned list with its actions.
+    var onContextMenu: ((ContextMenuPressGestureRecognizer) -> Void)? {
+        didSet { contextGesture.isEnabled = onContextMenu != nil }
+    }
+
     private let accentView = PinnedNavigationStripeView()
     private let thumbnailView = TDImageLoadingView()
     private let titleLabel = UILabel()
@@ -31,6 +36,11 @@ final class PinnedMessageBannerView: UIView {
     private var textLeadingConstraint: NSLayoutConstraint!
     private var onOpen: (() -> Void)?
     private var onHide: (() -> Void)?
+
+    private lazy var contextGesture = ContextMenuPressGestureRecognizer(
+        target: self,
+        action: #selector(contextPressed(_:)),
+    )
     private var renderedContent: RenderedContent?
 
     override init(frame: CGRect) {
@@ -91,6 +101,8 @@ final class PinnedMessageBannerView: UIView {
         openControl.accessibilityIdentifier = "pinned-message-open"
         openControl.addTarget(self, action: #selector(openPressed), for: .touchUpInside)
         addSubview(openControl)
+        contextGesture.isEnabled = false
+        addGestureRecognizer(contextGesture)
 
         self.thumbnailWidthConstraint = thumbnailView.widthAnchor.constraint(equalToConstant: 0)
         self.textLeadingConstraint = textStack.leadingAnchor.constraint(
@@ -267,6 +279,11 @@ final class PinnedMessageBannerView: UIView {
         )
         let scale = max(1, traitCollection.displayScale)
         return max(0, 17 - (titleFont.lineHeight * scale).rounded(.up) / scale)
+    }
+
+    @objc private func contextPressed(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        onContextMenu?(gesture)
     }
 
     @objc private func openPressed() {

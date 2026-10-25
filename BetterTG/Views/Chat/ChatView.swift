@@ -2395,6 +2395,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         configureLiveLocationPanel()
         pinnedMessageBanner.translatesAutoresizingMaskIntoConstraints = false
         pinnedMessageBanner.isHidden = true
+        pinnedMessageBanner.onContextMenu = { [weak self] gesture in self?.presentPinnedListPreview(gesture) }
         view.addSubview(pinnedMessageBanner)
         pinnedMessageBannerHeightConstraint = pinnedMessageBanner.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
@@ -10311,6 +10312,51 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 self?.performPinnedListOutcome(outcome, count: totalCount)
             }
             navigationController?.pushViewController(list, animated: true)
+        }
+    }
+
+    /// activatePinnedListPreview: a long press on the banner previews the pinned list over Show All Messages and Unpin
+    /// All Messages for whoever may manage pins, else Hide Pinned Messages. A reply thread has none.
+    private func presentPinnedListPreview(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard presentationMode == .full, routeIsRetained, chatVM.locationContextIsCurrent,
+              location.messageThreadID == nil, let newest = chatVM.pinnedMessageList.first,
+              presentedViewController == nil else { return }
+        let messages = chatVM.pinnedMessageList
+        let totalCount = chatVM.pinnedMessageTotalCount
+        Task { [weak self] in
+            guard let self else { return }
+            let canUnpinAll = await chatVM.canUnpinMessage(id: newest.id)
+            guard routeIsRetained, chatVM.locationContextIsCurrent,
+                  navigationController?.topViewController === self else { return }
+            let preview = PinnedMessagesViewController(
+                messages: messages,
+                totalCount: totalCount,
+                canUnpinAll: canUnpinAll,
+                client: chatVM.client,
+                accountID: location.accountID,
+                isPreview: true,
+            ) { _ in }
+            var actions = [TelegramContextMenuAction(
+                title: L10n.telegram("Chat.PinnedListPreview.ShowAllMessages"),
+                image: UIImage(systemName: "list.bullet"),
+            ) { [weak self] in self?.openPinnedMessageList() }]
+            actions.append(canUnpinAll
+                ? TelegramContextMenuAction(
+                    title: L10n.telegram("Chat.PinnedListPreview.UnpinAllMessages"),
+                    image: UIImage(systemName: "pin.slash"),
+                ) { [weak self] in self?.performPinnedListOutcome(.unpinAll, count: totalCount) }
+                : TelegramContextMenuAction(
+                    title: L10n.telegram("Chat.PinnedListPreview.HidePinnedMessages"),
+                    image: UIImage(systemName: "pin.slash"),
+                ) { [weak self] in self?.performPinnedListOutcome(.hide, count: totalCount) })
+            presentTelegramContextMenu(
+                sourceView: pinnedMessageBanner,
+                actions: actions,
+                tracking: gesture,
+                presentationStyle: .chatPreview,
+                previewController: preview,
+                onDismiss: { [weak self] in self?.retryClientRestoration() },
+            )
         }
     }
 

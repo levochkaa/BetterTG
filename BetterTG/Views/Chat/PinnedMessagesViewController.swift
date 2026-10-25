@@ -23,6 +23,8 @@ final class PinnedMessagesViewController: UIViewController {
     private let client: TDLibClient
     private let accountID: UUID?
     private let onOutcome: (Outcome) -> Void
+    /// The banner's long-press preview leaves the actions to its menu (ChatController's `.previewing` mode).
+    private let isPreview: Bool
     private let statusPanel = ChatStatusPanelView()
     private lazy var listView = ChatSearchResultsListView(client: client, accountID: accountID) { [weak self] in
         self?.view.window != nil
@@ -34,8 +36,10 @@ final class PinnedMessagesViewController: UIViewController {
         canUnpinAll: Bool,
         client: TDLibClient,
         accountID: UUID?,
+        isPreview: Bool = false,
         onOutcome: @escaping (Outcome) -> Void,
     ) {
+        self.isPreview = isPreview
         self.messages = messages
         self.totalCount = totalCount
         self.canUnpinAll = canUnpinAll
@@ -69,6 +73,7 @@ final class PinnedMessagesViewController: UIViewController {
             finish(canUnpinAll ? .unpinAll : .hide)
         }
         view.addSubview(statusPanel)
+        statusPanel.isHidden = isPreview
         NSLayoutConstraint.activate([
             listView.topAnchor.constraint(equalTo: view.topAnchor),
             listView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -79,7 +84,7 @@ final class PinnedMessagesViewController: UIViewController {
             statusPanel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             statusPanel.topAnchor.constraint(
                 equalTo: view.safeAreaLayoutGuide.bottomAnchor,
-                constant: -ChatStatusPanelView.contentHeight,
+                constant: isPreview ? 0 : -ChatStatusPanelView.contentHeight,
             ),
         ])
         listView.update(messages: messages, isLoading: false)
