@@ -7,8 +7,8 @@ import UIKit
 
 /// Telegram's Privacy and Security (PrivacyAndSecurityController): Blocked Users, Active Websites while there are
 /// any, Two-Step Verification (status only),
-/// Auto-Delete Messages, the privacy rules with their summaries, and the inactivity period before account deletion.
-/// Passcode, Premium-only rules and account deletion now are not offered.
+/// Auto-Delete Messages, the privacy rules with their summaries, and the inactivity period before account deletion,
+/// whose menu also deletes the account now. Premium-only rules are not offered.
 final class PrivacySettingsViewController: SettingsListViewController {
     private var rules = [PrivacyKind: PrivacyRuleState]()
     private var blockedCount: Int?
@@ -202,10 +202,11 @@ final class PrivacySettingsViewController: SettingsListViewController {
         navigationController?.pushViewController(controller, animated: true)
     }
 
-    /// Telegram's If Away For menu: 1, 3, 6, 12, 18 or 24 months (setAccountTtl). Delete Account Now is not offered.
+    /// Telegram's If Away For menu: 1, 3, 6, 12, 18 or 24 months (setAccountTtl), then Delete Account Now, which
+    /// opens DeleteAccountOptionsController.
     private func presentAccountTtlMenu(at indexPath: IndexPath) {
         guard let accountTtlDays, let cell = tableView.cellForRow(at: indexPath) else { return }
-        let actions = [30, 90, 180, 365, 548, 730].map { days in
+        var actions = [30, 90, 180, 365, 548, 730].map { days in
             TelegramContextMenuAction(
                 title: Self.monthsText(days),
                 image: accountTtlDays == days ? UIImage(systemName: "checkmark") : nil,
@@ -218,6 +219,15 @@ final class PrivacySettingsViewController: SettingsListViewController {
                 }
             }
         }
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("PrivacySettings.DeleteAccountNow"),
+            image: nil,
+            isDestructive: true,
+            startsNewSection: true,
+        ) { [weak self] in
+            guard let self else { return }
+            DeleteAccountOptionsViewController.present(hasPassword: hasPassword ?? false, from: self)
+        })
         presentTelegramContextMenu(sourceView: cell, actions: actions, presentationStyle: .menuOnly)
     }
 }
