@@ -40,4 +40,6 @@ The marketing version is `MARKETING_VERSION` in `project.yml`. Raise it before a
 
 `release` uploads the binary only: write the App Store description, screenshots and What's New in App Store Connect, then submit there or pass `submit:true`. Releases go out manually after approval.
 
+The app and its notification extension ship a `PrivacyInfo.xcprivacy` with the reasons for the required-reason APIs they and TDLib call, and the data the push relay handles. Update it when the code calls another such API or the relay starts storing something new, and keep App Privacy in App Store Connect in line with it and with the [Privacy Policy](../Website/privacy.html).
+
 The app declares `ITSAppUsesNonExemptEncryption` as `NO`, as Telegram for iOS does, so App Store Connect doesn't ask about export compliance for each build.
