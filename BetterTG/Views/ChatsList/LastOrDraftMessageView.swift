@@ -44,6 +44,16 @@ import UIKit
             return result
         }
         guard let message = chat.lastMessage else { return nil }
+        // ChatListItem: a person's chat shows an unseen reaction to the last message in its place.
+        if case .chatTypePrivate = chat.chat.type, let reaction = message.unreadReactions.first,
+           case .reactionTypeEmoji(let value) = reaction.type
+        {
+            return ChatListPreviewText.attributed(
+                FormattedText(entities: [], text: L10n.telegram("ChatList.UserReacted", value.emoji)),
+                font: font,
+                color: .secondaryLabel,
+            )
+        }
         let result = NSMutableAttributedString()
         if icon != nil || previews != nil {
             result.append(ChatListMessageTypeIcon.gap(icon: icon, previews: previews))

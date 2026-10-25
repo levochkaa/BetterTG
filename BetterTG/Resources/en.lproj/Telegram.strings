@@ -2657,3 +2657,4 @@
 "ArchiveInfo.CloseAction" = "Got it";
 "ChatList.ToastFolderMutedV2" = "All chats in {folder} are now muted";
 "ChatList.ToastFolderUnmutedV2" = "All chats in {folder} are now unmuted";
+"ChatList.UserReacted" = "Reacted %@ to your message";
