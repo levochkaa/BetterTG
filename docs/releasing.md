@@ -19,7 +19,9 @@ BetterTG ships through TestFlight and the App Store with the [fastlane](https://
 
   CI can set `BETTERTG_ASC_API_KEY_ID`, `BETTERTG_ASC_API_KEY_ISSUER_ID` and `BETTERTG_ASC_API_KEY_PATH` (a `.p8` file) or `BETTERTG_ASC_API_KEY_CONTENT` instead.
 - The app record in App Store Connect for the bundle ID in `Configuration/BetterTG.xcconfig`, or in `Configuration/Local.xcconfig` for a fork.
-- TestFlight groups: internal testers get every processed build; external lanes send to `External` unless told otherwise.
+- TestFlight groups: the `Internal` group gets every processed build; external lanes send to `External`, which has a public link, unless told otherwise.
+- Test Information in App Store Connect → TestFlight, which external testing needs: the beta description (say that the app uses the Telegram API), feedback email, privacy policy and the Beta App Review contact and notes. Sign-in needs a Telegram number, so the notes ask the reviewer to sign in with their own.
+- The app's name must not contain "Telegram" except as "Unofficial Telegram", under section 2.3 of the [Telegram API terms](https://core.telegram.org/api/terms).
 
 Xcode creates the distribution certificate and profiles itself through the API key. The lanes use `/Applications/Xcode-27.1.0.app` unless `BETTERTG_XCODE` names another Xcode.
 
