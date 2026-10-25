@@ -426,18 +426,21 @@ class SettingsListViewController: UITableViewController {
             indicator.startAnimating()
             cell.accessoryView = indicator
         }
+        // A badge or trailing view takes the accessory's place and draws the disclosure arrow itself.
+        let showsDisclosure =
+            if case .disclosure = row.accessory {
+                true
+            } else {
+                false
+            }
         if let badge = row.badge {
-            if case .disclosure = row.accessory {
-                cell.accessoryType = .none
-            }
-            cell.accessoryView = SettingsBadgeAccessoryView(text: badge, showsDisclosure: cell.accessoryView == nil)
+            cell.accessoryType = .none
+            cell.accessoryView = SettingsBadgeAccessoryView(text: badge, showsDisclosure: showsDisclosure)
         } else if let trailingView = row.trailingView {
-            if case .disclosure = row.accessory {
-                cell.accessoryType = .none
-            }
+            cell.accessoryType = .none
             cell.accessoryView = SettingsTrailingAccessoryView(
                 content: trailingView.make(),
-                showsDisclosure: cell.accessoryView == nil,
+                showsDisclosure: showsDisclosure,
             )
         }
     }

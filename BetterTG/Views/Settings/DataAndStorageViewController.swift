@@ -6,11 +6,14 @@ import UIKit
 // MARK: - DataAndStorageViewController
 
 /// Telegram's Data and Storage (DataAndStorageSettingsController): Storage Usage and Network Usage with their
-/// totals, and Raise to Listen. BetterTG loads media as it shows it and has no automatic download policy, so
+/// totals, Raise to Listen, and Connection Type's Proxy with the type of the proxy in use. BetterTG loads media as it
+/// shows it and has no automatic download policy, so
 /// Telegram's auto-download presets are not offered.
 final class DataAndStorageViewController: SettingsListViewController {
     private var storageSize: Int64?
     private var networkBytes: Int64?
+    /// The enabled proxy's type, "None" without one; nil until TDLib answers.
+    private var proxyValue: String?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -52,6 +55,15 @@ final class DataAndStorageViewController: SettingsListViewController {
                     RaiseToListenSettings.isEnabled = isOn
                 }),
             )],
+        ), SettingsSection(
+            header: L10n.telegram("ChatSettings.ConnectionType.Title").uppercased(),
+            rows: [SettingsRow(
+                title: L10n.telegram("SocksProxySetup.Title"),
+                detail: proxyValue ?? loading,
+                accessory: .disclosure,
+            ) { [weak self] in
+                self?.navigationController?.pushViewController(ProxySettingsViewController(), animated: true)
+            }],
         )]
     }
 
@@ -61,7 +73,12 @@ final class DataAndStorageViewController: SettingsListViewController {
         Task { [weak self] in
             let storage = try? await client.send(TDNativeRequests.getStorageStatisticsFast())
             let network = try? await client.send(TDNativeRequests.getNetworkStatistics(onlyCurrent: false))
+            let proxies = try? await client.send(TDNativeRequests.getProxies())
             guard let self, contextIsCurrent else { return }
+            proxyValue = proxies.map { list in
+                list.proxies.first(where: \.isEnabled).map { ProxyPresentation.typeTitle($0.proxy) }
+                    ?? L10n.telegram("GroupInfo.SharedMediaNone")
+            }
             storageSize = storage.map { $0.filesSize + $0.databaseSize + $0.languagePackDatabaseSize + $0.logSize }
             networkBytes = network.map { statistics in
                 statistics.entries.reduce(Int64(0)) { total, entry in
