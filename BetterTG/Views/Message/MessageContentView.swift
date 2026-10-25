@@ -1773,7 +1773,7 @@ enum TDMediaPrefetcher {
             case .unpooledMedia:
                 break
             case .tgs:
-                _ = await TGSAnimationRepository.animation(at: downloaded.local.path)
+                await TGSFrameSourceRepository.prepare(path: downloaded.local.path)
             case .webP:
                 _ = await AnimatedWebPRepository.asset(at: downloaded.local.path)
             case .ffmpegVideo:

@@ -478,8 +478,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var showsNoRows = false
     private var emptyState: EmptyState?
     private var dataSource: ChatRowsDataSource!
-    /// Held while the user scrolls the list, so emoji in the rows passing by don't build their animations.
-    private var scrollSetupHold: TGSSetupHold?
 
     private var pressGesture: ContextMenuPressGestureRecognizer?
     /// Telegram's reorder mode for pinned chats; list updates wait until it ends so a drag is never interrupted.
@@ -624,7 +622,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         endPinnedReorder()
-        endScrollSetupHold()
     }
 
     override func viewDidLayoutSubviews() {
@@ -655,19 +652,14 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         guard scrollView === tableView else { return }
         clientViewportRestoration.cancel()
         didSetInitialSearchOffset = true
-        if scrollSetupHold == nil { scrollSetupHold = TGSSetupHold() }
     }
 
     override func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        guard scrollView === tableView, !decelerate else { return }
-        endScrollSetupHold()
-        onListInteractionEnded?()
+        if scrollView === tableView, !decelerate { onListInteractionEnded?() }
     }
 
     override func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        guard scrollView === tableView else { return }
-        endScrollSetupHold()
-        onListInteractionEnded?()
+        if scrollView === tableView { onListInteractionEnded?() }
     }
 
     override func scrollViewWillEndDragging(
@@ -880,12 +872,6 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     /// Remove from Folder, and Pin in the chat's own list.
     func searchResultMenu(for chat: CustomChat) -> [TelegramContextMenuAction] {
         menu(for: chat, inSearch: true)
-    }
-
-    /// The rows' emoji build their animations once the list stops.
-    private func endScrollSetupHold() {
-        scrollSetupHold?.release()
-        scrollSetupHold = nil
     }
 
     /// Telegram opens a chat's stories from its avatar (ChatListItem.avatarStoryTapGesture) and then pages through
