@@ -119,6 +119,19 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
                     client: client,
                 )
             }
+            // ChatMessageInteractiveMediaNode marks a playable embed's picture with the play button.
+            if preview.showLargeMedia, WebEmbedPlayerViewController.isEmbeddedPlayer(preview.type) {
+                let playIcon = UIImageView(image: UIImage(systemName: "play.circle.fill"))
+                playIcon.translatesAutoresizingMaskIntoConstraints = false
+                playIcon.tintColor = .white
+                playIcon.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 46)
+                playIcon.isUserInteractionEnabled = false
+                imageView.addSubview(playIcon)
+                NSLayoutConstraint.activate([
+                    playIcon.centerXAnchor.constraint(equalTo: imageView.centerXAnchor),
+                    playIcon.centerYAnchor.constraint(equalTo: imageView.centerYAnchor),
+                ])
+            }
             if preview.showLargeMedia {
                 if preview.showMediaAboveDescription { content.addArrangedSubview(imageView) }
                 content.addArrangedSubview(text)

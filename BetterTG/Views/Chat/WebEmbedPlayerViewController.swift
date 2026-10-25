@@ -191,6 +191,15 @@ final class WebEmbedPlayerViewController: UIViewController, WKNavigationDelegate
         layoutWebView()
     }
 
+    static func isEmbeddedPlayer(_ type: LinkPreviewType) -> Bool {
+        switch type {
+        case .linkPreviewTypeEmbeddedAnimationPlayer,
+             .linkPreviewTypeEmbeddedAudioPlayer,
+             .linkPreviewTypeEmbeddedVideoPlayer: true
+        default: false
+        }
+    }
+
     private static func resource(_ name: String, _ type: String) -> String? {
         guard let path = Bundle.main.path(forResource: name, ofType: type) else { return nil }
         return try? String(contentsOfFile: path, encoding: .utf8)
