@@ -264,6 +264,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private let commentFooterView = MessageCommentFooterView()
     private let leadingSpacer = UIView()
     private let trailingSpacer = UIView()
+    /// ChatMessageShareButton beside the bubble; nil kind hides it.
+    private let shareButton = MessageShareButton()
+    private var shareButtonKind: MessageShareButton.Kind?
+    private var onShareButton: (() -> Void)?
     private let swipeToReplyIndicator = SwipeToReplyIndicatorView()
     private let selectionControl = UIControl()
     private let selectionIndicatorView = MessageSelectionIndicatorView()
@@ -772,6 +776,19 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             && message.message.ephemeralMessageId == 0
             ? MessageReactionStateReducer.visible(message.reactions)
             : []
+        shareButtonKind = selectionActive ? nil : MessageShareButton.kind(for: message, chat: chat)
+        if let shareButtonKind {
+            shareButton.configure(kind: shareButtonKind)
+            onShareButton = { [weak self] in
+                guard self?.actionBindingID == actionBindingID else { return }
+                switch shareButtonKind {
+                case .share: onContentAction(.sharePost)
+                case .navigate(let target): onContentAction(.openOriginal(target))
+                }
+            }
+        } else {
+            onShareButton = nil
+        }
         configureAlignment(
             outgoing: message.message.isOutgoing,
             showsAvatar: showsProfileImage,
@@ -1253,6 +1270,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         rowStack.axis = .horizontal
         rowStack.alignment = .bottom
         rowStack.spacing = 5
+        shareButton.addAction(UIAction { [weak self] _ in self?.onShareButton?() }, for: .touchUpInside)
         contentView.addSubview(rowStack)
 
         selectionControl.translatesAutoresizingMaskIntoConstraints = false
@@ -1606,6 +1624,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             centeredSpacerConstraint = constraint
         } else if outgoing {
             rowStack.addArrangedSubview(leadingSpacer)
+            // ChatMessageBubbleItemNode: 8 pt before an outgoing bubble.
+            if shareButtonKind != nil {
+                rowStack.addArrangedSubview(shareButton)
+                rowStack.setCustomSpacing(8, after: shareButton)
+            }
             rowStack.addArrangedSubview(bubbleColumn)
             leadingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
             bubbleColumn.setContentHuggingPriority(.required, for: .horizontal)
@@ -1614,6 +1637,13 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 rowStack.addArrangedSubview(avatarView)
             }
             rowStack.addArrangedSubview(bubbleColumn)
+            // ChatMessageBubbleItemNode: 8 pt after an incoming bubble.
+            if shareButtonKind != nil {
+                rowStack.setCustomSpacing(8, after: bubbleColumn)
+                rowStack.addArrangedSubview(shareButton)
+            } else {
+                rowStack.setCustomSpacing(rowStack.spacing, after: bubbleColumn)
+            }
             rowStack.addArrangedSubview(trailingSpacer)
             trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
             bubbleColumn.setContentHuggingPriority(.required, for: .horizontal)
@@ -1681,7 +1711,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     /// The widest bubble, which is also the widest media: Telegram's constrained width for media sizing.
     private func maximumBubbleWidth(for cellWidth: CGFloat) -> CGFloat {
-        floor((cellWidth > 0 ? cellWidth : Utils.screen.bounds.width - 16) * 0.82)
+        let width = cellWidth > 0 ? cellWidth : Utils.screen.bounds.width - 16
+        let maximum = floor(width * 0.82)
+        // The share button and its spacing come out of the row, beside an avatar too.
+        guard shareButtonKind != nil else { return maximum }
+        let avatar: CGFloat = avatarView.superview === rowStack ? 35 : 0
+        return min(maximum, floor(width - avatar - 30 - 8 - 12))
     }
 }
 

@@ -6695,6 +6695,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             presentDiceTooltip(emoji: emoji)
         case .openServiceTarget(let messageID):
             navigate(to: .message(chatID: chatVM.chatID, messageID: messageID, quote: nil))
+        case .sharePost:
+            // Telegram's share sheet; BetterTG forwards through its picker.
+            presentForwardPicker(forDisplayedMessageIDs: [message.displayedID])
+        case .openOriginal(let target):
+            navigate(to: target)
         case .openChatPhoto(let photo):
             presentChatPhoto(photo)
         case .openDocument(let url):

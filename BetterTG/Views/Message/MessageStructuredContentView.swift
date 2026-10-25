@@ -10,6 +10,10 @@ import UIKit
 
 enum MessageContentAction {
     case openDocument(URL)
+    /// ChatMessageShareButton's share: the post goes to the forward picker.
+    case sharePost
+    /// ChatMessageShareButton in Saved Messages: the forwarded message's original.
+    case openOriginal(MessageMetadataNavigationTarget)
     /// The contact card itself: a Telegram user opens their profile, anyone else the contact sheet.
     case openContact(Contact)
     /// The card's MESSAGE button (ChatMessageContactBubbleContentNode.messageButtonPressed).
@@ -3848,6 +3852,9 @@ final class TelegramContactDetailsViewController: UIViewController {
                         actions.append("dice-success")
                     case .openServiceTarget:
                         actions.append("service-target")
+                    case .openOriginal,
+                         .sharePost:
+                        actions.append("share")
                     case .openChatPhoto:
                         actions.append("chat-photo")
                     case .openDocument:
