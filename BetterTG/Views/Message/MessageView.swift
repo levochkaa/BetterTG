@@ -320,6 +320,20 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         action: #selector(swipeToReply(_:)),
     )
 
+    private let bubbleBackground = MessageBubbleBackgroundView()
+    private lazy var rowTopConstraint = rowStack.topAnchor.constraint(equalTo: contentView.topAnchor)
+    private lazy var rowLeadingConstraint = rowStack.leadingAnchor.constraint(
+        equalTo: contentView.leadingAnchor,
+        constant: 8,
+    )
+    private lazy var rowTrailingConstraint = rowStack.trailingAnchor.constraint(
+        equalTo: contentView.trailingAnchor,
+        constant: -8,
+    )
+    private lazy var rowBottomConstraint = rowStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+    /// The bubble's merged neighbours from this configuration, applied with its fill.
+    private var pendingBubbleMerge = MessageBubbleMerge()
+
     var contextPreviewView: UIView { bubbleContainerView }
 
     var contextQuoteTextView: MessageTextContentView { textView }
@@ -564,7 +578,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         timestampLabel.text = nil
         mediaTimestampLabel.isHidden = true
         mediaTimestampLabel.text = nil
-        bubbleView.backgroundColor = .clear
+        bubbleBackground.fillColor = .clear
         // Context menus may currently own this view outside the cell hierarchy.
         // Conceal it without stealing the menu's view or return constraints.
         bubbleView.isHidden = true
@@ -727,6 +741,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         showsProfileImage: Bool? = nil,
         commentsLoading: Bool = false,
         showsAvatarImage: Bool = true,
+        bubbleMerge: MessageBubbleMerge = MessageBubbleMerge(),
         senderName: MessageSenderName? = nil,
     ) {
         // A reconfigure of the same message animates only its highlight change.
@@ -794,6 +809,16 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             showsAvatar: showsProfileImage,
             centered: isCentered,
         )
+        pendingBubbleMerge = isCentered ? MessageBubbleMerge() : bubbleMerge
+        // ChatMessageItemLayoutConstants: past the timeline's 8 pt, the bubble's body sits 10 pt from the edge (3 pt
+        // edge inset, the 1 pt stroke inset and 6 pt for the tail), an avatar at 8 pt with the body 48 pt in; a
+        // bubble keeps 2⅓ pt above and below except where the same author's bubble continues.
+        let showsAvatarColumn = showsProfileImage && !message.message.isOutgoing && !isCentered
+        rowLeadingConstraint.constant = isCentered ? 8 : (showsAvatarColumn ? 0 : 2)
+        rowTrailingConstraint.constant = isCentered ? -8 : -2
+        rowStack.setCustomSpacing(8, after: avatarView)
+        rowTopConstraint.constant = pendingBubbleMerge.withOlder ? 0 : 7 / 3
+        rowBottomConstraint.constant = pendingBubbleMerge.withNewer ? 0 : -7 / 3
         configureSelection(
             active: selectionActive,
             selected: selected,
@@ -838,10 +863,17 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         let hasBubbleText = message.formattedText != nil || message.forwardPresentation != nil || message
             .replyPresentation != nil || senderName != nil
         // The comments bar sits on the bubble, as under Telegram's media posts.
-        bubbleView.backgroundColor = isCentered
+        let bubbleFill: UIColor = isCentered
             || (commentSource == nil && (isStandaloneUnframedMedia || (usesFullBleedMedia && !hasBubbleText)))
             ? .clear
             : .secondarySystemBackground
+        bubbleBackground.fillColor = bubbleFill
+        // ChatMessageBackground: a framed bubble that isn't a service message carries the tail.
+        bubbleBackground.configure(
+            outgoing: message.message.isOutgoing,
+            merge: pendingBubbleMerge,
+            tail: !isCentered && bubbleFill != .clear,
+        )
         let usesEdgeToEdgeContent = usesFullBleedMedia || isCentered
         bubbleTopConstraint.constant = usesEdgeToEdgeContent ? 0 : 6
         bubbleLeadingConstraint.constant = usesEdgeToEdgeContent ? 0 : 8
@@ -1298,9 +1330,22 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         ])
 
         bubbleView.translatesAutoresizingMaskIntoConstraints = false
-        bubbleView.backgroundColor = .secondarySystemBackground
-        bubbleView.layer.cornerRadius = 16
-        bubbleView.clipsToBounds = true
+        // The background view draws the bubble's shape and masks the bubble to it.
+        bubbleView.backgroundColor = .clear
+        bubbleView.clipsToBounds = false
+        bubbleBackground.fillColor = .secondarySystemBackground
+        bubbleBackground.translatesAutoresizingMaskIntoConstraints = false
+        bubbleView.insertSubview(bubbleBackground, at: 0)
+        bubbleContainerView.onExtractionChange = { [weak self] extracted in
+            self?.bubbleBackground.isExtracted = extracted
+            self?.bubbleBackground.layoutIfNeeded()
+        }
+        NSLayoutConstraint.activate([
+            bubbleBackground.topAnchor.constraint(equalTo: bubbleView.topAnchor),
+            bubbleBackground.leadingAnchor.constraint(equalTo: bubbleView.leadingAnchor),
+            bubbleBackground.trailingAnchor.constraint(equalTo: bubbleView.trailingAnchor),
+            bubbleBackground.bottomAnchor.constraint(equalTo: bubbleView.bottomAnchor),
+        ])
         bubbleStack.translatesAutoresizingMaskIntoConstraints = false
         bubbleStack.axis = .vertical
         bubbleStack.alignment = .fill
@@ -1516,10 +1561,10 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         bubbleWidthConstraint = bubbleContainerView.widthAnchor.constraint(equalToConstant: 16)
         bubbleWidthConstraint.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
-            rowStack.topAnchor.constraint(equalTo: contentView.topAnchor),
-            rowStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 8),
-            rowStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -8),
-            rowStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            rowTopConstraint,
+            rowLeadingConstraint,
+            rowTrailingConstraint,
+            rowBottomConstraint,
             maxBubbleWidth,
             bubbleWidthConstraint,
             bubbleTopConstraint,

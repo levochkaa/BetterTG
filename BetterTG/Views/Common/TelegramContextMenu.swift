@@ -311,6 +311,9 @@ class TelegramContextMenuExtractableView: UIView {
     // MARK: Internal
 
     let extractedContentView = UIView()
+    /// The content left for a menu (true) or came back (false), as ContextExtractedContentContainingNode's
+    /// willUpdateIsExtractedToContextPreview tells its owner.
+    var onExtractionChange: ((Bool) -> Void)?
 
     // MARK: Private
 
@@ -346,6 +349,7 @@ class TelegramContextMenuExtractableView: UIView {
         NSLayoutConstraint.deactivate(contentConstraints)
         extractedContentView.removeFromSuperview()
         extractedContentView.translatesAutoresizingMaskIntoConstraints = true
+        onExtractionChange?(true)
         return extractedContentView
     }
 
@@ -359,6 +363,7 @@ class TelegramContextMenuExtractableView: UIView {
         layoutIfNeeded()
         NSLayoutConstraint.deactivate(placeholderConstraints)
         placeholderConstraints.removeAll()
+        onExtractionChange?(false)
     }
 
     private func installContentConstraints() {

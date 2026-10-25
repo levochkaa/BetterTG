@@ -21,6 +21,8 @@ import UIKit
         /// The first bubble of a run from one author in a group carries the author's name, with this rank.
         var showsSenderName = false
         var senderRank: MessageSenderName.Rank?
+        /// The same author's bubbles fully merged above and below, which narrow the tail side's corners.
+        var bubbleMerge = MessageBubbleMerge()
     }
 
     let id = UUID()

@@ -1183,6 +1183,54 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// The incoming messages that start and end a run (chatMessageMerge): the first carries the author's name, the
     /// last the avatar. A run breaks at another author, more than ten minutes, a service message, an inline keyboard
     /// on the older message, or a header between.
+    /// chatMessageMerge: the same author, side and chat within ten minutes, not a service message, and not after a
+    /// message with an inline keyboard.
+    private static func merges(newer: CustomMessage, older: CustomMessage) -> Bool {
+        guard !newer.contentPresentation.isService, !older.contentPresentation.isService,
+              newer.message.senderId == older.message.senderId,
+              newer.message.isOutgoing == older.message.isOutgoing,
+              abs(newer.message.date - older.message.date) < 10 * 60 else { return false }
+        if case .replyMarkupInlineKeyboard = older.message.replyMarkup { return false }
+        return true
+    }
+
+    /// mediaMergeableStyle: a sticker merges only by author, and an instant video not at all; their neighbours keep
+    /// whole corners.
+    private static func mergesFully(_ message: CustomMessage) -> Bool {
+        switch message.message.content {
+        case .messageAnimatedEmoji,
+             .messageDice,
+             .messageSticker,
+             .messageVideoNote: false
+        default: true
+        }
+    }
+
+    /// ChatMessageBackgroundMergeType for every bubble: fully merged with the older bubble above and the newer one
+    /// below. Rows run newest first.
+    private static func bubbleMerges(
+        _ itemIDs: [ChatTimelineItemID],
+        models: [DisplayedMessageID: CustomMessage],
+    ) -> [DisplayedMessageID: MessageBubbleMerge] {
+        func message(at index: Int) -> CustomMessage? {
+            guard itemIDs.indices.contains(index), case .message(let id) = itemIDs[index] else { return nil }
+            return models[id]
+        }
+        var result = [DisplayedMessageID: MessageBubbleMerge]()
+        for (index, item) in itemIDs.enumerated() {
+            guard case .message(let id) = item, let current = models[id], mergesFully(current) else { continue }
+            var merge = MessageBubbleMerge()
+            if let older = message(at: index + 1), mergesFully(older) {
+                merge.withOlder = merges(newer: current, older: older)
+            }
+            if let newer = message(at: index - 1), mergesFully(newer) {
+                merge.withNewer = merges(newer: newer, older: current)
+            }
+            if merge != MessageBubbleMerge() { result[id] = merge }
+        }
+        return result
+    }
+
     private static func runs(
         _ itemIDs: [ChatTimelineItemID],
         models: [DisplayedMessageID: CustomMessage],
@@ -1190,14 +1238,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         func message(at index: Int) -> CustomMessage? {
             guard itemIDs.indices.contains(index), case .message(let id) = itemIDs[index] else { return nil }
             return models[id]
-        }
-        func merges(newer: CustomMessage, older: CustomMessage) -> Bool {
-            guard !newer.contentPresentation.isService, !older.contentPresentation.isService,
-                  newer.message.senderId == older.message.senderId,
-                  newer.message.isOutgoing == older.message.isOutgoing,
-                  abs(newer.message.date - older.message.date) < 10 * 60 else { return false }
-            if case .replyMarkupInlineKeyboard = older.message.replyMarkup { return false }
-            return true
         }
         var starts = Set<DisplayedMessageID>()
         var ends = Set<DisplayedMessageID>()
@@ -2487,7 +2527,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let item = NSCollectionLayoutItem(layoutSize: itemSize)
         let group = NSCollectionLayoutGroup.vertical(layoutSize: itemSize, subitems: [item])
         let section = NSCollectionLayoutSection(group: group)
-        section.interGroupSpacing = 5
+        // Bubbles keep Telegram's spacing themselves (MessageView), merged ones closer.
+        section.interGroupSpacing = 2
         section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
         return ChatTimelineLayout(section: section)
     }
@@ -4110,6 +4151,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                             showsProfileImage: row.inputs.showsProfileImage,
                             commentsLoading: commentsThreadLoad?.displayedID == displayedMessageID,
                             showsAvatarImage: row.inputs.showsAvatarImage,
+                            bubbleMerge: row.inputs.bubbleMerge,
                             senderName: row.inputs.showsSenderName
                                 ? senderName(of: message, rank: row.inputs.senderRank, displayedID: displayedMessageID)
                                 : nil,
@@ -5044,6 +5086,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ? Self.runs(itemIDs, models: models)
             : (starts: [], ends: [])
         let namedMessageIDs = chatVM.showsSenderNames ? messageRuns.starts : []
+        let bubbleMerges = Self.bubbleMerges(itemIDs, models: models)
         let changedOwners = messageRenderOwners.replace(chatVM.messages)
         if demand.structural || !changedOwners.isEmpty { subscribeToMessages() }
         var rows = [ChatTimelineItemID: ChatTimelineRenderRow]()
@@ -5093,6 +5136,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     showsAvatarImage: messageRuns.ends.contains(id),
                     showsSenderName: namedMessageIDs.contains(id),
                     senderRank: namedMessageIDs.contains(id) ? senderRank(of: canonical) : nil,
+                    bubbleMerge: bubbleMerges[id] ?? MessageBubbleMerge(),
                 )
                 let mustRefresh = demand.ids.contains(id) || changedOwners.contains(id)
                     || wasSelectingMessages && !isSelectingMessages
