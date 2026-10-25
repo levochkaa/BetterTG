@@ -104,7 +104,14 @@ final class PrivacySettingsViewController: SettingsListViewController {
                 isEnabled: accountTtlDays != nil,
             ) { [weak self] in self?.presentAccountTtlMenu(at: IndexPath(row: 0, section: accountSectionIndex)) }],
         )
-        return [security, privacy, account]
+        let dataSettings = SettingsSection(
+            footer: L10n.telegram("PrivacySettings.DataSettingsHelp"),
+            rows: [SettingsRow(title: L10n.telegram("PrivacySettings.DataSettings"), accessory: .disclosure) {
+                [weak self] in
+                self?.navigationController?.pushViewController(DataPrivacySettingsViewController(), animated: true)
+            }],
+        )
+        return [security, privacy, account, dataSettings]
     }
 
     private static func monthsText(_ days: Int) -> String {
