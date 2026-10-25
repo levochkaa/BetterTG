@@ -14,6 +14,7 @@ final class NotificationSettingsViewController: SettingsListViewController {
     private var exceptionCounts = [NotificationScope: Int]()
     /// Whether TDLib notifies about contacts who join Telegram; nil until read.
     private var contactJoinedEnabled: Bool?
+    private var storyExceptionCount: Int?
     private var reactionCancellable: AnyCancellable?
 
     override func viewDidLoad() {
@@ -49,6 +50,9 @@ final class NotificationSettingsViewController: SettingsListViewController {
             ) { [weak self] in self?.openCategory(scope) }
         }
         var rows = categories
+        if let privateChats = settings[.privateChats] {
+            rows.append(storiesRow(privateChats))
+        }
         if let reactions = ReactionNotificationSettingsStore.shared.settings(for: client) {
             rows.append(reactionsRow(reactions))
         }
@@ -93,11 +97,37 @@ final class NotificationSettingsViewController: SettingsListViewController {
                 } else {
                     true
                 }
+            let storyExceptions = try? await client.send(TDNativeRequests.getStoryNotificationSettingsExceptions())
             guard let self, contextIsCurrent else { return }
             self.settings = settings
             exceptionCounts = counts
             contactJoinedEnabled = contactJoined
+            storyExceptionCount = storyExceptions?.chatIds.count
             reload()
+        }
+    }
+
+    /// NotificationsAndSoundsController's `.stories`: Top 5 by default, else On or Off, with the exception count.
+    private func storiesRow(_ settings: ScopeNotificationSettings) -> SettingsRow {
+        var detail = L10n.telegram(settings.useDefaultMuteStories
+            ? "Notifications.TopChats"
+            : settings.muteStories ? "Notifications.Off" : "Notifications.On")
+        if let count = storyExceptionCount, count > 0 {
+            detail += ", " + L10n.telegramPlural("Notifications.CategoryExceptions", count: count)
+        }
+        return SettingsRow(
+            title: L10n.telegram("Notifications.Stories"),
+            detail: detail,
+            style: .subtitle,
+            symbol: "circle.dashed",
+            symbolTint: .systemPurple,
+            accessory: .disclosure,
+        ) { [weak self] in
+            guard let self, let current = self.settings[.privateChats] else { return }
+            navigationController?.pushViewController(
+                StoryNotificationSettingsViewController(settings: current),
+                animated: true,
+            )
         }
     }
 

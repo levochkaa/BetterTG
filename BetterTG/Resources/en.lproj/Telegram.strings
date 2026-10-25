@@ -2780,3 +2780,12 @@
 "Notifications.Reactions.ItemStories" = "Reactions to my Stories";
 "Notifications.Reactions.SheetValueEveryone" = "Everyone";
 "Notifications.Reactions.SheetValueContacts" = "My Contacts";
+"Notifications.TopChats" = "Top 5";
+"Notifications.Stories" = "Stories";
+"Notifications.StoriesTitle" = "Stories";
+"NotificationSettings.Stories.ShowImportantFooter" = "Always on for top 5 contacts.";
+"NotificationSettings.Stories.CompactShowName" = "Show name";
+"NotificationSettings.Stories.CompactHideName" = "Hide name";
+"Notifications.Stories.SettingsHeader" = "NOTIFY ME ABOUT...";
+"Notifications.Stories.GlobalSetting" = "New Stories";
+"Notifications.Stories.Important" = "Important Stories";
