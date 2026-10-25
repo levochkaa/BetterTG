@@ -230,6 +230,10 @@ final class AnimatedWebPView: UIControl, AnimatedFileView {
         didSet { energySavingChanged() }
     }
 
+    var loopLimit: Int? {
+        didSet { if loopLimit != oldValue { energySavingChanged() } }
+    }
+
     // MARK: Private
 
     private let thumbnailView = TDImageLoadingView()
@@ -244,6 +248,9 @@ final class AnimatedWebPView: UIControl, AnimatedFileView {
     /// When the single pass Power Saving allows started, and whether it has played.
     private var energyPassStart: CFTimeInterval?
     private var energyPassPlayed = false
+    /// When the loops `loopLimit` allows started, and whether they have played.
+    private var limitedLoopsStart: CFTimeInterval?
+    private var limitedLoopsPlayed = false
     private var onTap: (() -> Void)?
     private var displayLink: CADisplayLink?
     private var requestedFrameIndex: Int?
@@ -433,8 +440,11 @@ final class AnimatedWebPView: UIControl, AnimatedFileView {
     }
 
     private func updatePlayback() {
-        let shouldPlay = fileRequest?.isCurrent == true && playbackVisible && window != nil
-            && playbackEnabled && (asset?.frameCount ?? 0) > 1 && energyAllowsPlayback
+        let isShown = fileRequest?.isCurrent == true && playbackVisible && window != nil
+        // A hidden player plays its limited loops again when shown, as InlineStickerItemLayer resets its count.
+        if !isShown { limitedLoopsPlayed = false }
+        let shouldPlay = isShown && playbackEnabled && (asset?.frameCount ?? 0) > 1 && energyAllowsPlayback
+            && !limitedLoopsPlayed
         if shouldPlay {
             startDisplayLink()
         } else {
@@ -457,6 +467,7 @@ final class AnimatedWebPView: UIControl, AnimatedFileView {
         displayLink?.invalidate()
         displayLink = nil
         energyPassStart = nil
+        limitedLoopsStart = nil
         decodeTask?.cancel()
         decodeTask = nil
         requestedFrameIndex = nil
@@ -470,6 +481,14 @@ final class AnimatedWebPView: UIControl, AnimatedFileView {
             energyPassStart = start
             guard time - start < asset.duration else {
                 finishEnergyPass(frameCount: asset.frameCount, path: path)
+                return
+            }
+            time -= start
+        } else if let loopLimit, asset.duration > 0 {
+            let start = limitedLoopsStart ?? time
+            limitedLoopsStart = start
+            guard time - start < asset.duration * Double(loopLimit) else {
+                finishLimitedLoops(path: path)
                 return
             }
             time -= start
@@ -521,11 +540,21 @@ final class AnimatedWebPView: UIControl, AnimatedFileView {
     @objc private func energySavingChanged() {
         energyPassStart = nil
         energyPassPlayed = false
+        limitedLoopsPlayed = false
         stopDisplayLink()
         if energySaving?.limit != nil, let firstFrame = asset?.firstFrame {
             frameView.image = firstFrame
         }
         updatePlayback()
+    }
+
+    /// The limited loops have played: the first frame stays until the player is shown again.
+    private func finishLimitedLoops(path: String) {
+        limitedLoopsPlayed = true
+        limitedLoopsStart = nil
+        displayLink?.invalidate()
+        displayLink = nil
+        requestFrame(0, path: path)
     }
 
     /// The pass reached its end: the last frame stays.

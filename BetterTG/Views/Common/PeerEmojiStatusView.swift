@@ -28,36 +28,34 @@ enum PeerEmojiStatus: Equatable {
 
 // MARK: - PeerEmojiStatusView
 
-/// EmojiStatusComponent in ChatListItem's 20 pt status slot: the status emoji filling it, or the Premium star
-/// (EntityInputPremiumIcon) inset by 4 of its 44 pt in the accent colour.
+/// EmojiStatusComponent in a status slot after a name (20 pt in ChatListItem and ChatTitleView, 26 pt in
+/// PeerInfoHeaderNode): the status emoji filling it, or the Premium star (EntityInputPremiumIcon) inset by 4 of its
+/// 44 pt in the accent colour.
 final class PeerEmojiStatusView: UIView {
-    static let side: CGFloat = 20
-
-    private static let premiumImage: UIImage? = {
-        guard let star = UIImage(named: "ChatList/PremiumStatusIcon") else { return nil }
-        let inset = side * 4 / 44
-        return UIGraphicsImageRenderer(size: CGSize(width: side, height: side))
-            .image { _ in
-                star.draw(in: CGRect(x: 0, y: 0, width: side, height: side).insetBy(dx: inset, dy: inset))
-            }
-            .withRenderingMode(.alwaysTemplate)
-    }()
-
     override var intrinsicContentSize: CGSize {
-        CGSize(width: Self.side, height: Self.side)
+        CGSize(width: side, height: side)
     }
+
+    let side: CGFloat
 
     private(set) var status: PeerEmojiStatus?
 
-    private let premiumView = UIImageView(image: premiumImage)
+    /// The loops the emoji plays each time it is shown; nil loops on.
+    private let loopLimit: Int?
+    private let premiumView = UIImageView()
     private var emojiView: CustomEmojiInlineView?
     private var loadTask: Task<Void, Never>?
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
+    /// `loopLimit` is ChatListItem's and ChatTitleView's `.count(2)` by default; PeerInfoHeaderNode loops on.
+    init(side: CGFloat = 20, loopLimit: Int? = 2) {
+        self.side = side
+        self.loopLimit = loopLimit
+        super.init(frame: CGRect(x: 0, y: 0, width: side, height: side))
         isUserInteractionEnabled = false
+        premiumView.image = UIImage(named: "ChatList/PremiumStatusIcon")
+        premiumView.contentMode = .scaleAspectFit
         premiumView.tintColor = .systemBlue
-        premiumView.frame = bounds
+        premiumView.frame = bounds.insetBy(dx: side * 4 / 44, dy: side * 4 / 44)
         premiumView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         premiumView.isHidden = true
         addSubview(premiumView)
@@ -72,7 +70,8 @@ final class PeerEmojiStatusView: UIView {
         emojiView?.setPlaybackVisible(window != nil)
     }
 
-    func configure(_ status: PeerEmojiStatus?, client: TDLibClient) {
+    /// `client` loads a status emoji; the Premium star needs none.
+    func configure(_ status: PeerEmojiStatus?, client: TDLibClient?) {
         guard status != self.status else { return }
         self.status = status
         loadTask?.cancel()
@@ -81,7 +80,7 @@ final class PeerEmojiStatusView: UIView {
         emojiView?.removeFromSuperview()
         emojiView = nil
         premiumView.isHidden = status != .premium
-        guard case .emoji(let identifier) = status else { return }
+        guard case .emoji(let identifier) = status, let client else { return }
         loadTask = Task { [weak self] in
             let sticker = await CustomEmojiStickerRepository.shared.stickers(
                 for: [identifier],
@@ -96,6 +95,7 @@ final class PeerEmojiStatusView: UIView {
         let view = CustomEmojiInlineView()
         // ChatListItem stops status emoji with Emoji Animations off.
         view.energySaving = EnergySavingRole(item: .loopEmoji, whenOff: .still)
+        view.loopLimit = loopLimit
         view.frame = bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.isUserInteractionEnabled = false

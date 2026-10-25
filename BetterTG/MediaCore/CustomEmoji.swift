@@ -64,6 +64,11 @@ final class CustomEmojiInlineView: UIView {
         didSet { contentView?.energySaving = energySaving }
     }
 
+    /// The loops the emoji plays each time it is shown, kept across configurations; nil loops on.
+    var loopLimit: Int? {
+        didSet { contentView?.loopLimit = loopLimit }
+    }
+
     // MARK: Private
 
     private var contentView: (UIView & AnimatedFileView)?
@@ -115,6 +120,7 @@ final class CustomEmojiInlineView: UIView {
         onFirstFrameReady = firstFrameReady
         contentView = view
         view.energySaving = energySaving
+        view.loopLimit = loopLimit
         view.translatesAutoresizingMaskIntoConstraints = false
         addSubview(view)
         NSLayoutConstraint.activate([
