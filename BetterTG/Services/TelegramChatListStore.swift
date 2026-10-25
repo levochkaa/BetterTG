@@ -150,6 +150,8 @@ import TDLibKit
             DefaultReactionType.shared.receive(value.reactionType, clientID: clientID)
         case .updateActiveEmojiReactions(let value):
             DefaultReactionType.shared.receive(activeEmojis: value.emojis, clientID: clientID)
+        case .updateReactionNotificationSettings(let value):
+            ReactionNotificationSettingsStore.shared.receive(value.notificationSettings, clientID: clientID)
         case .updateChatReplyMarkup(let value):
             mutate(value.chatId) { $0.replyMarkupMessageId = value.replyMarkupMessage?.id ?? 0 }
         case .updateChatVideoChat(let value):
@@ -249,6 +251,29 @@ import TDLibKit
     private func changedPeers(where matches: (ChatListRecord) -> Bool) {
         let ids = Set(records.values.filter(matches).map(\.id))
         if !ids.isEmpty { changes.send(.chats(ids)) }
+    }
+}
+
+// MARK: - ReactionNotificationSettingsStore
+
+/// TDLib's `updateReactionNotificationSettings`, which has no getter: who may notify the user about reactions to
+/// their messages and stories.
+@MainActor final class ReactionNotificationSettingsStore {
+    static let shared = ReactionNotificationSettingsStore()
+
+    let changes = PassthroughSubject<Void, Never>()
+
+    private var clientID: Int32?
+    private var value: TDNativeReactionNotificationSettings?
+
+    func receive(_ settings: TDNativeReactionNotificationSettings, clientID: Int32) {
+        self.clientID = clientID
+        value = settings
+        changes.send()
+    }
+
+    func settings(for client: TDLibClient) -> TDNativeReactionNotificationSettings? {
+        clientID == client.id ? value : nil
     }
 }
 

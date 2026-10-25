@@ -1,20 +1,28 @@
 // NotificationSettingsViewController.swift
 
+import Combine
 import TDLibKit
 import UIKit
 
 // MARK: - NotificationSettingsViewController
 
 /// Telegram's Notifications and Sounds (NotificationsAndSoundsController): private chats, groups and channels with
-/// their state and exception counts, and Reset All Notifications. BetterTG has no in-app sound or badge settings to
-/// show here.
+/// their state and exception counts, Reactions, New Contacts (`disable_contact_registered_notifications`), and Reset
+/// All Notifications. BetterTG has no in-app sound or badge settings to show here.
 final class NotificationSettingsViewController: SettingsListViewController {
     private var settings = [NotificationScope: ScopeNotificationSettings]()
     private var exceptionCounts = [NotificationScope: Int]()
+    /// Whether TDLib notifies about contacts who join Telegram; nil until read.
+    private var contactJoinedEnabled: Bool?
+    private var reactionCancellable: AnyCancellable?
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("Notifications.Title")
+        reactionCancellable = ReactionNotificationSettingsStore.shared
+            .changes
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.reload() }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -40,8 +48,21 @@ final class NotificationSettingsViewController: SettingsListViewController {
                 isEnabled: settings[scope] != nil,
             ) { [weak self] in self?.openCategory(scope) }
         }
-        return [
-            SettingsSection(header: L10n.telegram("Notifications.MessageNotifications"), rows: categories),
+        var rows = categories
+        if let reactions = ReactionNotificationSettingsStore.shared.settings(for: client) {
+            rows.append(reactionsRow(reactions))
+        }
+        var sections = [SettingsSection(header: L10n.telegram("Notifications.MessageNotifications"), rows: rows)]
+        if let contactJoinedEnabled {
+            sections.append(SettingsSection(
+                footer: L10n.telegram("NotificationSettings.ContactJoinedInfo"),
+                rows: [SettingsRow(
+                    title: L10n.telegram("NotificationSettings.ContactJoined"),
+                    accessory: .toggle(isOn: contactJoinedEnabled) { [weak self] isOn in self?.setContactJoined(isOn) },
+                )],
+            ))
+        }
+        return sections + [
             SettingsSection(footer: L10n.telegram("Notifications.ResetAllNotificationsHelp"), rows: [SettingsRow(
                 title: L10n.telegram("Notifications.ResetAllNotifications"),
                 style: .action(destructive: true),
@@ -64,11 +85,51 @@ final class NotificationSettingsViewController: SettingsListViewController {
                 .chatIds
                 .count
             }
+            let contactJoined =
+                if case .optionValueBoolean(let disabled) = try? await client.getOption(
+                    name: "disable_contact_registered_notifications",
+                ) {
+                    !disabled.value
+                } else {
+                    true
+                }
             guard let self, contextIsCurrent else { return }
             self.settings = settings
             exceptionCounts = counts
+            contactJoinedEnabled = contactJoined
             reload()
         }
+    }
+
+    /// NotificationsAndSoundsController's `.reactions`: Messages and Stories while they notify, else Off.
+    private func reactionsRow(_ settings: TDNativeReactionNotificationSettings) -> SettingsRow {
+        var parts = [String]()
+        if settings.messageReactionSource != .reactionNotificationSourceNone {
+            parts.append(L10n.telegram("Notifications.Reactions.SubtitleMessages"))
+        }
+        if settings.storyReactionSource != .reactionNotificationSourceNone {
+            parts.append(L10n.telegram("Notifications.Reactions.SubtitleStories"))
+        }
+        return SettingsRow(
+            title: L10n.telegram("Notifications.Reactions"),
+            detail: parts.isEmpty ? L10n.telegram("Notifications.Off") : parts.joined(separator: ", "),
+            style: .subtitle,
+            symbol: "heart.fill",
+            symbolTint: .systemRed,
+            accessory: .disclosure,
+        ) { [weak self] in
+            self?.navigationController?.pushViewController(ReactionNotificationSettingsViewController(), animated: true)
+        }
+    }
+
+    private func setContactJoined(_ isOn: Bool) {
+        contactJoinedEnabled = isOn
+        perform { client in
+            _ = try await client.setOption(
+                name: "disable_contact_registered_notifications",
+                value: .optionValueBoolean(TDNativeOptionValueBoolean(value: !isOn)),
+            )
+        } completion: {}
     }
 
     private func openCategory(_ scope: NotificationScope) {

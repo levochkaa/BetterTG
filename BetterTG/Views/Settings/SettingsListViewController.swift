@@ -257,7 +257,7 @@ class SettingsListViewController: UITableViewController {
             }
         configuration.text = row.title
         configuration.secondaryText = row.detail
-        configuration.secondaryTextProperties.color = .secondaryLabel
+        configuration.secondaryTextProperties.color = row.detailColor ?? .secondaryLabel
         if case .subtitle = row.style {
             configuration.secondaryTextProperties.numberOfLines = 0
             configuration.textToSecondaryTextVerticalPadding = 3

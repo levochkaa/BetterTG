@@ -2766,3 +2766,17 @@
 "SocksProxySetup.ConnectAndSave" = "Connect Proxy";
 "SocksProxySetup.FailedToConnect" = "Failed to connect";
 "SocksProxySetup.ProxyEnabled" = "Proxy\nEnabled";
+"NotificationSettings.ContactJoined" = "New Contacts";
+"NotificationSettings.ContactJoinedInfo" = "Receive push notifications when one of your contacts becomes available on Telegram.";
+"Notifications.Reactions" = "Reactions";
+"Notifications.Reactions.SubtitleStories" = "Stories";
+"Notifications.Reactions.SubtitleMessages" = "Messages";
+"Notifications.Stories.DisplayName" = "Show Sender's Name";
+"Notifications.Reactions.Title" = "Reactions";
+"Notifications.Reactions.SettingsHeader" = "NOTIFY ME ABOUT...";
+"Notifications.Reactions.SubtitleContacts" = "From My Contacts";
+"Notifications.Reactions.SubtitleEveryone" = "From Everyone";
+"Notifications.Reactions.ItemMessages" = "Reactions to my Messages";
+"Notifications.Reactions.ItemStories" = "Reactions to my Stories";
+"Notifications.Reactions.SheetValueEveryone" = "Everyone";
+"Notifications.Reactions.SheetValueContacts" = "My Contacts";
