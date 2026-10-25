@@ -1158,6 +1158,30 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return true
     }
 
+    /// The incoming messages that start a run (chatMessageMerge): the older neighbour right above is from another
+    /// author, more than ten minutes earlier, a service message or has an inline keyboard, or a header sits between.
+    private static func runStartIDs(
+        _ itemIDs: [ChatTimelineItemID],
+        models: [DisplayedMessageID: CustomMessage],
+    ) -> Set<DisplayedMessageID> {
+        var result = Set<DisplayedMessageID>()
+        for (index, item) in itemIDs.enumerated() {
+            guard case .message(let id) = item, let message = models[id], !message.message.isOutgoing,
+                  !message.contentPresentation.isService else { continue }
+            var merged = false
+            if itemIDs.indices.contains(index + 1), case .message(let olderID) = itemIDs[index + 1],
+               let older = models[olderID], !older.contentPresentation.isService,
+               older.message.senderId == message.message.senderId,
+               abs(message.message.date - older.message.date) < 10 * 60
+            {
+                merged = true
+                if case .replyMarkupInlineKeyboard = older.message.replyMarkup { merged = false }
+            }
+            if !merged { result.insert(id) }
+        }
+        return result
+    }
+
     /// A bot start link for a chat the router has just created shows Start before the chat appears.
     func beginBotStart(parameter: String) {
         chatVM.beginBotStart(parameter: parameter)
@@ -3915,6 +3939,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                             timelineRowID: row.id,
                             showsProfileImage: row.inputs.showsProfileImage,
                             commentsLoading: commentsThreadLoad?.displayedID == displayedMessageID,
+                            senderName: row.inputs.showsSenderName
+                                ? senderName(of: message, rank: row.inputs.senderRank, displayedID: displayedMessageID)
+                                : nil,
                         )
                         cell.setSearchHighlight(query: messageSearchHighlightQuery(for: message))
                         cell.onSelfSizingHeightChange = { [weak self] in
@@ -4028,6 +4055,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                       case .connectionStateReady = update.value.state else { return }
                 if preparedClient == nil { clientPreparationSource = nil }
                 retryClientRestoration()
+            }
+            .store(in: &cancellables)
+        // CachedChannelAdminRanks arrive after the history; the author lines take their ranks.
+        chatVM.$administratorRanks
+            .dropFirst()
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                DispatchQueue.main.async { [weak self] in self?.updateSnapshot(animated: false) }
             }
             .store(in: &cancellables)
         // The Unread Messages divider arrives with the read state the chat opened with.
@@ -4746,6 +4782,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             )
             : timelineSnapshots.committed.ids
         let models = Dictionary(chatVM.messages.map { ($0.displayedID, $0) }, uniquingKeysWith: { _, latest in latest })
+        let namedMessageIDs = chatVM.showsSenderNames ? Self.runStartIDs(itemIDs, models: models) : []
         let changedOwners = messageRenderOwners.replace(chatVM.messages)
         if demand.structural || !changedOwners.isEmpty { subscribeToMessages() }
         var rows = [ChatTimelineItemID: ChatTimelineRenderRow]()
@@ -4792,6 +4829,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                         && selectableAlbumItemIDs(of: canonical) != nil
                         ? selectedAlbumItems(of: canonical)
                         : nil,
+                    showsSenderName: namedMessageIDs.contains(id),
+                    senderRank: namedMessageIDs.contains(id) ? senderRank(of: canonical) : nil,
                 )
                 let mustRefresh = demand.ids.contains(id) || changedOwners.contains(id)
                     || wasSelectingMessages && !isSelectingMessages
@@ -4823,6 +4862,50 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             }
         }
         return .init(ids: itemIDs, rows: rows, reconfigure: changed)
+    }
+
+    /// CachedChannelAdminRanks for the author, else the member's tag; a message sent as the group itself is an
+    /// anonymous administrator's.
+    private func senderRank(of message: CustomMessage) -> MessageSenderName.Rank? {
+        switch message.message.senderId {
+        case .messageSenderUser(let user):
+            if let rank = chatVM.administratorRanks[user.userId] { return rank }
+            let tag = message.message.senderTag
+            return tag.isEmpty ? nil : .member(tag)
+        case .messageSenderChat(let chat):
+            guard chat.chatId == chatVM.customChat.id else { return nil }
+            let signature = message.message.authorSignature
+            return .admin(signature.isEmpty ? L10n.telegram("Conversation.Admin") : signature)
+        }
+    }
+
+    /// The author's full name in their name colour; a chat posting in the group shows its title once loaded.
+    private func senderName(
+        of message: CustomMessage,
+        rank: MessageSenderName.Rank?,
+        displayedID: DisplayedMessageID,
+    ) -> MessageSenderName? {
+        switch message.message.senderId {
+        case .messageSenderUser:
+            guard let user = message.senderUser else { return nil }
+            return MessageSenderName(
+                name: ServiceMessageText.displayTitle(user),
+                color: AvatarColorPalette.shared.nameColor(accentColorID: user.accentColorId),
+                rank: rank,
+            )
+        case .messageSenderChat(let sender):
+            let chat = sender.chatId == chatVM.customChat.id
+                ? chatVM.customChat.chat
+                : MessagePeerNames.chat(sender.chatId, client: chatVM.client) { [weak self] _ in
+                    self?.reconfigureMessages(ids: [displayedID])
+                }
+            guard let chat else { return nil }
+            return MessageSenderName(
+                name: chat.title,
+                color: AvatarColorPalette.shared.nameColor(accentColorID: chat.accentColorId),
+                rank: rank,
+            )
+        }
     }
 
     private func drainTimelineSnapshots() {

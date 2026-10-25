@@ -14,6 +14,7 @@ extension ChatVM {
 
     func setPublishers() {
         loadSilentPosting()
+        loadAdministratorRanks()
         // Install the receipt listener before issuing the current-client baseline read.
         observeCurrentUpdate(.updateChatReadOutbox) { [weak self] update, authority in
             self?.receiveDeliveryReceipt(update, authority: authority)

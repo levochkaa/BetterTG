@@ -93,6 +93,11 @@ struct TelegramAvatarPlaceholder {
         }
     }
 
+    private static func normalizedNameIndex(_ value: Int) -> Int {
+        let remainder = value % 7
+        return remainder >= 0 ? remainder : remainder + 7
+    }
+
     func start() {
         guard !started else { return }
         started = true
@@ -108,6 +113,19 @@ struct TelegramAvatarPlaceholder {
             self?.serverColors = [:]
             nc.post(name: .telegramAvatarColorsChanged)
         }
+    }
+
+    /// PeerNameColors: an author's name colour, Telegram's seven built-in ones, or TDLib's accent colour for the
+    /// light or dark theme.
+    func nameColor(accentColorID: Int) -> UIColor {
+        if accentColorID > 6, let serverColor = serverColors[accentColorID],
+           let light = serverColor.lightThemeColors.first
+        {
+            let dark = serverColor.darkThemeColors.first ?? light
+            return UIColor { $0.userInterfaceStyle == .dark ? UIColor(rgb: dark) : UIColor(rgb: light) }
+        }
+        let builtIn = [0xCC5049, 0xD67722, 0x955CDB, 0x40A920, 0x309EBA, 0x368AD1, 0xC7508B]
+        return UIColor(rgb: builtIn[Self.normalizedNameIndex(accentColorID)])
     }
 
     func gradient(

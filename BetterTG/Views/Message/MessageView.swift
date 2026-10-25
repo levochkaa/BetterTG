@@ -247,6 +247,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
     private var usesFullBleedMedia = false
     private let avatarView = ProfileAvatarView()
 
+    /// The author line of an incoming group bubble.
+    private let senderNameView = MessageSenderNameView()
     private let forwardView = ForwardHeaderView()
     private let replyView = ReplySnippetView()
     private let mediaView = MessageMediaView()
@@ -326,8 +328,8 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     private var bubbleContentViews: [UIView] {
         [
-            forwardView, replyView, mediaView, structuredContentView, textView, reactionView, timestampLabel,
-            commentFooterView,
+            senderNameView, forwardView, replyView, mediaView, structuredContentView, textView, reactionView,
+            timestampLabel, commentFooterView,
         ]
     }
 
@@ -546,6 +548,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         commentFooterView.prepareForReuse()
         commentFooterView.isHidden = true
         forwardView.prepareForReuse()
+        senderNameView.isHidden = true
         replyView.prepareForReuse()
         forwardView.isHidden = true
         replyView.isHidden = true
@@ -719,6 +722,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         timelineRowID: UUID? = nil,
         showsProfileImage: Bool? = nil,
         commentsLoading: Bool = false,
+        senderName: MessageSenderName? = nil,
     ) {
         // A reconfigure of the same message animates only its highlight change.
         let reconfiguresSameMessage = timelineDisplayedID == message.displayedID && window != nil
@@ -814,7 +818,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 nil
             }
         let hasBubbleText = message.formattedText != nil || message.forwardPresentation != nil || message
-            .replyPresentation != nil
+            .replyPresentation != nil || senderName != nil
         // The comments bar sits on the bubble, as under Telegram's media posts.
         bubbleView.backgroundColor = isCentered
             || (commentSource == nil && (isStandaloneUnframedMedia || (usesFullBleedMedia && !hasBubbleText)))
@@ -825,6 +829,12 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         bubbleLeadingConstraint.constant = usesEdgeToEdgeContent ? 0 : 8
         bubbleTrailingConstraint.constant = usesEdgeToEdgeContent ? 0 : -8
         bubbleBottomConstraint.constant = usesEdgeToEdgeContent ? 0 : -5
+        if let senderName, !isCentered, !isStandaloneUnframedMedia {
+            senderNameView.isHidden = false
+            senderNameView.configure(senderName)
+        } else {
+            senderNameView.isHidden = true
+        }
         if let forward = message.forwardPresentation {
             forwardView.isHidden = false
             forwardView.configure(
@@ -1314,6 +1324,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
                 bubbleStack.addArrangedSubview(insetView)
             }
         }
+        bubbleStack.setCustomSpacing(2, after: arrangedBubbleView(for: senderNameView))
         bubbleStack.setCustomSpacing(6, after: arrangedBubbleView(for: replyView))
         bubbleStack.setCustomSpacing(4, after: mediaView)
         bubbleStack.setCustomSpacing(4, after: arrangedBubbleView(for: textView))

@@ -199,6 +199,8 @@ import UIKit
     @Published private(set) var silentPosting = false
     /// The chat's auto-delete timer (`messageAutoDeleteTime`), or a secret chat's self-destruct timer.
     @Published var messageAutoDeleteTime = 0
+    /// CachedChannelAdminRanks: each administrator's rank for the author line of group messages.
+    @Published private(set) var administratorRanks = [Int64: MessageSenderName.Rank]()
     /// A composer send that only scheduled its message; the chat opens Scheduled Messages, as Telegram does.
     let scheduledComposerSend = PassthroughSubject<Void, Never>()
     @Published var memberCount = 0
@@ -1201,6 +1203,16 @@ import UIKit
         customChat.supergroup?.isChannel == true
     }
 
+    /// Whether incoming bubbles carry their author's name: a group or a supergroup that isn't a channel.
+    var showsSenderNames: Bool {
+        switch customChat.type {
+        case .group: true
+        case .supergroup(let group): !group.isChannel
+        case .bot,
+             .user: false
+        }
+    }
+
     /// Telegram's canSetupAutoremoveTimeout: a secret chat, a person who isn't a bot, or a group or channel whose
     /// info this account can change.
     var canSetAutoDelete: Bool {
@@ -1861,6 +1873,27 @@ import UIKit
     private nonisolated static func sendsAsAnimation(_ image: SelectedImage) -> Bool {
         guard let video = image.video, video.sendsAsGIF, image.selfDestructTimer == nil else { return false }
         return video.url.pathExtension.lowercased() == "mp4"
+    }
+
+    /// getChatAdministrators: the owner's and administrators' custom titles, or Telegram's "owner" and "admin".
+    func loadAdministratorRanks() {
+        guard showsSenderNames else { return }
+        let chatID = customChat.id
+        let client = client
+        Task { [weak self] in
+            guard let list = try? await client.send(TDNativeRequests.getChatAdministrators(chatId: chatID)) else {
+                return
+            }
+            var ranks = [Int64: MessageSenderName.Rank]()
+            for administrator in list.administrators {
+                let title = administrator.customTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                ranks[administrator.userId] = administrator.isOwner
+                    ? .owner(title.isEmpty ? L10n.telegram("Conversation.Owner") : title)
+                    : .admin(title.isEmpty ? L10n.telegram("Conversation.Admin") : title)
+            }
+            guard let self, locationContextIsCurrent else { return }
+            administratorRanks = ranks
+        }
     }
 
     /// setChatMessageAutoDeleteTime from the input's timer, with PeerInfoScreen's "Messages will be auto-deleted" or
