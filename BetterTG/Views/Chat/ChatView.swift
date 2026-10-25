@@ -175,6 +175,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var navigationBarHeightConstraint: NSLayoutConstraint!
     private let navigationBackground = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let pinnedMessageBanner = PinnedMessageBannerView()
+    private let joinRequestsBanner = ChatJoinRequestsBannerView()
+    private var joinRequestsBannerHeightConstraint: NSLayoutConstraint!
+    /// The chat's pending join requests, as TDLib shows them to an administrator who can approve them.
+    private var pendingJoinRequests: ChatJoinRequestsInfo?
     private var pinnedMessageBannerHeightConstraint: NSLayoutConstraint!
     private let topicReopenBar = TopicReopenBarView()
     private var topicReopenBarHeightConstraint: NSLayoutConstraint!
@@ -564,6 +568,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         } else {
             customNavigationBar.frame.maxY
         }
+    }
+
+    /// The requests the panel shows: some pending, and not the ones it was closed on.
+    private var visibleJoinRequests: ChatJoinRequestsInfo? {
+        // A topic or thread inhibits the title panels other than the pinned message.
+        guard !location.isTopicScoped, let requests = pendingJoinRequests, requests.totalCount > 0,
+              !ChatJoinRequestsDismissal.isDismissed(requests, accountID: location.accountID, chatID: chatVM.chatID)
+        else { return nil }
+        return requests
     }
 
     convenience init(
@@ -2561,13 +2574,25 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             liveLocationPanelHeightConstraint,
         ])
         configureLiveLocationPanel()
+        joinRequestsBanner.translatesAutoresizingMaskIntoConstraints = false
+        joinRequestsBanner.isHidden = true
+        joinRequestsBanner.onOpen = { [weak self] in self?.openJoinRequests() }
+        joinRequestsBanner.onClose = { [weak self] in self?.dismissJoinRequestsBanner() }
+        view.addSubview(joinRequestsBanner)
+        joinRequestsBannerHeightConstraint = joinRequestsBanner.heightAnchor.constraint(equalToConstant: 0)
+        NSLayoutConstraint.activate([
+            joinRequestsBanner.topAnchor.constraint(equalTo: liveLocationPanel.bottomAnchor),
+            joinRequestsBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            joinRequestsBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            joinRequestsBannerHeightConstraint,
+        ])
         pinnedMessageBanner.translatesAutoresizingMaskIntoConstraints = false
         pinnedMessageBanner.isHidden = true
         pinnedMessageBanner.onContextMenu = { [weak self] gesture in self?.presentPinnedListPreview(gesture) }
         view.addSubview(pinnedMessageBanner)
         pinnedMessageBannerHeightConstraint = pinnedMessageBanner.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
-            pinnedMessageBanner.topAnchor.constraint(equalTo: liveLocationPanel.bottomAnchor),
+            pinnedMessageBanner.topAnchor.constraint(equalTo: joinRequestsBanner.bottomAnchor),
             pinnedMessageBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             pinnedMessageBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             pinnedMessageBannerHeightConstraint,
@@ -4136,6 +4161,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func observeState() {
         observeFavoriteStickers()
+        observeJoinRequests()
         observeSavedNotificationSounds()
         NotificationCenter.default
             .publisher(for: UIScene.didActivateNotification)
@@ -4454,6 +4480,74 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             : L10n.telegramPlural("VoiceOver.Chat.UnreadMessages", count: unreadCount)
     }
 
+    private func updateJoinRequestsBanner(_ requests: ChatJoinRequestsInfo?, animated: Bool) {
+        guard joinRequestsBannerHeightConstraint != nil else { return }
+        if let requests {
+            joinRequestsBanner.configure(requests: requests, client: chatVM.client)
+            joinRequestsBanner.isHidden = false
+        }
+        let desiredHeight = requests == nil ? 0 : ChatJoinRequestsBannerView.contentHeight
+        guard abs(joinRequestsBannerHeightConstraint.constant - desiredHeight) > 0.5 else { return }
+        view.layoutIfNeeded()
+        joinRequestsBannerHeightConstraint.constant = desiredHeight
+        let completion: (Bool) -> Void = { [weak self] _ in
+            guard let self else { return }
+            joinRequestsBanner.isHidden = joinRequestsBannerHeightConstraint.constant == 0
+            updateHistoryInsets()
+        }
+        guard animated, !UIAccessibility.isReduceMotionEnabled else {
+            view.layoutIfNeeded()
+            completion(true)
+            return
+        }
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState, .curveEaseOut],
+            animations: { self.view.layoutIfNeeded() },
+            completion: completion,
+        )
+    }
+
+    /// ChatInviteRequestsTitlePanelNode's buttonPressed: the chat's requests (openInviteRequests).
+    private func openJoinRequests() {
+        guard chatVM.locationContextIsCurrent, presentedViewController == nil else { return }
+        let client = chatVM.client
+        let chatID = chatVM.chatID
+        Task { [weak self] in
+            guard let target = await ChatManagementTarget.load(chatID: chatID, client: client), let self,
+                  chatVM.locationContextIsCurrent else { return }
+            navigationController?.pushViewController(ChatJoinRequestsViewController(target: target), animated: true)
+        }
+    }
+
+    /// closePressed: the panel stays closed until other people ask to join.
+    private func dismissJoinRequestsBanner() {
+        guard let requests = pendingJoinRequests else { return }
+        ChatJoinRequestsDismissal.dismiss(requests, accountID: location.accountID, chatID: chatVM.chatID)
+        updatePinnedMessageBanner(animated: true)
+    }
+
+    private func observeJoinRequests() {
+        guard presentationMode == .full else { return }
+        pendingJoinRequests = chatVM.customChat.chat.pendingJoinRequests
+        #if DEBUG
+            // `-debug-join-requests`: three requests from the account itself in every chat, to check the panel
+            // without real requesters.
+            if ProcessInfo.processInfo.arguments.contains("-debug-join-requests"),
+               let userID = TDLib.shared.activeAccount?.userID
+            {
+                pendingJoinRequests = ChatJoinRequestsInfo(totalCount: 3, userIds: [userID])
+            }
+        #endif
+        nc.scopedPublisher(&cancellables, for: .updateChatPendingJoinRequests) { [weak self] update in
+            guard let self, update.source.matches(chatVM.location), update.value.chatId == chatVM.chatID else { return }
+            pendingJoinRequests = update.value.pendingJoinRequests
+            updatePinnedMessageBanner(animated: true)
+        }
+        updatePinnedMessageBanner(animated: false)
+    }
+
     private func updateTopicReopenBar(visible: Bool, animated: Bool) {
         guard topicReopenBarHeightConstraint != nil else { return }
         let desiredHeight = visible ? TopicReopenBarView.contentHeight : 0
@@ -4766,12 +4860,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ? chatVM.actionBarContent
             : nil
         updateChatActionBar(actionBar, animated: animated)
+        // ChatTitlePanelContext: pending join requests rank above the pinned message.
+        let joinRequests = presentationMode == .full && !messageSearchActive && !isSelectingMessages
+            && !showsReopenBar && actionBar == nil
+            ? visibleJoinRequests
+            : nil
+        updateJoinRequestsBanner(joinRequests, animated: animated)
         let message: Message? =
             if presentationMode == .full,
             !messageSearchActive,
             !isSelectingMessages,
             !showsReopenBar,
-            actionBar == nil {
+            actionBar == nil,
+            joinRequests == nil {
                 chatVM.visiblePinnedMessage
             } else {
                 nil
@@ -5826,6 +5927,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 view.safeAreaInsets.bottom + 8
             }
         let visualTopInset = (pinnedMessageBannerHeightConstraint?.constant ?? 0) > 0
+            || (joinRequestsBannerHeightConstraint?.constant ?? 0) > 0
             || (voicePlaybackHeaderHeightConstraint?.constant ?? 0) > 0
             || (liveLocationPanelHeightConstraint?.constant ?? 0) > 0
             || (topicReopenBarHeightConstraint?.constant ?? 0) > 0

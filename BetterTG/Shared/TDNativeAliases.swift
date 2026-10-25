@@ -40,6 +40,7 @@ public typealias ChatFolderInfo = TDNativeChatFolderInfo
 public typealias ChatFolderInviteLinks = TDNativeChatFolderInviteLinks
 public typealias ChatFolderName = TDNativeChatFolderName
 public typealias ChatInviteLink = TDNativeChatInviteLink
+public typealias ChatJoinRequestsInfo = TDNativeChatJoinRequestsInfo
 public typealias ChatList = TDNativeChatList
 public typealias ChatListFolder = TDNativeChatListFolder
 public typealias ChatMember = TDNativeChatMember
