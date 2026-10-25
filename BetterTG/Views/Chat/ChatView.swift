@@ -414,6 +414,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         gesture.pressedViewProvider = { [weak self] gesture in
             guard let self, !isSelectingMessages else { return nil }
             let point = gesture.location(in: collectionView)
+            if let indexPath = collectionView.indexPathForItem(at: point),
+               case .sponsored = dataSource.itemIdentifier(for: indexPath),
+               let cell = collectionView.cellForItem(at: indexPath) as? ChatSponsoredMessageCell
+            {
+                gesture.castsShadow = true
+                return cell.contextPreviewView
+            }
             guard let indexPath = collectionView.indexPathForItem(at: point),
                   case .message = dataSource.itemIdentifier(for: indexPath),
                   let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
@@ -8070,7 +8077,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 guard let self, !isSelectingMessages else { return }
                 sponsoredMessages?.markAction(id, isMediaClick: false, fromFullscreen: false)
             },
+            openInfo: { [weak self] in self?.presentAdsInfo(for: id) },
             close: { [weak self] in self?.presentNoAdsNotice() },
+            more: { [weak self] in self?.presentSponsoredMessageMenu(id: id, cell: nil, gesture: nil) },
         )
     }
 
@@ -8096,6 +8105,153 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             self?.activateSponsoredMessage(id: id, isMediaClick: true, fromFullscreen: true)
         }
         present(player, animated: true)
+    }
+
+    /// The ad's message menu: a long press on the bubble or its "more" button (ChatMessageShareButton's
+    /// `morePressed`).
+    private func presentSponsoredMessageMenu(
+        id: Int64,
+        cell: ChatSponsoredMessageCell?,
+        gesture: ContextMenuPressGestureRecognizer?,
+    ) {
+        guard !isSelectingMessages, let message = sponsoredMessages?.message(id: id),
+              let cell = cell ?? dataSource.indexPath(for: .sponsored(id))
+                .flatMap({ collectionView.cellForItem(at: $0) as? ChatSponsoredMessageCell })
+        else { return }
+        presentTelegramContextMenu(
+            sourceView: cell.contextPreviewView,
+            actions: sponsoredMenu(for: message, in: nil),
+            tracking: gesture,
+            onDismiss: { [weak self] in self?.retryClientRestoration() },
+        )
+    }
+
+    /// ChatInterfaceStateContextMenus' ad menu: Sponsor Info with the sponsor's lines to copy; for an ad that can be
+    /// reported About This Ad, Report Ad and Remove Ad, else What are sponsored messages?, Hide without Premium and
+    /// Copy. In About These Ads (`sheet`) it is AdsInfoScreen's `infoPressed` menu, without About This Ad and Copy.
+    private func sponsoredMenu(
+        for message: ChatSponsoredMessage,
+        in sheet: AdsInfoViewController?,
+    ) -> [TelegramContextMenuAction] {
+        let id = message.id
+        let toast: (String) -> Void = { [weak self, weak sheet] text in
+            if let sheet { sheet.showToast(text) } else { self?.showChatToast(text) }
+        }
+        var actions = [TelegramContextMenuAction]()
+        let info = [message.sponsorInfo, message.additionalInfo].compactMap(\.self)
+        if !info.isEmpty {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.ContextMenu.AdSponsorInfo"),
+                image: UIImage(systemName: "megaphone"),
+                children: info.map { text in
+                    var row = TelegramContextMenuAction(title: text) {
+                        UIPasteboard.setPlainText(text)
+                        toast(L10n.telegram("Chat.ContextMenu.AdSponsorInfoCopied"))
+                    }
+                    row.usesSmallText = true
+                    return row
+                },
+            ))
+        }
+        let presenter: () -> UIViewController? = { [weak self, weak sheet] in sheet ?? self }
+        if message.canBeReported {
+            if sheet == nil {
+                actions.append(TelegramContextMenuAction(
+                    title: L10n.telegram("Chat.ContextMenu.AboutAd"),
+                    image: UIImage(systemName: "info.circle"),
+                    startsNewSection: !actions.isEmpty,
+                ) { [weak self] in self?.presentAdsInfo(for: id) })
+            }
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.ContextMenu.ReportAd"),
+                image: UIImage(systemName: "exclamationmark.bubble"),
+                startsNewSection: sheet != nil && !actions.isEmpty,
+            ) { [weak self] in self?.reportSponsoredMessage(id: id, from: presenter()) })
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Chat.ContextMenu.RemoveAd"),
+                image: UIImage(systemName: "xmark.circle"),
+                startsNewSection: true,
+            ) { [weak self] in self?.presentNoAdsNotice(from: presenter()) })
+            return actions
+        }
+        if sheet == nil {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("SponsoredMessageMenu.Info"),
+                image: UIImage(systemName: "info.circle"),
+                startsNewSection: !actions.isEmpty,
+            ) { [weak self] in self?.presentAdsInfo(for: id, mode: .sponsoredMessages) })
+        }
+        if sponsoredMessages?.state.isPremium != true {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("SponsoredMessageMenu.Hide"),
+                image: UIImage(systemName: "xmark.circle"),
+                startsNewSection: sheet != nil && !actions.isEmpty,
+            ) { [weak self] in self?.presentNoAdsNotice(from: presenter()) })
+        }
+        if sheet == nil, !chatVM.customChat.chat.hasProtectedContent, !message.text.text.isEmpty {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("Conversation.ContextMenuCopy"),
+                image: UIImage(systemName: "rectangle.portrait.on.rectangle.portrait"),
+                startsNewSection: !actions.isEmpty,
+            ) {
+                UIPasteboard.setFormattedText(message.text)
+                toast(L10n.telegram("Conversation.MessageCopied"))
+            })
+        }
+        return actions
+    }
+
+    /// AdsInfoScreen for the channel, opened by "what's this?" and About This Ad. With the ad it carries
+    /// AdsInfoScreen's "more" menu: the sponsor's info, Report Ad and Remove Ad.
+    private func presentAdsInfo(for id: Int64, mode: AdsInfoViewController.Mode = .ads) {
+        guard presentedViewController == nil, !isSelectingMessages, let context = sponsoredMessages,
+              context.isCurrent, context.message(id: id) != nil else { return }
+        let controller = AdsInfoViewController(mode: mode, client: context.client)
+        controller.menuActions = { [weak self, weak controller] in
+            guard let self, let controller, let message = sponsoredMessages?.message(id: id) else { return [] }
+            return sponsoredMenu(for: message, in: controller)
+        }
+        present(controller, animated: true)
+    }
+
+    /// ChatInterfaceStateContextMenus' Report Ad: TDLib's first options open AdsReportScreen, and an ad that was
+    /// reported, or with ads hidden, leaves the chat with Telegram's toast.
+    private func reportSponsoredMessage(id: Int64, from presenter: UIViewController?) {
+        guard let context = sponsoredMessages, context.isCurrent, context.message(id: id) != nil else { return }
+        Task { [weak self, weak presenter] in
+            let result = try? await context.report(id, optionID: Data())
+            guard let self, context.isCurrent,
+                  case .reportSponsoredResultOptionRequired(let required) = result else { return }
+            AdsReportViewController.present(
+                title: required.title,
+                options: required.options,
+                report: { optionID in try await context.report(id, optionID: optionID) },
+                from: presenter ?? self,
+            ) { [weak self] outcome in
+                self?.sponsoredReportFinished(id: id, outcome: outcome)
+            }
+        }
+    }
+
+    /// AdsReportScreen's `completed`: the ad leaves the chat, then Telegram's toast; Premium needed shows the No Ads
+    /// notice.
+    private func sponsoredReportFinished(id: Int64, outcome: AdsReportViewController.Outcome) {
+        guard chatVM.locationContextIsCurrent else { return }
+        // A report from About These Ads closes it too, so the toast shows over the chat.
+        if presentedViewController is AdsInfoViewController {
+            dismiss(animated: true) { [weak self] in self?.sponsoredReportFinished(id: id, outcome: outcome) }
+            return
+        }
+        switch outcome {
+        case .reported:
+            sponsoredMessages?.remove(id)
+            showChatToast(L10n.telegram("ReportAd.Reported").withoutTelegramLinks)
+        case .hidden:
+            sponsoredMessages?.remove(id)
+            showChatToast(L10n.telegram("ReportAd.Hidden"))
+        case .premiumRequired:
+            presentNoAdsNotice()
+        }
     }
 
     /// openNoAdsDemo without Premium: PremiumDemoScreen's No Ads page, as a notice, since BetterTG sells no Premium.
@@ -9569,6 +9725,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard gesture.state == .began, !isSelectingMessages else { return }
         cancelHistoryPanGesture()
         let point = gesture.location(in: collectionView)
+        if let indexPath = collectionView.indexPathForItem(at: point),
+           case .sponsored(let id) = dataSource.itemIdentifier(for: indexPath),
+           let cell = collectionView.cellForItem(at: indexPath) as? ChatSponsoredMessageCell
+        {
+            presentSponsoredMessageMenu(id: id, cell: cell, gesture: gesture)
+            return
+        }
         guard let indexPath = collectionView.indexPathForItem(at: point),
               case .message(let displayedMessageID) = dataSource.itemIdentifier(for: indexPath),
               let message = message(for: displayedMessageID),
