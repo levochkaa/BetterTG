@@ -12,6 +12,7 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
     }
 
     private let preview: LinkPreview
+    private let client: TDLibClient
     private let imageView = TDImageLoadingView()
     private let bodyTextView = MessageTextContentView()
     private let downloadStatus = MediaDownloadStatusView()
@@ -22,6 +23,7 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
     /// download arrow, as ChatMessageAttachedContentNode's `automaticDownload` does.
     init(preview: LinkPreview, client: TDLibClient, autoDownloads: Bool = true) {
         self.preview = preview
+        self.client = client
         super.init(frame: .zero)
         layer.cornerRadius = 5
         clipsToBounds = true
@@ -132,6 +134,9 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
                 bodyTextView.setMaximumLayoutWidth(Utils.maxMessageContentWidth - 86)
             }
         } else { content.addArrangedSubview(text) }
+        if preview.instantViewVersion > 0 {
+            content.addArrangedSubview(instantViewButton())
+        }
         let tap = UITapGestureRecognizer(target: self, action: #selector(openLink))
         tap.delegate = self
         addGestureRecognizer(tap)
@@ -208,7 +213,43 @@ final class MessageLinkPreviewView: UIView, MessageSupplementView, UIGestureReco
         return label
     }
 
+    /// ChatMessageAttachedContentNode's action button for a page with Instant View: "INSTANT VIEW" in the accent
+    /// colour across the preview.
+    private func instantViewButton() -> UIButton {
+        var configuration = UIButton.Configuration.plain()
+        configuration.attributedTitle = AttributedString(
+            L10n.telegram("Conversation.InstantPagePreview"),
+            attributes: AttributeContainer([.font: UIFont.systemFont(ofSize: 15, weight: .semibold)]),
+        )
+        configuration.image = UIImage(
+            systemName: "bolt.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold),
+        )
+        configuration.imagePadding = 5
+        configuration.baseForegroundColor = .systemBlue
+        configuration.background.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.1)
+        configuration.background.cornerRadius = 6
+        let button = UIButton(configuration: configuration)
+        button.heightAnchor.constraint(equalToConstant: 34).isActive = true
+        button.addAction(UIAction { [weak self] _ in self?.openInstantView() }, for: .touchUpInside)
+        return button
+    }
+
+    /// InstantPageController over the chat, pushed as Telegram pushes it.
+    private func openInstantView() {
+        guard let navigation = nearestViewController?.navigationController else { return }
+        navigation.pushViewController(
+            InstantViewController(url: preview.url, siteName: preview.siteName, client: client),
+            animated: true,
+        )
+    }
+
     @objc private func openLink() {
+        // A preview with Instant View opens the article in it, as Telegram's webpage bubble does.
+        if preview.instantViewVersion > 0 {
+            openInstantView()
+            return
+        }
         guard let url = getUrl(from: preview.url), let controller = nearestViewController else { return }
         if preview.skipConfirmation {
             TelegramLinkRouter.shared.open(url, from: controller)

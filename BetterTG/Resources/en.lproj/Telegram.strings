@@ -1345,6 +1345,13 @@
 "Settings.Tips" = "Telegram Features";
 "Settings.TipsUsername" = "TelegramTips";
 "Settings.PauseMusicOnRecording" = "Pause Music While Recoding";
+"Conversation.InstantPagePreview" = "INSTANT VIEW";
+"InstantPage.Views_0" = "%@ views";
+"InstantPage.Views_1" = "%@ view";
+"InstantPage.Views_2" = "%@ views";
+"InstantPage.Views_3_10" = "%@ views";
+"InstantPage.Views_many" = "%@ views";
+"InstantPage.Views_any" = "%@ views";
 "ChatSettings.OpenLinksIn" = "Open Links in";
 "WebBrowser.Title" = "Web Browser";
 "WebBrowser.Telegram" = "Telegram";

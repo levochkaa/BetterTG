@@ -23,6 +23,9 @@ import UIKit
 /// UIKit counterpart of Telegram's ChatMessageRichDataBubbleContentNode and
 /// InstantPageV2 block layout. Expansion lives on the message, never on a cell.
 final class MessageRichContentView: UIView, MessageSupplementView {
+    /// Instant View opens a related article in another Instant View; a bubble opens it as a link.
+    var onOpenArticle: ((String) -> Void)?
+
     private let stack = UIStackView()
     private let source: TDNativeRichMessage
     private let messageID: Int64
@@ -35,16 +38,19 @@ final class MessageRichContentView: UIView, MessageSupplementView {
     private var attachments = [TelegramFileMessageView]()
     private var tasks = [Task<Void, Never>]()
     private var playbackVisible = false
-    private let contentWidth = Utils.maxMessageContentWidth
+    private let contentWidth: CGFloat
 
+    /// `contentWidth` is the bubble's by default; Instant View lays a page out at the screen's.
     init(
         content: TDNativeRichMessage,
         messageID: Int64,
         chatID: Int64,
         client: TDLibClient,
         state: MessageRichContentState,
+        contentWidth: CGFloat = Utils.maxMessageContentWidth,
         onAction: @escaping (MessageContentAction) -> Void,
     ) {
+        self.contentWidth = contentWidth
         self.source = content
         self.messageID = messageID
         self.chatID = chatID
@@ -425,7 +431,7 @@ final class MessageRichContentView: UIView, MessageSupplementView {
             case .pageBlockRelatedArticles(let value):
                 addText(value.header, font: .bold)
                 for article in value.articles {
-                    parent.addArrangedSubview(actionButton(article.title) { [weak self] _ in self?.open(article.url) })
+                    parent.addArrangedSubview(relatedArticle(article))
                 }
             case .pageBlockUnsupported:
                 let label = UILabel()
@@ -656,6 +662,72 @@ final class MessageRichContentView: UIView, MessageSupplementView {
         guard TDLib.shared.activeClient.id == client.id else { return }
         // The chat runs block buttons as it runs the keyboard under a message, after the row authority check.
         onAction(.pressInlineKeyboardButton(InlineKeyboardButtonPress(messageID: messageID, type: button.type)))
+    }
+
+    /// InstantPageArticleItem: the title in 16 pt semibold, the description and "author • date" in the secondary
+    /// colour, the article's photo at the trailing side.
+    private func relatedArticle(_ article: TDNativePageBlockRelatedArticle) -> UIView {
+        let row = UIControl()
+        let labels = verticalStack(spacing: 2)
+        labels.isUserInteractionEnabled = false
+        func label(_ text: String, font: UIFont, color: UIColor, lines: Int) {
+            guard !text.isEmpty else { return }
+            let label = UILabel()
+            label.text = text
+            label.font = font
+            label.textColor = color
+            label.numberOfLines = lines
+            labels.addArrangedSubview(label)
+        }
+        label(article.title, font: .systemFont(ofSize: 16, weight: .semibold), color: .label, lines: 2)
+        label(article.description, font: .systemFont(ofSize: 14), color: .secondaryLabel, lines: 2)
+        var byline = [String]()
+        if !article.author.isEmpty { byline.append(article.author) }
+        if article.publishDate > 0 {
+            byline.append(Date(timeIntervalSince1970: TimeInterval(article.publishDate))
+                .formatted(date: .long, time: .omitted))
+        }
+        label(byline.joined(separator: " • "), font: .systemFont(ofSize: 13), color: .secondaryLabel, lines: 1)
+        let content = UIStackView(arrangedSubviews: [labels])
+        content.spacing = 10
+        content.alignment = .top
+        content.isUserInteractionEnabled = false
+        if let photo = article.photo,
+           let size = photo.sizes.min(by: { abs($0.width - 160) < abs($1.width - 160) })
+        {
+            let image = TDImageLoadingView()
+            image.contentMode = .scaleAspectFill
+            image.clipsToBounds = true
+            image.layer.cornerRadius = 5
+            image.load(
+                file: size.photo,
+                placeholderData: photo.minithumbnail?.data,
+                maximumPixelSize: 160,
+                client: client,
+            )
+            images.append(image)
+            NSLayoutConstraint.activate([
+                image.widthAnchor.constraint(equalToConstant: 44),
+                image.heightAnchor.constraint(equalToConstant: 44),
+            ])
+            content.addArrangedSubview(image)
+        }
+        content.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.topAnchor.constraint(equalTo: row.topAnchor, constant: 6),
+            content.leadingAnchor.constraint(equalTo: row.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: row.trailingAnchor),
+            content.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -6),
+        ])
+        row.accessibilityLabel = article.title
+        row.accessibilityTraits = .link
+        row.isAccessibilityElement = true
+        row.addAction(UIAction { [weak self] _ in
+            guard let self else { return }
+            if let onOpenArticle { onOpenArticle(article.url) } else { open(article.url) }
+        }, for: .touchUpInside)
+        return row
     }
 
     private func open(_ value: String) {
