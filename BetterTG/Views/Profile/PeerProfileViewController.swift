@@ -156,6 +156,8 @@ ClientRestorableNavigationEntry {
     private var currentUserProfilePhoto: ProfilePhoto?
     private var currentUserPhotoRoleSignature: UserPhotoRoleSignature?
     private var currentStatusText: String
+    /// `updateChatOnlineMemberCount` for a group, which adds ", M online" to its member count.
+    private var onlineMemberCount = 0
     private var currentStatusIsOnline = false
     private var currentBioText = ""
     private var currentDetailTexts = [String]()
@@ -466,6 +468,20 @@ ClientRestorableNavigationEntry {
     /// A channel's recommendations, outside its topics.
     private var listsSimilarChannels: Bool {
         topic == nil && customChat.supergroup?.isChannel == true
+    }
+
+    /// PeerInfoData's group status: the member count, then ", M online" once more than one member is online.
+    private var displayedStatusText: String {
+        guard topic == nil, onlineMemberCount > 1 else { return currentStatusText }
+        let memberCount: Int =
+            switch customChat.type {
+            case .group(let group): group.memberCount
+            case .supergroup(let group) where !group.isChannel:
+                currentSupergroupMemberCount > 0 ? currentSupergroupMemberCount : group.memberCount
+            default: 0
+            }
+        guard memberCount > 0 else { return currentStatusText }
+        return ChatVM.memberStatus(memberCount: memberCount, onlineMemberCount: onlineMemberCount)
     }
 
     init(
@@ -1790,6 +1806,17 @@ ClientRestorableNavigationEntry {
         nc.publisher(&cancellables, for: .updateBasicGroupFullInfo) { [weak self] update in
             self?.handleBasicGroupFullInfoUpdate(update)
         }
+        onlineMemberCount = TelegramChatListStore.shared.onlineMemberCount(chatID: customChat.id, clientID: client.id)
+        TelegramChatListStore.shared
+            .onlineMemberCountChanges
+            .filter { [chatID = customChat.id] in $0 == chatID }
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] chatID in
+                guard let self, contextIsCurrent else { return }
+                onlineMemberCount = TelegramChatListStore.shared.onlineMemberCount(chatID: chatID, clientID: client.id)
+                scheduleMetadataRender()
+            }
+            .store(in: &cancellables)
         nc.publisher(&cancellables, for: .updateSupergroupFullInfo) { [weak self] update in
             self?.handleSupergroupFullInfoUpdate(update)
         }
@@ -2197,7 +2224,7 @@ ClientRestorableNavigationEntry {
     private func renderMetadata() {
         guard !clientOwnerRetired else { return }
         applyProfileTitle()
-        statusLabel.text = currentStatusText
+        statusLabel.text = displayedStatusText
         statusLabel.textColor = currentStatusIsOnline ? .systemGreen : .secondaryLabel
         statusLabel.isHidden = currentStatusText.isEmpty
         bioLabel.text = currentBioText
@@ -2652,7 +2679,7 @@ ClientRestorableNavigationEntry {
     }
 
     private func initialStatus() -> String {
-        currentStatusText
+        displayedStatusText
     }
 
     /// PeerInfoHeaderNode's title with the credibility icon after it; a topic's profile is titled by the topic.

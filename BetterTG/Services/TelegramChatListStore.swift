@@ -18,6 +18,8 @@ import TDLibKit
     static let shared = TelegramChatListStore()
 
     let changes = PassthroughSubject<Change, Never>()
+    /// A chat's online member count changed (`updateChatOnlineMemberCount`, sent while the chat is open).
+    let onlineMemberCountChanges = PassthroughSubject<Int64, Never>()
     private(set) var accountID: UUID?
     private(set) var clientID: Int32?
     private(set) var folderConfiguration: UpdateChatFolders?
@@ -28,6 +30,12 @@ import TDLibKit
     private var supergroups = [Int64: Supergroup]()
     /// TDLib names communities only by updateCommunity; service messages about them need the name.
     private var communityNames = [Int64: String]()
+    private var onlineMemberCounts = [Int64: Int]()
+
+    /// The chat's online members as TDLib last reported them for this client; 0 when unknown.
+    func onlineMemberCount(chatID: Int64, clientID: Int32) -> Int {
+        self.clientID == clientID ? onlineMemberCounts[chatID] ?? 0 : 0
+    }
 
     func consume(_ update: Update, accountID: UUID, clientID: Int32) {
         if self.accountID != accountID || self.clientID != clientID {
@@ -38,6 +46,7 @@ import TDLibKit
             groups = [:]
             supergroups = [:]
             communityNames = [:]
+            onlineMemberCounts = [:]
             folderConfiguration = nil
             changes.send(.reset)
         }
@@ -146,6 +155,9 @@ import TDLibKit
             mutate(value.chatId) { $0.actionBar = value.actionBar }
         case .updateChatAction(let value):
             ChatListActivities.shared.receive(value, clientID: clientID)
+        case .updateChatOnlineMemberCount(let value):
+            onlineMemberCounts[value.chatId] = value.onlineMemberCount
+            onlineMemberCountChanges.send(value.chatId)
         case .updateDefaultReactionType(let value):
             DefaultReactionType.shared.receive(value.reactionType, clientID: clientID)
         case .updateActiveEmojiReactions(let value):
