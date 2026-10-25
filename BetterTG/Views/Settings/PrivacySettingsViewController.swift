@@ -5,12 +5,14 @@ import UIKit
 
 // MARK: - PrivacySettingsViewController
 
-/// Telegram's Privacy and Security (PrivacyAndSecurityController): Blocked Users, Two-Step Verification (status only),
+/// Telegram's Privacy and Security (PrivacyAndSecurityController): Blocked Users, Active Websites while there are
+/// any, Two-Step Verification (status only),
 /// Auto-Delete Messages, the privacy rules with their summaries, and the inactivity period before account deletion.
 /// Passcode, Premium-only rules and account deletion now are not offered.
 final class PrivacySettingsViewController: SettingsListViewController {
     private var rules = [PrivacyKind: PrivacyRuleState]()
     private var blockedCount: Int?
+    private var websitesCount = 0
     private var hasPassword: Bool?
     private var autoDeleteTime: Int?
     private var accountTtlDays: Int?
@@ -35,16 +37,25 @@ final class PrivacySettingsViewController: SettingsListViewController {
         let autoDeleteText = autoDeleteTime.map {
             $0 == 0 ? L10n.telegram("Autoremove.OptionOff") : SettingsFormatting.timeInterval(seconds: $0)
         }
-        let security = SettingsSection(footer: L10n.telegram("Settings.AutoDeleteInfo"), rows: [
-            SettingsRow(
-                title: L10n.telegram("Settings.BlockedUsers"),
-                detail: blockedText ?? loading,
-                symbol: "hand.raised.fill",
-                symbolTint: .systemRed,
+        var securityRows = [SettingsRow(
+            title: L10n.telegram("Settings.BlockedUsers"),
+            detail: blockedText ?? loading,
+            symbol: "hand.raised.fill",
+            symbolTint: .systemRed,
+            accessory: .disclosure,
+        ) { [weak self] in
+            self?.navigationController?.pushViewController(BlockedUsersViewController(), animated: true)
+        }]
+        if websitesCount > 0 {
+            securityRows.append(SettingsRow(
+                title: L10n.telegram("PrivacySettings.WebSessions"),
+                detail: "\(websitesCount)",
+                symbol: "globe",
+                symbolTint: .systemBlue,
                 accessory: .disclosure,
-            ) { [weak self] in
-                self?.navigationController?.pushViewController(BlockedUsersViewController(), animated: true)
-            },
+            ) { [weak self] in self?.openWebsites() })
+        }
+        let security = SettingsSection(footer: L10n.telegram("Settings.AutoDeleteInfo"), rows: securityRows + [
             SettingsRow(
                 title: L10n.telegram("PrivacySettings.TwoStepAuth"),
                 detail: passwordText ?? loading,
@@ -107,7 +118,9 @@ final class PrivacySettingsViewController: SettingsListViewController {
             let autoDelete = try? await client.send(TDNativeRequests.getDefaultMessageAutoDeleteTime())
             let ttl = try? await client.send(TDNativeRequests.getAccountTtl())
             let me = try? await client.getMe()
+            let websites = try? await client.send(TDNativeRequests.getConnectedWebsites())
             guard let self, contextIsCurrent else { return }
+            websitesCount = websites?.websites.count ?? 0
             rules = loadedRules
             blockedCount = blocked?.totalCount
             hasPassword = password?.hasPassword
@@ -116,6 +129,15 @@ final class PrivacySettingsViewController: SettingsListViewController {
             phoneNumber = me?.phoneNumber ?? ""
             reload()
         }
+    }
+
+    private func openWebsites() {
+        let controller = ActiveWebsitesViewController()
+        controller.onChange = { [weak self] count in
+            self?.websitesCount = count
+            self?.reload()
+        }
+        navigationController?.pushViewController(controller, animated: true)
     }
 
     private func openEditor(_ kind: PrivacyKind) {

@@ -2789,3 +2789,8 @@
 "Notifications.Stories.SettingsHeader" = "NOTIFY ME ABOUT...";
 "Notifications.Stories.GlobalSetting" = "New Stories";
 "Notifications.Stories.Important" = "Important Stories";
+"PrivacySettings.WebSessions" = "Active Websites";
+"AuthSessions.LogOut" = "Disconnect";
+"AuthSessions.LogOutApplications" = "Disconnect All Websites";
+"AuthSessions.LogOutApplicationsHelp" = "You can log in on websites that support signing in with Telegram.";
+"AuthSessions.LoggedInWithTelegram" = "CONNECTED WEBSITES";

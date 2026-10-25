@@ -567,6 +567,7 @@ final class SettingsPeerCell: UITableViewCell {
         detailLabel.font = .preferredFont(forTextStyle: .subheadline)
         detailLabel.adjustsFontForContentSizeCategory = true
         detailLabel.textColor = .secondaryLabel
+        detailLabel.numberOfLines = 0
         NSLayoutConstraint.activate([
             contentView.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
             avatarView.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
