@@ -1476,6 +1476,15 @@ final class ComposerStickerCell: UICollectionViewCell {
     }
 
     func configure(sticker: Sticker, client: TDLibClient) {
+        // ChatMediaInputStickerGridItem and EmojiPagerContentComponent: panel stickers and emoji stop animating with
+        // Sticker or Emoji Animations off.
+        let isEmoji =
+            if case .stickerFullTypeCustomEmoji = sticker.fullType {
+                true
+            } else {
+                false
+            }
+        stickerView.energySaving = EnergySavingRole(item: isEmoji ? .loopEmoji : .loopStickers, whenOff: .still)
         stickerView.configure(sticker: sticker, client: client)
         isAccessibilityElement = true
         accessibilityLabel = sticker.emoji.isEmpty

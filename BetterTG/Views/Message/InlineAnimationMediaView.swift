@@ -24,6 +24,7 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
     private var fileRequest: AnimatedFileDownload?
     private var generation = UUID()
     private var playbackVisible = false
+    private var energyObserver: NSObjectProtocol?
     /// A bubble opens the gallery on tap, as Telegram's `ChatMessageInteractiveMediaNode` does; panel cells pass nil.
     private var onTap: (() -> Void)?
     private lazy var tapRecognizer = UITapGestureRecognizer(target: self, action: #selector(tapped))
@@ -40,6 +41,13 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
         addSubview(thumbnailView)
         playerLayer.videoGravity = .resizeAspect
         layer.addSublayer(playerLayer)
+        self.energyObserver = NotificationCenter.default.addObserver(
+            forName: EnergyUsage.didChange,
+            object: nil,
+            queue: .main,
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updatePlayback() }
+        }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -144,7 +152,8 @@ final class InlineAnimationMediaView: UIView, ReusableMediaView {
 
     private func updatePlayback() {
         let animationsEnabled = UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
-        if playbackVisible, window != nil, animationsEnabled {
+        // Power Saving's Autoplay GIFs: off, a GIF shows its first frame until the gallery opens it.
+        if playbackVisible, window != nil, animationsEnabled, EnergyUsage.shared.allows(.autoplayGif) {
             player?.play()
         } else {
             player?.pause()

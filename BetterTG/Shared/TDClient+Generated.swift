@@ -667,6 +667,10 @@ extension TDClient {
         ))
     }
 
+    func getSupportUser() async throws -> TDNativeUser {
+        try await send(TDNativeRequests.getSupportUser())
+    }
+
     func getTopChats(category: TDNativeTopChatCategory, limit: Int) async throws -> TDNativeChats {
         try await send(TDNativeRequests.getTopChats(category: category, limit: limit))
     }

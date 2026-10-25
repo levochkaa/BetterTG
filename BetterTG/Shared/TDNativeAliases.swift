@@ -9,6 +9,7 @@ public typealias Address = TDNativeAddress
 public typealias AnimatedChatPhoto = TDNativeAnimatedChatPhoto
 public typealias AnimatedEmoji = TDNativeAnimatedEmoji
 public typealias Animation = TDNativeAnimation
+public typealias Animations = TDNativeAnimations
 public typealias AreaPosition = TDNativeAreaPosition
 public typealias Audio = TDNativeAudio
 public typealias AuthorizationState = TDNativeAuthorizationState

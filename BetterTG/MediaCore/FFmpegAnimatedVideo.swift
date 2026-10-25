@@ -30,6 +30,13 @@ final class FFmpegVideoAsset {
         return timeline?.starts.count ?? 1
     }
 
+    /// One pass, once the timing scan has finished; zero before.
+    var duration: TimeInterval {
+        timingLock.lock()
+        defer { timingLock.unlock() }
+        return timeline?.duration ?? 0
+    }
+
     var estimatedMemoryCost: Int {
         // Reserve the bounded timing index even before its lazy scan completes.
         max(1, Int(size.width * size.height * 4)) + FFmpegVideoTimeline.maximumFrames * MemoryLayout<Double>.stride
@@ -321,6 +328,10 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
 
     var onFirstFrameReady: (() -> Void)?
 
+    var energySaving: EnergySavingRole? {
+        didSet { energySavingChanged() }
+    }
+
     // MARK: Private
 
     private let thumbnailView = TDImageLoadingView()
@@ -332,6 +343,9 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
     private var asset: FFmpegVideoAsset?
     private var decoder: FFmpegVideoFrameDecoder?
     private var playbackVisible = false
+    /// When the single pass Power Saving allows started, and whether it has played.
+    private var energyPassStart: CFTimeInterval?
+    private var energyPassPlayed = false
     private var onTap: (() -> Void)?
     private var displayLink: CADisplayLink?
     private var requestedFrameIndex: Int?
@@ -348,6 +362,15 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
 
     private var playbackEnabled: Bool {
         UserDefaults.standard.object(forKey: "animatedMediaEnabled") as? Bool ?? true
+    }
+
+    /// Power Saving holds a looping animation to a single pass, or to its first frame.
+    private var energyAllowsPlayback: Bool {
+        switch energySaving?.limit {
+        case nil: true
+        case .once: !energyPassPlayed
+        case .still: false
+        }
     }
 
     override init(frame: CGRect) {
@@ -379,6 +402,12 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
         isAccessibilityElement = true
         accessibilityLabel = L10n.betterTG("Accessibility.VideoSticker")
         accessibilityTraits = .image
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(energySavingChanged),
+            name: EnergyUsage.didChange,
+            object: nil,
+        )
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -437,6 +466,8 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
         asset = nil
         decoder = nil
         requestedFrameIndex = nil
+        energyPassStart = nil
+        energyPassPlayed = false
         onTap = nil
         onFirstFrameReady = nil
         isUserInteractionEnabled = false
@@ -553,7 +584,7 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
 
     private func updatePlayback() {
         let shouldPlay = fileRequest?.isCurrent == true && playbackVisible && window != nil && playbackEnabled
-            && decoder != nil && (asset?.frameCount ?? 0) > 1
+            && decoder != nil && (asset?.frameCount ?? 0) > 1 && energyAllowsPlayback
         if shouldPlay {
             startDisplayLink()
         } else {
@@ -575,6 +606,7 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
     private func stopDisplayLink() {
         displayLink?.invalidate()
         displayLink = nil
+        energyPassStart = nil
         decodeTask?.cancel()
         decodeTask = nil
         requestedFrameIndex = nil
@@ -582,7 +614,17 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
 
     @objc private func displayLinkFired() {
         guard fileRequest?.isCurrent == true, let asset, let path = loadedPath else { return }
-        requestFrame(asset.frameIndex(at: CACurrentMediaTime()), path: path)
+        var time = CACurrentMediaTime()
+        if energySaving?.limit == .once, asset.duration > 0 {
+            let start = energyPassStart ?? time
+            energyPassStart = start
+            guard time - start < asset.duration else {
+                finishEnergyPass(frameCount: asset.frameCount, path: path)
+                return
+            }
+            time -= start
+        }
+        requestFrame(asset.frameIndex(at: time), path: path)
     }
 
     private func requestFrame(_ index: Int, path: String) {
@@ -629,6 +671,26 @@ final class FFmpegAnimatedVideoView: UIControl, AnimatedFileView {
 
     @objc private func tapped() {
         onTap?()
+    }
+
+    /// A role or setting change starts over from the first frame.
+    @objc private func energySavingChanged() {
+        energyPassStart = nil
+        energyPassPlayed = false
+        stopDisplayLink()
+        if energySaving?.limit != nil, let firstFrame = asset?.firstFrame {
+            frameView.image = firstFrame
+        }
+        updatePlayback()
+    }
+
+    /// The pass reached its end: the last frame stays.
+    private func finishEnergyPass(frameCount: Int, path: String) {
+        energyPassPlayed = true
+        energyPassStart = nil
+        displayLink?.invalidate()
+        displayLink = nil
+        requestFrame(frameCount - 1, path: path)
     }
 }
 

@@ -135,6 +135,7 @@ final class SettingsViewController: UITableViewController {
              .faq,
              .language,
              .notifications,
+             .powerSaving,
              .privacy,
              .savedMessages,
              .support,
@@ -168,6 +169,8 @@ final class SettingsViewController: UITableViewController {
             navigationController?.pushViewController(AppearanceViewController(), animated: true)
         case .language:
             navigationController?.pushViewController(LanguageSelectionViewController(), animated: true)
+        case .powerSaving:
+            navigationController?.pushViewController(PowerSavingViewController(), animated: true)
         case .profile:
             navigationController?.pushViewController(EditProfileViewController(), animated: true)
         case .savedMessages:
@@ -215,7 +218,7 @@ final class SettingsViewController: UITableViewController {
             let accountRows: [Row] = TDLib.shared.activeAccountID == nil
                 ? []
                 : [.notifications, .privacy, .dataAndStorage]
-            return accountRows + [.appearance, .language]
+            return accountRows + [.appearance, .powerSaving, .language]
         case .support:
             return TDLib.shared.activeAccountID == nil ? [] : [.support, .faq, .tips]
         case .media:
@@ -472,6 +475,7 @@ private extension SettingsViewController {
         case privacy
         case dataAndStorage
         case appearance
+        case powerSaving
         case language
         case support
         case faq
@@ -511,6 +515,8 @@ private extension SettingsViewController {
                 L10n.telegram("Settings.ChatSettings")
             case .appearance:
                 L10n.telegram("Conversation.Theme")
+            case .powerSaving:
+                L10n.telegram("Settings.PowerSaving")
             case .language:
                 L10n.telegram("Settings.AppLanguage")
             case .support:
@@ -528,7 +534,7 @@ private extension SettingsViewController {
             }
         }
 
-        var subtitle: String? {
+        @MainActor var subtitle: String? {
             switch self {
             case .account(let id):
                 id == TDLib.shared.activeAccountID
@@ -536,6 +542,8 @@ private extension SettingsViewController {
                     : account?.phoneNumber.map { "+\($0)" }
             case .appearance:
                 AppAppearance.current.title
+            case .powerSaving:
+                L10n.telegram(EnergyUsage.shared.isPowerSavingOn ? "Settings.PowerSavingOn" : "Settings.PowerSavingOff")
             case .language:
                 AppLocalization.shared.currentLanguage.nativeName
             case .animatedMedia:
@@ -564,7 +572,8 @@ private extension SettingsViewController {
             switch self {
             case .appearance,
                  .devices,
-                 .language: true
+                 .language,
+                 .powerSaving: true
             default: false
             }
         }
@@ -583,6 +592,7 @@ private extension SettingsViewController {
             case .dataAndStorage: "externaldrive.fill"
             case .appearance: "paintpalette.fill"
             case .language: "globe"
+            case .powerSaving: "battery.50percent"
             case .support: "bubble.left.and.text.bubble.right.fill"
             case .faq: "questionmark.circle.fill"
             case .tips: "lightbulb.fill"
@@ -609,7 +619,8 @@ private extension SettingsViewController {
             case .dataAndStorage: .systemGreen
             case .animatedMedia: .systemPurple
             case .logOut: .systemRed
-            case .support: .systemOrange
+            case .powerSaving,
+                 .support: .systemOrange
             case .faq: .systemCyan
             case .tips: .systemYellow
             }

@@ -132,6 +132,7 @@ final class MessageMediaView: UIView {
                     view = inlineView
                 } else if telegramAnimationUsesFFmpeg(animation.animation) {
                     let animationView = FFmpegAnimatedVideoView()
+                    animationView.energySaving = EnergySavingRole(item: .autoplayGif, whenOff: .still)
                     animationView.configure(
                         file: animation.animation.animation,
                         client: client,
@@ -156,6 +157,7 @@ final class MessageMediaView: UIView {
                 switch sticker.sticker.format {
                 case .stickerFormatTgs:
                     let stickerView = TGSStickerView()
+                    stickerView.energySaving = EnergySavingRole(item: .loopStickers, whenOff: .once)
                     stickerView.configure(
                         file: sticker.sticker.sticker,
                         client: client,
@@ -166,6 +168,7 @@ final class MessageMediaView: UIView {
                     view = stickerView
                 case .stickerFormatWebp:
                     let stickerView = AnimatedWebPView()
+                    stickerView.energySaving = EnergySavingRole(item: .loopStickers, whenOff: .once)
                     stickerView.configure(
                         file: sticker.sticker.sticker,
                         client: client,
@@ -176,6 +179,7 @@ final class MessageMediaView: UIView {
                     view = stickerView
                 case .stickerFormatWebm:
                     let stickerView = FFmpegAnimatedVideoView()
+                    stickerView.energySaving = EnergySavingRole(item: .loopStickers, whenOff: .once)
                     stickerView.configure(
                         file: sticker.sticker.sticker,
                         client: client,

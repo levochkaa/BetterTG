@@ -349,6 +349,8 @@ private final class MessageReactionButton: UIControl {
         customEmojiView?.prepareForReuse()
         customEmojiView?.removeFromSuperview()
         let view = CustomEmojiInlineView()
+        // ReactionButtonListComponent: reactions stop animating with Emoji Animations off.
+        view.energySaving = EnergySavingRole(item: .loopEmoji, whenOff: .still)
         customEmojiView = view
         view.translatesAutoresizingMaskIntoConstraints = false
         view.alpha = 0

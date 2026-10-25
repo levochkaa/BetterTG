@@ -59,6 +59,11 @@ final class CustomEmojiInlineView: UIView {
 
     var onFirstFrameReady: (() -> Void)?
 
+    /// The Power Saving process the sticker or emoji follows, kept across configurations.
+    var energySaving: EnergySavingRole? {
+        didSet { contentView?.energySaving = energySaving }
+    }
+
     // MARK: Private
 
     private var contentView: (UIView & AnimatedFileView)?
@@ -109,6 +114,7 @@ final class CustomEmojiInlineView: UIView {
         prepareForReuse()
         onFirstFrameReady = firstFrameReady
         contentView = view
+        view.energySaving = energySaving
         view.translatesAutoresizingMaskIntoConstraints = false
         addSubview(view)
         NSLayoutConstraint.activate([

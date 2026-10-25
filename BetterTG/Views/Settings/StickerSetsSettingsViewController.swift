@@ -766,6 +766,8 @@ final class SettingsStickerSetCell: UITableViewCell {
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         showsReorderControl = true
+        // ItemListStickerPackItem's playAnimatedStickers follows Sticker Animations.
+        thumbnailView.energySaving = EnergySavingRole(item: .loopStickers, whenOff: .still)
         thumbnailView.isUserInteractionEnabled = false
         titleLabel.font = .boldSystemFont(ofSize: 15)
         countLabel.font = .systemFont(ofSize: 14)

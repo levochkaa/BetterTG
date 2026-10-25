@@ -225,6 +225,8 @@ private final class ForumTopicRunIconView: UIView {
 
     private func install(_ sticker: Sticker, client: TDLibClient) {
         let view = CustomEmojiInlineView()
+        // ChatListItem: topic icons stop animating with Emoji Animations off.
+        view.energySaving = EnergySavingRole(item: .loopEmoji, whenOff: .still)
         customEmojiView = view
         view.translatesAutoresizingMaskIntoConstraints = false
         view.isUserInteractionEnabled = false

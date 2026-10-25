@@ -751,6 +751,7 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
             else { continue }
             let emojiView = CustomEmojiInlineView()
             emojiView.isUserInteractionEnabled = false
+            emojiView.energySaving = EnergySavingRole(item: .loopEmoji, whenOff: .once)
             emojiView.configure(sticker: sticker, client: client)
             emojiView.onFirstFrameReady = { [weak self, weak emojiView] in
                 guard let self, let emojiView,

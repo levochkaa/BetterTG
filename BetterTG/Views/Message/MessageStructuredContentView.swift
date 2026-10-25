@@ -3044,6 +3044,7 @@ private final class StickerGlyphContentView: UIView, MessageSupplementView {
 
         if let sticker {
             let stickerView = CustomEmojiInlineView()
+            stickerView.energySaving = EnergySavingRole(item: .loopEmoji, whenOff: .once)
             stickerView.translatesAutoresizingMaskIntoConstraints = false
             stickerView.configure(sticker: sticker, client: client)
             addSubview(stickerView)

@@ -371,6 +371,10 @@ final class FeaturedStickerSetCell: UICollectionViewCell {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        // StickerPaneSearchGlobalItem: the previews stop animating with Sticker Animations off.
+        for view in stickerViews {
+            view.energySaving = EnergySavingRole(item: .loopStickers, whenOff: .still)
+        }
         separator.backgroundColor = .separator
         titleLabel.font = .boldSystemFont(ofSize: 16)
         countLabel.font = .systemFont(ofSize: 15)

@@ -687,6 +687,8 @@ final class ChatListCell: UITableViewCell {
         for (index, placement) in placements.enumerated() {
             if index >= customEmojiViews.count {
                 let view = CustomEmojiInlineView()
+                // ChatListItem: emoji stop animating with Emoji Animations off.
+                view.energySaving = EnergySavingRole(item: .loopEmoji, whenOff: .still)
                 view.isUserInteractionEnabled = false
                 rowView.addSubview(view)
                 customEmojiViews.append((0, view))

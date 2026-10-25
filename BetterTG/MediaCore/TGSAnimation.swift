@@ -63,6 +63,10 @@ final class TGSStickerView: UIControl, AnimatedFileView {
 
     var onFirstFrameReady: (() -> Void)?
 
+    var energySaving: EnergySavingRole? {
+        didSet { energySavingChanged() }
+    }
+
     var playbackMode = PlaybackMode.loop {
         didSet {
             guard playbackMode != oldValue, let animation = animationView.animation else { return }
@@ -85,6 +89,8 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     private var representedFileID: Int?
     private var loadedPath: String?
     private var playbackVisible = false
+    /// A looping sticker held to one pass by Power Saving has played it.
+    private var energyPassPlayed = false
     private var onTap: (() -> Void)?
     private var fileRequest: AnimatedFileDownload?
     private var decodeTask: Task<Void, Never>?
@@ -134,6 +140,12 @@ final class TGSStickerView: UIControl, AnimatedFileView {
             self,
             selector: #selector(playbackHoldChanged),
             name: TGSPlaybackHold.didChange,
+            object: nil,
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(energySavingChanged),
+            name: EnergyUsage.didChange,
             object: nil,
         )
     }
@@ -195,6 +207,7 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         thawAnimationClock()
         animationView.stop()
         animationView.animation = nil
+        energyPassPlayed = false
         playbackMode = .loop
         animationView.isHidden = true
         thumbnailView.isHidden = false
@@ -274,6 +287,23 @@ final class TGSStickerView: UIControl, AnimatedFileView {
         }
         let shouldPlay = fileRequest?.isCurrent == true && playbackVisible && window != nil
             && playbackEnabled && animationView.animation != nil && !TGSPlaybackHold.isActive
+        if case .loop = playbackMode, let limit = energySaving?.limit {
+            // Power Saving: a single pass from the first frame, or the first frame alone.
+            guard shouldPlay, limit == .once, !energyPassPlayed else {
+                animationView.pause()
+                return
+            }
+            guard !animationView.isAnimationPlaying else { return }
+            animationView.play(
+                fromProgress: animationView.currentProgress,
+                toProgress: 1,
+                loopMode: .playOnce,
+            ) { [weak self] finished in
+                guard finished, let self else { return }
+                energyPassPlayed = true
+            }
+            return
+        }
         if shouldPlay {
             guard !animationView.isAnimationPlaying else { return }
             if case .once = playbackMode {
@@ -301,7 +331,7 @@ final class TGSStickerView: UIControl, AnimatedFileView {
     private func initialProgress(for animation: LottieAnimation) -> AnimationProgressTime {
         switch playbackMode {
         case .loop:
-            return synchronizedProgress(for: animation)
+            return energySaving?.limit == nil ? synchronizedProgress(for: animation) : 0
         case .stillEnd:
             return 1
         case .once(let startedAt):
@@ -331,6 +361,16 @@ final class TGSStickerView: UIControl, AnimatedFileView {
 
     @objc private func tapped() {
         onTap?()
+    }
+
+    /// A role or setting change starts over: the first frame while held, the shared phase while looping.
+    @objc private func energySavingChanged() {
+        energyPassPlayed = false
+        guard case .loop = playbackMode, let animation = animationView.animation else { return }
+        animationView.stop()
+        animationView.currentProgress = initialProgress(for: animation)
+        animationView.forceDisplayUpdate()
+        updatePlayback()
     }
 
     /// Stops the animation's clock on its current frame without telling Lottie. Its Core Animation engine, which

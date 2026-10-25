@@ -167,6 +167,7 @@ private final class TelegramReactionStripButton: UIControl {
         addSubview(emoji)
         if let sticker = reaction.sticker {
             let animation = CustomEmojiInlineView()
+            animation.energySaving = EnergySavingRole(item: .loopEmoji, whenOff: .still)
             animation.isUserInteractionEnabled = false
             animation.onFirstFrameReady = { [weak self] in self?.emoji.isHidden = true }
             animation.configure(sticker: sticker, client: reaction.client)
