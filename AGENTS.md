@@ -1,6 +1,6 @@
 # BetterTG Agent Instructions
 
-> Sync note: keep `AGENTS.md` and `CLAUDE.md` in sync. Any workflow or tooling change made in one file must be copied to the other in the same change.
+> `CLAUDE.md` is a symlink to this file, so Codex and Claude Code read the same rules.
 
 ## Build And Test
 
@@ -47,7 +47,7 @@
 - Keep every commit focused and stage only the files or hunks that belong to that stage; never include unrelated user changes.
 - Name commits as `<type>(<scope>): <imperative summary>`, with `feature`, `fix`, or `tech` as the type and a concise lowercase scope.
 - Keep the summary lowercase, imperative, and specific to the delivered behavior or technical change.
-- Add `Co-authored-by: Codex <noreply@openai.com>` to every agent-authored commit.
+- End every agent-authored commit with a `Co-authored-by:` trailer naming the model that wrote it, such as `Co-authored-by: Codex <noreply@openai.com>`.
 
 ## UI Implementation
 
