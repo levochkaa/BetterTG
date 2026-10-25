@@ -39,6 +39,8 @@ packages:
   libwebp:
     url: https://github.com/SDWebImage/libwebp-Xcode.git
     exactVersion: 1.6.0
+  RLottie:
+    path: Packages/RLottie
   SwiftMath:
     url: https://github.com/mgriebling/SwiftMath.git
     exactVersion: 1.7.3
@@ -59,6 +61,7 @@ targets:
       - package: FFmpegBridge
       - package: Lottie
       - package: libwebp
+      - package: RLottie
       - package: SwiftMath
       - package: TDLibKit
         product: TDLibKitShared
