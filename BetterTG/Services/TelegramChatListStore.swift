@@ -148,6 +148,8 @@ import TDLibKit
             ChatListActivities.shared.receive(value, clientID: clientID)
         case .updateDefaultReactionType(let value):
             DefaultReactionType.shared.receive(value.reactionType, clientID: clientID)
+        case .updateActiveEmojiReactions(let value):
+            DefaultReactionType.shared.receive(activeEmojis: value.emojis, clientID: clientID)
         case .updateChatReplyMarkup(let value):
             mutate(value.chatId) { $0.replyMarkupMessageId = value.replyMarkupMessage?.id ?? 0 }
         case .updateChatVideoChat(let value):
@@ -257,12 +259,29 @@ import TDLibKit
 @MainActor final class DefaultReactionType {
     static let shared = DefaultReactionType()
 
+    /// The quick reaction or the active reactions changed.
+    let changes = PassthroughSubject<Void, Never>()
+
     private var clientID: Int32?
     private var value: ReactionType?
+    private var activeEmojisClientID: Int32?
+    private var activeEmojis = [String]()
 
     func receive(_ type: ReactionType, clientID: Int32) {
         self.clientID = clientID
         value = type
+        changes.send()
+    }
+
+    /// `updateActiveEmojiReactions`: the emoji reactions anyone can choose, which a quick reaction is chosen from.
+    func receive(activeEmojis: [String], clientID: Int32) {
+        activeEmojisClientID = clientID
+        self.activeEmojis = activeEmojis
+        changes.send()
+    }
+
+    func activeEmojis(for client: TDLibClient) -> [String] {
+        activeEmojisClientID == client.id ? activeEmojis : []
     }
 
     /// The client's quick reaction, or 👍 as Telegram's default until TDLib names one.

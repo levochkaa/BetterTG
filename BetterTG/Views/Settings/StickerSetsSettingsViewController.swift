@@ -49,7 +49,8 @@ enum StickerPackOrder {
 
 // MARK: - InstalledStickerSetsViewController
 
-/// InstalledStickerPacksController. Stickers: Trending Stickers, Archived Stickers and Emoji with their counts, Suggest
+/// InstalledStickerPacksController. Stickers: Trending Stickers, Archived Stickers and Emoji with their counts, Quick
+/// Reaction, Suggest
 /// Stickers by
 /// Emoji, Large Emoji (TDLib's `disable_animated_emoji`), Dynamic Pack Order, then My Stickers with the @stickers note.
 /// Emoji: Archived
@@ -94,6 +95,7 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
     private var largeEmoji = true
     private var loadTask: Task<Void, Never>?
     private var updatesCancellable: AnyCancellable?
+    private var reactionCancellable: AnyCancellable?
     /// TDLib changed the sets while the user was editing; they reload on Done.
     private var needsReload = false
     /// The section of Suggest Stickers by Emoji, where its menu opens.
@@ -133,6 +135,13 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
         )
         updateNavigationItems()
         load()
+        reactionCancellable = DefaultReactionType.shared
+            .changes
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
+                guard let self, !tableView.isEditing else { return }
+                reload()
+            }
         let mode = mode
         let accountID = accountID
         updatesCancellable = NotificationCenter.default
@@ -195,6 +204,19 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
                     animated: true,
                 )
             })
+        }
+        if mode == .stickers {
+            let reaction = DefaultReactionType.shared.type(for: client)
+            let client = client
+            shortcuts.append(SettingsRow(
+                title: L10n.telegram("Settings.QuickReactionSetup.NavigationTitle"),
+                symbol: "heart",
+                accessory: .disclosure,
+                action: { [weak self] in
+                    self?.navigationController?.pushViewController(QuickReactionSetupViewController(), animated: true)
+                },
+                trailingView: SettingsTrailingView { QuickReactionIconView(type: reaction, client: client) },
+            ))
         }
         if !shortcuts.isEmpty {
             sections.append(SettingsSection(rows: shortcuts))

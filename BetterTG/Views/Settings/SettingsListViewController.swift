@@ -46,6 +46,16 @@ struct SettingsRow {
     var swipeAction: (title: String, handler: () -> Void)?
     /// ItemListDisclosureItem's `.badge` label: the text on an accent pill before the disclosure arrow.
     var badge: String?
+    /// A view before the disclosure arrow in place of the detail, such as ItemListReactionItem's reaction.
+    var trailingView: SettingsTrailingView?
+}
+
+// MARK: - SettingsTrailingView
+
+/// Makes a row's trailing view each time its cell is configured. A struct, so a row's trailing closure stays its
+/// action.
+struct SettingsTrailingView {
+    let make: () -> UIView
 }
 
 // MARK: - SettingsPeer
@@ -421,6 +431,14 @@ class SettingsListViewController: UITableViewController {
                 cell.accessoryType = .none
             }
             cell.accessoryView = SettingsBadgeAccessoryView(text: badge, showsDisclosure: cell.accessoryView == nil)
+        } else if let trailingView = row.trailingView {
+            if case .disclosure = row.accessory {
+                cell.accessoryType = .none
+            }
+            cell.accessoryView = SettingsTrailingAccessoryView(
+                content: trailingView.make(),
+                showsDisclosure: cell.accessoryView == nil,
+            )
         }
     }
 }
@@ -460,6 +478,43 @@ private final class SettingsBadgeAccessoryView: UIView {
         frame = CGRect(x: 0, y: 0, width: width, height: 20)
         isAccessibilityElement = true
         accessibilityLabel = text
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+// MARK: - SettingsTrailingAccessoryView
+
+/// A row's own view, its intrinsic size centred in a 28 pt column, 6 pt before the disclosure arrow.
+private final class SettingsTrailingAccessoryView: UIView {
+    init(content: UIView, showsDisclosure: Bool) {
+        super.init(frame: .zero)
+        let size = content.intrinsicContentSize
+        let side = CGSize(width: max(28, size.width), height: 28)
+        content.frame = CGRect(
+            x: (side.width - max(size.width, 0)) / 2,
+            y: (side.height - max(size.height, 0)) / 2,
+            width: max(size.width, 0),
+            height: max(size.height, 0),
+        )
+        addSubview(content)
+        var width = side.width
+        if showsDisclosure {
+            let arrow = UIImageView(image: UIImage(
+                systemName: "chevron.forward",
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold),
+            ))
+            arrow.tintColor = .tertiaryLabel
+            arrow.sizeToFit()
+            arrow.frame.origin = CGPoint(x: width + 6, y: (side.height - arrow.bounds.height) / 2)
+            addSubview(arrow)
+            width = arrow.frame.maxX
+        }
+        frame = CGRect(x: 0, y: 0, width: width, height: side.height)
+        isAccessibilityElement = content.isAccessibilityElement
+        accessibilityLabel = content.accessibilityLabel
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {

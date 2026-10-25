@@ -2720,3 +2720,10 @@
 "SharedMedia.SimilarChannel.Subscribers_any" = "%@ subscribers";
 "SharedMedia.SimilarBot.Users_1" = "%@ monthly user";
 "SharedMedia.SimilarBot.Users_any" = "%@ monthly users";
+"Settings.QuickReactionSetup.NavigationTitle" = "Quick Reaction";
+"Settings.QuickReactionSetup.Title" = "Quick Reaction";
+"Settings.QuickReactionSetup.DemoHeader" = "DOUBLE TAP ON A MESSAGE TO REACT";
+"Settings.QuickReactionSetup.DemoInfo" = "You can double tap on message for a quick reaction.";
+"Settings.QuickReactionSetup.DemoMessageText" = "I hope you're enjoying your day as much as I am.";
+"Settings.QuickReactionSetup.ChooseQuickReaction" = "Choose Your Quick Reaction";
+"Settings.QuickReactionSetup.ChooseQuickReactionInfo" = "You can set any emoji as your quick reaction.";
