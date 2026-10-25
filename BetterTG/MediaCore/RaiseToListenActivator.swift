@@ -5,9 +5,27 @@ import CoreMotion
 import QuartzCore
 import UIKit
 
-// MARK: - RaiseToListenSettings
+// MARK: - PauseMusicOnRecordingSettings
 
 /// Telegram's Data and Storage switch (MediaInputSettings.enableRaiseToSpeak), on by default and kept on the device.
+/// MediaInputSettings' Pause Music While Recording, on by default: off, voice and video message recording mixes with
+/// other apps' audio instead of interrupting it, as ManagedAudioSessionType's `withOthers` does.
+enum PauseMusicOnRecordingSettings {
+    private static let key = "BetterTG.pauseMusicOnRecording"
+
+    static var isEnabled: Bool {
+        get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+
+    /// The record category's options with mixing added while the setting is off.
+    static func recordOptions(_ options: AVAudioSession.CategoryOptions) -> AVAudioSession.CategoryOptions {
+        isEnabled ? options : options.union(.mixWithOthers)
+    }
+}
+
+// MARK: - RaiseToListenSettings
+
 enum RaiseToListenSettings {
     // MARK: Private
 

@@ -321,13 +321,18 @@ final class Media: ObservableObject {
         // A failed deactivation (a player still holds the session) must not skip the record category.
         try? audioSession.setActive(false)
         do {
-            try audioSession.setCategory(.playAndRecord, mode: .default, policy: .default, options: [
-                .allowAirPlay,
-                .allowBluetoothHFP,
-                .allowBluetoothA2DP,
-                .defaultToSpeaker,
-                .overrideMutedMicrophoneInterruption,
-            ])
+            try audioSession.setCategory(
+                .playAndRecord,
+                mode: .default,
+                policy: .default,
+                options: PauseMusicOnRecordingSettings.recordOptions([
+                    .allowAirPlay,
+                    .allowBluetoothHFP,
+                    .allowBluetoothA2DP,
+                    .defaultToSpeaker,
+                    .overrideMutedMicrophoneInterruption,
+                ]),
+            )
             try audioSession.setActive(true)
         } catch {
             log("Error setting audioSessionRecord: \(error)")

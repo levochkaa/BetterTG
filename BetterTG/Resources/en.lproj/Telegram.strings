@@ -1344,6 +1344,7 @@
 "Settings.FAQ_Button" = "FAQ";
 "Settings.Tips" = "Telegram Features";
 "Settings.TipsUsername" = "TelegramTips";
+"Settings.PauseMusicOnRecording" = "Pause Music While Recoding";
 "PowerSavingScreen.OptionAutoplayGifTitle" = "Autoplay GIFs";
 "PowerSavingScreen.OptionAutoplayGifText" = "Autoplay and loop GIFs in chats and in the keyboard.";
 "PowerSavingScreen.OptionAutoplayStickersTitle" = "Sticker Animations";

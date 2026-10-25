@@ -49,12 +49,20 @@ final class DataAndStorageViewController: SettingsListViewController {
         ]), SettingsSection(
             header: L10n.telegram("ChatSettings.Other").uppercased(),
             footer: L10n.telegram("Settings.RaiseToListenInfo"),
-            rows: [SettingsRow(
-                title: L10n.telegram("Settings.RaiseToListen"),
-                accessory: .toggle(isOn: RaiseToListenSettings.isEnabled, onChange: { isOn in
-                    RaiseToListenSettings.isEnabled = isOn
-                }),
-            )],
+            rows: [
+                SettingsRow(
+                    title: L10n.telegram("Settings.PauseMusicOnRecording"),
+                    accessory: .toggle(isOn: PauseMusicOnRecordingSettings.isEnabled, onChange: { isOn in
+                        PauseMusicOnRecordingSettings.isEnabled = isOn
+                    }),
+                ),
+                SettingsRow(
+                    title: L10n.telegram("Settings.RaiseToListen"),
+                    accessory: .toggle(isOn: RaiseToListenSettings.isEnabled, onChange: { isOn in
+                        RaiseToListenSettings.isEnabled = isOn
+                    }),
+                ),
+            ],
         ), SettingsSection(
             header: L10n.telegram("ChatSettings.ConnectionType.Title").uppercased(),
             rows: [SettingsRow(

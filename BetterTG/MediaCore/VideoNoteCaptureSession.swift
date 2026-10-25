@@ -1112,10 +1112,12 @@ final class VideoNoteCaptureSession: NSObject, @unchecked Sendable {
     private func activateAudioSession() throws {
         let session = AVAudioSession.sharedInstance()
         try session.setActive(false)
-        try session.setCategory(.playAndRecord, mode: .videoRecording, policy: .default, options: [
-            .allowBluetoothHFP,
-            .allowBluetoothA2DP,
-        ])
+        try session.setCategory(
+            .playAndRecord,
+            mode: .videoRecording,
+            policy: .default,
+            options: PauseMusicOnRecordingSettings.recordOptions([.allowBluetoothHFP, .allowBluetoothA2DP]),
+        )
         try session.setActive(true)
         contextLock.withLock {
             ownsAudioSession = true
