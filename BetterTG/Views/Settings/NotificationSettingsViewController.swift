@@ -7,8 +7,9 @@ import UIKit
 // MARK: - NotificationSettingsViewController
 
 /// Telegram's Notifications and Sounds (NotificationsAndSoundsController): private chats, groups and channels with
-/// their state and exception counts, Reactions, New Contacts (`disable_contact_registered_notifications`), and Reset
-/// All Notifications. BetterTG has no in-app sound or badge settings to show here.
+/// their state and exception counts, Stories, Reactions, In-App Notifications, the Badge Counter's Count Unread
+/// Messages, New Contacts (`disable_contact_registered_notifications`), and Reset All Notifications. TDLib counts
+/// unread chats without telling channels apart, so Include Channels has no counterpart.
 final class NotificationSettingsViewController: SettingsListViewController {
     private var settings = [NotificationScope: ScopeNotificationSettings]()
     private var exceptionCounts = [NotificationScope: Int]()
@@ -56,7 +57,11 @@ final class NotificationSettingsViewController: SettingsListViewController {
         if let reactions = ReactionNotificationSettingsStore.shared.settings(for: client) {
             rows.append(reactionsRow(reactions))
         }
-        var sections = [SettingsSection(header: L10n.telegram("Notifications.MessageNotifications"), rows: rows)]
+        var sections = [
+            SettingsSection(header: L10n.telegram("Notifications.MessageNotifications"), rows: rows),
+            inAppSection(),
+            badgeSection(),
+        ]
         if let contactJoinedEnabled {
             sections.append(SettingsSection(
                 footer: L10n.telegram("NotificationSettings.ContactJoinedInfo"),
@@ -150,6 +155,48 @@ final class NotificationSettingsViewController: SettingsListViewController {
         ) { [weak self] in
             self?.navigationController?.pushViewController(ReactionNotificationSettingsViewController(), animated: true)
         }
+    }
+
+    /// In-App Sounds, In-App Vibrate and In-App Preview, for messages that arrive while BetterTG is open.
+    private func inAppSection() -> SettingsSection {
+        SettingsSection(header: L10n.telegram("Notifications.InAppNotifications"), rows: [
+            SettingsRow(
+                title: L10n.telegram("Notifications.InAppNotificationsSounds"),
+                accessory: .toggle(isOn: InAppNotificationSettings.playSounds) { isOn in
+                    InAppNotificationSettings.playSounds = isOn
+                },
+            ),
+            SettingsRow(
+                title: L10n.telegram("Notifications.InAppNotificationsVibrate"),
+                accessory: .toggle(isOn: InAppNotificationSettings.vibrate) { isOn in
+                    InAppNotificationSettings.vibrate = isOn
+                },
+            ),
+            SettingsRow(
+                title: L10n.telegram("Notifications.InAppNotificationsPreview"),
+                accessory: .toggle(isOn: InAppNotificationSettings.displayPreviews) { isOn in
+                    InAppNotificationSettings.displayPreviews = isOn
+                },
+            ),
+        ])
+    }
+
+    /// The Badge Counter's Count Unread Messages, with the note on what switching it does.
+    private func badgeSection() -> SettingsSection {
+        let countsMessages = InAppNotificationSettings.badgeCountsMessages
+        return SettingsSection(
+            header: L10n.telegram("Notifications.Badge"),
+            footer: L10n.telegram(countsMessages
+                ? "Notifications.Badge.CountUnreadMessages.InfoOn"
+                : "Notifications.Badge.CountUnreadMessages.InfoOff"),
+            rows: [SettingsRow(
+                title: L10n.telegram("Notifications.Badge.CountUnreadMessages"),
+                accessory: .toggle(isOn: countsMessages) { [weak self] isOn in
+                    InAppNotificationSettings.badgeCountsMessages = isOn
+                    self?.reload()
+                },
+            )],
+        )
     }
 
     private func setContactJoined(_ isOn: Bool) {

@@ -244,12 +244,18 @@ import UserNotifications
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping @Sendable (Int) -> Void,
     ) {
-        if let route = PushNotificationRoute(userInfo: notification.request.content.userInfo) {
+        let route = PushNotificationRoute(userInfo: notification.request.content.userInfo)
+        if let route {
             log("Foreground push received: event=\(route.event ?? "unknown")")
         } else {
             log("Foreground push received without a recognized route")
         }
-        completionHandler(Int(UNNotificationPresentationOptions([.banner, .list, .sound]).rawValue))
+        // The relay sends a silent message without a sound.
+        let isSilent = notification.request.content.sound == nil
+        Task { @MainActor in
+            let options = InAppNotificationPresentation.options(for: route, isSilent: isSilent)
+            completionHandler(Int(options.rawValue))
+        }
     }
 
     nonisolated func userNotificationCenter(

@@ -1242,6 +1242,14 @@
 "Notifications.Reset" = "Reset";
 "Notifications.ResetAllNotifications" = "Reset All Notifications";
 "Notifications.ResetAllNotificationsHelp" = "Undo all custom notification settings for all your contacts and groups.";
+"Notifications.InAppNotifications" = "IN-APP NOTIFICATIONS";
+"Notifications.InAppNotificationsSounds" = "In-App Sounds";
+"Notifications.InAppNotificationsVibrate" = "In-App Vibrate";
+"Notifications.InAppNotificationsPreview" = "In-App Preview";
+"Notifications.Badge" = "BADGE COUNTER";
+"Notifications.Badge.CountUnreadMessages" = "Count Unread Messages";
+"Notifications.Badge.CountUnreadMessages.InfoOff" = "Switch on to show the number of unread messages instead of chats.";
+"Notifications.Badge.CountUnreadMessages.InfoOn" = "Switch off to show the number of unread chats instead of messages.";
 "Notifications.ResetAllNotificationsText" = "Are you sure you want to reset all notification settings to default?";
 "Notifications.Title" = "Notifications";
 "Cache.ByPeerHeader" = "CHATS";

@@ -422,6 +422,17 @@ extension ChatVM {
         _ update: UpdateMessageSendSucceeded,
         authority: ChatUpdateDeliveryAuthority,
     ) {
+        // ChatControllerLoadDisplayNode's deliveredMessageEvents: In-App Sounds plays MessageSent once a message
+        // that wasn't sent silently is delivered.
+        if InAppNotificationSettings.playSounds,
+           case .messageSendingStatePending(let pending) = messages.lazy
+            .flatMap(\.sourceMessages)
+            .first(where: { $0.id == update.oldMessageId })?
+            .sendingState,
+           pending.sendingId != Self.silentSendingID
+        {
+            ServiceSoundManager.shared.playMessageDeliveredSound()
+        }
         MediaUploadProgressRegistry.noteSendSucceeded(
             chatID: update.message.chatId,
             oldMessageID: update.oldMessageId,

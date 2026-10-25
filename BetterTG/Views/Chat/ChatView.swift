@@ -138,10 +138,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         presentationMode == .full && voiceGestureDefersSystemGestures ? .bottom : []
     }
 
+    let location: ChatLocation
+
     private let presentationMode: PresentationMode
     private let targetMessageID: Int64?
     private let targetQuote: MessageQuoteHighlight?
-    private let location: ChatLocation
     private let chatVM: ChatVM
     private let tdlib: TDLib
     private lazy var galleryPlaybackContext = MediaGalleryPlaybackContext(

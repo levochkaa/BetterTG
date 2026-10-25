@@ -161,6 +161,9 @@ import UIKit
         static var probeBotMenuButton: (chatID: Int64, button: TDNativeBotMenuButton)?
     #endif
 
+    /// The `sendingId` of a silent send, which its pending message carries until delivery.
+    static let silentSendingID = 1
+
     private static let historyPageSize = 30
 
     let messagesDidChange = PassthroughSubject<Void, Never>()
@@ -1808,7 +1811,7 @@ import UIKit
             updateOrderOfInstalledStickerSets: false,
             schedulingState: schedulingState,
             effectId: 0,
-            sendingId: 0,
+            sendingId: silent ? silentSendingID : 0,
             onlyPreview: false,
         )
     }
