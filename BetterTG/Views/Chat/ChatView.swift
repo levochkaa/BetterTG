@@ -286,6 +286,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// would otherwise stop the animation partway with a non-animated offset write.
     private var latestEdgeScrollInFlight = false
     private var latestEdgeScrollGeneration = 0
+    /// ChatControllerNode's `adMessagesContext`: a channel's own history shows its sponsored messages.
+    private var sponsoredMessages: ChatSponsoredMessagesContext?
+    private var sponsoredPlacement = ChatSponsoredMessagePlacement()
+    /// The next ad is due; it is placed once the user stops scrolling, so the rows on screen stay where they are.
+    private var sponsoredPlacementDue = false
+    private var sponsoredScrollOffset: CGFloat?
+    /// `currentPrefetchDirectionIsToLater`: the last scroll went toward the newest message.
+    private var sponsoredScrollsTowardLatest = false
     private var metadataNavigationTask: Task<Void, Never>?
     /// The post whose comment thread is opening; its comments bar shows a spinner (Telegram's
     /// `currentMessageWithLoadingReplyThread`).
@@ -579,6 +587,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return requests
     }
 
+    /// The history's height between the composer and the navigation bar.
+    private var sponsoredViewportHeight: CGFloat {
+        let insets = collectionView.adjustedContentInset
+        return max(0, collectionView.bounds.height - insets.top - insets.bottom)
+    }
+
+    /// The fixed ad's room at the history's end, which the scroll-to-latest button ignores.
+    private var latestSponsoredRowHeight: CGFloat {
+        let first = IndexPath(item: 0, section: 0)
+        guard sponsoredMessages != nil, case .sponsored = dataSource.itemIdentifier(for: first),
+              let frame = collectionView.collectionViewLayout.layoutAttributesForItem(at: first)?.frame
+        else { return 0 }
+        return frame.maxY
+    }
+
     convenience init(
         customChat: CustomChat,
         location: ChatLocation? = nil,
@@ -679,6 +702,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         configureNavigationBar()
         configureDataSource()
         observeState()
+        configureSponsoredMessages()
         // Power Saving's autoplay settings pause or resume the inline playback on screen.
         NotificationCenter.default
             .publisher(for: EnergyUsage.didChange)
@@ -774,6 +798,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         restoreVisibleInlineVideoPlayback()
         acknowledgeCommittedVisibleMessages(requestHistory: true)
+        // ChatController's viewDidAppear activates the chat's ads once.
+        sponsoredMessages?.activate()
+        updateSponsoredMessageVisibility()
         isChatVisible = true
         setUpRaiseToListen()
         applyPendingAttachmentMenuBotStart()
@@ -1407,6 +1434,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         updateInlineVideoPlaybackVisibility()
         updatePinnedMessageSelectionForScroll()
         updateFloatingDate(animated: true)
+        updateSponsoredMessageVisibility()
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -1430,6 +1458,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             endFloatingDateFlashingSoon()
             applyPendingMessageNavigation()
             retryClientRestoration()
+            updateSponsoredMessageVisibility()
         }
     }
 
@@ -1438,6 +1467,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         endFloatingDateFlashingSoon()
         applyPendingMessageNavigation()
         retryClientRestoration()
+        updateSponsoredMessageVisibility()
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
@@ -1445,6 +1475,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         recordMessageNavigationGeometry("animation-end", settled: true)
         latestEdgeScrollInFlight = false
         messageNavigationScroll.animationEnded()
+        updateSponsoredMessageVisibility()
     }
 
     func presentationControllerDidDismiss(_: UIPresentationController) {
@@ -1520,6 +1551,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         applyComposerSendGlides(to: cell)
+        if let cell = cell as? ChatSponsoredMessageCell {
+            cell.setPlaybackVisible(presentedViewController == nil)
+            if userIsScrollingTimeline { cell.animateAppearance() }
+        }
         startPrefetch(at: indexPath)
         if case .message(let displayedMessageID) = dataSource.itemIdentifier(for: indexPath) {
             prefetchedPlaybackFiles[displayedMessageID] = nil
@@ -1546,6 +1581,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         forItemAt _: IndexPath,
     ) {
         (cell as? MessageCell)?.setMediaPlaybackVisible(false)
+        (cell as? ChatSponsoredMessageCell)?.setPlaybackVisible(false)
         DispatchQueue.main.async { [weak self] in
             self?.pruneInlineVideoPlaybackOwners()
             self?.updateInlineVideoPlaybackVisibility()
@@ -3084,6 +3120,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             forCellWithReuseIdentifier: ChatReplyCountCell.reuseIdentifier,
         )
         collectionView.register(ChatBotInfoCell.self, forCellWithReuseIdentifier: ChatBotInfoCell.reuseIdentifier)
+        collectionView.register(
+            ChatSponsoredMessageCell.self,
+            forCellWithReuseIdentifier: ChatSponsoredMessageCell.reuseIdentifier,
+        )
         if presentationMode == .full {
             let tapGesture = UITapGestureRecognizer(target: self, action: #selector(historyTapped(_:)))
             tapGesture.cancelsTouchesInView = false
@@ -3923,7 +3963,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func updateScrollToLatestButtonVisibility(animated: Bool) {
         // Until the restored viewport lands, the offset is not the one the user sees under the history cover.
         guard restoredViewport?.pending != true else { return }
-        let isAwayFromLatest = collectionView.contentOffset.y + collectionView.adjustedContentInset.top > 160
+        // ChatController's minOffsetForNavigation grows by the ad's height: the ad alone shows no button.
+        let isAwayFromLatest = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+            > 160 + latestSponsoredRowHeight
         let visible = isAwayFromLatest && !messageSearchActive && !isSelectingMessages
             && pollAddOptionFocusMessageID == nil
         defer { updateUnreadJumpButtons(animated: animated) }
@@ -3989,6 +4031,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                               case .botInfo(let info, let client) = timelineSnapshots.row(for: itemID)
                         else { return false }
                         cell.configure(info: info, client: client)
+                        return true
+                    },
+                    unavailable: { $0.resetUnavailableContent() },
+                )
+            case .sponsored(let id):
+                ChatTimelineCellProvider.dequeue(
+                    ChatSponsoredMessageCell.self, from: collectionView, at: indexPath,
+                    reuseIdentifier: ChatSponsoredMessageCell.reuseIdentifier,
+                    configure: { [weak self] cell in
+                        guard let self, timelineSourceIsCurrent,
+                              case .sponsored(let message, let client) = timelineSnapshots.row(for: itemID)
+                        else { return false }
+                        cell.configure(message: message, client: client, actions: sponsoredActions(for: id))
                         return true
                     },
                     unavailable: { $0.resetUnavailableContent() },
@@ -5074,7 +5129,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         let threadHead = chatVM.messageThreadHeadDisplay
         let itemIDs = demand.structural
-            ? ChatTimelineProjection.items(
+            ? insertingSponsoredItems(into: ChatTimelineProjection.items(
                 messages: chatVM.messages.filter {
                     !timelineSnapshots.deleting.contains($0.displayedID) && !chatVM.holdsIncompleteOutgoingAlbum($0)
                         && !chatVM.holdsComposerSendMessage($0) && !Self.isUpgradeNotice($0.message.content)
@@ -5083,7 +5138,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 threadHeadID: threadHead?.id,
                 includesBotInfo: showsBotInfoRow,
                 unreadAfterMessageID: chatVM.unreadDividerAfterMessageID,
-            )
+            ))
             : timelineSnapshots.committed.ids
         let models = Dictionary(chatVM.messages.map { ($0.displayedID, $0) }, uniquingKeysWith: { _, latest in latest })
         let messageRuns = chatVM.customChat.shouldShowProfileImage
@@ -5118,6 +5173,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 if let info = chatVM.botInfo {
                     rows[item] = .botInfo(info, chatVM.client)
                     changed.insert(item)
+                }
+            case .sponsored(let id):
+                if let context = sponsoredMessages, let message = context.message(id: id) {
+                    rows[item] = .sponsored(message, context.client)
                 }
             case .message(let id):
                 let previous = timelineSnapshots.committed.rows[item]?.message
@@ -5317,9 +5376,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             // without a scroll or a newly displayed cell to start it.
             owner.updateInlineVideoPlaybackVisibility()
             owner.acknowledgeCommittedVisibleMessages(requestHistory: structural)
+            owner.updateSponsoredMessageVisibility()
             owner.retryClientRestoration()
         }
         let previousItemIDs = batch.demand.animated ? Set(dataSource.snapshot().itemIdentifiers) : []
+        // The ad after the newest message stays put while a sent message takes its final identifier above it.
+        if let layout = collectionView.collectionViewLayout as? ChatTimelineLayout {
+            let staysAtBottom =
+                if case .sponsored = batch.content.ids.first {
+                    dataSource.snapshot().itemIdentifiers.first == batch.content.ids.first
+                } else {
+                    false
+                }
+            layout.leadingFixedItemCount = staysAtBottom ? 1 : 0
+        }
         dataSource.apply(snapshot, animatingDifferences: batch.demand.animated) { [weak self] in
             #if DEBUG
                 if self?.viewportCompletionProbe?.holdNativeCompletion(
@@ -5490,6 +5560,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// slid across it: a sticker or GIF showed under the bubble moving up. Every row moves by the same distance, so
     /// the new rows take the additive move UIKit gave the first row above them.
     private func riseInsertedLatestRows(after previous: Set<ChatTimelineItemID>, ids: [ChatTimelineItemID]) {
+        // The ad after the newest message stays below what arrives above it.
+        let ids = Array(ids.drop { item in
+            if case .sponsored = item { previous.contains(item) } else { false }
+        })
         let inserted = ids.prefix { !previous.contains($0) }
         guard !inserted.isEmpty, inserted.count < ids.count,
               let neighbourPath = dataSource.indexPath(for: ids[inserted.count]),
@@ -7862,6 +7936,179 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             guard let self, latestEdgeScrollGeneration == generation else { return }
             latestEdgeScrollInFlight = false
         }
+    }
+
+    // MARK: Sponsored messages
+
+    /// ChatControllerNode's `displayAdPeer`: a channel's own history shows ads; a preview, a thread or a topic none.
+    private func configureSponsoredMessages() {
+        guard presentationMode == .full, chatVM.isBroadcastChannel, location.topic == nil, sponsoredMessages == nil
+        else { return }
+        let context = ChatSponsoredMessagesContext(
+            chatID: location.chatID,
+            client: chatVM.client,
+            accountID: location.accountID,
+        )
+        context.onUpdate = { [weak self] in self?.sponsoredMessagesChanged() }
+        sponsoredMessages = context
+    }
+
+    /// beginAdMessageManagement, then the history with the ads.
+    private func sponsoredMessagesChanged() {
+        guard let context = sponsoredMessages, timelineSourceIsCurrent else { return }
+        sponsoredPlacement.reset(
+            ids: context.state.messages.map(\.id),
+            messagesBetween: context.state.messagesBetween,
+            viewportHeight: sponsoredViewportHeight,
+        )
+        updateSnapshot(animated: true)
+    }
+
+    /// ChatHistoryEntriesForView's ads: each placed one just after its message (rows run newest first, so before
+    /// it), and the fixed one after the newest message once the history reaches the chat's newest.
+    private func insertingSponsoredItems(into ids: [ChatTimelineItemID]) -> [ChatTimelineItemID] {
+        guard let context = sponsoredMessages, !context.state.messages.isEmpty else { return ids }
+        var result = ids
+        for placed in sponsoredPlacement.placed where context.message(id: placed.id) != nil {
+            guard let index = result.firstIndex(of: .message(placed.anchor)) else { continue }
+            result.insert(.sponsored(placed.id), at: index)
+        }
+        if let id = sponsoredPlacement.fixedID, context.message(id: id) != nil, !sponsoredPlacement.isPlaced(id),
+           case .message(let newest)? = result.first, let message = message(for: newest),
+           message.newestSourceMessage.id >= context.state.latestMessageID
+        {
+            result.insert(.sponsored(id), at: 0)
+        }
+        return result
+    }
+
+    /// ChatHistoryListNode's processDisplayedItemRangeChanged and ChatController's contentPositionChanged for ads:
+    /// the fixed ad is seen once the history is at most 50 pt from its end, a placed one once its text, without the
+    /// button, is on screen; messages seen for the first time bring the next placed ad closer, which goes in once
+    /// the user stops scrolling.
+    private func updateSponsoredMessageVisibility() {
+        guard let context = sponsoredMessages, !context.state.messages.isEmpty, isViewLoaded, timelineSourceIsCurrent
+        else { return }
+        let offset = collectionView.contentOffset.y
+        if let previous = sponsoredScrollOffset, abs(offset - previous) > 0.5 {
+            sponsoredScrollsTowardLatest = offset < previous
+        }
+        sponsoredScrollOffset = offset
+        guard !timelineSnapshots.isBusy, restoredViewport?.pending != true,
+              view.window?.windowScene?.activationState == .foregroundActive,
+              navigationController?.topViewController === self, presentedViewController == nil,
+              !isTerminatingNavigation
+        else { return }
+        let insets = collectionView.adjustedContentInset
+        let visibleRect = CGRect(
+            x: 0,
+            y: offset + insets.top,
+            width: collectionView.bounds.width,
+            height: sponsoredViewportHeight,
+        )
+        var shownMessages = [(id: DisplayedMessageID, height: CGFloat)]()
+        for indexPath in collectionView.indexPathsForVisibleItems.sorted() {
+            guard let item = dataSource.itemIdentifier(for: indexPath),
+                  let frame = collectionView.collectionViewLayout.layoutAttributesForItem(at: indexPath)?.frame,
+                  frame.intersects(visibleRect) else { continue }
+            switch item {
+            case .message(let id):
+                if message(for: id)?.message.sendingState == nil { shownMessages.append((id, frame.height)) }
+            case .sponsored(let id):
+                // The history is flipped: the button is at the frame's top.
+                let text = CGRect(
+                    x: frame.minX,
+                    y: frame.minY + 46,
+                    width: frame.width,
+                    height: max(0, frame.height - 46),
+                )
+                let seen = indexPath.item == 0 && id == sponsoredPlacement.fixedID
+                    ? offset + insets.top <= 50
+                    : visibleRect.contains(text) || frame.contains(visibleRect)
+                if seen {
+                    context.markAsSeen(id)
+                    sponsoredPlacement.noteSeen(id)
+                }
+            default:
+                break
+            }
+        }
+        if sponsoredPlacement.count(shownMessages, viewportHeight: visibleRect.height) { sponsoredPlacementDue = true }
+        guard sponsoredPlacementDue, !userIsScrollingTimeline, !hasPendingMessageNavigation,
+              let anchor = sponsoredAnchor(towardLatest: sponsoredScrollsTowardLatest) else { return }
+        sponsoredPlacementDue = false
+        sponsoredPlacement.place(after: anchor)
+        updateSnapshot(animated: false)
+    }
+
+    /// maybeInsertPendingAdMessage's place: a sent message past the row next to the screen in the scroll direction;
+    /// toward the newest, not among the newest four once the history reaches them.
+    private func sponsoredAnchor(towardLatest: Bool) -> DisplayedMessageID? {
+        let ids = timelineSnapshots.committed.ids
+        let visible = collectionView.indexPathsForVisibleItems.map(\.item)
+        guard let lowest = visible.min(), let highest = visible.max() else { return nil }
+        let reachesLatest = (chatVM.messages.first?.newestSourceMessage.id ?? 0)
+            >= (sponsoredMessages?.state.latestMessageID ?? 0)
+        let indices = towardLatest
+            ? Array(stride(from: lowest - 2, through: reachesLatest ? 4 : 0, by: -1))
+            : Array(stride(from: highest + 2, to: ids.count, by: 1))
+        for index in indices where ids.indices.contains(index) {
+            guard case .message(let id) = ids[index], message(for: id)?.message.sendingState == nil,
+                  !sponsoredPlacement.placed.contains(where: { $0.anchor == id }) else { continue }
+            return id
+        }
+        return nil
+    }
+
+    private func sponsoredActions(for id: Int64) -> ChatSponsoredMessageActions {
+        ChatSponsoredMessageActions(
+            activate: { [weak self] isMediaClick in
+                self?.activateSponsoredMessage(id: id, isMediaClick: isMediaClick, fromFullscreen: false)
+            },
+            playVideo: { [weak self] file in self?.playSponsoredVideo(id: id, file: file) },
+            openLink: { [weak self] in
+                guard let self, !isSelectingMessages else { return }
+                sponsoredMessages?.markAction(id, isMediaClick: false, fromFullscreen: false)
+            },
+            close: { [weak self] in self?.presentNoAdsNotice() },
+        )
+    }
+
+    /// ChatController's activateAdAction: the click, then the sponsor's link through the link router, so a t.me link
+    /// opens in the app.
+    private func activateSponsoredMessage(id: Int64, isMediaClick: Bool, fromFullscreen: Bool) {
+        guard let context = sponsoredMessages, context.isCurrent, !isSelectingMessages,
+              let message = context.message(id: id), let url = getUrl(from: message.url) else { return }
+        context.markAction(id, isMediaClick: isMediaClick, fromFullscreen: fromFullscreen)
+        TelegramLinkRouter.shared.open(url, from: self)
+    }
+
+    /// ChatController's openMessage for an ad's video: the click as a media click, then the video full screen with
+    /// the ad's button, as UniversalVideoGalleryItem's ad footer opens it (`fromFullscreen`).
+    private func playSponsoredVideo(id: Int64, file: File) {
+        guard let context = sponsoredMessages, context.isCurrent, !isSelectingMessages, presentedViewController == nil,
+              let message = context.message(id: id) else { return }
+        context.markAction(id, isMediaClick: true, fromFullscreen: false)
+        let player = ChatSponsoredVideoViewController(
+            url: URL(fileURLWithPath: file.local.path),
+            buttonTitle: message.buttonText,
+        ) { [weak self] in
+            self?.activateSponsoredMessage(id: id, isMediaClick: true, fromFullscreen: true)
+        }
+        present(player, animated: true)
+    }
+
+    /// openNoAdsDemo without Premium: PremiumDemoScreen's No Ads page, as a notice, since BetterTG sells no Premium.
+    private func presentNoAdsNotice(from presenter: UIViewController? = nil) {
+        let host = presenter ?? self
+        guard host.presentedViewController == nil else { return }
+        let alert = UIAlertController(
+            title: L10n.telegram("Premium.NoAds"),
+            message: L10n.telegram("Premium.NoAdsStandaloneInfo").withoutTelegramMarkup,
+            preferredStyle: .alert,
+        )
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .cancel))
+        host.present(alert, animated: true)
     }
 
     // MARK: Message search

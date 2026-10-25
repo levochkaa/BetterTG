@@ -35,6 +35,9 @@ enum ChatTimelineItemID: Hashable {
     case botInfo
     /// Telegram's ChatUnreadItem, above the first message that was unread when the chat opened.
     case unreadDivider
+    /// A channel's sponsored message by its TDLib identifier: after the newest message, or after the message
+    /// ChatHistoryListNode placed it at (ChatHistoryEntriesForView's `adMessage` and `dynamicAdMessages`).
+    case sponsored(Int64)
 
     var displayedMessageID: DisplayedMessageID? {
         guard case .message(let id) = self else { return nil }

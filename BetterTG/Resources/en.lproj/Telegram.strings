@@ -2998,3 +2998,8 @@
 "PasscodeSettings.FailedAttempts_any" = "%@ Failed Passcode Attempt";
 "PasscodeSettings.FailedAttempts_many" = "%@ Failed Passcode Attempts";
 "PasscodeSettings.FailedAttempts_0" = "%@ Failed Passcode Attempts";
+"Premium.NoAds" = "No Ads";
+"Premium.NoAdsStandaloneInfo" = "Remove ads such as this one by subscribing to **Telegram Premium**.";
+"Message.AdSponsoredLabel" = "Sponsored";
+"Message.AdRecommendedLabel" = "Recommended";
+"Message.AdWhatIsThis" = "what's this?";

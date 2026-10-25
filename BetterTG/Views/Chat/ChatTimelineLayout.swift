@@ -11,6 +11,10 @@ import UIKit
 /// row with the inserted final row; the temporary copy is wider (it shows the sending clock), so two bubbles showed
 /// for a moment. Here the final row takes the place at once and the temporary one is hidden.
 final class ChatTimelineLayout: UICollectionViewCompositionalLayout {
+    /// Rows that stay at the bottom through the next update, such as the ad after the newest message; a sent message
+    /// is replaced just above them.
+    var leadingFixedItemCount = 0
+
     private var replacedItems = Set<IndexPath>()
 
     override func prepare(forCollectionViewUpdates updateItems: [UICollectionViewUpdateItem]) {
@@ -30,7 +34,7 @@ final class ChatTimelineLayout: UICollectionViewCompositionalLayout {
         guard let section = inserted.map(\.section).min() else { return }
         // A delete at the same bottom position as an insert is a message whose temporary id became final.
         var replaced = Set<IndexPath>()
-        var item = 0
+        var item = leadingFixedItemCount
         while inserted.contains(IndexPath(item: item, section: section)) {
             let path = IndexPath(item: item, section: section)
             if deleted.contains(path) { replaced.insert(path) }
