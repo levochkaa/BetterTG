@@ -8527,12 +8527,14 @@ import UIKit
                 stopTimer()
                 #if DEBUG
                     let shouldSend = !ProcessInfo.processInfo.arguments.contains("-ui-smoke-voice-preview-send")
+                    let pendingMessage = shouldSend ? nil : "Voice preview promotion smoke retained a retry draft."
                 #else
                     let shouldSend = true
+                    let pendingMessage: String? = nil
                 #endif
                 startVoiceFinalization(
                     sendWhenReady: shouldSend,
-                    pendingMessage: shouldSend ? nil : "Voice preview promotion smoke retained a retry draft.",
+                    pendingMessage: pendingMessage,
                     intentGeneration: interactionGeneration,
                 )
             } catch {
