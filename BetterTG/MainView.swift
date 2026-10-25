@@ -86,6 +86,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var isRestoringSearchFocus = false
     private var restorationViewports = [Int: ChatListViewportSnapshot]()
 
+    /// While a list selects chats, Telegram's toolbar takes the folder tabs' place and the pages stay put.
+    private var isSelectingChats = false
+
     var navigationClientSource: TdUpdateSource? {
         actionAuthority.scope(owner: self).source
     }
@@ -498,6 +501,16 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
     #endif
 
+    private func setChatSelectionEditing(title: String?, done: (() -> Void)?) {
+        customNavigationBar.setEditing(title: title, done: done)
+        isSelectingChats = done != nil
+        if let scrollView = pageController.view.subviews.compactMap({ $0 as? UIScrollView }).first {
+            scrollView.isScrollEnabled = !isSelectingChats
+        }
+        folderPicker.isUserInteractionEnabled = !isSelectingChats
+        folderPicker.alpha = isSelectingChats ? 0 : 1
+    }
+
     private func configurePageController() {
         pageController.dataSource = self
         pageController.delegate = self
@@ -512,7 +525,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             // A pan from an edge zone belongs to the row's swipe actions, one from the middle to folder paging.
             pagingEdgeGate.onTouchBegan = { [weak self, weak scrollView] atEdge in
                 guard let self, let scrollView, !scrollView.isDragging, !scrollView.isDecelerating else { return }
-                scrollView.isScrollEnabled = !atEdge || folderControllers.count <= 1
+                scrollView.isScrollEnabled = !isSelectingChats && (!atEdge || folderControllers.count <= 1)
             }
             pageController.view.addGestureRecognizer(pagingEdgeGate)
         }
@@ -1002,6 +1015,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             controller.setSearchActive(customNavigationBar.isSearchActive, animated: false, preservingViewport: true)
             controller.setAccessoryTopInset(voicePlaybackInset + liveLocationInset)
             controller.isSearchActive = { [weak self] in self?.customNavigationBar.isSearchActive == true }
+            controller.onSelectionEditingChange = { [weak self] title, done in
+                self?.setChatSelectionEditing(title: title, done: done)
+            }
             controller.allowsRowSwipe = { [weak self] in
                 guard let self else { return false }
                 return folderControllers.count <= 1 || pagingEdgeGate.touchStartedAtEdge

@@ -4,16 +4,18 @@ import UIKit
 
 // MARK: - ChatListSelectionToolbar
 
-/// Telegram's chat list Toolbar (ToolbarNode) while a list selects: text actions at the left and right edges over
-/// the bar's material, 49 points above the home indicator.
+/// Telegram's chat list Toolbar (ToolbarNode) while a list selects: text actions at the left and right edges, and
+/// one in the middle where the list offers it, over the bar's material, 49 points above the home indicator.
 final class ChatListSelectionToolbar: UIView {
     static let contentHeight: CGFloat = 49
 
     var onLeft: (() -> Void)?
+    var onMiddle: (() -> Void)?
     var onRight: (() -> Void)?
 
     private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
     private let leftButton = UIButton(type: .system)
+    private let middleButton = UIButton(type: .system)
     private let rightButton = UIButton(type: .system)
 
     override init(frame: CGRect) {
@@ -25,9 +27,20 @@ final class ChatListSelectionToolbar: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func update(left: String, leftEnabled: Bool, right: String, rightEnabled: Bool) {
+    /// A nil `middle` hides the middle action.
+    func update(
+        left: String,
+        leftEnabled: Bool,
+        middle: String? = nil,
+        middleEnabled: Bool = false,
+        right: String,
+        rightEnabled: Bool,
+    ) {
         leftButton.setTitle(left, for: .normal)
         leftButton.isEnabled = leftEnabled
+        middleButton.setTitle(middle, for: .normal)
+        middleButton.isHidden = middle == nil
+        middleButton.isEnabled = middleEnabled
         rightButton.setTitle(right, for: .normal)
         rightButton.isEnabled = rightEnabled
     }
@@ -41,7 +54,8 @@ final class ChatListSelectionToolbar: UIView {
         separator.backgroundColor = .separator
         addSubview(separator)
 
-        for button in [leftButton, rightButton] {
+        middleButton.isHidden = true
+        for button in [leftButton, middleButton, rightButton] {
             button.translatesAutoresizingMaskIntoConstraints = false
             button.tintColor = .systemBlue
             button.setTitleColor(.tertiaryLabel, for: .disabled)
@@ -50,6 +64,7 @@ final class ChatListSelectionToolbar: UIView {
             addSubview(button)
         }
         leftButton.addAction(UIAction { [weak self] _ in self?.onLeft?() }, for: .touchUpInside)
+        middleButton.addAction(UIAction { [weak self] _ in self?.onMiddle?() }, for: .touchUpInside)
         rightButton.addAction(UIAction { [weak self] _ in self?.onRight?() }, for: .touchUpInside)
 
         NSLayoutConstraint.activate([
@@ -71,6 +86,10 @@ final class ChatListSelectionToolbar: UIView {
             rightButton.topAnchor.constraint(equalTo: topAnchor),
             rightButton.heightAnchor.constraint(equalToConstant: Self.contentHeight),
             rightButton.leadingAnchor.constraint(greaterThanOrEqualTo: leftButton.trailingAnchor, constant: 16),
+
+            middleButton.centerXAnchor.constraint(equalTo: centerXAnchor),
+            middleButton.topAnchor.constraint(equalTo: topAnchor),
+            middleButton.heightAnchor.constraint(equalToConstant: Self.contentHeight),
         ])
     }
 }

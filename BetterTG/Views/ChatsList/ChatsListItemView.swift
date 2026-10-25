@@ -107,10 +107,18 @@ final class ChatListCell: UITableViewCell {
         }
     #endif
 
+    /// ChatListItem: a row selected while the list selects chats shows its check rather than the highlight.
+    private var showsHighlight: Bool {
+        isHighlighted || (isSelected && !isEditing)
+    }
+
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .systemBackground
-        selectionStyle = .none
+        // The row draws its own highlight; a selectable style only lets the selection check fill while the list
+        // selects chats.
+        selectedBackgroundView = UIView()
+        multipleSelectionBackgroundView = UIView()
         // Pinned rows show a reorder handle while the list reorders them.
         showsReorderControl = true
         isAccessibilityElement = true
@@ -150,7 +158,12 @@ final class ChatListCell: UITableViewCell {
 
     override func setSelected(_ selected: Bool, animated: Bool) {
         super.setSelected(selected, animated: animated)
-        updateBackground(highlighted: selected, animated: animated)
+        updateBackground(highlighted: showsHighlight, animated: animated)
+    }
+
+    override func setEditing(_ editing: Bool, animated: Bool) {
+        super.setEditing(editing, animated: animated)
+        updateBackground(highlighted: showsHighlight, animated: animated)
     }
 
     /// The chat list's date: the time today, the weekday within a week, else the day.
@@ -331,7 +344,7 @@ final class ChatListCell: UITableViewCell {
         accessoryWidthConstraint.constant = accessoryWidth
         trailingStatusView.isHidden = accessoryWidth == 0
         setNeedsLayout()
-        updateBackground(highlighted: isHighlighted || isSelected, animated: false)
+        updateBackground(highlighted: showsHighlight, animated: false)
         if chat.isHeldThroughClientRenewal {
             avatarView.configureHeldThroughClientRenewal(
                 file: chat.chat.photo?.small,
@@ -1015,7 +1028,7 @@ final class ChatListCell: UITableViewCell {
             // The secret chat lock is sized to the title font.
             titleLabel.attributedText = Self.title(for: chat, font: titleLabel.font)
         }
-        updateBackground(highlighted: isHighlighted || isSelected, animated: false)
+        updateBackground(highlighted: showsHighlight, animated: false)
     }
 }
 

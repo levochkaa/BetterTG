@@ -235,6 +235,9 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
 
     private func installFolderController() {
         folderController.isSearchActive = { [weak self] in self?.navigationBarView.isSearchActive == true }
+        folderController.onSelectionEditingChange = { [weak self] title, done in
+            self?.navigationBarView.setEditing(title: title, done: done)
+        }
         folderController.onSearchScrollOffsetChange = { [weak self] offset in
             guard let self, !isShowingSearchResults else { return }
             navigationBarView.applyScroll(offset: offset)
@@ -446,6 +449,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     /// The main screen leaves a pan that starts near a side edge to folder paging, as Telegram's chat list does.
     var allowsRowSwipe: (() -> Bool)?
     var onListInteractionEnded: (() -> Void)?
+    /// The selection's title for the screen's bar and its Done, or nil and nil once selection ends.
+    var onSelectionEditingChange: ((String?, (() -> Void)?) -> Void)?
 
     private let showsStandaloneSearch: Bool
     private let rootVM: RootVM
@@ -478,6 +483,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     /// Telegram's reorder mode for pinned chats; list updates wait until it ends so a drag is never interrupted.
     private var isReorderingPinnedChats = false
     private var reorderDoneButton: UIButton?
+    /// Telegram's chat selection (selectPeerThread); nil outside it.
+    private var selectedChatIDs: Set<Int64>?
+    private var selectionToolbar: ChatListSelectionToolbar?
 
     /// Whether the list shows no chats, as Telegram's `archiveChatList.items.isEmpty`.
     var isEmpty: Bool {
@@ -668,9 +676,21 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     override func tableView(_: UITableView, didSelectRowAt indexPath: IndexPath) {
+        if selectedChatIDs != nil {
+            guard let chatID = dataSource.itemIdentifier(for: indexPath) else { return }
+            selectedChatIDs?.insert(chatID)
+            updateChatSelection()
+            return
+        }
         tableView.deselectRow(at: indexPath, animated: true)
         guard let chatID = dataSource.itemIdentifier(for: indexPath), let chat = chat(for: chatID) else { return }
         NavigationStorage.shared.push(.customChat(chat))
+    }
+
+    override func tableView(_: UITableView, didDeselectRowAt indexPath: IndexPath) {
+        guard selectedChatIDs != nil, let chatID = dataSource.itemIdentifier(for: indexPath) else { return }
+        selectedChatIDs?.remove(chatID)
+        updateChatSelection()
     }
 
     override func tableView(_ tableView: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
@@ -683,8 +703,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         _ tableView: UITableView,
         editingStyleForRowAt _: IndexPath,
     ) -> UITableViewCell.EditingStyle {
-        // Reordering shows only the grip; outside it the style lets UIKit offer the row's swipe actions.
-        tableView.isEditing ? .none : .delete
+        // Reordering shows only the grip; outside it the style lets UIKit offer the row's swipe actions, and
+        // selection its checks.
+        tableView.isEditing && selectedChatIDs == nil ? .none : .delete
     }
 
     /// Telegram's reveal options (ChatListItem `revealOptions`): Mute or Unmute, Delete, then Archive or Unarchive
@@ -1047,6 +1068,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         dataSource.apply(snapshot, animatingDifferences: animated && !shiftsVisibleRows) { [weak self] in
             guard let self else { return }
             isApplyingSnapshot = false
+            // Reloaded rows lose their checks; the selection puts them back and drops chats that left the list.
+            updateChatSelection()
             // UIKit can re-anchor the previous first row during the update animation; bring the top back.
             if let restingTopOffset, !isInteractingWithList, !tableView.isTracking {
                 let target = restingTopOffset - tableView.adjustedContentInset.top
@@ -1319,13 +1342,24 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         ) { [weak self] in
             self?.deleteChat(chat, scope: scope, client: client)
         })
+        // ChatContextMenus' Select: the list starts selecting with this chat.
+        if !inSearch, isSearchActive?() != true {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.Context.Select"),
+                image: UIImage(systemName: "checkmark.circle"),
+                startsNewSection: true,
+            ) { [weak self] in
+                self?.beginChatSelection(with: chat.id)
+            })
+        }
         return actions
     }
 
     // MARK: Row actions
 
     private func swipeChat(at indexPath: IndexPath) -> CustomChat? {
-        guard actionAuthority.scope(owner: self).isCurrent, !isReorderingPinnedChats, allowsRowSwipe?() != false,
+        guard actionAuthority.scope(owner: self).isCurrent, !isReorderingPinnedChats, selectedChatIDs == nil,
+              allowsRowSwipe?() != false,
               let id = dataSource.itemIdentifier(for: indexPath)
         else { return nil }
         return chat(for: id)
@@ -1567,6 +1601,150 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             bottomInset: overlayBottomInset,
             undo: undo,
         )
+    }
+
+    // MARK: Chat selection
+
+    /// Telegram's selectPeerThread: the list edits with the chat selected, Done takes the bar's right side, the count
+    /// titles the list and the toolbar offers Read (Read All with nothing selected), Archive or Unarchive, and Delete.
+    private func beginChatSelection(with chatID: Int64) {
+        guard actionAuthority.scope(owner: self).isCurrent, selectedChatIDs == nil, !isReorderingPinnedChats,
+              isSearchActive?() != true else { return }
+        selectedChatIDs = [chatID]
+        pressGesture?.isEnabled = false
+        tableView.allowsMultipleSelectionDuringEditing = true
+        tableView.setEditing(true, animated: true)
+        let toolbar = ChatListSelectionToolbar()
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
+        toolbar.onLeft = { [weak self] in self?.readSelectedChats() }
+        toolbar.onMiddle = { [weak self] in self?.archiveSelectedChats() }
+        toolbar.onRight = { [weak self] in self?.deleteSelectedChat() }
+        let host: UIView = overlayHost.view
+        host.addSubview(toolbar)
+        NSLayoutConstraint.activate([
+            toolbar.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            toolbar.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            toolbar.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+            toolbar.topAnchor.constraint(
+                equalTo: host.safeAreaLayoutGuide.bottomAnchor,
+                constant: -ChatListSelectionToolbar.contentHeight,
+            ),
+        ])
+        selectionToolbar = toolbar
+        updateChatSelection()
+    }
+
+    /// Telegram's donePressed: editing ends and the selection is cleared.
+    private func endChatSelection() {
+        guard selectedChatIDs != nil else { return }
+        selectedChatIDs = nil
+        pressGesture?.isEnabled = true
+        selectionToolbar?.removeFromSuperview()
+        selectionToolbar = nil
+        onSelectionEditingChange?(nil, nil)
+        guard isViewLoaded else { return }
+        for indexPath in tableView.indexPathsForSelectedRows ?? [] {
+            tableView.deselectRow(at: indexPath, animated: false)
+        }
+        tableView.setEditing(false, animated: true)
+        tableView.allowsMultipleSelectionDuringEditing = false
+    }
+
+    /// Keeps the checks, the title and the toolbar in step with the selection (chatListSelectionOptions): Read needs
+    /// an unread chat, or Read All an unread chat in the list; Archive leaves out Saved Messages and service
+    /// notifications.
+    private func updateChatSelection() {
+        guard var selected = selectedChatIDs, isViewLoaded else { return }
+        let displayed = Set(dataSource.snapshot().itemIdentifiers)
+        selected.formIntersection(displayed)
+        selectedChatIDs = selected
+        for indexPath in tableView.indexPathsForSelectedRows ?? []
+            where dataSource.itemIdentifier(for: indexPath).map(selected.contains) != true
+        {
+            tableView.deselectRow(at: indexPath, animated: false)
+        }
+        let selectedRows = Set(tableView.indexPathsForSelectedRows ?? [])
+        for id in selected {
+            guard let indexPath = dataSource.indexPath(for: id), !selectedRows.contains(indexPath) else { continue }
+            tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
+        }
+        let chats = selected.compactMap { chat(for: $0) }
+        func isUnread(_ chat: CustomChat) -> Bool { chat.unreadCount > 0 || chat.chat.isMarkedAsUnread }
+        onSelectionEditingChange?(
+            selected.isEmpty
+                ? nil
+                : L10n.telegramPlural(
+                    "ChatList.SelectedChats",
+                    count: selected.count,
+                    formattedCount: selected.count.formatted(.number),
+                ),
+            { [weak self] in self?.endChatSelection() },
+        )
+        let archivable = !chats.isEmpty && !chats.contains {
+            $0.isSavedMessages || $0.user?.id == Self.serviceNotificationsUserID
+        }
+        selectionToolbar?.update(
+            left: L10n.telegram(selected.isEmpty ? "ChatList.ReadAll" : "ChatList.Read"),
+            leftEnabled: selected.isEmpty ? folder.chats.contains(where: isUnread) : chats.contains(where: isUnread),
+            middle: L10n.telegram(isArchivePage ? "ChatList.UnarchiveAction" : "ChatList.ArchiveAction"),
+            middleEnabled: archivable,
+            right: L10n.telegram("Common.Delete"),
+            rightEnabled: chats.count == 1,
+        )
+    }
+
+    /// Telegram's left action: the selected chats read, or with none selected the whole list (readChatList).
+    private func readSelectedChats() {
+        guard let selected = selectedChatIDs else { return }
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        if selected.isEmpty {
+            let chatList = folder.chatList
+            runAction(scope) {
+                _ = try await client.send(TDNativeRequests.readChatList(chatList: chatList))
+            }
+        } else {
+            for chat in selected.compactMap({ chat(for: $0) })
+                where chat.unreadCount > 0 || chat.chat.isMarkedAsUnread
+            {
+                markRead(chat, scope: scope, client: client)
+            }
+        }
+        endChatSelection()
+    }
+
+    /// Telegram's middle action: archiveChats with its Undo, or out of the archive.
+    private func archiveSelectedChats() {
+        guard let selected = selectedChatIDs, !selected.isEmpty else { return }
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        let ids = Array(selected)
+        let archive = !isArchivePage
+        endChatSelection()
+        runAction(scope) { [weak self] in
+            for id in ids {
+                _ = try await client.addChatToList(chatId: id, chatList: archive ? .chatListArchive : .chatListMain)
+            }
+            guard archive, let self, scope.isCurrent else { return }
+            showUndoToast(L10n.telegram("ChatList.UndoArchiveTitle")) { [weak self] in
+                self?.runAction(scope) {
+                    for id in ids {
+                        _ = try await client.addChatToList(chatId: id, chatList: .chatListMain)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Delete for one selected chat runs its own sheet, as the chat's menu does. BetterTG doesn't remove several chats
+    /// at once (Telegram's removePeerChats), whose leaving and owner cases it can't confirm.
+    private func deleteSelectedChat() {
+        guard let selected = selectedChatIDs, selected.count == 1, let chat = selected.first.flatMap(chat(for:))
+        else { return }
+        let scope = actionAuthority.scope(owner: self)
+        let client = actionAuthority.client
+        endChatSelection()
+        deleteChat(chat, scope: scope, client: client)
     }
 
     private func beginPinnedReorder() {
