@@ -7908,19 +7908,22 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// ChatControllerOpenCalendarSearch with isMedia false: pick a day, then the search closes and the chat jumps to
     /// the first message sent on that day or later.
     /// ChatMessageDateHeader's action at a header resting at its day (navigateToFirstDateMessage's `alreadyThere`):
-    /// the calendar opens on that day, and a chosen day opens at its first message. BetterTG's headers don't float,
-    /// so a visible header always rests at its day.
+    /// openCalendarSearch with isMedia true, the media calendar on that day's month, and a chosen day opens at its
+    /// first message. BetterTG's headers don't float, so a visible header always rests at its day.
     private func presentDateCalendar(dayTimestamp: Int) {
         guard presentationMode == .full, !isSelectingMessages, presentedViewController == nil,
               chatVM.locationContextIsCurrent else { return }
-        let picker = ChatSearchDatePickerViewController(
+        let picker = ChatMediaCalendarViewController(
+            chatID: chatVM.chatID,
+            topic: location.topic,
+            client: chatVM.client,
             initialDate: Date(timeIntervalSince1970: TimeInterval(dayTimestamp)),
         ) { [weak self] date in self?.jumpToMessageSearchDate(date) }
         let navigation = UINavigationController(rootViewController: picker)
-        if let sheet = navigation.sheetPresentationController {
-            sheet.detents = [.large()]
-            sheet.prefersGrabberVisible = true
-        }
+        // The months scroll in a turned scroll view, which a sheet's pull to dismiss would take over; it closes with
+        // its button (disablesInteractiveModalDismiss).
+        navigation.isModalInPresentation = true
+        navigation.sheetPresentationController?.detents = [.large()]
         present(navigation, animated: true)
     }
 

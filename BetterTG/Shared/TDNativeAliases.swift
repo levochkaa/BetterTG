@@ -119,6 +119,7 @@ public typealias Location = TDNativeLocation
 public typealias Message = TDNativeMessage
 public typealias MessageAnimatedEmoji = TDNativeMessageAnimatedEmoji
 public typealias MessageAudio = TDNativeMessageAudio
+public typealias MessageCalendar = TDNativeMessageCalendar
 public typealias MessageCall = TDNativeMessageCall
 public typealias MessageChatChangeTitle = TDNativeMessageChatChangeTitle
 public typealias MessageChatSetMessageAutoDeleteTime = TDNativeMessageChatSetMessageAutoDeleteTime
