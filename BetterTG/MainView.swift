@@ -1596,10 +1596,17 @@ final class FolderPickerView: UIView {
         var widths = naturalSegmentWidths
         if naturalTotal <= availableWidth {
             let regularWidth = floor(availableWidth / CGFloat(buttons.count))
-            widths = buttons.indices.map { index in
-                index == buttons.count - 1
-                    ? availableWidth - regularWidth * CGFloat(buttons.count - 1)
-                    : regularWidth
+            if naturalSegmentWidths.allSatisfy({ $0 <= regularWidth }) {
+                widths = buttons.indices.map { index in
+                    index == buttons.count - 1
+                        ? availableWidth - regularWidth * CGFloat(buttons.count - 1)
+                        : regularWidth
+                }
+            } else {
+                // A title too long for an equal share keeps its natural width; the rest of the room is shared out.
+                let extra = floor((availableWidth - naturalTotal) / CGFloat(buttons.count))
+                widths = naturalSegmentWidths.map { $0 + extra }
+                widths[widths.count - 1] += availableWidth - widths.reduce(0, +)
             }
         } else if compressesSegmentsToFit {
             widths = compressedSegmentWidths(availableWidth: availableWidth)
