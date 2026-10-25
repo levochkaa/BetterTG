@@ -48,16 +48,19 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             animated: false,
             preservingViewport: true,
         )
+        var openMoreMenu: (() -> Void)?
         self.navigationBarView = TelegramListNavigationBar(
             title: folder.name,
             placeholder: L10n.betterTG("Folders.SearchIn", folder.name.lowercased()),
             leftImage: UIImage(systemName: "chevron.left"),
-            rightImage: nil,
+            rightImage: UIImage(systemName: "ellipsis"),
             leftAction: { NavigationStorage.shared.pop() },
-            rightAction: nil,
+            rightAction: { openMoreMenu?() },
             showsBackButton: true,
+            rightAccessibilityLabel: L10n.telegram("Common.More"),
         )
         super.init(nibName: nil, bundle: nil)
+        openMoreMenu = { [weak self] in self?.openArchiveMoreMenu() }
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -160,6 +163,40 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
                 return replacement
             },
         )
+    }
+
+    /// ChatListControllerImpl.openArchiveMoreMenu: Archive Settings, and How Does It Work? for an archive with chats.
+    /// BetterTG's list has no multiple selection, so Select Chats is left out.
+    private func openArchiveMoreMenu() {
+        let client = TDLib.shared.activeClient
+        var actions = [TelegramContextMenuAction(
+            title: L10n.telegram("ChatList.Archive.ContextSettings"),
+            image: UIImage(systemName: "slider.horizontal.3"),
+        ) { [weak self] in self?.openArchiveSettings() }]
+        if !folderController.isEmpty {
+            actions.append(TelegramContextMenuAction(
+                title: L10n.telegram("ChatList.Archive.ContextInfo"),
+                image: UIImage(systemName: "questionmark.circle"),
+            ) { [weak self] in
+                Task { [weak self] in
+                    let settings = try? await client.send(TDNativeRequests.getArchiveChatListSettings())
+                    guard let self, TDLib.shared.activeClient.id == client.id else { return }
+                    let info = ArchiveInfoViewController(
+                        keepsUnmutedArchived: settings?.keepUnmutedChatsArchived ?? false,
+                    ) { [weak self] in self?.openArchiveSettings() }
+                    present(info, animated: true)
+                }
+            })
+        }
+        presentTelegramContextMenu(
+            sourceView: navigationBarView.rightButtonView,
+            actions: actions,
+            presentationStyle: .sourceMorph,
+        )
+    }
+
+    private func openArchiveSettings() {
+        navigationController?.pushViewController(ArchiveSettingsViewController(), animated: true)
     }
 
     private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
@@ -436,10 +473,16 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var showsNoRows = false
     private var emptyState: EmptyState?
     private var dataSource: ChatRowsDataSource!
+
     private var pressGesture: ContextMenuPressGestureRecognizer?
     /// Telegram's reorder mode for pinned chats; list updates wait until it ends so a drag is never interrupted.
     private var isReorderingPinnedChats = false
     private var reorderDoneButton: UIButton?
+
+    /// Whether the list shows no chats, as Telegram's `archiveChatList.items.isEmpty`.
+    var isEmpty: Bool {
+        dataSource?.snapshot().numberOfItems ?? 0 == 0
+    }
 
     var isInteractingWithList: Bool {
         guard isViewLoaded else { return false }
