@@ -1,6 +1,6 @@
 # Website
 
-The static site at [bettertg.su](https://bettertg.su): the landing page, the [Privacy Policy](privacy.html) and the [Terms of Service](terms.html). The app's Settings open `/privacy` and `/terms`, so keep those paths.
+The static site at [bettertg.su](https://bettertg.su): the landing page, [Support](support.html), the [Privacy Policy](privacy.html) and the [Terms of Service](terms.html). The app's Settings open `/privacy` and `/terms`, and App Store Connect links `/support` and `/privacy`, so keep those paths.
 
 The pages are plain HTML and CSS with no build step. Open `index.html` in a browser to preview them.
 
