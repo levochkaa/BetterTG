@@ -4,6 +4,7 @@ import UIKit
 
 // MARK: - AppearanceViewController
 
+/// The theme choice, then ThemeSettingsController's Stickers and Emoji.
 final class AppearanceViewController: UITableViewController {
     init() {
         super.init(style: .insetGrouped)
@@ -22,12 +23,23 @@ final class AppearanceViewController: UITableViewController {
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "AppearanceCell")
     }
 
-    override func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
-        AppAppearance.allCases.count
+    override func numberOfSections(in _: UITableView) -> Int {
+        2
+    }
+
+    override func tableView(_: UITableView, numberOfRowsInSection section: Int) -> Int {
+        section == 0 ? AppAppearance.allCases.count : 1
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "AppearanceCell", for: indexPath)
+        guard indexPath.section == 0 else {
+            var configuration = cell.defaultContentConfiguration()
+            configuration.text = L10n.telegram("ChatSettings.StickersAndReactions")
+            cell.contentConfiguration = configuration
+            cell.accessoryType = .disclosureIndicator
+            return cell
+        }
         let appearance = AppAppearance.allCases[indexPath.row]
         var configuration = cell.defaultContentConfiguration()
         configuration.text = appearance.title
@@ -40,6 +52,13 @@ final class AppearanceViewController: UITableViewController {
 
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard indexPath.section == 0 else {
+            navigationController?.pushViewController(
+                InstalledStickerSetsViewController(mode: .stickers),
+                animated: true,
+            )
+            return
+        }
         AppAppearance.allCases[indexPath.row].apply()
         tableView.reloadSections(IndexSet(integer: 0), with: .none)
     }

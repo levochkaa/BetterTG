@@ -28,6 +28,8 @@ struct SettingsRow {
         case status(UIColor)
         /// An editable field, such as Telegram's name, bio and username inputs.
         case input(SettingsTextInput)
+        /// A sticker or emoji set as ItemListStickerPackItem shows it; `detail` is its count.
+        case stickerSet(SettingsStickerSet)
     }
 
     var title: String
@@ -101,6 +103,14 @@ struct SettingsPeer {
     }
 }
 
+// MARK: - SettingsStickerSet
+
+struct SettingsStickerSet {
+    let info: TDNativeStickerSetInfo
+    /// ItemListStickerPackItem's `.installation(installed: false)` control: Telegram's ADD button.
+    var add: (() -> Void)?
+}
+
 // MARK: - SettingsSection
 
 struct SettingsSection {
@@ -160,6 +170,7 @@ class SettingsListViewController: UITableViewController {
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: Self.cellIdentifier)
         tableView.register(SettingsPeerCell.self, forCellReuseIdentifier: SettingsPeerCell.reuseIdentifier)
         tableView.register(SettingsInputCell.self, forCellReuseIdentifier: SettingsInputCell.reuseIdentifier)
+        tableView.register(SettingsStickerSetCell.self, forCellReuseIdentifier: SettingsStickerSetCell.reuseIdentifier)
         tableView.keyboardDismissMode = .interactive
         reload()
     }
@@ -212,6 +223,15 @@ class SettingsListViewController: UITableViewController {
             apply(row, to: cell)
             return cell
         }
+        if case .stickerSet(let set) = row.style {
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: SettingsStickerSetCell.reuseIdentifier,
+                for: indexPath,
+            )
+            (cell as? SettingsStickerSetCell)?.configure(set: set, detail: row.detail, client: client)
+            apply(row, to: cell)
+            return cell
+        }
         let cell = tableView.dequeueReusableCell(withIdentifier: Self.cellIdentifier, for: indexPath)
         var configuration: UIListContentConfiguration =
             switch row.style {
@@ -220,7 +240,8 @@ class SettingsListViewController: UITableViewController {
             case .action,
                  .input,
                  .peer,
-                 .status: .cell()
+                 .status,
+                 .stickerSet: .cell()
             }
         configuration.text = row.title
         configuration.secondaryText = row.detail
@@ -237,6 +258,7 @@ class SettingsListViewController: UITableViewController {
             configuration.textProperties.font = .preferredFont(forTextStyle: .footnote)
         case .input,
              .peer,
+             .stickerSet,
              .subtitle,
              .value:
             break
@@ -258,6 +280,15 @@ class SettingsListViewController: UITableViewController {
         tableView.deselectRow(at: indexPath, animated: true)
         guard let row = settingsRow(at: indexPath), row.isEnabled else { return }
         row.action?()
+    }
+
+    /// Sets play their thumbnails while on screen, as ItemListStickerPackItem does with `playAnimatedStickers`.
+    override func tableView(_: UITableView, willDisplay cell: UITableViewCell, forRowAt _: IndexPath) {
+        (cell as? SettingsStickerSetCell)?.setPlaybackVisible(true)
+    }
+
+    override func tableView(_: UITableView, didEndDisplaying cell: UITableViewCell, forRowAt _: IndexPath) {
+        (cell as? SettingsStickerSetCell)?.setPlaybackVisible(false)
     }
 
     override func tableView(
@@ -283,6 +314,11 @@ class SettingsListViewController: UITableViewController {
         sections = makeSections()
         guard isViewLoaded else { return }
         tableView.reloadData()
+    }
+
+    /// Rebuilds the rows without redrawing them, after the table moved a row itself or changed editing.
+    final func rebuildSections() {
+        sections = makeSections()
     }
 
     /// Rebuilds the rows but redraws only these sections, so a field being edited keeps its keyboard.

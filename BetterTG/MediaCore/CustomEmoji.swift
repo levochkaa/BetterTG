@@ -65,9 +65,6 @@ final class CustomEmojiInlineView: UIView {
     private var playbackVisible = false
 
     func configure(sticker: Sticker, client: TDLibClient) {
-        let firstFrameReady = onFirstFrameReady
-        prepareForReuse()
-        onFirstFrameReady = firstFrameReady
         let view: UIView & AnimatedFileView =
             switch sticker.format {
             case .stickerFormatTgs:
@@ -77,24 +74,22 @@ final class CustomEmojiInlineView: UIView {
             case .stickerFormatWebm:
                 FFmpegAnimatedVideoView()
             }
-        contentView = view
-        view.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(view)
-        NSLayoutConstraint.activate([
-            view.topAnchor.constraint(equalTo: topAnchor),
-            view.leadingAnchor.constraint(equalTo: leadingAnchor),
-            view.trailingAnchor.constraint(equalTo: trailingAnchor),
-            view.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-        view.configure(
-            file: sticker.sticker,
-            client: client,
-            thumbnail: sticker.thumbnail,
-            displaySize: nil,
-            onTap: nil,
-        )
-        view.onFirstFrameReady = { [weak self] in self?.onFirstFrameReady?() }
-        view.setPlaybackVisible(playbackVisible)
+        install(view, file: sticker.sticker, thumbnail: sticker.thumbnail, client: client)
+    }
+
+    /// A sticker set's own thumbnail (ItemListStickerPackItem's StickerPackThumbnailItem); false for a JPEG, PNG, GIF
+    /// or MPEG-4 one, which the caller replaces with the set's first sticker.
+    @discardableResult func configure(setThumbnail thumbnail: Thumbnail, client: TDLibClient) -> Bool {
+        let view: (UIView & AnimatedFileView)? =
+            switch thumbnail.format {
+            case .thumbnailFormatTgs: TGSStickerView()
+            case .thumbnailFormatWebp: AnimatedWebPView()
+            case .thumbnailFormatWebm: FFmpegAnimatedVideoView()
+            default: nil
+            }
+        guard let view else { return false }
+        install(view, file: thumbnail.file, thumbnail: nil, client: client)
+        return true
     }
 
     func prepareForReuse() {
@@ -107,5 +102,29 @@ final class CustomEmojiInlineView: UIView {
     func setPlaybackVisible(_ isVisible: Bool) {
         playbackVisible = isVisible
         contentView?.setPlaybackVisible(isVisible)
+    }
+
+    private func install(_ view: UIView & AnimatedFileView, file: File, thumbnail: Thumbnail?, client: TDLibClient) {
+        let firstFrameReady = onFirstFrameReady
+        prepareForReuse()
+        onFirstFrameReady = firstFrameReady
+        contentView = view
+        view.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(view)
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: topAnchor),
+            view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            view.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        view.configure(
+            file: file,
+            client: client,
+            thumbnail: thumbnail,
+            displaySize: nil,
+            onTap: nil,
+        )
+        view.onFirstFrameReady = { [weak self] in self?.onFirstFrameReady?() }
+        view.setPlaybackVisible(playbackVisible)
     }
 }

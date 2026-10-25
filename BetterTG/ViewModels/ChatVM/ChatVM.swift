@@ -1875,6 +1875,27 @@ import UIKit
         return video.url.pathExtension.lowercased() == "mp4"
     }
 
+    /// StickerSettings' emojiStickerSuggestionMode over getStickers: None suggests nothing; My Sets keeps the
+    /// installed sets' stickers and the favourite and recent ones, searchStickers' `.installed` scope.
+    private static func suggestedStickers(for emoji: String, chatID: Int64, client: TDLibClient) async -> [Sticker] {
+        let mode = StickerSuggestionMode.current
+        guard mode != .off,
+              let result = try? await client.getStickers(
+                  chatId: chatID,
+                  limit: 100,
+                  query: emoji,
+                  stickerType: .stickerTypeRegular,
+              ) else { return [] }
+        guard mode == .installed else { return result.stickers }
+        async let installed = try? client
+            .send(TDNativeRequests.getInstalledStickerSets(stickerType: .stickerTypeRegular))
+        async let favorite = try? client.send(TDNativeRequests.getFavoriteStickers())
+        async let recent = try? client.send(TDNativeRequests.getRecentStickers(isAttached: false))
+        let setIDs = await Set(installed?.sets.map(\.id) ?? [])
+        let fileIDs = await Set(((favorite?.stickers ?? []) + (recent?.stickers ?? [])).map(\.sticker.id))
+        return result.stickers.filter { setIDs.contains($0.setId) || fileIDs.contains($0.sticker.id) }
+    }
+
     /// getChatAdministrators: the owner's and administrators' custom titles, or Telegram's "owner" and "admin".
     func loadAdministratorRanks() {
         guard showsSenderNames else { return }
@@ -4551,15 +4572,10 @@ import UIKit
         contextQueryTask = Task { [weak self] in
             switch query {
             case .stickers(let emoji):
-                let result = try? await client.getStickers(
-                    chatId: chatID,
-                    limit: 100,
-                    query: emoji,
-                    stickerType: .stickerTypeRegular,
-                )
+                let found = await Self.suggestedStickers(for: emoji, chatID: chatID, client: client)
                 guard !Task.isCancelled, let self, locationContextIsCurrent, contextQuery == query else { return }
                 var seen = Set<Int>()
-                stickerSuggestions = (result?.stickers ?? []).filter { seen.insert($0.sticker.id).inserted }
+                stickerSuggestions = found.filter { seen.insert($0.sticker.id).inserted }
             case .hashtag(let prefix):
                 let result = try? await client.send(TDNativeRequests.searchHashtags(prefix: prefix, limit: 50))
                 guard !Task.isCancelled, let self, locationContextIsCurrent, contextQuery == query else { return }
