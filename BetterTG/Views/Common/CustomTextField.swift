@@ -10,10 +10,23 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     // MARK: Internal
 
     override var intrinsicContentSize: CGSize {
-        let width = bounds.width > 0 ? bounds.width : 220
-        let fitting = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
-        return CGSize(width: UIView.noIntrinsicMetric, height: min(max(fitting.height, 36), 240))
+        CGSize(width: UIView.noIntrinsicMetric, height: min(max(naturalHeight, minimumHeight), maximumHeight))
     }
+
+    /// The input's height limits: one line, and the point it starts to scroll (an expanded input sets both).
+    var minimumHeight: CGFloat = 36 {
+        didSet { heightLimitsChanged() }
+    }
+
+    var maximumHeight: CGFloat = 240 {
+        didSet { heightLimitsChanged() }
+    }
+
+    /// Return typed into an empty input; true keeps the line break out (Swiftgram's empty multiline input).
+    var onReturnInEmpty: (() -> Bool)?
+    /// Backspace in an empty input.
+    var onBackspaceWhileEmpty: (() -> Void)?
+    var onEndEditing: (() -> Void)?
 
     var onTextChange: ((AttributedString) -> Void)?
     var onPasteImages: (([UIImage]) -> Void)?
@@ -36,6 +49,12 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     private var isApplyingValue = false
     private lazy var emojiRenderer = ComposerCustomEmojiRenderer(textView: self)
     private var isApplyingUserText = false
+
+    /// The text's height at the current width, unclamped.
+    var naturalHeight: CGFloat {
+        let width = bounds.width > 0 ? bounds.width : 220
+        return sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+    }
 
     var permitsClientRestoration: Bool {
         markedTextRange == nil && !isApplyingUserText && !isPresentingEditMenu && !isTracking && !isDragging &&
@@ -117,6 +136,12 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         emojiRenderer.layout()
+    }
+
+    override func deleteBackward() {
+        let wasEmpty = text.isEmpty
+        super.deleteBackward()
+        if wasEmpty { onBackspaceWhileEmpty?() }
     }
 
     override func copy(_: Any?) {
@@ -360,12 +385,16 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         }
         updatePlaceholder()
         invalidateIntrinsicContentSize()
-        isScrollEnabled = intrinsicContentSize.height >= 240
+        isScrollEnabled = naturalHeight > maximumHeight
         guard !isApplyingValue else { return }
         emojiRenderer.update()
         onUserInteraction?()
         onTextChange?(ComposerText.value(attributedText))
         onInteractionSettled?()
+    }
+
+    func textViewDidEndEditing(_: UITextView) {
+        onEndEditing?()
     }
 
     func textViewDidChangeSelection(_: UITextView) {
@@ -393,6 +422,7 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         replacementText replacement: String,
     ) -> Bool {
         guard ComposerText.isValid(range, in: text as NSString) else { return false }
+        if replacement == "\n", text.isEmpty, markedTextRange == nil, onReturnInEmpty?() == true { return false }
         typingAttributes = ComposerText.typingAttributes(in: attributedText, at: range.location)
         // A custom emoji is one atomic glyph: a partial edit replaces the whole emoji.
         var atomicRange = range
@@ -430,6 +460,11 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         let updated = NSMutableAttributedString(attributedString: attributedText)
         ComposerText.toggle(type, in: updated, range: selectedRange)
         applyUserText(updated, selection: selectedRange)
+    }
+
+    private func heightLimitsChanged() {
+        invalidateIntrinsicContentSize()
+        isScrollEnabled = naturalHeight > maximumHeight
     }
 
     private func insertTelegramText(_ value: NSAttributedString) {

@@ -42,6 +42,9 @@ final class ChatComposerView: UIView {
         case stickers
     }
 
+    /// The single line's height: the field's minimum.
+    private static let singleLineTextHeight: CGFloat = 36
+
     // MARK: Internal
 
     /// Telegram's attach button: the attachment sheet.
@@ -212,6 +215,22 @@ final class ChatComposerView: UIView {
     private var videoNoteTrimSaving = false
     private var replyKeyboardButtonShowsSystemKeyboard: Bool?
     private var mediaInputButtonIcon: MediaInputButtonIcon?
+    /// The text's slot in the button row: the field lies over it while the text fits beside the buttons, and it
+    /// keeps the row's place once the text moves above them.
+    private let textSlot = UIView()
+    /// Swiftgram's full-width multiline text (`wideGlassTextFieldMultiline`): once the text wraps beside the buttons
+    /// it moves above them into this slot and takes the panel's width, the buttons staying in a row below.
+    private let multilineTextSlot = UIView()
+    /// ChatTextInputPanelNode's expand button: the input fills the space above the keyboard, and collapses again.
+    private let expandInputButton = UIButton(type: .system)
+    private var compactTextConstraints = [NSLayoutConstraint]()
+    private var multilineTextConstraints = [NSLayoutConstraint]()
+    private var isMultilineText = false
+    /// Return in an empty input opened the multiline layout (`isEmptyMultilineInput`); Backspace in the empty input
+    /// or the end of editing closes it.
+    private var isEmptyMultilineInput = false
+    private var isInputExpanded = false
+    private var lastMultilineMeasureWidth: CGFloat = 0
     /// What the media panel may hold, as `update(from:)` last found it: whether the composer takes input at all, text
     /// and stickers or GIFs.
     private var mediaInputIsAvailable = false
@@ -279,6 +298,10 @@ final class ChatComposerView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         updateRecordingGesturePresentation()
+        if abs(lastMultilineMeasureWidth - bounds.width) > 0.5 {
+            lastMultilineMeasureWidth = bounds.width
+            DispatchQueue.main.async { [weak self] in self?.updateMultilineText(animated: false) }
+        }
     }
 
     static func restorationSelection(_ selection: NSRange, length: Int) -> NSRange {
@@ -803,6 +826,7 @@ final class ChatComposerView: UIView {
             recordingRowHeightConstraint.isActive = false
         }
         inputRow.isHidden = !canWrite || isRecordingMedia
+        textView.isHidden = inputRow.isHidden
         recordingRow.isHidden = !showsRecording
         if isRecordingVideoNote {
             setVoiceGestureDeferral(
@@ -840,6 +864,12 @@ final class ChatComposerView: UIView {
         updateActionButton()
         updateRecordingGesturePresentation()
         updateReplyKeyboard()
+        if chatVM.text.characters.isEmpty, chatVM.editCustomMessage == nil, replacedText {
+            // A send or a cleared draft leaves the empty input's multiline layout and the expanded input.
+            isEmptyMultilineInput = false
+            isInputExpanded = false
+        }
+        updateMultilineText(animated: window != nil)
         isApplyingState = false
         // ChatInterfaceStateContextQueries follows the input state: text replaced here, as a send clears it, takes
         // its sticker, emoji, hashtag and mention suggestions along.
@@ -1038,7 +1068,8 @@ final class ChatComposerView: UIView {
         inputRow.addArrangedSubview(sendAsButton)
         inputRow.addArrangedSubview(botMenuButton)
         inputRow.addArrangedSubview(attachmentButton)
-        inputRow.addArrangedSubview(textView)
+        inputRow.addArrangedSubview(textSlot)
+        inputRow.addArrangedSubview(expandInputButton)
         inputRow.addArrangedSubview(autoDeleteButton)
         inputRow.addArrangedSubview(scheduledMessagesButton)
         inputRow.addArrangedSubview(silentPostButton)
@@ -1069,6 +1100,8 @@ final class ChatComposerView: UIView {
             replyKeyboardButton.heightAnchor.constraint(equalToConstant: 36),
             actionButton.widthAnchor.constraint(equalToConstant: 34),
             actionButton.heightAnchor.constraint(equalToConstant: 36),
+            expandInputButton.widthAnchor.constraint(equalToConstant: 34),
+            expandInputButton.heightAnchor.constraint(equalToConstant: 36),
         ])
         scheduledMessagesButton.setImage(UIImage(systemName: "calendar.badge.clock"), for: .normal)
         scheduledMessagesButton.setPreferredSymbolConfiguration(
@@ -1268,12 +1301,148 @@ final class ChatComposerView: UIView {
         rootStack.addArrangedSubview(replyContainer)
         rootStack.addArrangedSubview(photosScroll)
         rootStack.addArrangedSubview(documentsScroll)
+        rootStack.addArrangedSubview(multilineTextSlot)
         rootStack.addArrangedSubview(inputRow)
         rootStack.addArrangedSubview(recordingRow)
         rootStack.addArrangedSubview(restrictionLabel)
         rootStack.addArrangedSubview(botStartButton)
         rootStack.setCustomSpacing(6, after: photosScroll)
         rootStack.setCustomSpacing(6, after: documentsScroll)
+        configureMultilineText()
+    }
+
+    // MARK: Multiline text
+
+    /// The field lies over its slot in the button row, or over the multiline slot above it; one set of constraints
+    /// is active at a time, so a switch animates the field's frame with the panel.
+    private func configureMultilineText() {
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(textView)
+        textSlot.translatesAutoresizingMaskIntoConstraints = false
+        textSlot.isUserInteractionEnabled = false
+        multilineTextSlot.translatesAutoresizingMaskIntoConstraints = false
+        multilineTextSlot.isUserInteractionEnabled = false
+        multilineTextSlot.isHidden = true
+        compactTextConstraints = [
+            textView.leadingAnchor.constraint(equalTo: textSlot.leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: textSlot.trailingAnchor),
+            textView.bottomAnchor.constraint(equalTo: textSlot.bottomAnchor),
+            textSlot.heightAnchor.constraint(equalTo: textView.heightAnchor),
+        ]
+        multilineTextConstraints = [
+            // The text starts at the panel's gutter and ends where the send button's column ends.
+            textView.leadingAnchor.constraint(equalTo: rootStack.leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            textView.topAnchor.constraint(equalTo: multilineTextSlot.topAnchor),
+            multilineTextSlot.heightAnchor.constraint(equalTo: textView.heightAnchor),
+            textSlot.heightAnchor.constraint(equalToConstant: 36),
+        ]
+        NSLayoutConstraint.activate(compactTextConstraints)
+
+        expandInputButton.setImage(UIImage(systemName: "arrow.up.left.and.arrow.down.right"), for: .normal)
+        expandInputButton.setPreferredSymbolConfiguration(
+            UIImage.SymbolConfiguration(pointSize: 17, weight: .medium),
+            forImageIn: .normal,
+        )
+        expandInputButton.tintColor = .secondaryLabel
+        expandInputButton.accessibilityLabel = L10n.betterTG("Accessibility.ExpandInput")
+        expandInputButton.isHidden = true
+        expandInputButton.addAction(UIAction { [weak self] _ in self?.toggleInputExpanded() }, for: .touchUpInside)
+
+        textView.onReturnInEmpty = { [weak self] in
+            guard let self, !isMultilineText, !inputRow.isHidden else { return false }
+            isEmptyMultilineInput = true
+            updateMultilineText(animated: true)
+            return true
+        }
+        textView.onBackspaceWhileEmpty = { [weak self] in
+            guard let self, isEmptyMultilineInput else { return }
+            isEmptyMultilineInput = false
+            updateMultilineText(animated: true)
+        }
+        textView.onEndEditing = { [weak self] in
+            guard let self, isEmptyMultilineInput || isInputExpanded else { return }
+            isEmptyMultilineInput = false
+            if isInputExpanded { setInputExpanded(false) }
+            updateMultilineText(animated: true)
+        }
+    }
+
+    /// Swiftgram's rule (ChatTextInputPanelNode 1514): the text goes above the buttons when it would take more than one
+    /// line beside them, or while an empty input asked for the multiline layout with Return.
+    private func updateMultilineText(animated: Bool) {
+        guard !compactTextConstraints.isEmpty else { return }
+        let compactWidth = isMultilineText ? textSlot.bounds.width : textView.bounds.width
+        let wraps: Bool =
+            if compactWidth > 0 {
+                textView.sizeThatFits(CGSize(width: compactWidth, height: .greatestFiniteMagnitude)).height
+                    > Self.singleLineTextHeight + 10
+            } else {
+                isMultilineText
+            }
+        let multiline = !inputRow.isHidden && (isEmptyMultilineInput || isInputExpanded || wraps)
+        let hasText = chatVM.text.characters.contains { !$0.isWhitespace }
+            || chatVM.editMessageText.characters.contains { !$0.isWhitespace }
+        // The expand button joins the row once the text is a few lines tall (Swiftgram: 70 pt), or while expanded.
+        let showsExpand = multiline && hasText && (isInputExpanded || textView.naturalHeight >= 70)
+        if !showsExpand, isInputExpanded { setInputExpanded(false) }
+        guard multiline != isMultilineText || expandInputButton.isHidden == showsExpand else { return }
+        let changesLayout = multiline != isMultilineText
+        isMultilineText = multiline
+        let apply = {
+            if changesLayout {
+                NSLayoutConstraint.deactivate(multiline ? self.compactTextConstraints : self.multilineTextConstraints)
+                NSLayoutConstraint.activate(multiline ? self.multilineTextConstraints : self.compactTextConstraints)
+                self.multilineTextSlot.isHidden = !multiline
+            }
+            self.expandInputButton.isHidden = !showsExpand
+            self.expandInputButton.alpha = showsExpand ? 1 : 0
+            self.expandInputButton.transform = showsExpand ? .identity : CGAffineTransform(scaleX: 0.001, y: 0.001)
+        }
+        guard animated, window != nil else {
+            apply()
+            return
+        }
+        superview?.layoutIfNeeded()
+        // Telegram's `.spring` transition of 0.4 s: the bezier (0.38, 0.7, 0.125, 1).
+        let animator = UIViewPropertyAnimator(
+            duration: 0.4,
+            controlPoint1: CGPoint(x: 0.38, y: 0.7),
+            controlPoint2: CGPoint(x: 0.125, y: 1),
+        )
+        animator.addAnimations {
+            apply()
+            self.superview?.layoutIfNeeded()
+        }
+        animator.startAnimation()
+    }
+
+    private func toggleInputExpanded() {
+        setInputExpanded(!isInputExpanded)
+        updateMultilineText(animated: true)
+        UIView.animate(withDuration: 0.4, delay: 0, usingSpringWithDamping: 1, initialSpringVelocity: 0) {
+            self.superview?.layoutIfNeeded()
+        }
+    }
+
+    /// Expanded, the input takes the space between the navigation bar and the keyboard.
+    private func setInputExpanded(_ expanded: Bool) {
+        isInputExpanded = expanded
+        let symbol = expanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
+        expandInputButton.setImage(UIImage(systemName: symbol), for: .normal)
+        expandInputButton.accessibilityLabel = L10n.betterTG(
+            expanded ? "Accessibility.CollapseInput" : "Accessibility.ExpandInput",
+        )
+        if expanded, let window {
+            let bottom = convert(bounds, to: window).maxY
+            let chrome = bounds.height - textView.bounds.height
+            let height = max(240, bottom - window.safeAreaInsets.top - 44 - 24 - chrome)
+            textView.maximumHeight = height
+            textView.minimumHeight = height
+        } else {
+            textView.minimumHeight = Self.singleLineTextHeight
+            textView.maximumHeight = 240
+        }
     }
 
     private func configureActions() {
@@ -1515,7 +1684,8 @@ final class ChatComposerView: UIView {
         } else if chatVM.editCustomMessage != nil {
             icon = .emoji
         } else {
-            let prefersEmoji = !chatVM.text.characters.isEmpty || chatVM.pendingForward != nil
+            // Text made only of spaces and line breaks keeps the stickers icon, as it is not sent.
+            let prefersEmoji = chatVM.text.characters.contains { !$0.isWhitespace } || chatVM.pendingForward != nil
             icon =
                 if mediaInputStickersEnabled, !prefersEmoji {
                     .stickers
@@ -1846,6 +2016,7 @@ final class ChatComposerView: UIView {
         updateActionButton()
         updateReplyKeyboardButton()
         updateMediaInputButton()
+        updateMultilineText(animated: true)
         draftTask?.cancel()
         draftTask = Task { [weak chatVM] in
             try? await Task<Never, Never>.sleep(for: .milliseconds(500))

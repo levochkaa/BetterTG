@@ -73,6 +73,8 @@
 "Permissions.CameraMessage" = "Разрешите BetterTG доступ к камере в Настройках, чтобы сканировать QR-коды.";
 
 "Accessibility.CloseSearch" = "Закрыть поиск";
+"Accessibility.ExpandInput" = "Развернуть поле ввода";
+"Accessibility.CollapseInput" = "Свернуть поле ввода";
 "Accessibility.ScrollToLatest" = "Перейти к последнему сообщению";
 "Accessibility.CancelReply" = "Отменить ответ или редактирование";
 "Accessibility.CancelVoiceRecording" = "Отменить запись голосового сообщения";

@@ -73,6 +73,8 @@
 "Permissions.CameraMessage" = "Enable Camera in Settings → BetterTG to scan QR codes.";
 
 "Accessibility.CloseSearch" = "Close Search";
+"Accessibility.ExpandInput" = "Expand Input";
+"Accessibility.CollapseInput" = "Collapse Input";
 "Accessibility.ScrollToLatest" = "Scroll to latest message";
 "Accessibility.CancelReply" = "Cancel reply or edit";
 "Accessibility.CancelVoiceRecording" = "Cancel voice recording";
