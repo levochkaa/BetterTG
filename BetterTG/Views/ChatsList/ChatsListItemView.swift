@@ -1371,9 +1371,9 @@ final class ChatListOnlineMarkerView: UIView {
     }
 }
 
-// MARK: - ChatListCell + TelegramContextExpansionAnchors
+// MARK: - ChatListCell + TelegramContextExpansionSource
 
-extension ChatListCell: TelegramContextExpansionAnchors {
-    var contextExpansionAvatar: UIView? { avatarView }
-    var contextExpansionTitle: UIView? { titleLabel }
+extension ChatListCell: TelegramContextExpansionSource {
+    var contextExpansionTitle: UILabel? { titleLabel }
+    var contextExpansionTitleAccessories: [UIView] { [titleIconsView] }
 }

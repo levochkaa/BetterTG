@@ -54,6 +54,8 @@ final class TelegramGlassPlatter: UIView {
 
     /// The hosted items, laid out by hand: a stack view gave a text button after a hidden one no height.
     private var items = [UIView]()
+    /// The effect `setGlassMaterialized(false)` took away.
+    private var dematerializedEffect: UIVisualEffect?
 
     /// The visible items, in the order shown.
     var visibleItems: [UIView] {
@@ -126,6 +128,19 @@ final class TelegramGlassPlatter: UIView {
             if item.superview !== glassView.contentView { glassView.contentView.addSubview(item) }
         }
         refresh()
+    }
+
+    /// Takes the glass away (`false`) or brings back the effect it had; animatable, as glass materializes from no
+    /// effect where fading it would break its rendering.
+    func setGlassMaterialized(_ materialized: Bool) {
+        if materialized {
+            guard let effect = dematerializedEffect else { return }
+            dematerializedEffect = nil
+            glassView.effect = effect
+        } else if let effect = glassView.effect {
+            dematerializedEffect = effect
+            glassView.effect = nil
+        }
     }
 
     /// Re-reads which items show: the pill's width and ends, and whether the platter itself shows.

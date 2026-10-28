@@ -569,6 +569,14 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 
     /// About as long as the menu's springs take to settle visually.
     private static let motionHoldDuration: TimeInterval = 0.55
+    /// The longest a chat preview waits for its chat: one that takes longer, such as one still loading, shows as it
+    /// is.
+    private static let previewReadinessTimeout: TimeInterval = 0.5
+    /// A chat preview's corners.
+    private static let chatPreviewCornerRadius: CGFloat = 24
+    /// The spring a chat preview grows out of its row on.
+    private static let growthDuration: TimeInterval = 0.5
+    private static let growthBounce: CGFloat = 0.12
     /// `-[_UIContextMenuView _setAutoNavigationTimerIfNecessaryForElement:isTrackpadHover:]`: a finger resting this
     /// long on a row with a submenu opens it, and on an open submenu's header closes it, in the stacked hierarchy
     /// (0.1 s in the cascaded one; iOS 26.5).
@@ -583,8 +591,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     // MARK: Private
 
     private weak var sourceView: UIView?
-    /// The row's avatar and title flying into the chat preview's header, and back.
-    private var headerFlights = [ContextHeaderFlight]()
+    /// The row a chat preview grows out of, while it shows in the preview's header.
+    private var expansion: ContextPreviewExpansion?
     private weak var menuAnchorView: UIView?
     private let menuSpacing: CGFloat
     private let sourceTransform: CGAffineTransform
@@ -713,6 +721,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         presentationStyle.showsPreview ? previewContainer.convert(previewContainer.bounds, to: view) : .zero
     }
 
+    /// A chat preview that grows out of its row as a window onto the chat, rather than scaling out of it.
+    private var growsOutOfRow: Bool {
+        presentationStyle == .chatPreview && previewController is TelegramContextExpansionTarget
+    }
+
     /// Where the content is scrolled to: content coordinates are the screen's moved by this much.
     private var contentScrollOffset: CGFloat {
         contentContainer.bounds.origin.y
@@ -812,24 +825,18 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         return CGAffineTransform(scaleX: scale, y: scale).concatenating(CGAffineTransform(translationX: 0, y: shift))
     }
 
-    /// A label's drawn text, or the whole view.
-    private static func expansionRect(of view: UIView, textOnly: Bool) -> CGRect {
-        guard textOnly, let label = view as? UILabel else { return view.bounds }
+    /// Where a label draws its one line of text, in its own coordinates.
+    private static func textRect(of label: UILabel) -> CGRect {
         let text = label.textRect(forBounds: label.bounds, limitedToNumberOfLines: 1)
-        return CGRect(x: text.minX, y: label.bounds.midY - text.height / 2, width: text.width, height: text.height)
-    }
-
-    private static func renderedExpansionImage(of view: UIView, textOnly: Bool) -> UIImage? {
-        let rect = expansionRect(of: view, textOnly: textOnly)
-        guard rect.width > 0, rect.height > 0 else { return nil }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = view.traitCollection.displayScale
-        let alpha = view.alpha
-        view.alpha = 1
-        defer { view.alpha = alpha }
-        return UIGraphicsImageRenderer(bounds: rect, format: format).image { context in
-            view.layer.render(in: context.cgContext)
-        }
+        let free = label.bounds.width - text.width
+        let x =
+            switch label.textAlignment {
+            case .center: free / 2
+            case .right: free
+            case .natural where label.effectiveUserInterfaceLayoutDirection == .rightToLeft: free
+            default: CGFloat.zero
+            }
+        return CGRect(x: x, y: label.bounds.midY - text.height / 2, width: text.width, height: text.height)
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -872,7 +879,22 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         view.layoutIfNeeded()
         beginInitiatingTouchSession()
         installEscape()
-        animateIn()
+        if presentationStyle == .chatPreview, let readiness = previewController as? TelegramTransitionReadiness {
+            // ContextControllerImpl shows once its preview is ready (its contentReady is the controller's ready), so
+            // the preview grows with the chat's messages and header in place. The row stays meanwhile.
+            previewContainer.isHidden = true
+            var isRevealed = false
+            let reveal = { [weak self] in
+                guard !isRevealed, let self else { return }
+                isRevealed = true
+                guard !isDismissing else { return }
+                animateIn()
+            }
+            readiness.whenReadyForTransition(reveal)
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.previewReadinessTimeout, execute: reveal)
+        } else {
+            animateIn()
+        }
         UIAccessibility.post(notification: .screenChanged, argument: actionButtons.first)
     }
 
@@ -918,17 +940,18 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         previewContainer.layer.shadowOffset = CGSize(width: 0, height: 10)
         previewContainer.clipsToBounds = presentationStyle == .chatPreview
         previewContainer.layer.cornerCurve = .continuous
-        previewContainer.layer.cornerRadius = presentationStyle == .chatPreview ? 24 : 0
+        previewContainer.layer.cornerRadius = presentationStyle == .chatPreview ? Self.chatPreviewCornerRadius : 0
         previewPanView.addSubview(previewContainer)
 
         if let previewController {
             addChild(previewController)
             previewController.view.frame = previewContainer.bounds
-            previewController.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            // A growing preview keeps its chat at the preview's full size, centred in the container: the chat lays
+            // out once and moves with the container rather than resizing with it.
+            previewController.view.autoresizingMask = growsOutOfRow ? [] : [.flexibleWidth, .flexibleHeight]
             previewContainer.addSubview(previewController.view)
             previewController.didMove(toParent: self)
             previewView = previewController.view
-            sourceView?.alpha = 0
         } else if presentationStyle.showsPreview, let sourceView {
             let extractedView: UIView?
             if let source = sourceView as? TelegramContextMenuExtractableView {
@@ -1327,6 +1350,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                 )
                 previewView?.layer.cornerRadius = targetPreviewFrame.width / 2
             }
+        } else if growsOutOfRow {
+            // The container covers the row until the preview grows out of it.
+            let frame = hasAnimatedIn ? targetPreviewFrame : sourceFrame
+            previewContainer.transform = .identity
+            previewContainer.bounds = CGRect(origin: .zero, size: frame.size)
+            previewContainer.center = CGPoint(x: frame.midX, y: frame.midY)
         } else if presentationStyle == .chatPreview {
             previewContainer.bounds = CGRect(origin: .zero, size: targetPreviewFrame.size)
             if hasAnimatedIn {
@@ -1352,7 +1381,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         menuView.center = CGPoint(x: targetMenuFrame.midX, y: targetMenuFrame.midY)
         layoutSubmenus()
         layoutReactionStrip()
-        previewView?.frame = previewContainer.bounds
+        if growsOutOfRow {
+            previewView?.bounds = CGRect(origin: .zero, size: targetPreviewFrame.size)
+            previewView?.center = CGPoint(x: previewContainer.bounds.midX, y: previewContainer.bounds.midY)
+        } else {
+            previewView?.frame = previewContainer.bounds
+        }
         if presentationStyle == .avatar {
             previewView?.layoutIfNeeded()
         }
@@ -1427,7 +1461,9 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private func animateIn() {
         guard !hasAnimatedIn else { return }
         hasAnimatedIn = true
-        if presentationStyle == .chatPreview { expandPreviewHeader() }
+        if growsOutOfRow { growOutOfRow() }
+        previewContainer.isHidden = false
+        if previewController != nil { sourceView?.alpha = 0 }
         holdAnimatedEmoji(for: Self.motionHoldDuration)
         if !startLiquidMorphIn() { animateMenuIn() }
         UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
@@ -1457,6 +1493,18 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                         y: self.targetPreviewFrame.midY,
                     )
                     self.previewContainer.transform = .identity
+                } else if self.expansion != nil {
+                    // growOutOfRow carries the growing preview.
+                } else if self.growsOutOfRow {
+                    self.previewContainer.bounds = CGRect(origin: .zero, size: self.targetPreviewFrame.size)
+                    self.previewContainer.center = CGPoint(
+                        x: self.targetPreviewFrame.midX,
+                        y: self.targetPreviewFrame.midY,
+                    )
+                    self.previewView?.center = CGPoint(
+                        x: self.targetPreviewFrame.width / 2,
+                        y: self.targetPreviewFrame.height / 2,
+                    )
                 } else if self.presentationStyle == .chatPreview {
                     self.previewContainer.center = CGPoint(
                         x: self.targetPreviewFrame.midX,
@@ -1522,87 +1570,202 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         }
     }
 
-    // MARK: Header expansion
+    // MARK: Growing out of the row
 
-    /// The row's avatar and title fly into the chat preview's header as it opens, on the preview's 0.34 s spring, and
-    /// back into the row as it closes; the header's own avatar and title show once they land.
-    private func expandPreviewHeader() {
-        guard let target = previewController as? TelegramContextExpansionAnchors,
-              let source = sequence(first: sourceView, next: { $0?.superview })
-                .lazy
-                .compactMap({ $0 as? TelegramContextExpansionAnchors })
-                .first
+    /// Telegram's 2023 chat preview concept: the preview grows out of the row as a window onto the chat, its header
+    /// kept at its top and its messages travelling with it. The row's title turns into the header's, moving to its
+    /// place and taking its size, while the rest of the row fades where it was and the header's glass, status and
+    /// avatar appear where they are. The pictures are of the row, which is not glass; the header stays live.
+    private func growOutOfRow() {
+        guard let previewView, let sourceView,
+              let header = (previewController as? TelegramContextExpansionTarget)?.contextExpansionHeader
         else { return }
-        previewController?.view.layoutIfNeeded()
-        var flights = [ContextHeaderFlight]()
-        for (from, to, isText) in [
-            (source.contextExpansionAvatar, target.contextExpansionAvatar, false),
-            (source.contextExpansionTitle, target.contextExpansionTitle, true),
-        ] {
-            guard let from, let to, from.window != nil, !from.isHidden, !to.isHidden,
-                  let image = Self.renderedExpansionImage(of: from, textOnly: isText)
-            else { continue }
-            let sourceRect = view.convert(Self.expansionRect(of: from, textOnly: isText), from: from)
-            let inContainer = previewContainer.convert(Self.expansionRect(of: to, textOnly: isText), from: to)
-            let targetRect = inContainer.offsetBy(dx: targetPreviewFrame.minX, dy: targetPreviewFrame.minY)
-            let flyer = UIImageView(image: image)
-            flyer.frame = sourceRect
-            view.addSubview(flyer)
-            to.alpha = 0
-            flights.append(ContextHeaderFlight(flyer: flyer, anchor: to, targetRect: targetRect, isText: isText))
+        let source = sequence(first: sourceView, next: \.superview)
+            .lazy
+            .compactMap { $0 as? TelegramContextExpansionSource }
+            .first
+        let rowTitle = source?.contextExpansionTitle.flatMap { $0.window == nil || $0.isHidden ? nil : $0 }
+        // The title's picture first, while the row shows it; then the row's without it, which takes a screen update.
+        // A picture of the row as it is covers the row meanwhile.
+        let titlePicture = rowTitle?.snapshotView(afterScreenUpdates: false)
+        let hidden = rowTitle.map { [$0] + (source?.contextExpansionTitleAccessories ?? []) } ?? []
+        let cover = hidden.isEmpty ? nil : sourceView.snapshotView(afterScreenUpdates: false)
+        if let cover {
+            cover.bounds = sourceView.bounds
+            cover.center = CGPoint(x: sourceFrame.midX, y: sourceFrame.midY)
+            let scale = sourceFrame.width / max(1, sourceView.bounds.width)
+            cover.transform = CGAffineTransform(scaleX: scale, y: scale)
+            view.addSubview(cover)
         }
-        guard !flights.isEmpty else { return }
-        headerFlights = flights
+        let alphas = hidden.map(\.alpha)
+        hidden.forEach { $0.alpha = 0 }
+        let rowPicture = sourceView.snapshotView(afterScreenUpdates: !hidden.isEmpty)
+        zip(hidden, alphas).forEach { $0.alpha = $1 }
+        cover?.removeFromSuperview()
+
+        let backdrop = UIView(frame: header.bounds)
+        backdrop.isUserInteractionEnabled = false
+        backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        if let rowPicture { backdrop.addSubview(rowPicture) }
+        if let titlePicture { backdrop.addSubview(titlePicture) }
+        header.insertContextExpansionBackdrop(backdrop)
+        let titleText = rowTitle.map { sourceView.convert(Self.textRect(of: $0), from: $0) }
+        let expansion = ContextPreviewExpansion(
+            header: header,
+            backdrop: backdrop,
+            rowPicture: rowPicture,
+            titlePicture: titlePicture,
+            rowSize: sourceView.bounds.size,
+            rowCornerRadius: sourceView.layer.cornerRadius,
+            titleCenter: rowTitle.map { sourceView.convert(CGPoint(x: $0.bounds.midX, y: $0.bounds.midY), from: $0) }
+                ?? .zero,
+            titleStart: titleText.map { CGPoint(x: $0.minX, y: $0.midY) } ?? .zero,
+            titleFontSize: rowTitle?.font.pointSize ?? 0,
+        )
+        self.expansion = expansion
+
+        let title = header.contextExpansionTitle
+        let fading = header.contextExpansionFadingViews
+        UIView.performWithoutAnimation {
+            previewView.layoutIfNeeded()
+            header.setContextExpansionTraveling(true)
+            header.setContextExpansionCollapsed(true)
+            title.alpha = 0
+            fading.forEach { $0.alpha = 0 }
+            layOutExpansion(expansion, collapsedInto: sourceFrame)
+        }
+        // Slower than the menu, as the concept's growth, so that the messages are seen travelling in.
         UIView.animate(
-            withDuration: 0.34,
-            delay: 0,
-            usingSpringWithDamping: 0.84,
+            springDuration: Self.growthDuration,
+            bounce: Self.growthBounce,
             initialSpringVelocity: 0,
+            delay: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
         ) {
-            for flight in flights {
-                flight.flyer.frame = flight.targetRect
+            self.layOutExpansion(expansion, collapsedInto: nil)
+        } completion: { _ in
+            // The title has landed in its glass, which holds it again.
+            guard !self.isDismissing else { return }
+            header.setContextExpansionTraveling(false)
+        }
+        // The row gives way to the header's title over the first part of the growth; the glass, the status and the
+        // avatar follow as the title nears its place, so that no glass crosses the row.
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+            rowPicture?.alpha = 0
+            titlePicture?.alpha = 0
+            title.alpha = 1
+        }
+        // Glass materializes as its effect is set, whatever the animation's delay: it is set once the delay is over.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
+            guard let self, !isDismissing, self.expansion != nil else { return }
+            UIView.animate(
+                springDuration: 0.4,
+                bounce: 0.2,
+                initialSpringVelocity: 0,
+                delay: 0,
+                options: [.allowUserInteraction, .beginFromCurrentState],
+            ) {
+                header.setContextExpansionCollapsed(false)
             }
-        } completion: { [weak self] _ in
-            guard let self, !isDismissing else { return }
-            UIView.animate(withDuration: 0.12) {
-                for flight in flights {
-                    flight.anchor.alpha = 1
-                    flight.flyer.alpha = 0
-                }
-            } completion: { _ in
-                flights.forEach { $0.flyer.removeFromSuperview() }
-            }
+        }
+        UIView.animate(withDuration: 0.22, delay: 0.12, options: [.curveEaseOut, .allowUserInteraction]) {
+            fading.forEach { $0.alpha = 1 }
         }
     }
 
-    /// The header's avatar and title fly back to the row while the preview shrinks into it.
-    private func collapsePreviewHeader(duration: TimeInterval) {
-        guard !headerFlights.isEmpty,
-              let source = sequence(first: sourceView, next: { $0?.superview })
-                .lazy
-                .compactMap({ $0 as? TelegramContextExpansionAnchors })
-                .first
-        else { return }
-        for flight in headerFlights {
-            let from = flight.isText ? source.contextExpansionTitle : source.contextExpansionAvatar
-            guard let from, flight.anchor.window != nil,
-                  let image = Self.renderedExpansionImage(of: flight.anchor, textOnly: flight.isText)
-            else { continue }
-            flight.flyer.layer.removeAllAnimations()
-            flight.flyer.image = image
-            flight.flyer.alpha = 1
-            flight.flyer.frame = view.convert(
-                Self.expansionRect(of: flight.anchor, textOnly: flight.isText),
-                from: flight.anchor,
+    /// The row's pictures go back to where the row is, and the preview shrinks into it as the row comes back. It
+    /// settles into the row without overshoot, slowing down as it lands, and the menu finishes closing then.
+    private func shrinkIntoRow(_ expansion: ContextPreviewExpansion, returnFrame: CGRect, duration: TimeInterval) {
+        let title = expansion.header.contextExpansionTitle
+        expansion.header.setContextExpansionTraveling(true)
+        UIView.animate(
+            withDuration: duration,
+            delay: 0,
+            usingSpringWithDamping: 1,
+            initialSpringVelocity: 0,
+            options: [.beginFromCurrentState],
+        ) {
+            self.layOutExpansion(expansion, collapsedInto: returnFrame)
+            expansion.header.setContextExpansionCollapsed(true)
+        } completion: { _ in
+            self.finishDismissal()
+        }
+        let fading = expansion.header.contextExpansionFadingViews
+        UIView.animate(withDuration: duration * 0.5, delay: 0, options: [.beginFromCurrentState]) {
+            fading.forEach { $0.alpha = 0 }
+        }
+        UIView.animate(withDuration: duration * 0.5, delay: duration * 0.15, options: [.beginFromCurrentState]) {
+            expansion.rowPicture?.alpha = 1
+            expansion.titlePicture?.alpha = expansion.titlePicture == nil ? 0 : 1
+            title.alpha = 0
+        }
+    }
+
+    /// The preview as it stands covering the row at `rowFrame`, or grown into its place (`nil`): the container's
+    /// size, place and corners, the chat centred in it, the header at its top, and the titles, the header's and the
+    /// row's picture, where they are at that end. The row's pictures stay with the header, over the row.
+    private func layOutExpansion(_ expansion: ContextPreviewExpansion, collapsedInto rowFrame: CGRect?) {
+        guard let previewView else { return }
+        let frame = rowFrame ?? targetPreviewFrame
+        let fullSize = targetPreviewFrame.size
+        let header = expansion.header
+        previewContainer.bounds = CGRect(origin: .zero, size: frame.size)
+        previewContainer.center = CGPoint(x: frame.midX, y: frame.midY)
+        previewView.center = CGPoint(x: frame.width / 2, y: frame.height / 2)
+        // The chat is centred in the container; its header moves down to the container's top.
+        header.transform = CGAffineTransform(translationX: 0, y: (fullSize.height - frame.height) / 2)
+
+        // Where the row's points are in the header's coordinates while the container covers the row.
+        let scale = rowFrame.map { $0.width / max(1, expansion.rowSize.width) } ?? 1
+        let headerOrigin = CGPoint(
+            x: (frame.width - fullSize.width) / 2 + header.center.x - header.bounds.width / 2,
+            y: header.center.y - header.bounds.height / 2,
+        )
+        func inHeader(_ point: CGPoint) -> CGPoint {
+            CGPoint(x: point.x * scale - headerOrigin.x, y: point.y * scale - headerOrigin.y)
+        }
+        if let rowPicture = expansion.rowPicture {
+            rowPicture.bounds = CGRect(origin: .zero, size: expansion.rowSize)
+            rowPicture.center = inHeader(CGPoint(x: expansion.rowSize.width / 2, y: expansion.rowSize.height / 2))
+            rowPicture.transform = CGAffineTransform(scaleX: scale, y: scale)
+        }
+        // The header's title text starts where the row's does, at the row's size. Its place is measured untransformed.
+        let label = header.contextExpansionTitleLabel
+        let title = header.contextExpansionTitle
+        title.transform = .identity
+        let text = header.convert(Self.textRect(of: label), from: label)
+        let isRightToLeft = label.effectiveUserInterfaceLayoutDirection == .rightToLeft
+        let start = CGPoint(x: isRightToLeft ? text.maxX : text.minX, y: text.midY)
+        let center = header.convert(CGPoint(x: title.bounds.midX, y: title.bounds.midY), from: title)
+        let fontRatio = expansion.titleFontSize / max(1, label.font.pointSize)
+        if rowFrame != nil, expansion.titlePicture != nil {
+            let titleScale = scale * fontRatio
+            let target = inHeader(expansion.titleStart)
+            title.transform = CGAffineTransform(
+                translationX: target.x - center.x - titleScale * (start.x - center.x),
+                y: target.y - center.y - titleScale * (start.y - center.y),
+            ).scaledBy(x: titleScale, y: titleScale)
+        }
+        if let titlePicture = expansion.titlePicture {
+            let offset = CGPoint(
+                x: expansion.titleStart.x - expansion.titleCenter.x,
+                y: expansion.titleStart.y - expansion.titleCenter.y,
             )
-            if flight.flyer.superview == nil { view.addSubview(flight.flyer) }
-            flight.anchor.alpha = 0
-            let target = view.convert(Self.expansionRect(of: from, textOnly: flight.isText), from: from)
-            UIView.animate(withDuration: duration, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
-                flight.flyer.frame = target
+            if rowFrame != nil {
+                titlePicture.center = inHeader(expansion.titleCenter)
+                titlePicture.transform = CGAffineTransform(scaleX: scale, y: scale)
+            } else {
+                let pictureScale = 1 / max(0.01, fontRatio)
+                titlePicture.center = CGPoint(
+                    x: start.x - pictureScale * offset.x,
+                    y: start.y - pictureScale * offset.y,
+                )
+                titlePicture.transform = CGAffineTransform(scaleX: pictureScale, y: pictureScale)
             }
         }
+        previewContainer.layer.cornerRadius = rowFrame == nil
+            ? Self.chatPreviewCornerRadius
+            : expansion.rowCornerRadius * scale
     }
 
     private func animateMenuOut(returnFrame: CGRect) {
@@ -1791,7 +1954,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         }
         // The preview flies back to where the source sits on screen, in the scrolled content's coordinates.
         let returnFrame = sourceFrameAtBaseTransform().offsetBy(dx: 0, dy: contentScrollOffset)
-        if presentationStyle == .chatPreview { collapsePreviewHeader(duration: 0.24) }
+        if let expansion { shrinkIntoRow(expansion, returnFrame: returnFrame, duration: 0.3) }
         animateMenuOut(returnFrame: returnFrame)
         // Fading the strip itself renders its blur and emoji layers offscreen every frame, which halved the close's
         // frame rate on the Simulator; its snapshot fades as one layer, and the emoji are on hold anyway.
@@ -1823,6 +1986,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                         scaleX: returnFrame.width / max(1, self.targetPreviewFrame.width),
                         y: returnFrame.height / max(1, self.targetPreviewFrame.height),
                     )
+                } else if self.expansion != nil {
+                    // shrinkIntoRow carries the growing preview back.
+                } else if self.growsOutOfRow {
+                    self.previewContainer.bounds = CGRect(origin: .zero, size: returnFrame.size)
+                    self.previewContainer.center = CGPoint(x: returnFrame.midX, y: returnFrame.midY)
+                    self.previewView?.center = CGPoint(x: returnFrame.width / 2, y: returnFrame.height / 2)
                 } else if self.presentationStyle == .chatPreview {
                     self.previewContainer.center = CGPoint(x: returnFrame.midX, y: returnFrame.midY)
                     self.previewContainer.transform = CGAffineTransform(
@@ -1840,7 +2009,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             stripSnapshot?.alpha = 0
             self.sourceTabsView.alpha = 0
             self.sourceFooterLabel.alpha = 0
-        } completion: { _ in self.finishDismissal() }
+        } completion: { _ in
+            // A preview growing out of its row finishes as it lands in the row.
+            if self.expansion == nil { self.finishDismissal() }
+        }
     }
 
     private func finishDismissal() {
@@ -1862,11 +2034,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         previewController?.view.removeFromSuperview()
         previewController?.removeFromParent()
         if presentationStyle.showsPreview { sourceView?.alpha = 1 }
-        for flight in headerFlights {
-            flight.anchor.alpha = 1
-            flight.flyer.removeFromSuperview()
+        if let expansion {
+            expansion.backdrop.removeFromSuperview()
+            expansion.header.setContextExpansionTraveling(false)
+            self.expansion = nil
         }
-        headerFlights = []
         beginAppearanceTransition(false, animated: false)
         view.removeFromSuperview()
         endAppearanceTransition()
@@ -3245,20 +3417,53 @@ extension UIView {
 }
 #endif
 
-// MARK: - TelegramContextExpansionAnchors
+// MARK: - TelegramContextExpansionSource
 
-/// A chat row, or a chat screen in a preview, whose avatar and title a chat preview's header grows out of or into.
-@MainActor protocol TelegramContextExpansionAnchors: AnyObject {
-    var contextExpansionAvatar: UIView? { get }
-    var contextExpansionTitle: UIView? { get }
+/// A chat row a chat preview grows out of: the preview's title grows out of the row's.
+@MainActor protocol TelegramContextExpansionSource: AnyObject {
+    var contextExpansionTitle: UILabel? { get }
+    /// What leaves the row with its title, such as its emoji status.
+    var contextExpansionTitleAccessories: [UIView] { get }
 }
 
-// MARK: - ContextHeaderFlight
+// MARK: - TelegramContextExpansionHeader
 
-/// One of the row's views flying into the preview's header.
-private struct ContextHeaderFlight {
-    let flyer: UIImageView
-    let anchor: UIView
-    let targetRect: CGRect
-    let isText: Bool
+/// A chat preview's header, which grows out of the row the preview opens from.
+@MainActor protocol TelegramContextExpansionHeader: UIView {
+    /// The title that the row's title turns into, and its text.
+    var contextExpansionTitle: UIView { get }
+    var contextExpansionTitleLabel: UILabel { get }
+    /// Puts the row's picture under the header's glass, where the header's title passes over it.
+    func insertContextExpansionBackdrop(_ backdrop: UIView)
+    /// What appears once the title nears its place, such as the status and the avatar.
+    var contextExpansionFadingViews: [UIView] { get }
+    /// Lets the title travel out of its glass (`true`) or keeps it in (`false`).
+    func setContextExpansionTraveling(_ traveling: Bool)
+    /// The header's glass as the row shows it (`true`: none) or as the preview does. Animatable.
+    func setContextExpansionCollapsed(_ collapsed: Bool)
+}
+
+// MARK: - TelegramContextExpansionTarget
+
+/// A chat preview that grows out of its row as a window onto the chat, with its header kept at its top.
+@MainActor protocol TelegramContextExpansionTarget: AnyObject {
+    var contextExpansionHeader: TelegramContextExpansionHeader? { get }
+}
+
+// MARK: - ContextPreviewExpansion
+
+/// The row a chat preview grows out of, as the header shows it while the preview grows: a picture of the row without
+/// its title, and a picture of its title, which travels with the header's title into its place.
+private struct ContextPreviewExpansion {
+    let header: TelegramContextExpansionHeader
+    /// Holds the pictures, laid over the header's own coordinates under its glass.
+    let backdrop: UIView
+    let rowPicture: UIView?
+    let titlePicture: UIView?
+    /// The row's size and corner radius, and its title's centre, text start and font size, in the row's coordinates.
+    let rowSize: CGSize
+    let rowCornerRadius: CGFloat
+    let titleCenter: CGPoint
+    let titleStart: CGPoint
+    let titleFontSize: CGFloat
 }

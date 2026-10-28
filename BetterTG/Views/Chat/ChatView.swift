@@ -2642,6 +2642,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if presentationMode == .contextPreview {
             customNavigationBar.isUserInteractionEnabled = false
             customNavigationBar.setBackButtonHidden(true)
+            // The header's pills keep off the preview's top edge as far as off its sides.
+            additionalSafeAreaInsets.top = TelegramGlassPlatter.edgeInset
         }
         view.addSubview(customNavigationBar)
         navigationBarHeightConstraint = customNavigationBar.heightAnchor.constraint(
@@ -12444,11 +12446,10 @@ extension ChatViewController: TelegramGlassPlatterHost {
     var telegramGlassPlatters: [TelegramGlassPlatter] { customNavigationBar.glassPlatters }
 }
 
-// MARK: - ChatViewController + TelegramContextExpansionAnchors
+// MARK: - ChatViewController + TelegramContextExpansionTarget
 
-extension ChatViewController: TelegramContextExpansionAnchors {
-    var contextExpansionAvatar: UIView? { customNavigationBar.expansionAvatarView }
-    var contextExpansionTitle: UIView? { customNavigationBar.expansionTitleView }
+extension ChatViewController: TelegramContextExpansionTarget {
+    var contextExpansionHeader: TelegramContextExpansionHeader? { customNavigationBar }
 }
 
 // MARK: - ChatViewController + TelegramTransitionReadiness

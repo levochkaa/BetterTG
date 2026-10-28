@@ -2536,9 +2536,8 @@ extension ForumTopicsViewController: TelegramGlassPlatterHost {
     var telegramGlassPlatters: [TelegramGlassPlatter] { navigationBarView.glassPlatters }
 }
 
-// MARK: - ForumTopicsViewController + TelegramContextExpansionAnchors
+// MARK: - ForumTopicsViewController + TelegramContextExpansionTarget
 
-extension ForumTopicsViewController: TelegramContextExpansionAnchors {
-    var contextExpansionAvatar: UIView? { nil }
-    var contextExpansionTitle: UIView? { navigationBarView.expansionTitleView }
+extension ForumTopicsViewController: TelegramContextExpansionTarget {
+    var contextExpansionHeader: TelegramContextExpansionHeader? { navigationBarView }
 }

@@ -92,12 +92,11 @@ final class TelegramListNavigationBar: UIView {
     /// The last scroll state applied: the search field's collapse, the pull and whether search was active.
     private var appliedScroll: (CGFloat, CGFloat, Bool)?
     private var searchTopConstraint: NSLayoutConstraint!
+    /// Whether the bar clipped before a chat preview's title travelled over it.
+    private var clipsBeforeExpansion: Bool?
 
     /// The right button's glass circle; a menu opened from it morphs the whole pill, as Telegram's do.
     var rightButtonView: UIView { trailingPlatter }
-
-    /// The title a chat preview's header grows out of the chat list's row into.
-    var expansionTitleView: UIView? { titleLabel }
 
     /// The bar's glass platters for the push and pop morph, leading first.
     var glassPlatters: [TelegramGlassPlatter] {
@@ -593,6 +592,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private var configuredStatus = ""
     private var configuredStatusColor = UIColor.secondaryLabel
     private var configuredActivity: ChatActivityIndicatorView.Kind?
+    /// How the title's glass clipped before a chat preview's title travelled out of it.
+    private var clippingBeforeExpansion: [(view: UIView, clips: Bool)]?
 
     /// The bar keeps its height while searching: the field takes the row's place.
     var visibleContentHeight: CGFloat { Self.contentHeight }
@@ -601,10 +602,6 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     var glassPlatters: [TelegramGlassPlatter] {
         [leadingPlatter, titlePlatter, trailingPlatter, selectionCancelPlatter].filter { !$0.isHidden }
     }
-
-    /// The avatar and title a chat preview's header grows out of the chat list's row into.
-    var expansionAvatarView: UIView? { avatarView.isHidden ? nil : avatarView }
-    var expansionTitleView: UIView? { titleLabel }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1323,5 +1320,73 @@ final class ChatListProxyButton: UIControl {
             case .available,
                  nil: nil
             }
+    }
+}
+
+// MARK: - TelegramListNavigationBar + TelegramContextExpansionHeader
+
+extension TelegramListNavigationBar: TelegramContextExpansionHeader {
+    var contextExpansionTitle: UIView { titleLabel }
+    var contextExpansionTitleLabel: UILabel { titleLabel }
+    var contextExpansionFadingViews: [UIView] { [subtitleLabel] + glassPlatters.flatMap(\.visibleItems) }
+
+    func insertContextExpansionBackdrop(_ backdrop: UIView) {
+        insertSubview(backdrop, aboveSubview: blurView)
+    }
+
+    /// The row's picture reaches past the bar while the title travels.
+    func setContextExpansionTraveling(_ traveling: Bool) {
+        if traveling {
+            guard clipsBeforeExpansion == nil else { return }
+            clipsBeforeExpansion = clipsToBounds
+            clipsToBounds = false
+        } else if let clips = clipsBeforeExpansion {
+            clipsToBounds = clips
+            clipsBeforeExpansion = nil
+        }
+    }
+
+    func setContextExpansionCollapsed(_ collapsed: Bool) {
+        for platter in glassPlatters {
+            platter.setGlassMaterialized(!collapsed)
+        }
+    }
+}
+
+// MARK: - TelegramChatNavigationBar + TelegramContextExpansionHeader
+
+extension TelegramChatNavigationBar: TelegramContextExpansionHeader {
+    var contextExpansionTitle: UIView { titleRow }
+    var contextExpansionTitleLabel: UILabel { titleLabel }
+    var contextExpansionFadingViews: [UIView] { [statusRow] + trailingPlatter.visibleItems }
+
+    func insertContextExpansionBackdrop(_ backdrop: UIView) {
+        insertSubview(backdrop, belowSubview: rowGlassContainer)
+    }
+
+    /// The title travels out of its pill: the pill and the row's glass let it out while it does.
+    func setContextExpansionTraveling(_ traveling: Bool) {
+        if traveling {
+            guard clippingBeforeExpansion == nil else { return }
+            let views: [UIView] = [
+                rowGlassContainer,
+                rowGlassContainer.contentView,
+                titlePlatter,
+                titlePlatter.glassView,
+                titlePlatter.glassView.contentView,
+            ]
+            clippingBeforeExpansion = views.map { ($0, $0.clipsToBounds) }
+            views.forEach { $0.clipsToBounds = false }
+        } else if let clipping = clippingBeforeExpansion {
+            clipping.forEach { $0.view.clipsToBounds = $0.clips }
+            clippingBeforeExpansion = nil
+        }
+    }
+
+    /// The title's and the avatar's glass materialize, and the avatar grows in where it is.
+    func setContextExpansionCollapsed(_ collapsed: Bool) {
+        titlePlatter.setGlassMaterialized(!collapsed)
+        trailingPlatter.setGlassMaterialized(!collapsed)
+        trailingPlatter.transform = collapsed ? CGAffineTransform(scaleX: 0.5, y: 0.5) : .identity
     }
 }

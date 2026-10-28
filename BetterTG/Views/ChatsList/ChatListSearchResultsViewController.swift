@@ -1312,6 +1312,13 @@ private final class ChatListSearchPeerCell: UITableViewCell {
     }
 }
 
+// MARK: TelegramContextExpansionSource
+
+extension ChatListSearchPeerCell: TelegramContextExpansionSource {
+    var contextExpansionTitle: UILabel? { titleLabel }
+    var contextExpansionTitleAccessories: [UIView] { [] }
+}
+
 // MARK: - ChatListSearchLoadingCell
 
 /// Stands in for Telegram's message placeholders while messages load.
