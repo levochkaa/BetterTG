@@ -45,6 +45,9 @@ final class PeerEmojiStatusView: UIView {
     private let premiumView = UIImageView()
     private var emojiView: CustomEmojiInlineView?
     private var loadTask: Task<Void, Never>?
+    /// Whether the status shows what it will: the emoji's first frame, the star, or nothing.
+    private var isShown = true
+    private var shownHandlers = [() -> Void]()
 
     /// `loopLimit` is ChatListItem's and ChatTitleView's `.count(2)` by default; PeerInfoHeaderNode loops on.
     init(side: CGFloat = 20, loopLimit: Int? = 2) {
@@ -70,6 +73,13 @@ final class PeerEmojiStatusView: UIView {
         emojiView?.setPlaybackVisible(window != nil)
     }
 
+    /// Calls `ready` once the status shows what it will, for a screen that waits to be shown ready: an emoji's first
+    /// frame, or at once for the star or no status.
+    func whenShown(_ ready: @escaping () -> Void) {
+        guard !isShown else { return ready() }
+        shownHandlers.append(ready)
+    }
+
     /// `client` loads a status emoji; the Premium star needs none.
     func configure(_ status: PeerEmojiStatus?, client: TDLibClient?) {
         guard status != self.status else { return }
@@ -80,14 +90,25 @@ final class PeerEmojiStatusView: UIView {
         emojiView?.removeFromSuperview()
         emojiView = nil
         premiumView.isHidden = status != .premium
-        guard case .emoji(let identifier) = status, let client else { return }
+        guard case .emoji(let identifier) = status, let client else { return markShown() }
+        isShown = false
         loadTask = Task { [weak self] in
             let sticker = await CustomEmojiStickerRepository.shared.stickers(
                 for: [identifier],
                 client: client,
             )[identifier]
-            guard !Task.isCancelled, let sticker, let self, self.status == .emoji(identifier) else { return }
+            guard !Task.isCancelled, let self, self.status == .emoji(identifier) else { return }
+            guard let sticker else { return markShown() }
             install(sticker, client: client)
+        }
+    }
+
+    private func markShown() {
+        isShown = true
+        let handlers = shownHandlers
+        shownHandlers = []
+        for handler in handlers {
+            handler()
         }
     }
 
@@ -104,6 +125,10 @@ final class PeerEmojiStatusView: UIView {
         view.isUserInteractionEnabled = false
         addSubview(view)
         emojiView = view
+        view.onFirstFrameReady = { [weak self, weak view] in
+            guard let self, emojiView === view, !isShown else { return }
+            markShown()
+        }
         view.configure(sticker: sticker, client: client)
         view.setPlaybackVisible(window != nil)
     }

@@ -302,6 +302,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var messageSearchActive = false
     private lazy var messageSearch = makeMessageSearch()
     private let messageSearchPanel = ChatSearchPanel()
+    /// Whether the first page of history is on screen, or the chat has none: the push may show the chat.
+    private var isHistoryShown = false
+    private var historyShownHandlers = [() -> Void]()
     private var messageSearchMemberList: ChatSearchMemberListView?
     /// Telegram's displayHistoryFilterAsList: the results show as a list over the chat.
     private var messageSearchShowsList = false
@@ -1957,6 +1960,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return values
         }
     #endif
+
+    /// Calls `ready` once the first page of history is on screen, or the chat turns out to have none.
+    fileprivate func whenHistoryShown(_ ready: @escaping () -> Void) {
+        noteHistoryShownIfNeeded()
+        guard !isHistoryShown else { return ready() }
+        historyShownHandlers.append(ready)
+    }
 
     /// Loads a row's media ahead of display, and starts what auto-download allows (Telegram fetches as its node
     /// appears, so a row shown without a prefetch starts here too).
@@ -5375,6 +5385,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 )
             }
             owner.drainTimelineSnapshots()
+            // The batch is committed by now, so the first page can count as shown.
+            owner.noteHistoryShownIfNeeded()
             guard !timelineSnapshots.isBusy else { return }
             owner.settleRestoredViewport()
             owner.applyPendingMessageNavigation()
@@ -6076,6 +6088,19 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard ChatViewportRestorationAuthority.finishLayoutMutation(depth: &timelineLayoutMutationDepth) else { return }
         drainTimelineSnapshots()
         if retryPendingNavigation { applyPendingMessageNavigation() }
+    }
+
+    private func noteHistoryShownIfNeeded() {
+        guard !isHistoryShown else { return }
+        let hasMessages = timelineSnapshots.committed.ids.contains { $0.displayedMessageID != nil }
+        let isEmpty = chatVM.messages.isEmpty && chatVM.loadingMessagesTask == nil
+        guard hasMessages || isEmpty else { return }
+        isHistoryShown = true
+        let handlers = historyShownHandlers
+        historyShownHandlers = []
+        for handler in handlers {
+            handler()
+        }
     }
 
     private func layoutForViewportCompletion() {
@@ -12422,6 +12447,21 @@ extension ChatViewController: TelegramGlassPlatterHost {
 extension ChatViewController: TelegramContextExpansionAnchors {
     var contextExpansionAvatar: UIView? { customNavigationBar.expansionAvatarView }
     var contextExpansionTitle: UIView? { customNavigationBar.expansionTitleView }
+}
+
+// MARK: - ChatViewController + TelegramTransitionReadiness
+
+extension ChatViewController: TelegramTransitionReadiness {
+    /// ChatController's `ready`: the push waits for the first page of history and the header's emoji status and
+    /// avatar, so the chat comes in finished.
+    func whenReadyForTransition(_ ready: @escaping () -> Void) {
+        let group = DispatchGroup()
+        group.enter()
+        whenHistoryShown { group.leave() }
+        group.enter()
+        customNavigationBar.whenContentShown { group.leave() }
+        group.notify(queue: .main, execute: ready)
+    }
 }
 
 // MARK: - ChatViewController + TelegramBackMenuTitled

@@ -3569,6 +3569,21 @@ ClientRestorableNavigationEntry {
     }
 }
 
+// MARK: TelegramTransitionReadiness
+
+extension PeerProfileViewController: TelegramTransitionReadiness {
+    /// PeerInfoScreen's `ready`: the push waits for the header's avatar photo and emoji status, so the profile comes
+    /// in with them.
+    func whenReadyForTransition(_ ready: @escaping () -> Void) {
+        let group = DispatchGroup()
+        group.enter()
+        avatarView.whenImageShown { group.leave() }
+        group.enter()
+        titleStatusView.whenShown { group.leave() }
+        group.notify(queue: .main, execute: ready)
+    }
+}
+
 // MARK: - SharedMediaGridCell
 
 final class SharedMediaGridCell: UICollectionViewCell {

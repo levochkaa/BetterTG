@@ -2,12 +2,30 @@
 
 import UIKit
 
+// MARK: - TelegramTransitionReadiness
+
+/// A screen that is shown only once its first content is in place, as Telegram's `ViewController.ready`: its push
+/// holds until then (NavigationContainer keeps it as the pending child), so the transition carries the finished
+/// screen rather than one that fills in after it.
+@MainActor protocol TelegramTransitionReadiness: AnyObject {
+    /// Calls `ready` once the first content is in place: at most once, and at once when it already is.
+    func whenReadyForTransition(_ ready: @escaping () -> Void)
+}
+
+// MARK: - TelegramNavigationController
+
 final class TelegramNavigationController: UINavigationController, UIGestureRecognizerDelegate,
 UINavigationControllerDelegate {
+    /// The longest a push waits: a screen whose content takes longer, such as one still downloading, shows as it is.
+    private static let readinessTimeout: TimeInterval = 0.5
+
     /// Called after every completed push, pop or replacement, once classic chrome is settled.
     var onDidShow: ((UIViewController) -> Void)?
 
     private var chromeStates = [ObjectIdentifier: TelegramNavigationChromeState]()
+    /// A push waiting for its screen's first content, held until then; a later push takes its place, as Telegram's
+    /// pending child.
+    private var pendingPush: UIViewController?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -22,6 +40,29 @@ UINavigationControllerDelegate {
         panGesture.delegate = self
         view.addGestureRecognizer(panGesture)
         interactivePopGestureRecognizer?.isEnabled = false
+    }
+
+    /// An animated push of a screen that reports its readiness loads the screen at its size and starts the push
+    /// once the screen is ready, or after `readinessTimeout`.
+    override func pushViewController(_ viewController: UIViewController, animated: Bool) {
+        guard animated, let readiness = viewController as? TelegramTransitionReadiness else {
+            pendingPush = nil
+            super.pushViewController(viewController, animated: animated)
+            return
+        }
+        pendingPush = viewController
+        viewController.loadViewIfNeeded()
+        viewController.view.frame = view.bounds
+        viewController.view.layoutIfNeeded()
+        var isPushed = false
+        let push = { [weak self, weak viewController] in
+            guard !isPushed, let self, let viewController, pendingPush === viewController else { return }
+            isPushed = true
+            pendingPush = nil
+            pushReady(viewController)
+        }
+        readiness.whenReadyForTransition(push)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.readinessTimeout, execute: push)
     }
 
     override func setNavigationBarHidden(_: Bool, animated _: Bool) {
@@ -114,6 +155,10 @@ UINavigationControllerDelegate {
         // The swipe asks the screen as Back does (Telegram's NavigationController checks attemptNavigation).
         if let handler = topViewController as? TelegramNavigationAttemptHandling { return handler.attemptNavigation() }
         return true
+    }
+
+    private func pushReady(_ viewController: UIViewController) {
+        super.pushViewController(viewController, animated: true)
     }
 
     private func glassPlatters(of controller: UIViewController) -> [TelegramGlassPlatter] {

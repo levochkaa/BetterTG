@@ -36,6 +36,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
     private let imageView = TDImageLoadingView()
 
     private var highResolutionTask: Task<Void, Never>?
+    private var imageShownHandlers = [() -> Void]()
     private var highResolutionFile: File?
     private var sourceFile: File?
     private var sourceMinithumbnailData: Data?
@@ -65,6 +66,7 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         extractedContentView.addSubview(imageView)
         isUserInteractionEnabled = true
         imageView.onImageChange = { [weak self] in self?.updateBadgeContent() }
+        imageView.onFullImage = { [weak self] in self?.markImageShown() }
 
         addGestureRecognizer(contextMenuGesture)
 
@@ -134,6 +136,13 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         updateImageIfNeeded()
     }
 
+    /// Calls `ready` once the avatar shows what it will, for a screen that waits to be shown ready: the photo once it
+    /// is decoded, or at once when it already shows or there is none to load.
+    func whenImageShown(_ ready: @escaping () -> Void) {
+        guard representedFile != nil, !imageView.hasFullImage else { return ready() }
+        imageShownHandlers.append(ready)
+    }
+
     func prepareForReuse() {
         highResolutionTask?.cancel()
         highResolutionTask = nil
@@ -181,6 +190,14 @@ final class ProfileAvatarView: TelegramContextMenuExtractableView {
         else { return }
         imageView.cancel()
         imageView.image = UIImage(cgImage: cached.image)
+    }
+
+    private func markImageShown() {
+        let handlers = imageShownHandlers
+        imageShownHandlers = []
+        for handler in handlers {
+            handler()
+        }
     }
 
     // MARK: Private

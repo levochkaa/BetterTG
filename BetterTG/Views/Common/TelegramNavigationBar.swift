@@ -745,6 +745,17 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         avatarView.onSearch = { [weak self] in self?.beginSearch() }
     }
 
+    /// Calls `ready` once the header shows what it will, for a chat that waits to be shown ready: the title's emoji
+    /// status and the avatar's photo.
+    func whenContentShown(_ ready: @escaping () -> Void) {
+        let group = DispatchGroup()
+        group.enter()
+        titleStatusView.whenShown { group.leave() }
+        group.enter()
+        avatarView.whenImageShown { group.leave() }
+        group.notify(queue: .main, execute: ready)
+    }
+
     /// The avatar's menu items in place of Open Profile / Search / Save Image; nil restores those.
     func setAvatarMenuActions(_ actions: (() -> [TelegramContextMenuAction])?) {
         avatarView.contextMenuActions = actions
