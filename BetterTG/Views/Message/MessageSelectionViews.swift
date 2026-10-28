@@ -157,7 +157,7 @@ final class MessageSelectionToolbar: UIView {
     var onDelete: (() -> Void)?
     var onForward: (() -> Void)?
 
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let blurView = TelegramBarBackgroundView(edge: .bottom)
     private let deleteButton = UIButton(type: .system)
     private let countLabel = UILabel()
     private let forwardButton = UIButton(type: .system)
@@ -188,11 +188,6 @@ final class MessageSelectionToolbar: UIView {
     private func configureViews() {
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
-
-        let separator = UIView()
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.backgroundColor = .separator
-        addSubview(separator)
 
         deleteButton.translatesAutoresizingMaskIntoConstraints = false
         deleteButton.setImage(
@@ -231,11 +226,6 @@ final class MessageSelectionToolbar: UIView {
             blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
             blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
 
             deleteButton.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 8),
             deleteButton.topAnchor.constraint(equalTo: topAnchor),

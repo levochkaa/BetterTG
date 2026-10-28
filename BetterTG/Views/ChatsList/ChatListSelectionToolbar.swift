@@ -13,7 +13,7 @@ final class ChatListSelectionToolbar: UIView {
     var onMiddle: (() -> Void)?
     var onRight: (() -> Void)?
 
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let blurView = TelegramBarBackgroundView(edge: .bottom)
     private let leftButton = UIButton(type: .system)
     private let middleButton = UIButton(type: .system)
     private let rightButton = UIButton(type: .system)
@@ -49,11 +49,6 @@ final class ChatListSelectionToolbar: UIView {
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
 
-        let separator = UIView()
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.backgroundColor = .separator
-        addSubview(separator)
-
         middleButton.isHidden = true
         for button in [leftButton, middleButton, rightButton] {
             button.translatesAutoresizingMaskIntoConstraints = false
@@ -72,11 +67,6 @@ final class ChatListSelectionToolbar: UIView {
             blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
             blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
 
             leftButton.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 16),
             leftButton.topAnchor.constraint(equalTo: topAnchor),

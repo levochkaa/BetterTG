@@ -35,7 +35,7 @@ final class ChatSearchPanel: UIView {
     var onDisplayMode: (() -> Void)?
 
     private let contentGuide = UILayoutGuide()
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let blurView = TelegramBarBackgroundView(edge: .bottom)
     private let calendarButton = UIButton(type: .system)
     private let membersButton = UIButton(type: .system)
     private let statusLabel = UILabel()
@@ -108,11 +108,6 @@ final class ChatSearchPanel: UIView {
         addSubview(blurView)
         addLayoutGuide(contentGuide)
 
-        let separator = UIView()
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.backgroundColor = .separator
-        addSubview(separator)
-
         configure(calendarButton, symbol: "calendar", label: L10n.telegram("Chat.JumpToDate"))
         calendarButton.addTarget(self, action: #selector(calendarPressed), for: .touchUpInside)
         configure(membersButton, symbol: "person.2", label: L10n.telegram("Conversation.SearchByName.Placeholder"))
@@ -165,11 +160,6 @@ final class ChatSearchPanel: UIView {
             blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
             blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
-
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1 / max(traitCollection.displayScale, 1)),
 
             contentGuide.topAnchor.constraint(equalTo: topAnchor),
             contentGuide.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 4),

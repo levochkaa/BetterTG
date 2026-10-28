@@ -177,14 +177,16 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     var onHeightChange: (() -> Void)?
     var topInset: CGFloat = 0
 
-    private let background = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    private let separator = UIView()
+    private let background = TelegramBarBackgroundView(edge: .top)
     /// `UINavigationItem.prompt` (Reconnecting…, Saving…): a line above the title row, 30 pt like the system bar's.
     private let promptLabel = UILabel()
     private let titleLabel = UILabel()
     /// `UINavigationItem.subtitle` under the title, as Telegram's CounterControllerTitle shows a picker's count.
     private let subtitleLabel = UILabel()
-    private let backButton = UIButton(type: .system)
+    private let backButton = UIButton.telegramGlassIcon(UIImage(systemName: "chevron.left"))
+    /// The back button and the left items share the leading platter; the right items form UIKit's sections.
+    private let leadingPlatter = TelegramGlassPlatter(role: .leading)
+    private var trailingPlatters = [TelegramGlassPlatter]()
     private var leftViews = [UIView]()
     private var rightViews = [UIView]()
     private var items = [UIBarButtonItem]()
@@ -196,13 +198,14 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
 
     var contentHeight: CGFloat { promptHeight + 44 + (searchView != nil && !searchActive ? 44 : 0) }
 
+    /// The bar's glass platters for the push and pop morph, leading first.
+    var glassPlatters: [TelegramGlassPlatter] { [leadingPlatter] + trailingPlatters }
+
     private var promptHeight: CGFloat { promptLabel.text?.isEmpty == false ? 30 : 0 }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         addSubview(background)
-        separator.backgroundColor = .separator
-        addSubview(separator)
         promptLabel.font = .preferredFont(forTextStyle: .footnote)
         promptLabel.adjustsFontForContentSizeCategory = true
         promptLabel.textColor = .secondaryLabel
@@ -219,9 +222,9 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         subtitleLabel.adjustsFontForContentSizeCategory = true
         subtitleLabel.isHidden = true
         addSubview(subtitleLabel)
-        backButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
         backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
-        addSubview(backButton)
+        leadingPlatter.translatesAutoresizingMaskIntoConstraints = true
+        addSubview(leadingPlatter)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
@@ -229,26 +232,31 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     override func layoutSubviews() {
         super.layoutSubviews()
         background.frame = bounds
-        separator.frame = CGRect(
-            x: 0,
-            y: bounds.maxY - 1 / traitCollection.displayScale,
-            width: bounds.width,
-            height: 1 / traitCollection.displayScale,
-        )
         promptLabel.frame = CGRect(x: 16, y: topInset, width: max(0, bounds.width - 32), height: promptHeight)
         let rowY = topInset + promptHeight
-        backButton.frame = CGRect(x: 2, y: rowY, width: 44, height: 44)
-        var left: CGFloat = backButton.isHidden ? 6 : 46
-        for control in leftViews {
-            let width = max(44, control.sizeThatFits(CGSize(width: bounds.width / 3, height: 44)).width + 12)
-            control.frame = CGRect(x: left, y: rowY, width: width, height: 44)
+        let edge = TelegramGlassPlatter.edgeInset
+        var left = safeAreaInsets.left + edge
+        if leadingPlatter.hasVisibleItems {
+            let width = leadingPlatter.systemLayoutSizeFitting(
+                CGSize(width: 0, height: TelegramGlassPlatter.height),
+                withHorizontalFittingPriority: .fittingSizeLevel,
+                verticalFittingPriority: .required,
+            )
+            .width
+            leadingPlatter.frame = CGRect(x: left, y: rowY, width: width, height: TelegramGlassPlatter.height)
             left += width
         }
-        var right = bounds.width - 6
-        for control in rightViews {
-            let width = max(44, control.sizeThatFits(CGSize(width: bounds.width / 3, height: 44)).width + 12)
+        var right = bounds.width - safeAreaInsets.right - edge
+        for platter in trailingPlatters where platter.hasVisibleItems {
+            let width = platter.systemLayoutSizeFitting(
+                CGSize(width: 0, height: TelegramGlassPlatter.height),
+                withHorizontalFittingPriority: .fittingSizeLevel,
+                verticalFittingPriority: .required,
+            )
+            .width
             right -= width
-            control.frame = CGRect(x: right, y: rowY, width: width, height: 44)
+            platter.frame = CGRect(x: right, y: rowY, width: width, height: TelegramGlassPlatter.height)
+            right -= TelegramGlassPlatter.interSectionSpacing
         }
         let inset = max(left, bounds.width - right) + 8
         let titleFrame = CGRect(x: inset, y: rowY, width: max(0, bounds.width - 2 * inset), height: 44)
@@ -259,14 +267,19 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
             subtitleLabel.frame = CGRect(x: titleFrame.minX, y: rowY + 24, width: titleFrame.width, height: 16)
         }
         customTitle?.frame = titleFrame
-        for item in [titleLabel, subtitleLabel, backButton] + leftViews + rightViews + [customTitle]
-            .compactMap(\.self)
-        {
+        for item in [titleLabel, subtitleLabel] + glassPlatters + [customTitle].compactMap(\.self) {
             item.alpha = searchActive
                 ? 0
                 : 1
         }
         searchView?.frame = CGRect(x: 0, y: rowY + (searchActive ? 0 : 44), width: bounds.width, height: 44)
+    }
+
+    /// `-[UIBarButtonItem _requiresOwnSection]` (read on iOS 27): every text item and every prominent one.
+    private static func requiresOwnSection(_ item: UIBarButtonItem) -> Bool {
+        guard item.customView == nil else { return false }
+        let title = [item.title, item.primaryAction?.title].compactMap(\.self).first { !$0.isEmpty }
+        return title != nil || item.style == .prominent
     }
 
     func configure(
@@ -287,11 +300,40 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         let left = item.leftBarButtonItems ?? []
         let right = item.rightBarButtonItems ?? []
         backButton.isHidden = !showsBack || item.hidesBackButton || !left.isEmpty || searchActive
-        (leftViews + rightViews).forEach { $0.removeFromSuperview() }
         items = left + right
         leftViews = left.map(makeButton)
         rightViews = right.map(makeButton)
-        (leftViews + rightViews).forEach { addSubview($0) }
+        leadingPlatter.setItems([backButton] + leftViews)
+        trailingPlatters.forEach { $0.removeFromSuperview() }
+        // UIKit's sections (`_addImplicitTopBarSectionsFromItems`): outermost first, a text or prominent item takes a
+        // pill of its own, any other joins the current pill.
+        var sections = [[(UIBarButtonItem, UIView)]]()
+        var current = [(UIBarButtonItem, UIView)]()
+        for (barItem, view) in zip(right, rightViews) {
+            if Self.requiresOwnSection(barItem) {
+                if !current.isEmpty { sections.append(current) }
+                current = []
+                sections.append([(barItem, view)])
+            } else {
+                current.append((barItem, view))
+            }
+        }
+        if !current.isEmpty { sections.append(current) }
+        trailingPlatters = sections.enumerated().map { index, section in
+            let platter = TelegramGlassPlatter(role: .trailing(index))
+            platter.translatesAutoresizingMaskIntoConstraints = true
+            // UIKit lays a section's items out leading to trailing; `rightBarButtonItems` lists them outermost first.
+            platter.setItems(section.reversed().map(\.1))
+            if section.count == 1, section[0].0.style == .prominent {
+                let effect = UIGlassEffect(style: .regular)
+                effect.isInteractive = true
+                effect.tintColor = section[0].0.tintColor ?? .systemBlue
+                platter.glassView.effect = effect
+                (section[0].1 as? UIButton)?.tintColor = .white
+            }
+            addSubview(platter)
+            return platter
+        }
         if customTitle !== item.titleView {
             customTitle?.removeFromSuperview()
             customTitle = item.titleView
@@ -334,19 +376,20 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
             if let control = custom as? UIControl { control.isEnabled = item.isEnabled }
             return custom
         }
-        let button = UIButton(type: .system)
         // An item made from a UIAction keeps its title and image there and runs it instead of a target-action.
         let primaryAction = item.primaryAction
         let title = [item.title, primaryAction?.title].compactMap(\.self).first { !$0.isEmpty }
-        button.setTitle(title, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 17, weight: item.style == .prominent ? .semibold : .regular)
-        button.setImage(item.image ?? primaryAction?.image, for: .normal)
-        button.setPreferredSymbolConfiguration(.init(pointSize: 18, weight: .medium), forImageIn: .normal)
+        let image = item.image ?? primaryAction?.image
+        let button = UIButton.telegramGlassIcon(title == nil ? image : nil)
+        if let title {
+            button.setTitle(title, for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 17, weight: item.style == .prominent ? .semibold : .medium)
+        }
         button.accessibilityLabel = item.accessibilityLabel ?? title
         button.accessibilityIdentifier = item.accessibilityIdentifier
         button.accessibilityHint = item.accessibilityHint
         button.isEnabled = item.isEnabled
-        button.tintColor = item.tintColor ?? .systemBlue
+        button.tintColor = item.tintColor ?? .label
         button.menu = item.menu
         button.showsMenuAsPrimaryAction = item.menu != nil
         button.addAction(UIAction { [weak item] _ in

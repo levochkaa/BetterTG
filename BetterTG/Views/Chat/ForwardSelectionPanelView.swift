@@ -9,7 +9,7 @@ import UIKit
 final class ForwardSelectionPanelView: UIView, UITextFieldDelegate {
     var onSend: (() -> Void)?
 
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let blurView = TelegramBarBackgroundView(edge: .bottom)
     private let accentBar = UIView()
     private let titleLabel = UILabel()
     private let textLabel = UILabel()
@@ -23,10 +23,6 @@ final class ForwardSelectionPanelView: UIView, UITextFieldDelegate {
         super.init(frame: frame)
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
-        let separator = UIView()
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.backgroundColor = .separator
-        addSubview(separator)
 
         accentBar.translatesAutoresizingMaskIntoConstraints = false
         accentBar.backgroundColor = .systemBlue
@@ -69,10 +65,6 @@ final class ForwardSelectionPanelView: UIView, UITextFieldDelegate {
             blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
             blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1 / max(1, traitCollection.displayScale)),
             accentBar.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 16),
             accentBar.topAnchor.constraint(equalTo: labels.topAnchor, constant: 1),
             accentBar.bottomAnchor.constraint(equalTo: labels.bottomAnchor, constant: -1),

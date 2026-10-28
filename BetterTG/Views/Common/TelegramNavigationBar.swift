@@ -31,7 +31,7 @@ final class TelegramListNavigationBar: UIView {
 
     // MARK: Private
 
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let blurView = TelegramBarBackgroundView(edge: .top)
     private let titleControl = TelegramNavigationTitleControl()
     private let titleStack = UIStackView()
     /// The title with ChatListTitleView's activity indicator to its left while a network status replaces it.
@@ -40,15 +40,19 @@ final class TelegramListNavigationBar: UIView {
     private let networkActivityIndicator = UIActivityIndicatorView(style: .large)
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
-    private let leftButton = UIButton(type: .system)
-    private let rightButton = UIButton(type: .system)
+    private let leftButton = UIButton.telegramGlassIcon(nil)
+    private let rightButton = UIButton.telegramGlassIcon(nil)
     /// An optional second button left of the right one, such as the chat list's compose button.
-    private let secondaryRightButton = UIButton(type: .system)
+    private let secondaryRightButton = UIButton.telegramGlassIcon(nil)
+    /// The left button's circle and the right buttons' pill; Done and a text action take a pill of their own.
+    private let leadingPlatter = TelegramGlassPlatter(role: .leading)
+    private let trailingPlatter = TelegramGlassPlatter(role: .trailing(0))
+    private let doneButtonPlatter = TelegramGlassPlatter(role: .trailing(0))
+    private let textActionPlatter = TelegramGlassPlatter(role: .trailing(0))
     /// ChatListController's proxyButton, left of the right buttons while a proxy is saved.
     private let proxyButton = ChatListProxyButton()
     /// ChatListTitleLockView: the open padlock after the title while a passcode is set.
     private let lockButton = UIButton(type: .system)
-    private var proxyTitleConstraint: NSLayoutConstraint?
     /// Telegram's Done while a list edits (ChatListControllerImpl.editPressed outside the root list).
     private let doneButton = UIButton(type: .system)
     private var doneAction: (() -> Void)?
@@ -73,6 +77,11 @@ final class TelegramListNavigationBar: UIView {
     private var searchTopConstraint: NSLayoutConstraint!
 
     var rightButtonView: UIView { rightButton }
+
+    /// The bar's glass platters for the push and pop morph, leading first.
+    var glassPlatters: [TelegramGlassPlatter] {
+        [leadingPlatter, trailingPlatter, doneButtonPlatter, textActionPlatter].filter { !$0.isHidden }
+    }
 
     var isSearchActive: Bool { searchView.isActive }
     var hasMarkedText: Bool { searchView.hasMarkedText }
@@ -150,6 +159,7 @@ final class TelegramListNavigationBar: UIView {
 
     func setLeftButtonHidden(_ hidden: Bool) {
         leftButton.isHidden = hidden
+        leadingPlatter.refresh()
     }
 
     /// A secondary line under the title, as Telegram shows a forum's member status.
@@ -172,20 +182,12 @@ final class TelegramListNavigationBar: UIView {
         lockButton.isHidden = !visible
     }
 
-    /// ChatTitleProxyNode's status, or nil to hide the shield. The title keeps clear of it while it shows.
+    /// ChatTitleProxyNode's status, or nil to hide the shield, which joins the right buttons' pill.
     func setProxyStatus(_ status: ChatListProxyStatus?) {
         proxyButton.status = status
         let shows = status != nil
         proxyButton.isHidden = !shows
-        if shows, proxyTitleConstraint == nil {
-            let constraint = titleControl.trailingAnchor.constraint(
-                lessThanOrEqualTo: proxyButton.leadingAnchor,
-                constant: -8,
-            )
-            constraint.isActive = true
-            proxyTitleConstraint = constraint
-        }
-        proxyTitleConstraint?.isActive = shows
+        trailingPlatter.refresh()
     }
 
     /// "2 Topics Selected" replaces the title and status (ChatTitleComponent's custom content). A nil title shows the
@@ -196,7 +198,9 @@ final class TelegramListNavigationBar: UIView {
         editingTitle = editing ? title : nil
         rightButton.isHidden = editing
         secondaryRightButton.isHidden = editing || secondaryRightButton.image(for: .normal) == nil
+        proxyButton.isHidden = editing || proxyButton.status == nil
         doneButton.isHidden = !editing
+        refreshPlatters()
         updateTitle()
     }
 
@@ -206,6 +210,13 @@ final class TelegramListNavigationBar: UIView {
         textActionButton.setTitle(title, for: .normal)
         textActionButton.isHidden = title == nil
         rightButton.isHidden = title != nil || doneAction != nil
+        refreshPlatters()
+    }
+
+    private func refreshPlatters() {
+        for platter in [leadingPlatter, trailingPlatter, doneButtonPlatter, textActionPlatter] {
+            platter.refresh()
+        }
     }
 
     private func updateTitle() {
@@ -238,40 +249,34 @@ final class TelegramListNavigationBar: UIView {
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
 
-        for button in [leftButton, rightButton, secondaryRightButton] {
-            button.translatesAutoresizingMaskIntoConstraints = false
-            button.tintColor = .systemBlue
-            if button !== leftButton || !showsBackButton {
-                button.setPreferredSymbolConfiguration(
-                    UIImage.SymbolConfiguration(pointSize: 18, weight: .medium),
-                    forImageIn: .normal,
-                )
-            }
-            addSubview(button)
-        }
         if showsBackButton { leftButton.accessibilityLabel = L10n.telegram("Common.Back") }
         leftButton.addTarget(self, action: #selector(leftPressed), for: .touchUpInside)
         rightButton.addTarget(self, action: #selector(rightPressed), for: .touchUpInside)
         secondaryRightButton.addTarget(self, action: #selector(secondaryRightPressed), for: .touchUpInside)
-        proxyButton.translatesAutoresizingMaskIntoConstraints = false
         proxyButton.isHidden = true
         proxyButton.addAction(UIAction { [weak self] _ in self?.onProxyTap?() }, for: .touchUpInside)
-        addSubview(proxyButton)
-        doneButton.translatesAutoresizingMaskIntoConstraints = false
-        doneButton.tintColor = .systemBlue
+        // UIKit's Done is a prominent item: a pill of the tint color with white text.
+        doneButton.tintColor = .white
         doneButton.setTitle(L10n.telegram("Common.Done"), for: .normal)
-        doneButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
-        doneButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        doneButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
         doneButton.isHidden = true
         doneButton.addAction(UIAction { [weak self] _ in self?.doneAction?() }, for: .touchUpInside)
-        addSubview(doneButton)
-        textActionButton.translatesAutoresizingMaskIntoConstraints = false
-        textActionButton.tintColor = .systemBlue
-        textActionButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
-        textActionButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        textActionButton.tintColor = .label
+        textActionButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
         textActionButton.isHidden = true
         textActionButton.addAction(UIAction { [weak self] _ in self?.textAction?() }, for: .touchUpInside)
-        addSubview(textActionButton)
+        leadingPlatter.setItems([leftButton])
+        trailingPlatter.setItems([proxyButton, secondaryRightButton, rightButton])
+        doneButtonPlatter.setItems([doneButton])
+        let prominent = UIGlassEffect(style: .regular)
+        prominent.isInteractive = true
+        prominent.tintColor = .systemBlue
+        doneButtonPlatter.glassView.effect = prominent
+        textActionPlatter.setItems([textActionButton])
+        for platter in [leadingPlatter, trailingPlatter, doneButtonPlatter, textActionPlatter] {
+            platter.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(platter)
+        }
 
         titleLabel.textColor = .label
         titleLabel.font = .preferredFont(forTextStyle: .headline)
@@ -329,64 +334,39 @@ final class TelegramListNavigationBar: UIView {
         }
         addSubview(searchView)
 
-        let separator = UIView()
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.backgroundColor = .separator
-        addSubview(separator)
-
         searchTopConstraint = searchView.topAnchor.constraint(
             equalTo: safeAreaLayoutGuide.topAnchor,
             constant: Self.titleHeight,
         )
-        // The title keeps clear of the leftmost right button.
-        let rightmostTitleNeighbor = secondaryRightButton.isHidden ? rightButton : secondaryRightButton
+        let edge = TelegramGlassPlatter.edgeInset
         NSLayoutConstraint.activate([
             blurView.topAnchor.constraint(equalTo: topAnchor),
             blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
             blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            leftButton.leadingAnchor.constraint(
-                equalTo: safeAreaLayoutGuide.leadingAnchor,
-                constant: showsBackButton
-                    ? 2
-                    : 6,
-            ),
-            leftButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            leftButton.widthAnchor.constraint(equalToConstant: 44),
-            leftButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
-            rightButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -6),
-            rightButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            rightButton.widthAnchor.constraint(equalToConstant: 44),
-            rightButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
-            secondaryRightButton.trailingAnchor.constraint(equalTo: rightButton.leadingAnchor),
-            secondaryRightButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            secondaryRightButton.widthAnchor.constraint(equalToConstant: 44),
-            secondaryRightButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
+            leadingPlatter.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: edge),
+            leadingPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            trailingPlatter.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -edge),
+            trailingPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            doneButtonPlatter.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -edge),
+            doneButtonPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            textActionPlatter.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -edge),
+            textActionPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             // Centered 12 pt before the title's text.
             lockButton.centerXAnchor.constraint(equalTo: titleLabel.leadingAnchor, constant: -12),
             lockButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
             lockButton.widthAnchor.constraint(equalToConstant: 28),
             lockButton.heightAnchor.constraint(equalToConstant: 32),
-            proxyButton.trailingAnchor.constraint(equalTo: rightmostTitleNeighbor.leadingAnchor),
-            proxyButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            proxyButton.widthAnchor.constraint(equalToConstant: 44),
-            proxyButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
-            doneButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            doneButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            doneButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
-            textActionButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            textActionButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            textActionButton.heightAnchor.constraint(equalToConstant: Self.titleHeight),
 
-            titleControl.leadingAnchor.constraint(greaterThanOrEqualTo: leftButton.trailingAnchor, constant: 8),
+            titleControl.leadingAnchor.constraint(greaterThanOrEqualTo: leadingPlatter.trailingAnchor, constant: 8),
             titleControl.trailingAnchor.constraint(
-                lessThanOrEqualTo: rightmostTitleNeighbor.leadingAnchor,
+                lessThanOrEqualTo: trailingPlatter.leadingAnchor,
                 constant: -8,
             ),
             titleControl.centerXAnchor.constraint(equalTo: centerXAnchor),
-            titleControl.topAnchor.constraint(equalTo: leftButton.topAnchor),
-            titleControl.bottomAnchor.constraint(equalTo: leftButton.bottomAnchor),
+            titleControl.topAnchor.constraint(equalTo: leadingPlatter.topAnchor),
+            titleControl.bottomAnchor.constraint(equalTo: leadingPlatter.bottomAnchor),
             titleStack.leadingAnchor.constraint(equalTo: titleControl.leadingAnchor),
             titleStack.trailingAnchor.constraint(equalTo: titleControl.trailingAnchor),
             titleStack.centerYAnchor.constraint(equalTo: titleControl.centerYAnchor),
@@ -399,12 +379,8 @@ final class TelegramListNavigationBar: UIView {
             searchView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
             searchView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
             searchView.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.scrollHeight),
-
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.bottomAnchor.constraint(equalTo: bottomAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
         ])
+        refreshPlatters()
     }
 
     @objc private func leftPressed() { leftAction?() }
@@ -431,12 +407,9 @@ final class TelegramListNavigationBar: UIView {
         ) {
             self.titleControl.alpha = active ? 0 : 1
             self.lockButton.alpha = active ? 0 : 1
-            self.leftButton.alpha = active ? 0 : 1
-            self.rightButton.alpha = active ? 0 : 1
-            self.secondaryRightButton.alpha = active ? 0 : 1
-            self.proxyButton.alpha = active ? 0 : 1
-            self.doneButton.alpha = active ? 0 : 1
-            self.textActionButton.alpha = active ? 0 : 1
+            for platter in [self.leadingPlatter, self.trailingPlatter, self.doneButtonPlatter, self.textActionPlatter] {
+                platter.alpha = active ? 0 : 1
+            }
             self.searchView.transform = active
                 ? CGAffineTransform(translationX: 0, y: -Self.titleHeight)
                 : .identity
@@ -463,6 +436,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     }
 
     static let contentHeight: CGFloat = 44
+    /// The avatar inside its 44 pt glass circle.
+    static let avatarSide: CGFloat = 38
 
     var onBack: (() -> Void)?
     var onSelectionCancel: (() -> Void)?
@@ -502,9 +477,13 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
     // MARK: Private
 
-    private let separator = UIView()
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    private let backButton = UIButton(type: .system)
+    private let blurView = TelegramBarBackgroundView(edge: .top)
+    private let backButton = UIButton.telegramGlassIcon(UIImage(systemName: "chevron.left"))
+    /// The back button's circle, the title's pill and the avatar's circle, as Telegram 13's glass chat header.
+    private let leadingPlatter = TelegramGlassPlatter(role: .leading)
+    private let titlePlatter = TelegramGlassPlatter(role: .title)
+    private let trailingPlatter = TelegramGlassPlatter(role: .trailing(0))
+    private let selectionCancelPlatter = TelegramGlassPlatter(role: .trailing(0))
     private let titleControl = TelegramNavigationTitleControl()
     private let titleStack = UIStackView()
     /// ChatTitleView's title line: the lock and the title, the status icon 3 pt after it, then the credibility badge
@@ -523,6 +502,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private let avatarView = ProfileAvatarView()
     private let moreButton = UIButton(type: .system)
     private var showsMoreButton = false
+    private var avatarSlotView: UIView?
     private let searchField = ChatSearchTextField()
     private var searchMemberScope = SearchMemberScope.none
     private var defaultSearchLeftView: UIView?
@@ -542,6 +522,11 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private var configuredActivity: ChatActivityIndicatorView.Kind?
 
     var visibleContentHeight: CGFloat { searchActive ? ChatListNavigationSearchView.scrollHeight : Self.contentHeight }
+
+    /// The bar's glass platters for the push and pop morph, leading first.
+    var glassPlatters: [TelegramGlassPlatter] {
+        [leadingPlatter, titlePlatter, trailingPlatter, selectionCancelPlatter].filter { !$0.isHidden }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -646,6 +631,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             selectionCancelButton.isHidden = false
             avatarView.isHidden = true
             moreButton.isHidden = true
+            refreshPlatters()
             titleControl.isUserInteractionEnabled = false
             applyTitle(
                 title: L10n.telegramPlural("Conversation.SelectedMessagesFormat", count: count)
@@ -662,6 +648,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             selectionCancelButton.isHidden = true
             avatarView.isHidden = showsMoreButton
             moreButton.isHidden = !showsMoreButton
+            refreshPlatters()
             titleControl.isUserInteractionEnabled = true
             applyTitle(
                 title: configuredTitle,
@@ -742,12 +729,14 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         let selecting = selectionCount != nil
         avatarView.isHidden = selecting || shows
         moreButton.isHidden = selecting || !shows
+        refreshPlatters()
     }
 
     func setBackButtonHidden(_ hidden: Bool) {
         backButtonExplicitlyHidden = hidden
         if selectionCount == nil {
             backButton.isHidden = hidden
+            refreshPlatters()
         }
     }
 
@@ -765,13 +754,20 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         onSearchActiveChange?(true)
         searchField.becomeFirstResponder()
         UIView.animate(withDuration: 0.2) {
-            self.titleControl.alpha = 0
-            self.avatarView.alpha = 0
-            self.moreButton.alpha = 0
-            self.backButton.alpha = 0
+            self.titlePlatter.alpha = 0
+            self.trailingPlatter.alpha = 0
+            self.leadingPlatter.alpha = 0
             self.searchField.alpha = 1
             self.closeButton.alpha = 1
         }
+    }
+
+    private func refreshPlatters() {
+        avatarSlotView?.isHidden = avatarView.isHidden
+        for platter in [leadingPlatter, trailingPlatter, selectionCancelPlatter] {
+            platter.refresh()
+        }
+        titlePlatter.isHidden = false
     }
 
     private func applyTitle(
@@ -815,11 +811,9 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
 
-        backButton.translatesAutoresizingMaskIntoConstraints = false
-        backButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
         backButton.accessibilityLabel = L10n.telegram("Common.Back")
         backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
-        addSubview(backButton)
+        leadingPlatter.setItems([backButton])
 
         titleControl.translatesAutoresizingMaskIntoConstraints = false
         titleControl.accessibilityHint = L10n.betterTG("Accessibility.OpenProfileHint")
@@ -828,7 +822,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         titleControl.addGestureRecognizer(
             UILongPressGestureRecognizer(target: self, action: #selector(titleLongPressed(_:))),
         )
-        addSubview(titleControl)
+        titlePlatter.glassView.contentView.addSubview(titleControl)
 
         titleStack.translatesAutoresizingMaskIntoConstraints = false
         titleStack.axis = .vertical
@@ -869,22 +863,30 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         titleControl.highlightedContentView = titleStack
         titleControl.addSubview(titleStack)
 
-        avatarView.translatesAutoresizingMaskIntoConstraints = false
         avatarView.isUserInteractionEnabled = true
         avatarView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(profilePressed)))
-        addSubview(avatarView)
+        let avatarSlot = UIView()
+        avatarSlot.addSubview(avatarView)
+        avatarView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            avatarView.centerXAnchor.constraint(equalTo: avatarSlot.centerXAnchor),
+            avatarView.centerYAnchor.constraint(equalTo: avatarSlot.centerYAnchor),
+            avatarView.widthAnchor.constraint(equalToConstant: Self.avatarSide),
+            avatarView.heightAnchor.constraint(equalToConstant: Self.avatarSide),
+            avatarSlot.widthAnchor.constraint(equalToConstant: TelegramGlassPlatter.iconWidth),
+        ])
+        avatarSlotView = avatarSlot
 
-        moreButton.translatesAutoresizingMaskIntoConstraints = false
-        moreButton.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
+        moreButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
         moreButton.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 18, weight: .medium),
+            UIImage.SymbolConfiguration(pointSize: 17, weight: .medium),
             forImageIn: .normal,
         )
-        moreButton.tintColor = .systemBlue
+        moreButton.tintColor = .label
         moreButton.accessibilityLabel = L10n.telegram("Common.More")
         moreButton.isHidden = true
         moreButton.addTarget(self, action: #selector(morePressed), for: .touchUpInside)
-        addSubview(moreButton)
+        trailingPlatter.setItems([avatarSlot, moreButton])
 
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.placeholder = L10n.telegram("Conversation.SearchPlaceholder")
@@ -926,78 +928,82 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         closeButton.addTarget(self, action: #selector(endSearch), for: .touchUpInside)
         addSubview(closeButton)
 
-        selectionCancelButton.translatesAutoresizingMaskIntoConstraints = false
         selectionCancelButton.setTitle(L10n.telegram("Common.Cancel"), for: .normal)
-        selectionCancelButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        selectionCancelButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
+        selectionCancelButton.tintColor = .label
         selectionCancelButton.accessibilityLabel = L10n.betterTG("Accessibility.CancelSelection")
         selectionCancelButton.isHidden = true
         selectionCancelButton.addTarget(self, action: #selector(selectionCancelPressed), for: .touchUpInside)
-        addSubview(selectionCancelButton)
+        selectionCancelPlatter.setItems([selectionCancelButton])
 
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.backgroundColor = .separator
-        addSubview(separator)
-
-        regularTitleLeadingConstraint = titleControl.leadingAnchor.constraint(equalTo: backButton.trailingAnchor)
-        regularTitleTrailingConstraint = titleControl.trailingAnchor.constraint(equalTo: avatarView.leadingAnchor)
-        selectionTitleLeadingConstraint = titleControl.leadingAnchor.constraint(
-            equalTo: safeAreaLayoutGuide.leadingAnchor,
+        for platter in [leadingPlatter, titlePlatter, trailingPlatter, selectionCancelPlatter] {
+            platter.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(platter)
+        }
+        // The title pill hugs the title and stays centred while it fits between the buttons.
+        let titleEnd = TelegramGlassPlatter.titleInset
+        regularTitleLeadingConstraint = titlePlatter.leadingAnchor.constraint(
+            greaterThanOrEqualTo: leadingPlatter.trailingAnchor,
+            constant: TelegramGlassPlatter.interSectionSpacing,
+        )
+        regularTitleTrailingConstraint = titlePlatter.trailingAnchor.constraint(
+            lessThanOrEqualTo: trailingPlatter.leadingAnchor,
+            constant: -TelegramGlassPlatter.interSectionSpacing,
+        )
+        selectionTitleLeadingConstraint = titlePlatter.leadingAnchor.constraint(
+            greaterThanOrEqualTo: safeAreaLayoutGuide.leadingAnchor,
             constant: 80,
         )
-        selectionTitleTrailingConstraint = titleControl.trailingAnchor.constraint(
-            equalTo: safeAreaLayoutGuide.trailingAnchor,
+        selectionTitleTrailingConstraint = titlePlatter.trailingAnchor.constraint(
+            lessThanOrEqualTo: safeAreaLayoutGuide.trailingAnchor,
             constant: -80,
         )
+        let titleCentre = titlePlatter.centerXAnchor.constraint(equalTo: centerXAnchor)
+        titleCentre.priority = .defaultHigh
         NSLayoutConstraint.activate([
             blurView.topAnchor.constraint(equalTo: topAnchor),
             blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
             blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            backButton.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 2),
-            backButton.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            backButton.widthAnchor.constraint(equalToConstant: 44),
-            backButton.heightAnchor.constraint(equalToConstant: Self.contentHeight),
-
-            avatarView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -8),
-            avatarView.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
-            avatarView.widthAnchor.constraint(equalToConstant: 34),
-            avatarView.heightAnchor.constraint(equalToConstant: 34),
-            moreButton.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            moreButton.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
-            moreButton.widthAnchor.constraint(equalToConstant: 44),
-            moreButton.heightAnchor.constraint(equalToConstant: Self.contentHeight),
+            leadingPlatter.leadingAnchor.constraint(
+                equalTo: safeAreaLayoutGuide.leadingAnchor,
+                constant: TelegramGlassPlatter.edgeInset,
+            ),
+            leadingPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            trailingPlatter.trailingAnchor.constraint(
+                equalTo: safeAreaLayoutGuide.trailingAnchor,
+                constant: -TelegramGlassPlatter.edgeInset,
+            ),
+            trailingPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            selectionCancelPlatter.trailingAnchor.constraint(
+                equalTo: safeAreaLayoutGuide.trailingAnchor,
+                constant: -TelegramGlassPlatter.edgeInset,
+            ),
+            selectionCancelPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
 
             regularTitleLeadingConstraint,
             regularTitleTrailingConstraint,
-            titleControl.topAnchor.constraint(equalTo: backButton.topAnchor),
-            titleControl.bottomAnchor.constraint(equalTo: backButton.bottomAnchor),
-            titleStack.leadingAnchor.constraint(greaterThanOrEqualTo: titleControl.leadingAnchor, constant: 4),
-            titleStack.trailingAnchor.constraint(lessThanOrEqualTo: titleControl.trailingAnchor, constant: -4),
-            titleStack.centerXAnchor.constraint(equalTo: titleControl.centerXAnchor),
+            titleCentre,
+            titlePlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            titleControl.topAnchor.constraint(equalTo: titlePlatter.glassView.contentView.topAnchor),
+            titleControl.bottomAnchor.constraint(equalTo: titlePlatter.glassView.contentView.bottomAnchor),
+            titleControl.leadingAnchor.constraint(equalTo: titlePlatter.glassView.contentView.leadingAnchor),
+            titleControl.trailingAnchor.constraint(equalTo: titlePlatter.glassView.contentView.trailingAnchor),
+            titleStack.leadingAnchor.constraint(equalTo: titleControl.leadingAnchor, constant: titleEnd),
+            titleStack.trailingAnchor.constraint(equalTo: titleControl.trailingAnchor, constant: -titleEnd),
             titleStack.centerYAnchor.constraint(equalTo: titleControl.centerYAnchor),
 
             closeButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -6),
             closeButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
             closeButton.widthAnchor.constraint(equalToConstant: 38),
             closeButton.heightAnchor.constraint(equalToConstant: 38),
-            selectionCancelButton.trailingAnchor.constraint(
-                equalTo: safeAreaLayoutGuide.trailingAnchor,
-                constant: -4,
-            ),
-            selectionCancelButton.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
-            selectionCancelButton.widthAnchor.constraint(equalToConstant: 72),
-            selectionCancelButton.heightAnchor.constraint(equalToConstant: Self.contentHeight),
             searchField.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 12),
             searchField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
             searchField.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             searchField.heightAnchor.constraint(equalToConstant: 36),
-
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.bottomAnchor.constraint(equalTo: bottomAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
         ])
+        refreshPlatters()
     }
 
     @objc private func backPressed() {
@@ -1030,10 +1036,9 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         onSearchQueryChange?("")
         onSearchActiveChange?(false)
         UIView.animate(withDuration: 0.2) {
-            self.titleControl.alpha = 1
-            self.avatarView.alpha = 1
-            self.moreButton.alpha = 1
-            self.backButton.alpha = 1
+            self.titlePlatter.alpha = 1
+            self.trailingPlatter.alpha = 1
+            self.leadingPlatter.alpha = 1
             self.searchField.alpha = 0
             self.closeButton.alpha = 0
         } completion: { _ in

@@ -173,7 +173,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pendingInlineVideoOwnerReturns = Set<Int64>()
     private let customNavigationBar = TelegramChatNavigationBar()
     private var navigationBarHeightConstraint: NSLayoutConstraint!
-    private let navigationBackground = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let navigationBackground = TelegramBarBackgroundView(edge: .top)
     private let pinnedMessageBanner = PinnedMessageBannerView()
     private let joinRequestsBanner = ChatJoinRequestsBannerView()
     private var joinRequestsBannerHeightConstraint: NSLayoutConstraint!

@@ -1308,7 +1308,7 @@ final class FolderPickerView: UIView {
 
     // MARK: Private
 
-    private let blurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
+    private let blurView = TelegramBarBackgroundView(edge: .bottom)
     /// Where the lifted lens is drawn: it holds the capsule and does not clip.
     private let liftedContainer = UIView()
     private let controlEffectView: UIVisualEffectView = {
@@ -1481,11 +1481,6 @@ final class FolderPickerView: UIView {
             self?.layoutSelection(animated: false)
         }
 
-        let separator = UIView()
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.backgroundColor = .separator
-        addSubview(separator)
-
         stripWidthConstraint = stripView.widthAnchor.constraint(equalToConstant: 0)
         controlLeadingConstraint = controlEffectView.leadingAnchor.constraint(
             equalTo: safeAreaLayoutGuide.leadingAnchor,
@@ -1524,10 +1519,6 @@ final class FolderPickerView: UIView {
             stripView.bottomAnchor.constraint(equalTo: controlContainer.contentLayoutGuide.bottomAnchor),
             stripView.heightAnchor.constraint(equalTo: controlContainer.frameLayoutGuide.heightAnchor),
             stripWidthConstraint,
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
         ])
 
         lens = LiquidLens(liftedContainer: liftedContainer, liftedContent: selectedLabelsView, punchout: labelsView)
