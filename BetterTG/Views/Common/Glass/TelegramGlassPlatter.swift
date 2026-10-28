@@ -34,8 +34,8 @@ final class TelegramGlassPlatter: UIView {
     static let pillEndInset: CGFloat = 6
     /// A text item's padding on either side (NavigationButtonComponent's textInset).
     static let textInset: CGFloat = 12
-    /// A title pill's padding on either side of its text.
-    static let titleInset: CGFloat = 16
+    /// A title pill's padding on either side of its text (ChatTitleComponent's `containerSideInset`).
+    static let titleInset: CGFloat = 14
 
     override var intrinsicContentSize: CGSize {
         CGSize(width: customContent == nil ? preferredWidth : UIView.noIntrinsicMetric, height: Self.height)

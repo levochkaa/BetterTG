@@ -1004,8 +1004,11 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             platter.translatesAutoresizingMaskIntoConstraints = false
             addSubview(platter)
         }
-        // The title pill hugs the title and stays centred while it fits between the buttons.
+        // The title pill hugs the title, at least ChatTitleComponent's 150 pt of content wide so that a short name does
+        // not shrink it, and stays centred while it fits between the buttons.
         let titleEnd = TelegramGlassPlatter.titleInset
+        let minimumTitleWidth = titleStack.widthAnchor.constraint(greaterThanOrEqualToConstant: 150)
+        minimumTitleWidth.priority = .defaultHigh + 1
         regularTitleLeadingConstraint = titlePlatter.leadingAnchor.constraint(
             greaterThanOrEqualTo: leadingPlatter.trailingAnchor,
             constant: TelegramGlassPlatter.interSectionSpacing,
@@ -1049,6 +1052,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             regularTitleLeadingConstraint,
             regularTitleTrailingConstraint,
             titleCentre,
+            minimumTitleWidth,
             titlePlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             titleControl.topAnchor.constraint(equalTo: titlePlatter.glassView.contentView.topAnchor),
             titleControl.bottomAnchor.constraint(equalTo: titlePlatter.glassView.contentView.bottomAnchor),
