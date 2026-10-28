@@ -108,13 +108,15 @@ import UIKit
         title: viewModel.customChat.displayTitle,
         placeholder: L10n.betterTG("Forum.SearchTopics"),
         leftImage: UIImage(systemName: "chevron.left"),
-        rightImage: UIImage(systemName: "ellipsis.circle"),
+        rightImage: UIImage(systemName: "ellipsis"),
         leftAction: { [weak self] in self?.navigationController?.popViewController(animated: true) },
         rightAction: { [weak self] in self?.showMoreMenu() },
         showsBackButton: true,
         rightAccessibilityLabel: L10n.telegram("Common.More"),
     )
     private var navigationBarHeightConstraint: NSLayoutConstraint!
+    /// The bar's height under the safe area, as it last reported it; the bar does not report a safe area change.
+    private var navigationBarVisibleHeight = TelegramListNavigationBar.titleHeight
     private var searchQuery = ""
     private var didSetInitialSearchOffset = false
     private var dataSource: TopicRowsDataSource!
@@ -245,6 +247,9 @@ import UIKit
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
+        // The bar reports its height only when its scroll changes: a list too short to scroll, such as a forum of two
+        // topics, kept the height it had before the safe area, which cut off the bar's buttons and title.
+        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + navigationBarVisibleHeight
         updateNavigationBar()
     }
 
@@ -844,6 +849,7 @@ import UIKit
         }
         navigationBarView.onVisibleHeightChange = { [weak self] height in
             guard let self else { return }
+            navigationBarVisibleHeight = height
             navigationBarHeightConstraint.constant = view.safeAreaInsets.top + height
         }
         navigationBarView.onSearchActiveChange = { [weak self] active in

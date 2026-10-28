@@ -53,6 +53,8 @@ import UIKit
         showsBackButton: true,
     )
     private var navigationBarHeightConstraint: NSLayoutConstraint!
+    /// The bar's height under the safe area, as it last reported it; the bar does not report a safe area change.
+    private var navigationBarVisibleHeight = TelegramListNavigationBar.titleHeight
     private var didSetInitialSearchOffset = false
     private var dataSource: UITableViewDiffableDataSource<Section, Int>!
     private var snapshotState = ForumTopicsSnapshotState()
@@ -154,6 +156,8 @@ import UIKit
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
+        // The bar reports its height only when its scroll changes, which a short list never does.
+        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + navigationBarVisibleHeight
         updateNavigationBar()
     }
 
@@ -251,6 +255,7 @@ import UIKit
         }
         navigationBarView.onVisibleHeightChange = { [weak self] height in
             guard let self else { return }
+            navigationBarVisibleHeight = height
             navigationBarHeightConstraint.constant = view.safeAreaInsets.top + height
         }
         navigationBarView.onSearchActiveChange = { [weak self] active in
