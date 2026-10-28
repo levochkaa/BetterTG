@@ -26,6 +26,7 @@ import UIKit
 
     private enum Key: Hashable, Comparable {
         case leading
+        case leadingSection(Int)
         case title
         case trailing(Int)
     }
@@ -159,6 +160,7 @@ import UIKit
         for platter in shown {
             switch platter.role {
             case .leading: result[.leading] = platter
+            case .leadingSection(let index): result[.leadingSection(index)] = platter
             case .title: result[.title] = platter
             case .trailing: break
             }

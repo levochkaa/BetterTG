@@ -404,6 +404,10 @@ extension UIViewController {
     ) -> Bool {
         let sources = sources.count > 1 ? sources : []
         let actions = sources.first?.actions ?? actions
+        // A bar item's menu grows out of the item's whole glass pill, as UIKit's bar menus do.
+        let sourceView = presentationStyle == .sourceMorph && gesture == nil
+            ? sourceView.enclosingTelegramGlassPlatter ?? sourceView
+            : sourceView
         // A menu that is still closing (a liquid morph settles for up to 1.6 s) does not block the next one.
         guard !actions.isEmpty,
               TelegramContextMenuController.activeController?.isOpen != true,
@@ -1266,9 +1270,14 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         case .sourceMorph:
             // Telegram f44a25a649: a morphing menu takes the button's place, its top edge on the button's top edge
             // (bottom on bottom for a button in the lower half) and its left or right edge on the button's edge in
-            // that half of the screen. Without the morph it opens next to the button.
+            // that half of the screen. Without the morph it opens next to the button. A bar's pill or title heads
+            // its screen or sheet, so its menu grows down wherever it fits, as UIKit's bar menus do.
             targetPreviewFrame = .zero
+            let isBarItem = sequence(first: sourceView, next: \.superview).contains {
+                $0 is TelegramGlassPlatter || $0 is TelegramClassicNavigationChrome
+            }
             let growsDown = sourceFrame.midY < view.bounds.midY
+                || (isBarItem && sourceFrame.minY + menuHeight <= maximumBottom)
             let alignedX = sourceFrame.midX < view.bounds.midX ? sourceFrame.minX : sourceFrame.maxX - menuWidth
             let proposedY =
                 switch (usesLiquidMorph, growsDown) {

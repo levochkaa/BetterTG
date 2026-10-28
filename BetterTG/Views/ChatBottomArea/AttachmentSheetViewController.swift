@@ -127,12 +127,13 @@ struct AttachmentMediaSendRequest {
 
 /// Telegram's attachment sheet: AttachmentController with MediaPickerScreen as its Gallery. The library grid takes up
 /// to 100 numbered items, with the camera tile in Recents, the albums under the title, the picked items' own view and
-/// the More menu (Send as File, Send in High Quality, Send Without Grouping, Move Caption, Spoiler, the timer and the
+/// the More menu (Send as File, Send in Standard Quality, Send Without Grouping, Move Caption, Spoiler, the timer and
+/// the
 /// video quality). The panel's buttons open the chat's other attachments; with items picked the send panel takes
 /// their place, sending them with the composer's text as the caption, and holding Send offers the send options.
 @MainActor final class AttachmentSheetViewController: UIViewController, UICollectionViewDataSource,
     UICollectionViewDelegate, UICollectionViewDataSourcePrefetching, UIAdaptivePresentationControllerDelegate,
-    PHPhotoLibraryChangeObserver
+    UIGestureRecognizerDelegate, PHPhotoLibraryChangeObserver
 {
     // MARK: Private
 
@@ -161,7 +162,10 @@ struct AttachmentMediaSendRequest {
     private let manageBanner = MediaPickerManageBanner()
     private let titleButton = UIButton(type: .system)
     private let selectedButton = MediaPickerSelectedButton()
-    private let moreButton = UIButton(type: .system)
+    private let moreButton = UIButton.telegramGlassIcon(
+        UIImage(systemName: "ellipsis"),
+        accessibilityLabel: L10n.telegram("Common.More"),
+    )
     /// MediaPickerGridItem's thumbnail request: opportunistic, any size near the target.
     private let thumbnailOptions: PHImageRequestOptions = {
         let options = PHImageRequestOptions()
@@ -184,7 +188,8 @@ struct AttachmentMediaSendRequest {
     /// (`TG_preferredVideoPreset_v0`, which the attachment menu resets when it opens).
     private var videoPreset = VideoSendPreset.medium
     private var choseVideoPreset = false
-    private var isHighQuality = UserDefaults.standard.bool(forKey: PhotoSendPreset.highQualityDefaultsKey)
+    /// Photos go in high quality unless More's Send in Standard Quality says otherwise.
+    private var isHighQuality = true
     private var captionIsAbove: Bool
     private var thumbnailSize = CGSize.zero
     private var didSettleInitialOffset = false
@@ -198,6 +203,8 @@ struct AttachmentMediaSendRequest {
     /// TGMediaEditingContext's `livePhotoModeForItem:`: Live or Live Off as a photo's own menu set it, by asset.
     private var livePhotoModes = [String: Bool]()
     private var isClosing = false
+    /// AttachmentController's tap on the dimmed chat above the sheet, which closes it.
+    private var outsideTap: UITapGestureRecognizer?
 
     private var allowsMedia: Bool {
         configuration.allowsPhotos || configuration.allowsVideos
@@ -262,8 +269,6 @@ struct AttachmentMediaSendRequest {
         configurePhotoEditing()
         manageBanner.onManage = { [weak self] source in self?.showLimitedAccessOptions(from: source) }
         selectedButton.addTarget(self, action: #selector(showSelectedPressed), for: .touchUpInside)
-        moreButton.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
-        moreButton.accessibilityLabel = L10n.telegram("Common.More")
         moreButton.addTarget(self, action: #selector(morePressed), for: .touchUpInside)
         reloadLibrary()
         if allowsMedia, authorization == .notDetermined {
@@ -274,6 +279,11 @@ struct AttachmentMediaSendRequest {
                 self?.reloadLibrary()
             }
         }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        installOutsideTap()
     }
 
     override func viewDidLayoutSubviews() {
@@ -396,6 +406,7 @@ struct AttachmentMediaSendRequest {
         )
         guard let gridCell = cell as? MediaPickerGridCell, let asset = asset(at: indexPath.item) else { return cell }
         gridCell.configure(asset: asset, livePhoto: livePhotoMode(of: asset))
+        gridCell.onToggleCheck = { [weak self] in self?.toggleSelection(of: asset) }
         configureSelection(of: gridCell, assetID: asset.localIdentifier)
         loadThumbnail(asset, into: gridCell)
         return cell
@@ -425,7 +436,7 @@ struct AttachmentMediaSendRequest {
 
     // MARK: Delegate
 
-    /// Telegram opens an item's preview and selects with its check; without the preview, a tap selects.
+    /// Telegram opens an item's preview and picks it with its check; a single item picker picks it at once.
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: false)
         if showsCameraTile, indexPath.item == 0 {
@@ -436,7 +447,26 @@ struct AttachmentMediaSendRequest {
             return
         }
         guard let asset = asset(at: indexPath.item) else { return }
-        toggleSelection(of: asset)
+        if configuration.selectionLimit == 1 {
+            toggleSelection(of: asset)
+        } else {
+            openPreview(at: indexPath.item)
+        }
+    }
+
+    // MARK: Gestures
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard gestureRecognizer === outsideTap, let sheet = navigationController?.view else { return true }
+        return presentedViewController == nil && !sheet.bounds.contains(touch.location(in: sheet))
+    }
+
+    /// The sheet's own dimming tap recognizes alongside the outside tap.
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith _: UIGestureRecognizer,
+    ) -> Bool {
+        gestureRecognizer === outsideTap
     }
 
     // MARK: Presentation
@@ -476,6 +506,9 @@ struct AttachmentMediaSendRequest {
         collectionView.backgroundColor = .systemBackground
         collectionView.contentInsetAdjustmentBehavior = .always
         collectionView.alwaysBounceVertical = true
+        // The bar and the panel draw their own blur; the system's edge effects would wash the panel's badge out.
+        collectionView.topEdgeEffect.isHidden = true
+        collectionView.bottomEdgeEffect.isHidden = true
         collectionView.dataSource = self
         collectionView.delegate = self
         collectionView.prefetchDataSource = self
@@ -520,7 +553,6 @@ struct AttachmentMediaSendRequest {
         panel.onSelectTab = { [weak self] tab in self?.selectTab(tab) }
         panel.onSend = { [weak self] in self?.send() }
         panel.onSendOptions = { [weak self] source in self?.showSendOptions(from: source) }
-        panel.onToggleQuality = { [weak self] in self?.toggleQuality() }
         panel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(panel)
         NSLayoutConstraint.activate([
@@ -713,18 +745,14 @@ struct AttachmentMediaSendRequest {
         if selection.count != 1 { selfDestructTimer = nil }
         navigationController?.isModalInPresentation = !selection.isEmpty && !isClosing
         updateNavigation()
-        panel.update(
-            selectionCount: selection.count,
-            caption: configuration.caption,
-            showsQuality: selectionHasPhoto,
-            isHighQuality: isHighQuality,
-        )
+        panel.update(selectionCount: selection.count, caption: configuration.caption)
     }
 
     // MARK: Navigation
 
-    /// MediaPickerScreen's bar: Cancel, or Back from the picked items; the picked count, which shows them; the
-    /// album as the title; More while items are picked, with the Live button left of it while a Live Photo is.
+    /// MediaPickerScreen's glass bar: Close, or Back from the picked items; the picked count in a pill of its own in
+    /// the accent color, which shows them; the album as the title; More while items are picked, with the Live button
+    /// left of it while a Live Photo is.
     private func updateNavigation() {
         let leading: UIBarButtonItem
         if displayMode == .selected {
@@ -737,16 +765,20 @@ struct AttachmentMediaSendRequest {
             leading.accessibilityLabel = L10n.telegram("Common.Back")
         } else {
             leading = UIBarButtonItem(
-                title: L10n.telegram("Common.Cancel"),
+                image: UIImage(systemName: "xmark"),
                 style: .plain,
                 target: self,
                 action: #selector(cancelPressed),
             )
+            leading.accessibilityLabel = L10n.telegram("Common.Cancel")
         }
         var leftItems = [leading]
         if !selection.isEmpty, displayMode == .all {
             selectedButton.configure(count: selection.count)
-            leftItems.append(UIBarButtonItem(customView: selectedButton))
+            let selectedItem = UIBarButtonItem(customView: selectedButton)
+            selectedItem.style = .prominent
+            selectedItem.tintColor = .systemBlue
+            leftItems.append(selectedItem)
         }
         navigationItem.leftBarButtonItems = leftItems
         var rightItems = [UIBarButtonItem]()
@@ -793,6 +825,25 @@ struct AttachmentMediaSendRequest {
 
     @objc private func cancelPressed() {
         confirmDiscardingSelection { [weak self] in self?.close() }
+    }
+
+    /// A tap above the sheet closes it as Close does, asking first while items are picked: the sheet's own dimming
+    /// tap closes it only while it is not modal.
+    private func installOutsideTap() {
+        guard outsideTap == nil, let container = navigationController?.presentationController?.containerView
+        else { return }
+        let tap = UITapGestureRecognizer(target: self, action: #selector(outsideTapped))
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
+        container.addGestureRecognizer(tap)
+        outsideTap = tap
+    }
+
+    @objc private func outsideTapped() {
+        guard !isClosing, let navigation = navigationController, navigation.isModalInPresentation,
+              !navigation.isBeingDismissed
+        else { return }
+        cancelPressed()
     }
 
     /// MediaPickerScreen's groups as a menu under the title: My Albums, then Media Types, each with its key item and
@@ -847,12 +898,91 @@ struct AttachmentMediaSendRequest {
         updateNavigation()
     }
 
+    // MARK: Preview
+
+    /// MediaPickerScreen's preview of the grid's items from the tapped one, zooming out of its thumbnail; a swipe
+    /// down zooms it back into the grid, scrolled to the item shown last.
+    private func openPreview(at item: Int) {
+        guard presentedViewController == nil, !isClosing else { return }
+        let count: Int
+        let assetAt: (Int) -> PHAsset?
+        let start: Int
+        switch displayMode {
+        case .selected:
+            let items = selection
+            count = items.count
+            assetAt = { items[safe: $0] }
+            start = item
+        case .all:
+            guard let result = fetchResult else { return }
+            let reversed = album == nil
+            count = result.count
+            assetAt = { index in
+                guard index >= 0, index < result.count else { return nil }
+                return result.object(at: reversed ? result.count - 1 - index : index)
+            }
+            start = item - (showsCameraTile ? 1 : 0)
+        }
+        let preview = MediaPickerPreviewViewController(
+            count: count,
+            startIndex: start,
+            imageManager: imageManager,
+            assetAt: assetAt,
+        )
+        preview.selectionNumber = { [weak self] asset in
+            self?.selection.firstIndex { $0.localIdentifier == asset.localIdentifier }.map { $0 + 1 }
+        }
+        preview.selectionCount = { [weak self] in self?.selection.count ?? 0 }
+        preview.onToggle = { [weak self] asset in self?.toggleSelection(of: asset) }
+        preview.onSend = { [weak self] asset in
+            guard let self else { return }
+            if selection.isEmpty { toggleSelection(of: asset) }
+            send()
+        }
+        preview.onShow = { [weak self] asset in self?.revealGridItem(of: asset) }
+        let options = UIViewController.Transition.ZoomOptions()
+        options.interactiveDismissShouldBegin = { [weak preview] _ in preview?.allowsInteractiveDismiss ?? true }
+        options.alignmentRectProvider = { [weak preview] _ in preview?.currentMediaFrame ?? .zero }
+        preview.preferredTransition = .zoom(options: options) { [weak self, weak preview] _ in
+            guard let self, !isClosing, let asset = preview?.currentAsset else { return nil }
+            return gridCell(of: asset)?.imageView
+        }
+        present(preview, animated: true)
+    }
+
+    private func gridCell(of asset: PHAsset) -> MediaPickerGridCell? {
+        collectionView.visibleCells
+            .lazy
+            .compactMap { $0 as? MediaPickerGridCell }
+            .first { $0.representedAssetIdentifier == asset.localIdentifier }
+    }
+
+    /// Scrolls the grid to `asset` when it is out of view, so the preview zooms back into it.
+    private func revealGridItem(of asset: PHAsset) {
+        guard gridCell(of: asset) == nil else { return }
+        let item: Int
+        switch displayMode {
+        case .selected:
+            guard let index = selection.firstIndex(where: { $0.localIdentifier == asset.localIdentifier })
+            else { return }
+            item = index
+        case .all:
+            guard let result = fetchResult else { return }
+            let index = result.index(of: asset)
+            guard index != NSNotFound else { return }
+            item = (album == nil ? result.count - 1 - index : index) + (showsCameraTile ? 1 : 0)
+        }
+        guard item < collectionView.numberOfItems(inSection: 0) else { return }
+        collectionView.scrollToItem(at: IndexPath(item: item, section: 0), at: .centeredVertically, animated: false)
+        collectionView.layoutIfNeeded()
+    }
+
     // MARK: Menus
 
-    /// MediaPickerScreen's More menu: Send as File(s) without spoilers, Send in High Quality, Send Without Grouping
-    /// for several items, then Move Caption with a caption and the spoiler outside secret chats. The timer and the
-    /// video quality, which Telegram sets in the preview's toolbar, join them: the timer for one photo or video in a
-    /// private chat, the quality with videos picked.
+    /// MediaPickerScreen's More menu: Send as File(s) without spoilers, Send in Standard Quality (photos go in high
+    /// quality otherwise), Send Without Grouping for several items, then Move Caption with a caption and the spoiler
+    /// outside secret chats. The timer and the video quality, which Telegram sets in the preview's toolbar, join them:
+    /// the timer for one photo or video in a private chat, the quality with videos picked.
     @objc private func morePressed() {
         let count = selection.count
         guard count > 0 else { return }
@@ -869,10 +999,10 @@ struct AttachmentMediaSendRequest {
         }
         if selectionHasPhoto {
             actions.append(TelegramContextMenuAction(
-                title: L10n.telegram("Attachment.SendInHd"),
-                image: MediaPickerQualityIcon.image(highQuality: true),
+                title: L10n.betterTG("Attachment.SendInSd"),
+                image: MediaPickerQualityIcon.image(highQuality: false),
             ) { [weak self] in
-                self?.isHighQuality = true
+                self?.isHighQuality = false
                 self?.send()
             })
         }
@@ -1033,13 +1163,6 @@ struct AttachmentMediaSendRequest {
         updateVisibleSelection()
     }
 
-    /// The gallery preview's quality button (`TGMediaPickerGalleryModel`): HD and SD switch with a tooltip.
-    private func toggleQuality() {
-        isHighQuality.toggle()
-        selectionChanged()
-        showToast(L10n.telegram(isHighQuality ? "Media.PhotoHdOn" : "Media.PhotoHdOff"))
-    }
-
     /// MediaPickerScreen's limited access menu: Select More Photos or Change Settings.
     private func showLimitedAccessOptions(from source: UIView) {
         presentTelegramContextMenu(
@@ -1084,8 +1207,6 @@ struct AttachmentMediaSendRequest {
         timing: AttachmentMediaSendRequest.Timing = .now,
     ) {
         guard !selection.isEmpty, !isClosing else { return }
-        // TGMediaAssetsController keeps the photo quality for the next gallery.
-        UserDefaults.standard.set(isHighQuality, forKey: PhotoSendPreset.highQualityDefaultsKey)
         let request = AttachmentMediaSendRequest(
             assets: selection,
             cropAdjustments: photoEdits.mapValues(\.adjustments),
@@ -1333,34 +1454,32 @@ struct AttachmentMediaSendRequest {
 
 // MARK: - MediaPickerSelectedButton
 
-/// MediaPickerScreen's SelectedButtonNode: a pill with a check and the picked count, which shows the picked items.
+/// MediaPickerScreen's glass SelectedButtonNode: a check and the picked count in white, which shows the picked items.
+/// The bar draws its pill as glass in the accent color.
 final class MediaPickerSelectedButton: UIControl {
     override var isHighlighted: Bool {
         didSet { alpha = isHighlighted ? 0.6 : 1 }
     }
 
-    private let pill = UIView()
+    override var intrinsicContentSize: CGSize {
+        // SelectedButtonNode's glass size: the count's width, 28 pt and 10 pt more.
+        CGSize(width: ceil(countLabel.intrinsicContentSize.width) + 38, height: 44)
+    }
+
     private let iconView = UIImageView(image: UIImage(systemName: "checkmark"))
     private let countLabel = UILabel()
 
-    private var pillWidth: CGFloat {
-        ceil(countLabel.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: 22)).width) + 33
-    }
-
     override init(frame: CGRect) {
         super.init(frame: frame)
-        pill.isUserInteractionEnabled = false
-        pill.layer.cornerRadius = 11
-        pill.backgroundColor = tintColor
         iconView.tintColor = .white
         iconView.contentMode = .center
-        iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)
-        let font = UIFont.systemFont(ofSize: 14, weight: .semibold)
-        countLabel.font = font.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: 14) } ?? font
+        iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+        countLabel.font = .monospacedDigitSystemFont(ofSize: 17, weight: .medium)
         countLabel.textColor = .white
-        addSubview(pill)
-        pill.addSubview(iconView)
-        pill.addSubview(countLabel)
+        for subview in [iconView, countLabel] {
+            subview.isUserInteractionEnabled = false
+            addSubview(subview)
+        }
         isAccessibilityElement = true
         accessibilityTraits = .button
     }
@@ -1368,29 +1487,19 @@ final class MediaPickerSelectedButton: UIControl {
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
 
     override func sizeThatFits(_: CGSize) -> CGSize {
-        CGSize(width: pillWidth, height: 44)
+        intrinsicContentSize
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let width = pillWidth
-        pill.frame = CGRect(
-            x: max(0, (bounds.width - width) / 2),
-            y: (bounds.height - 22) / 2,
-            width: width,
-            height: 22,
-        )
-        iconView.frame = CGRect(x: 7, y: 0, width: 14, height: 22)
-        countLabel.frame = CGRect(x: 24, y: 0, width: width - 33, height: 22)
-    }
-
-    override func tintColorDidChange() {
-        super.tintColorDidChange()
-        pill.backgroundColor = tintColor
+        // The 24 pt check at 6 pt and the count at 27 pt, centred in the pill's height.
+        iconView.frame = CGRect(x: 6, y: (bounds.height - 24) / 2, width: 24, height: 24)
+        let countWidth = ceil(countLabel.intrinsicContentSize.width)
+        countLabel.frame = CGRect(x: 27, y: 0, width: countWidth, height: bounds.height)
     }
 
     func configure(count: Int) {
-        countLabel.text = String(count)
+        countLabel.text = String(max(1, count))
         accessibilityLabel = L10n.telegramPlural("Attachment.SelectedMedia", count: count)
         invalidateIntrinsicContentSize()
         setNeedsLayout()
@@ -1432,8 +1541,8 @@ enum MediaPickerQualityIcon {
 // MARK: - AttachmentPanelView
 
 /// AttachmentPanel: the buttons for the chat's attachments with the shown one current. With items picked the send
-/// panel (AttachmentTextInputPanelNode) takes their place: the photo quality switch, the composer's caption and Send
-/// with the picked count, which holds for the send options.
+/// panel (AttachmentTextInputPanelNode) takes their place: the composer's caption and Send with the picked count,
+/// which holds for the send options.
 @MainActor final class AttachmentPanelView: UIView {
     /// Telegram 13's attachment tab bar: a 58 pt glass capsule with 4 pt above and below it.
     static let barHeight: CGFloat = 66
@@ -1441,15 +1550,15 @@ enum MediaPickerQualityIcon {
     var onSelectTab: ((AttachmentSheetTab) -> Void)?
     var onSend: (() -> Void)?
     var onSendOptions: ((UIView) -> Void)?
-    var onToggleQuality: (() -> Void)?
 
     private let background = TelegramBarBackgroundView(edge: .bottom)
     /// AttachmentPanel's buttons in Telegram 13's glass tab bar, scrolling sideways once more than fit.
     private let tabsScroll = AttachmentTabStrip()
     private let sendRow = UIView()
-    private let qualityButton = UIButton(type: .system)
     private let captionLabel = UILabel()
     private let sendButton = UIButton(type: .system)
+    /// BadgeNode on Send's corner: the picked count, 18 pt high and 8 pt wider than its text.
+    private let badgeView = UIView()
     private let badgeLabel = UILabel()
     private var isSelecting = false
 
@@ -1460,12 +1569,10 @@ enum MediaPickerQualityIcon {
         captionLabel.adjustsFontForContentSizeCategory = true
         captionLabel.textColor = .secondaryLabel
         captionLabel.lineBreakMode = .byTruncatingTail
-        qualityButton.tintColor = .label
-        qualityButton.addTarget(self, action: #selector(qualityPressed), for: .touchUpInside)
         var sendConfiguration = UIButton.Configuration.filled()
         sendConfiguration.image = UIImage(systemName: "arrow.up")
         sendConfiguration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
-            pointSize: 15,
+            pointSize: 17,
             weight: .bold,
         )
         sendConfiguration.cornerStyle = .capsule
@@ -1477,18 +1584,18 @@ enum MediaPickerQualityIcon {
             target: self,
             action: #selector(sendLongPressed(_:)),
         ))
-        badgeLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        let badgeFont = UIFont.systemFont(ofSize: 13, weight: .semibold)
+        badgeLabel.font = badgeFont.fontDescriptor.withDesign(.rounded).map { UIFont(descriptor: $0, size: 13) }
+            ?? badgeFont
         badgeLabel.textColor = .white
         badgeLabel.textAlignment = .center
-        badgeLabel.backgroundColor = .systemRed
-        badgeLabel.layer.cornerRadius = 9
-        badgeLabel.layer.borderWidth = 1.5
-        badgeLabel.layer.borderColor = UIColor.systemBackground.cgColor
-        badgeLabel.clipsToBounds = true
-        badgeLabel.isUserInteractionEnabled = false
+        badgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        badgeView.layer.cornerRadius = 9
+        badgeView.isUserInteractionEnabled = false
+        badgeView.addSubview(badgeLabel)
         sendRow.alpha = 0
         sendRow.isHidden = true
-        for subview in [qualityButton, captionLabel, sendButton, badgeLabel] as [UIView] {
+        for subview in [captionLabel, sendButton, badgeView] as [UIView] {
             subview.translatesAutoresizingMaskIntoConstraints = false
             sendRow.addSubview(subview)
         }
@@ -1509,26 +1616,27 @@ enum MediaPickerQualityIcon {
             sendRow.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
             sendRow.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
             sendRow.heightAnchor.constraint(equalToConstant: Self.barHeight),
-            qualityButton.leadingAnchor.constraint(equalTo: sendRow.leadingAnchor, constant: 6),
-            qualityButton.centerYAnchor.constraint(equalTo: sendRow.centerYAnchor),
-            qualityButton.widthAnchor.constraint(equalToConstant: 44),
-            qualityButton.heightAnchor.constraint(equalToConstant: 44),
-            captionLabel.leadingAnchor.constraint(equalTo: qualityButton.trailingAnchor, constant: 6),
+            captionLabel.leadingAnchor.constraint(equalTo: sendRow.leadingAnchor, constant: 16),
             captionLabel.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -12),
             captionLabel.centerYAnchor.constraint(equalTo: sendRow.centerYAnchor),
-            sendButton.trailingAnchor.constraint(equalTo: sendRow.trailingAnchor, constant: -12),
+            // Telegram 13's glass Send: a 40 pt circle 6 pt further in than the panel's edge.
+            sendButton.trailingAnchor.constraint(equalTo: sendRow.trailingAnchor, constant: -16),
             sendButton.centerYAnchor.constraint(equalTo: sendRow.centerYAnchor),
-            sendButton.widthAnchor.constraint(equalToConstant: 34),
-            sendButton.heightAnchor.constraint(equalToConstant: 34),
-            badgeLabel.centerXAnchor.constraint(equalTo: sendButton.trailingAnchor, constant: -3),
-            badgeLabel.centerYAnchor.constraint(equalTo: sendButton.topAnchor, constant: 3),
-            badgeLabel.heightAnchor.constraint(equalToConstant: 18),
-            badgeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
+            sendButton.widthAnchor.constraint(equalToConstant: 40),
+            sendButton.heightAnchor.constraint(equalToConstant: 40),
+            // The badge's corner sits just outside Send's, over its rim.
+            badgeView.trailingAnchor.constraint(equalTo: sendButton.trailingAnchor, constant: 4),
+            badgeView.topAnchor.constraint(equalTo: sendButton.topAnchor, constant: -4),
+            badgeView.heightAnchor.constraint(equalToConstant: 18),
+            badgeView.widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
+            badgeLabel.centerXAnchor.constraint(equalTo: badgeView.centerXAnchor),
+            badgeLabel.centerYAnchor.constraint(equalTo: badgeView.centerYAnchor),
+            badgeLabel.leadingAnchor.constraint(greaterThanOrEqualTo: badgeView.leadingAnchor, constant: 4),
+            badgeLabel.trailingAnchor.constraint(lessThanOrEqualTo: badgeView.trailingAnchor, constant: -4),
         ])
+        updateBadgeColor()
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _: UITraitCollection) in
-            self.badgeLabel.layer.borderColor = UIColor.systemBackground
-                .resolvedColor(with: self.traitCollection)
-                .cgColor
+            self.updateBadgeColor()
         }
     }
 
@@ -1563,12 +1671,9 @@ enum MediaPickerQualityIcon {
         tabsScroll.configure(tabs: tabs, current: current)
     }
 
-    func update(selectionCount: Int, caption: String, showsQuality: Bool, isHighQuality: Bool) {
-        badgeLabel.text = " \(selectionCount) "
+    func update(selectionCount: Int, caption: String) {
+        badgeLabel.text = String(selectionCount)
         captionLabel.text = caption
-        qualityButton.isHidden = !showsQuality
-        qualityButton.setImage(MediaPickerQualityIcon.image(highQuality: isHighQuality), for: .normal)
-        qualityButton.accessibilityLabel = L10n.telegram(isHighQuality ? "Media.PhotoHdOn" : "Media.PhotoHdOff")
         sendButton.accessibilityValue = String(selectionCount)
         let selecting = selectionCount > 0
         guard selecting != isSelecting else { return }
@@ -1585,6 +1690,11 @@ enum MediaPickerQualityIcon {
         }
     }
 
+    /// The badge's red on its layer: in a sheet on iOS 26 a view's dynamic background color draws see-through.
+    private func updateBadgeColor() {
+        badgeView.layer.backgroundColor = UIColor.systemRed.resolvedColor(with: traitCollection).cgColor
+    }
+
     @objc private func sendPressed() {
         onSend?()
     }
@@ -1592,10 +1702,6 @@ enum MediaPickerQualityIcon {
     @objc private func sendLongPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began else { return }
         onSendOptions?(sendButton)
-    }
-
-    @objc private func qualityPressed() {
-        onToggleQuality?()
     }
 }
 

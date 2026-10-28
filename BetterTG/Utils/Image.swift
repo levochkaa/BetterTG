@@ -13,9 +13,6 @@ enum PhotoSendPreset {
     static let maximumSide = 1280
     static let highQualityMaximumSide = 2560
     static let jpegQuality: CGFloat = 0.72
-    /// MediaPickerScreen's saved quality choice: the last gallery send's high quality setting
-    /// (`TGMediaAssetsController` stores it, MediaPickerScreen restores it).
-    static let highQualityDefaultsKey = "TG_photoHighQuality_v0"
 }
 
 // MARK: - Selected photo files

@@ -14,6 +14,8 @@ final class TelegramGlassPlatter: UIView {
     enum Role: Hashable {
         /// The back button or the bar's left buttons.
         case leading
+        /// A further left pill, counted from the leading one inward, such as a picker's selected count.
+        case leadingSection(Int)
         /// A right pill, counted from the screen edge inward.
         case trailing(Int)
         /// A chat header's title pill; it pairs only with another screen's title pill.
@@ -155,6 +157,15 @@ final class TelegramGlassPlatter: UIView {
         guard visible.count == 1 else { return Self.pillEndInset }
         let isText = (visible[0] as? UIButton)?.title(for: .normal)?.isEmpty == false
         return isText ? Self.textInset : 0
+    }
+}
+
+// MARK: - UIView + enclosingTelegramGlassPlatter
+
+extension UIView {
+    /// The glass platter this bar item sits in, if any.
+    var enclosingTelegramGlassPlatter: TelegramGlassPlatter? {
+        sequence(first: self, next: \.superview).lazy.compactMap { $0 as? TelegramGlassPlatter }.first
     }
 }
 

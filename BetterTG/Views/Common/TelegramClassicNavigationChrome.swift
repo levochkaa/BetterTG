@@ -192,8 +192,10 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     /// `UINavigationItem.subtitle` under the title, as Telegram's CounterControllerTitle shows a picker's count.
     private let subtitleLabel = UILabel()
     private let backButton = UIButton.telegramGlassIcon(UIImage(systemName: "chevron.left"))
-    /// The back button and the left items share the leading platter; the right items form UIKit's sections.
+    /// The back button and the left items' first section share the leading platter; the other left sections and the
+    /// right items form UIKit's sections.
     private let leadingPlatter = TelegramGlassPlatter(role: .leading)
+    private var leadingSectionPlatters = [TelegramGlassPlatter]()
     private var trailingPlatters = [TelegramGlassPlatter]()
     private var leftViews = [UIView]()
     private var rightViews = [UIView]()
@@ -211,7 +213,7 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     }
 
     /// The bar's glass platters for the push and pop morph, leading first.
-    var glassPlatters: [TelegramGlassPlatter] { [leadingPlatter] + trailingPlatters }
+    var glassPlatters: [TelegramGlassPlatter] { [leadingPlatter] + leadingSectionPlatters + trailingPlatters }
 
     private var promptHeight: CGFloat { promptLabel.text?.isEmpty == false ? 30 : 0 }
 
@@ -248,9 +250,10 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         let rowY = topInset + promptHeight
         let edge = TelegramGlassPlatter.edgeInset
         var left = safeAreaInsets.left + edge
-        if leadingPlatter.hasVisibleItems {
-            let width = leadingPlatter.preferredWidth
-            leadingPlatter.frame = CGRect(x: left, y: rowY, width: width, height: TelegramGlassPlatter.height)
+        for platter in [leadingPlatter] + leadingSectionPlatters where platter.hasVisibleItems {
+            if left > safeAreaInsets.left + edge { left += TelegramGlassPlatter.interSectionSpacing }
+            let width = platter.preferredWidth
+            platter.frame = CGRect(x: left, y: rowY, width: width, height: TelegramGlassPlatter.height)
             left += width
         }
         var right = bounds.width - safeAreaInsets.right - edge
@@ -282,11 +285,41 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         )
     }
 
-    /// `-[UIBarButtonItem _requiresOwnSection]` (read on iOS 27): every text item and every prominent one.
+    /// `-[UIBarButtonItem _requiresOwnSection]` (read on iOS 27): every text item and every prominent one, and any
+    /// item that does not share its background.
     private static func requiresOwnSection(_ item: UIBarButtonItem) -> Bool {
+        if item.style == .prominent || !item.sharesBackground { return true }
         guard item.customView == nil else { return false }
         let title = [item.title, item.primaryAction?.title].compactMap(\.self).first { !$0.isEmpty }
-        return title != nil || item.style == .prominent
+        return title != nil
+    }
+
+    /// UIKit's sections (`_addImplicitTopBarSectionsFromItems`): a text or prominent item takes a pill of its own,
+    /// any other joins the current pill.
+    private static func sections(of items: [(UIBarButtonItem, UIView)]) -> [[(UIBarButtonItem, UIView)]] {
+        var sections = [[(UIBarButtonItem, UIView)]]()
+        var current = [(UIBarButtonItem, UIView)]()
+        for entry in items {
+            if requiresOwnSection(entry.0) {
+                if !current.isEmpty { sections.append(current) }
+                current = []
+                sections.append([entry])
+            } else {
+                current.append(entry)
+            }
+        }
+        if !current.isEmpty { sections.append(current) }
+        return sections
+    }
+
+    /// A prominent item's pill is glass in its tint, with the item drawn in white.
+    private static func applyProminence(of section: [(UIBarButtonItem, UIView)], to platter: TelegramGlassPlatter) {
+        guard section.count == 1, section[0].0.style == .prominent else { return }
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = true
+        effect.tintColor = section[0].0.tintColor ?? .systemBlue
+        platter.glassView.effect = effect
+        (section[0].1 as? UIButton)?.tintColor = .white
     }
 
     func configure(
@@ -310,34 +343,26 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         items = left + right
         leftViews = left.map(makeButton)
         rightViews = right.map(makeButton)
-        leadingPlatter.setItems([backButton] + leftViews)
-        trailingPlatters.forEach { $0.removeFromSuperview() }
-        // UIKit's sections (`_addImplicitTopBarSectionsFromItems`): outermost first, a text or prominent item takes a
-        // pill of its own, any other joins the current pill.
-        var sections = [[(UIBarButtonItem, UIView)]]()
-        var current = [(UIBarButtonItem, UIView)]()
-        for (barItem, view) in zip(right, rightViews) {
-            if Self.requiresOwnSection(barItem) {
-                if !current.isEmpty { sections.append(current) }
-                current = []
-                sections.append([(barItem, view)])
-            } else {
-                current.append((barItem, view))
-            }
+        // The left sections run from the edge inward; the first shares the back button's pill.
+        let leftSections = Self.sections(of: Array(zip(left, leftViews)))
+        leadingPlatter.setItems([backButton] + (leftSections.first?.map(\.1) ?? []))
+        leadingSectionPlatters.forEach { $0.removeFromSuperview() }
+        leadingSectionPlatters = leftSections.dropFirst().enumerated().map { index, section in
+            let platter = TelegramGlassPlatter(role: .leadingSection(index))
+            platter.translatesAutoresizingMaskIntoConstraints = true
+            platter.setItems(section.map(\.1))
+            Self.applyProminence(of: section, to: platter)
+            addSubview(platter)
+            return platter
         }
-        if !current.isEmpty { sections.append(current) }
-        trailingPlatters = sections.enumerated().map { index, section in
+        trailingPlatters.forEach { $0.removeFromSuperview() }
+        // `rightBarButtonItems` lists the right items outermost first.
+        trailingPlatters = Self.sections(of: Array(zip(right, rightViews))).enumerated().map { index, section in
             let platter = TelegramGlassPlatter(role: .trailing(index))
             platter.translatesAutoresizingMaskIntoConstraints = true
-            // UIKit lays a section's items out leading to trailing; `rightBarButtonItems` lists them outermost first.
+            // UIKit lays a section's items out leading to trailing.
             platter.setItems(section.reversed().map(\.1))
-            if section.count == 1, section[0].0.style == .prominent {
-                let effect = UIGlassEffect(style: .regular)
-                effect.isInteractive = true
-                effect.tintColor = section[0].0.tintColor ?? .systemBlue
-                platter.glassView.effect = effect
-                (section[0].1 as? UIButton)?.tintColor = .white
-            }
+            Self.applyProminence(of: section, to: platter)
             addSubview(platter)
             return platter
         }

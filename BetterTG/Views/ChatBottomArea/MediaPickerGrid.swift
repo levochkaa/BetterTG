@@ -170,20 +170,25 @@ final class MediaPickerCheckView: UIView {
 
 /// MediaPickerGridItem: the library thumbnail with its type icon (video, slow motion, time-lapse, Live Photo or
 /// favorite) at the top left, a video's duration at the bottom right, the numbered check at the top right and the
-/// spoiler over a picked item hidden with one.
+/// spoiler over a picked item hidden with one. A tap on the check picks the item; one elsewhere opens its preview.
 final class MediaPickerGridCell: UICollectionViewCell {
     static let reuseIdentifier = "MediaPickerGridCell"
 
     var representedAssetIdentifier: String?
+    var onToggleCheck: (() -> Void)?
     let imageView = UIImageView()
 
     private let spoilerView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterialDark))
     private let typeIconView = UIImageView()
     private let durationLabel = UILabel()
     private let checkView = MediaPickerCheckView()
+    /// The check's tap area, wider than the ring as MediaPickerGridItem's `checkNode` hit slop.
+    private let checkButton = UIButton(type: .custom)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        checkButton.addAction(UIAction { [weak self] _ in self?.onToggleCheck?() }, for: .touchUpInside)
+        checkButton.isAccessibilityElement = false
         contentView.backgroundColor = .secondarySystemFill
         contentView.clipsToBounds = true
         imageView.contentMode = .scaleAspectFill
@@ -200,10 +205,16 @@ final class MediaPickerGridCell: UICollectionViewCell {
             shadowed.layer.shadowOffset = .zero
         }
         spoilerView.isHidden = true
-        for subview in [imageView, spoilerView, typeIconView, durationLabel, checkView] as [UIView] {
+        for subview in [imageView, spoilerView, typeIconView, durationLabel, checkView, checkButton] as [UIView] {
             contentView.addSubview(subview)
         }
         isAccessibilityElement = true
+        accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: L10n.telegram("Common.Select")) { [weak self] _ in
+                self?.onToggleCheck?()
+                return true
+            },
+        ]
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
@@ -211,6 +222,7 @@ final class MediaPickerGridCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         representedAssetIdentifier = nil
+        onToggleCheck = nil
         imageView.image = nil
     }
 
@@ -229,6 +241,8 @@ final class MediaPickerGridCell: UICollectionViewCell {
         )
         let checkSide: CGFloat = 29
         checkView.frame = CGRect(x: bounds.width - checkSide - 3, y: 3, width: checkSide, height: checkSide)
+        let checkArea = min(44, bounds.width / 2)
+        checkButton.frame = CGRect(x: bounds.width - checkArea, y: 0, width: checkArea, height: checkArea)
     }
 
     /// Telegram's `stringForDuration`: m:ss, or h:mm:ss from an hour.
