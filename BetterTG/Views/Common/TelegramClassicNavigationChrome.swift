@@ -196,7 +196,9 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     private var searchEndSubscription: AnyCancellable?
     private var searchActive = false
 
-    var contentHeight: CGFloat { promptHeight + 44 + (searchView != nil && !searchActive ? 44 : 0) }
+    var contentHeight: CGFloat {
+        promptHeight + 44 + (searchView != nil && !searchActive ? ChatListNavigationSearchView.scrollHeight : 0)
+    }
 
     /// The bar's glass platters for the push and pop morph, leading first.
     var glassPlatters: [TelegramGlassPlatter] { [leadingPlatter] + trailingPlatters }
@@ -272,7 +274,12 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
                 ? 0
                 : 1
         }
-        searchView?.frame = CGRect(x: 0, y: rowY + (searchActive ? 0 : 44), width: bounds.width, height: 44)
+        searchView?.frame = CGRect(
+            x: 0,
+            y: rowY + (searchActive ? 0 : 44),
+            width: bounds.width,
+            height: ChatListNavigationSearchView.scrollHeight,
+        )
     }
 
     /// `-[UIBarButtonItem _requiresOwnSection]` (read on iOS 27): every text item and every prominent one.

@@ -143,14 +143,19 @@ final class TelegramGlassPlatter: UIView {
 // MARK: - TelegramGlassBarButton
 
 extension UIButton {
-    /// An icon button styled for a glass platter: the system's 17 pt medium symbol in the label color.
+    /// The symbol size of a glass bar item: the body size at the large scale, as UIKit draws bar button symbols (a
+    /// 21 pt magnifying glass on iOS 27.2).
+    static let telegramGlassIconConfiguration = UIImage.SymbolConfiguration(
+        pointSize: 17,
+        weight: .medium,
+        scale: .large,
+    )
+
+    /// An icon button styled for a glass platter: the system bar item symbol in the label color.
     static func telegramGlassIcon(_ image: UIImage?, accessibilityLabel: String? = nil) -> UIButton {
         let button = UIButton(type: .system)
         button.setImage(image, for: .normal)
-        button.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 17, weight: .medium),
-            forImageIn: .normal,
-        )
+        button.setPreferredSymbolConfiguration(telegramGlassIconConfiguration, forImageIn: .normal)
         button.tintColor = .label
         button.accessibilityLabel = accessibilityLabel
         return button

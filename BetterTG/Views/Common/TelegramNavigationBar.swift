@@ -44,11 +44,15 @@ final class TelegramListNavigationBar: UIView {
     private let rightButton = UIButton.telegramGlassIcon(nil)
     /// An optional second button left of the right one, such as the chat list's compose button.
     private let secondaryRightButton = UIButton.telegramGlassIcon(nil)
-    /// The left button's circle and the right buttons' pill; Done and a text action take a pill of their own.
+    /// The left button's circle; each right button, Done and a text action in a circle or pill of its own, 12 pt
+    /// apart, as Telegram 13's chat list keeps compose and its other buttons apart.
     private let leadingPlatter = TelegramGlassPlatter(role: .leading)
     private let trailingPlatter = TelegramGlassPlatter(role: .trailing(0))
+    private let secondaryTrailingPlatter = TelegramGlassPlatter(role: .trailing(1))
+    private let proxyPlatter = TelegramGlassPlatter(role: .trailing(2))
     private let doneButtonPlatter = TelegramGlassPlatter(role: .trailing(0))
     private let textActionPlatter = TelegramGlassPlatter(role: .trailing(0))
+    private let trailingStack = UIStackView()
     /// ChatListController's proxyButton, left of the right buttons while a proxy is saved.
     private let proxyButton = ChatListProxyButton()
     /// ChatListTitleLockView: the open padlock after the title while a passcode is set.
@@ -80,7 +84,7 @@ final class TelegramListNavigationBar: UIView {
 
     /// The bar's glass platters for the push and pop morph, leading first.
     var glassPlatters: [TelegramGlassPlatter] {
-        [leadingPlatter, trailingPlatter, doneButtonPlatter, textActionPlatter].filter { !$0.isHidden }
+        allPlatters.filter { !$0.isHidden }
     }
 
     var isSearchActive: Bool { searchView.isActive }
@@ -88,6 +92,13 @@ final class TelegramListNavigationBar: UIView {
     #if DEBUG
     var probeSearchField: UISearchTextField { searchView.probeField }
     #endif
+
+    private var allPlatters: [TelegramGlassPlatter] {
+        [
+            leadingPlatter, trailingPlatter, secondaryTrailingPlatter, proxyPlatter, doneButtonPlatter,
+            textActionPlatter,
+        ]
+    }
 
     init(
         title: String,
@@ -187,7 +198,7 @@ final class TelegramListNavigationBar: UIView {
         proxyButton.status = status
         let shows = status != nil
         proxyButton.isHidden = !shows
-        trailingPlatter.refresh()
+        refreshPlatters()
     }
 
     /// "2 Topics Selected" replaces the title and status (ChatTitleComponent's custom content). A nil title shows the
@@ -214,7 +225,7 @@ final class TelegramListNavigationBar: UIView {
     }
 
     private func refreshPlatters() {
-        for platter in [leadingPlatter, trailingPlatter, doneButtonPlatter, textActionPlatter] {
+        for platter in allPlatters {
             platter.refresh()
         }
     }
@@ -266,17 +277,24 @@ final class TelegramListNavigationBar: UIView {
         textActionButton.isHidden = true
         textActionButton.addAction(UIAction { [weak self] _ in self?.textAction?() }, for: .touchUpInside)
         leadingPlatter.setItems([leftButton])
-        trailingPlatter.setItems([proxyButton, secondaryRightButton, rightButton])
+        trailingPlatter.setItems([rightButton])
+        secondaryTrailingPlatter.setItems([secondaryRightButton])
+        proxyPlatter.setItems([proxyButton])
         doneButtonPlatter.setItems([doneButton])
         let prominent = UIGlassEffect(style: .regular)
         prominent.isInteractive = true
         prominent.tintColor = .systemBlue
         doneButtonPlatter.glassView.effect = prominent
         textActionPlatter.setItems([textActionButton])
-        for platter in [leadingPlatter, trailingPlatter, doneButtonPlatter, textActionPlatter] {
-            platter.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(platter)
+        leadingPlatter.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(leadingPlatter)
+        trailingStack.axis = .horizontal
+        trailingStack.spacing = TelegramGlassPlatter.interSectionSpacing
+        trailingStack.translatesAutoresizingMaskIntoConstraints = false
+        for platter in [proxyPlatter, secondaryTrailingPlatter, trailingPlatter, textActionPlatter, doneButtonPlatter] {
+            trailingStack.addArrangedSubview(platter)
         }
+        addSubview(trailingStack)
 
         titleLabel.textColor = .label
         titleLabel.font = .preferredFont(forTextStyle: .headline)
@@ -347,12 +365,8 @@ final class TelegramListNavigationBar: UIView {
 
             leadingPlatter.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: edge),
             leadingPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            trailingPlatter.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -edge),
-            trailingPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            doneButtonPlatter.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -edge),
-            doneButtonPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            textActionPlatter.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -edge),
-            textActionPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            trailingStack.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -edge),
+            trailingStack.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             // Centered 12 pt before the title's text.
             lockButton.centerXAnchor.constraint(equalTo: titleLabel.leadingAnchor, constant: -12),
             lockButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
@@ -361,7 +375,7 @@ final class TelegramListNavigationBar: UIView {
 
             titleControl.leadingAnchor.constraint(greaterThanOrEqualTo: leadingPlatter.trailingAnchor, constant: 8),
             titleControl.trailingAnchor.constraint(
-                lessThanOrEqualTo: trailingPlatter.leadingAnchor,
+                lessThanOrEqualTo: trailingStack.leadingAnchor,
                 constant: -8,
             ),
             titleControl.centerXAnchor.constraint(equalTo: centerXAnchor),
@@ -407,9 +421,8 @@ final class TelegramListNavigationBar: UIView {
         ) {
             self.titleControl.alpha = active ? 0 : 1
             self.lockButton.alpha = active ? 0 : 1
-            for platter in [self.leadingPlatter, self.trailingPlatter, self.doneButtonPlatter, self.textActionPlatter] {
-                platter.alpha = active ? 0 : 1
-            }
+            self.leadingPlatter.alpha = active ? 0 : 1
+            self.trailingStack.alpha = active ? 0 : 1
             self.searchView.transform = active
                 ? CGAffineTransform(translationX: 0, y: -Self.titleHeight)
                 : .identity
@@ -879,10 +892,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         avatarSlotView = avatarSlot
 
         moreButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
-        moreButton.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 17, weight: .medium),
-            forImageIn: .normal,
-        )
+        moreButton.setPreferredSymbolConfiguration(UIButton.telegramGlassIconConfiguration, forImageIn: .normal)
         moreButton.tintColor = .label
         moreButton.accessibilityLabel = L10n.telegram("Common.More")
         moreButton.isHidden = true

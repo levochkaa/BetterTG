@@ -2,13 +2,14 @@
 
 import UIKit
 
-/// Telegram-style search content embedded into the app's custom navigation chrome.
+/// Telegram-style search content embedded into the app's custom navigation chrome: NavigationBarSearchContentNode's
+/// 44 pt glass field, 8 pt below the bar's row and 8 pt above its edge (`navigationBarSearchContentHeight` 60).
 final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     // MARK: Internal
 
-    static let fieldHeight: CGFloat = 36
-    static let bottomInset: CGFloat = 8
-    static let scrollHeight = fieldHeight + bottomInset
+    static let fieldHeight: CGFloat = 44
+    static let verticalInset: CGFloat = 8
+    static let scrollHeight = fieldHeight + verticalInset * 2
 
     var onQueryChange: ((String) -> Void)?
     var onActiveChange: ((Bool) -> Void)?
@@ -16,6 +17,15 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
     // MARK: Private
 
     private let searchField = UISearchTextField()
+    private let glassView: UIVisualEffectView = {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = true
+        let view = UIVisualEffectView(effect: effect)
+        view.cornerConfiguration = .capsule()
+        view.isUserInteractionEnabled = false
+        return view
+    }()
+
     private let closeButton = UIButton(type: .system)
     private var placeholder: String
     private var closeWidthConstraint: NSLayoutConstraint!
@@ -54,12 +64,14 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         let appliedOffset = requestedScrollOffset
         let fraction = appliedOffset / Self.scrollHeight
         let fieldHeight = Self.fieldHeight * (1 - fraction)
-        let contentAlpha = min(1, max(0, (fieldHeight - 28) / 8))
+        let contentAlpha = min(1, max(0, (fieldHeight - (Self.fieldHeight - 8)) / 8))
         let capsuleAlpha = min(1, max(0, fieldHeight / 10))
         let changes = {
             self.searchHeightConstraint.constant = max(0.01, fieldHeight)
-            self.searchCenterYConstraint.constant = -appliedOffset / 2 - Self.bottomInset / 2 * (1 - fraction)
+            // The field stays centred in the part of the row the collapsing bar still shows.
+            self.searchCenterYConstraint.constant = -appliedOffset / 2
             self.searchField.alpha = capsuleAlpha
+            self.glassView.isHidden = fieldHeight < 2
             self.lastContentAlpha = contentAlpha
             self.updateSearchContentAlpha(contentAlpha)
             self.isUserInteractionEnabled = self.isActive || fieldHeight > 12
@@ -125,13 +137,15 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         searchField.autocorrectionType = .no
         searchField.autocapitalizationType = .none
         searchField.borderStyle = .none
-        searchField.backgroundColor = .tertiarySystemFill
+        searchField.backgroundColor = .clear
         searchField.layer.cornerCurve = .continuous
         searchField.clipsToBounds = true
         searchField.textColor = .label
         searchField.tintColor = .systemBlue
         searchField.delegate = self
         searchField.addTarget(self, action: #selector(queryChanged), for: .editingChanged)
+        glassView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(glassView)
         addSubview(searchField)
 
         closeButton.translatesAutoresizingMaskIntoConstraints = false
@@ -144,31 +158,33 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         addSubview(closeButton)
 
         closeWidthConstraint = closeButton.widthAnchor.constraint(equalToConstant: 0)
-        searchHeightConstraint = searchField.heightAnchor.constraint(equalToConstant: 36)
-        searchCenterYConstraint = searchField.centerYAnchor.constraint(
-            equalTo: centerYAnchor,
-            constant: -Self.bottomInset / 2,
-        )
+        searchHeightConstraint = searchField.heightAnchor.constraint(equalToConstant: Self.fieldHeight)
+        searchCenterYConstraint = searchField.centerYAnchor.constraint(equalTo: centerYAnchor)
         NSLayoutConstraint.activate([
-            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -TelegramGlassPlatter.edgeInset),
             closeButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
-            closeButton.heightAnchor.constraint(equalToConstant: 36),
+            closeButton.heightAnchor.constraint(equalToConstant: Self.fieldHeight),
             closeWidthConstraint,
-            searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            searchField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: TelegramGlassPlatter.edgeInset),
             searchField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -6),
             searchCenterYConstraint,
             searchHeightConstraint,
+            glassView.topAnchor.constraint(equalTo: searchField.topAnchor),
+            glassView.leadingAnchor.constraint(equalTo: searchField.leadingAnchor),
+            glassView.trailingAnchor.constraint(equalTo: searchField.trailingAnchor),
+            glassView.bottomAnchor.constraint(equalTo: searchField.bottomAnchor),
         ])
     }
 
     private func setActive(_ active: Bool) {
         layoutIfNeeded()
         onActiveChange?(active)
-        closeWidthConstraint.constant = active ? 36 : 0
+        closeWidthConstraint.constant = active ? Self.fieldHeight : 0
         if active {
-            searchHeightConstraint.constant = 36
-            searchCenterYConstraint.constant = -Self.bottomInset / 2
+            searchHeightConstraint.constant = Self.fieldHeight
+            searchCenterYConstraint.constant = 0
             searchField.alpha = 1
+            glassView.isHidden = false
             lastContentAlpha = 1
             updateSearchContentAlpha(1)
             isUserInteractionEnabled = true

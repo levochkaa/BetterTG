@@ -138,21 +138,27 @@ import UIKit
     }
 
     private static func keys(of platters: [TelegramGlassPlatter]) -> [Key: TelegramGlassPlatter] {
-        let shown = platters.filter { $0.hasVisibleItems && !$0.isHidden && $0.alpha > 0.01 }
-        let trailingCount = shown.count {
-            if case .trailing = $0.role {
-                true
-            } else {
-                false
-            }
+        let shown = platters.filter { platter in
+            platter.hasVisibleItems && !platter.isHidden
+                && sequence(first: platter, next: \.superview).allSatisfy { $0.alpha > 0.01 && !$0.isHidden }
         }
+        // The pills that show, counted from the edge: a hidden one leaves no gap.
+        let trailing = shown.compactMap { platter -> (Int, TelegramGlassPlatter)? in
+            guard case .trailing(let index) = platter.role else { return nil }
+            return (index, platter)
+        }
+        .sorted { $0.0 < $1.0 }
+        .map(\.1)
         var result = [Key: TelegramGlassPlatter]()
+        for (index, platter) in trailing.enumerated() {
+            result[.trailing(index)] = platter
+        }
         for platter in shown {
             switch platter.role {
             case .leading: result[.leading] = platter
-            case .trailing(let index): result[.trailing(index)] = platter
-            case .title where trailingCount <= 1: result[.trailing(1)] = platter
-            case .title: break
+            case .title where trailing.count <= 1: result[.trailing(1)] = platter
+            case .title,
+                 .trailing: break
             }
         }
         return result
