@@ -1258,10 +1258,7 @@ private final class LocationTipView: UIView {
         // LocationMapHeaderNode's options: the map type, following the user's location, and the proximity alert, on
         // glass over the map as Telegram 13's LocationUI has them.
         for button in [mapModeButton, trackingButton, proximityButton] {
-            var configuration = UIButton.Configuration.glass()
-            configuration.baseForegroundColor = .systemBlue
-            configuration.cornerStyle = .capsule
-            button.configuration = configuration
+            button.configuration = MediaGalleryChrome.accentGlassButton()
             button.translatesAutoresizingMaskIntoConstraints = false
         }
         mapModeButton.configuration?.image = UIImage(systemName: "map")

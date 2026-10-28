@@ -10162,6 +10162,16 @@ private func galleryMessageContentMatches(_ lhs: Message, _ rhs: Message) -> Boo
     /// ChatItemGalleryFooterContentNode's buttonPanelInsets: the buttons sit 8 pt above the bottom inset.
     static let footerBottomInset: CGFloat = 8
 
+    /// A button's configuration with a glass capsule behind its accent icon: `UIButton.Configuration.glass()` draws the
+    /// icon inside the glass, pale, where Telegram's map buttons keep the accent colour.
+    static func accentGlassButton() -> UIButton.Configuration {
+        var configuration = UIButton.Configuration.plain()
+        configuration.baseForegroundColor = .systemBlue
+        configuration.background.customView = glass(interactive: false)
+        configuration.cornerStyle = .capsule
+        return configuration
+    }
+
     static func glass(interactive: Bool) -> UIVisualEffectView {
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = interactive

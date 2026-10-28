@@ -548,18 +548,16 @@ struct LocationPickerVenue {
         pinView.isUserInteractionEnabled = false
 
         // On glass over the map, as Telegram 13's LocationUI has its buttons.
-        var userLocationConfiguration = UIButton.Configuration.glass()
+        var userLocationConfiguration = MediaGalleryChrome.accentGlassButton()
         userLocationConfiguration.image = UIImage(systemName: "location.fill")
-        userLocationConfiguration.baseForegroundColor = .systemBlue
         userLocationConfiguration.cornerStyle = .capsule
         userLocationButton.configuration = userLocationConfiguration
         userLocationButton.translatesAutoresizingMaskIntoConstraints = false
         userLocationButton.accessibilityLabel = L10n.telegram("Map.SendMyCurrentLocation")
         userLocationButton.addTarget(self, action: #selector(userLocationPressed), for: .touchUpInside)
 
-        var placesConfiguration = UIButton.Configuration.glass()
+        var placesConfiguration = MediaGalleryChrome.accentGlassButton()
         placesConfiguration.title = L10n.telegram("Map.PlacesInThisArea")
-        placesConfiguration.baseForegroundColor = .systemBlue
         placesConfiguration.cornerStyle = .capsule
         placesButton.configuration = placesConfiguration
         placesButton.translatesAutoresizingMaskIntoConstraints = false
