@@ -995,7 +995,9 @@ final class ChatComposerView: UIView {
         rootStack.translatesAutoresizingMaskIntoConstraints = false
         rootStack.axis = .vertical
         rootStack.spacing = 0
-        addSubview(rootStack)
+        // Inside the glass: UIKit swells interactive glass only under a touch that lands inside it, as Telegram's
+        // input capsule and buttons swell under the finger. Docked, the glass has no effect and only hosts it.
+        glassView.contentView.addSubview(rootStack)
         NSLayoutConstraint.activate([
             dockedBackground.topAnchor.constraint(equalTo: topAnchor),
             dockedBackground.leadingAnchor.constraint(equalTo: leadingAnchor),

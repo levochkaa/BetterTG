@@ -196,14 +196,19 @@ extension UIButton {
 extension UIButton {
     /// Telegram 13's floating chat buttons (ChatHistoryNavigationButtonNode): a circle of interactive glass with the
     /// icon inside the glass in the label color, and no fill, border or shadow of its own. The button's own image
-    /// would sit under the glass and be refracted by it, so the icon moves into the glass.
+    /// would sit under the glass and be refracted by it, so the icon moves into the glass. The glass takes the touch,
+    /// as UIKit swells interactive glass only under a touch that lands inside it, and its tap runs the button's
+    /// action, as ChatHistoryNavigationButtonNode's tap on its glass does; the button's own recognizers still see it.
     func applyTelegramFloatingGlass(icon: UIImage?) {
         guard !subviews.contains(where: { $0 is TelegramFloatingGlassBackground }) else { return }
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = true
         let glass = TelegramFloatingGlassBackground(effect: effect)
         glass.cornerConfiguration = .capsule()
-        glass.isUserInteractionEnabled = false
+        glass.contentView.addGestureRecognizer(UITapGestureRecognizer(
+            target: self,
+            action: #selector(telegramFloatingGlassTapped),
+        ))
         glass.frame = bounds
         glass.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         let iconView = UIImageView(image: icon)
@@ -217,6 +222,11 @@ extension UIButton {
         backgroundColor = .clear
         layer.borderWidth = 0
         layer.shadowOpacity = 0
+    }
+
+    @objc private func telegramFloatingGlassTapped() {
+        guard isEnabled else { return }
+        sendActions(for: .touchUpInside)
     }
 }
 
