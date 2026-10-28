@@ -818,12 +818,46 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         searchActive = true
         searchField.textColor = .label
         onSearchActiveChange?(true)
+        // The title's pill becomes the field and the avatar's circle the close button, while Back dematerializes.
+        let row = rowGlassShapes()
         searchView.setPresented(true)
+        let search = searchView.glassShapes(in: self)
+        setRowGlassShown(false)
+        searchView.alpha = 0
         searchField.becomeFirstResponder()
-        UIView.animate(withDuration: 0.2) {
-            self.titlePlatter.alpha = 0
-            self.trailingPlatter.alpha = 0
-            self.leadingPlatter.alpha = 0
+        TelegramGlassInPlaceMorph.run(in: self, shapes: [
+            .init(from: row.title?.frame, fromItems: row.title?.items, to: search[0].frame, toItems: search[0].items),
+            .init(
+                from: row.trailing?.frame,
+                fromItems: row.trailing?.items,
+                to: search[1].frame,
+                toItems: search[1].items,
+            ),
+            .init(from: row.leading?.frame, fromItems: row.leading?.items),
+        ]) { [weak self] in
+            guard let self, searchActive else { return }
+            searchView.alpha = 1
+        }
+    }
+
+    /// The row's glass pills that show, in the bar's coordinates, with their items drawn, for the search morph.
+    private func rowGlassShapes() -> (
+        leading: (frame: CGRect, items: UIImage?)?,
+        title: (frame: CGRect, items: UIImage?)?,
+        trailing: (frame: CGRect, items: UIImage?)?,
+    ) {
+        layoutIfNeeded()
+        func shape(of platter: TelegramGlassPlatter) -> (frame: CGRect, items: UIImage?)? {
+            guard !platter.isHidden, platter.hasVisibleItems else { return nil }
+            return (platter.convert(platter.bounds, to: self), platter.renderedItems())
+        }
+        return (shape(of: leadingPlatter), shape(of: titlePlatter), shape(of: trailingPlatter))
+    }
+
+    /// The row's pills give their place to the search, at once: the morph draws their glass meanwhile.
+    private func setRowGlassShown(_ shown: Bool) {
+        for platter in [leadingPlatter, titlePlatter, trailingPlatter] {
+            platter.alpha = shown ? 1 : 0
         }
     }
 
@@ -1092,11 +1126,24 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         searchField.resignFirstResponder()
         onSearchQueryChange?("")
         onSearchActiveChange?(false)
+        // The reverse of the opening: the field becomes the title's pill and the close button the avatar's circle.
+        let search = searchView.glassShapes(in: self)
+        let row = rowGlassShapes()
+        searchView.alpha = 0
         searchView.setPresented(false)
-        UIView.animate(withDuration: 0.2) {
-            self.titlePlatter.alpha = 1
-            self.trailingPlatter.alpha = 1
-            self.leadingPlatter.alpha = 1
+        TelegramGlassInPlaceMorph.run(in: self, shapes: [
+            .init(from: search[0].frame, fromItems: search[0].items, to: row.title?.frame, toItems: row.title?.items),
+            .init(
+                from: search[1].frame,
+                fromItems: search[1].items,
+                to: row.trailing?.frame,
+                toItems: row.trailing?.items,
+            ),
+            .init(to: row.leading?.frame, toItems: row.leading?.items),
+        ]) { [weak self] in
+            guard let self, !searchActive else { return }
+            setRowGlassShown(true)
+            searchView.alpha = 1
         }
     }
 

@@ -155,27 +155,28 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         closeSearch()
     }
 
-    /// Opens or closes the search for an owner that does not follow focus: the field's glass materializes and its
-    /// text fades in, or the reverse, as the close button grows in or out.
+    /// Opens or closes the search at once for an owner that does not follow focus and animates the change itself,
+    /// such as a chat's bar morphing its title and avatar into the field and the close button.
     func setPresented(_ presented: Bool) {
         guard presented != isOpen else { return }
-        let effect = UIGlassEffect(style: .regular)
-        effect.isInteractive = true
-        if presented {
-            isHidden = false
-            glassView.effect = nil
-            searchField.alpha = 0
+        isHidden = !presented
+        setActive(presented, animated: false)
+    }
+
+    /// The open search's two glass shapes, the field and the close button, in `view`'s coordinates, each with its
+    /// contents drawn without the glass, for a morph that draws the glass meanwhile.
+    func glassShapes(in view: UIView) -> [(frame: CGRect, items: UIImage?)] {
+        layoutIfNeeded()
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = traitCollection.displayScale
+        format.opaque = false
+        let field = UIGraphicsImageRenderer(bounds: glassView.bounds, format: format).image { context in
+            searchField.layer.render(in: context.cgContext)
         }
-        setActive(presented)
-        // Glass materializes from no effect; animating a glass view's opacity breaks its rendering.
-        UIView.animate(withDuration: 0.25) {
-            self.glassView.effect = presented ? effect : nil
-            self.searchField.alpha = presented ? 1 : 0
-        } completion: { _ in
-            guard !self.isOpen else { return }
-            self.isHidden = true
-            self.glassView.effect = effect
-        }
+        return [
+            (glassView.convert(glassView.bounds, to: view), field),
+            (closePlatter.convert(closePlatter.bounds, to: view), closePlatter.renderedItems()),
+        ]
     }
 
     func textFieldDidBeginEditing(_: UITextField) {
@@ -240,7 +241,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         ])
     }
 
-    private func setActive(_ active: Bool) {
+    private func setActive(_ active: Bool, animated: Bool = true) {
         layoutIfNeeded()
         isOpen = active
         onActiveChange?(active)
@@ -249,13 +250,28 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         if active {
             searchHeightConstraint.constant = Self.fieldHeight
             searchCenterYConstraint.constant = 0
-            if followsFocus { searchField.alpha = 1 }
+            searchField.alpha = 1
             glassView.isHidden = false
             lastContentAlpha = 1
             updateSearchContentAlpha(1)
             isUserInteractionEnabled = true
         }
         if active { closePlatter.isHidden = false }
+        let changes = {
+            self.closePlatter.transform = active ? .identity : Self.closedTransform
+            self.layoutIfNeeded()
+        }
+        let completion = {
+            guard !active else { return }
+            // A search reopened meanwhile keeps its button.
+            self.closePlatter.isHidden = !self.isOpen
+            if self.followsFocus { self.applyScroll(offset: self.requestedScrollOffset, animated: true) }
+        }
+        guard animated else {
+            changes()
+            completion()
+            return
+        }
         // The search bar's spring (ChatListSearchContainerNode's 0.4 s).
         UIView.animate(
             springDuration: 0.4,
@@ -263,16 +279,8 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
             initialSpringVelocity: 0,
             delay: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
-        ) {
-            self.closePlatter.transform = active ? .identity : Self.closedTransform
-            self.layoutIfNeeded()
-        } completion: { _ in
-            if !active {
-                // A search reopened meanwhile keeps its button.
-                self.closePlatter.isHidden = !self.isOpen
-                if self.followsFocus { self.applyScroll(offset: self.requestedScrollOffset, animated: true) }
-            }
-        }
+            animations: changes,
+        ) { _ in completion() }
     }
 
     private func updateSearchContentAlpha(_ alpha: CGFloat) {
