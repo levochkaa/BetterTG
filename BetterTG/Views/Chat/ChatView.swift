@@ -382,6 +382,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private lazy var importBarrier = ChatComposerImportBarrier(location: location)
     /// The open document picker replaces the edited message's media instead of adding files to the composer.
     private var documentPickerReplacesEditedMedia = false
+    /// The attachment sheet's gallery while the sheet is up, kept while another tab shows in its place.
+    private var attachmentGallery: AttachmentSheetViewController?
+    private weak var attachmentNavigation: UINavigationController?
+    private var attachmentTabs = [AttachmentSheetTab]()
     private var clientPreparationTask: Task<Void, Never>?
     private var clientPreparationSource: TdUpdateSource?
     private var preparedClient: (source: TdUpdateSource, client: TDLibClient, chat: CustomChat, topic: ForumTopic?)?
@@ -2210,20 +2214,20 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(poll.makeNavigationController(), animated: true)
     }
 
-    /// The attachment menu's Checklist (`.todo`): ComposeTodoScreen for a Telegram Premium account, which sends the
-    /// checklist with the composer's reply; without Premium, Telegram's checklist notice.
+    /// The attachment menu's Checklist (`.todo`): ComposeTodoScreen in the sheet for a Telegram Premium account,
+    /// which sends the checklist with the composer's reply; without Premium the sheet closes for Telegram's checklist
+    /// notice.
     private func showChecklistComposer() {
         guard chatVM.canCreateChecklist else { return }
         Task { [weak self] in
-            guard let self else { return }
-            guard let isPremium = await chatVM.accountHasPremium(), chatVM.locationContextIsCurrent,
-                  chatVM.canCreateChecklist, presentedViewController == nil
-            else {
-                attachmentSheetDidDismiss()
-                return
-            }
+            guard let self,
+                  let isPremium = await chatVM.accountHasPremium(), chatVM.locationContextIsCurrent,
+                  chatVM.canCreateChecklist
+            else { return }
             guard isPremium else {
-                presentChecklistPremiumNotice { [weak self] in self?.attachmentSheetDidDismiss() }
+                closeAttachmentSheet { [weak self] in
+                    self?.presentChecklistPremiumNotice { [weak self] in self?.attachmentSheetDidDismiss() }
+                }
                 return
             }
             let composer = ChecklistComposerViewController(
@@ -2236,8 +2240,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     .inputMessageChecklist(TDNativeInputMessageChecklist(checklist: checklist))
                 Task { await chatVM?.sendAttachmentContents([content], kind: .checklist) }
             }
-            composer.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
-            present(composer.makeNavigationController(), animated: true)
+            composer.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
+            showInAttachmentSheet(composer, tab: .checklist, dismissalDelegate: composer)
         }
     }
 
@@ -9271,10 +9275,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 sheet?.setDefaultVideoPreset(preset)
             }
         }
+        sheet.switchesTabsInPlace = true
         sheet.onSelectTab = { [weak self] tab in self?.openAttachmentTab(tab) }
         sheet.onCamera = { [weak self] in self?.showCamera() }
         sheet.onSend = { [weak self] request in self?.sendAttachmentMedia(request) }
-        sheet.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
+        sheet.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
+        attachmentGallery = sheet
+        attachmentTabs = tabs
         presentAttachmentSheet(sheet)
     }
 
@@ -9283,6 +9290,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func presentAttachmentSheet(_ sheet: AttachmentSheetViewController) {
         let navigation = sheet.makeNavigationController()
         navigation.preferredTransition = .zoom { [weak self] _ in self?.composerView.attachmentSourceView }
+        attachmentNavigation = navigation
         present(navigation, animated: true)
     }
 
@@ -9338,19 +9346,95 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     /// The attachment panel's other buttons, opened once the sheet has closed.
+    /// AttachmentController's `requestController`: a tab's screen takes the sheet's place under its own panel with
+    /// that tab current, and Gallery brings the gallery back as it was left. Stickers and Web Apps close the sheet.
     private func openAttachmentTab(_ tab: AttachmentSheetTab) {
         switch tab {
-        case .gallery,
-             .link: break
-        case .file: showDocumentPicker()
+        case .gallery:
+            guard let gallery = attachmentGallery, let navigation = attachmentNavigation else { return }
+            navigation.presentationController?.delegate = gallery
+            navigation.replaceAttachmentSheetContent(with: gallery)
+        case .link: break
+        case .file: showAttachmentFileList()
         case .location: showLocationPicker()
         case .poll: showPollCreator()
         case .checklist: showChecklistComposer()
         case .contact: showContactPicker()
         case .sticker:
-            if !composerView.showMediaInput(mode: .stickers) { showComposerMediaPicker(mode: .stickers) }
-        case .app(let bot): openAttachmentMenuBot(bot)
+            closeAttachmentSheet { [weak self] in
+                guard let self else { return }
+                if !composerView.showMediaInput(mode: .stickers) { showComposerMediaPicker(mode: .stickers) }
+            }
+        case .app(let bot):
+            closeAttachmentSheet { [weak self] in self?.openAttachmentMenuBot(bot) }
         }
+    }
+
+    /// Shows `controller` in the attachment sheet in the gallery's place, with the panel's `tab` current. A screen
+    /// that confirms its own dismissal takes the sheet's swipe; otherwise the gallery does.
+    private func showInAttachmentSheet(
+        _ controller: UIViewController,
+        tab: AttachmentSheetTab,
+        dismissalDelegate: UIAdaptivePresentationControllerDelegate? = nil,
+    ) {
+        guard let navigation = attachmentNavigation, navigation.presentingViewController != nil,
+              !navigation.isBeingDismissed
+        else { return }
+        let shown = controller.view is UIScrollView ? AttachmentSheetTabContainer(content: controller) : controller
+        AttachmentPanelView.install(in: shown, tabs: attachmentTabs, current: tab) { [weak self] tab in
+            self?.openAttachmentTab(tab)
+        }
+        // The gallery's picked items keep the sheet from a swipe only while the gallery shows.
+        navigation.isModalInPresentation = false
+        navigation.presentationController?.delegate = dismissalDelegate ?? attachmentGallery
+        navigation.replaceAttachmentSheetContent(with: shown)
+    }
+
+    /// Closes the attachment sheet, whatever it shows, before `next`.
+    private func closeAttachmentSheet(then next: @escaping () -> Void) {
+        guard let navigation = attachmentNavigation, navigation.presentingViewController != nil else {
+            attachmentSessionDidEnd()
+            return next()
+        }
+        navigation.isModalInPresentation = false
+        navigation.dismiss(animated: true) { [weak self] in
+            self?.attachmentSessionDidEnd()
+            next()
+        }
+    }
+
+    /// The attachment sheet has gone.
+    private func attachmentSessionDidEnd() {
+        attachmentGallery = nil
+        attachmentTabs = []
+        attachmentSheetDidDismiss()
+    }
+
+    /// AttachmentFileController's `.recent` list in the sheet: Select from Gallery brings the gallery back, Select
+    /// from Files opens the iCloud picker once the sheet has gone, and a recent file is sent again as it was.
+    private func showAttachmentFileList() {
+        guard chatVM.canAttachDocuments else { return }
+        let list = PollFileAttachmentViewController(client: chatVM.client, subtitle: nil)
+        list.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
+        list.onSelectFromGallery = { [weak self] in self?.openAttachmentTab(.gallery) }
+        list.onSelectFromFiles = { [weak self] in
+            self?.closeAttachmentSheet { [weak self] in self?.showDocumentPicker() }
+        }
+        list.onPick = { [weak self] document in
+            let content = InputMessageContent.inputMessageDocument(TDNativeInputMessageDocument(
+                document: TDNativeInputDocument(
+                    document: .inputFileId(TDNativeInputFileId(id: document.document.id)),
+                    thumbnail: nil,
+                    disableContentTypeDetection: true,
+                ),
+                caption: nil,
+            ))
+            self?.closeAttachmentSheet { [weak self] in
+                guard let chatVM = self?.chatVM else { return }
+                Task { await chatVM.sendAttachmentContents([content], kind: .document) }
+            }
+        }
+        showInAttachmentSheet(list, tab: .file)
     }
 
     /// ChatControllerOpenAttachmentMenu's `.app` buttons: the account's attachment menu bots whose peer types meet
@@ -9594,7 +9678,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         present(picker, animated: true)
     }
 
-    /// Telegram's attachment menu Location: the location picker in a sheet. What it sends replies to the composer's
+    /// Telegram's attachment menu Location: the location picker in the sheet. What it sends replies to the composer's
     /// reply as other attachments do; TDLib takes locations and venues under `canSendBasicMessages`.
     private func showLocationPicker() {
         guard chatVM.canSendLocationAndContact else { return }
@@ -9606,15 +9690,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         ) { [weak chatVM] content in
             Task { await chatVM?.sendAttachmentContents([content], kind: .text) }
         }
-        picker.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
-        let navigation = TelegramNavigationController(rootViewController: picker)
-        navigation.modalPresentationStyle = .pageSheet
-        navigation.presentationController?.delegate = self
-        present(navigation, animated: true)
+        picker.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
+        showInAttachmentSheet(picker, tab: .location)
     }
 
-    /// Telegram's attachment menu Contact: ContactSelectionController with the account's contacts that show a number
-    /// and the phonebook, several at once. What it sends replies to the composer's reply as other attachments do.
+    /// Telegram's attachment menu Contact: ContactSelectionController in the sheet with the account's contacts that
+    /// show a number and the phonebook, several at once. What it sends replies to the composer's reply as other
+    /// attachments do.
     private func showContactPicker() {
         guard chatVM.canSendLocationAndContact else { return }
         let picker = ContactSelectionViewController(
@@ -9623,14 +9705,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         ) { [weak chatVM] contents in
             Task { await chatVM?.sendAttachmentContents(contents, kind: .text) }
         }
-        picker.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
-        let navigation = TelegramNavigationController(rootViewController: picker)
-        navigation.modalPresentationStyle = .pageSheet
-        navigation.presentationController?.delegate = self
-        present(navigation, animated: true)
+        picker.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
+        showInAttachmentSheet(picker, tab: .contact)
     }
 
-    /// Telegram's attachment menu Poll: the poll creator, with a channel's defaults in channels.
+    /// Telegram's attachment menu Poll: the poll creator in the sheet, with a channel's defaults in channels.
     private func showPollCreator() {
         guard chatVM.canCreatePoll else { return }
         let poll = CreatePollViewController(
@@ -9641,8 +9720,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         ) { [weak chatVM] content in
             Task { await chatVM?.sendAttachmentContents([content], kind: .poll) }
         }
-        poll.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
-        present(poll.makeNavigationController(), animated: true)
+        poll.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
+        showInAttachmentSheet(poll, tab: .poll, dismissalDelegate: poll)
     }
 
     /// The same upkeep as a swiped-away sheet once an attachment screen closes itself.

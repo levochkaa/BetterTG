@@ -281,6 +281,12 @@ struct AttachmentMediaSendRequest {
         }
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // Back from another tab shown in the sheet, picked items hold the sheet again.
+        navigationController?.isModalInPresentation = !selection.isEmpty && !isClosing
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         installOutsideTap()
@@ -1702,6 +1708,77 @@ enum MediaPickerQualityIcon {
     @objc private func sendLongPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began else { return }
         onSendOptions?(sendButton)
+    }
+}
+
+// MARK: - UINavigationController + attachment tabs
+
+extension UINavigationController {
+    /// AttachmentController.animateSwitchTransition: the old content's snapshot fades out over 0.23 s while the sheet
+    /// dips 10 points for 0.2 s and springs back.
+    func replaceAttachmentSheetContent(with controller: UIViewController) {
+        let snapshot = view.snapshotView(afterScreenUpdates: false)
+        setViewControllers([controller], animated: false)
+        guard let snapshot else { return }
+        snapshot.frame = view.bounds
+        snapshot.isUserInteractionEnabled = false
+        view.addSubview(snapshot)
+        UIView.animate(withDuration: 0.23) {
+            snapshot.alpha = 0
+        } completion: { _ in
+            snapshot.removeFromSuperview()
+        }
+        let layer = view.layer
+        let dip = CABasicAnimation(keyPath: "transform.translation.y")
+        dip.fromValue = 0
+        dip.toValue = 10
+        dip.duration = 0.2
+        dip.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        dip.fillMode = .forwards
+        dip.isRemovedOnCompletion = false
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak layer] in
+            // Display's animateSpring: CASpringAnimation's mass 5 and stiffness 900 with the damping, played in 0.3 s.
+            let spring = CASpringAnimation(keyPath: "transform.translation.y")
+            spring.mass = 5
+            spring.stiffness = 900
+            spring.damping = 70
+            spring.fromValue = 10
+            spring.toValue = 0
+            spring.duration = spring.settlingDuration
+            spring.speed = Float(spring.settlingDuration / 0.3)
+            layer?.add(spring, forKey: "attachmentSwitchSpring")
+            layer?.removeAnimation(forKey: "attachmentSwitchDip")
+        }
+        layer.add(dip, forKey: "attachmentSwitchDip")
+        CATransaction.commit()
+    }
+}
+
+// MARK: - AttachmentSheetTabContainer
+
+/// A tab's screen whose root view scrolls (a table view controller), held in a plain view so the panel pins to the
+/// sheet's edges instead of the scrolling content. The bar shows the screen's own title and items.
+final class AttachmentSheetTabContainer: UIViewController {
+    override var navigationItem: UINavigationItem { content.navigationItem }
+
+    let content: UIViewController
+
+    init(content: UIViewController) {
+        self.content = content
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = content.view.backgroundColor ?? .systemBackground
+        addChild(content)
+        content.view.frame = view.bounds
+        content.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(content.view)
+        content.didMove(toParent: self)
     }
 }
 
