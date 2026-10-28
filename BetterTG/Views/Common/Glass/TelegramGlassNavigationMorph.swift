@@ -67,6 +67,8 @@ import UIKit
         static let collapseDelay: TimeInterval = 0.083
         /// Items shrink to and grow from this scale (`matchScale`).
         static let itemScale: CGFloat = 0.2
+        /// How long a title pill leaving in place takes to fade.
+        static let titleFadeDuration: TimeInterval = 0.18
         /// The most the glass overlay may outlive the screens' transition.
         static let lingerLimit: TimeInterval = 1.5
     }
@@ -294,6 +296,9 @@ import UIKit
         let group = DispatchGroup()
         for piece in pieces {
             let collapses = piece.destination == nil && piece.partnerFrame != nil
+            // A chat's title pill leaving in place stands where the incoming screen's title arrives: grown and slow,
+            // its glass edge would bend that title as it passes under it, so it fades at once where it is.
+            let fadesTitle = piece.destination == nil && piece.partnerFrame == nil && piece.source?.role == .title
             let delay = collapses ? Spring.collapseDelay : 0
             group.enter()
             UIView.animate(
@@ -308,7 +313,7 @@ import UIKit
                     piece.glass.effect = piece.destination?.glassView.effect
                 } else if let partner = piece.partnerFrame {
                     piece.glass.frame = partner
-                } else {
+                } else if !fadesTitle {
                     piece.glass.transform = Self.materializeScale(for: piece.glass.bounds.size)
                     piece.glass.effect = nil
                 }
@@ -324,6 +329,11 @@ import UIKit
                 }
             } completion: { _ in
                 group.leave()
+            }
+            if fadesTitle {
+                UIView.animate(withDuration: Spring.titleFadeDuration, delay: 0, options: [.curveEaseOut]) {
+                    piece.glass.effect = nil
+                }
             }
             // A collapsing pill has merged into its partner by the end of its spring; its glass then leaves.
             if collapses {
