@@ -12,8 +12,8 @@ import UIKit
 @MainActor final class ComposerMediaPickerViewController: UIViewController, UIPageViewControllerDataSource,
 UIPageViewControllerDelegate {
     enum Mode: Int {
+        /// Telegram's one emoji tab: the emoji and the installed custom emoji packs.
         case emoji
-        case customEmoji
         case stickers
         case gifs
     }
@@ -135,7 +135,7 @@ UIPageViewControllerDelegate {
             title = L10n.telegram("StickerPicker.Title")
             navigationItem.subtitle = stickersSubtitle
         }
-        let allModes: [Mode] = allowsStickersAndGIFs ? [.emoji, .customEmoji, .stickers, .gifs] : [.emoji, .customEmoji]
+        let allModes: [Mode] = allowsStickersAndGIFs ? [.emoji, .stickers, .gifs] : [.emoji]
         let modes = stickersOnly ? [Mode.stickers] : allModes
         pages = modes.map { mode in
             ComposerMediaPageViewController(
@@ -372,7 +372,7 @@ UIPageViewControllerDelegate {
     private func updateInputKeys(animated: Bool, mode: Mode? = nil) {
         guard presentationStyle == .input else { return }
         let mode = mode ?? self.mode
-        let visible = mode == .emoji || mode == .customEmoji
+        let visible = mode == .emoji
         for button in [switchToKeyboardButton, deleteBackwardButton] where button.isEnabled != visible {
             button.isEnabled = visible
             let changes = {
@@ -392,7 +392,6 @@ private extension ComposerMediaPickerViewController.Mode {
     var title: String {
         switch self {
         case .emoji: L10n.telegram("EmojiInput.TabEmoji")
-        case .customEmoji: L10n.betterTG("CustomEmoji.Tab")
         case .stickers: L10n.telegram("EmojiInput.TabStickers")
         case .gifs: L10n.telegram("EmojiInput.TabGifs")
         }
@@ -486,6 +485,8 @@ UISearchBarDelegate {
     private var searchTask: Task<Void, Never>?
     private var stickerActionTask: Task<Void, Never>?
     private var canUseCustomEmoji = false
+    /// The installed custom emoji packs the emoji tab shows, in the user's order.
+    private var customEmojiPacks = [(section: Section, title: String, stickers: [Sticker])]()
 
     private var onAnimation: ((Animation) -> Void)? { container?.onAnimation }
     private var onInlineAnimation: ((Int64, String) -> Void)? { container?.onInlineAnimation }
@@ -751,7 +752,7 @@ UISearchBarDelegate {
 
     private func makeLayout() -> UICollectionViewLayout {
         UICollectionViewCompositionalLayout { [weak self] sectionIndex, _ in
-            let columns = self?.mode == .emoji || self?.mode == .customEmoji ? 8 : 4
+            let columns = self?.mode == .emoji ? 8 : 4
             let itemSize = NSCollectionLayoutSize(
                 widthDimension: .fractionalWidth(1 / CGFloat(columns)),
                 heightDimension: .fractionalHeight(1),
@@ -858,7 +859,6 @@ UISearchBarDelegate {
         searchBar.placeholder = mode == .gifs
             ? L10n.telegram("Gif.Search")
             : L10n.telegram("StickersSearch.SearchStickersPlaceholder")
-        if mode == .customEmoji { searchBar.placeholder = L10n.betterTG("CustomEmoji.Search") }
         searchBar.isHidden = mode == .emoji
         emojiCategoryBar.isHidden = mode != .emoji
         searchBarHeightConstraint.constant = mode == .emoji ? Self.emojiCategoryBarHeight : 44
@@ -866,8 +866,8 @@ UISearchBarDelegate {
         switch mode {
         case .emoji:
             applyEmojiSnapshot()
-        case .customEmoji,
-             .gifs,
+            loadTask = Task { [weak self] in await self?.loadCustomEmojiPacks() }
+        case .gifs,
              .stickers:
             loadTask = Task { [weak self] in await self?.reload(query: "") }
         }
@@ -878,32 +878,6 @@ UISearchBarDelegate {
         switch mode {
         case .emoji:
             applyEmojiSnapshot()
-        case .customEmoji:
-            let selectedMode = mode
-            async let request = client.getStickers(
-                chatId: chatID,
-                limit: 200,
-                query: query,
-                stickerType: .stickerTypeCustomEmoji,
-            )
-            async let userRequest = client.getMe()
-            let result = try? await request
-            let user = try? await userRequest
-            guard !Task.isCancelled, contextIsCurrent, mode == selectedMode else { return }
-            canUseCustomEmoji = user?.isPremium == true || user?.id == chatID
-            let values = (result?.stickers ?? [])
-                .filter {
-                    if case .stickerFullTypeCustomEmoji = $0.fullType {
-                        true
-                    } else {
-                        false
-                    }
-                }
-            stickers.merge(Dictionary(
-                values.map { ($0.sticker.id, $0) },
-                uniquingKeysWith: { _, latest in latest },
-            )) { _, latest in latest }
-            applySnapshot(values.map { .sticker($0.sticker.id) }.uniqued())
         case .stickers:
             guard !query.isEmpty else {
                 if searchBar.isFirstResponder {
@@ -1009,6 +983,8 @@ UISearchBarDelegate {
 
     /// EmojiPagerContentSignals: Recently Used (the account's latest emoji), then Telegram's static emoji by category.
     /// An emoji used now moves to the front the next time the tab opens, so the grid stays put under the finger.
+    /// EmojiPagerContentSignals' emoji tab: Recently Used, then the installed custom emoji packs before Telegram's
+    /// emoji categories with Premium, after them without.
     private func applyEmojiSnapshot() {
         var titles = [Section: String]()
         var snapshot = NSDiffableDataSourceSnapshot<Section, ItemID>()
@@ -1018,12 +994,23 @@ UISearchBarDelegate {
             snapshot.appendItems(recent.map { .emoji(.recentEmoji, $0) }, toSection: .recentEmoji)
             titles[.recentEmoji] = L10n.telegram("Emoji.FrequentlyUsed")
         }
+        let appendPacks = {
+            for (section, title, values) in self.customEmojiPacks {
+                let items = values.map { ItemID.groupedSticker(section, $0.sticker.id) }.uniqued()
+                guard !items.isEmpty else { continue }
+                snapshot.appendSections([section])
+                snapshot.appendItems(items, toSection: section)
+                titles[section] = title
+            }
+        }
+        if canUseCustomEmoji { appendPacks() }
         for category in EmojiCatalog.Category.allCases {
             let section = Section.emojiCategory(category)
             snapshot.appendSections([section])
             snapshot.appendItems(category.emojis.uniqued().map { .emoji(section, $0) }, toSection: section)
             titles[section] = category.title
         }
+        if !canUseCustomEmoji { appendPacks() }
         sectionTitles = titles
         sectionDetails = [:]
         dataSource.apply(snapshot, animatingDifferences: false)
@@ -1069,6 +1056,43 @@ UISearchBarDelegate {
         snapshot.appendItems(items)
         dataSource.apply(snapshot, animatingDifferences: true)
         collectionView.backgroundView = items.isEmpty ? emptyLabel() : nil
+    }
+
+    /// The installed custom emoji packs for the emoji tab; Premium, or the user's own Saved Messages, may send them.
+    private func loadCustomEmojiPacks() async {
+        let client = client
+        async let setsRequest = client.send(TDNativeRequests.getInstalledStickerSets(
+            stickerType: .stickerTypeCustomEmoji,
+        ))
+        async let userRequest = client.getMe()
+        let sets = await (try? setsRequest)?.sets ?? []
+        let user = try? await userRequest
+        guard !Task.isCancelled, contextIsCurrent, mode == .emoji else { return }
+        canUseCustomEmoji = user?.isPremium == true || user?.id == chatID
+        var packs = [(section: Section, title: String, stickers: [Sticker])]()
+        for (index, info) in sets.enumerated() {
+            let set = try? await client.send(TDNativeRequests.getStickerSet(setId: info.id))
+            guard !Task.isCancelled, contextIsCurrent, mode == .emoji else { return }
+            let values = (set?.stickers ?? []).filter {
+                if case .stickerFullTypeCustomEmoji = $0.fullType {
+                    true
+                } else {
+                    false
+                }
+            }
+            guard !values.isEmpty else { continue }
+            for sticker in values {
+                stickers[sticker.sticker.id] = sticker
+            }
+            packs.append((.pack(info.id), info.title, values))
+            // The first packs show at once; the rest arrive in batches.
+            if index < 3 || index % 6 == 5 {
+                customEmojiPacks = packs
+                applyEmojiSnapshot()
+            }
+        }
+        customEmojiPacks = packs
+        applyEmojiSnapshot()
     }
 
     /// Favorite Stickers, Recently Used and the installed packs in order. Each pack fills in as TDLib returns it.
@@ -1375,7 +1399,6 @@ UISearchBarDelegate {
         let label = UILabel()
         label.text = mode == .gifs ? L10n.betterTG("Composer.NoSavedGIFs") : L10n.telegram("Stickers.NoStickersFound")
         if mode == .gifs, !gifSearchQuery.isEmpty { label.text = L10n.telegram("Gif.NoGifsFound") }
-        if mode == .customEmoji { label.text = L10n.betterTG("CustomEmoji.Empty") }
         label.textColor = .secondaryLabel
         label.textAlignment = .center
         return label
