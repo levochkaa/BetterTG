@@ -490,7 +490,6 @@ final class FeaturedStickersSectionHeader: UICollectionReusableView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .secondarySystemBackground
         label.font = .systemFont(ofSize: 13)
         label.textColor = .secondaryLabel
         label.accessibilityTraits = .header

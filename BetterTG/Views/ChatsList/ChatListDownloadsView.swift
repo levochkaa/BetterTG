@@ -24,7 +24,7 @@ import UIKit
     /// The controller the menus and the sheet present over.
     var presenter: (() -> UIViewController?)?
 
-    private let tableView = UITableView(frame: .zero, style: .plain)
+    private let tableView = TelegramListTableView(frame: .zero, style: .plain)
     private let emptyLabel = UILabel()
     private var client: TDLibClient?
     private var query = ""

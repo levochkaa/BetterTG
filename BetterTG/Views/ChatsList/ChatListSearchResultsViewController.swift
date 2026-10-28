@@ -58,7 +58,7 @@ import UIKit
     private let rootVM: RootVM
     private let chatList: ChatList
     private let actionAuthority: ChatListActionAuthority
-    private let tableView = UITableView(frame: .zero, style: .plain)
+    private let tableView = TelegramListTableView(frame: .zero, style: .plain)
     /// ChatListSearchFiltersContainerNode's tabs, in BetterTG's folder strip: at the bottom like the chat list's
     /// folders, and 8 pt above the keyboard while it is up.
     private let filterPicker = FolderPickerView()
@@ -306,10 +306,8 @@ import UIKit
             header.configure(
                 title: L10n.telegram("DialogList.SearchSectionRecent"),
                 actionTitle: L10n.telegram("WebSearch.RecentSectionClear"),
-                action: { [weak self, weak header] in
-                    guard let self, let header else { return }
-                    confirmClearingRecent(from: header)
-                },
+                actionInGlass: true,
+                action: { [weak self] source in self?.confirmClearingRecent(from: source) },
             )
         case .localPeers:
             header.configure(title: L10n.telegram("DialogList.SearchSectionDialogs"), actionTitle: nil, action: nil)
@@ -1067,7 +1065,8 @@ import UIKit
                 }
             },
         ]
-        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .menuOnly)
+        // Telegram's menu grows out of the Clear it was opened from (ChatListSearchClearRecentReferenceContentSource).
+        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .sourceMorph)
     }
 
     private func isCurrent(_ requestGeneration: UInt64, _ scope: ChatListActionScope) -> Bool {
@@ -1147,22 +1146,44 @@ import UIKit
     }
 }
 
+// MARK: - TelegramListTableView
+
+/// A plain table whose section headers scroll with their rows, as Telegram's list headers do
+/// (ChatListSearchItemHeader's
+/// `isSticky` is false): with no fill of their own, a floating header would lie over the rows.
+// swiftformat:disable:next preferFinalClasses
+class TelegramListTableView: UITableView {
+    @objc(allowsHeaderViewsToFloat) private var allowsHeaderViewsToFloat: Bool { false }
+}
+
 // MARK: - ChatListSearchSectionHeaderView
 
-/// Telegram's ChatListSearchItemHeader: an uppercased caption with an optional trailing action.
+/// Telegram 13's ChatListSearchItemHeader (ListSectionHeaderNode): an uppercased 13 pt caption 16 pt in, over no fill,
+/// and an optional trailing action in the caption's colour. An action that opens a menu, such as Clear, is a small
+/// glass
+/// capsule the menu grows out of.
 final class ChatListSearchSectionHeaderView: UITableViewHeaderFooterView {
     static let reuseIdentifier = "ChatListSearchSectionHeaderView"
     static let height: CGFloat = 28
 
+    private static let glassActionHeight: CGFloat = 24
+
     private let titleLabel = UILabel()
     private let actionButton = UIButton(type: .system)
-    private var action: (() -> Void)?
+    private let glassAction: UIVisualEffectView = {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = true
+        let view = UIVisualEffectView(effect: effect)
+        view.cornerConfiguration = .capsule()
+        return view
+    }()
+
+    private let glassActionLabel = UILabel()
+    private var action: ((UIView) -> Void)?
 
     override init(reuseIdentifier: String?) {
         super.init(reuseIdentifier: reuseIdentifier)
-        var background = UIBackgroundConfiguration.clear()
-        background.backgroundColor = .secondarySystemBackground
-        backgroundConfiguration = background
+        backgroundConfiguration = .clear()
         configureViews()
     }
 
@@ -1175,15 +1196,31 @@ final class ChatListSearchSectionHeaderView: UITableViewHeaderFooterView {
         action = nil
     }
 
+    override func accessibilityActivate() -> Bool {
+        guard let action else { return false }
+        action(glassAction.isHidden ? actionButton : glassAction)
+        return true
+    }
+
     func configure(title: String, actionTitle: String?, action: (() -> Void)?) {
+        configure(title: title, actionTitle: actionTitle, actionInGlass: false, action: action.map { action in
+            { _ in action() }
+        })
+    }
+
+    /// `action` receives the view it was triggered from, which a menu grows out of.
+    func configure(title: String, actionTitle: String?, actionInGlass: Bool, action: ((UIView) -> Void)?) {
         titleLabel.text = title.uppercased()
         actionButton.setTitle(actionTitle, for: .normal)
-        actionButton.isHidden = actionTitle == nil
+        actionButton.isHidden = actionTitle == nil || actionInGlass
+        glassActionLabel.text = actionTitle
+        glassAction.isHidden = actionTitle == nil || !actionInGlass
+        glassAction.accessibilityLabel = actionTitle
         self.action = actionTitle == nil ? nil : action
     }
 
     private func configureViews() {
-        for subview in [titleLabel, actionButton] as [UIView] {
+        for subview in [titleLabel, actionButton, glassAction] as [UIView] {
             subview.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview(subview)
         }
@@ -1192,20 +1229,57 @@ final class ChatListSearchSectionHeaderView: UITableViewHeaderFooterView {
         titleLabel.accessibilityTraits = .header
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         actionButton.titleLabel?.font = .systemFont(ofSize: 13)
-        actionButton.tintColor = .systemBlue
+        actionButton.tintColor = .secondaryLabel
         actionButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         actionButton.addTarget(self, action: #selector(actionPressed), for: .touchUpInside)
+
+        glassActionLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        glassActionLabel.textColor = .label
+        glassActionLabel.translatesAutoresizingMaskIntoConstraints = false
+        glassAction.contentView.addSubview(glassActionLabel)
+        glassAction.isAccessibilityElement = true
+        glassAction.accessibilityTraits = .button
+        glassAction.isHidden = true
+        // The glass takes the touch, as UIKit swells interactive glass only under a touch inside it.
+        glassAction.contentView.addGestureRecognizer(UITapGestureRecognizer(
+            target: self,
+            action: #selector(glassActionPressed),
+        ))
+        glassAction.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let inset: CGFloat = 16
         NSLayoutConstraint.activate([
-            titleLabel.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
+            titleLabel.leadingAnchor.constraint(
+                equalTo: contentView.safeAreaLayoutGuide.leadingAnchor,
+                constant: inset,
+            ),
             titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: actionButton.leadingAnchor, constant: -8),
-            actionButton.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: glassAction.leadingAnchor, constant: -8),
+            actionButton.trailingAnchor.constraint(
+                equalTo: contentView.safeAreaLayoutGuide.trailingAnchor,
+                constant: -inset,
+            ),
             actionButton.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            // The capsule's edge lines up with the bar's buttons above it.
+            glassAction.trailingAnchor.constraint(
+                equalTo: contentView.safeAreaLayoutGuide.trailingAnchor,
+                constant: -TelegramGlassPlatter.edgeInset,
+            ),
+            glassAction.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            glassAction.heightAnchor.constraint(equalToConstant: Self.glassActionHeight),
+            glassActionLabel.leadingAnchor.constraint(equalTo: glassAction.contentView.leadingAnchor, constant: 10),
+            glassActionLabel.trailingAnchor.constraint(equalTo: glassAction.contentView.trailingAnchor, constant: -10),
+            glassActionLabel.centerYAnchor.constraint(equalTo: glassAction.contentView.centerYAnchor),
         ])
     }
 
     @objc private func actionPressed() {
-        action?()
+        action?(actionButton)
+    }
+
+    @objc private func glassActionPressed() {
+        action?(glassAction)
     }
 }
 
