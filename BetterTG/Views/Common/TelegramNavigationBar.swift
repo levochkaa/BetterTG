@@ -29,6 +29,12 @@ final class TelegramListNavigationBar: UIView {
     /// ChatListTitleLockView's tap: the app locks.
     var onLockTap: (() -> Void)?
 
+    /// A long press on the right button, such as Settings opening the account switcher; receives the button's glass
+    /// circle, which the menu morphs out of.
+    var onRightLongPress: ((UIView) -> Void)? {
+        didSet { rightLongPress.isEnabled = onRightLongPress != nil }
+    }
+
     // MARK: Private
 
     private let blurView = TelegramBarBackgroundView(edge: .top)
@@ -52,6 +58,13 @@ final class TelegramListNavigationBar: UIView {
     private let proxyPlatter = TelegramGlassPlatter(role: .trailing(2))
     private let doneButtonPlatter = TelegramGlassPlatter(role: .trailing(0))
     private let textActionPlatter = TelegramGlassPlatter(role: .trailing(0))
+    private lazy var rightLongPress: UILongPressGestureRecognizer = {
+        let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(rightLongPressed(_:)))
+        recognizer.minimumPressDuration = 0.4
+        recognizer.isEnabled = false
+        return recognizer
+    }()
+
     private let trailingStack = UIStackView()
     /// ChatListController's proxyButton, left of the right buttons while a proxy is saved.
     private let proxyButton = ChatListProxyButton()
@@ -288,6 +301,7 @@ final class TelegramListNavigationBar: UIView {
         textActionButton.addAction(UIAction { [weak self] _ in self?.textAction?() }, for: .touchUpInside)
         leadingPlatter.setItems([leftButton])
         trailingPlatter.setItems([rightButton])
+        rightButton.addGestureRecognizer(rightLongPress)
         secondaryTrailingPlatter.setItems([secondaryRightButton])
         proxyPlatter.setItems([proxyButton])
         doneButtonPlatter.setItems([doneButton])
@@ -409,6 +423,15 @@ final class TelegramListNavigationBar: UIView {
 
     @objc private func leftPressed() { leftAction?() }
     @objc private func rightPressed() { rightAction?() }
+
+    @objc private func rightLongPressed(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.state == .began else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        // The press must not end as a tap that opens Settings too.
+        rightButton.cancelTracking(with: nil)
+        onRightLongPress?(trailingPlatter)
+    }
+
     @objc private func secondaryRightPressed() { secondaryRightAction?() }
     @objc private func titlePressed() { onTitleTap?() }
 

@@ -566,6 +566,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         customNavigationBar.onVisibleHeightChange = { [weak self] contentHeight in
             self?.updateNavigationBarHeight(contentHeight: contentHeight)
         }
+        customNavigationBar.onRightLongPress = { [weak self] source in self?.showAccountSwitcher(from: source) }
         TDLib.shared
             .chatListNetworkStatus
             .sink { [weak self] status in self?.customNavigationBar.setNetworkStatus(status) }
@@ -1082,6 +1083,36 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     @objc private func openArchive() {
         guard let archive = rootVM.archive else { return }
         NavigationStorage.shared.push(.archive(archive))
+    }
+
+    /// Swiftgram's account switcher on a long press of Settings, morphing out of its glass circle: every account, the
+    /// current one ticked, then Add Account.
+    private func showAccountSwitcher(from source: UIView) {
+        let tdlib = TDLib.shared
+        var actions = tdlib.accounts.map { account in
+            let isCurrent = account.id == tdlib.activeAccountID
+            return TelegramContextMenuAction(
+                title: account.localizedTitle,
+                image: UIImage(systemName: isCurrent ? "checkmark.circle.fill" : "person.crop.circle"),
+            ) { [weak self] in
+                guard !isCurrent else { return }
+                do { try tdlib.switchToAccount(account.id) } catch { self?.showAccountError(error) }
+            }
+        }
+        actions.append(TelegramContextMenuAction(
+            title: L10n.telegram("Settings.AddAccount"),
+            image: UIImage(systemName: "plus"),
+            startsNewSection: true,
+        ) { [weak self] in
+            do { try tdlib.addAccount() } catch { self?.showAccountError(error) }
+        })
+        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .sourceMorph)
+    }
+
+    private func showAccountError(_ error: Error) {
+        let alert = UIAlertController(title: nil, message: error.localizedDescription, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        present(alert, animated: true)
     }
 
     @objc private func openSettings() {
