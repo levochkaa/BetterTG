@@ -68,15 +68,6 @@ final class AppLocalization: @unchecked Sendable {
         case plural(PluralValues)
     }
 
-    private enum PluralCategory: String {
-        case zero
-        case one
-        case two
-        case few
-        case many
-        case other
-    }
-
     private struct PluralValues: Codable, Equatable {
         let few: String
         let many: String
@@ -85,7 +76,7 @@ final class AppLocalization: @unchecked Sendable {
         let two: String
         let zero: String
 
-        func value(for category: PluralCategory) -> String {
+        func value(for category: TelegramPluralCategory) -> String {
             let candidate =
                 switch category {
                 case .zero: zero
@@ -159,6 +150,7 @@ final class AppLocalization: @unchecked Sendable {
                 packs[basePack.id] = basePack
             }
         }
+        exportPushStrings()
     }
 
     /// Telegram's presentationStringsFormattedNumber with the locale's grouping separator, as PresentationStrings
@@ -258,7 +250,7 @@ final class AppLocalization: @unchecked Sendable {
         return String(format: value, locale: Locale(identifier: localeID), arguments: arguments)
     }
 
-    private static func telegramPluralSuffix(_ category: PluralCategory) -> String {
+    private static func telegramPluralSuffix(_ category: TelegramPluralCategory) -> String {
         switch category {
         case .zero: "_0"
         case .one: "_1"
@@ -266,90 +258,6 @@ final class AppLocalization: @unchecked Sendable {
         case .few: "_3_10"
         case .many: "_many"
         case .other: "_any"
-        }
-    }
-
-    private static func pluralCategory(languageCode: String, count: Int) -> PluralCategory {
-        let code = languageCode.lowercased()
-            .replacing("_", with: "-")
-            .split(separator: "-")
-            .first
-            .map(String.init) ?? languageCode
-        let mod10 = count % 10
-        let mod100 = count % 100
-
-        switch code {
-        case "ar":
-            if count == 0 { return .zero }
-            if count == 1 { return .one }
-            if count == 2 { return .two }
-            if (3...10).contains(mod100) { return .few }
-            if (11...99).contains(mod100) { return .many }
-            return .other
-        case "be",
-             "ru",
-             "uk":
-            if mod10 == 1, mod100 != 11 { return .one }
-            if (2...4).contains(mod10), !(12...14).contains(mod100) { return .few }
-            if mod10 == 0 || (5...9).contains(mod10) || (11...14).contains(mod100) { return .many }
-            return .other
-        case "bs",
-             "hr",
-             "sr":
-            if mod10 == 1, mod100 != 11 { return .one }
-            if (2...4).contains(mod10), !(12...14).contains(mod100) { return .few }
-            return .other
-        case "cs",
-             "sk":
-            if count == 1 { return .one }
-            if (2...4).contains(count) { return .few }
-            return .other
-        case "cy":
-            if count == 0 { return .zero }
-            if count == 1 { return .one }
-            if count == 2 { return .two }
-            if count == 3 { return .few }
-            if count == 6 { return .many }
-            return .other
-        case "fr",
-             "hi",
-             "pt":
-            return count == 0 || count == 1 ? .one : .other
-        case "ga":
-            if count == 1 { return .one }
-            if count == 2 { return .two }
-            if (3...6).contains(count) { return .few }
-            if (7...10).contains(count) { return .many }
-            return .other
-        case "lt":
-            if mod10 == 1, !(11...19).contains(mod100) { return .one }
-            if (2...9).contains(mod10), !(11...19).contains(mod100) { return .few }
-            return .other
-        case "lv":
-            if mod10 == 0 || (11...19).contains(mod100) { return .zero }
-            if mod10 == 1, mod100 != 11 { return .one }
-            return .other
-        case "pl":
-            if count == 1 { return .one }
-            if (2...4).contains(mod10), !(12...14).contains(mod100) { return .few }
-            return .many
-        case "ro":
-            if count == 1 { return .one }
-            if count == 0 || (1...19).contains(mod100) { return .few }
-            return .other
-        case "sl":
-            if mod100 == 1 { return .one }
-            if mod100 == 2 { return .two }
-            if mod100 == 3 || mod100 == 4 { return .few }
-            return .other
-        case "ja",
-             "ko",
-             "th",
-             "vi",
-             "zh":
-            return .other
-        default:
-            return count == 1 ? .one : .other
         }
     }
 
@@ -507,6 +415,7 @@ final class AppLocalization: @unchecked Sendable {
             return availableLanguagesStorage
         }
         Self.saveAvailableLanguages(languages)
+        exportPushStrings()
         nc.post(name: .availableAppLanguagesChanged)
         UserDefaults.standard.set(language.id, forKey: Self.defaultsKey)
         Self.applyLayoutDirection(isRTL: language.isRTL)
@@ -531,7 +440,7 @@ final class AppLocalization: @unchecked Sendable {
                 return resolved
             }
 
-            let category = Self.pluralCategory(languageCode: "en", count: count)
+            let category = TelegramPluralRules.category(languageCode: "en", count: count)
             let suffix = Self.telegramPluralSuffix(category)
             let localized = bundledTelegramString(key + suffix)
             if localized != key + suffix {
@@ -611,7 +520,10 @@ final class AppLocalization: @unchecked Sendable {
                 }
                 return changed
             }
-            if changed { nc.post(name: .appLanguageChanged) }
+            if changed {
+                exportPushStrings()
+                nc.post(name: .appLanguageChanged)
+            }
         } catch {
             log("Unable to refresh Telegram language pack \(selectedLanguagePackID): \(error.localizedDescription)")
         }
@@ -655,8 +567,41 @@ final class AppLocalization: @unchecked Sendable {
         }
         if let updatedPack {
             Self.save(updatedPack)
+            exportPushStrings()
             nc.post(name: .appLanguageChanged)
         }
+    }
+
+    /// Telegram builds an iOS push's text from the language pack's `PUSH_*` strings; the notification service does the
+    /// same with the relay's pushes, from this copy in the app group.
+    private func exportPushStrings() {
+        let strings = lock.withLock {
+            let selected = packs[selectedLanguagePackIDStorage]
+            let base = selected.flatMap { packs[$0.baseLanguagePackID] }
+            var values = [String: TelegramPushStrings.Value]()
+            for pack in [base, selected].compactMap(\.self) {
+                for (key, value) in pack.strings where key.hasPrefix("PUSH_") {
+                    switch value {
+                    case .ordinary(let string) where !string.isEmpty:
+                        values[key] = .ordinary(string)
+                    case .plural(let plural):
+                        values[key] = .plural(
+                            zero: plural.zero,
+                            one: plural.one,
+                            two: plural.two,
+                            few: plural.few,
+                            many: plural.many,
+                            other: plural.other,
+                        )
+                    case .deleted,
+                         .ordinary:
+                        break
+                    }
+                }
+            }
+            return TelegramPushStrings(pluralCode: selected?.pluralCode ?? "en", values: values)
+        }
+        TelegramPushStrings.store(strings)
     }
 
     private func ordinaryString(_ key: String, in languageID: String) -> String? {
@@ -678,7 +623,7 @@ final class AppLocalization: @unchecked Sendable {
 
     private func pluralString(_ key: String, count: Int, in languageID: String) -> (String, String)? {
         if let pack = packs[languageID], case .plural(let values) = pack.strings[key] {
-            let category = Self.pluralCategory(languageCode: pack.pluralCode, count: count)
+            let category = TelegramPluralRules.category(languageCode: pack.pluralCode, count: count)
             return (values.value(for: category), languageID)
         }
         guard let baseID = packs[languageID]?.baseLanguagePackID,
@@ -686,7 +631,7 @@ final class AppLocalization: @unchecked Sendable {
               let basePack = packs[baseID],
               case .plural(let values) = basePack.strings[key]
         else { return nil }
-        let category = Self.pluralCategory(languageCode: basePack.pluralCode, count: count)
+        let category = TelegramPluralRules.category(languageCode: basePack.pluralCode, count: count)
         return (values.value(for: category), baseID)
     }
 

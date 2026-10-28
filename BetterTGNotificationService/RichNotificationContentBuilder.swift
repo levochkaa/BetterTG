@@ -7,13 +7,21 @@ import UserNotifications
 enum RichNotificationContentBuilder {
     // MARK: Internal
 
+    /// `pushText` replaces the relay's alert, Telegram Web's text, with Telegram for iOS's.
     static func content(
         from original: UNNotificationContent,
         metadata: RelayNotificationMetadata,
         resolved: ResolvedTelegramNotification,
+        pushText: TelegramPushText?,
     ) -> UNNotificationContent {
         guard let mutable = original.mutableCopy() as? UNMutableNotificationContent else { return original }
 
+        if let pushText, !pushText.body.isEmpty {
+            if let title = pushText.title, !title.isEmpty {
+                mutable.title = title
+            }
+            mutable.body = pushText.body
+        }
         if let body = resolved.preview.bodyOverride(resolved.body), !body.isEmpty {
             mutable.body = body
         }

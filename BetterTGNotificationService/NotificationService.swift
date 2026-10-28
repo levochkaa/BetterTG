@@ -37,6 +37,7 @@ final class NotificationService: UNNotificationServiceExtension {
                 canQuickReply: canQuickReplyUsingMetadata(metadata),
             )
             var resolved = fallback
+            var pushText: TelegramPushText?
 
             do {
                 guard isCurrent(ticket) else { return }
@@ -55,6 +56,7 @@ final class NotificationService: UNNotificationServiceExtension {
                     {
                         let payload = try await NotificationPayloadClient().fetch(token: token)
                         guard isCurrent(ticket) else { return }
+                        pushText = TelegramPushText(payload: payload, strings: .load())
                         logger.log("rich_notification.payload_fetched")
                         RichNotificationDiagnostics.record("payload_fetched")
                         if let tdlibResolved = await NotificationTDLibSession(
@@ -95,6 +97,7 @@ final class NotificationService: UNNotificationServiceExtension {
                     from: request.content,
                     metadata: metadata,
                     resolved: resolved,
+                    pushText: pushText,
                 )
                 self.logger.log(
                     "rich_notification.attachment_added success=\(!content.attachments.isEmpty, privacy: .public)",
