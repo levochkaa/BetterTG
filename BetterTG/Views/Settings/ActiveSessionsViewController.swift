@@ -87,8 +87,32 @@ final class ActiveSessionsViewController: SettingsListViewController {
         return "\(session.applicationName) \(version)".trimmingCharacters(in: .whitespaces)
     }
 
-    /// Telegram's iconForSession, with system symbols.
-    fileprivate static func icon(for type: TDNativeSessionDeviceType) -> (symbol: String, tint: UIColor) {
+    /// Telegram's iconForSession, with system symbols: it reads the device model, platform and system names, in its
+    /// order, before the type TDLib infers, which leaves an iPhone model such as "iPhone19,2" unknown.
+    fileprivate static func icon(for session: TDNativeSession) -> (symbol: String, tint: UIColor) {
+        let platform = session.platform.lowercased()
+        let device = session.deviceModel.lowercased()
+        let system = session.systemVersion.lowercased()
+        if device.contains("xbox") { return ("gamecontroller", .systemGreen) }
+        if device.contains("chrome"), !device.contains("chromebook") { return ("globe", .systemGreen) }
+        if device.contains("brave") { return ("globe", .systemOrange) }
+        if device.contains("vivaldi") { return ("globe", .systemRed) }
+        if device.contains("safari") { return ("globe", .systemBlue) }
+        if device.contains("firefox") { return ("globe", .systemOrange) }
+        if device.contains("opera") { return ("globe", .systemRed) }
+        if platform.contains("android") { return ("candybarphone", .systemGreen) }
+        if device.contains("iphone") { return ("iphone", .systemBlue) }
+        if device.contains("ipad") { return ("ipad", .systemBlue) }
+        let isMacOS = platform.contains("macos") || system.contains("macos")
+        if isMacOS, device.contains("mac") { return ("laptopcomputer", .systemBlue) }
+        if platform.contains("ios") || isMacOS { return ("apple.logo", .systemBlue) }
+        if platform.contains("ubuntu") || system.contains("ubuntu") { return ("desktopcomputer", .systemOrange) }
+        if platform.contains("linux") || system.contains("linux") { return ("desktopcomputer", .systemGray) }
+        if platform.contains("windows") || system.contains("windows") { return ("pc", .systemBlue) }
+        return icon(for: session.deviceType)
+    }
+
+    private static func icon(for type: TDNativeSessionDeviceType) -> (symbol: String, tint: UIColor) {
         switch type {
         case .sessionDeviceTypeIphone: ("iphone", .systemBlue)
         case .sessionDeviceTypeIpad: ("ipad", .systemBlue)
@@ -122,7 +146,7 @@ final class ActiveSessionsViewController: SettingsListViewController {
     }
 
     private func sessionRow(_ session: TDNativeSession) -> SettingsRow {
-        let icon = Self.icon(for: session.deviceType)
+        let icon = Self.icon(for: session)
         let activity = session.isCurrent
             ? L10n.telegram("Presence.online")
             : SettingsFormatting.activityDate(session.lastActiveDate)
@@ -231,7 +255,7 @@ private final class SessionDetailViewController: SettingsListViewController {
     }
 
     override func makeSections() -> [SettingsSection] {
-        let icon = ActiveSessionsViewController.icon(for: session.deviceType)
+        let icon = ActiveSessionsViewController.icon(for: session)
         let activity = session.isCurrent
             ? L10n.telegram("Presence.online")
             : Date(timeIntervalSince1970: TimeInterval(session.lastActiveDate)).formatted(date: .long, time: .shortened)
