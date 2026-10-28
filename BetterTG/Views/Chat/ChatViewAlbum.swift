@@ -1312,6 +1312,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         return (selectedIndex + 1, count)
     }
 
+    /// How far the footer's buttons, the album strip and the caption reach above the bottom safe area, which a video's
+    /// controls keep above.
+    private var galleryChromeBottomInset: CGFloat {
+        44 + MediaGalleryChrome.footerBottomInset + thumbnailHeightConstraint.constant
+            + (captionView.isHidden ? 0 : captionHeightConstraint.constant)
+    }
+
     init(
         messages: [Message],
         selection: Int64,
@@ -2623,8 +2630,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     }
 
     private func updateSelectedMediaChromeBottomInset() {
-        let captionHeight = captionView.isHidden ? 0 : captionHeightConstraint.constant
-        visibleSelectedGalleryCell()?.setGalleryChromeBottomInset(50 + captionHeight)
+        visibleSelectedGalleryCell()?.setGalleryChromeBottomInset(galleryChromeBottomInset)
     }
 
     private func setCaptionInteractionActive(_ isActive: Bool) {
@@ -3028,11 +3034,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         cell?.bindGalleryChrome(isVisible: chromeIsVisible) { [weak self] visible in
             self?.setChromeVisible(visible, animated: !UIAccessibility.isReduceMotionEnabled)
         }
-        cell?
-            .setGalleryChromeBottomInset(44 + MediaGalleryChrome.footerBottomInset + thumbnailHeightConstraint
-                .constant + (captionView.isHidden
-                    ? 0
-                    : captionHeightConstraint.constant))
+        cell?.setGalleryChromeBottomInset(galleryChromeBottomInset)
         cell?.setGalleryChromeInteractionActive(captionInteractionIsActive)
     }
 
@@ -8047,7 +8049,10 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     /// Hides the buffering spinner inline: Telegram's autoplaying bubble shows no status in its centre.
     private let spinnerHost = UIView()
     private let retryButton = UIButton(type: .system)
-    private let controlsView = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    /// Fades the controls in and out; the glass in it keeps its own opacity, as glass breaks when that changes.
+    private let controlsView = UIVisualEffectView(effect: nil)
+    /// The controls on a glass panel 8 pt in from the sides, as Telegram 13 keeps its gallery's chrome on glass.
+    private let controlsGlass = MediaGalleryChrome.glass(interactive: false)
     private let controlsStack = UIStackView()
     private let scrubberStack = UIStackView()
     private let transportStack = UIStackView()
@@ -8424,7 +8429,7 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
         addSubview(controlsView)
         self.controlsBottomConstraint = controlsView.bottomAnchor.constraint(
             equalTo: safeAreaLayoutGuide.bottomAnchor,
-            constant: -50,
+            constant: -(44 + MediaGalleryChrome.footerBottomInset * 2),
         )
         NSLayoutConstraint.activate([
             preview.topAnchor.constraint(equalTo: topAnchor),
@@ -8443,14 +8448,24 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
             spinner.centerYAnchor.constraint(equalTo: centerYAnchor),
             retryButton.centerXAnchor.constraint(equalTo: centerXAnchor),
             retryButton.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 16),
-            controlsView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            controlsView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            controlsView.leadingAnchor.constraint(
+                equalTo: safeAreaLayoutGuide.leadingAnchor,
+                constant: MediaGalleryChrome.footerBottomInset,
+            ),
+            controlsView.trailingAnchor.constraint(
+                equalTo: safeAreaLayoutGuide.trailingAnchor,
+                constant: -MediaGalleryChrome.footerBottomInset,
+            ),
             controlsBottomConstraint,
-            controlsView.heightAnchor.constraint(equalToConstant: 136),
-            controlsStack.leadingAnchor.constraint(equalTo: controlsView.contentView.leadingAnchor, constant: 12),
-            controlsStack.trailingAnchor.constraint(equalTo: controlsView.contentView.trailingAnchor, constant: -12),
-            controlsStack.topAnchor.constraint(equalTo: controlsView.contentView.topAnchor, constant: 8),
-            controlsStack.bottomAnchor.constraint(equalTo: controlsView.contentView.bottomAnchor, constant: -8),
+            controlsView.heightAnchor.constraint(equalToConstant: 120),
+            controlsGlass.topAnchor.constraint(equalTo: controlsView.contentView.topAnchor),
+            controlsGlass.leadingAnchor.constraint(equalTo: controlsView.contentView.leadingAnchor),
+            controlsGlass.trailingAnchor.constraint(equalTo: controlsView.contentView.trailingAnchor),
+            controlsGlass.bottomAnchor.constraint(equalTo: controlsView.contentView.bottomAnchor),
+            controlsStack.leadingAnchor.constraint(equalTo: controlsGlass.contentView.leadingAnchor, constant: 14),
+            controlsStack.trailingAnchor.constraint(equalTo: controlsGlass.contentView.trailingAnchor, constant: -14),
+            controlsStack.topAnchor.constraint(equalTo: controlsGlass.contentView.topAnchor, constant: 6),
+            controlsStack.bottomAnchor.constraint(equalTo: controlsGlass.contentView.bottomAnchor, constant: -6),
             timeLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 86),
             networkStatusLabel.heightAnchor.constraint(equalToConstant: 20),
             scrubberStack.heightAnchor.constraint(equalToConstant: 36),
@@ -8766,7 +8781,8 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     }
 
     func setGalleryChromeBottomInset(_ inset: CGFloat) {
-        controlsBottomConstraint.constant = -max(0, inset)
+        // Above the gallery's footer buttons, the footer's 8 pt apart.
+        controlsBottomConstraint.constant = -(max(0, inset) + MediaGalleryChrome.footerBottomInset)
     }
 
     func setGalleryChromeInteractionActive(_ isActive: Bool) {
@@ -9198,11 +9214,14 @@ final class GalleryFilePlayerView: UIView, GalleryMediaView, UIGestureRecognizer
     private func configurePlaybackControls() {
         controlsView.translatesAutoresizingMaskIntoConstraints = false
         controlsView.isHidden = true
+        controlsGlass.translatesAutoresizingMaskIntoConstraints = false
+        controlsGlass.cornerConfiguration = .corners(radius: .fixed(28))
+        controlsView.contentView.addSubview(controlsGlass)
         controlsStack.translatesAutoresizingMaskIntoConstraints = false
         controlsStack.axis = .vertical
         controlsStack.alignment = .fill
         controlsStack.spacing = 4
-        controlsView.contentView.addSubview(controlsStack)
+        controlsGlass.contentView.addSubview(controlsStack)
         scrubberStack.axis = .horizontal
         scrubberStack.alignment = .center
         scrubberStack.spacing = 8
