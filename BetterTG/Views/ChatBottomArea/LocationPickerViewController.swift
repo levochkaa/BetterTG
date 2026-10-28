@@ -547,9 +547,9 @@ struct LocationPickerVenue {
         pinView.isHidden = true
         pinView.isUserInteractionEnabled = false
 
-        var userLocationConfiguration = UIButton.Configuration.filled()
+        // On glass over the map, as Telegram 13's LocationUI has its buttons.
+        var userLocationConfiguration = UIButton.Configuration.glass()
         userLocationConfiguration.image = UIImage(systemName: "location.fill")
-        userLocationConfiguration.baseBackgroundColor = .systemBackground
         userLocationConfiguration.baseForegroundColor = .systemBlue
         userLocationConfiguration.cornerStyle = .capsule
         userLocationButton.configuration = userLocationConfiguration
@@ -557,22 +557,14 @@ struct LocationPickerVenue {
         userLocationButton.accessibilityLabel = L10n.telegram("Map.SendMyCurrentLocation")
         userLocationButton.addTarget(self, action: #selector(userLocationPressed), for: .touchUpInside)
 
-        var placesConfiguration = UIButton.Configuration.filled()
+        var placesConfiguration = UIButton.Configuration.glass()
         placesConfiguration.title = L10n.telegram("Map.PlacesInThisArea")
-        placesConfiguration.baseBackgroundColor = .systemBackground
         placesConfiguration.baseForegroundColor = .systemBlue
         placesConfiguration.cornerStyle = .capsule
         placesButton.configuration = placesConfiguration
         placesButton.translatesAutoresizingMaskIntoConstraints = false
         placesButton.isHidden = true
         placesButton.addTarget(self, action: #selector(placesPressed), for: .touchUpInside)
-
-        for button in [userLocationButton, placesButton] {
-            button.layer.shadowColor = UIColor.black.cgColor
-            button.layer.shadowOpacity = 0.15
-            button.layer.shadowRadius = 6
-            button.layer.shadowOffset = CGSize(width: 0, height: 2)
-        }
     }
 
     private func configureTable() {
