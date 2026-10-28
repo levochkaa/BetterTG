@@ -242,9 +242,11 @@ import UIKit
         guard !resolved, !finished else { return }
         resolved = true
         destinationView.layoutIfNeeded()
-        // The incoming screen's frame where it rests: the navigation view's bounds.
+        // The incoming screen's frame where it rests: the navigation view's bounds. A scroll view's bounds start at its
+        // content offset, where the classic chrome stands.
         func restingFrame(of platter: TelegramGlassPlatter) -> CGRect {
             platter.convert(platter.bounds, to: destinationView)
+                .offsetBy(dx: -destinationView.bounds.minX, dy: -destinationView.bounds.minY)
         }
         for piece in pieces {
             if let incoming = piece.destination {
