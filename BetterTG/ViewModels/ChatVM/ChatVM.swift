@@ -5312,7 +5312,8 @@ import UIKit
         var messages = [Message]()
         // The link panel's choices go with the first part, the one Telegram shows the panel for.
         let linkPreviewOptions = composerLinkPreviewSendOptions
-        for (index, part) in ComposerTextBreaker.messages(text).enumerated() {
+        let sentText = await ComposerText.attributed(parsingSendMarkdown(ComposerText.formatted(text)))
+        for (index, part) in ComposerTextBreaker.messages(sentText).enumerated() {
             let message = try await client.sendMessage(
                 chatId: context.chatID,
                 inputMessageContent: .inputMessageText(
@@ -6956,7 +6957,9 @@ import UIKit
     /// The input as a media caption, trimmed as sent text is, or nil when nothing is left. A caption over TDLib's
     /// limit stops the send while the composer still holds it.
     private func composerCaption() async throws -> FormattedText? {
-        let caption = ComposerTextBreaker.trimmed(text)
+        let caption = await ComposerTextBreaker.trimmed(
+            ComposerText.attributed(parsingSendMarkdown(ComposerText.formatted(text))),
+        )
         guard !caption.characters.isEmpty else { return nil }
         let limit: Int =
             if case .optionValueInteger(let value) = try? await client.getOption(name: "message_caption_length_max") {
@@ -7282,6 +7285,7 @@ import UIKit
     ) async throws {
         let message = attempt.message
         let context = try resolveEditContext(for: message)
+        let text = await parsingSendMarkdown(attempt.text)
         try Task.checkCancellation()
         switch message.content {
         case .messageText:
@@ -7293,7 +7297,7 @@ import UIKit
                     .init(
                         clearDraft: false,
                         linkPreviewOptions: linkPreviewOptions,
-                        text: attempt.text,
+                        text: text,
                     ),
                 ),
                 messageId: message.id,
@@ -7306,7 +7310,7 @@ import UIKit
              .messageVideo,
              .messageVoiceNote:
             _ = try await client.editMessageCaption(
-                caption: attempt.text,
+                caption: text,
                 chatId: context.chatID,
                 messageId: message.id,
                 replyMarkup: nil,
@@ -7315,6 +7319,16 @@ import UIKit
         default:
             throw ChatSendContextError.chatPermissionDenied
         }
+    }
+
+    /// Telegram's send-time markdown (ChatTextInputAttributes' markdown pass, which ChatComposerSendPlan runs on the
+    /// whole text before splitting it): `**bold**`, `__italic__`, `~~strikethrough~~`, `||spoiler||`, `` `code` `` and
+    /// ```` ```pre``` ```` turn into entities and lose their marks, and the entities the input already set stay.
+    /// TDLib's
+    /// parseMarkdown reads the same human-friendly syntax.
+    private func parsingSendMarkdown(_ text: FormattedText) async -> FormattedText {
+        guard text.text.contains(where: { "*_~|`[".contains($0) }) else { return text }
+        return await (try? client.send(TDNativeRequests.parseMarkdown(text: text))) ?? text
     }
 
     private func setEditMessageText(from message: Message?) {
