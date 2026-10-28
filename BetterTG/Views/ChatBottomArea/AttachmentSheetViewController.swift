@@ -314,6 +314,43 @@ struct AttachmentMediaSendRequest {
         UIApplication.shared.open(url)
     }
 
+    /// The album's key item, 28 pt with Telegram's rounded corners, drawn in its own colours.
+    private nonisolated static func albumThumbnail(
+        _ album: MediaPickerAlbum,
+        imageManager: PHImageManager,
+    ) -> UIImage? {
+        guard let asset = album.keyAsset else { return nil }
+        let side: CGFloat = 28
+        let options = PHImageRequestOptions()
+        options.isSynchronous = true
+        options.deliveryMode = .highQualityFormat
+        options.resizeMode = .exact
+        options.isNetworkAccessAllowed = false
+        var result: UIImage?
+        imageManager.requestImage(
+            for: asset,
+            targetSize: CGSize(width: side * 3, height: side * 3),
+            contentMode: .aspectFill,
+            options: options,
+        ) { image, _ in result = image }
+        guard let image = result else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        let rounded = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { _ in
+            let rect = CGRect(x: 0, y: 0, width: side, height: side)
+            UIBezierPath(roundedRect: rect, cornerRadius: 6).addClip()
+            let scale = max(side / image.size.width, side / image.size.height)
+            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+            image.draw(in: CGRect(
+                x: (side - size.width) / 2,
+                y: (side - size.height) / 2,
+                width: size.width,
+                height: size.height,
+            ))
+        }
+        return rounded.withRenderingMode(.alwaysOriginal)
+    }
+
     /// The upload default once the server's auto-download presets arrive; a quality the user picked stays.
     func setDefaultVideoPreset(_ preset: VideoSendPreset) {
         guard !choseVideoPreset else { return }
@@ -758,18 +795,40 @@ struct AttachmentMediaSendRequest {
         confirmDiscardingSelection { [weak self] in self?.close() }
     }
 
-    /// MediaPickerScreen's groups: the albums screen; choosing one shows it from the top.
+    /// MediaPickerScreen's groups as a menu under the title: My Albums, then Media Types, each with its key item and
+    /// count; choosing one shows it from the top.
     @objc private func titlePressed() {
         guard hasLibraryAccess, displayMode == .all else { return }
-        let albums = MediaPickerAlbumsViewController(imageManager: imageManager)
-        albums.onSelect = { [weak self] chosen in
-            guard let self else { return }
-            album = chosen.isRecents ? nil : chosen.collection
-            reloadLibrary()
-            scrollGridToTop()
-            navigationController?.popViewController(animated: true)
+        let imageManager = imageManager
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let fetched = MediaPickerAlbum.fetchSections()
+            let albums = fetched.albums + fetched.mediaTypes
+            let thumbnails = albums.map { Self.albumThumbnail($0, imageManager: imageManager) }
+            DispatchQueue.main.async {
+                self?.presentAlbumMenu(albums, thumbnails: thumbnails, mediaTypesStart: fetched.albums.count)
+            }
         }
-        navigationController?.pushViewController(albums, animated: true)
+    }
+
+    private func presentAlbumMenu(_ albums: [MediaPickerAlbum], thumbnails: [UIImage?], mediaTypesStart: Int) {
+        guard !albums.isEmpty, titleButton.window != nil, presentedViewController == nil else { return }
+        let selectedID = album?.localIdentifier
+        let actions = albums.enumerated().map { index, item in
+            var action = TelegramContextMenuAction(
+                title: item.title,
+                image: thumbnails[index],
+                startsNewSection: index == mediaTypesStart,
+            ) { [weak self] in
+                guard let self else { return }
+                album = item.isRecents ? nil : item.collection
+                reloadLibrary()
+                scrollGridToTop()
+            }
+            let isSelected = item.isRecents ? selectedID == nil : item.collection.localIdentifier == selectedID
+            action.secondLine = (isSelected ? "✓ \(item.count)" : "\(item.count)", false)
+            return action
+        }
+        presentTelegramContextMenu(sourceView: titleButton, actions: actions, presentationStyle: .menuOnly)
     }
 
     @objc private func showSelectedPressed() {
