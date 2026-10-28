@@ -459,6 +459,8 @@ final class TelegramListNavigationBar: UIView {
             ? ChatListNavigationSearchView.scrollHeight
             : Self.visibleHeight(clipped: currentScrollOffset) + currentOverscroll)
         onSearchActiveChange?(active)
+        // The bar clips its collapsing field; an open search's glass swells past the bar's edge under the finger.
+        if active { clipsToBounds = false }
 
         UIView.animate(
             withDuration: 0.22,
@@ -473,6 +475,8 @@ final class TelegramListNavigationBar: UIView {
                 ? CGAffineTransform(translationX: 0, y: -Self.titleHeight)
                 : .identity
             parentView?.layoutIfNeeded()
+        } completion: { _ in
+            if !self.isSearchActive { self.clipsToBounds = true }
         }
     }
 }
@@ -919,7 +923,9 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     }
 
     private func configureViews() {
-        clipsToBounds = true
+        // Glass swells past its pill under the finger, past the bar's edge for a button on the row; the bar does not
+        // clip it, and the chat keeps the bar above the banners under it.
+        clipsToBounds = false
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
 

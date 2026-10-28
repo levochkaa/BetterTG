@@ -61,6 +61,14 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         accessibilityLabel: L10n.betterTG("Accessibility.CloseSearch"),
     )
     private let closePlatter = TelegramGlassPlatter(role: .trailing(0))
+    /// The field's glass and the close button's in one container, as UIKit groups a bar's glass: they draw alike, and
+    /// the close button grows out of the field's edge with the liquid neck between them.
+    private let glassContainer: UIVisualEffectView = {
+        let effect = UIGlassContainerEffect()
+        effect.spacing = ChatListNavigationSearchView.closeSpacing
+        return UIVisualEffectView(effect: effect)
+    }()
+
     private var placeholder: String
     private var fieldTrailingConstraint: NSLayoutConstraint!
     private var searchHeightConstraint: NSLayoutConstraint!
@@ -209,8 +217,10 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         searchField.tintColor = .systemBlue
         searchField.delegate = self
         searchField.addTarget(self, action: #selector(queryChanged), for: .editingChanged)
+        glassContainer.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(glassContainer)
         glassView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(glassView)
+        glassContainer.contentView.addSubview(glassView)
         // Inside the glass, so the glass answers the finger on the field.
         glassView.contentView.addSubview(searchField)
 
@@ -219,7 +229,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         closePlatter.setItems([closeButton])
         closePlatter.transform = Self.closedTransform
         closePlatter.isHidden = true
-        addSubview(closePlatter)
+        glassContainer.contentView.addSubview(closePlatter)
 
         fieldTrailingConstraint = glassView.trailingAnchor.constraint(
             equalTo: trailingAnchor,
@@ -228,6 +238,10 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         searchHeightConstraint = glassView.heightAnchor.constraint(equalToConstant: Self.fieldHeight)
         searchCenterYConstraint = glassView.centerYAnchor.constraint(equalTo: centerYAnchor)
         NSLayoutConstraint.activate([
+            glassContainer.topAnchor.constraint(equalTo: topAnchor),
+            glassContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            glassContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            glassContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
             closePlatter.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -TelegramGlassPlatter.edgeInset),
             closePlatter.centerYAnchor.constraint(equalTo: glassView.centerYAnchor),
             glassView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: TelegramGlassPlatter.edgeInset),

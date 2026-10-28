@@ -728,6 +728,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             .store(in: &cancellables)
         updateSnapshot(animated: false)
         restoreVideoRecordingIfNeeded()
+        // Above the banners under it: the bar's glass swells past its edge under the finger.
+        view.bringSubviewToFront(customNavigationBar)
         if let targetMessageID {
             scrollToMessage(id: targetMessageID, quote: targetQuote)
         }
