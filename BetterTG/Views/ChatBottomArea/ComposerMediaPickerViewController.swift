@@ -280,6 +280,7 @@ UIPageViewControllerDelegate {
         }
         tabStrip.onReselection = { [weak self] _ in self?.currentPage?.scrollToTop() }
         tabStrip.compressesSegmentsToFit = true
+        tabStrip.selectsByHold = true
         if presentationStyle == .input {
             tabStrip.controlHorizontalInset = Self.inputKeyInset + Self.inputKeyWidth + 4
         }
