@@ -2745,8 +2745,15 @@ import UIKit
         if location.messageThreadID != nil, reachedEnd || noProgressCount >= 2 {
             history.append(contentsOf: messageThreadHead(excluding: knownIDs))
         }
-        let customMessages = await history.filter { routeIncludes($0) }.asyncMap { chatMessage in
-            await getCustomMessage(from: chatMessage)
+        // The page's messages resolve together: each waits on several TDLib reads, and one after another they held
+        // an opening chat back for over half a second.
+        let resolutions = history.filter { routeIncludes($0) }.map { chatMessage in
+            Task { await self.getCustomMessage(from: chatMessage) }
+        }
+        var customMessages = [CustomMessage]()
+        customMessages.reserveCapacity(resolutions.count)
+        for resolution in resolutions {
+            await customMessages.append(resolution.value)
         }
         guard !Task.isCancelled, locationContextIsCurrent else {
             loadingMessagesTask = nil

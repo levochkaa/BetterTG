@@ -5386,7 +5386,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             owner.updateSponsoredMessageVisibility()
             owner.retryClientRestoration()
         }
-        let previousItemIDs = batch.demand.animated ? Set(dataSource.snapshot().itemIdentifiers) : []
+        // The first page comes in whole, without the insertion animation: the opening chat waits for it to show.
+        let animates = batch.demand.animated
+            && dataSource.snapshot().itemIdentifiers.contains { $0.displayedMessageID != nil }
+        let previousItemIDs = animates ? Set(dataSource.snapshot().itemIdentifiers) : []
         // The ad after the newest message stays put while a sent message takes its final identifier above it.
         if let layout = collectionView.collectionViewLayout as? ChatTimelineLayout {
             let staysAtBottom =
@@ -5397,7 +5400,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 }
             layout.leadingFixedItemCount = staysAtBottom ? 1 : 0
         }
-        dataSource.apply(snapshot, animatingDifferences: batch.demand.animated) { [weak self] in
+        dataSource.apply(snapshot, animatingDifferences: animates) { [weak self] in
             #if DEBUG
                 if self?.viewportCompletionProbe?.holdNativeCompletion(
                     sequence: probeSnapshot, completion: completion,
@@ -5407,7 +5410,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         collectionView.visibleCells.forEach(applyComposerSendGlides)
         if structural, composerAwaitsSentMediaInsertion { settleComposerForSentMedia() }
-        if batch.demand.animated, !previousItemIDs.isEmpty {
+        if animates, !previousItemIDs.isEmpty {
             riseInsertedLatestRows(after: previousItemIDs, ids: batch.content.ids)
         }
         if let regroup {
