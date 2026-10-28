@@ -440,8 +440,6 @@ final class ChatMemberPickerViewController: SettingsListViewController, UISearch
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchBar.placeholder = L10n.telegram("Common.Search")
-        navigationItem.searchController = searchController
-        navigationItem.hidesSearchBarWhenScrolling = false
         load(query: "")
     }
 
@@ -541,4 +539,12 @@ final class ChatMemberPickerViewController: SettingsListViewController, UISearch
         }
         return L10n.telegram("Login.UnknownError")
     }
+}
+
+// MARK: - ChatMemberPickerViewController + TelegramNavigationSearchProvider
+
+/// The field shows in the Telegram bar's glass, under the title, as the chat list's does; set on the navigation item,
+/// iOS 26 would put a separate search toolbar at the bottom.
+extension ChatMemberPickerViewController: TelegramNavigationSearchProvider {
+    var telegramNavigationSearch: UISearchController { searchController }
 }

@@ -46,8 +46,6 @@ final class ChatJoinRequestsViewController: SettingsListViewController, UISearch
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchBar.placeholder = L10n.telegram("MemberRequests.SearchPlaceholder")
-        navigationItem.searchController = searchController
-        navigationItem.hidesSearchBarWhenScrolling = false
         load()
     }
 
@@ -163,4 +161,12 @@ final class ChatJoinRequestsViewController: SettingsListViewController, UISearch
             }
         }
     }
+}
+
+// MARK: TelegramNavigationSearchProvider
+
+/// The field shows in the Telegram bar's glass, under the title, as the chat list's does; set on the navigation item,
+/// iOS 26 would put a separate search toolbar at the bottom.
+extension ChatJoinRequestsViewController: TelegramNavigationSearchProvider {
+    var telegramNavigationSearch: UISearchController { searchController }
 }

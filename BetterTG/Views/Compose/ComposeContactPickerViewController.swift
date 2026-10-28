@@ -129,8 +129,6 @@ ComposeFlowScreen {
         tokenView.onRemove = { [weak self] id in self?.deselect(id) }
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
-        navigationItem.searchController = searchController
-        navigationItem.hidesSearchBarWhenScrolling = false
         updateCounter()
         load()
     }
@@ -447,4 +445,12 @@ ComposeFlowScreen {
             navigationItem.rightBarButtonItem = isMultipleSelection ? nextButton : nil
         }
     }
+}
+
+// MARK: TelegramNavigationSearchProvider
+
+/// The field shows in the Telegram bar's glass, under the title, as the chat list's does; set on the navigation item,
+/// iOS 26 would put a separate search toolbar at the bottom.
+extension ComposeContactPickerViewController: TelegramNavigationSearchProvider {
+    var telegramNavigationSearch: UISearchController { searchController }
 }

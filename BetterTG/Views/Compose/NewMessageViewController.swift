@@ -58,8 +58,6 @@ final class NewMessageViewController: SettingsListViewController, UISearchResult
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchBar.placeholder = L10n.telegram("Common.Search")
-        navigationItem.searchController = searchController
-        navigationItem.hidesSearchBarWhenScrolling = false
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -254,4 +252,12 @@ final class NewMessageViewController: SettingsListViewController, UISearchResult
         openTask = nil
         if !opened, contextIsCurrent { presentChatListActionFailure() }
     }
+}
+
+// MARK: TelegramNavigationSearchProvider
+
+/// The field shows in the Telegram bar's glass, under the title, as the chat list's does; set on the navigation item,
+/// iOS 26 would put a separate search toolbar at the bottom.
+extension NewMessageViewController: TelegramNavigationSearchProvider {
+    var telegramNavigationSearch: UISearchController { searchController }
 }
