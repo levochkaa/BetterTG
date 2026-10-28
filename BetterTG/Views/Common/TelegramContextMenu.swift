@@ -561,6 +561,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 
     /// About as long as the menu's springs take to settle visually.
     private static let motionHoldDuration: TimeInterval = 0.55
+    /// `-[_UIContextMenuView _setAutoNavigationTimerIfNecessaryForElement:isTrackpadHover:]`: a finger resting this
+    /// long on a row with a submenu opens it, and on an open submenu's header closes it, in the stacked hierarchy
+    /// (0.1 s in the cascaded one; iOS 26.5).
+    private static let autoNavigationDelay: TimeInterval = 0.5
 
     fileprivate weak var owner: UIViewController?
 
@@ -644,6 +648,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private var panOffset = CGPoint.zero
     private var selectionDelayWork: DispatchWorkItem?
     private var highlightedIndex: Int?
+    private var autoNavigationWork: DispatchWorkItem?
+    /// UIKit's `unselectableIndexPath`: the row an auto navigation just went through in the list now shown (the new
+    /// submenu's header, or the closed submenu's row). It stays unhighlighted under the finger, and a release on it
+    /// does nothing, until the finger moves off it.
+    private weak var unselectableButton: TelegramContextMenuActionButton?
     private let selectionFeedback = UISelectionFeedbackGenerator()
     private let panBehavior = ContextMenuNativeAnimation.makePanBehavior()
     private let highlightFrameBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.12)
@@ -2074,7 +2083,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                 return
             }
             // The selection delay fails on touch end, so the action under the finger counts once the touch may select.
-            let index = touchSession?.selectsOnRelease == true ? actionIndex(at: point) : nil
+            let index = touchSession?.selectsOnRelease == true ? selectableActionIndex(at: point) : nil
             touchSession?.highlighted = index
             setHighlight(index)
             let session = touchSession
@@ -2102,6 +2111,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         touchSessionIsInitiating = false
         selectionDelayWork?.cancel()
         selectionDelayWork = nil
+        cancelAutoNavigation()
+        unselectableButton = nil
         // Released, the tracked velocity carries into the 0.85 / 0.5 s spring back.
         if panOffset != .zero { setPan(.zero, tracking: false) }
         setHighlight(nil)
@@ -2113,6 +2124,17 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         return activeButtons.firstIndex { button in
             button.acceptsSelection && button.convert(button.bounds, to: view).contains(point)
         }
+    }
+
+    /// The action under the finger, nil over the row an auto navigation just went through; moving anywhere else makes
+    /// that row selectable again (`_setHighlightedIndexPath:playFeedback:atLocation:allowAutoNavigation:`).
+    private func selectableActionIndex(at point: CGPoint) -> Int? {
+        let index = actionIndex(at: point)
+        if let unselectableButton {
+            if let index, activeButtons[index] === unselectableButton { return nil }
+            self.unselectableButton = nil
+        }
+        return index
     }
 
     /// ContextSourceContainer's horizontal pan: a mostly horizontal swipe of 80 points shows the next source to the
@@ -2145,7 +2167,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             }
             return
         }
-        let index = actionIndex(at: point)
+        let index = selectableActionIndex(at: point)
         touchSession?.highlighted = index
         setHighlight(index)
     }
@@ -2166,6 +2188,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// one that is effectively invisible appears in place.
     private func setHighlight(_ index: Int?) {
         guard index != highlightedIndex else { return }
+        cancelAutoNavigation()
         highlightedIndex = index
         let highlight = submenus.last?.highlightView ?? selectionHighlightView
         let host = submenus.last?.contentView ?? menuContentView
@@ -2210,6 +2233,38 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         ) { highlight.alpha = 1 }
         selectionFeedback.selectionChanged()
         selectionFeedback.prepare()
+        scheduleAutoNavigation(through: button, at: index)
+    }
+
+    // MARK: Auto navigation
+
+    /// UIKit's auto navigation timer: a finger resting on a row with a submenu, or on the open submenu's header,
+    /// navigates as a tap would once `autoNavigationDelay` passes (`_handleSelectionForElement:`), with the selection
+    /// tick. The row it went through in the list then shown turns unselectable, so the finger still on it neither
+    /// reopens nor closes it.
+    private func scheduleAutoNavigation(through button: TelegramContextMenuActionButton, at index: Int) {
+        let closes = button === submenus.last?.headerButton
+        guard touchSession != nil, closes || !button.menuAction.children.isEmpty else { return }
+        let work = DispatchWorkItem { [weak self, weak button] in
+            guard let self, let button else { return }
+            autoNavigationWork = nil
+            guard touchSession != nil, !isDismissing, highlightedIndex == index,
+                  activeButtons.indices.contains(index), activeButtons[index] === button
+            else { return }
+            let closedRow = closes ? submenus.last?.sourceButton : nil
+            perform(button)
+            unselectableButton = closes ? closedRow : submenus.last?.headerButton
+            touchSession?.highlighted = nil
+            selectionFeedback.selectionChanged()
+            selectionFeedback.prepare()
+        }
+        autoNavigationWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.autoNavigationDelay, execute: work)
+    }
+
+    private func cancelAutoNavigation() {
+        autoNavigationWork?.cancel()
+        autoNavigationWork = nil
     }
 
     // MARK: Escape
