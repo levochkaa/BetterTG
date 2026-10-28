@@ -49,6 +49,12 @@ final class ChatComposerView: UIView {
     /// The single line's height: the field's minimum.
     private static let singleLineTextHeight: CGFloat = 36
 
+    private static var floatingGlass: UIGlassEffect {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = true
+        return effect
+    }
+
     // MARK: Internal
 
     /// Telegram's attach button: the attachment sheet.
@@ -96,13 +102,10 @@ final class ChatComposerView: UIView {
     var stickerPeekSendActions: ((Sticker) -> [TelegramContextMenuAction])?
 
     private let chatVM: ChatVM
-    private let glassView: UIVisualEffectView = {
-        let effect = UIGlassEffect(style: .regular)
-        effect.isInteractive = false
-        let view = UIVisualEffectView(effect: effect)
-        view.isUserInteractionEnabled = false
-        return view
-    }()
+    /// Above the keyboard the composer is a pill of interactive Liquid Glass; docked at the bottom it has no glass
+    /// and stands on the bars' light blur instead.
+    private let glassView = UIVisualEffectView(effect: nil)
+    private let dockedBackground = TelegramBarBackgroundView(edge: .bottom)
 
     private var glassLeadingConstraint: NSLayoutConstraint!
     private var glassTrailingConstraint: NSLayoutConstraint!
@@ -537,6 +540,21 @@ final class ChatComposerView: UIView {
         glassLeadingConstraint.constant = attached ? 0 : -16
         glassTrailingConstraint.constant = attached ? 0 : 16
         glassBottomConstraint.constant = attached ? 0 : 16
+        // The glass materializes as the bar's blur fades, in the keyboard's 0.25 s, so the composer never jumps.
+        let surface = {
+            self.dockedBackground.alpha = attached ? 0 : 1
+            self.glassView.effect = attached ? Self.floatingGlass : nil
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.25,
+                delay: 0,
+                options: [.beginFromCurrentState, .curveEaseInOut, .allowUserInteraction],
+                animations: surface,
+            )
+        } else {
+            surface()
+        }
         let radius: CGFloat = attached ? 22 : 0
         for target in [layer, glassView.layer] {
             let previous = target.presentation()?.cornerRadius ?? target.cornerRadius
@@ -962,6 +980,8 @@ final class ChatComposerView: UIView {
         layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
         clipsToBounds = false
 
+        dockedBackground.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(dockedBackground)
         glassView.clipsToBounds = true
         glassView.layer.cornerRadius = 0
         glassView.layer.cornerCurve = .continuous
@@ -977,6 +997,10 @@ final class ChatComposerView: UIView {
         rootStack.spacing = 0
         addSubview(rootStack)
         NSLayoutConstraint.activate([
+            dockedBackground.topAnchor.constraint(equalTo: topAnchor),
+            dockedBackground.leadingAnchor.constraint(equalTo: leadingAnchor),
+            dockedBackground.trailingAnchor.constraint(equalTo: trailingAnchor),
+            dockedBackground.bottomAnchor.constraint(equalTo: bottomAnchor),
             glassView.topAnchor.constraint(equalTo: topAnchor),
             glassLeadingConstraint,
             glassTrailingConstraint,
