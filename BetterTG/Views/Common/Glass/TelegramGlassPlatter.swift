@@ -135,21 +135,25 @@ final class TelegramGlassPlatter: UIView {
         setNeedsLayout()
     }
 
-    /// The platter's look without its items, for the morph to draw in their place.
+    /// The platter's look without its items, for the morph to draw in their place. The items draw in the platter's
+    /// traits: a label drawn for the picture would otherwise resolve its dynamic colour, a status's grey, in none.
     func renderedItems() -> UIImage? {
         guard bounds.width > 0, bounds.height > 0 else { return nil }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = traitCollection.displayScale
+        let format = UIGraphicsImageRendererFormat(for: traitCollection)
         format.opaque = false
-        return UIGraphicsImageRenderer(bounds: bounds, format: format).image { context in
-            for item in visibleItems {
-                context.cgContext.saveGState()
-                let origin = item.convert(CGPoint.zero, to: self)
-                context.cgContext.translateBy(x: origin.x, y: origin.y)
-                item.layer.render(in: context.cgContext)
-                context.cgContext.restoreGState()
+        var image: UIImage?
+        traitCollection.performAsCurrent {
+            image = UIGraphicsImageRenderer(bounds: bounds, format: format).image { context in
+                for item in visibleItems {
+                    context.cgContext.saveGState()
+                    let origin = item.convert(CGPoint.zero, to: self)
+                    context.cgContext.translateBy(x: origin.x, y: origin.y)
+                    item.layer.render(in: context.cgContext)
+                    context.cgContext.restoreGState()
+                }
             }
         }
+        return image
     }
 
     /// One icon is a circle with no ends; a lone text gets its text inset; several items get 6 pt ends.

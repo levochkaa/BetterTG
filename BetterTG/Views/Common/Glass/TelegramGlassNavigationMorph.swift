@@ -71,6 +71,10 @@ import UIKit
         static let lingerLimit: TimeInterval = 1.5
     }
 
+    /// How long new glass takes to draw: the bars' own glass stays until the overlay's shows, or the bar would flash
+    /// empty for its first frames.
+    static let glassDrawDelay: TimeInterval = 0.04
+
     private static var active = [TelegramGlassNavigationMorph]()
 
     private let navigationView: UIView
@@ -238,8 +242,15 @@ import UIKit
             if let items = piece.sourceItems { overlay.addSubview(items) }
         }
         lent = pieces.flatMap { [$0.source, $0.destination].compactMap(\.self) }
-        for platter in lent {
+        // The incoming bar is off screen and gives its glass up at once; the outgoing one once the overlay draws.
+        for platter in lent where pieces.contains(where: { $0.destination === platter }) {
             platter.glassView.isHidden = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.glassDrawDelay) { [weak self] in
+            guard let self, !finished else { return }
+            for platter in lent {
+                platter.glassView.isHidden = true
+            }
         }
         navigationView.addSubview(overlay)
     }
