@@ -7,6 +7,20 @@ import UniformTypeIdentifiers
 // MARK: - FormattedTextView
 
 final class FormattedTextView: UITextView, UITextViewDelegate {
+    // MARK: Live markdown
+
+    /// Telegram's markdown marks, longest first, turned into formatting as soon as the closing mark is typed.
+    private static let liveMarkdownMarks: [(mark: String, type: TextEntityType)] = [
+        ("```", .textEntityTypePre),
+        ("**", .textEntityTypeBold),
+        ("__", .textEntityTypeItalic),
+        ("~~", .textEntityTypeStrikethrough),
+        ("||", .textEntityTypeSpoiler),
+        ("`", .textEntityTypeCode),
+    ]
+
+    private static let liveMarkdownMarkCharacters: Set = ["*", "_", "~", "|", "`"]
+
     // MARK: Internal
 
     override var intrinsicContentSize: CGSize {
@@ -36,6 +50,10 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     var onSelectionChange: (() -> Void)?
 
     private var isPresentingEditMenu = false
+    /// The last edit typed one character a markdown mark ends with.
+    private var checksLiveMarkdown = false
+    /// Where a live markdown conversion left the caret: the next character typed there is plain.
+    private var plainTypingLocation: Int?
 
     // MARK: Private
 
@@ -379,9 +397,16 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     }
 
     func textViewDidChange(_: UITextView) {
+        if checksLiveMarkdown, markedTextRange == nil, !isApplyingValue {
+            checksLiveMarkdown = false
+            if applyLiveMarkdown() { return }
+        }
         if markedTextRange == nil {
             ComposerText.refresh(textStorage)
             typingAttributes = ComposerText.typingAttributes(in: attributedText, at: selectedRange.location)
+            if plainTypingLocation == selectedRange.location {
+                typingAttributes = ComposerText.typingAttributes(in: NSAttributedString(), at: 0)
+            }
         }
         updatePlaceholder()
         invalidateIntrinsicContentSize()
@@ -398,6 +423,9 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     }
 
     func textViewDidChangeSelection(_: UITextView) {
+        if let plainTypingLocation, selectedRange != NSRange(location: plainTypingLocation, length: 0) {
+            self.plainTypingLocation = nil
+        }
         if markedTextRange == nil {
             typingAttributes = ComposerText.typingAttributes(in: attributedText, at: selectedRange.location)
         }
@@ -424,6 +452,11 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         guard ComposerText.isValid(range, in: text as NSString) else { return false }
         if replacement == "\n", text.isEmpty, markedTextRange == nil, onReturnInEmpty?() == true { return false }
         typingAttributes = ComposerText.typingAttributes(in: attributedText, at: range.location)
+        if plainTypingLocation == range.location, range.length == 0 {
+            typingAttributes = ComposerText.typingAttributes(in: NSAttributedString(), at: 0)
+        }
+        checksLiveMarkdown = (replacement as NSString).length == 1 && Self.liveMarkdownMarkCharacters
+            .contains(replacement)
         // A custom emoji is one atomic glyph: a partial edit replaces the whole emoji.
         var atomicRange = range
         for emoji in TelegramCustomEmojiRun.extract(from: textStorage) where range.length > 0 && NSIntersectionRange(
@@ -475,6 +508,49 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         let updated = NSMutableAttributedString(attributedString: attributedText)
         updated.replaceCharacters(in: range, with: value)
         applyUserText(updated, selection: NSRange(location: range.location + value.length, length: 0))
+    }
+
+    /// The text before the caret ends with a closing mark whose opening comes earlier: both marks go, the text
+    /// between them takes the formatting, and the next character typed is plain. One undo step brings the marks
+    /// back. A mark inside a longer run of its character (`***`, a backtick of ```) is not one; inline formatting
+    /// stays on one line and doesn't start or end with a space.
+    private func applyLiveMarkdown() -> Bool {
+        guard selectedRange.length == 0 else { return false }
+        let caret = selectedRange.location
+        let string = text as NSString
+        for (mark, type) in Self.liveMarkdownMarks {
+            let length = (mark as NSString).length
+            guard caret >= length * 2 + 1,
+                  string.substring(with: NSRange(location: caret - length, length: length)) == mark
+            else { continue }
+            let markCharacter = string.character(at: caret - 1)
+            if string.character(at: caret - length - 1) == markCharacter { continue }
+            let open = string.range(
+                of: mark,
+                options: .backwards,
+                range: NSRange(location: 0, length: caret - length - 1),
+            )
+            guard open.location != NSNotFound else { continue }
+            if open.location > 0, string.character(at: open.location - 1) == markCharacter { continue }
+            if string.character(at: open.location + length) == markCharacter { continue }
+            var content = NSRange(location: open.location + length, length: caret - length - open.location - length)
+            let value = string.substring(with: content)
+            if type == .textEntityTypePre {
+                guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            } else {
+                guard !value.contains("\n"), value.trimmingCharacters(in: .whitespaces) == value else { continue }
+            }
+            let updated = NSMutableAttributedString(attributedString: attributedText)
+            updated.deleteCharacters(in: NSRange(location: caret - length, length: length))
+            updated.deleteCharacters(in: NSRange(location: open.location, length: length))
+            content.location = open.location
+            ComposerText.toggle(type, in: updated, range: content)
+            applyUserText(updated, selection: NSRange(location: content.upperBound, length: 0))
+            plainTypingLocation = content.upperBound
+            typingAttributes = ComposerText.typingAttributes(in: NSAttributedString(), at: 0)
+            return true
+        }
+        return false
     }
 
     private func applyUserText(_ value: NSAttributedString, selection: NSRange) {
