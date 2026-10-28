@@ -171,7 +171,7 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         format.scale = traitCollection.displayScale
         format.opaque = false
         let field = UIGraphicsImageRenderer(bounds: glassView.bounds, format: format).image { context in
-            searchField.layer.render(in: context.cgContext)
+            searchField.renderTelegramSnapshot(in: context.cgContext)
         }
         return [
             (glassView.convert(glassView.bounds, to: view), field),
