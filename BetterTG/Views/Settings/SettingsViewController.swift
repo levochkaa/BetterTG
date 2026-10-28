@@ -9,6 +9,8 @@ import UIKit
 /// Telegram's Settings (PeerInfoScreen in settings mode): the account's profile, its accounts, the side menu bots,
 /// Saved Messages, Devices and Chat Folders, then Notifications, Privacy, Data and Storage, Appearance and Language.
 final class SettingsViewController: UITableViewController {
+    private static let sectionGap: CGFloat = 20
+
     // MARK: Private
 
     private var cancellables = Set<AnyCancellable>()
@@ -39,6 +41,12 @@ final class SettingsViewController: UITableViewController {
         navigationItem.largeTitleDisplayMode = .never
         tableView.backgroundColor = .systemGroupedBackground
         tableView.separatorInset = UIEdgeInsets(top: 0, left: 58, bottom: 0, right: 0)
+        // Every gap between sections is one header: no padding above headers and no empty footers. Without estimates
+        // the
+        // delegate's heights are exact; self-sizing gave every header and footer the system's 17 pt instead.
+        tableView.sectionHeaderTopPadding = 0
+        tableView.estimatedSectionHeaderHeight = 0
+        tableView.estimatedSectionFooterHeight = 0
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "SettingsCell")
         tableView.register(SettingsProfileCell.self, forCellReuseIdentifier: SettingsProfileCell.reuseIdentifier)
 
@@ -72,13 +80,18 @@ final class SettingsViewController: UITableViewController {
         Section(rawValue: section)?.title
     }
 
-    /// An account without side menu bots shows no gap for their section.
+    /// The same gap above every section, a title's header taller by its line; an account without side menu bots
+    /// shows no gap for their section.
     override func tableView(_: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        isEmptyAppsSection(section) ? .leastNormalMagnitude : UITableView.automaticDimension
+        if isEmptyAppsSection(section) { return .leastNormalMagnitude }
+        return Section(rawValue: section)?.title == nil ? Self.sectionGap : UITableView.automaticDimension
     }
 
-    override func tableView(_: UITableView, heightForFooterInSection section: Int) -> CGFloat {
-        isEmptyAppsSection(section) ? .leastNormalMagnitude : UITableView.automaticDimension
+    override func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+        guard !isEmptyAppsSection(section), self.tableView(tableView, titleForFooterInSection: section) != nil else {
+            return .leastNormalMagnitude
+        }
+        return UITableView.automaticDimension
     }
 
     override func tableView(_: UITableView, titleForFooterInSection section: Int) -> String? {
