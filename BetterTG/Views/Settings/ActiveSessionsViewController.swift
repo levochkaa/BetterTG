@@ -267,6 +267,7 @@ private final class SessionDetailViewController: SettingsListViewController {
                 symbol: icon.symbol,
                 symbolTint: icon.tint,
             )]),
+            // RecentSessionScreen leaves out an address or a location the session does not report.
             SettingsSection(rows: [
                 SettingsRow(
                     title: L10n.telegram("AuthSessions.View.Application"),
@@ -276,9 +277,13 @@ private final class SessionDetailViewController: SettingsListViewController {
                     title: L10n.telegram("AuthSessions.View.OS"),
                     detail: "\(session.platform) \(session.systemVersion)".trimmingCharacters(in: .whitespaces),
                 ),
-                SettingsRow(title: L10n.telegram("AuthSessions.View.IP"), detail: session.ipAddress),
-                SettingsRow(title: L10n.telegram("AuthSessions.View.Location"), detail: session.location),
-            ]),
+                session.ipAddress.isEmpty
+                    ? nil
+                    : SettingsRow(title: L10n.telegram("AuthSessions.View.IP"), detail: session.ipAddress),
+                session.location.isEmpty
+                    ? nil
+                    : SettingsRow(title: L10n.telegram("AuthSessions.View.Location"), detail: session.location),
+            ].compactMap(\.self)),
         ]
         sections[1].footer = L10n.telegram("AuthSessions.View.LocationInfo")
         if !session.isCurrent {
