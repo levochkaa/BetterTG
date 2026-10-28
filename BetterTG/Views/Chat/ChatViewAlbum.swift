@@ -1190,6 +1190,15 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     private let topBar = UIView()
     private let authorLabel = UILabel()
     private let dateLabel = UILabel()
+    /// GalleryTitleView's glass: the author and the date in a pill between the buttons, and the counter in a small pill
+    /// under it while the pages move.
+    private let titlePill = MediaGalleryChrome.glass(interactive: false)
+    private let counterPill = MediaGalleryChrome.glass(interactive: false)
+    private var counterHideWork: DispatchWorkItem?
+    /// GalleryFooterNode's and the bar's edge effects, which dim the media under the chrome.
+    private let topShade = MediaGalleryEdgeShadeView(edge: .top)
+    private let bottomShade = MediaGalleryEdgeShadeView(edge: .bottom)
+    private var footerSideConstraints = [NSLayoutConstraint]()
     private let deleteButton = UIButton(type: .system)
     private let thumbnailStrip = GalleryThumbnailStripView()
     private var thumbnailHeightConstraint: NSLayoutConstraint!
@@ -1404,6 +1413,8 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        // The gallery is dark whatever the app's appearance, its glass included.
+        view.overrideUserInterfaceStyle = .dark
         view.accessibilityViewIsModal = true
         configureCollectionView()
         configureToolbar()
@@ -1497,6 +1508,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
     }
 
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateFooterSideInsets()
+    }
+
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === collectionView, collectionView.bounds.width > 0 else { return }
         let position = collectionView.contentOffset.x / collectionView.bounds.width
@@ -1504,15 +1520,22 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         updateThumbnailStrip(around: nearest, pagingPosition: position)
     }
 
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        guard scrollView === collectionView else { return }
+        setCounterShown(true)
+    }
+
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         updateSelection(from: scrollView)
         applyMessageUpdateDeferredByScrolling()
+        if scrollView === collectionView { hideCounterSoon() }
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate {
             updateSelection(from: scrollView)
             applyMessageUpdateDeferredByScrolling()
+            if scrollView === collectionView { hideCounterSoon() }
         }
     }
 
@@ -1921,6 +1944,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     fileprivate func setInteractiveDismissalChromeAlpha(_ alpha: CGFloat) {
         let alpha = chromeIsVisible ? alpha : 0
         topBar.alpha = alpha
+        bottomShade.alpha = alpha
         thumbnailStrip.alpha = alpha
         toolbar.alpha = alpha
         captionView.alpha = alpha
@@ -2223,38 +2247,50 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         }
     }
 
+    /// Telegram 13's gallery chrome: no bars, the media dimmed under the chrome by edge effects; glass circles for
+    /// Back and More with the author and date in a glass pill between them (GalleryTitleView); glass circles for Share
+    /// and Delete 8 pt off the bottom and the sides (ChatItemGalleryFooterContentNode's GlassControlPanelComponent).
     private func configureToolbar() {
         toolbar.effect = nil
-        toolbar.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        toolbar.backgroundColor = .clear
         toolbar.translatesAutoresizingMaskIntoConstraints = false
         toolbar.accessibilityIdentifier = "gallery-footer"
-        topBar.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        topBar.backgroundColor = .clear
         topBar.translatesAutoresizingMaskIntoConstraints = false
         topBar.accessibilityIdentifier = "gallery-navigation"
+        bottomShade.translatesAutoresizingMaskIntoConstraints = false
+        topShade.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bottomShade)
         view.addSubview(toolbar)
         view.addSubview(topBar)
-        let symbol = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        closeButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
+        topBar.addSubview(topShade)
+        let symbol = UIButton.telegramGlassIconConfiguration
         closeButton.accessibilityLabel = L10n.telegram("Common.Back")
         closeButton.accessibilityIdentifier = "gallery-close"
         closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
-        moreButton.setImage(UIImage(systemName: "ellipsis", withConfiguration: symbol), for: .normal)
         moreButton.accessibilityLabel = L10n.betterTG("Accessibility.MoreActions")
         moreButton.accessibilityIdentifier = "gallery-more-actions"
         moreButton.addTarget(self, action: #selector(showMoreActions), for: .touchUpInside)
-        shareButton.setImage(UIImage(systemName: "square.and.arrow.up", withConfiguration: symbol), for: .normal)
         shareButton.accessibilityLabel = L10n.telegram("Gallery.VoiceOver.Share")
         shareButton.accessibilityIdentifier = "gallery-share"
         shareButton.addTarget(self, action: #selector(share), for: .touchUpInside)
-        deleteButton.setImage(UIImage(systemName: "trash", withConfiguration: symbol), for: .normal)
         deleteButton.accessibilityLabel = L10n.telegram("Common.Delete")
         deleteButton.accessibilityIdentifier = "gallery-delete"
         deleteButton.addAction(UIAction { [weak self] _ in self?.deleteSelectedMedia() }, for: .touchUpInside)
-        for button in [closeButton, moreButton, shareButton, deleteButton] {
+        for (button, name) in [
+            (closeButton, "chevron.left"),
+            (moreButton, "ellipsis"),
+            (shareButton, "square.and.arrow.up"),
+            (deleteButton, "trash"),
+        ] {
             button.translatesAutoresizingMaskIntoConstraints = false
-            button.tintColor = .white
-            button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+            button.frame = CGRect(x: 0, y: 0, width: TelegramGlassPlatter.height, height: TelegramGlassPlatter.height)
+            button.applyTelegramFloatingGlass(icon: UIImage(systemName: name, withConfiguration: symbol))
+            button.widthAnchor.constraint(equalToConstant: TelegramGlassPlatter.height).isActive = true
+            button.heightAnchor.constraint(equalToConstant: TelegramGlassPlatter.height).isActive = true
         }
+        topBar.addSubview(titlePill)
+        topBar.addSubview(counterPill)
         topBar.addSubview(closeButton)
         topBar.addSubview(moreButton)
         toolbar.contentView.addSubview(shareButton)
@@ -2272,30 +2308,30 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         topBar.addSubview(moreActivityIndicator)
         counterLabel.translatesAutoresizingMaskIntoConstraints = false
         counterLabel.textColor = .white
-        counterLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        counterLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         counterLabel.textAlignment = .center
-        counterLabel.adjustsFontSizeToFitWidth = true
-        counterLabel.minimumScaleFactor = 0.75
         counterLabel.accessibilityIdentifier = "gallery-counter"
         counterLabel.accessibilityTraits = [.staticText, .updatesFrequently]
-        // Below the buttons: UIKit runs the More button's liquid morph at the button's place in this bar for its
-        // first and last frames, and a counter above it showed through the opening and closing menu.
-        topBar.insertSubview(counterLabel, at: 0)
+        counterPill.translatesAutoresizingMaskIntoConstraints = false
+        counterPill.contentView.addSubview(counterLabel)
+        counterPill.alpha = 0
         let metadata = UIStackView(arrangedSubviews: [authorLabel, dateLabel])
         metadata.axis = .vertical
-        metadata.spacing = 0
-        metadata.alignment = .fill
+        metadata.spacing = 2
+        metadata.alignment = .center
         metadata.translatesAutoresizingMaskIntoConstraints = false
-        authorLabel.font = .systemFont(ofSize: 15, weight: .medium)
-        dateLabel.font = .systemFont(ofSize: 14)
+        authorLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        authorLabel.textColor = .white
+        dateLabel.font = .systemFont(ofSize: 12)
+        dateLabel.textColor = UIColor(white: 1, alpha: 0.5)
         for label in [authorLabel, dateLabel] {
-            label.textColor = .white
             label.textAlignment = .center
             label.lineBreakMode = .byTruncatingTail
         }
-        toolbar.contentView.addSubview(metadata)
+        titlePill.translatesAutoresizingMaskIntoConstraints = false
+        titlePill.contentView.addSubview(metadata)
         thumbnailStrip.translatesAutoresizingMaskIntoConstraints = false
-        thumbnailStrip.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        thumbnailStrip.backgroundColor = .clear
         thumbnailHeightConstraint = thumbnailStrip.heightAnchor.constraint(equalToConstant: 0)
         thumbnailStrip.onSelect = { [weak self] thumbnailIndex in
             guard let self, thumbnailMessageIndices.indices.contains(thumbnailIndex), exportTask == nil,
@@ -2309,7 +2345,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             updateSelection(from: collectionView)
         }
         view.addSubview(thumbnailStrip)
-        NSLayoutConstraint.activate([
+        let edge = TelegramGlassPlatter.edgeInset
+        let pillEnds: CGFloat = 14
+        footerSideConstraints = [
+            shareButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            deleteButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+        ]
+        NSLayoutConstraint.activate(footerSideConstraints + [
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -2318,30 +2360,54 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             topBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 44),
+            topShade.topAnchor.constraint(equalTo: view.topAnchor),
+            topShade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topShade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topShade.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 44 + 70),
             closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            closeButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 2),
-            closeButton.widthAnchor.constraint(equalToConstant: 44),
+            closeButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: edge),
             moreButton.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
-            moreButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -4),
-            moreButton.widthAnchor.constraint(equalToConstant: 44),
-            counterLabel.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
-            counterLabel.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
-            counterLabel.leadingAnchor.constraint(greaterThanOrEqualTo: closeButton.trailingAnchor, constant: 4),
-            counterLabel.trailingAnchor.constraint(lessThanOrEqualTo: moreButton.leadingAnchor, constant: -4),
-            toolbar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -44),
+            moreButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -edge),
+            titlePill.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
+            titlePill.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+            titlePill.heightAnchor.constraint(equalToConstant: TelegramGlassPlatter.height),
+            titlePill.widthAnchor.constraint(greaterThanOrEqualToConstant: 150 + pillEnds * 2),
+            titlePill.leadingAnchor.constraint(
+                greaterThanOrEqualTo: closeButton.trailingAnchor,
+                constant: TelegramGlassPlatter.interSectionSpacing,
+            ),
+            titlePill.trailingAnchor.constraint(
+                lessThanOrEqualTo: moreButton.leadingAnchor,
+                constant: -TelegramGlassPlatter.interSectionSpacing,
+            ),
+            metadata.centerXAnchor.constraint(equalTo: titlePill.contentView.centerXAnchor),
+            metadata.centerYAnchor.constraint(equalTo: titlePill.contentView.centerYAnchor),
+            metadata.leadingAnchor.constraint(
+                greaterThanOrEqualTo: titlePill.contentView.leadingAnchor,
+                constant: pillEnds,
+            ),
+            metadata.trailingAnchor.constraint(
+                lessThanOrEqualTo: titlePill.contentView.trailingAnchor,
+                constant: -pillEnds,
+            ),
+            counterPill.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
+            counterPill.topAnchor.constraint(equalTo: titlePill.bottomAnchor, constant: 2),
+            counterPill.heightAnchor.constraint(equalToConstant: 24),
+            counterLabel.leadingAnchor.constraint(equalTo: counterPill.contentView.leadingAnchor, constant: 12),
+            counterLabel.trailingAnchor.constraint(equalTo: counterPill.contentView.trailingAnchor, constant: -12),
+            counterLabel.centerYAnchor.constraint(equalTo: counterPill.contentView.centerYAnchor),
+            toolbar.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+                constant: -(44 + MediaGalleryChrome.footerBottomInset),
+            ),
             toolbar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             toolbar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            shareButton.topAnchor.constraint(equalTo: toolbar.contentView.topAnchor),
-            shareButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 8),
-            shareButton.widthAnchor.constraint(equalToConstant: 44),
-            deleteButton.topAnchor.constraint(equalTo: toolbar.contentView.topAnchor),
-            deleteButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
-            deleteButton.widthAnchor.constraint(equalToConstant: 44),
-            metadata.centerXAnchor.constraint(equalTo: toolbar.contentView.centerXAnchor),
-            metadata.centerYAnchor.constraint(equalTo: shareButton.centerYAnchor),
-            metadata.leadingAnchor.constraint(greaterThanOrEqualTo: shareButton.trailingAnchor, constant: 8),
-            metadata.trailingAnchor.constraint(lessThanOrEqualTo: deleteButton.leadingAnchor, constant: -8),
+            shareButton.bottomAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+                constant: -MediaGalleryChrome.footerBottomInset,
+            ),
+            deleteButton.centerYAnchor.constraint(equalTo: shareButton.centerYAnchor),
             shareActivityIndicator.centerXAnchor.constraint(equalTo: shareButton.centerXAnchor),
             shareActivityIndicator.centerYAnchor.constraint(equalTo: shareButton.centerYAnchor),
             moreActivityIndicator.centerXAnchor.constraint(equalTo: moreButton.centerXAnchor),
@@ -2350,12 +2416,39 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             thumbnailStrip.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             thumbnailStrip.bottomAnchor.constraint(equalTo: toolbar.topAnchor), thumbnailHeightConstraint,
         ])
+        updateFooterSideInsets()
         updateMoreMenu()
+    }
+
+    /// ChatItemGalleryFooterContentNode's buttonPanelInsets: 8 pt off the sides, 26 pt where the screen has no home
+    /// indicator.
+    private func updateFooterSideInsets() {
+        let inset = MediaGalleryChrome.footerBottomInset + (view.safeAreaInsets.bottom <= 32 ? 18 : 0)
+        footerSideConstraints.first?.constant = inset
+        footerSideConstraints.last?.constant = -inset
+    }
+
+    /// GalleryTitleView's counter shows while the pages move and for 2 s after, and while an action reports in it.
+    private func setCounterShown(_ shown: Bool) {
+        counterHideWork?.cancel()
+        counterHideWork = nil
+        let visible = (shown || actionStatusText != nil) && !(counterLabel.text ?? "").isEmpty
+        guard (counterPill.alpha > 0) != visible else { return }
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.counterPill.alpha = visible ? 1 : 0
+        }
+    }
+
+    private func hideCounterSoon() {
+        counterHideWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.setCounterShown(false) }
+        counterHideWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
     }
 
     private func configureCaption() {
         captionView.effect = nil
-        captionView.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        captionView.backgroundColor = .clear
         captionView.translatesAutoresizingMaskIntoConstraints = false
         captionView.accessibilityIdentifier = "gallery-caption"
         captionView.isHidden = true
@@ -2383,6 +2476,10 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
             captionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             captionView.bottomAnchor.constraint(equalTo: thumbnailStrip.topAnchor),
             captionHeightConstraint,
+            bottomShade.topAnchor.constraint(equalTo: captionView.topAnchor, constant: -70),
+            bottomShade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomShade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomShade.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             captionTextView.topAnchor.constraint(equalTo: captionView.contentView.topAnchor, constant: 8),
             captionTextView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
             captionTextView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
@@ -2431,6 +2528,13 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         let (number, count) = counterPosition
         counterLabel.text = actionStatusText
             ?? (count > 1 ? L10n.telegram("Items.NOfM", "\(number)", "\(count)") : "")
+        if actionStatusText != nil {
+            setCounterShown(true)
+        } else if counterPill.alpha > 0, counterHideWork == nil, !collectionView.isDragging,
+                  !collectionView.isDecelerating
+        {
+            hideCounterSoon()
+        }
         updateThumbnailStrip(around: selectedIndex, pagingPosition: CGFloat(selectedIndex), commitSelection: true)
         updateAuthor()
         updateMoreMenu()
@@ -2595,6 +2699,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         selectedGalleryCell()?.setGalleryChromeVisible(visible, animated: animated)
         let updates = {
             self.topBar.alpha = visible ? 1 : 0
+            self.bottomShade.alpha = visible ? 1 : 0
             self.thumbnailStrip.alpha = visible ? 1 : 0
             self.toolbar.alpha = visible ? 1 : 0
             self.shareActivityIndicator.alpha = visible ? 1 : 0
@@ -2923,9 +3028,11 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
         cell?.bindGalleryChrome(isVisible: chromeIsVisible) { [weak self] visible in
             self?.setChromeVisible(visible, animated: !UIAccessibility.isReduceMotionEnabled)
         }
-        cell?.setGalleryChromeBottomInset(44 + thumbnailHeightConstraint.constant + (captionView.isHidden
-                ? 0
-                : captionHeightConstraint.constant))
+        cell?
+            .setGalleryChromeBottomInset(44 + MediaGalleryChrome.footerBottomInset + thumbnailHeightConstraint
+                .constant + (captionView.isHidden
+                    ? 0
+                    : captionHeightConstraint.constant))
         cell?.setGalleryChromeInteractionActive(captionInteractionIsActive)
     }
 
@@ -10045,5 +10152,59 @@ private func galleryMessageContentMatches(_ lhs: Message, _ rhs: Message) -> Boo
         return lhs == rhs
     default:
         return false
+    }
+}
+
+// MARK: - MediaGalleryChrome
+
+@MainActor private enum MediaGalleryChrome {
+    /// ChatItemGalleryFooterContentNode's buttonPanelInsets: the buttons sit 8 pt above the bottom inset.
+    static let footerBottomInset: CGFloat = 8
+
+    static func glass(interactive: Bool) -> UIVisualEffectView {
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = interactive
+        let view = UIVisualEffectView(effect: effect)
+        view.cornerConfiguration = .capsule()
+        return view
+    }
+}
+
+// MARK: - MediaGalleryEdgeShadeView
+
+/// Telegram 13's EdgeEffectView under the gallery's chrome: black at 0.65 at the screen's edge, fading out over 120 pt.
+private final class MediaGalleryEdgeShadeView: UIView {
+    enum Edge {
+        case top
+        case bottom
+    }
+
+    private static let fadeHeight: CGFloat = 120
+
+    override static var layerClass: AnyClass { CAGradientLayer.self }
+
+    private let edge: Edge
+
+    init(edge: Edge) {
+        self.edge = edge
+        super.init(frame: .zero)
+        isUserInteractionEnabled = false
+        let layer = layer as? CAGradientLayer
+        let dark = UIColor.black.withAlphaComponent(0.65).cgColor
+        let clear = UIColor.black.withAlphaComponent(0).cgColor
+        layer?.colors = edge == .top ? [dark, dark, clear] : [clear, dark, dark]
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let fade = bounds.height > 0 ? min(1, Self.fadeHeight / bounds.height) : 1
+        let locations: [NSNumber] = edge == .top
+            ? [0, NSNumber(value: Double(1 - fade)), 1]
+            : [0, NSNumber(value: Double(fade)), 1]
+        (layer as? CAGradientLayer)?.locations = locations
     }
 }
