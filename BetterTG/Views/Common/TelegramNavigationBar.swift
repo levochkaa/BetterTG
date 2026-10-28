@@ -823,6 +823,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             UILongPressGestureRecognizer(target: self, action: #selector(titleLongPressed(_:))),
         )
         titlePlatter.glassView.contentView.addSubview(titleControl)
+        titlePlatter.customContent = titleControl
 
         titleStack.translatesAutoresizingMaskIntoConstraints = false
         titleStack.axis = .vertical

@@ -2529,3 +2529,9 @@ final class ForumTopicIconView: UIView {
         view.setPlaybackVisible(window != nil)
     }
 }
+
+// MARK: - ForumTopicsViewController + TelegramGlassPlatterHost
+
+extension ForumTopicsViewController: TelegramGlassPlatterHost {
+    var telegramGlassPlatters: [TelegramGlassPlatter] { navigationBarView.glassPlatters }
+}

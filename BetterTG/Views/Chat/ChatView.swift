@@ -12123,3 +12123,9 @@ private final class MessageFileExportDelegate: NSObject, UIDocumentPickerDelegat
         try? FileManager.default.removeItem(at: directoryURL)
     }
 }
+
+// MARK: - ChatViewController + TelegramGlassPlatterHost
+
+extension ChatViewController: TelegramGlassPlatterHost {
+    var telegramGlassPlatters: [TelegramGlassPlatter] { customNavigationBar.glassPlatters }
+}

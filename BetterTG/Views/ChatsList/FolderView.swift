@@ -1989,3 +1989,9 @@ private extension ChatNotificationSettings {
         )
     }
 }
+
+// MARK: - ArchiveViewController + TelegramGlassPlatterHost
+
+extension ArchiveViewController: TelegramGlassPlatterHost {
+    var telegramGlassPlatters: [TelegramGlassPlatter] { navigationBarView.glassPlatters }
+}

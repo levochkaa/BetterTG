@@ -2076,3 +2076,9 @@ private final class FolderUnreadBadgeView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 }
+
+// MARK: - MainViewController + TelegramGlassPlatterHost
+
+extension MainViewController: TelegramGlassPlatterHost {
+    var telegramGlassPlatters: [TelegramGlassPlatter] { customNavigationBar.glassPlatters }
+}

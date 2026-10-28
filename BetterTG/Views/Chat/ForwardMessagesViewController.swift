@@ -4,6 +4,8 @@ import Combine
 import TDLibKit
 import UIKit
 
+// MARK: - ForwardMessagesViewController
+
 @MainActor final class ForwardMessagesViewController: UIViewController, UIPageViewControllerDataSource,
 UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
     /// What the chosen chat receives.
@@ -615,4 +617,10 @@ UIPageViewControllerDelegate, TelegramEmbeddedNavigationChrome {
             })
         (navigationController?.topViewController ?? self).present(alert, animated: true)
     }
+}
+
+// MARK: TelegramGlassPlatterHost
+
+extension ForwardMessagesViewController: TelegramGlassPlatterHost {
+    var telegramGlassPlatters: [TelegramGlassPlatter] { customNavigationBar.glassPlatters }
 }

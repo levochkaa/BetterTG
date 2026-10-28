@@ -36,13 +36,21 @@ final class TelegramGlassPlatter: UIView {
     let role: Role
     let glassView = UIVisualEffectView()
 
+    /// A view the owner lays out inside the glass itself, such as a chat header's title, in place of items.
+    var customContent: UIView? {
+        didSet { stack.isHidden = customContent != nil }
+    }
+
     // MARK: Private
 
     private let stack = UIStackView()
     private var widthConstraints = [NSLayoutConstraint]()
 
     /// The visible items, in the order shown.
-    var visibleItems: [UIView] { stack.arrangedSubviews.filter { !$0.isHidden } }
+    var visibleItems: [UIView] {
+        if let customContent { return customContent.isHidden ? [] : [customContent] }
+        return stack.arrangedSubviews.filter { !$0.isHidden }
+    }
 
     /// Whether any item shows; the platter hides itself otherwise.
     var hasVisibleItems: Bool { !visibleItems.isEmpty }

@@ -3,6 +3,8 @@
 import TDLibKit
 import UIKit
 
+// MARK: - ForwardForumTopicsViewController
+
 @MainActor final class ForwardForumTopicsViewController: UIViewController, UITableViewDelegate {
     private enum Section {
         case topics
@@ -497,4 +499,10 @@ import UIKit
         alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
         present(alert, animated: true)
     }
+}
+
+// MARK: TelegramGlassPlatterHost
+
+extension ForwardForumTopicsViewController: TelegramGlassPlatterHost {
+    var telegramGlassPlatters: [TelegramGlassPlatter] { navigationBarView.glassPlatters }
 }

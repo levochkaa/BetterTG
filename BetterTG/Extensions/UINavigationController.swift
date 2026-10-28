@@ -43,14 +43,31 @@ UINavigationControllerDelegate {
     }
 
     func navigationController(
-        _: UINavigationController, willShow controller: UIViewController, animated _: Bool,
+        _: UINavigationController, willShow controller: UIViewController, animated: Bool,
     ) {
         controller.loadViewIfNeeded()
-        guard !(controller is TelegramEmbeddedNavigationChrome) else { return }
-        let key = ObjectIdentifier(controller)
-        let state = chromeStates[key] ?? TelegramNavigationChromeState(controller: controller, navigation: self)
-        chromeStates[key] = state
-        state.refresh()
+        if !(controller is TelegramEmbeddedNavigationChrome) {
+            let key = ObjectIdentifier(controller)
+            let state = chromeStates[key] ?? TelegramNavigationChromeState(controller: controller, navigation: self)
+            chromeStates[key] = state
+            state.refresh()
+        }
+        // The bars' glass platters morph into the incoming screen's, as UIKit's iOS 26 bar does.
+        if animated, let coordinator = transitionCoordinator,
+           let source = coordinator.viewController(forKey: .from),
+           coordinator.viewController(forKey: .to) === controller
+        {
+            if controller.view.bounds.size != view.bounds.size {
+                controller.view.frame = view.bounds
+            }
+            TelegramGlassNavigationMorph.run(
+                in: self,
+                coordinator: coordinator,
+                from: glassPlatters(of: source),
+                to: glassPlatters(of: controller),
+                destinationView: controller.view,
+            )
+        }
     }
 
     func navigationController(
@@ -97,5 +114,10 @@ UINavigationControllerDelegate {
         // The swipe asks the screen as Back does (Telegram's NavigationController checks attemptNavigation).
         if let handler = topViewController as? TelegramNavigationAttemptHandling { return handler.attemptNavigation() }
         return true
+    }
+
+    private func glassPlatters(of controller: UIViewController) -> [TelegramGlassPlatter] {
+        if let host = controller as? TelegramGlassPlatterHost { return host.telegramGlassPlatters }
+        return chromeStates[ObjectIdentifier(controller)]?.bar.glassPlatters ?? []
     }
 }
