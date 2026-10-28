@@ -445,14 +445,18 @@ extension UIViewController {
 
     /// The system menu takes the finger over from the views under it: a swipe to reply, a list's scroll or a row's
     /// swipe actions that started with the same finger stop, instead of moving the source behind the open menu and
-    /// acting when the finger lifts. The window's own recognizers are left alone.
+    /// acting when the finger lifts. Interactive glass under the finger, such as the folder tabs' capsule, settles back
+    /// too, as Telegram's cancelParentGestures, which reaches the window, leaves it: UIKit drives the glass's press
+    /// from a recognizer of the window's (`_UIFlexInteraction`). Of the window's own recognizers only running ones
+    /// stop.
     private func cancelCompetingPans(from sourceView: UIView, except tracking: UIGestureRecognizer?) {
         var view: UIView? = sourceView
-        while let current = view, !(current is UIWindow) {
-            for recognizer in current.gestureRecognizers ?? [] where recognizer !== tracking {
-                guard recognizer is UIPanGestureRecognizer, recognizer.isEnabled,
-                      [.possible, .began, .changed].contains(recognizer.state)
-                else { continue }
+        while let current = view {
+            for recognizer in current.gestureRecognizers ?? [] where recognizer !== tracking && recognizer.isEnabled {
+                let stops = current is UIWindow
+                    ? [.began, .changed].contains(recognizer.state)
+                    : recognizer is UIPanGestureRecognizer && [.possible, .began, .changed].contains(recognizer.state)
+                guard stops else { continue }
                 recognizer.isEnabled = false
                 recognizer.isEnabled = true
             }
