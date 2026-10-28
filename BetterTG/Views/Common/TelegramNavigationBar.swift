@@ -143,6 +143,12 @@ final class TelegramListNavigationBar: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// The bar's height with the search field scrolled `clipped` away: it stops shrinking with UIKit's space under
+    /// the row of platters.
+    private static func visibleHeight(clipped: CGFloat) -> CGFloat {
+        titleHeight + max(TelegramGlassPlatter.barBottomInset, ChatListNavigationSearchView.scrollHeight - clipped)
+    }
+
     /// `offset` is the list's distance from its top; a negative one pulls the list past it. ChatListNavigationBar
     /// leaves that pull unclipped: the bar grows with it and the search field rides down above the first row.
     func applyScroll(offset: CGFloat, animated: Bool = false) {
@@ -161,7 +167,7 @@ final class TelegramListNavigationBar: UIView {
             return
         }
         searchView.applyScroll(offset: clipped, animated: animated)
-        onVisibleHeightChange?(Self.expandedContentHeight - clipped + currentOverscroll)
+        onVisibleHeightChange?(Self.visibleHeight(clipped: clipped) + currentOverscroll)
     }
 
     func focusSearch() {
@@ -415,7 +421,7 @@ final class TelegramListNavigationBar: UIView {
         }
         onVisibleHeightChange?(active
             ? ChatListNavigationSearchView.scrollHeight
-            : Self.expandedContentHeight - currentScrollOffset + currentOverscroll)
+            : Self.visibleHeight(clipped: currentScrollOffset) + currentOverscroll)
         onSearchActiveChange?(active)
 
         UIView.animate(
@@ -452,7 +458,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         var mute = false
     }
 
-    static let contentHeight: CGFloat = 44
+    static let contentHeight = TelegramGlassPlatter.height + TelegramGlassPlatter.barBottomInset
     /// The avatar inside its 44 pt glass circle.
     static let avatarSide: CGFloat = 38
 

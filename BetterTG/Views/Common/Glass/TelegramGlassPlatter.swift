@@ -25,6 +25,8 @@ final class TelegramGlassPlatter: UIView {
     static let interSectionSpacing: CGFloat = 12
     /// The bar's inset from the safe area to its first platter.
     static let edgeInset: CGFloat = 16
+    /// The space under a bar's row of platters: UIKit's iOS 26 bar is 54 pt with its 44 pt items at the top.
+    static let barBottomInset: CGFloat = 10
     /// An icon item's width; several icons in one pill get 6 pt ends.
     static let iconWidth: CGFloat = 44
     static let pillEndInset: CGFloat = 6
