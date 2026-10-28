@@ -316,13 +316,16 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     }
 
     /// A prominent item's pill is glass in its tint, with the item drawn in white.
+    /// A lone prominent item tints its pill, UIKit's accent capsule; any other pill is plain glass.
     private static func applyProminence(of section: [(UIBarButtonItem, UIView)], to platter: TelegramGlassPlatter) {
-        guard section.count == 1, section[0].0.style == .prominent else { return }
+        let isProminent = section.count == 1 && section[0].0.style == .prominent
+        if isProminent { (section[0].1 as? UIButton)?.tintColor = .white }
+        let tint = isProminent ? section[0].0.tintColor ?? .systemBlue : nil
+        guard (platter.glassView.effect as? UIGlassEffect)?.tintColor != tint else { return }
         let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = true
-        effect.tintColor = section[0].0.tintColor ?? .systemBlue
+        effect.tintColor = tint
         platter.glassView.effect = effect
-        (section[0].1 as? UIButton)?.tintColor = .white
     }
 
     func configure(
@@ -349,25 +352,19 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         // The left sections run from the edge inward; the first shares the back button's pill.
         let leftSections = Self.sections(of: Array(zip(left, leftViews)))
         leadingPlatter.setItems([backButton] + (leftSections.first?.map(\.1) ?? []))
-        leadingSectionPlatters.forEach { $0.removeFromSuperview() }
-        leadingSectionPlatters = leftSections.dropFirst().enumerated().map { index, section in
-            let platter = TelegramGlassPlatter(role: .leadingSection(index))
-            platter.translatesAutoresizingMaskIntoConstraints = true
+        let leadingSections = Array(leftSections.dropFirst())
+        leadingSectionPlatters = reusing(leadingSectionPlatters, count: leadingSections.count) { .leadingSection($0) }
+        for (platter, section) in zip(leadingSectionPlatters, leadingSections) {
             platter.setItems(section.map(\.1))
             Self.applyProminence(of: section, to: platter)
-            addSubview(platter)
-            return platter
         }
-        trailingPlatters.forEach { $0.removeFromSuperview() }
         // `rightBarButtonItems` lists the right items outermost first.
-        trailingPlatters = Self.sections(of: Array(zip(right, rightViews))).enumerated().map { index, section in
-            let platter = TelegramGlassPlatter(role: .trailing(index))
-            platter.translatesAutoresizingMaskIntoConstraints = true
+        let trailingSections = Self.sections(of: Array(zip(right, rightViews)))
+        trailingPlatters = reusing(trailingPlatters, count: trailingSections.count) { .trailing($0) }
+        for (platter, section) in zip(trailingPlatters, trailingSections) {
             // UIKit lays a section's items out leading to trailing.
             platter.setItems(section.reversed().map(\.1))
             Self.applyProminence(of: section, to: platter)
-            addSubview(platter)
-            return platter
         }
         if customTitle !== item.titleView {
             customTitle?.removeFromSuperview()
@@ -404,6 +401,26 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
             searchView?.setPlaceholder(search.searchBar.placeholder ?? L10n.telegram("Common.Search"))
         }
         setNeedsLayout()
+    }
+
+    /// The platters for `count` sections: the ones there stay, so that one the push morph holds hidden remains the one
+    /// on screen; missing ones are added and spare ones leave.
+    private func reusing(
+        _ platters: [TelegramGlassPlatter],
+        count: Int,
+        role: (Int) -> TelegramGlassPlatter.Role,
+    ) -> [TelegramGlassPlatter] {
+        for platter in platters.dropFirst(count) {
+            platter.removeFromSuperview()
+        }
+        var result = Array(platters.prefix(count))
+        while result.count < count {
+            let platter = TelegramGlassPlatter(role: role(result.count))
+            platter.translatesAutoresizingMaskIntoConstraints = true
+            addSubview(platter)
+            result.append(platter)
+        }
+        return result
     }
 
     private func makeButton(_ item: UIBarButtonItem) -> UIView {
