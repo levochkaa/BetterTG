@@ -15,8 +15,8 @@ import UIKit
 /// which re-creates UIKit's iOS 26 bar: the titles ride their screens while both bars' glass platters are drawn once,
 /// standing above both screens, and morph from the outgoing bar's layout into the incoming one's.
 ///
-/// Platters pair by role: the leading one, the right pills counted from the edge, and a chat header's title pill as the
-/// second right pill while its bar has at most one. A paired platter is one shape whose frame springs to its new place
+/// Platters pair by role: the leading one, the right pills counted from the edge, and a chat header's title pill with
+/// another title pill. A paired platter is one shape whose frame springs to its new place
 /// while the old items shrink away and the new ones grow in. A right pill only the incoming bar has grows out of the
 /// nearest pill nearer the edge; one only the outgoing bar has collapses into it, and UIKit's glass container draws
 /// the liquid neck between them. Anything else materializes or dematerializes in place. An interactive pop keeps the
@@ -26,6 +26,7 @@ import UIKit
 
     private enum Key: Hashable, Comparable {
         case leading
+        case title
         case trailing(Int)
     }
 
@@ -153,12 +154,13 @@ import UIKit
         for (index, platter) in trailing.enumerated() {
             result[.trailing(index)] = platter
         }
+        // A chat header's title pill morphs only into another title; otherwise it shows and hides in place, neither
+        // pulling a pill toward the centre nor sliding to the edge.
         for platter in shown {
             switch platter.role {
             case .leading: result[.leading] = platter
-            case .title where trailing.count <= 1: result[.trailing(1)] = platter
-            case .title,
-                 .trailing: break
+            case .title: result[.title] = platter
+            case .trailing: break
             }
         }
         return result

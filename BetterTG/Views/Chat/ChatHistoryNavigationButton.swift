@@ -32,6 +32,7 @@ final class ChatHistoryNavigationButton: UIButton {
         layer.shadowRadius = 7
         layer.shadowOffset = CGSize(width: 0, height: 3)
         self.accessibilityLabel = accessibilityLabel
+        applyTelegramClearGlass()
         alpha = 0
         transform = Self.hiddenTransform
         badgeLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -50,12 +51,6 @@ final class ChatHistoryNavigationButton: UIButton {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        layer.borderWidth = 1 / max(traitCollection.displayScale, 1)
-        layer.borderColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
     }
 
     func setCount(_ count: Int) {

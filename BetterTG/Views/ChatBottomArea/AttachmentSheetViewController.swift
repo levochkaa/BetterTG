@@ -828,7 +828,7 @@ struct AttachmentMediaSendRequest {
             action.secondLine = (isSelected ? "✓ \(item.count)" : "\(item.count)", false)
             return action
         }
-        presentTelegramContextMenu(sourceView: titleButton, actions: actions, presentationStyle: .menuOnly)
+        presentTelegramContextMenu(sourceView: titleButton, actions: actions, presentationStyle: .sourceMorph)
     }
 
     @objc private func showSelectedPressed() {

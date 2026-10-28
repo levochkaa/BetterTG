@@ -837,7 +837,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        scrollToLatestButton.layer.borderColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
         if showsComposer {
             let keyboardAttached = view.keyboardLayoutGuide.layoutFrame.minY
                 < view.bounds.maxY - view.safeAreaInsets.bottom - 1
@@ -3838,6 +3837,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ? .identity
             : CGAffineTransform(translationX: 0, y: 18).scaledBy(x: 0.72, y: 0.72)
         scrollToLatestButton.accessibilityLabel = L10n.betterTG("Accessibility.ScrollToLatest")
+        scrollToLatestButton.applyTelegramClearGlass()
         scrollToLatestButton.addTarget(self, action: #selector(scrollToLatest), for: .touchUpInside)
 
         unreadBadgeLabel.translatesAutoresizingMaskIntoConstraints = false

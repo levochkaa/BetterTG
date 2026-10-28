@@ -16,7 +16,7 @@ final class TelegramGlassPlatter: UIView {
         case leading
         /// A right pill, counted from the screen edge inward.
         case trailing(Int)
-        /// A chat header's title pill; it pairs as the second right pill when the bar has at most one.
+        /// A chat header's title pill; it pairs only with another screen's title pill.
         case title
     }
 
@@ -179,3 +179,28 @@ extension UIButton {
         return button
     }
 }
+
+// MARK: - UIButton + clear glass
+
+extension UIButton {
+    /// A round floating button of clear Liquid Glass, as Telegram 13's chat history buttons: the glass under the
+    /// icon, interactive, with no fill, border or shadow of its own.
+    func applyTelegramClearGlass() {
+        guard !subviews.contains(where: { $0 is TelegramClearGlassBackground }) else { return }
+        let effect = UIGlassEffect(style: .clear)
+        effect.isInteractive = true
+        let glass = TelegramClearGlassBackground(effect: effect)
+        glass.cornerConfiguration = .capsule()
+        glass.isUserInteractionEnabled = false
+        glass.frame = bounds
+        glass.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        insertSubview(glass, at: 0)
+        backgroundColor = .clear
+        layer.borderWidth = 0
+        layer.shadowOpacity = 0
+    }
+}
+
+// MARK: - TelegramClearGlassBackground
+
+private final class TelegramClearGlassBackground: UIVisualEffectView {}

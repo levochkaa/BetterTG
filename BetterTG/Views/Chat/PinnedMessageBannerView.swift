@@ -56,6 +56,17 @@ final class PinnedMessageBannerView: UIView {
         separator.translatesAutoresizingMaskIntoConstraints = false
         separator.backgroundColor = .separator
         addSubview(separator)
+        // The divider from the navigation bar above, as Telegram's header panels draw one.
+        let topSeparator = UIView()
+        topSeparator.translatesAutoresizingMaskIntoConstraints = false
+        topSeparator.backgroundColor = .separator
+        addSubview(topSeparator)
+        NSLayoutConstraint.activate([
+            topSeparator.leadingAnchor.constraint(equalTo: leadingAnchor),
+            topSeparator.trailingAnchor.constraint(equalTo: trailingAnchor),
+            topSeparator.topAnchor.constraint(equalTo: topAnchor),
+            topSeparator.heightAnchor.constraint(equalToConstant: 1 / max(1, traitCollection.displayScale)),
+        ])
 
         accentView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(accentView)
