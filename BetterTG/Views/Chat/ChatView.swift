@@ -9275,7 +9275,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         sheet.onCamera = { [weak self] in self?.showCamera() }
         sheet.onSend = { [weak self] request in self?.sendAttachmentMedia(request) }
         sheet.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
-        present(sheet.makeNavigationController(), animated: true)
+        presentAttachmentSheet(sheet)
+    }
+
+    /// Telegram's paperclip grows into the attachment sheet and the sheet shrinks back into it (AttachmentController's
+    /// glass morph); UIKit's zoom transition morphs a sheet out of its source on iOS 26.
+    private func presentAttachmentSheet(_ sheet: AttachmentSheetViewController) {
+        let navigation = sheet.makeNavigationController()
+        navigation.preferredTransition = .zoom { [weak self] _ in self?.composerView.attachmentSourceView }
+        present(navigation, animated: true)
     }
 
     /// ChatControllerOpenAttachmentMenu's `.edit` subject: the gallery for one photo or video and Files, as the edited
@@ -9300,7 +9308,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         sheet.onSend = { [weak self] request in self?.replaceEditedMedia(request) }
         sheet.onDismiss = { [weak self] in self?.attachmentSheetDidDismiss() }
-        present(sheet.makeNavigationController(), animated: true)
+        presentAttachmentSheet(sheet)
     }
 
     /// editMessageMediaWithLegacySignals: the picked asset is prepared as a send would, then replaces the media.

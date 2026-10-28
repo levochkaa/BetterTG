@@ -908,7 +908,7 @@ struct ProfileAvatarGalleryItem: Hashable {
                 activity.completionWithItemsHandler = { _, _, _, _ in
                     try? FileManager.default.removeItem(at: directory)
                 }
-                present(activity, animated: true)
+                presentGrowing(activity, from: shareButton)
             } catch {
                 try? FileManager.default.removeItem(at: directory)
                 finishAction()

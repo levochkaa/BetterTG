@@ -2465,7 +2465,7 @@ private final class LocationTipView: UIView {
         }
         let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         activity.popoverPresentationController?.sourceItem = item
-        present(activity, animated: true)
+        presentGrowing(activity, from: item.telegramChromeView)
     }
 
     private func presentAccessDenied() {

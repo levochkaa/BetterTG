@@ -250,6 +250,11 @@ final class ChatComposerView: UIView {
         replyKeyboardResponder.isFirstResponder
     }
 
+    /// The attach button, which the attachment sheet grows out of and shrinks back into.
+    var attachmentSourceView: UIView? {
+        attachmentButton.window != nil && !attachmentButton.isHidden ? attachmentButton : nil
+    }
+
     private var isHoldingVideoNote: Bool {
         if case .holding = videoNoteState { return true }
         return false

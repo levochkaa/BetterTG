@@ -351,6 +351,6 @@ final class ChatInviteLinkQRCodeViewController: UIViewController {
             popover.sourceView = shareButton
             popover.sourceRect = shareButton.bounds
         }
-        present(controller, animated: true)
+        presentGrowing(controller, from: shareButton)
     }
 }

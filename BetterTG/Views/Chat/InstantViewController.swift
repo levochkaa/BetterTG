@@ -168,6 +168,6 @@ final class InstantViewController: UIViewController {
         guard let link = URL(string: url) else { return }
         let activity = UIActivityViewController(activityItems: [link], applicationActivities: nil)
         activity.popoverPresentationController?.barButtonItem = navigationItem.rightBarButtonItem
-        present(activity, animated: true)
+        presentGrowing(activity, from: navigationItem.rightBarButtonItem?.telegramChromeView)
     }
 }

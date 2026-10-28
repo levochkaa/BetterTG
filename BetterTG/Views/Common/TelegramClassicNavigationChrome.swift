@@ -381,6 +381,7 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     private func makeButton(_ item: UIBarButtonItem) -> UIView {
         if let custom = item.customView {
             if let control = custom as? UIControl { control.isEnabled = item.isEnabled }
+            item.telegramChromeView = custom
             return custom
         }
         // An item made from a UIAction keeps its title and image there and runs it instead of a target-action.
@@ -408,6 +409,7 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
             guard let action = item.action else { return }
             UIApplication.shared.sendAction(action, to: item.target, from: item, for: nil)
         }, for: .touchUpInside)
+        item.telegramChromeView = button
         return button
     }
 

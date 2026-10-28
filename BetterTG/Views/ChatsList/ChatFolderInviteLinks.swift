@@ -467,7 +467,7 @@ final class ChatFolderInviteLinkPreviewViewController: UIViewController, UITable
         guard let url = URL(string: link) else { return }
         let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         activity.popoverPresentationController?.sourceView = sourceView ?? controller.view
-        controller.present(activity, animated: true)
+        controller.presentGrowing(activity, from: sourceView)
     }
 
     /// A link as Telegram lists it: its name, or else the link without its scheme.
