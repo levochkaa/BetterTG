@@ -80,7 +80,8 @@ final class TelegramListNavigationBar: UIView {
     private var appliedScroll: (CGFloat, CGFloat, Bool)?
     private var searchTopConstraint: NSLayoutConstraint!
 
-    var rightButtonView: UIView { rightButton }
+    /// The right button's glass circle, which a menu opened from the button morphs out of whole, as Telegram's pills do.
+    var rightButtonView: UIView { trailingPlatter }
 
     /// The title a chat preview's header grows out of the chat list's row into.
     var expansionTitleView: UIView? { titleLabel }
@@ -1033,7 +1034,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     }
 
     @objc private func morePressed() {
-        onMore?(moreButton)
+        // A menu opened from a pill morphs the whole pill (Telegram 528c8e5e79).
+        onMore?(trailingPlatter)
     }
 
     @objc private func selectionCancelPressed() {
