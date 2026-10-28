@@ -16,6 +16,10 @@ enum ChatMediaRecordingMode: Equatable {
 struct ComposerSendTransitionSnapshot {
     let sourceFrame: CGRect
     let view: UIView
+    /// The input's text, which turns into the bubble; the reply panel and media fly in alongside.
+    var isText = false
+    /// Where the text's first line starts inside `view`.
+    var textInset = CGPoint.zero
 }
 
 // MARK: - ChatComposerView
@@ -443,9 +447,14 @@ final class ChatComposerView: UIView {
                   let snapshot = source.snapshotView(afterScreenUpdates: false)
             else { return nil }
             snapshot.isUserInteractionEnabled = false
+            let isText = source === textView
             return ComposerSendTransitionSnapshot(
                 sourceFrame: source.convert(source.bounds, to: container),
                 view: snapshot,
+                isText: isText,
+                textInset: isText
+                    ? CGPoint(x: textView.textContainerInset.left, y: textView.textContainerInset.top)
+                    : .zero,
             )
         }
     }

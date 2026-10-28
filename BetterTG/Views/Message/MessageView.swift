@@ -406,6 +406,39 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
         }
     }
 
+    /// The bubble as Telegram's send transition reads it (ChatMessageTransitionNode): its frame in `view`, its text's
+    /// first line origin inside it, its fill, and its content drawn without the fill.
+    func makeSendTransitionBubble(in view: UIView) -> MessageSendTransitionBubble? {
+        guard bubbleContainerView.window != nil, !bubbleContainerView.bounds.isEmpty, !bubbleView.isHidden else {
+            return nil
+        }
+        let fill = bubbleBackground.fillColor
+        let alpha = bubbleContainerView.alpha
+        bubbleContainerView.alpha = 1
+        bubbleBackground.fillColor = .clear
+        bubbleBackground.layoutIfNeeded()
+        let content = bubbleContainerView.snapshotView(afterScreenUpdates: true)
+        bubbleBackground.fillColor = fill
+        bubbleBackground.layoutIfNeeded()
+        bubbleContainerView.alpha = alpha
+        guard let content else { return nil }
+        let inset = textView.textContainerInset
+        let textOrigin = textView.isHidden
+            ? nil
+            : textView.convert(CGPoint(x: inset.left, y: inset.top), to: bubbleContainerView)
+        return MessageSendTransitionBubble(
+            frame: bubbleContainerView.convert(bubbleContainerView.bounds, to: view),
+            textOrigin: textOrigin,
+            fillColor: fill.resolvedColor(with: traitCollection),
+            content: content,
+        )
+    }
+
+    /// The bubble hides while the send transition draws it flying out of the input.
+    func setSendTransitionHidden(_ hidden: Bool) {
+        bubbleContainerView.alpha = hidden ? 0 : 1
+    }
+
     /// The chip icon for `type`, for the chosen reaction's effect.
     func reactionIconView(for type: ReactionType) -> UIView? {
         reactionView.isHidden ? nil : reactionView.iconView(for: type)
@@ -1847,4 +1880,13 @@ private final class MessageBubbleInsetView: UIView {
         top.constant = insets.top
         bottom.constant = -insets.bottom
     }
+}
+
+// MARK: - MessageSendTransitionBubble
+
+struct MessageSendTransitionBubble {
+    let frame: CGRect
+    let textOrigin: CGPoint?
+    let fillColor: UIColor
+    let content: UIView
 }

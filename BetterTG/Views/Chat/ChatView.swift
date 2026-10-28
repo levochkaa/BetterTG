@@ -365,6 +365,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var pendingSelfSizingRestoration: AutomaticViewportRestoration?
     private var selfSizingAnchorRestoreScheduled = false
     private var pendingComposerSendTransitions = [UUID: PendingComposerSendTransition]()
+    /// Sent text bubbles kept hidden until their send transition draws them out of the input, as Telegram's item node
+    /// waits for ChatMessageTransitionNode.
+    private var sendTransitionHiddenMessageIDs = Set<Int64>()
     private var activeComposerSendAnimations = 0
     private var composerSendGlideCount = 0
     private var composerSendGlides = [ComposerSendGlide]()
@@ -1558,6 +1561,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     func collectionView(_: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         applyComposerSendGlides(to: cell)
+        if let cell = cell as? MessageCell, case .message(let displayedID) = dataSource.itemIdentifier(for: indexPath),
+           let message = message(for: displayedID)
+        {
+            hideSentTextBubbleIfPending(cell, message: message.message)
+        }
         if let cell = cell as? ChatSponsoredMessageCell {
             cell.setPlaybackVisible(presentedViewController == nil)
             if userIsScrollingTimeline { cell.animateAppearance() }
@@ -5656,6 +5664,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         transition.messageIDs = acceptance.messageIDs.map(resolveSendTransitionMessageID)
         pendingComposerSendTransitions[acceptance.id] = transition
+        if transition.kind == .text {
+            syncSendTransitionHiddenBubbles()
+            performVisibleTextSendTransitions()
+        }
         if transition.kind == .media, isViewLoaded, timelineSourceIsCurrent {
             // The view model released the sent media and cleared the composer in this turn. Telegram inserts the
             // message in the transaction that shrinks the input panel; the snapshot that inserts it, now or after the
@@ -5697,6 +5709,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard let transition = pendingComposerSendTransitions.removeValue(forKey: id) else { return }
         transition.timeout.cancel()
         transition.snapshots.forEach { $0.view.removeFromSuperview() }
+        syncSendTransitionHiddenBubbles()
         retryClientRestoration()
     }
 
@@ -5729,6 +5742,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func performPendingComposerSendTransitions() {
+        performVisibleTextSendTransitions()
         guard isViewLoaded, timelineSourceIsCurrent, !timelineSnapshots.isBusy else { return }
         defer { retryClientRestoration() }
         // The composer clears just before acceptance, but its update may still be queued; settle it first so the
@@ -5753,6 +5767,15 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 let indexPath = dataSource.indexPath(for: .message(displayedID))
             else { continue }
             let cell = collectionView.cellForItem(at: indexPath) as? MessageCell
+            if transition.kind == .text, !UIAccessibility.isReduceMotionEnabled, let cell,
+               let text = transition.snapshots.first(where: \.isText),
+               let bubble = cell.makeSendTransitionBubble(in: view)
+            {
+                pendingComposerSendTransitions[id] = nil
+                transition.timeout.cancel()
+                animateComposerTextSend(transition, text: text, into: bubble, of: cell)
+                continue
+            }
             let fallbackTarget = CGRect(
                 x: view.bounds.midX - 4,
                 y: max(customNavigationBar.frame.maxY, composerView.frame.minY - 8),
@@ -5795,6 +5818,199 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 self?.retryClientRestoration()
             }
         }
+    }
+
+    /// A sent text's bubble stays hidden while its transition waits: an accepted one's message, or, before TDLib named
+    /// it, a new outgoing message still being sent.
+    private func hideSentTextBubbleIfPending(_ cell: MessageCell, message: Message) {
+        let transitions = pendingComposerSendTransitions.values.filter { transition in
+            transition.kind == .text && transition.snapshots.contains(where: \.isText)
+        }
+        guard !transitions.isEmpty else { return }
+        let accepted = transitions.contains { $0.messageIDs.contains(message.id) }
+        let isSending =
+            if case .messageSendingStatePending = message.sendingState {
+                true
+            } else {
+                false
+            }
+        let awaiting = message.isOutgoing && isSending && transitions.contains { $0.messageIDs.isEmpty }
+        guard accepted || awaiting else { return }
+        cell.setSendTransitionHidden(true)
+        sendTransitionHiddenMessageIDs.insert(message.id)
+        if accepted { DispatchQueue.main.async { [weak self] in self?.performVisibleTextSendTransitions() } }
+    }
+
+    /// Bubbles hidden for a transition that no longer waits for them show again; the accepted ones hide.
+    private func syncSendTransitionHiddenBubbles() {
+        let waiting = Set(pendingComposerSendTransitions.values.filter { $0.kind == .text }.flatMap(\.messageIDs))
+        let awaitsID = pendingComposerSendTransitions.values.contains { $0.kind == .text && $0.messageIDs.isEmpty }
+        for case let cell as MessageCell in collectionView.visibleCells {
+            guard let indexPath = collectionView.indexPath(for: cell),
+                  case .message(let displayedID) = dataSource.itemIdentifier(for: indexPath),
+                  let message = message(for: displayedID)?.message
+            else { continue }
+            if waiting.contains(message.id) {
+                cell.setSendTransitionHidden(true)
+                sendTransitionHiddenMessageIDs.insert(message.id)
+            } else if sendTransitionHiddenMessageIDs.contains(message.id), !awaitsID {
+                cell.setSendTransitionHidden(false)
+                sendTransitionHiddenMessageIDs.remove(message.id)
+            }
+        }
+        if !awaitsID { sendTransitionHiddenMessageIDs.formIntersection(waiting) }
+    }
+
+    /// A text transition runs as soon as its bubble is on screen, with the history's insertion, instead of after it.
+    private func performVisibleTextSendTransitions() {
+        guard isViewLoaded, timelineSourceIsCurrent, !UIAccessibility.isReduceMotionEnabled else { return }
+        let ready = pendingComposerSendTransitions.filter { $0.value.kind == .text && !$0.value.messageIDs.isEmpty }
+        guard !ready.isEmpty else { return }
+        // The composer clears just before acceptance; its update may still be queued.
+        if showsComposer {
+            composerView.update(from: chatVM)
+            view.layoutIfNeeded()
+        }
+        for (id, transition) in ready {
+            guard let text = transition.snapshots.first(where: \.isText),
+                  let cell = transition.messageIDs
+                    .lazy
+                    .compactMap({ rawID -> MessageCell? in
+                        guard let displayed = self.chatVM.displayedMessageID(containing: rawID),
+                              let indexPath = self.dataSource.indexPath(for: .message(displayed))
+                        else { return nil }
+                        return self.collectionView.cellForItem(at: indexPath) as? MessageCell
+                    })
+                    .first,
+                  let bubble = cell.makeSendTransitionBubble(in: view)
+            else { continue }
+            pendingComposerSendTransitions[id] = nil
+            transition.timeout.cancel()
+            sendTransitionHiddenMessageIDs.subtract(transition.messageIDs)
+            animateComposerTextSend(transition, text: text, into: bubble, of: cell)
+        }
+    }
+
+    /// ChatMessageTransitionNode's text send (bezier mode): the bubble flies out of the input over 0.3 s, its x on
+    /// (0.23, 1, 0.32, 1) and its y on (0.199, 0.0106, 0.279, 0.91), starting the bubble's size at the input's leading
+    /// edge with its bottom on the input's. Its fill grows out of the input's frame and fades in over 0.1 s; the
+    /// input's
+    /// text fades out over 0.1 s while the bubble's own text fades in over 0.08 s, both starting where the input's
+    /// first line was and riding into the bubble on the vertical curve. The reply panel flies to the bubble's top and
+    /// fades over 0.15 s.
+    private func animateComposerTextSend(
+        _ transition: PendingComposerSendTransition,
+        text: ComposerSendTransitionSnapshot,
+        into bubble: MessageSendTransitionBubble,
+        of cell: MessageCell,
+    ) {
+        let duration: CFTimeInterval = 0.3
+        let vertical = CAMediaTimingFunction(controlPoints: 0.199, 0.0106, 0.279, 0.91)
+        let horizontal = CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1)
+        let target = bubble.frame
+        let field = text.sourceFrame
+        let start = CGRect(
+            x: field.minX,
+            y: field.maxY - target.height,
+            width: target.width,
+            height: target.height,
+        )
+        let container = UIView(frame: target)
+        container.isUserInteractionEnabled = false
+        view.addSubview(container)
+
+        let background = CAShapeLayer()
+        background.frame = container.bounds
+        background.fillColor = bubble.fillColor.cgColor
+        background.path = UIBezierPath(roundedRect: container.bounds, cornerRadius: 16).cgPath
+        container.layer.addSublayer(background)
+
+        let content = UIView(frame: container.bounds)
+        bubble.content.frame = content.bounds
+        content.addSubview(bubble.content)
+        container.addSubview(content)
+        // The bubble's text starts where the input's first line is.
+        let fieldTextOrigin = CGPoint(x: field.minX + text.textInset.x, y: field.minY + text.textInset.y)
+        let bubbleTextOrigin = bubble.textOrigin ?? CGPoint(x: 12, y: 6)
+        let contentOffset = CGPoint(
+            x: fieldTextOrigin.x - start.minX - bubbleTextOrigin.x,
+            y: fieldTextOrigin.y - start.minY - bubbleTextOrigin.y,
+        )
+        let fieldText = text.view
+        fieldText.frame = field.offsetBy(dx: -start.minX - contentOffset.x, dy: -start.minY - contentOffset.y)
+        content.addSubview(fieldText)
+        cell.setSendTransitionHidden(true)
+        activeComposerSendAnimations += 1
+
+        func animation(_ keyPath: String, from: Any, to: Any, timing: CAMediaTimingFunction) -> CABasicAnimation {
+            let animation = CABasicAnimation(keyPath: keyPath)
+            animation.fromValue = from
+            animation.toValue = to
+            animation.duration = duration
+            animation.timingFunction = timing
+            return animation
+        }
+        func fade(_ layer: CALayer, from: Float, to: Float, duration: CFTimeInterval) {
+            layer.opacity = to
+            let animation = CABasicAnimation(keyPath: "opacity")
+            animation.fromValue = from
+            animation.toValue = to
+            animation.duration = duration
+            animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            layer.add(animation, forKey: "sendFade")
+        }
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self, weak cell] in
+            cell?.setSendTransitionHidden(false)
+            container.removeFromSuperview()
+            self?.activeComposerSendAnimations -= 1
+            self?.retryClientRestoration()
+        }
+        let moveX = animation(
+            "position.x",
+            from: start.minX - target.minX,
+            to: CGFloat.zero,
+            timing: horizontal,
+        )
+        moveX.isAdditive = true
+        container.layer.add(moveX, forKey: "sendMoveX")
+        let moveY = animation(
+            "position.y",
+            from: start.maxY - target.maxY,
+            to: CGFloat.zero,
+            timing: vertical,
+        )
+        moveY.isAdditive = true
+        container.layer.add(moveY, forKey: "sendMoveY")
+        // The fill grows from the input's frame, which the container's start puts at its own place.
+        let fieldInContainer = field.offsetBy(dx: -start.minX, dy: -start.minY)
+        background.add(animation(
+            "path",
+            from: UIBezierPath(roundedRect: fieldInContainer, cornerRadius: min(18, field.height / 2)).cgPath,
+            to: background.path as Any,
+            timing: vertical,
+        ), forKey: "sendMorph")
+        fade(background, from: 0, to: 1, duration: 0.1)
+        content.layer.add(animation(
+            "transform",
+            from: CATransform3DMakeTranslation(contentOffset.x, contentOffset.y, 0),
+            to: CATransform3DIdentity,
+            timing: vertical,
+        ), forKey: "sendText")
+        fade(fieldText.layer, from: 1, to: 0, duration: 0.1)
+        fade(bubble.content.layer, from: 0, to: 1, duration: 0.08)
+        for other in transition.snapshots where !other.isText {
+            if other.view.superview == nil { placeComposerSendSnapshot(other) }
+            let destination = CGRect(x: target.minX, y: target.minY, width: target.width, height: 8)
+            UIView.animate(withDuration: duration, delay: 0, options: [.beginFromCurrentState]) {
+                other.view.frame = destination
+            }
+            UIView.animate(withDuration: 0.15) { other.view.alpha = 0 } completion: { _ in
+                other.view.removeFromSuperview()
+            }
+        }
+        CATransaction.commit()
     }
 
     private func captureSnapshotAnchor(ensuringLayout: Bool = true) -> SnapshotAnchor? {
