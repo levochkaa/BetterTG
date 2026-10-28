@@ -2,9 +2,10 @@
 
 Telegram is the reference for behavior, gestures, layout logic and edge cases. Appearance follows BetterTG main.
 
-- Full-width blurred navigation and tab bars with safe area; content scrolls under them. One classic Telegram navigation
-  bar on every screen, with chat-list/chat sizes and Back button, no Liquid Glass islands, no glass button backgrounds
-  and no glass flashes during push/pop.
+- Full-width bars with iOS 27's light blur under them, on iOS 26 too; content scrolls under them. One Telegram navigation
+  bar on every screen, its buttons in Liquid Glass platters grouped as UIKit groups bar items, the chat's title in a glass
+  pill, and the platters morphing between screens on push and pop as Telegram 13's do (user decision 2026-10-28, which
+  replaced "no glass button backgrounds").
 - Folder picker at the bottom: Liquid Glass with liquid lens and interactive glass (`24657e8`), blur behind it, unread
   counts (`75184a2`). Forward to uses the same picker.
 - Context menus: the custom Telegram menu with glass (`TelegramContextMenu`, `24d5b2f`), gestures from
