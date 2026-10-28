@@ -480,6 +480,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var dataSource: ChatRowsDataSource!
 
     private var pressGesture: ContextMenuPressGestureRecognizer?
+    private let pressGestureDelegate = ChatRowPressGestureDelegate()
     /// Telegram's reorder mode for pinned chats; list updates wait until it ends so a drag is never interrupted.
     private var isReorderingPinnedChats = false
     private var reorderDoneButton: UIButton?
@@ -594,6 +595,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             else { return nil }
             return cell.contextPreviewView
         }
+        // An avatar with its own menu takes its long press; the row's press must not start under it too.
+        pressGesture.delegate = pressGestureDelegate
         tableView.addGestureRecognizer(pressGesture)
         self.pressGesture = pressGesture
         configureDataSource()
@@ -2007,4 +2010,20 @@ private extension ChatNotificationSettings {
 
 extension ArchiveViewController: TelegramGlassPlatterHost {
     var telegramGlassPlatters: [TelegramGlassPlatter] { navigationBarView.glassPlatters }
+}
+
+// MARK: - ChatRowPressGestureDelegate
+
+/// Keeps a chat row's long press off a touch that starts on an avatar with its own menu: both presses began, the
+/// avatar's menu took the touch and the row stayed pressed.
+private final class ChatRowPressGestureDelegate: NSObject, UIGestureRecognizerDelegate {
+    func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let current = view {
+            if let avatar = current as? ProfileAvatarView, avatar.showsContextMenu { return false }
+            if current is UITableViewCell { return true }
+            view = current.superview
+        }
+        return true
+    }
 }
