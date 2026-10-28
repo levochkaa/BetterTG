@@ -822,7 +822,6 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         let row = rowGlassShapes()
         searchView.setPresented(true)
         let search = searchView.glassShapes(in: self)
-        setRowGlassShown(false)
         searchView.alpha = 0
         searchField.becomeFirstResponder()
         TelegramGlassInPlaceMorph.run(in: self, shapes: [
@@ -834,10 +833,13 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
                 toItems: search[1].items,
             ),
             .init(from: row.leading?.frame, fromItems: row.leading?.items),
-        ]) { [weak self] in
+        ], handOver: { [weak self] in
+            guard let self, searchActive else { return }
+            setRowGlassShown(false)
+        }, completion: { [weak self] in
             guard let self, searchActive else { return }
             searchView.alpha = 1
-        }
+        })
     }
 
     /// The row's glass pills that show, in the bar's coordinates, with their items drawn, for the search morph.
@@ -1129,8 +1131,6 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         // The reverse of the opening: the field becomes the title's pill and the close button the avatar's circle.
         let search = searchView.glassShapes(in: self)
         let row = rowGlassShapes()
-        searchView.alpha = 0
-        searchView.setPresented(false)
         TelegramGlassInPlaceMorph.run(in: self, shapes: [
             .init(from: search[0].frame, fromItems: search[0].items, to: row.title?.frame, toItems: row.title?.items),
             .init(
@@ -1140,11 +1140,15 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
                 toItems: row.trailing?.items,
             ),
             .init(to: row.leading?.frame, toItems: row.leading?.items),
-        ]) { [weak self] in
+        ], handOver: { [weak self] in
+            guard let self, !searchActive else { return }
+            searchView.alpha = 0
+            searchView.setPresented(false)
+        }, completion: { [weak self] in
             guard let self, !searchActive else { return }
             setRowGlassShown(true)
             searchView.alpha = 1
-        }
+        })
     }
 
     @objc private func searchChanged() {

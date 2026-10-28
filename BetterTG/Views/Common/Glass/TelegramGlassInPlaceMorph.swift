@@ -7,8 +7,8 @@ import UIKit
 /// Telegram 13's in-place bar change (NavigationBarInPlaceCapsule) for glass that becomes other glass within one bar,
 /// such as a chat's title and avatar turning into its search field and close button. Each shape springs from its old
 /// frame to its new one while the old items shrink away where they were and the new ones grow in where they will be;
-/// a shape with only one end materializes or dematerializes in place. The morph draws the glass above the bar while
-/// the owner hides its own glass at both ends, and `completion` hands it back.
+/// a shape with only one end materializes or dematerializes in place. The morph draws the glass above the bar:
+/// `handOver` hides the owner's own glass as the morph's takes its place, and `completion` hands it back.
 @MainActor enum TelegramGlassInPlaceMorph {
     struct Shape {
         var from: CGRect?
@@ -23,16 +23,18 @@ import UIKit
     private static let itemScale = CGAffineTransform(scaleX: 0.2, y: 0.2)
 
     /// Runs the shapes, given in `host`'s coordinates, above `host`'s content.
-    static func run(in host: UIView, shapes: [Shape], completion: @escaping () -> Void) {
+    static func run(
+        in host: UIView,
+        shapes: [Shape],
+        handOver: @escaping () -> Void,
+        completion: @escaping () -> Void,
+    ) {
         let overlay = UIView(frame: host.bounds)
         overlay.isUserInteractionEnabled = false
-        let container = UIVisualEffectView(effect: {
-            let effect = UIGlassContainerEffect()
-            effect.spacing = TelegramGlassPlatter.interSectionSpacing
-            return effect
-        }())
-        container.frame = overlay.bounds
-        overlay.addSubview(container)
+        // Each shape is glass of its own, as the bar's pills are: a shared glass container draws its members
+        // differently, and the bar's glass would flash at the hand-over.
+        let glassLayer = UIView(frame: overlay.bounds)
+        overlay.addSubview(glassLayer)
         host.addSubview(overlay)
         var changes = [() -> Void]()
         for shape in shapes {
@@ -45,7 +47,7 @@ import UIKit
                 glass.effect = nil
                 glass.transform = materializeScale(for: start.size)
             }
-            container.contentView.addSubview(glass)
+            glassLayer.addSubview(glass)
             let leaving = shape.from.flatMap { frame in shape.fromItems.map { itemsView($0, frame: frame) } }
             let arriving = shape.to.flatMap { frame in shape.toItems.map { itemsView($0, frame: frame) } }
             arriving?.alpha = 0
@@ -68,6 +70,9 @@ import UIKit
                 arriving?.transform = .identity
             }
         }
+        // Each shape is plain glass, which draws in the same frame: the owner's glass gives way at once, as two
+        // shapes on one spot would show both while they part.
+        handOver()
         UIView.animate(
             springDuration: duration,
             bounce: bounce,
