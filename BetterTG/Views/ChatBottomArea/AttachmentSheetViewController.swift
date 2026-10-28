@@ -1435,19 +1435,17 @@ enum MediaPickerQualityIcon {
 /// panel (AttachmentTextInputPanelNode) takes their place: the photo quality switch, the composer's caption and Send
 /// with the picked count, which holds for the send options.
 @MainActor final class AttachmentPanelView: UIView {
-    static let barHeight: CGFloat = 49
+    /// Telegram 13's attachment tab bar: a 58 pt glass capsule with 4 pt above and below it.
+    static let barHeight: CGFloat = 66
 
     var onSelectTab: ((AttachmentSheetTab) -> Void)?
     var onSend: (() -> Void)?
     var onSendOptions: ((UIView) -> Void)?
     var onToggleQuality: (() -> Void)?
 
-    private let background = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    private let separator = UIView()
-    /// AttachmentPanel scrolls its buttons sideways once more than fit, 60 pt apart, as attachment menu bots add
-    /// theirs.
-    private let tabsScroll = UIScrollView()
-    private let tabsStack = UIStackView()
+    private let background = TelegramBarBackgroundView(edge: .bottom)
+    /// AttachmentPanel's buttons in Telegram 13's glass tab bar, scrolling sideways once more than fit.
+    private let tabsScroll = AttachmentTabStrip()
     private let sendRow = UIView()
     private let qualityButton = UIButton(type: .system)
     private let captionLabel = UILabel()
@@ -1457,12 +1455,7 @@ enum MediaPickerQualityIcon {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        separator.backgroundColor = .separator
-        tabsScroll.showsHorizontalScrollIndicator = false
-        tabsScroll.scrollsToTop = false
-        tabsScroll.alwaysBounceHorizontal = false
-        tabsStack.axis = .horizontal
-        tabsStack.distribution = .fillEqually
+        tabsScroll.onSelect = { [weak self] tab in self?.onSelectTab?(tab) }
         captionLabel.font = .preferredFont(forTextStyle: .subheadline)
         captionLabel.adjustsFontForContentSizeCategory = true
         captionLabel.textColor = .secondaryLabel
@@ -1499,41 +1492,19 @@ enum MediaPickerQualityIcon {
             subview.translatesAutoresizingMaskIntoConstraints = false
             sendRow.addSubview(subview)
         }
-        tabsStack.translatesAutoresizingMaskIntoConstraints = false
-        tabsScroll.addSubview(tabsStack)
-        for subview in [background, separator, tabsScroll, sendRow] as [UIView] {
+        for subview in [background, tabsScroll, sendRow] as [UIView] {
             subview.translatesAutoresizingMaskIntoConstraints = false
             addSubview(subview)
         }
-        let pixel = 1 / max(1, traitCollection.displayScale)
-        let fittingWidth = tabsStack.widthAnchor.constraint(
-            equalTo: tabsScroll.frameLayoutGuide.widthAnchor,
-            constant: -16,
-        )
-        fittingWidth.priority = .defaultLow
         NSLayoutConstraint.activate([
             background.topAnchor.constraint(equalTo: topAnchor),
             background.leadingAnchor.constraint(equalTo: leadingAnchor),
             background.trailingAnchor.constraint(equalTo: trailingAnchor),
             background.bottomAnchor.constraint(equalTo: bottomAnchor),
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.heightAnchor.constraint(equalToConstant: pixel),
             tabsScroll.topAnchor.constraint(equalTo: topAnchor),
             tabsScroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
             tabsScroll.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
             tabsScroll.heightAnchor.constraint(equalToConstant: Self.barHeight),
-            tabsStack.topAnchor.constraint(equalTo: tabsScroll.contentLayoutGuide.topAnchor),
-            tabsStack.bottomAnchor.constraint(equalTo: tabsScroll.contentLayoutGuide.bottomAnchor),
-            tabsStack.leadingAnchor.constraint(equalTo: tabsScroll.contentLayoutGuide.leadingAnchor, constant: 8),
-            tabsStack.trailingAnchor.constraint(equalTo: tabsScroll.contentLayoutGuide.trailingAnchor, constant: -8),
-            tabsStack.heightAnchor.constraint(equalTo: tabsScroll.frameLayoutGuide.heightAnchor),
-            tabsStack.widthAnchor.constraint(
-                greaterThanOrEqualTo: tabsScroll.frameLayoutGuide.widthAnchor,
-                constant: -16,
-            ),
-            fittingWidth,
             sendRow.topAnchor.constraint(equalTo: topAnchor),
             sendRow.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
             sendRow.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
@@ -1589,15 +1560,7 @@ enum MediaPickerQualityIcon {
     }
 
     func configureTabs(_ tabs: [AttachmentSheetTab], current: AttachmentSheetTab = .gallery) {
-        for view in tabsStack.arrangedSubviews {
-            view.removeFromSuperview()
-        }
-        for tab in tabs {
-            let button = AttachmentTabButton(tab: tab, current: tab == current)
-            button.addAction(UIAction { [weak self] _ in self?.onSelectTab?(tab) }, for: .touchUpInside)
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 60).isActive = true
-            tabsStack.addArrangedSubview(button)
-        }
+        tabsScroll.configure(tabs: tabs, current: current)
     }
 
     func update(selectionCount: Int, caption: String, showsQuality: Bool, isHighQuality: Bool) {
@@ -1636,17 +1599,13 @@ enum MediaPickerQualityIcon {
     }
 }
 
-// MARK: - AttachmentTabButton
+// MARK: - AttachmentTabContentView
 
-/// An AttachmentPanel button: its icon over its 10 pt title, in the accent color while current.
-private final class AttachmentTabButton: UIControl {
-    override var isHighlighted: Bool {
-        didSet { alpha = isHighlighted ? 0.5 : 1 }
-    }
-
-    init(tab: AttachmentSheetTab, current: Bool) {
+/// An AttachmentPanel tab's look: its icon over its 10 pt title in `color`.
+private final class AttachmentTabContentView: UIView {
+    init(tab: AttachmentSheetTab, color: UIColor, isCurrent: Bool) {
         super.init(frame: .zero)
-        let color: UIColor = current ? .tintColor : .secondaryLabel
+        isUserInteractionEnabled = false
         let iconView: UIView
         if case .app(let bot) = tab {
             iconView = AttachmentBotIconView(bot: bot, symbolName: tab.symbolName, color: color)
@@ -1660,7 +1619,7 @@ private final class AttachmentTabButton: UIControl {
         }
         let titleLabel = UILabel()
         titleLabel.text = tab.title
-        titleLabel.font = .systemFont(ofSize: 10, weight: current ? .medium : .regular)
+        titleLabel.font = .systemFont(ofSize: 10, weight: isCurrent ? .semibold : .medium)
         titleLabel.textColor = color
         titleLabel.textAlignment = .center
         titleLabel.adjustsFontSizeToFitWidth = true
@@ -1669,7 +1628,6 @@ private final class AttachmentTabButton: UIControl {
         stack.axis = .vertical
         stack.alignment = .center
         stack.spacing = 2
-        stack.isUserInteractionEnabled = false
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
         NSLayoutConstraint.activate([
@@ -1679,12 +1637,180 @@ private final class AttachmentTabButton: UIControl {
             stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 2),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -2),
         ])
-        isAccessibilityElement = true
-        accessibilityLabel = tab.title
-        accessibilityTraits = current ? [.button, .selected] : .button
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+}
+
+// MARK: - AttachmentTabStrip
+
+/// Telegram 13's attachment tab bar: the tabs in an interactive glass capsule, the current one under UIKit's liquid
+/// lens (`LiquidLens`), as the folder strip draws it. A tap lifts the lens and carries it to the tapped tab, which
+/// then opens; tabs past the capsule's width scroll.
+private final class AttachmentTabStrip: UIView {
+    // MARK: Private
+
+    private static let capsuleHeight: CGFloat = 58
+    private static let sideInset: CGFloat = 16
+    private static let endInset: CGFloat = 4
+    private static let minimumTabWidth: CGFloat = 60
+    private static let selectionTint = UIColor.label.withAlphaComponent(0.08)
+    private static let springDuration: TimeInterval = 0.4
+
+    // MARK: Internal
+
+    var onSelect: ((AttachmentSheetTab) -> Void)?
+
+    private let liftedContainer = UIView()
+    private let capsule = UIVisualEffectView()
+    private let scroll = UIScrollView()
+    private let stripView = UIView()
+    /// The tabs in the accent colour over the resting tint, shown inside the lens.
+    private let selectedTabsView = UIView()
+    private let restingTintView = UIView()
+    /// The tabs as they rest, cut away under the lens.
+    private let tabsView = UIView()
+    private let buttonsView = UIView()
+    private let selectionView = UIVisualEffectView()
+    private var lens: LiquidLens?
+    private var tabs = [AttachmentSheetTab]()
+    private var currentIndex = 0
+    private var tabWidth: CGFloat = 0
+    private var isSelecting = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        addSubview(liftedContainer)
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = true
+        capsule.effect = effect
+        capsule.cornerConfiguration = .capsule()
+        capsule.clipsToBounds = true
+        liftedContainer.addSubview(capsule)
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.scrollsToTop = false
+        scroll.delaysContentTouches = false
+        scroll.alwaysBounceHorizontal = false
+        capsule.contentView.addSubview(scroll)
+        scroll.addSubview(stripView)
+        for layer in [selectedTabsView, tabsView, buttonsView] {
+            stripView.addSubview(layer)
+        }
+        selectedTabsView.isUserInteractionEnabled = false
+        selectedTabsView.accessibilityElementsHidden = true
+        tabsView.isUserInteractionEnabled = false
+        tabsView.accessibilityElementsHidden = true
+        restingTintView.backgroundColor = Self.selectionTint
+        selectedTabsView.addSubview(restingTintView)
+        self.lens = LiquidLens(liftedContainer: liftedContainer, liftedContent: selectedTabsView, punchout: tabsView)
+        if lens == nil {
+            selectedTabsView.removeFromSuperview()
+            let selection = UIGlassEffect(style: .regular)
+            selection.tintColor = Self.selectionTint
+            selectionView.effect = selection
+            selectionView.isUserInteractionEnabled = false
+            selectionView.clipsToBounds = true
+            stripView.insertSubview(selectionView, belowSubview: tabsView)
+        }
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        liftedContainer.frame = bounds
+        capsule.frame = CGRect(
+            x: Self.sideInset,
+            y: (bounds.height - Self.capsuleHeight) / 2,
+            width: max(0, bounds.width - Self.sideInset * 2),
+            height: Self.capsuleHeight,
+        )
+        scroll.frame = capsule.contentView.bounds
+        let available = scroll.bounds.width - Self.endInset * 2
+        let width = tabs.isEmpty ? 0 : max(Self.minimumTabWidth, available / CGFloat(tabs.count))
+        let stripWidth = width * CGFloat(tabs.count) + Self.endInset * 2
+        scroll.contentSize = CGSize(width: stripWidth, height: scroll.bounds.height)
+        stripView.frame = CGRect(x: 0, y: 0, width: stripWidth, height: scroll.bounds.height)
+        for layer in [selectedTabsView, tabsView, buttonsView] {
+            layer.frame = stripView.bounds
+        }
+        let contentViews = [selectedTabsView, tabsView].map { $0.subviews.filter { $0 !== restingTintView } }
+        for index in tabs.indices {
+            let frame = tabFrame(at: index, width: width)
+            for views in contentViews where views.indices.contains(index) {
+                views[index].frame = frame
+            }
+            if buttonsView.subviews.indices.contains(index) { buttonsView.subviews[index].frame = frame }
+        }
+        tabWidth = width
+        restingTintView.frame = selectedTabsView.bounds
+        placeSelection(at: currentIndex, isLifted: false, animated: false)
+    }
+
+    func configure(tabs: [AttachmentSheetTab], current: AttachmentSheetTab) {
+        self.tabs = tabs
+        currentIndex = tabs.firstIndex(of: current) ?? 0
+        for view in selectedTabsView.subviews + tabsView.subviews + buttonsView.subviews
+            where view !== restingTintView
+        {
+            view.removeFromSuperview()
+        }
+        for (index, tab) in tabs.enumerated() {
+            let isCurrent = index == currentIndex
+            selectedTabsView.addSubview(AttachmentTabContentView(tab: tab, color: .tintColor, isCurrent: true))
+            // The lens tints the current tab; where it rests or travels, the punched-out copy shows through.
+            tabsView.addSubview(AttachmentTabContentView(tab: tab, color: .secondaryLabel, isCurrent: false))
+            let button = UIButton(type: .custom)
+            button.accessibilityLabel = tab.title
+            button.accessibilityTraits = isCurrent ? [.button, .selected] : .button
+            button.addAction(UIAction { [weak self] _ in self?.select(index) }, for: .touchUpInside)
+            buttonsView.addSubview(button)
+        }
+        setNeedsLayout()
+    }
+
+    private func tabFrame(at index: Int, width: CGFloat) -> CGRect {
+        CGRect(x: Self.endInset + CGFloat(index) * width, y: 0, width: width, height: stripView.bounds.height)
+            .insetBy(dx: 0, dy: Self.endInset)
+    }
+
+    private func placeSelection(at index: Int, isLifted: Bool, animated: Bool) {
+        guard tabs.indices.contains(index), tabWidth > 0 else { return }
+        let frame = tabFrame(at: index, width: tabWidth)
+        if let lens {
+            restingTintView.alpha = isLifted ? 0 : 1
+            lens.place(frame, isLifted: isLifted, springDuration: animated ? Self.springDuration : nil)
+            return
+        }
+        let changes = {
+            self.selectionView.frame = frame
+            self.selectionView.layer.cornerRadius = frame.height / 2
+        }
+        if animated {
+            UIView.animate(springDuration: Self.springDuration, bounce: 0.15, animations: changes)
+        } else {
+            changes()
+        }
+    }
+
+    /// The lens lifts, carries the selection to the tapped tab and settles; the tab opens as it lands.
+    private func select(_ index: Int) {
+        guard !isSelecting, tabs.indices.contains(index) else { return }
+        guard index != currentIndex else {
+            onSelect?(tabs[index])
+            return
+        }
+        isSelecting = true
+        UISelectionFeedbackGenerator().selectionChanged()
+        scroll.scrollRectToVisible(tabFrame(at: index, width: tabWidth), animated: true)
+        placeSelection(at: index, isLifted: true, animated: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self else { return }
+            placeSelection(at: index, isLifted: false, animated: true)
+            isSelecting = false
+            onSelect?(tabs[index])
+        }
+    }
 }
 
 // MARK: - AttachmentBotIconView
