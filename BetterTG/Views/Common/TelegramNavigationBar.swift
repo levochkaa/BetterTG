@@ -283,7 +283,12 @@ final class TelegramListNavigationBar: UIView {
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
 
-        if showsBackButton { leftButton.accessibilityLabel = L10n.telegram("Common.Back") }
+        if showsBackButton {
+            leftButton.accessibilityLabel = L10n.telegram("Common.Back")
+            let backHold = UILongPressGestureRecognizer(target: self, action: #selector(backLongPressed(_:)))
+            backHold.minimumPressDuration = 0.4
+            leftButton.addGestureRecognizer(backHold)
+        }
         leftButton.addTarget(self, action: #selector(leftPressed), for: .touchUpInside)
         rightButton.addTarget(self, action: #selector(rightPressed), for: .touchUpInside)
         secondaryRightButton.addTarget(self, action: #selector(secondaryRightPressed), for: .touchUpInside)
@@ -422,6 +427,14 @@ final class TelegramListNavigationBar: UIView {
     }
 
     @objc private func leftPressed() { leftAction?() }
+
+    /// UIKit's back button menu: holding Back lists the screens under this one.
+    @objc private func backLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, !leftButton.isHidden else { return }
+        leftButton.cancelTracking(with: nil)
+        presentTelegramBackMenu(from: leadingPlatter)
+    }
+
     @objc private func rightPressed() { rightAction?() }
 
     @objc private func rightLongPressed(_ recognizer: UILongPressGestureRecognizer) {
@@ -863,6 +876,9 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
         backButton.accessibilityLabel = L10n.telegram("Common.Back")
         backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
+        let backHold = UILongPressGestureRecognizer(target: self, action: #selector(backLongPressed(_:)))
+        backHold.minimumPressDuration = 0.4
+        backButton.addGestureRecognizer(backHold)
         leadingPlatter.setItems([backButton])
 
         titleControl.translatesAutoresizingMaskIntoConstraints = false
@@ -1056,6 +1072,14 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
     @objc private func backPressed() {
         onBack?()
+    }
+
+    /// UIKit's back button menu: holding Back lists the screens under the chat. A chat shown outside the navigation
+    /// stack (a preview, a sheet) has no Back to hold.
+    @objc private func backLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, onBack != nil, !backButton.isHidden else { return }
+        backButton.cancelTracking(with: nil)
+        presentTelegramBackMenu(from: leadingPlatter)
     }
 
     @objc private func profilePressed() {

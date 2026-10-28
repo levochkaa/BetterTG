@@ -12429,3 +12429,10 @@ extension ChatViewController: TelegramContextExpansionAnchors {
     var contextExpansionAvatar: UIView? { customNavigationBar.expansionAvatarView }
     var contextExpansionTitle: UIView? { customNavigationBar.expansionTitleView }
 }
+
+// MARK: - ChatViewController + TelegramBackMenuTitled
+
+extension ChatViewController: TelegramBackMenuTitled {
+    /// The chat's or topic's name, which its header draws.
+    var telegramBackMenuTitle: String? { chatVM.forumTopicInfo?.name ?? chatVM.customChat.displayTitle }
+}

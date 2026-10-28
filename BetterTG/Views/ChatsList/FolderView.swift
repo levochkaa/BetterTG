@@ -60,6 +60,8 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             rightAccessibilityLabel: L10n.telegram("Common.More"),
         )
         super.init(nibName: nil, bundle: nil)
+        // The name the back button's history menu shows for this folder.
+        title = folder.name
         openMoreMenu = { [weak self] in self?.openArchiveMoreMenu() }
     }
 

@@ -237,6 +237,9 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         subtitleLabel.isHidden = true
         addSubview(subtitleLabel)
         backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
+        let backHold = UILongPressGestureRecognizer(target: self, action: #selector(backLongPressed(_:)))
+        backHold.minimumPressDuration = 0.4
+        backButton.addGestureRecognizer(backHold)
         leadingPlatter.translatesAutoresizingMaskIntoConstraints = true
         addSubview(leadingPlatter)
     }
@@ -439,4 +442,11 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     }
 
     @objc private func backPressed() { onBack?() }
+
+    /// UIKit's back button menu: holding Back lists the screens under this one.
+    @objc private func backLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, !backButton.isHidden else { return }
+        backButton.cancelTracking(with: nil)
+        presentTelegramBackMenu(from: leadingPlatter)
+    }
 }
