@@ -83,6 +83,14 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     private var observedButtons = [UIBarButtonItem]()
     private var reservedHeight: CGFloat = 0
 
+    /// A sheet has no status bar above its bar; its row keeps the 10 pt UIKit leaves under it above it too.
+    private var sheetTopInset: CGFloat {
+        guard let navigation, navigation.sheetPresentationController != nil,
+              navigation.presentingViewController != nil, navigation.view.safeAreaInsets.top < 1
+        else { return 0 }
+        return TelegramGlassPlatter.barBottomInset
+    }
+
     init(controller: UIViewController, navigation: UINavigationController) {
         self.controller = controller
         self.navigation = navigation
@@ -144,7 +152,7 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
             searchController: (controller as? TelegramNavigationSearchProvider)?.telegramNavigationSearch
                 ?? (controller as? TelegramConditionalNavigationSearchProvider)?.shownTelegramNavigationSearch,
         )
-        let height = bar.contentHeight
+        let height = bar.contentHeight + sheetTopInset
         if reservedHeight != height {
             controller.additionalSafeAreaInsets.top += height - reservedHeight
             reservedHeight = height
@@ -161,7 +169,7 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     func layout() {
         guard let controller, let navigation, controller.isViewLoaded, navigation.isViewLoaded else { return }
         let host = controller.view!
-        bar.topInset = navigation.view.safeAreaInsets.top
+        bar.topInset = navigation.view.safeAreaInsets.top + sheetTopInset
         bar.frame = CGRect(
             origin: host.bounds.origin,
             size: CGSize(width: host.bounds.width, height: bar.topInset + bar.contentHeight),
@@ -241,23 +249,13 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         let edge = TelegramGlassPlatter.edgeInset
         var left = safeAreaInsets.left + edge
         if leadingPlatter.hasVisibleItems {
-            let width = leadingPlatter.systemLayoutSizeFitting(
-                CGSize(width: 0, height: TelegramGlassPlatter.height),
-                withHorizontalFittingPriority: .fittingSizeLevel,
-                verticalFittingPriority: .required,
-            )
-            .width
+            let width = leadingPlatter.preferredWidth
             leadingPlatter.frame = CGRect(x: left, y: rowY, width: width, height: TelegramGlassPlatter.height)
             left += width
         }
         var right = bounds.width - safeAreaInsets.right - edge
         for platter in trailingPlatters where platter.hasVisibleItems {
-            let width = platter.systemLayoutSizeFitting(
-                CGSize(width: 0, height: TelegramGlassPlatter.height),
-                withHorizontalFittingPriority: .fittingSizeLevel,
-                verticalFittingPriority: .required,
-            )
-            .width
+            let width = platter.preferredWidth
             right -= width
             platter.frame = CGRect(x: right, y: rowY, width: width, height: TelegramGlassPlatter.height)
             right -= TelegramGlassPlatter.interSectionSpacing

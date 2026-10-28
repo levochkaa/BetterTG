@@ -35,27 +35,40 @@ final class TelegramGlassPlatter: UIView {
     /// A title pill's padding on either side of its text.
     static let titleInset: CGFloat = 16
 
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: customContent == nil ? preferredWidth : UIView.noIntrinsicMetric, height: Self.height)
+    }
+
     let role: Role
     let glassView = UIVisualEffectView()
 
-    /// A view the owner lays out inside the glass itself, such as a chat header's title, in place of items.
+    /// A view the owner lays out inside the glass itself, such as a chat header's title, in place of items. Its own
+    /// constraints size the platter.
     var customContent: UIView? {
-        didSet { stack.isHidden = customContent != nil }
+        didSet { invalidateIntrinsicContentSize() }
     }
 
     // MARK: Private
 
-    private let stack = UIStackView()
-    private var widthConstraints = [NSLayoutConstraint]()
+    /// The hosted items, laid out by hand: a stack view gave a text button after a hidden one no height.
+    private var items = [UIView]()
 
     /// The visible items, in the order shown.
     var visibleItems: [UIView] {
         if let customContent { return customContent.isHidden ? [] : [customContent] }
-        return stack.arrangedSubviews.filter { !$0.isHidden }
+        return items.filter { !$0.isHidden }
     }
 
     /// Whether any item shows; the platter hides itself otherwise.
     var hasVisibleItems: Bool { !visibleItems.isEmpty }
+
+    /// The pill's width for its visible items: an icon's 44 pt, a text's own width, a custom view's fitting width,
+    /// and the ends.
+    var preferredWidth: CGFloat {
+        let visible = visibleItems
+        guard customContent == nil else { return bounds.width }
+        return visible.reduce(endInset(for: visible) * 2) { $0 + Self.width(of: $1) }
+    }
 
     init(role: Role) {
         self.role = role
@@ -66,62 +79,58 @@ final class TelegramGlassPlatter: UIView {
         glassView.cornerConfiguration = .capsule()
         glassView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(glassView)
-        stack.axis = .horizontal
-        stack.alignment = .fill
-        stack.distribution = .fill
-        stack.isLayoutMarginsRelativeArrangement = true
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        glassView.contentView.addSubview(stack)
         NSLayoutConstraint.activate([
             glassView.topAnchor.constraint(equalTo: topAnchor),
             glassView.leadingAnchor.constraint(equalTo: leadingAnchor),
             glassView.trailingAnchor.constraint(equalTo: trailingAnchor),
             glassView.bottomAnchor.constraint(equalTo: bottomAnchor),
-            stack.topAnchor.constraint(equalTo: glassView.contentView.topAnchor),
-            stack.leadingAnchor.constraint(equalTo: glassView.contentView.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: glassView.contentView.trailingAnchor),
-            stack.bottomAnchor.constraint(equalTo: glassView.contentView.bottomAnchor),
-            heightAnchor.constraint(equalToConstant: Self.height),
         ])
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
 
-    /// Hosts `items` in order. Icon buttons get the `label` tint glass bar items use; text buttons keep theirs.
-    func setItems(_ items: [UIView]) {
-        for view in stack.arrangedSubviews {
-            stack.removeArrangedSubview(view)
-            view.removeFromSuperview()
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard customContent == nil else { return }
+        let visible = visibleItems
+        var x = endInset(for: visible)
+        for item in visible {
+            let width = Self.width(of: item)
+            item.frame = CGRect(x: x, y: 0, width: width, height: bounds.height)
+            x += width
         }
-        widthConstraints.forEach { $0.isActive = false }
-        widthConstraints = []
-        for item in items {
-            item.translatesAutoresizingMaskIntoConstraints = false
-            stack.addArrangedSubview(item)
-            if let button = item as? UIButton {
-                guard button.title(for: .normal)?.isEmpty != false else { continue }
-                let constraint = item.widthAnchor.constraint(equalToConstant: Self.iconWidth)
-                constraint.isActive = true
-                widthConstraints.append(constraint)
-            } else if item.intrinsicContentSize.width == UIView.noIntrinsicMetric {
-                // A custom view (a spinner, an avatar) takes its fitting width, at least an icon's.
-                let fitting = item.sizeThatFits(CGSize(width: 200, height: Self.height)).width
-                let constraint = item.widthAnchor.constraint(equalToConstant: max(Self.iconWidth, fitting))
-                constraint.isActive = true
-                widthConstraints.append(constraint)
-            }
+    }
+
+    private static func width(of item: UIView) -> CGFloat {
+        if let button = item as? UIButton {
+            guard let title = button.title(for: .normal), !title.isEmpty else { return iconWidth }
+            return ceil(button.intrinsicContentSize.width)
+        }
+        // A custom view (a spinner, an avatar) takes its fitting width, at least an icon's.
+        let fitting = item.intrinsicContentSize.width == UIView.noIntrinsicMetric
+            ? item.sizeThatFits(CGSize(width: 200, height: height)).width
+            : item.intrinsicContentSize.width
+        return max(iconWidth, ceil(fitting))
+    }
+
+    /// Hosts `items` in order. Icon buttons get the `label` tint glass bar items use; text buttons keep theirs.
+    func setItems(_ newItems: [UIView]) {
+        for item in items where !newItems.contains(where: { $0 === item }) {
+            item.removeFromSuperview()
+        }
+        items = newItems
+        for item in newItems {
+            item.translatesAutoresizingMaskIntoConstraints = true
+            if item.superview !== glassView.contentView { glassView.contentView.addSubview(item) }
         }
         refresh()
     }
 
-    /// Re-reads which items show: the pill's ends and whether the platter itself shows.
+    /// Re-reads which items show: the pill's width and ends, and whether the platter itself shows.
     func refresh() {
-        let visible = visibleItems
-        let isSingleIcon = visible.count == 1 && widthConstraints.contains { $0.firstItem === visible[0] }
-        let isText = visible.contains { ($0 as? UIButton)?.title(for: .normal)?.isEmpty == false }
-        let end = isSingleIcon ? 0 : isText && visible.count == 1 ? Self.textInset : Self.pillEndInset
-        stack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: end, bottom: 0, trailing: end)
-        isHidden = visible.isEmpty
+        isHidden = visibleItems.isEmpty
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
     }
 
     /// The platter's look without its items, for the morph to draw in their place.
@@ -139,6 +148,13 @@ final class TelegramGlassPlatter: UIView {
                 context.cgContext.restoreGState()
             }
         }
+    }
+
+    /// One icon is a circle with no ends; a lone text gets its text inset; several items get 6 pt ends.
+    private func endInset(for visible: [UIView]) -> CGFloat {
+        guard visible.count == 1 else { return Self.pillEndInset }
+        let isText = (visible[0] as? UIButton)?.title(for: .normal)?.isEmpty == false
+        return isText ? Self.textInset : 0
     }
 }
 
