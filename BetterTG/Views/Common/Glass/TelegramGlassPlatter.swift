@@ -135,79 +135,11 @@ final class TelegramGlassPlatter: UIView {
         setNeedsLayout()
     }
 
-    /// The platter's look without its glass: its items, for the morph to draw in their place.
-    func renderedItems() -> UIImage? {
-        guard bounds.width > 0, bounds.height > 0 else { return nil }
-        let format = UIGraphicsImageRendererFormat(for: traitCollection)
-        format.opaque = false
-        return UIGraphicsImageRenderer(bounds: bounds, format: format).image { context in
-            for item in visibleItems {
-                context.cgContext.saveGState()
-                let origin = item.convert(CGPoint.zero, to: self)
-                context.cgContext.translateBy(x: origin.x, y: origin.y)
-                item.renderTelegramSnapshot(in: context.cgContext)
-                context.cgContext.restoreGState()
-            }
-        }
-    }
-
     /// One icon is a circle with no ends; a lone text gets its text inset; several items get 6 pt ends.
     private func endInset(for visible: [UIView]) -> CGFloat {
         guard visible.count == 1 else { return Self.pillEndInset }
         let isText = (visible[0] as? UIButton)?.title(for: .normal)?.isEmpty == false
         return isText ? Self.textInset : 0
-    }
-}
-
-// MARK: - UIView + renderTelegramSnapshot
-
-extension UIView {
-    /// Draws the view and its subviews into `context`, at the view's origin, as they show on screen. Labels draw their
-    /// own text: UIKit keeps a one-colour label's glyphs white and tints them as it composites (the layer's contents
-    /// multiply colour), which `CALayer.render(in:)` leaves out, so a grey or blue status would come out white.
-    func renderTelegramSnapshot(in context: CGContext) {
-        var labels = [(label: UILabel, alpha: CGFloat)]()
-        func collect(_ view: UIView, alpha: CGFloat) {
-            guard !view.isHidden, view.alpha > 0.01 else { return }
-            let alpha = alpha * view.alpha
-            if let label = view as? UILabel {
-                if label.text?.isEmpty == false || label.attributedText?.length ?? 0 > 0 {
-                    labels.append((label, alpha))
-                }
-                return
-            }
-            for subview in view.subviews {
-                collect(subview, alpha: alpha)
-            }
-        }
-        if let label = self as? UILabel {
-            labels.append((label, 1))
-        } else {
-            for subview in subviews {
-                collect(subview, alpha: 1)
-            }
-        }
-        // A layer's opacity, not the view's hiding, which stack views would answer with a layout.
-        let opacities = labels.map(\.label.layer.opacity)
-        for (label, _) in labels {
-            label.layer.opacity = 0
-        }
-        layer.render(in: context)
-        for ((label, _), opacity) in zip(labels, opacities) {
-            label.layer.opacity = opacity
-        }
-        UIGraphicsPushContext(context)
-        defer { UIGraphicsPopContext() }
-        for (label, alpha) in labels {
-            context.saveGState()
-            let origin = label.convert(label.bounds.origin, to: self)
-            context.translateBy(x: origin.x, y: origin.y)
-            context.setAlpha(alpha)
-            label.traitCollection.performAsCurrent {
-                label.drawText(in: label.bounds)
-            }
-            context.restoreGState()
-        }
     }
 }
 

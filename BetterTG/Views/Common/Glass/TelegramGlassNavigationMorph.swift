@@ -43,8 +43,9 @@ import UIKit
         var destination: TelegramGlassPlatter?
         var sourceFrame: CGRect?
         var destinationFrame: CGRect?
-        var sourceItems: UIImageView?
-        var destinationItems: UIImageView?
+        /// Each bar's items, lent live to the overlay while the morph runs.
+        var sourceItems: TelegramGlassLoan?
+        var destinationItems: TelegramGlassLoan?
         /// The outgoing bar's platter an incoming-only pill grows out of.
         var sourcePartner: TelegramGlassPlatter?
         /// The incoming bar's platter an outgoing-only pill collapses into.
@@ -149,7 +150,8 @@ import UIKit
 
     private static func keys(of platters: [TelegramGlassPlatter]) -> [Key: TelegramGlassPlatter] {
         let shown = platters.filter { platter in
-            platter.hasVisibleItems && !platter.isHidden
+            // A platter whose glass gives way to something else, such as a chat's row to its search, is not there.
+            platter.hasVisibleItems && !platter.isHidden && !platter.glassView.isHidden
                 && sequence(first: platter, next: \.superview).allSatisfy { $0.alpha > 0.01 && !$0.isHidden }
         }
         // The pills that show, counted from the edge: a hidden one leaves no gap.
@@ -191,18 +193,32 @@ import UIKit
             .joined(separator: "|")
     }
 
-    private static func itemsView(of platter: TelegramGlassPlatter, frame: CGRect) -> UIImageView? {
-        guard let image = platter.renderedItems() else { return nil }
-        let view = UIImageView(image: image)
-        view.frame = frame
-        return view
-    }
-
     /// UIKit's materialize scale for a platter `size` large: 16 pt beyond it per axis, at most 1.2.
     private static func materializeScale(for size: CGSize) -> CGAffineTransform {
         let x = size.width > 0 ? min(1.2, (size.width + 16) / size.width) : 1.2
         let y = size.height > 0 ? min(1.2, (size.height + 16) / size.height) : 1.2
         return CGAffineTransform(scaleX: x, y: y)
+    }
+
+    /// Where items at `frame` stand inside glass whose frame is `glassFrame`.
+    private static func center(of frame: CGRect, in glassFrame: CGRect) -> CGPoint {
+        CGPoint(x: frame.midX - glassFrame.minX, y: frame.midY - glassFrame.minY)
+    }
+
+    /// Lends `platter`'s items to `piece`'s glass, standing at `frame` while the glass is at `glassFrame`: inside the
+    /// glass, which draws its content as the bar's glass does, rather than above it.
+    private func lendItems(
+        of platter: TelegramGlassPlatter,
+        frame: CGRect,
+        to piece: Piece,
+        glassFrame: CGRect,
+    ) -> TelegramGlassLoan {
+        let loan = TelegramGlassLoan(platter: platter)
+        loan.host.bounds = CGRect(origin: .zero, size: frame.size)
+        loan.host.center = Self.center(of: frame, in: glassFrame)
+        piece.glass.contentView.addSubview(loan.host)
+        loan.lend()
+        return loan
     }
 
     /// Pairs the platters, draws the outgoing ones in the overlay and takes every platter from its bar.
@@ -214,6 +230,8 @@ import UIKit
             let incoming = to[key]
             let piece = Piece(key: key, glass: UIVisualEffectView(effect: (outgoing ?? incoming)?.glassView.effect))
             piece.glass.cornerConfiguration = .capsule()
+            piece.glass.clipsToBounds = false
+            piece.glass.contentView.clipsToBounds = false
             piece.source = outgoing
             piece.destination = incoming
             if let outgoing, let incoming {
@@ -227,7 +245,6 @@ import UIKit
             if let outgoing {
                 let frame = outgoing.convert(outgoing.bounds, to: navigationView)
                 piece.sourceFrame = frame
-                piece.sourceItems = Self.itemsView(of: outgoing, frame: frame)
             } else if let partner = piece.sourcePartner {
                 piece.partnerFrame = partner.convert(partner.bounds, to: navigationView)
             }
@@ -241,7 +258,13 @@ import UIKit
                 piece.glass.effect = nil
             }
             container.contentView.addSubview(piece.glass)
-            if let items = piece.sourceItems { overlay.addSubview(items) }
+        }
+        // The overlay is in the window before the items move into it, so that they never leave it.
+        navigationView.addSubview(overlay)
+        for piece in pieces {
+            if let outgoing = piece.source, let frame = piece.sourceFrame {
+                piece.sourceItems = lendItems(of: outgoing, frame: frame, to: piece, glassFrame: frame)
+            }
         }
         lent = pieces.flatMap { [$0.source, $0.destination].compactMap(\.self) }
         // The incoming bar is off screen and gives its glass up at once; the outgoing one once the overlay draws.
@@ -254,7 +277,6 @@ import UIKit
                 platter.glassView.isHidden = true
             }
         }
-        navigationView.addSubview(overlay)
     }
 
     /// Measures the incoming bar where it comes to rest and sets the incoming items up to grow in.
@@ -272,18 +294,17 @@ import UIKit
             if let incoming = piece.destination {
                 let frame = restingFrame(of: incoming)
                 piece.destinationFrame = frame
-                if let items = Self.itemsView(of: incoming, frame: frame) {
-                    items.alpha = 0
-                    if !piece.identicalItems || piece.sourceItems == nil {
-                        items.transform = CGAffineTransform(scaleX: Spring.itemScale, y: Spring.itemScale)
-                    }
-                    overlay.addSubview(items)
-                    piece.destinationItems = items
-                }
                 if piece.sourceFrame == nil, piece.partnerFrame == nil {
                     piece.glass.frame = frame
                     piece.glass.transform = Self.materializeScale(for: frame.size)
                 }
+                let glassFrame = piece.sourceFrame ?? piece.partnerFrame ?? frame
+                let items = lendItems(of: incoming, frame: frame, to: piece, glassFrame: glassFrame)
+                items.host.alpha = 0
+                if !piece.identicalItems || piece.sourceItems == nil {
+                    items.host.transform = CGAffineTransform(scaleX: Spring.itemScale, y: Spring.itemScale)
+                }
+                piece.destinationItems = items
             } else if let partner = piece.destinationPartner {
                 piece.partnerFrame = restingFrame(of: partner)
             }
@@ -317,13 +338,22 @@ import UIKit
                     piece.glass.transform = Self.materializeScale(for: piece.glass.bounds.size)
                     piece.glass.effect = nil
                 }
-                if let items = piece.sourceItems {
+                // On the glass's spring, against it: each bar's items keep their place on screen.
+                if let glassTarget = piece.destinationFrame ?? piece.partnerFrame {
+                    if let host = piece.sourceItems?.host, let source = piece.sourceFrame {
+                        host.center = Self.center(of: source, in: glassTarget)
+                    }
+                    if let host = piece.destinationItems?.host, let destination = piece.destinationFrame {
+                        host.center = Self.center(of: destination, in: glassTarget)
+                    }
+                }
+                if let items = piece.sourceItems?.host {
                     if !piece.identicalItems {
                         items.transform = CGAffineTransform(scaleX: Spring.itemScale, y: Spring.itemScale)
                     }
                     items.alpha = 0
                 }
-                if let items = piece.destinationItems {
+                if let items = piece.destinationItems?.host {
                     items.transform = .identity
                     items.alpha = 1
                 }
@@ -362,6 +392,11 @@ import UIKit
         finished = true
         for platter in lent {
             platter.glassView.isHidden = false
+        }
+        // The items go home in the frame their glass comes back in.
+        for piece in pieces {
+            piece.sourceItems?.giveBack()
+            piece.destinationItems?.giveBack()
         }
         overlay.removeFromSuperview()
         Self.active.removeAll { $0 === self }

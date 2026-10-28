@@ -547,6 +547,12 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private let titlePlatter = TelegramGlassPlatter(role: .title)
     private let trailingPlatter = TelegramGlassPlatter(role: .trailing(0))
     private let selectionCancelPlatter = TelegramGlassPlatter(role: .trailing(0))
+    private let rowGlassContainer: UIVisualEffectView = {
+        let effect = UIGlassContainerEffect()
+        effect.spacing = TelegramGlassPlatter.interSectionSpacing
+        return UIVisualEffectView(effect: effect)
+    }()
+
     private let titleControl = TelegramNavigationTitleControl()
     private let titleStack = UIStackView()
     /// ChatTitleView's title line: the lock and the title, the status icon 3 pt after it, then the credibility badge
@@ -837,7 +843,6 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         let row = rowGlassShapes()
         searchView.setPresented(true)
         let search = searchView.glassShapes(in: self)
-        searchView.alpha = 0
         searchField.becomeFirstResponder()
         TelegramGlassInPlaceMorph.run(in: self, shapes: [
             .init(from: row.title?.frame, fromItems: row.title?.items, to: search[0].frame, toItems: search[0].items),
@@ -848,33 +853,34 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
                 toItems: search[1].items,
             ),
             .init(from: row.leading?.frame, fromItems: row.leading?.items),
-        ], handOver: { [weak self] in
-            guard let self, searchActive else { return }
-            setRowGlassShown(false)
+        ], spacing: TelegramGlassPlatter.interSectionSpacing, handOver: { [weak self] in
+            self?.setRowGlassHidden(true)
+            self?.searchView.setGlassHidden(true)
         }, completion: { [weak self] in
-            guard let self, searchActive else { return }
-            searchView.alpha = 1
+            self?.searchView.setGlassHidden(false)
         })
     }
 
-    /// The row's glass pills that show, in the bar's coordinates, with their items drawn, for the search morph.
+    /// The row's glass pills that show, in the bar's coordinates, with their items for the search morph to borrow.
     private func rowGlassShapes() -> (
-        leading: (frame: CGRect, items: UIImage?)?,
-        title: (frame: CGRect, items: UIImage?)?,
-        trailing: (frame: CGRect, items: UIImage?)?,
+        leading: (frame: CGRect, items: TelegramGlassLoan)?,
+        title: (frame: CGRect, items: TelegramGlassLoan)?,
+        trailing: (frame: CGRect, items: TelegramGlassLoan)?,
     ) {
         layoutIfNeeded()
-        func shape(of platter: TelegramGlassPlatter) -> (frame: CGRect, items: UIImage?)? {
+        func shape(of platter: TelegramGlassPlatter) -> (frame: CGRect, items: TelegramGlassLoan)? {
             guard !platter.isHidden, platter.hasVisibleItems else { return nil }
-            return (platter.convert(platter.bounds, to: self), platter.renderedItems())
+            return (platter.convert(platter.bounds, to: self), TelegramGlassLoan(platter: platter))
         }
         return (shape(of: leadingPlatter), shape(of: titlePlatter), shape(of: trailingPlatter))
     }
 
-    /// The row's pills give their place to the search, at once: the morph draws their glass meanwhile.
-    private func setRowGlassShown(_ shown: Bool) {
+    /// The row's glass gives its place to the search's, which the morph draws meanwhile; hiding, not fading, as a glass
+    /// view's opacity must not change.
+    private func setRowGlassHidden(_ hidden: Bool) {
         for platter in [leadingPlatter, titlePlatter, trailingPlatter] {
-            platter.alpha = shown ? 1 : 0
+            platter.glassView.isHidden = hidden
+            platter.isUserInteractionEnabled = !hidden
         }
     }
 
@@ -1036,10 +1042,21 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         selectionCancelButton.addTarget(self, action: #selector(selectionCancelPressed), for: .touchUpInside)
         selectionCancelPlatter.setItems([selectionCancelButton])
 
+        // The row's glass in one container, as UIKit groups a bar's glass, which the search morph draws alike.
+        rowGlassContainer.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(rowGlassContainer)
+        NSLayoutConstraint.activate([
+            rowGlassContainer.topAnchor.constraint(equalTo: topAnchor),
+            rowGlassContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
+            rowGlassContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
+            rowGlassContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
         for platter in [leadingPlatter, titlePlatter, trailingPlatter, selectionCancelPlatter] {
             platter.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(platter)
+            rowGlassContainer.contentView.addSubview(platter)
         }
+        // The search covers the row while it is open.
+        bringSubviewToFront(searchView)
         // The title pill hugs the title, at least ChatTitleComponent's 150 pt of content wide so that a short name does
         // not shrink it, and stays centred while it fits between the buttons.
         let titleEnd = TelegramGlassPlatter.titleInset
@@ -1157,14 +1174,13 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
                 toItems: row.trailing?.items,
             ),
             .init(to: row.leading?.frame, toItems: row.leading?.items),
-        ], handOver: { [weak self] in
-            guard let self, !searchActive else { return }
-            searchView.alpha = 0
-            searchView.setPresented(false)
+        ], spacing: TelegramGlassPlatter.interSectionSpacing, handOver: { [weak self] in
+            self?.searchView.setGlassHidden(true)
         }, completion: { [weak self] in
-            guard let self, !searchActive else { return }
-            setRowGlassShown(true)
-            searchView.alpha = 1
+            guard let self else { return }
+            searchView.setPresented(false)
+            searchView.setGlassHidden(false)
+            setRowGlassHidden(false)
         })
     }
 

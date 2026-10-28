@@ -171,20 +171,23 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         setActive(presented, animated: false)
     }
 
-    /// The open search's two glass shapes, the field and the close button, in `view`'s coordinates, each with its
-    /// contents drawn without the glass, for a morph that draws the glass meanwhile.
-    func glassShapes(in view: UIView) -> [(frame: CGRect, items: UIImage?)] {
+    /// The open search's two glass shapes, the field and the close button, in `view`'s coordinates, each with its items
+    /// for a morph to borrow live while it draws the glass.
+    func glassShapes(in view: UIView) -> [(frame: CGRect, items: TelegramGlassLoan)] {
         layoutIfNeeded()
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = traitCollection.displayScale
-        format.opaque = false
-        let field = UIGraphicsImageRenderer(bounds: glassView.bounds, format: format).image { context in
-            searchField.renderTelegramSnapshot(in: context.cgContext)
-        }
         return [
-            (glassView.convert(glassView.bounds, to: view), field),
-            (closePlatter.convert(closePlatter.bounds, to: view), closePlatter.renderedItems()),
+            (
+                glassView.convert(glassView.bounds, to: view),
+                TelegramGlassLoan(views: [searchField], home: glassView.contentView),
+            ),
+            (closePlatter.convert(closePlatter.bounds, to: view), TelegramGlassLoan(platter: closePlatter)),
         ]
+    }
+
+    /// Hides the field's and the close button's glass while a morph draws it, or shows it again.
+    func setGlassHidden(_ hidden: Bool) {
+        glassView.isHidden = hidden
+        closePlatter.glassView.isHidden = hidden
     }
 
     func textFieldDidBeginEditing(_: UITextField) {
