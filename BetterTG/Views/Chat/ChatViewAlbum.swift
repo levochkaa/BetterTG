@@ -10157,7 +10157,8 @@ private func galleryMessageContentMatches(_ lhs: Message, _ rhs: Message) -> Boo
 
 // MARK: - MediaGalleryChrome
 
-@MainActor private enum MediaGalleryChrome {
+/// The chrome Telegram 13 puts over its galleries, the media gallery's and the profile photos'.
+@MainActor enum MediaGalleryChrome {
     /// ChatItemGalleryFooterContentNode's buttonPanelInsets: the buttons sit 8 pt above the bottom inset.
     static let footerBottomInset: CGFloat = 8
 
@@ -10173,7 +10174,7 @@ private func galleryMessageContentMatches(_ lhs: Message, _ rhs: Message) -> Boo
 // MARK: - MediaGalleryEdgeShadeView
 
 /// Telegram 13's EdgeEffectView under the gallery's chrome: black at 0.65 at the screen's edge, fading out over 120 pt.
-private final class MediaGalleryEdgeShadeView: UIView {
+final class MediaGalleryEdgeShadeView: UIView {
     enum Edge {
         case top
         case bottom

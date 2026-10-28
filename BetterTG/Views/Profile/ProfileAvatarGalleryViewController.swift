@@ -173,7 +173,13 @@ struct ProfileAvatarGalleryItem: Hashable {
     private var paginationMutationInProgress = false
     private var pendingReconciliation: (items: [ProfileAvatarGalleryItem], totalCount: Int)?
     private var didSetInitialPosition = false
-    private let footer = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+    private let footer = UIView()
+    /// Telegram 13's gallery chrome, as the media gallery's: glass Back and More at the top with the counter in a glass
+    /// pill between them, glass Share 8 pt off the bottom, and edge effects under them.
+    private let topBar = UIView()
+    private let counterPill = MediaGalleryChrome.glass(interactive: false)
+    private let topShade = MediaGalleryEdgeShadeView(edge: .top)
+    private let bottomShade = MediaGalleryEdgeShadeView(edge: .bottom)
     private let closeButton = UIButton(type: .system)
     private let shareButton = UIButton(type: .system)
     private let moreButton = UIButton(type: .system)
@@ -278,6 +284,8 @@ struct ProfileAvatarGalleryItem: Hashable {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        // The gallery is dark whatever the app's appearance, its glass included.
+        view.overrideUserInterfaceStyle = .dark
         view.accessibilityViewIsModal = true
         configureCollectionView()
         configureFooter()
@@ -499,7 +507,7 @@ struct ProfileAvatarGalleryItem: Hashable {
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard gestureRecognizer === dismissPanGesture else { return true }
-        return touch.view?.isDescendant(of: footer) != true
+        return touch.view.map { !$0.isDescendant(of: footer) && !$0.isDescendant(of: topBar) } ?? true
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
@@ -534,7 +542,9 @@ struct ProfileAvatarGalleryItem: Hashable {
     }
 
     fileprivate func setInteractiveDismissalChromeAlpha(_ alpha: CGFloat) {
-        footer.alpha = alpha
+        for chrome in [footer, topBar, bottomShade] {
+            chrome.alpha = alpha
+        }
     }
 
     /// TDLib's client is renewed when the app returns from the background. As the media gallery does, this one stays
@@ -644,69 +654,96 @@ struct ProfileAvatarGalleryItem: Hashable {
     private func configureFooter() {
         footer.translatesAutoresizingMaskIntoConstraints = false
         footer.accessibilityIdentifier = "avatar-gallery-footer"
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
-        closeButton.tintColor = .white
+        topBar.translatesAutoresizingMaskIntoConstraints = false
+        for shade in [topShade, bottomShade] {
+            shade.translatesAutoresizingMaskIntoConstraints = false
+        }
+        let symbol = UIButton.telegramGlassIconConfiguration
         closeButton.accessibilityLabel = L10n.telegram("Common.Close")
         closeButton.accessibilityIdentifier = "avatar-gallery-close"
         closeButton.addTarget(self, action: #selector(close), for: .touchUpInside)
-        shareButton.translatesAutoresizingMaskIntoConstraints = false
-        shareButton.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
-        shareButton.tintColor = .white
         shareButton.accessibilityLabel = L10n.telegram("Gallery.VoiceOver.Share")
         shareButton.accessibilityIdentifier = "avatar-gallery-share"
         shareButton.addTarget(self, action: #selector(shareSelectedPhoto), for: .touchUpInside)
-        moreButton.translatesAutoresizingMaskIntoConstraints = false
-        moreButton.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
-        moreButton.tintColor = .white
         moreButton.accessibilityLabel = L10n.telegram("Common.More")
         moreButton.accessibilityIdentifier = "avatar-gallery-more"
         moreButton.addTarget(self, action: #selector(showMoreActions), for: .touchUpInside)
+        for (button, name) in [
+            (closeButton, "chevron.left"),
+            (shareButton, "square.and.arrow.up"),
+            (moreButton, "ellipsis"),
+        ] {
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.frame = CGRect(x: 0, y: 0, width: TelegramGlassPlatter.height, height: TelegramGlassPlatter.height)
+            button.applyTelegramFloatingGlass(icon: UIImage(systemName: name, withConfiguration: symbol))
+            button.widthAnchor.constraint(equalToConstant: TelegramGlassPlatter.height).isActive = true
+            button.heightAnchor.constraint(equalToConstant: TelegramGlassPlatter.height).isActive = true
+        }
+        var retryConfiguration = UIButton.Configuration.glass()
+        retryConfiguration.title = L10n.telegram("ChatImportActivity.Retry")
+        retryConfiguration.baseForegroundColor = .white
+        retryButton.configuration = retryConfiguration
         retryButton.translatesAutoresizingMaskIntoConstraints = false
-        retryButton.setTitle(L10n.telegram("ChatImportActivity.Retry"), for: .normal)
-        retryButton.setTitleColor(.white, for: .normal)
-        retryButton.titleLabel?.font = .preferredFont(forTextStyle: .headline)
         retryButton.accessibilityLabel = L10n.betterTG("Accessibility.RetryProfilePhotos")
         retryButton.isHidden = true
         retryButton.addTarget(self, action: #selector(retryLoading), for: .touchUpInside)
         counterLabel.translatesAutoresizingMaskIntoConstraints = false
-        counterLabel.font = .preferredFont(forTextStyle: .subheadline)
-        counterLabel.adjustsFontForContentSizeCategory = true
+        counterLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         counterLabel.textColor = .white
         counterLabel.textAlignment = .center
         counterLabel.accessibilityIdentifier = "avatar-gallery-counter"
-        footer.contentView.addSubview(closeButton)
-        footer.contentView.addSubview(shareButton)
-        footer.contentView.addSubview(moreButton)
-        footer.contentView.addSubview(retryButton)
-        footer.contentView.addSubview(counterLabel)
+        counterPill.translatesAutoresizingMaskIntoConstraints = false
+        counterPill.contentView.addSubview(counterLabel)
+        view.addSubview(bottomShade)
         view.addSubview(footer)
+        view.addSubview(topBar)
+        topBar.addSubview(topShade)
+        topBar.addSubview(counterPill)
+        topBar.addSubview(closeButton)
+        topBar.addSubview(moreButton)
+        footer.addSubview(shareButton)
+        footer.addSubview(retryButton)
+        let edge = TelegramGlassPlatter.edgeInset
+        let footerInset = MediaGalleryChrome.footerBottomInset
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            footer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -50),
+            topBar.topAnchor.constraint(equalTo: view.topAnchor),
+            topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 44),
+            topShade.topAnchor.constraint(equalTo: view.topAnchor),
+            topShade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topShade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topShade.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 44 + 70),
+            closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            closeButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: edge),
+            moreButton.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+            moreButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -edge),
+            counterPill.centerXAnchor.constraint(equalTo: topBar.centerXAnchor),
+            counterPill.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+            counterPill.heightAnchor.constraint(equalToConstant: TelegramGlassPlatter.height),
+            counterLabel.leadingAnchor.constraint(equalTo: counterPill.contentView.leadingAnchor, constant: 14),
+            counterLabel.trailingAnchor.constraint(equalTo: counterPill.contentView.trailingAnchor, constant: -14),
+            counterLabel.centerYAnchor.constraint(equalTo: counterPill.contentView.centerYAnchor),
+            footer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -(44 + footerInset)),
             footer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             footer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            closeButton.topAnchor.constraint(equalTo: footer.contentView.topAnchor),
-            closeButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 4),
-            closeButton.widthAnchor.constraint(equalToConstant: 52),
-            closeButton.heightAnchor.constraint(equalToConstant: 50),
-            shareButton.topAnchor.constraint(equalTo: footer.contentView.topAnchor),
-            shareButton.leadingAnchor.constraint(equalTo: closeButton.trailingAnchor),
-            shareButton.widthAnchor.constraint(equalToConstant: 44),
-            shareButton.heightAnchor.constraint(equalToConstant: 50),
-            moreButton.topAnchor.constraint(equalTo: footer.contentView.topAnchor),
-            moreButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -4),
-            moreButton.widthAnchor.constraint(equalToConstant: 52),
-            moreButton.heightAnchor.constraint(equalToConstant: 50),
-            retryButton.topAnchor.constraint(equalTo: footer.contentView.topAnchor),
-            retryButton.trailingAnchor.constraint(equalTo: moreButton.leadingAnchor, constant: -4),
-            retryButton.heightAnchor.constraint(equalToConstant: 50),
-            counterLabel.centerXAnchor.constraint(equalTo: footer.contentView.centerXAnchor),
-            counterLabel.centerYAnchor.constraint(equalTo: closeButton.centerYAnchor),
+            bottomShade.topAnchor.constraint(equalTo: footer.topAnchor, constant: -70),
+            bottomShade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomShade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomShade.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            shareButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -footerInset),
+            shareButton.leadingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+                constant: footerInset,
+            ),
+            retryButton.centerYAnchor.constraint(equalTo: shareButton.centerYAnchor),
+            retryButton.centerXAnchor.constraint(equalTo: footer.centerXAnchor),
+            retryButton.heightAnchor.constraint(equalToConstant: TelegramGlassPlatter.height),
         ])
         updateActionButtons()
     }
@@ -731,6 +768,7 @@ struct ProfileAvatarGalleryItem: Hashable {
     private func updateCounter() {
         counterLabel.text = totalCount > 1 ? L10n.telegram("Items.NOfM", "\(selectedIndex + 1)", "\(totalCount)") : ""
         counterLabel.accessibilityLabel = counterLabel.text
+        counterPill.isHidden = counterLabel.text?.isEmpty ?? true
         updateActionButtons()
     }
 
