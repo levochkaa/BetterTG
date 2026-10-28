@@ -575,6 +575,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     // MARK: Private
 
     private weak var sourceView: UIView?
+    /// The row's avatar and title flying into the chat preview's header, and back.
+    private var headerFlights = [ContextHeaderFlight]()
     private weak var menuAnchorView: UIView?
     private let menuSpacing: CGFloat
     private let sourceTransform: CGAffineTransform
@@ -800,6 +802,26 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         let scale = TelegramContextMenuLayout.submenuParentScale
         let shift = height * (1 - scale) / 2 * (anchorsBottom ? 1 : -1)
         return CGAffineTransform(scaleX: scale, y: scale).concatenating(CGAffineTransform(translationX: 0, y: shift))
+    }
+
+    /// A label's drawn text, or the whole view.
+    private static func expansionRect(of view: UIView, textOnly: Bool) -> CGRect {
+        guard textOnly, let label = view as? UILabel else { return view.bounds }
+        let text = label.textRect(forBounds: label.bounds, limitedToNumberOfLines: 1)
+        return CGRect(x: text.minX, y: label.bounds.midY - text.height / 2, width: text.width, height: text.height)
+    }
+
+    private static func renderedExpansionImage(of view: UIView, textOnly: Bool) -> UIImage? {
+        let rect = expansionRect(of: view, textOnly: textOnly)
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = view.traitCollection.displayScale
+        let alpha = view.alpha
+        view.alpha = 1
+        defer { view.alpha = alpha }
+        return UIGraphicsImageRenderer(bounds: rect, format: format).image { context in
+            view.layer.render(in: context.cgContext)
+        }
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -1392,6 +1414,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private func animateIn() {
         guard !hasAnimatedIn else { return }
         hasAnimatedIn = true
+        if presentationStyle == .chatPreview { expandPreviewHeader() }
         holdAnimatedEmoji(for: Self.motionHoldDuration)
         if !startLiquidMorphIn() { animateMenuIn() }
         UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
@@ -1483,6 +1506,89 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                 isAdditive: true,
             )
             tipView.animateSelection()
+        }
+    }
+
+    // MARK: Header expansion
+
+    /// The row's avatar and title fly into the chat preview's header as it opens, on the preview's 0.34 s spring, and
+    /// back into the row as it closes; the header's own avatar and title show once they land.
+    private func expandPreviewHeader() {
+        guard let target = previewController as? TelegramContextExpansionAnchors,
+              let source = sequence(first: sourceView, next: { $0?.superview })
+                .lazy
+                .compactMap({ $0 as? TelegramContextExpansionAnchors })
+                .first
+        else { return }
+        previewController?.view.layoutIfNeeded()
+        var flights = [ContextHeaderFlight]()
+        for (from, to, isText) in [
+            (source.contextExpansionAvatar, target.contextExpansionAvatar, false),
+            (source.contextExpansionTitle, target.contextExpansionTitle, true),
+        ] {
+            guard let from, let to, from.window != nil, !from.isHidden, !to.isHidden,
+                  let image = Self.renderedExpansionImage(of: from, textOnly: isText)
+            else { continue }
+            let sourceRect = view.convert(Self.expansionRect(of: from, textOnly: isText), from: from)
+            let inContainer = previewContainer.convert(Self.expansionRect(of: to, textOnly: isText), from: to)
+            let targetRect = inContainer.offsetBy(dx: targetPreviewFrame.minX, dy: targetPreviewFrame.minY)
+            let flyer = UIImageView(image: image)
+            flyer.frame = sourceRect
+            view.addSubview(flyer)
+            to.alpha = 0
+            flights.append(ContextHeaderFlight(flyer: flyer, anchor: to, targetRect: targetRect, isText: isText))
+        }
+        guard !flights.isEmpty else { return }
+        headerFlights = flights
+        UIView.animate(
+            withDuration: 0.34,
+            delay: 0,
+            usingSpringWithDamping: 0.84,
+            initialSpringVelocity: 0,
+            options: [.allowUserInteraction, .beginFromCurrentState],
+        ) {
+            for flight in flights {
+                flight.flyer.frame = flight.targetRect
+            }
+        } completion: { [weak self] _ in
+            guard let self, !isDismissing else { return }
+            UIView.animate(withDuration: 0.12) {
+                for flight in flights {
+                    flight.anchor.alpha = 1
+                    flight.flyer.alpha = 0
+                }
+            } completion: { _ in
+                flights.forEach { $0.flyer.removeFromSuperview() }
+            }
+        }
+    }
+
+    /// The header's avatar and title fly back to the row while the preview shrinks into it.
+    private func collapsePreviewHeader(duration: TimeInterval) {
+        guard !headerFlights.isEmpty,
+              let source = sequence(first: sourceView, next: { $0?.superview })
+                .lazy
+                .compactMap({ $0 as? TelegramContextExpansionAnchors })
+                .first
+        else { return }
+        for flight in headerFlights {
+            let from = flight.isText ? source.contextExpansionTitle : source.contextExpansionAvatar
+            guard let from, flight.anchor.window != nil,
+                  let image = Self.renderedExpansionImage(of: flight.anchor, textOnly: flight.isText)
+            else { continue }
+            flight.flyer.layer.removeAllAnimations()
+            flight.flyer.image = image
+            flight.flyer.alpha = 1
+            flight.flyer.frame = view.convert(
+                Self.expansionRect(of: flight.anchor, textOnly: flight.isText),
+                from: flight.anchor,
+            )
+            if flight.flyer.superview == nil { view.addSubview(flight.flyer) }
+            flight.anchor.alpha = 0
+            let target = view.convert(Self.expansionRect(of: from, textOnly: flight.isText), from: from)
+            UIView.animate(withDuration: duration, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
+                flight.flyer.frame = target
+            }
         }
     }
 
@@ -1672,6 +1778,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         }
         // The preview flies back to where the source sits on screen, in the scrolled content's coordinates.
         let returnFrame = sourceFrameAtBaseTransform().offsetBy(dx: 0, dy: contentScrollOffset)
+        if presentationStyle == .chatPreview { collapsePreviewHeader(duration: 0.24) }
         animateMenuOut(returnFrame: returnFrame)
         // Fading the strip itself renders its blur and emoji layers offscreen every frame, which halved the close's
         // frame rate on the Simulator; its snapshot fades as one layer, and the emoji are on hold anyway.
@@ -1742,6 +1849,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         previewController?.view.removeFromSuperview()
         previewController?.removeFromParent()
         if presentationStyle.showsPreview { sourceView?.alpha = 1 }
+        for flight in headerFlights {
+            flight.anchor.alpha = 1
+            flight.flyer.removeFromSuperview()
+        }
+        headerFlights = []
         beginAppearanceTransition(false, animated: false)
         view.removeFromSuperview()
         endAppearanceTransition()
@@ -3119,3 +3231,21 @@ extension UIView {
     }
 }
 #endif
+
+// MARK: - TelegramContextExpansionAnchors
+
+/// A chat row, or a chat screen in a preview, whose avatar and title a chat preview's header grows out of or into.
+@MainActor protocol TelegramContextExpansionAnchors: AnyObject {
+    var contextExpansionAvatar: UIView? { get }
+    var contextExpansionTitle: UIView? { get }
+}
+
+// MARK: - ContextHeaderFlight
+
+/// One of the row's views flying into the preview's header.
+private struct ContextHeaderFlight {
+    let flyer: UIImageView
+    let anchor: UIView
+    let targetRect: CGRect
+    let isText: Bool
+}

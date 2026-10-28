@@ -2535,3 +2535,10 @@ final class ForumTopicIconView: UIView {
 extension ForumTopicsViewController: TelegramGlassPlatterHost {
     var telegramGlassPlatters: [TelegramGlassPlatter] { navigationBarView.glassPlatters }
 }
+
+// MARK: - ForumTopicsViewController + TelegramContextExpansionAnchors
+
+extension ForumTopicsViewController: TelegramContextExpansionAnchors {
+    var contextExpansionAvatar: UIView? { nil }
+    var contextExpansionTitle: UIView? { navigationBarView.expansionTitleView }
+}

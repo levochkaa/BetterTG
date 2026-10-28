@@ -12353,3 +12353,10 @@ private final class MessageFileExportDelegate: NSObject, UIDocumentPickerDelegat
 extension ChatViewController: TelegramGlassPlatterHost {
     var telegramGlassPlatters: [TelegramGlassPlatter] { customNavigationBar.glassPlatters }
 }
+
+// MARK: - ChatViewController + TelegramContextExpansionAnchors
+
+extension ChatViewController: TelegramContextExpansionAnchors {
+    var contextExpansionAvatar: UIView? { customNavigationBar.expansionAvatarView }
+    var contextExpansionTitle: UIView? { customNavigationBar.expansionTitleView }
+}

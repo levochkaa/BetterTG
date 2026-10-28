@@ -82,6 +82,9 @@ final class TelegramListNavigationBar: UIView {
 
     var rightButtonView: UIView { rightButton }
 
+    /// The title a chat preview's header grows out of the chat list's row into.
+    var expansionTitleView: UIView? { titleLabel }
+
     /// The bar's glass platters for the push and pop morph, leading first.
     var glassPlatters: [TelegramGlassPlatter] {
         allPlatters.filter { !$0.isHidden }
@@ -540,6 +543,10 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     var glassPlatters: [TelegramGlassPlatter] {
         [leadingPlatter, titlePlatter, trailingPlatter, selectionCancelPlatter].filter { !$0.isHidden }
     }
+
+    /// The avatar and title a chat preview's header grows out of the chat list's row into.
+    var expansionAvatarView: UIView? { avatarView.isHidden ? nil : avatarView }
+    var expansionTitleView: UIView? { titleLabel }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
