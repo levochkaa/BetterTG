@@ -15,11 +15,13 @@ import UIKit
 /// which re-creates UIKit's iOS 26 bar: the titles ride their screens while both bars' glass platters are drawn once,
 /// standing above both screens, and morph from the outgoing bar's layout into the incoming one's.
 ///
-/// Platters pair by role: the leading one, the right pills counted from the edge, and a chat header's title pill with
-/// another title pill. A paired platter is one shape whose frame springs to its new place
-/// while the old items shrink away and the new ones grow in. A right pill only the incoming bar has grows out of the
-/// nearest pill nearer the edge; one only the outgoing bar has collapses into it, and UIKit's glass container draws
-/// the liquid neck between them. Anything else materializes or dematerializes in place. An interactive pop keeps the
+/// Platters pair by role: the leading one and the right pills counted from the edge. A chat header's title pill is its
+/// bar's second right pill (Telegram's `titlePillRole`) while the bar has at most one other, so Chats' compose pill
+/// morphs into it; otherwise it pairs only with another title pill. A paired platter is one shape whose frame springs
+/// to its new place while each bar's items stay where that bar has them, the old ones shrinking away and the new ones
+/// growing in. A right pill only the incoming bar has grows out of the nearest pill nearer the edge; one only the
+/// outgoing bar has collapses into it, and UIKit's glass container draws the liquid neck between them. Anything else,
+/// a title pill included, materializes or dematerializes in place. An interactive pop keeps the
 /// outgoing platters still while the finger drags, and runs the springs once the swipe is released.
 @MainActor final class TelegramGlassNavigationMorph {
     // MARK: Private
@@ -155,12 +157,12 @@ import UIKit
         for (index, platter) in trailing.enumerated() {
             result[.trailing(index)] = platter
         }
-        // A chat header's title pill morphs only into another title; otherwise it shows and hides in place, neither
-        // pulling a pill toward the centre nor sliding to the edge.
         for platter in shown {
             switch platter.role {
             case .leading: result[.leading] = platter
             case .leadingSection(let index): result[.leadingSection(index)] = platter
+            // The second right slot while it is free (NavigationBarPlatterTransitionView's `titlePill`).
+            case .title where trailing.count <= 1: result[.trailing(1)] = platter
             case .title: result[.title] = platter
             case .trailing: break
             }
@@ -210,9 +212,10 @@ import UIKit
             piece.destination = incoming
             if let outgoing, let incoming {
                 piece.identicalItems = Self.signature(of: outgoing) == Self.signature(of: incoming)
-            } else if outgoing == nil {
-                piece.sourcePartner = Self.partner(of: key, in: from)
-            } else {
+            } else if let incoming {
+                // A title pill with no platter in its slot on the other bar shows in place, never out of a neighbour.
+                if incoming.role != .title { piece.sourcePartner = Self.partner(of: key, in: from) }
+            } else if outgoing?.role != .title {
                 piece.destinationPartner = Self.partner(of: key, in: to)
             }
             if let outgoing {
