@@ -80,7 +80,7 @@ final class TelegramListNavigationBar: UIView {
     private var appliedScroll: (CGFloat, CGFloat, Bool)?
     private var searchTopConstraint: NSLayoutConstraint!
 
-    /// The right button's glass circle, which a menu opened from the button morphs out of whole, as Telegram's pills do.
+    /// The right button's glass circle; a menu opened from it morphs the whole pill, as Telegram's do.
     var rightButtonView: UIView { trailingPlatter }
 
     /// The title a chat preview's header grows out of the chat list's row into.
