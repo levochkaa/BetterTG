@@ -21,7 +21,12 @@ final class NewMessageViewController: SettingsListViewController, UISearchResult
     }
 
     private let searchController = UISearchController(searchResultsController: nil)
-    private let sortButton = UIButton(type: .system)
+    private lazy var sortItem = UIBarButtonItem(
+        title: L10n.telegram("Contacts.Sort"),
+        style: .plain,
+        target: self,
+        action: #selector(sortPressed),
+    )
     private var contacts = [ComposeContact]()
     private var contactSections = [ComposeContactSection]()
     private var isLoading = true
@@ -49,9 +54,7 @@ final class NewMessageViewController: SettingsListViewController, UISearchResult
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("Compose.NewMessage")
-        sortButton.setTitle(L10n.telegram("Contacts.Sort"), for: .normal)
-        sortButton.addTarget(self, action: #selector(sortPressed), for: .touchUpInside)
-        navigationItem.rightBarButtonItem = UIBarButtonItem(customView: sortButton)
+        navigationItem.rightBarButtonItem = sortItem
         searchController.searchResultsUpdater = self
         searchController.obscuresBackgroundDuringPresentation = false
         searchController.searchBar.placeholder = L10n.telegram("Common.Search")
@@ -202,9 +205,9 @@ final class NewMessageViewController: SettingsListViewController, UISearchResult
         }
     }
 
-    /// ContactsController's Sort menu: by Last Seen or by Name.
+    /// ContactsController's Sort menu, by Last Seen or by Name, growing out of the Sort pill.
     @objc private func sortPressed() {
-        guard contextIsCurrent else { return }
+        guard contextIsCurrent, let source = sortItem.telegramChromeView else { return }
         let current = sort
         let actions = [ComposeContactSort.presence, .name].map { option in
             TelegramContextMenuAction(
@@ -212,7 +215,7 @@ final class NewMessageViewController: SettingsListViewController, UISearchResult
                 image: option == current ? UIImage(systemName: "checkmark") : nil,
             ) { [weak self] in self?.setSort(option) }
         }
-        presentTelegramContextMenu(sourceView: sortButton, actions: actions, presentationStyle: .menuOnly)
+        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .sourceMorph)
     }
 
     private func setSort(_ value: ComposeContactSort) {

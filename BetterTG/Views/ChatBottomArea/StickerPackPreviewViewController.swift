@@ -16,7 +16,10 @@ UICollectionViewDelegate {
     private let client: TDLibClient
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: makeLayout())
     private let actionButton = UIButton(configuration: .filled())
-    private let moreButton = UIButton(type: .system)
+    private let moreButton = UIButton.telegramGlassIcon(
+        UIImage(systemName: "ellipsis"),
+        accessibilityLabel: L10n.telegram("Common.More"),
+    )
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
     private var stickerSet: TDNativeStickerSet?
     private var stickers = [Sticker]()
@@ -48,8 +51,6 @@ UICollectionViewDelegate {
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: L10n.telegram("Common.Close"), style: .plain, target: self, action: #selector(closePressed),
         )
-        moreButton.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
-        moreButton.accessibilityLabel = L10n.telegram("Common.More")
         moreButton.isEnabled = false
         moreButton.addTarget(self, action: #selector(morePressed), for: .touchUpInside)
         navigationItem.rightBarButtonItem = UIBarButtonItem(customView: moreButton)
@@ -210,7 +211,7 @@ UICollectionViewDelegate {
                     undo: nil,
                 )
             },
-        ], presentationStyle: .menuOnly)
+        ], presentationStyle: .sourceMorph)
     }
 
     /// Telegram's Add or Remove button, then the sheet closes with "Stickers Added" or "Stickers Removed".
