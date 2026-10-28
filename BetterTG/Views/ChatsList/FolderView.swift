@@ -646,6 +646,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === tableView else { return }
         onSearchScrollOffsetChange?(searchScrollOffset)
+        updateIndicatorTopInset()
     }
 
     override func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -872,6 +873,18 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     /// Remove from Folder, and Pin in the chat's own list.
     func searchResultMenu(for chat: CustomChat) -> [TelegramContextMenuAction] {
         menu(for: chat, inSearch: true)
+    }
+
+    /// The navigation bar grows with a pull past the top of the list; the scroll indicator starts below it.
+    private func updateIndicatorTopInset() {
+        let base = (searchActive
+            ? ChatListNavigationSearchView.scrollHeight
+            : TelegramListNavigationBar.expandedContentHeight) + accessoryTopInset
+        let pull = searchActive ? 0 : max(0, -(tableView.contentOffset.y + tableView.adjustedContentInset.top))
+        let top = base + pull
+        if abs(tableView.verticalScrollIndicatorInsets.top - top) > 0.5 {
+            tableView.verticalScrollIndicatorInsets.top = top
+        }
     }
 
     /// Telegram opens a chat's stories from its avatar (ChatListItem.avatarStoryTapGesture) and then pages through
