@@ -612,7 +612,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         NSLayoutConstraint.activate([
             folderPicker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             folderPicker.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            folderPicker.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -58),
+            folderPicker.topAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+                constant: -FolderPickerView.barHeight,
+            ),
             folderPicker.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         view.bringSubviewToFront(customNavigationBar)
@@ -628,13 +631,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         resultsView.translatesAutoresizingMaskIntoConstraints = false
         view.insertSubview(resultsView, aboveSubview: pageController.view)
         searchResultsController.didMove(toParent: self)
-        // Results end above the keyboard; without it they reach the bottom edge and inset for the home indicator.
-        view.keyboardLayoutGuide.usesBottomSafeArea = false
+        // The results fill the screen, under the bar and the keyboard, and inset their lists for both.
         NSLayoutConstraint.activate([
-            resultsView.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+            resultsView.topAnchor.constraint(equalTo: view.topAnchor),
             resultsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             resultsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            resultsView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+            resultsView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         resultsView.alpha = 0
         resultsView.isHidden = true
@@ -682,6 +684,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private func updateNavigationBarHeight(contentHeight: CGFloat) {
         currentNavigationContentHeight = contentHeight
         navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + contentHeight
+        searchResultsController.topBarHeight = view.safeAreaInsets.top + contentHeight
     }
 
     private func configureVoicePlaybackHeader() {
@@ -1306,6 +1309,9 @@ final class FolderPickerView: UIView {
         let title: String
     }
 
+    /// The strip's height above the bottom inset: the blur above the capsule, the capsule and the same gap under it.
+    static let barHeight: CGFloat = 58
+
     // MARK: Private
 
     private static let springDuration: TimeInterval = 0.4
@@ -1491,6 +1497,9 @@ final class FolderPickerView: UIView {
         liftedContainer.addSubview(controlEffectView)
 
         controlContainer.translatesAutoresizingMaskIntoConstraints = false
+        // The capsule keeps the strip off the screen's edges; a safe area around it, such as the search filters' over
+        // the keyboard, must not shift it.
+        controlContainer.contentInsetAdjustmentBehavior = .never
         controlContainer.showsHorizontalScrollIndicator = false
         controlContainer.isDirectionalLockEnabled = true
         controlContainer.delaysContentTouches = false
@@ -1531,6 +1540,9 @@ final class FolderPickerView: UIView {
         controlContainer.onViewportWidthChange = { [weak self] in
             self?.updateResolvedWidths()
             self?.layoutSelection(animated: false)
+            // An offset centred while the strip had no width yet, such as the search filters' before they first
+            // show, would leave the first segment cut off.
+            self?.scrollSelectedSegmentIntoView(animated: false)
         }
 
         stripWidthConstraint = stripView.widthAnchor.constraint(equalToConstant: 0)
@@ -1657,6 +1669,7 @@ final class FolderPickerView: UIView {
         guard let index = items.firstIndex(where: { $0.id == selectedID }),
               buttons.indices.contains(index) else { return }
         layoutIfNeeded()
+        guard controlContainer.bounds.width > 0 else { return }
         let selectedFrame = segmentFrame(at: index)
         let maximumOffset = max(0, controlContainer.contentSize.width - controlContainer.bounds.width)
         let centeredOffset = selectedFrame.midX - controlContainer.bounds.width / 2

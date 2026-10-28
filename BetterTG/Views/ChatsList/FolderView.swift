@@ -100,6 +100,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
             guard let self else { return }
             currentNavigationContentHeight = contentHeight
             navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + contentHeight
+            searchResultsController.topBarHeight = view.safeAreaInsets.top + contentHeight
         }
         TDLib.shared
             .chatListNetworkStatus
@@ -132,6 +133,7 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + currentNavigationContentHeight
+        searchResultsController.topBarHeight = view.safeAreaInsets.top + currentNavigationContentHeight
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -267,13 +269,12 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
         resultsView.translatesAutoresizingMaskIntoConstraints = false
         view.insertSubview(resultsView, belowSubview: navigationBarView)
         searchResultsController.didMove(toParent: self)
-        // Results end above the keyboard; without it they reach the bottom edge and inset for the home indicator.
-        view.keyboardLayoutGuide.usesBottomSafeArea = false
+        // The results fill the screen, under the bar and the keyboard, and inset their lists for both.
         NSLayoutConstraint.activate([
-            resultsView.topAnchor.constraint(equalTo: navigationBarView.bottomAnchor),
+            resultsView.topAnchor.constraint(equalTo: view.topAnchor),
             resultsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             resultsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            resultsView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
+            resultsView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         resultsView.alpha = 0
         resultsView.isHidden = true

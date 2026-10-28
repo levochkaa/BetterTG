@@ -46,12 +46,24 @@ import UIKit
     /// page under the search.
     var chatMenu: ((CustomChat) -> [TelegramContextMenuAction])?
 
+    /// The height of the bar above the results, from the top of the screen. The results fill the screen and scroll
+    /// under the bar's blur, as Telegram's search container does, starting below it.
+    var topBarHeight: CGFloat = 0 {
+        didSet {
+            guard topBarHeight != oldValue, isViewLoaded else { return }
+            view.setNeedsLayout()
+        }
+    }
+
     private let rootVM: RootVM
     private let chatList: ChatList
     private let actionAuthority: ChatListActionAuthority
     private let tableView = UITableView(frame: .zero, style: .plain)
-    /// ChatListSearchFiltersContainerNode's tabs, in BetterTG's folder strip.
+    /// ChatListSearchFiltersContainerNode's tabs, in BetterTG's folder strip: at the bottom like the chat list's
+    /// folders, and 8 pt above the keyboard while it is up.
     private let filterPicker = FolderPickerView()
+    /// The filter strip's place without the keyboard, above the screen's own bottom inset.
+    private var filterRestingTopConstraint: NSLayoutConstraint?
     private let filterResults = ChatListSearchFilterResultsView()
     private let downloadsView = ChatListDownloadsView()
     /// Whether TDLib's download list has files, which adds the Downloads tab (`hasDownloads`).
@@ -125,6 +137,37 @@ import UIKit
         super.viewDidAppear(animated)
         // A search started before this screen joined the navigation stack had no owner to deliver to.
         if !query.isEmpty, searchTask == nil, completedGeneration != generation { startSearch() }
+    }
+
+    /// The lists start below the bar and end above the filter strip, and the keyboard under it, through the safe
+    /// area, which their scroll views inset by.
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let outer = UIEdgeInsets(
+            top: view.safeAreaInsets.top - additionalSafeAreaInsets.top,
+            left: 0,
+            bottom: view.safeAreaInsets.bottom - additionalSafeAreaInsets.bottom,
+            right: 0,
+        )
+        let restingTop = -FolderPickerView.barHeight - outer.bottom
+        if filterRestingTopConstraint?.constant != restingTop {
+            filterRestingTopConstraint?.constant = restingTop
+            view.layoutIfNeeded()
+        }
+        let insets = UIEdgeInsets(
+            top: max(0, topBarHeight - outer.top),
+            left: 0,
+            bottom: max(0, view.bounds.maxY - filterPicker.frame.minY - outer.bottom),
+            right: 0,
+        )
+        guard additionalSafeAreaInsets != insets else { return }
+        let previousTop = tableView.adjustedContentInset.top
+        let wasAtTop = tableView.contentOffset.y <= -previousTop + 1
+        additionalSafeAreaInsets = insets
+        // A list resting at its top stays there as the bar above it changes height.
+        if wasAtTop, !tableView.isTracking {
+            tableView.contentOffset.y = -tableView.adjustedContentInset.top
+        }
     }
 
     /// Telegram's ContactsPeerItem status: a global result shows its address and audience, a local bot its users
@@ -423,20 +466,37 @@ import UIKit
         }
         downloadsView.presenter = { [weak self] in self }
         view.addSubview(downloadsView)
+        // Above the lists: they scroll under its blur.
+        view.bringSubviewToFront(filterPicker)
+        // ChatListSearchContainerNode's filterContainerFrame: 8 pt above the keyboard, or where the folders rest
+        // without it, whichever is higher.
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
+        let restingTop = filterPicker.topAnchor.constraint(
+            lessThanOrEqualTo: view.bottomAnchor,
+            constant: -FolderPickerView.barHeight,
+        )
+        filterRestingTopConstraint = restingTop
+        let lowestTop = filterPicker.topAnchor.constraint(equalTo: view.bottomAnchor)
+        lowestTop.priority = .defaultLow
         NSLayoutConstraint.activate([
-            filterPicker.topAnchor.constraint(equalTo: view.topAnchor),
+            filterPicker.topAnchor.constraint(
+                lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor,
+                constant: -FolderPickerView.barHeight,
+            ),
+            restingTop,
+            lowestTop,
             filterPicker.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             filterPicker.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            filterPicker.heightAnchor.constraint(equalToConstant: 58),
-            tableView.topAnchor.constraint(equalTo: filterPicker.bottomAnchor),
+            filterPicker.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            filterResults.topAnchor.constraint(equalTo: filterPicker.bottomAnchor),
+            filterResults.topAnchor.constraint(equalTo: view.topAnchor),
             filterResults.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             filterResults.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             filterResults.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            downloadsView.topAnchor.constraint(equalTo: filterPicker.bottomAnchor),
+            downloadsView.topAnchor.constraint(equalTo: view.topAnchor),
             downloadsView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             downloadsView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             downloadsView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
