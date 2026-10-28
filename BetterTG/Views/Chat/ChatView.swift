@@ -3478,8 +3478,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func configureMessageSearchPanel() {
         messageSearchPanel.translatesAutoresizingMaskIntoConstraints = false
-        messageSearchPanel.isHidden = true
-        messageSearchPanel.alpha = 0
         messageSearchPanel.onCalendar = { [weak self] in self?.presentMessageSearchCalendar() }
         messageSearchPanel.onMembers = { [weak self] in self?.beginMessageSearchMemberChoice() }
         messageSearchPanel.onOlder = { [weak self] in
@@ -8560,15 +8558,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func setMessageSearchPanelVisible(_ visible: Bool) {
         guard messageSearchPanel.superview != nil else { return }
-        if visible {
-            updateMessageSearchPanel()
-            messageSearchPanel.isHidden = false
-        }
-        UIView.animate(withDuration: 0.2) {
-            self.messageSearchPanel.alpha = visible ? 1 : 0
-        } completion: { _ in
-            if !self.messageSearchActive { self.messageSearchPanel.isHidden = true }
-        }
+        if visible { updateMessageSearchPanel() }
+        messageSearchPanel.setVisible(visible, animated: true)
     }
 
     /// Telegram highlights the query in the text of found messages only (updateItemNodesSearchTextHighlightStates).
