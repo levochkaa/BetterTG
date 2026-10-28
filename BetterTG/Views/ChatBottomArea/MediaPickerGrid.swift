@@ -1,5 +1,6 @@
 // MediaPickerGrid.swift
 
+import AVFoundation
 import Photos
 import UIKit
 
@@ -286,16 +287,23 @@ final class MediaPickerGridCell: UICollectionViewCell {
 
 // MARK: - MediaPickerCameraCell
 
-/// MediaPickerScreen's camera tile at the start of Recents. Telegram shows the live camera in it; here it opens the
-/// camera.
+/// MediaPickerScreen's camera tile at the start of Recents: the live back camera under the camera icon while camera
+/// access is granted, as Telegram's AttachmentCameraNode shows it; a tap opens the camera.
 final class MediaPickerCameraCell: UICollectionViewCell {
     static let reuseIdentifier = "MediaPickerCameraCell"
 
+    private let previewView = MediaPickerCameraPreviewView()
     private let iconView = UIImageView(image: UIImage(systemName: "camera.fill"))
+    private var isFeeding = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         contentView.backgroundColor = .black
+        previewView.previewLayer.videoGravity = .resizeAspectFill
+        previewView.isUserInteractionEnabled = false
+        previewView.frame = contentView.bounds
+        previewView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        contentView.addSubview(previewView)
         iconView.tintColor = .white
         iconView.contentMode = .center
         iconView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 26, weight: .regular)
@@ -311,6 +319,80 @@ final class MediaPickerCameraCell: UICollectionViewCell {
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow != nil, !isFeeding {
+            isFeeding = MediaPickerCameraFeed.shared.attach(previewView.previewLayer)
+        } else if newWindow == nil, isFeeding {
+            isFeeding = false
+            MediaPickerCameraFeed.shared.detach(previewView.previewLayer)
+        }
+    }
+}
+
+// MARK: - MediaPickerCameraPreviewView
+
+final class MediaPickerCameraPreviewView: UIView {
+    override static var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+
+    var previewLayer: AVCaptureVideoPreviewLayer {
+        guard let layer = layer as? AVCaptureVideoPreviewLayer else {
+            preconditionFailure("MediaPickerCameraPreviewView requires AVCaptureVideoPreviewLayer")
+        }
+        return layer
+    }
+}
+
+// MARK: - MediaPickerCameraFeed
+
+/// The camera tiles' shared capture session: the back camera at the medium preset, running while a tile shows. It
+/// never asks for camera access; until the user grants it, the tiles stay dark.
+final class MediaPickerCameraFeed: @unchecked Sendable {
+    // MARK: Internal
+
+    static let shared = MediaPickerCameraFeed()
+
+    // MARK: Private
+
+    private let session = AVCaptureSession()
+    private let queue = DispatchQueue(label: "bettertg.media-picker-camera")
+    private var isConfigured = false
+    @MainActor private var users = 0
+
+    /// Shows the camera in `layer`; false without camera access.
+    @MainActor func attach(_ layer: AVCaptureVideoPreviewLayer) -> Bool {
+        guard AVCaptureDevice.authorizationStatus(for: .video) == .authorized else { return false }
+        layer.session = session
+        users += 1
+        queue.async { [self] in
+            if !isConfigured { configure() }
+            if !session.isRunning { session.startRunning() }
+        }
+        return true
+    }
+
+    @MainActor func detach(_ layer: AVCaptureVideoPreviewLayer) {
+        layer.session = nil
+        users = max(0, users - 1)
+        guard users == 0 else { return }
+        queue.async { [self] in
+            if session.isRunning { session.stopRunning() }
+        }
+    }
+
+    /// On `queue` only.
+    private func configure() {
+        isConfigured = true
+        session.beginConfiguration()
+        session.sessionPreset = .medium
+        if let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+           let input = try? AVCaptureDeviceInput(device: device), session.canAddInput(input)
+        {
+            session.addInput(input)
+        }
+        session.commitConfiguration()
+    }
 }
 
 // MARK: - MediaPickerManageBanner
