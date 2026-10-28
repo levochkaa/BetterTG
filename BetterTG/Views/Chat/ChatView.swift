@@ -3898,7 +3898,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         )
         if let unreadJumpLayout, unreadJumpLayout == layout { return }
         unreadJumpLayout = layout
-        let step: CGFloat = 36 + 12
+        let step = ChatHistoryNavigationButton.side + 12
         let mentionsOffset = layout.latest ? step : 0
         let reactionsOffset = mentionsOffset + (layout.mentions ? step : 0)
         let changes = {
