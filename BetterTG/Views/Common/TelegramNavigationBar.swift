@@ -563,10 +563,14 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private var showsMoreButton = false
     private var avatarSlotView: UIView?
     private let searchField = ChatSearchTextField()
+    /// ChatSearchNavigationContentNode: the chat list's glass field and close button in place of the bar's row.
+    private lazy var searchView = ChatListNavigationSearchView(
+        placeholder: L10n.telegram("Conversation.SearchPlaceholder"),
+        field: searchField,
+    )
     private var searchMemberScope = SearchMemberScope.none
     private var defaultSearchLeftView: UIView?
     private let searchMemberPrefixLabel = UILabel()
-    private let closeButton = UIButton(type: .system)
     private let selectionCancelButton = UIButton(type: .system)
     private var searchActive = false
     private var selectionCount: Int?
@@ -580,7 +584,8 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private var configuredStatusColor = UIColor.secondaryLabel
     private var configuredActivity: ChatActivityIndicatorView.Kind?
 
-    var visibleContentHeight: CGFloat { searchActive ? ChatListNavigationSearchView.scrollHeight : Self.contentHeight }
+    /// The bar keeps its height while searching: the field takes the row's place.
+    var visibleContentHeight: CGFloat { Self.contentHeight }
 
     /// The bar's glass platters for the push and pop morph, leading first.
     var glassPlatters: [TelegramGlassPlatter] {
@@ -758,15 +763,15 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         case .none:
             searchField.tokens = []
             searchField.leftView = defaultSearchLeftView
-            searchField.placeholder = L10n.telegram("Conversation.SearchPlaceholder")
+            searchView.setPlaceholder(L10n.telegram("Conversation.SearchPlaceholder"))
         case .choosing:
             searchField.tokens = []
             searchMemberPrefixLabel.sizeToFit()
             searchField.leftView = searchMemberPrefixLabel
-            searchField.placeholder = L10n.telegram("Conversation.SearchByName.Placeholder")
+            searchView.setPlaceholder(L10n.telegram("Conversation.SearchByName.Placeholder"))
         case .chosen(let title):
             searchField.leftView = defaultSearchLeftView
-            searchField.placeholder = nil
+            searchView.setPlaceholder("")
             searchField.tokens = [UISearchToken(icon: UIImage(systemName: "person.fill"), text: title)]
         }
     }
@@ -811,17 +816,14 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     @objc func beginSearch() {
         guard !searchActive, selectionCount == nil else { return }
         searchActive = true
-        searchField.isHidden = false
-        closeButton.isHidden = false
         searchField.textColor = .label
         onSearchActiveChange?(true)
+        searchView.setPresented(true)
         searchField.becomeFirstResponder()
         UIView.animate(withDuration: 0.2) {
             self.titlePlatter.alpha = 0
             self.trailingPlatter.alpha = 0
             self.leadingPlatter.alpha = 0
-            self.searchField.alpha = 1
-            self.closeButton.alpha = 1
         }
     }
 
@@ -952,20 +954,10 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         moreButton.addTarget(self, action: #selector(morePressed), for: .touchUpInside)
         trailingPlatter.setItems([avatarSlot, moreButton])
 
-        searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.placeholder = L10n.telegram("Conversation.SearchPlaceholder")
-        searchField.clearButtonMode = .whileEditing
-        searchField.returnKeyType = .search
-        searchField.autocorrectionType = .no
-        searchField.autocapitalizationType = .none
-        searchField.borderStyle = .none
-        searchField.backgroundColor = .tertiarySystemFill
-        searchField.layer.cornerRadius = 18
-        searchField.layer.cornerCurve = .continuous
-        searchField.clipsToBounds = true
-        searchField.delegate = self
-        searchField.alpha = 0
-        searchField.isHidden = true
+        searchView.translatesAutoresizingMaskIntoConstraints = false
+        searchView.followsFocus = false
+        searchView.onClose = { [weak self] in self?.endSearch() }
+        searchView.isHidden = true
         searchField.addTarget(self, action: #selector(searchChanged), for: .editingChanged)
         searchField.onDeleteBackward = { [weak self] wasEmpty in
             guard let self else { return }
@@ -981,16 +973,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         searchMemberPrefixLabel.text = L10n.telegram("Conversation.SearchByName.Prefix")
         searchMemberPrefixLabel.font = .preferredFont(forTextStyle: .body)
         searchMemberPrefixLabel.textColor = .label
-        addSubview(searchField)
-
-        closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-        closeButton.tintColor = .secondaryLabel
-        closeButton.accessibilityLabel = L10n.betterTG("Accessibility.CloseSearch")
-        closeButton.alpha = 0
-        closeButton.isHidden = true
-        closeButton.addTarget(self, action: #selector(endSearch), for: .touchUpInside)
-        addSubview(closeButton)
+        addSubview(searchView)
 
         selectionCancelButton.setTitle(L10n.telegram("Common.Cancel"), for: .normal)
         selectionCancelButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
@@ -1062,14 +1045,11 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             titleStack.trailingAnchor.constraint(equalTo: titleControl.trailingAnchor, constant: -titleEnd),
             titleStack.centerYAnchor.constraint(equalTo: titleControl.centerYAnchor),
 
-            closeButton.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -6),
-            closeButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
-            closeButton.widthAnchor.constraint(equalToConstant: 38),
-            closeButton.heightAnchor.constraint(equalToConstant: 38),
-            searchField.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 12),
-            searchField.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -4),
-            searchField.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            searchField.heightAnchor.constraint(equalToConstant: 36),
+            // The field and its close button on the row the buttons leave.
+            searchView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
+            searchView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+            searchView.centerYAnchor.constraint(equalTo: leadingPlatter.centerYAnchor),
+            searchView.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.scrollHeight),
         ])
         refreshPlatters()
     }
@@ -1112,15 +1092,11 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         searchField.resignFirstResponder()
         onSearchQueryChange?("")
         onSearchActiveChange?(false)
+        searchView.setPresented(false)
         UIView.animate(withDuration: 0.2) {
             self.titlePlatter.alpha = 1
             self.trailingPlatter.alpha = 1
             self.leadingPlatter.alpha = 1
-            self.searchField.alpha = 0
-            self.closeButton.alpha = 0
-        } completion: { _ in
-            self.searchField.isHidden = true
-            self.closeButton.isHidden = true
         }
     }
 
