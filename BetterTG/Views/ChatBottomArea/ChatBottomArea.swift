@@ -219,6 +219,11 @@ final class ChatComposerView: UIView {
     private var videoNoteTrimSaving = false
     private var replyKeyboardButtonShowsSystemKeyboard: Bool?
     private var mediaInputButtonIcon: MediaInputButtonIcon?
+    /// Telegram's input mode icon (AccessoryItemIconButton): its `input_anim_*` Lottie, 32 pt.
+    private let mediaInputIcon = TelegramLottieIconView(side: 32)
+    /// ChatTextInputMediaRecordingButton's microphone and camera: `anim_micToVideo` and back, 30 pt.
+    private let recordModeIcon = TelegramLottieIconView(side: 30)
+    private var shownRecordMode: ChatMediaRecordingMode?
     /// The text's slot in the button row: the field lies over it while the text fits beside the buttons, and it
     /// keeps the row's place once the text moves above them.
     private let textSlot = UIView()
@@ -1168,10 +1173,26 @@ final class ChatComposerView: UIView {
         )
         mediaInputConfiguration.baseForegroundColor = .secondaryLabel
         mediaInputConfiguration.contentInsets = .zero
-        // Telegram morphs the icon between stickers, emoji and the keyboard (`input_anim_stickerToKey` and others).
-        mediaInputConfiguration.symbolContentTransition = UISymbolContentTransition(.replace)
         mediaInputButton.configuration = mediaInputConfiguration
         mediaInputButton.isHidden = true
+        // Telegram morphs the icon between stickers, emoji and the keyboard with `input_anim_stickerToKey` and the
+        // others.
+        mediaInputIcon.tintColor = .secondaryLabel
+        mediaInputIcon.translatesAutoresizingMaskIntoConstraints = false
+        mediaInputButton.addSubview(mediaInputIcon)
+        recordModeIcon.translatesAutoresizingMaskIntoConstraints = false
+        recordModeIcon.isHidden = true
+        actionButton.addSubview(recordModeIcon)
+        NSLayoutConstraint.activate([
+            mediaInputIcon.centerXAnchor.constraint(equalTo: mediaInputButton.centerXAnchor),
+            mediaInputIcon.centerYAnchor.constraint(equalTo: mediaInputButton.centerYAnchor),
+            mediaInputIcon.widthAnchor.constraint(equalToConstant: 32),
+            mediaInputIcon.heightAnchor.constraint(equalToConstant: 32),
+            recordModeIcon.centerXAnchor.constraint(equalTo: actionButton.centerXAnchor),
+            recordModeIcon.centerYAnchor.constraint(equalTo: actionButton.centerYAnchor),
+            recordModeIcon.widthAnchor.constraint(equalToConstant: 30),
+            recordModeIcon.heightAnchor.constraint(equalToConstant: 30),
+        ])
         mediaInputResponder.frame = .zero
         mediaInputResponder.isUserInteractionEnabled = false
         mediaInputResponder.onActiveChange = { [weak self] in self?.mediaInputActiveChanged() }
@@ -1711,15 +1732,28 @@ final class ChatComposerView: UIView {
             mediaInputButton.isHidden = icon == nil
         }
         guard let icon, mediaInputButtonIcon != icon else { return }
+        let previous = mediaInputButtonIcon
         mediaInputButtonIcon = icon
-        let (symbol, label) =
-            switch icon {
-            case .emoji: ("face.smiling", L10n.telegram("VoiceOver.Stickers"))
-            case .keyboard: ("keyboard", L10n.telegram("VoiceOver.Keyboard"))
-            case .stickers: ("face.smiling.inverse", L10n.telegram("VoiceOver.Stickers"))
+        // AccessoryItemIconButton's transitions: each mode's animation ends on its icon, played from the mode before.
+        let (animation, animates) =
+            switch (previous, icon) {
+            case (.stickers, .keyboard): ("input_anim_stickerToKey", true)
+            case (.emoji, .keyboard): ("input_anim_smileToKey", true)
+            case (_, .keyboard): ("input_anim_stickerToKey", false)
+            case (.keyboard, .stickers): ("input_anim_keyToSticker", true)
+            case (.emoji, .stickers): ("input_anim_smileToSticker", true)
+            case (_, .stickers): ("input_anim_keyToSticker", false)
+            case (.keyboard, .emoji): ("input_anim_keyToSmile", true)
+            case (.stickers, .emoji): ("input_anim_stickerToSmile", true)
+            case (_, .emoji): ("input_anim_keyToSmile", false)
             }
-        mediaInputButton.configuration?.image = UIImage(systemName: symbol)
-        mediaInputButton.accessibilityLabel = label
+        mediaInputIcon.show(animation, animated: animates && window != nil)
+        mediaInputButton.accessibilityLabel =
+            switch icon {
+            case .emoji,
+                 .stickers: L10n.telegram("VoiceOver.Stickers")
+            case .keyboard: L10n.telegram("VoiceOver.Keyboard")
+            }
     }
 
     /// Telegram drops the media panel once the input leaves `.media`; the next opening builds it on its tab again.
@@ -2094,7 +2128,18 @@ final class ChatComposerView: UIView {
             } else {
                 selectedMediaRecordingMode == .video ? "video.fill" : "mic.fill"
             }
-        actionButton.setImage(UIImage(systemName: symbol), for: .normal)
+        // The microphone and the camera are Telegram's, morphing into each other as the recording mode changes.
+        let showsRecordMode = symbol == "mic.fill" || symbol == "video.fill"
+        actionButton.setImage(showsRecordMode ? nil : UIImage(systemName: symbol), for: .normal)
+        recordModeIcon.isHidden = !showsRecordMode
+        if showsRecordMode, shownRecordMode != selectedMediaRecordingMode {
+            let animates = shownRecordMode != nil && window != nil
+            shownRecordMode = selectedMediaRecordingMode
+            recordModeIcon.show(
+                selectedMediaRecordingMode == .video ? "anim_micToVideo" : "anim_videoToMic",
+                animated: animates,
+            )
+        }
         actionButton.isHidden = !hasContent && !canRecordSelectedMode
         actionButton.isEnabled = hasContent || canRecordSelectedMode
         actionButton.setPreferredSymbolConfiguration(
