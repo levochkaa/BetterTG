@@ -735,19 +735,13 @@ ClientRestorableNavigationEntry {
     }
 
     private static func isOnline(_ status: UserStatus) -> Bool {
-        if case .userStatusOnline = status { return true }
-        return false
+        UserPresenceText.text(for: status).isOnline
     }
 
+    /// PeerInfoScreen's presence, as the chat's header and the contact lists word it: an offline user's last seen
+    /// time, not "a long time ago".
     private static func statusText(for status: UserStatus) -> String {
-        switch status {
-        case .userStatusOnline: L10n.telegram("Presence.online")
-        case .userStatusRecently: L10n.telegram("LastSeen.Lately")
-        case .userStatusLastWeek: L10n.telegram("LastSeen.WithinAWeek")
-        case .userStatusLastMonth: L10n.telegram("LastSeen.WithinAMonth")
-        case .userStatusEmpty,
-             .userStatusOffline: L10n.telegram("LastSeen.Offline")
-        }
+        UserPresenceText.text(for: status).text
     }
 
     private static func chatPhotoItems(_ messages: [Message]) -> [ProfileAvatarGalleryItem] {
@@ -1437,15 +1431,21 @@ ClientRestorableNavigationEntry {
         ])
     }
 
+    /// Telegram 13's PeerInfoHeaderButtonNode without a profile colour: the list's block background, 16 pt corners, the
+    /// accent icon and an 11 pt lowercased title.
     private func profileButton(title: String, symbol: String, action: Selector) -> UIButton {
-        var configuration = UIButton.Configuration.tinted()
-        configuration.title = title
+        var configuration = UIButton.Configuration.filled()
+        configuration.baseBackgroundColor = .secondarySystemGroupedBackground
+        configuration.baseForegroundColor = .tintColor
+        configuration.background.cornerRadius = 16
+        configuration.cornerStyle = .fixed
+        configuration.title = title.lowercased()
         configuration.image = UIImage(systemName: symbol)
         configuration.imagePlacement = .top
         configuration.imagePadding = 4
         configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var outgoing = incoming
-            outgoing.font = .systemFont(ofSize: 12, weight: .medium)
+            outgoing.font = .systemFont(ofSize: 11)
             return outgoing
         }
         configuration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 2, bottom: 8, trailing: 2)
