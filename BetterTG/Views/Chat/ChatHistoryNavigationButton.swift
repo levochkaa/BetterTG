@@ -8,6 +8,8 @@ final class ChatHistoryNavigationButton: UIButton {
     // MARK: Internal
 
     static let hiddenTransform = CGAffineTransform(scaleX: 0.2, y: 0.2)
+    /// ChatHistoryNavigationButtonNode's 40 pt circle.
+    static let side: CGFloat = 40
 
     private(set) var count = 0
 
@@ -18,21 +20,12 @@ final class ChatHistoryNavigationButton: UIButton {
     init(symbolName: String, accessibilityLabel: String) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        setImage(UIImage(systemName: symbolName), for: .normal)
-        setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 15, weight: .bold),
-            forImageIn: .normal,
-        )
         tintColor = .label
-        backgroundColor = .secondarySystemBackground
-        layer.cornerRadius = 18
-        layer.borderColor = UIColor.separator.cgColor
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.2
-        layer.shadowRadius = 7
-        layer.shadowOffset = CGSize(width: 0, height: 3)
         self.accessibilityLabel = accessibilityLabel
-        applyTelegramClearGlass()
+        applyTelegramFloatingGlass(icon: UIImage(
+            systemName: symbolName,
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .medium),
+        ))
         alpha = 0
         transform = Self.hiddenTransform
         badgeLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -41,8 +34,8 @@ final class ChatHistoryNavigationButton: UIButton {
         badgeLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
         addSubview(badgeLabel)
         NSLayoutConstraint.activate([
-            widthAnchor.constraint(equalToConstant: 36),
-            heightAnchor.constraint(equalToConstant: 36),
+            widthAnchor.constraint(equalToConstant: Self.side),
+            heightAnchor.constraint(equalToConstant: Self.side),
             badgeLabel.topAnchor.constraint(equalTo: topAnchor, constant: -7),
             badgeLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             badgeLabel.heightAnchor.constraint(equalToConstant: 20),

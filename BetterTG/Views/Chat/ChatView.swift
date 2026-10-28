@@ -3820,20 +3820,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func configureScrollToLatestButton(bottomAnchor: NSLayoutYAxisAnchor) {
         scrollToLatestButton.translatesAutoresizingMaskIntoConstraints = false
-        scrollToLatestButton.setImage(UIImage(systemName: "arrow.down"), for: .normal)
-        scrollToLatestButton.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 15, weight: .bold),
-            forImageIn: .normal,
-        )
-        scrollToLatestButton.tintColor = .label
-        scrollToLatestButton.backgroundColor = .secondarySystemBackground
-        scrollToLatestButton.layer.cornerRadius = 18
-        scrollToLatestButton.layer.borderWidth = 1 / view.traitCollection.displayScale
-        scrollToLatestButton.layer.borderColor = UIColor.separator.cgColor
-        scrollToLatestButton.layer.shadowColor = UIColor.black.cgColor
-        scrollToLatestButton.layer.shadowOpacity = 0.2
-        scrollToLatestButton.layer.shadowRadius = 7
-        scrollToLatestButton.layer.shadowOffset = CGSize(width: 0, height: 3)
+        // ChatHistoryNavigationButtonNode's down chevron, in the glass.
+        scrollToLatestButton.applyTelegramFloatingGlass(icon: UIImage(
+            systemName: "chevron.down",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 19, weight: .medium),
+        ))
         // A replacement after a client renewal keeps the button its predecessor showed away from the latest edge.
         scrollToLatestButtonVisible = restoredViewport.map { $0.pending && !$0.keepsLatest } ?? false
         scrollToLatestButton.alpha = scrollToLatestButtonVisible ? 1 : 0
@@ -3841,7 +3832,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             ? .identity
             : CGAffineTransform(translationX: 0, y: 18).scaledBy(x: 0.72, y: 0.72)
         scrollToLatestButton.accessibilityLabel = L10n.betterTG("Accessibility.ScrollToLatest")
-        scrollToLatestButton.applyTelegramClearGlass()
         scrollToLatestButton.addTarget(self, action: #selector(scrollToLatest), for: .touchUpInside)
 
         unreadBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -3855,8 +3845,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         NSLayoutConstraint.activate([
             scrollToLatestButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
             scrollToLatestBottom,
-            scrollToLatestButton.widthAnchor.constraint(equalToConstant: 36),
-            scrollToLatestButton.heightAnchor.constraint(equalToConstant: 36),
+            scrollToLatestButton.widthAnchor.constraint(equalToConstant: ChatHistoryNavigationButton.side),
+            scrollToLatestButton.heightAnchor.constraint(equalToConstant: ChatHistoryNavigationButton.side),
             unreadBadgeLabel.topAnchor.constraint(equalTo: scrollToLatestButton.topAnchor, constant: -7),
             unreadBadgeLabel.centerXAnchor.constraint(equalTo: scrollToLatestButton.centerXAnchor),
             unreadBadgeLabel.heightAnchor.constraint(equalToConstant: 20),

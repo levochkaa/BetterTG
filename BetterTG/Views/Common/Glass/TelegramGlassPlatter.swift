@@ -191,27 +191,35 @@ extension UIButton {
     }
 }
 
-// MARK: - UIButton + clear glass
+// MARK: - UIButton + floating glass
 
 extension UIButton {
-    /// A round floating button of clear Liquid Glass, as Telegram 13's chat history buttons: the glass under the
-    /// icon, interactive, with no fill, border or shadow of its own.
-    func applyTelegramClearGlass() {
-        guard !subviews.contains(where: { $0 is TelegramClearGlassBackground }) else { return }
-        let effect = UIGlassEffect(style: .clear)
+    /// Telegram 13's floating chat buttons (ChatHistoryNavigationButtonNode): a circle of interactive glass with the
+    /// icon inside the glass in the label color, and no fill, border or shadow of its own. The button's own image
+    /// would sit under the glass and be refracted by it, so the icon moves into the glass.
+    func applyTelegramFloatingGlass(icon: UIImage?) {
+        guard !subviews.contains(where: { $0 is TelegramFloatingGlassBackground }) else { return }
+        let effect = UIGlassEffect(style: .regular)
         effect.isInteractive = true
-        let glass = TelegramClearGlassBackground(effect: effect)
+        let glass = TelegramFloatingGlassBackground(effect: effect)
         glass.cornerConfiguration = .capsule()
         glass.isUserInteractionEnabled = false
         glass.frame = bounds
         glass.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        let iconView = UIImageView(image: icon)
+        iconView.tintColor = .label
+        iconView.contentMode = .center
+        iconView.frame = glass.contentView.bounds
+        iconView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        glass.contentView.addSubview(iconView)
         insertSubview(glass, at: 0)
+        setImage(nil, for: .normal)
         backgroundColor = .clear
         layer.borderWidth = 0
         layer.shadowOpacity = 0
     }
 }
 
-// MARK: - TelegramClearGlassBackground
+// MARK: - TelegramFloatingGlassBackground
 
-private final class TelegramClearGlassBackground: UIVisualEffectView {}
+private final class TelegramFloatingGlassBackground: UIVisualEffectView {}
