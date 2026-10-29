@@ -7,6 +7,12 @@
     @MainActor enum ComposerTextProbe {
         private struct Failure: Swift.Error, CustomStringConvertible { let description: String }
 
+        private static var fixtureContact: InputMessageContent {
+            DeviceContactMessage.content(
+                phoneNumber: "155501000", firstName: "Fixture", lastName: "", organization: "", vcard: "", userID: 0,
+            )
+        }
+
         static func runDebugProbeIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-composer-entities") else { return }
             Task { @MainActor in
@@ -17,7 +23,8 @@
                     result = "Composer entities probe passed: manual-payload/UTF16/scoped-bridge/fallback=true; "
                         + "UITextView-callback/edit-attempt/draft/snapshot=true; overlapping-toggles/range-edits/caret=true; "
                         + "RTF-whitelist/automatic-types/identity-isolation=true; marked-model-feedback=true; "
-                        + "UIKit-undo-redo=\(undoVerified); clipboard/URL/server/account-stores=0; live-IME/keyboard-undo=pending"
+                        + "UIKit-undo-redo=\(undoVerified); attachment-comments/order/reply/split=true; "
+                        + "clipboard/URL/server/account-stores=0; live-IME/keyboard-undo=pending"
                 } catch {
                     result = "Composer entities probe failed: \(error)"
                 }
@@ -55,6 +62,7 @@
                 let formatted = FormattedText(entities: [.init(length: 2, offset: 1, type: type)], text: "a🙂b")
                 let value = ComposerText.attributed(formatted)
                 try same(ComposerText.formatted(value), formatted, "manual round trip \(type)")
+                try verifyAttachmentComment(value, expected: formatted)
                 try same(
                     ComposerText.formatted(ComposerText.value(ComposerText.uiKit(value))),
                     formatted,
@@ -73,6 +81,45 @@
             try verifyTyping()
             try verifyExternalText()
             try verifyMarkedTextFeedback()
+            try verifyLongAttachmentComment()
+        }
+
+        private static func verifyAttachmentComment(_ comment: AttributedString, expected: FormattedText) throws {
+            let items = AttachmentMessageSequence.items(contents: [fixtureContact, fixtureContact], comment: comment)
+            try require(items.count == 3, "comment before two cards")
+            guard case .inputMessageText(let input) = items[0].content else {
+                throw Failure(description: "comment is not first")
+            }
+            try same(input.text, expected, "contact comment entities")
+            try require(!input.clearDraft && !items[0].repliesToComposer, "comment changed draft or reply")
+            for item in items.dropFirst() {
+                guard case .inputMessageContact = item.content else { throw Failure(description: "card order") }
+                try require(item.repliesToComposer, "card lost reply")
+            }
+        }
+
+        private static func verifyLongAttachmentComment() throws {
+            let text = String(repeating: "a", count: 4095) + "🙂tail"
+            let comment = ComposerText.attributed(FormattedText(entities: [
+                .init(length: 6, offset: 4095, type: .textEntityTypeBold),
+            ], text: text))
+            let items = AttachmentMessageSequence.items(contents: [fixtureContact], comment: comment)
+            try require(items.count == 3, "long comment split count")
+            let parts = items.compactMap { item -> FormattedText? in
+                guard case .inputMessageText(let value) = item.content else { return nil }
+                return value.text
+            }
+            try require(parts.map(\.text).joined() == text, "UTF16 split lost text")
+            try require(parts.allSatisfy { $0.text.utf16.count <= 4096 }, "comment exceeds message limit")
+            try same(parts[1], FormattedText(entities: [
+                .init(length: 6, offset: 0, type: .textEntityTypeBold),
+            ], text: "🙂tail"), "entity across comment split")
+            try require(AttachmentMessageSequence.items(contents: [], comment: comment).isEmpty, "orphan comment")
+            let noComment = AttachmentMessageSequence.items(
+                contents: [fixtureContact],
+                comment: AttributedString(" \n "),
+            )
+            try require(noComment.count == 1 && noComment[0].repliesToComposer, "blank comment sent")
         }
 
         private static func verifyMarkedTextFeedback() throws {

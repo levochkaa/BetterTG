@@ -40,6 +40,7 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
     var onReturnInEmpty: (() -> Bool)?
     /// Backspace in an empty input.
     var onBackspaceWhileEmpty: (() -> Void)?
+    var onBeginEditing: (() -> Void)?
     var onEndEditing: (() -> Void)?
 
     var onTextChange: ((AttributedString) -> Void)?
@@ -452,6 +453,10 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         onUserInteraction?()
         onTextChange?(ComposerText.value(attributedText))
         onInteractionSettled?()
+    }
+
+    func textViewDidBeginEditing(_: UITextView) {
+        onBeginEditing?()
     }
 
     func textViewDidEndEditing(_: UITextView) {

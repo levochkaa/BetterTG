@@ -1541,12 +1541,18 @@ enum MediaPickerQualityIcon {
     var onSelectTab: ((AttachmentSheetTab) -> Void)?
     var onSend: (() -> Void)?
     var onSendOptions: ((UIView, UIGestureRecognizer) -> Void)?
+    var onBeginCommentEditing: (() -> Void)?
 
     private let background = TelegramBarBackgroundView(edge: .bottom)
     /// AttachmentPanel's buttons in Telegram 13's glass tab bar, scrolling sideways once more than fit.
     private let tabsScroll = AttachmentTabStrip()
     private let sendRow = UIView()
+    private let sendGlass = UIVisualEffectView()
     private let captionLabel = UILabel()
+    private var commentInput: FormattedTextView?
+    private var sendRowHeight: NSLayoutConstraint!
+    private var restingTop: NSLayoutConstraint?
+    private var keyboardTop: NSLayoutConstraint?
     private let sendButton = UIButton(type: .system)
     /// BadgeNode on Send's corner: the picked count, 18 pt high and 8 pt wider than its text.
     private let badgeView = UIView()
@@ -1586,14 +1592,20 @@ enum MediaPickerQualityIcon {
         badgeView.addSubview(badgeLabel)
         sendRow.alpha = 0
         sendRow.isHidden = true
-        for subview in [captionLabel, sendButton, badgeView] as [UIView] {
+        sendGlass.translatesAutoresizingMaskIntoConstraints = false
+        sendGlass.cornerConfiguration = .corners(radius: .fixed(20))
+        sendRow.addSubview(sendGlass)
+        for subview in [captionLabel, sendButton] as [UIView] {
             subview.translatesAutoresizingMaskIntoConstraints = false
-            sendRow.addSubview(subview)
+            sendGlass.contentView.addSubview(subview)
         }
+        badgeView.translatesAutoresizingMaskIntoConstraints = false
+        sendRow.addSubview(badgeView)
         for subview in [background, tabsScroll, sendRow] as [UIView] {
             subview.translatesAutoresizingMaskIntoConstraints = false
             addSubview(subview)
         }
+        self.sendRowHeight = sendRow.heightAnchor.constraint(equalToConstant: Self.barHeight)
         NSLayoutConstraint.activate([
             background.topAnchor.constraint(equalTo: topAnchor),
             background.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1606,13 +1618,17 @@ enum MediaPickerQualityIcon {
             sendRow.topAnchor.constraint(equalTo: topAnchor),
             sendRow.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
             sendRow.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
-            sendRow.heightAnchor.constraint(equalToConstant: Self.barHeight),
+            sendRowHeight,
+            sendGlass.leadingAnchor.constraint(equalTo: sendRow.leadingAnchor, constant: 8),
+            sendGlass.trailingAnchor.constraint(equalTo: sendRow.trailingAnchor, constant: -8),
+            sendGlass.topAnchor.constraint(equalTo: sendRow.topAnchor, constant: 13),
+            sendGlass.bottomAnchor.constraint(equalTo: sendRow.bottomAnchor, constant: -13),
             captionLabel.leadingAnchor.constraint(equalTo: sendRow.leadingAnchor, constant: 16),
             captionLabel.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -12),
             captionLabel.centerYAnchor.constraint(equalTo: sendRow.centerYAnchor),
             // Telegram 13's glass Send: a 40 pt circle 6 pt further in than the panel's edge.
             sendButton.trailingAnchor.constraint(equalTo: sendRow.trailingAnchor, constant: -16),
-            sendButton.centerYAnchor.constraint(equalTo: sendRow.centerYAnchor),
+            sendButton.bottomAnchor.constraint(equalTo: sendRow.bottomAnchor, constant: -13),
             sendButton.widthAnchor.constraint(equalToConstant: 40),
             sendButton.heightAnchor.constraint(equalToConstant: 40),
             // The badge's corner sits just outside Send's, over its rim.
@@ -1633,6 +1649,11 @@ enum MediaPickerQualityIcon {
 
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateContentHeight()
+    }
+
     /// AttachmentController keeps one panel under whichever tab's controller it shows. A controller shown in the
     /// attachment sheet in place of the gallery gets its own panel with its tab current, over its bottom edge, and
     /// its safe area ends above the buttons.
@@ -1649,19 +1670,69 @@ enum MediaPickerQualityIcon {
         controller.additionalSafeAreaInsets.bottom += barHeight
         panel.translatesAutoresizingMaskIntoConstraints = false
         controller.view.addSubview(panel)
+        let restingTop = panel.topAnchor.constraint(equalTo: controller.view.safeAreaLayoutGuide.bottomAnchor)
+        panel.restingTop = restingTop
+        panel.keyboardTop = panel.topAnchor.constraint(
+            lessThanOrEqualTo: controller.view.keyboardLayoutGuide.topAnchor, constant: -barHeight,
+        )
         NSLayoutConstraint.activate([
             panel.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor),
             panel.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor),
             panel.bottomAnchor.constraint(equalTo: controller.view.bottomAnchor),
-            panel.topAnchor.constraint(equalTo: controller.view.safeAreaLayoutGuide.bottomAnchor),
+            restingTop,
         ])
         let content = (controller as? AttachmentSheetTabContainer)?.content ?? controller
         (content as? AttachmentPanelContent)?.configureAttachmentPanel(panel)
         return panel
     }
 
+    /// AttachmentPanel edits the active picker's caption. It does not write into the chat's compose draft.
+    func configureCommentInput(
+        _ value: AttributedString,
+        client: TDLibClient,
+        onChange: @escaping (AttributedString) -> Void,
+    ) {
+        guard commentInput == nil else { return }
+        let input = FormattedTextView(placeholder: L10n.telegram("Conversation.InputTextPlaceholderComment"))
+        input.accessibilityIdentifier = "attachment-comment"
+        input.minimumHeight = 40
+        input.maximumHeight = 160
+        input.customEmojiClient = client
+        input.setAttributedText(value)
+        input.onBeginEditing = { [weak self] in self?.onBeginCommentEditing?() }
+        input.onTextChange = { [weak self] text in
+            onChange(text)
+            self?.updateContentHeight()
+        }
+        input.translatesAutoresizingMaskIntoConstraints = false
+        sendGlass.contentView.addSubview(input)
+        NSLayoutConstraint.activate([
+            input.leadingAnchor.constraint(equalTo: sendGlass.contentView.leadingAnchor, constant: 8),
+            input.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -8),
+            input.topAnchor.constraint(equalTo: sendGlass.contentView.topAnchor),
+            input.bottomAnchor.constraint(equalTo: sendGlass.contentView.bottomAnchor),
+        ])
+        commentInput = input
+        captionLabel.isHidden = true
+        let effect = UIGlassEffect(style: .regular)
+        effect.isInteractive = true
+        sendGlass.effect = effect
+        restingTop?.isActive = false
+        // The keyboard guide has its own optional geometry constraints. Resting below it must yield to those.
+        restingTop?.priority = .defaultLow
+        restingTop?.isActive = true
+        updateContentHeight()
+    }
+
     func configureTabs(_ tabs: [AttachmentSheetTab], current: AttachmentSheetTab = .gallery) {
         tabsScroll.configure(tabs: tabs, current: current)
+    }
+
+    func finishCommentEditing() -> AttributedString? {
+        guard let input = commentInput else { return nil }
+        input.unmarkText()
+        input.resignFirstResponder()
+        return ComposerText.value(input.attributedText)
     }
 
     func update(selectionCount: Int, caption: String) {
@@ -1675,6 +1746,8 @@ enum MediaPickerQualityIcon {
         tabsScroll.accessibilityElementsHidden = selecting
         guard selecting != isSelecting else { return }
         isSelecting = selecting
+        if !selecting { commentInput?.resignFirstResponder() }
+        updateContentHeight()
         tabsScroll.isHidden = false
         sendRow.isHidden = false
         UIView.animate(withDuration: 0.2) {
@@ -1685,6 +1758,19 @@ enum MediaPickerQualityIcon {
             self.tabsScroll.isHidden = selecting
             self.sendRow.isHidden = !selecting
         }
+    }
+
+    private func updateContentHeight() {
+        let height = isSelecting
+            ? max(Self.barHeight, (commentInput?.intrinsicContentSize.height ?? 40) + 26)
+            : Self.barHeight
+        if abs(sendRowHeight.constant - height) > 0.5 {
+            sendRowHeight.constant = height
+            restingTop?.constant = -(height - Self.barHeight)
+            keyboardTop?.constant = -height
+            superview?.setNeedsLayout()
+        }
+        keyboardTop?.isActive = commentInput != nil && isSelecting
     }
 
     /// The badge's red on its layer: in a sheet on iOS 26 a view's dynamic background color draws see-through.

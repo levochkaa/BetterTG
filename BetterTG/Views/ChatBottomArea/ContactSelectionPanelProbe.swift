@@ -17,6 +17,9 @@ import UIKit
         private var destination = 0
         private var sentOptions = "none"
         private var sentVCards = 0
+        private var sentComment = ""
+        private var sentEntities = ""
+        private var sentSequence = ""
 
         private var sendCapabilities: AttachmentSendCapabilities {
             AttachmentSendCapabilities(
@@ -60,6 +63,10 @@ import UIKit
                 stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
             ])
             report()
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(keyboardChanged),
+                name: UIResponder.keyboardDidChangeFrameNotification, object: nil,
+            )
         }
 
         override func viewDidAppear(_ animated: Bool) {
@@ -67,6 +74,11 @@ import UIKit
             guard !opened else { return }
             opened = true
             openPicker()
+        }
+
+        @objc private func keyboardChanged() {
+            guard let navigation = presentedViewController as? TelegramNavigationController else { return }
+            recordLayout(navigation, phase: "keyboard changed")
         }
 
         private func openPicker() {
@@ -88,7 +100,7 @@ import UIKit
         private func makePicker(navigation: TelegramNavigationController) -> UIViewController {
             let picker = ContactSelectionViewController(
                 probeContacts: contacts, probeContactCards: contactCards, sendCapabilities: sendCapabilities,
-            ) { [weak self] contents, options in
+            ) { [weak self] contents, comment, options in
                 guard let self else { return }
                 sends += 1
                 var timing = "now"
@@ -107,6 +119,17 @@ import UIKit
                     guard case .inputMessageContact(let input) = $0 else { return false }
                     return !input.contact.vcard.isEmpty
                 })
+                let formatted = ComposerText.formatted(comment)
+                sentComment = formatted.text
+                let entities = formatted.entities.map { "\($0.offset):\($0.length):\($0.type)" }
+                sentEntities = entities.joined(separator: ",")
+                let sequence = AttachmentMessageSequence.items(contents: contents, comment: comment)
+                sentSequence = sequence.map { item in
+                    var kind = "contact"
+                    if case .inputMessageText = item.content { kind = "text" }
+                    return "\(kind):reply=\(item.repliesToComposer)"
+                }
+.joined(separator: ",")
                 report()
             }
             picker.onDismiss = { [weak self] in
@@ -160,7 +183,7 @@ import UIKit
                   let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
             else { return }
             let panel = screen.view.subviews.first { $0 is AttachmentPanelView }
-            let text = "\(phase) view=\(screen.view.frame) safe=\(screen.view.safeAreaInsets) additional=\(screen.additionalSafeAreaInsets) nav=\(navigation.view.frame) navSafe=\(navigation.view.safeAreaInsets) panel=\(String(describing: panel?.frame))\n"
+            let text = "\(phase) view=\(screen.view.frame) safe=\(screen.view.safeAreaInsets) additional=\(screen.additionalSafeAreaInsets) nav=\(navigation.view.frame) navSafe=\(navigation.view.safeAreaInsets) panel=\(String(describing: panel?.frame)) keyboard=\(screen.view.keyboardLayoutGuide.layoutFrame) navKeyboard=\(navigation.view.keyboardLayoutGuide.layoutFrame)\n"
             let url = directory.appendingPathComponent("contact-selection-layout.txt")
             layoutRecords.append(text)
             try? Data(layoutRecords.joined().utf8).write(to: url, options: .atomic)
@@ -170,9 +193,11 @@ import UIKit
             let mode = ["regular", "reminders", "no-schedule"][destination]
             let result = "Contact panel fixture: sends=\(sends); dismissals=\(dismissals); names=\(sentNames.joined(separator: ",")); vcards=\(sentVCards); options=\(sentOptions); mode=\(mode)"
             status.text = result
+            let details = "\(result)\ncomment=\(sentComment)\nentities=\(sentEntities)\nsequence=\(sentSequence)"
+            status.accessibilityLabel = details
             log(result)
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-                try? Data(result.utf8).write(
+                try? Data(details.utf8).write(
                     to: directory.appendingPathComponent("contact-selection-panel-probe.txt"), options: .atomic,
                 )
             }

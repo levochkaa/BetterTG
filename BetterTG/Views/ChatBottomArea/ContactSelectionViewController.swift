@@ -61,7 +61,8 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
     private let client: TDLibClient
     private let accountID: UUID?
     private let sendCapabilities: AttachmentSendCapabilities
-    private let send: ([InputMessageContent], TDNativeMessageSendOptions?) -> Void
+    private let send: ([InputMessageContent], AttributedString, TDNativeMessageSendOptions?) -> Void
+    private var comment = AttributedString()
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private weak var attachmentPanel: AttachmentPanelView?
     private var authorization = CNContactStore.authorizationStatus(for: .contacts)
@@ -92,7 +93,7 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
             probeContacts: [ComposeContact],
             probeContactCards: [Int64: CNContact] = [:],
             sendCapabilities: AttachmentSendCapabilities,
-            send: @escaping ([InputMessageContent], TDNativeMessageSendOptions?) -> Void,
+            send: @escaping ([InputMessageContent], AttributedString, TDNativeMessageSendOptions?) -> Void,
         ) {
             self.init(client: TDLib.shared.activeClient, accountID: nil, sendCapabilities: sendCapabilities, send: send)
             self.isProbe = true
@@ -116,7 +117,7 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
         client: TDLibClient,
         accountID: UUID?,
         sendCapabilities: AttachmentSendCapabilities,
-        send: @escaping ([InputMessageContent], TDNativeMessageSendOptions?) -> Void,
+        send: @escaping ([InputMessageContent], AttributedString, TDNativeMessageSendOptions?) -> Void,
     ) {
         self.client = client
         self.accountID = accountID
@@ -174,6 +175,20 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
         reload()
         load()
         if phonebookIsOpen { loadPhonebook() }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard let panel = attachmentPanel else { return }
+        // The keyboard shortens the table; reserve the visible input row as well as its system safe-area inset.
+        let panelTop = panel.convert(CGPoint.zero, to: view).y
+        let tableBottom = tableView.convert(CGPoint(x: 0, y: tableView.bounds.maxY), to: view).y
+        let automaticInset = tableView.adjustedContentInset.bottom - tableView.contentInset.bottom
+        let inset = max(0, tableBottom - panelTop - automaticInset)
+        if abs(tableView.contentInset.bottom - inset) > 0.5 {
+            tableView.contentInset.bottom = inset
+            tableView.verticalScrollIndicatorInsets.bottom = inset
+        }
     }
 
     /// One of several: a Telegram contact with its number and user ID, a phonebook person with the first number.
@@ -366,6 +381,11 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
     /// with Send; deselecting restores them, without a second bar or a changing safe-area inset.
     func configureAttachmentPanel(_ panel: AttachmentPanelView) {
         attachmentPanel = panel
+        panel.configureCommentInput(comment, client: client) { [weak self] text in self?.comment = text }
+        panel.onBeginCommentEditing = { [weak self] in
+            guard let sheet = self?.navigationController?.sheetPresentationController else { return }
+            sheet.animateChanges { sheet.selectedDetentIdentifier = .large }
+        }
         panel.onSend = { [weak self] in self?.sendPressed() }
         panel.onSendOptions = { [weak self] source, gesture in
             self?.showSendOptions(from: source, tracking: gesture)
@@ -608,6 +628,7 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
     /// card.
     private func sendPressed(options: TDNativeMessageSendOptions? = nil) {
         guard !didFinish, let first = selected.first else { return }
+        if let text = attachmentPanel?.finishCommentEditing() { comment = text }
         guard selected.count == 1 else {
             finish(sending: selected.compactMap { Self.plainContent(for: $0) }, options: options)
             return
@@ -662,13 +683,14 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
         guard let navigationController else { return }
         didFinish = true
         let send = send
+        let comment = comment
         let fields = DeviceContactFieldsViewController(
             contact: contact,
             avatarID: avatarID,
             peer: peer,
             userID: userID,
         ) { content in
-            send([content], options)
+            send([content], comment, options)
         }
         fields.onDismiss = onDismiss
         navigationController.setViewControllers([fields], animated: true)
@@ -678,11 +700,12 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
         guard !didFinish else { return }
         didFinish = true
         let send = send
+        let comment = comment
         let onDismiss = onDismiss
         dismiss(animated: true) {
             onDismiss?()
             guard !contents.isEmpty else { return }
-            send(contents, options)
+            send(contents, comment, options)
         }
     }
 

@@ -4463,6 +4463,7 @@ import UIKit
         _ contents: [InputMessageContent],
         kind: ChatSendContentKind,
         options: TDNativeMessageSendOptions? = nil,
+        comment: AttributedString = AttributedString(),
     ) async {
         guard !contents.isEmpty else { return }
         await waitForComposerSend()
@@ -4481,13 +4482,14 @@ import UIKit
                 useCurrentReplyOverride: true,
             )
             let options = options ?? defaultSendOptions
-            for content in contents {
+            for item in AttachmentMessageSequence.items(contents: contents, comment: comment) {
+                guard locationContextIsCurrent, !Task.isCancelled else { throw ChatSendContextError.accountUnavailable }
                 let message = try await client.sendMessage(
                     chatId: context.chatID,
-                    inputMessageContent: content,
+                    inputMessageContent: item.content,
                     options: options,
                     replyMarkup: nil,
-                    replyTo: context.replyTo,
+                    replyTo: item.repliesToComposer ? context.replyTo : nil,
                     topicId: context.destinationTopic,
                 )
                 guard locationContextIsCurrent,

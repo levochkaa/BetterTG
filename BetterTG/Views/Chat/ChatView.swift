@@ -9728,8 +9728,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 canSchedule: chatVM.canScheduleMessages,
                 canSendWhenOnline: chatVM.canSendWhenOnline,
             ),
-        ) { [weak chatVM] contents, options in
-            Task { await chatVM?.sendAttachmentContents(contents, kind: .text, options: options) }
+        ) { [weak chatVM] contents, comment, options in
+            Task { await chatVM?.sendAttachmentContents(contents, kind: .text, options: options, comment: comment) }
         }
         picker.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
         showInAttachmentSheet(picker, tab: .contact)
