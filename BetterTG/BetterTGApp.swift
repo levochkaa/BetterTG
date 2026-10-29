@@ -226,6 +226,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             ForumTopicDebugProbe.runIfRequested(in: window)
             ContextMenuLiquidMorphProbe.runIfRequested(in: window)
             ContextMenuKeyboardHostProbe.runIfRequested(in: window)
+            ContextPreviewExpansionProbe.runIfRequested(in: window)
             TelegramClassicNavigationChromeProbe.runIfRequested(in: window)
         #endif
 

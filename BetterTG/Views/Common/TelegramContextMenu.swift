@@ -830,20 +830,6 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         return CGAffineTransform(scaleX: scale, y: scale).concatenating(CGAffineTransform(translationX: 0, y: shift))
     }
 
-    /// Where a label draws its one line of text, in its own coordinates.
-    private static func textRect(of label: UILabel) -> CGRect {
-        let text = label.textRect(forBounds: label.bounds, limitedToNumberOfLines: 1)
-        let free = label.bounds.width - text.width
-        let x =
-            switch label.textAlignment {
-            case .center: free / 2
-            case .right: free
-            case .natural where label.effectiveUserInterfaceLayoutDirection == .rightToLeft: free
-            default: CGFloat.zero
-            }
-        return CGRect(x: x, y: label.bounds.midY - text.height / 2, width: text.width, height: text.height)
-    }
-
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === scroller else { return }
         contentContainer.bounds.origin.y = scrollView.contentOffset.y
@@ -1614,7 +1600,13 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         if let rowPicture { backdrop.addSubview(rowPicture) }
         if let titlePicture { backdrop.addSubview(titlePicture) }
         header.insertContextExpansionBackdrop(backdrop)
-        let titleText = rowTitle.map { sourceView.convert(Self.textRect(of: $0), from: $0) }
+        let titleRightToLeft = rowTitle?.effectiveUserInterfaceLayoutDirection == .rightToLeft
+        let titleStart = rowTitle.map {
+            sourceView.convert(
+                TelegramContextExpansionGeometry.textAnchor(of: $0, trailing: titleRightToLeft),
+                from: $0,
+            )
+        }
         let expansion = ContextPreviewExpansion(
             header: header,
             backdrop: backdrop,
@@ -1624,8 +1616,9 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             rowCornerRadius: sourceView.layer.cornerRadius,
             titleCenter: rowTitle.map { sourceView.convert(CGPoint(x: $0.bounds.midX, y: $0.bounds.midY), from: $0) }
                 ?? .zero,
-            titleStart: titleText.map { CGPoint(x: $0.minX, y: $0.midY) } ?? .zero,
+            titleStart: titleStart ?? .zero,
             titleFontSize: rowTitle?.font.pointSize ?? 0,
+            titleRightToLeft: titleRightToLeft,
         )
         self.expansion = expansion
 
@@ -1738,9 +1731,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         let label = header.contextExpansionTitleLabel
         let title = header.contextExpansionTitle
         title.transform = .identity
-        let text = header.convert(Self.textRect(of: label), from: label)
-        let isRightToLeft = label.effectiveUserInterfaceLayoutDirection == .rightToLeft
-        let start = CGPoint(x: isRightToLeft ? text.maxX : text.minX, y: text.midY)
+        let start = header.convert(
+            TelegramContextExpansionGeometry.textAnchor(of: label, trailing: expansion.titleRightToLeft),
+            from: label,
+        )
         let center = header.convert(CGPoint(x: title.bounds.midX, y: title.bounds.midY), from: title)
         let fontRatio = expansion.titleFontSize / max(1, label.font.pointSize)
         if rowFrame != nil, expansion.titlePicture != nil {
@@ -3422,6 +3416,29 @@ extension UIView {
 }
 #endif
 
+// MARK: - TelegramContextExpansionGeometry
+
+@MainActor enum TelegramContextExpansionGeometry {
+    /// Align the first line, even when the topic row wraps and the preview title does not. Both ends use the
+    /// source's reading edge, so an RTL row cannot start a title-width away from the header's RTL anchor.
+    static func textAnchor(of label: UILabel, trailing: Bool) -> CGPoint {
+        let block = label.textRect(forBounds: label.bounds, limitedToNumberOfLines: label.numberOfLines)
+        let line = label.textRect(forBounds: label.bounds, limitedToNumberOfLines: 1)
+        let free = label.bounds.width - line.width
+        let x =
+            switch label.textAlignment {
+            case .center: free / 2
+            case .right: free
+            case .natural where label.effectiveUserInterfaceLayoutDirection == .rightToLeft: free
+            default: CGFloat.zero
+            }
+        return CGPoint(
+            x: label.bounds.minX + x + (trailing ? line.width : 0),
+            y: label.bounds.midY - block.height / 2 + min(line.height, block.height) / 2,
+        )
+    }
+}
+
 // MARK: - TelegramContextExpansionSource
 
 /// A chat row a chat preview grows out of: the preview's title grows out of the row's.
@@ -3471,4 +3488,5 @@ private struct ContextPreviewExpansion {
     let titleCenter: CGPoint
     let titleStart: CGPoint
     let titleFontSize: CGFloat
+    let titleRightToLeft: Bool
 }
