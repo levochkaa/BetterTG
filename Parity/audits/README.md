@@ -4,6 +4,7 @@ Read-only audits and probe sweeps of the merged `codex/parity` code, by area, wi
 
 ## Contents
 
+- [Continuous menu touch — 2026-10-29](2026-10-29-continuous-menu-touch.md)
 - [Post-merge audit — 2026-10-14](2026-10-14-post-merge.md)
 - [Post-merge audit, second pass — 2026-10-15](2026-10-15-post-merge-second-pass.md)
 - [Voice/video note and message content audits — 2026-10-15](2026-10-15-voice-video-note-and-message-content.md)
