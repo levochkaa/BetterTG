@@ -387,6 +387,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var documentPickerReplacesEditedMedia = false
     /// The attachment sheet's gallery while the sheet is up, kept while another tab shows in its place.
     private var attachmentGallery: AttachmentSheetViewController?
+    private var attachmentFiles: PollFileAttachmentViewController?
     private weak var attachmentNavigation: TelegramNavigationController?
     private var attachmentTabs = [AttachmentSheetTab]()
     private var pendingAttachmentRecovery: (
@@ -9464,6 +9465,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// The attachment sheet has gone.
     private func attachmentSessionDidEnd() {
         attachmentGallery = nil
+        attachmentFiles = nil
         attachmentTabs = []
         attachmentSheetDidDismiss()
     }
@@ -9472,25 +9474,31 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// from Files opens the iCloud picker once the sheet has gone, and a recent file is sent again as it was.
     private func showAttachmentFileList() {
         guard chatVM.canAttachDocuments else { return }
-        let list = PollFileAttachmentViewController(client: chatVM.client, subtitle: nil)
+        if let attachmentFiles, let navigation = attachmentNavigation {
+            navigation.isModalInPresentation = false
+            navigation.presentationController?.delegate = attachmentGallery
+            navigation.replaceAttachmentSheetContent(with: attachmentFiles)
+            return
+        }
+        let session = AttachmentFileSendSession()
+        let list = PollFileAttachmentViewController(
+            client: chatVM.client, subtitle: nil,
+            sendCapabilities: AttachmentSendCapabilities(
+                isReminders: chatVM.customChat.isSavedMessages,
+                canSchedule: chatVM.canScheduleMessages,
+                canSendWhenOnline: chatVM.canSendWhenOnline,
+            ),
+        ) { [weak chatVM] request in
+            guard let chatVM else {
+                return AttachmentFileSendResult(error: ChatSendContextError.accountUnavailable.localizedDescription)
+            }
+            return await chatVM.sendRecentAttachmentFiles(request, session: session)
+        }
+        attachmentFiles = list
         list.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
         list.onSelectFromGallery = { [weak self] in self?.openAttachmentTab(.gallery) }
         list.onSelectFromFiles = { [weak self] in
             self?.closeAttachmentSheet { [weak self] in self?.showDocumentPicker() }
-        }
-        list.onPick = { [weak self] document in
-            let content = InputMessageContent.inputMessageDocument(TDNativeInputMessageDocument(
-                document: TDNativeInputDocument(
-                    document: .inputFileId(TDNativeInputFileId(id: document.document.id)),
-                    thumbnail: nil,
-                    disableContentTypeDetection: true,
-                ),
-                caption: nil,
-            ))
-            self?.closeAttachmentSheet { [weak self] in
-                guard let chatVM = self?.chatVM else { return }
-                Task { await chatVM.sendAttachmentContents([content], kind: .document) }
-            }
         }
         showInAttachmentSheet(list, tab: .file)
     }

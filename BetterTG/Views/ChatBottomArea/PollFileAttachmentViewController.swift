@@ -5,7 +5,8 @@ import UIKit
 
 // MARK: - PollFileAttachmentViewController
 
-/// AttachmentFileController in its `.recent` mode with a poll source: File with the subject's subtitle, Select from
+/// AttachmentFileController in its `.recent` mode. Chat enables ordered selection and captions; Poll keeps its
+/// immediate single pick. File with the subject's subtitle, Select from
 /// Gallery and Select from Files, then RECENTLY SENT FILES (`searchMessages(location: .sentMedia(tags: [.file]))`,
 /// TDLib's `searchOutgoingDocumentMessages`), or the files intro while there are none. A recent file is attached as
 /// it was sent. Past ten recent files the search shows (AttachmentFileSearchItem): the same search with the query
@@ -13,7 +14,7 @@ import UIKit
 /// the table: AttachmentPanelView pins to the view's edges, which a table view as the root view would resolve against
 /// its scrolling content.
 @MainActor final class PollFileAttachmentViewController: UIViewController, UITableViewDataSource, UITableViewDelegate,
-UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
+UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, AttachmentPanelContent {
     // MARK: Private
 
     private enum Action: CaseIterable {
@@ -35,10 +36,7 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
         }
     }
 
-    private struct RecentFile {
-        let date: Int
-        let document: Document
-    }
+    private typealias RecentFile = AttachmentRecentFile
 
     private static let cellIdentifier = "PollFileAttachmentCell"
     /// The search's page, as many as TDLib returns at once.
@@ -61,6 +59,26 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
 
     private let client: TDLibClient
     private let subtitle: String?
+    private let sendCapabilities: AttachmentSendCapabilities?
+    private let send: ((AttachmentFileSendRequest) async -> AttachmentFileSendResult)?
+    private weak var attachmentPanel: AttachmentPanelView?
+    /// nil is immediate single pick; an empty array is selection mode with no checked files.
+    private var selected: [RecentFile]?
+    private var comment = AttributedString()
+    private var isSending = false
+    private var canRetry = true
+    private var retryOptions: TDNativeMessageSendOptions?
+    #if DEBUG
+        private var probeFiles: [RecentFile]?
+
+        convenience init(
+            probeFiles: [AttachmentRecentFile], sendCapabilities: AttachmentSendCapabilities? = nil,
+            send: ((AttachmentFileSendRequest) async -> AttachmentFileSendResult)? = nil,
+        ) {
+            self.init(client: TDLib.shared.activeClient, subtitle: nil, sendCapabilities: sendCapabilities, send: send)
+            self.probeFiles = probeFiles
+        }
+    #endif
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private let search = UISearchController(searchResultsController: nil)
     /// nil until the search returns.
@@ -72,7 +90,7 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
     private var expandsFoundFiles = false
 
     var shownTelegramNavigationSearch: UISearchController? {
-        (recentFiles?.count ?? 0) > Self.searchThreshold ? search : nil
+        !isSending && selected == nil && (recentFiles?.count ?? 0) > Self.searchThreshold ? search : nil
     }
 
     private var showsRecentFiles: Bool {
@@ -98,9 +116,14 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
         !expandsFoundFiles && (foundFiles?.count ?? 0) > Self.collapsedLimit
     }
 
-    init(client: TDLibClient, subtitle: String?) {
+    init(
+        client: TDLibClient, subtitle: String?, sendCapabilities: AttachmentSendCapabilities? = nil,
+        send: ((AttachmentFileSendRequest) async -> AttachmentFileSendResult)? = nil,
+    ) {
         self.client = client
         self.subtitle = subtitle
+        self.sendCapabilities = sendCapabilities
+        self.send = send
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -109,6 +132,7 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("Attachment.File")
+        view.backgroundColor = .systemGroupedBackground
         navigationItem.subtitle = subtitle
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: L10n.telegram("Common.Cancel"),
@@ -121,17 +145,39 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
         tableView.delegate = self
         tableView.keyboardDismissMode = .onDrag
         view.addSubview(tableView)
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
+        let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(fileLongPressed(_:)))
+        press.pressedViewProvider = { [weak self] gesture in
+            guard let self, send != nil, !isSending,
+                  let path = tableView.indexPathForRow(at: gesture.location(in: tableView)), file(at: path) != nil
+            else { return nil }
+            return tableView.cellForRow(at: path)
+        }
+        tableView.addGestureRecognizer(press)
         NSLayoutConstraint.activate([
             tableView.topAnchor.constraint(equalTo: view.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
         ])
-        tableView.register(UITableViewCell.self, forCellReuseIdentifier: Self.cellIdentifier)
+        tableView.register(FileAttachmentCell.self, forCellReuseIdentifier: Self.cellIdentifier)
         search.obscuresBackgroundDuringPresentation = false
         search.searchResultsUpdater = self
         search.searchBar.placeholder = L10n.telegram("Attachment.FilesSearchPlaceholder")
         loadRecentFiles()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard let panel = attachmentPanel, !panel.isHidden else { return }
+        let panelTop = panel.convert(CGPoint.zero, to: view).y
+        let tableBottom = tableView.convert(CGPoint(x: 0, y: tableView.bounds.maxY), to: view).y
+        let automaticInset = tableView.adjustedContentInset.bottom - tableView.contentInset.bottom
+        let inset = max(0, tableBottom - panelTop - automaticInset)
+        if abs(tableView.contentInset.bottom - inset) > 0.5 {
+            tableView.contentInset.bottom = inset
+            tableView.verticalScrollIndicatorInsets.bottom = inset
+        }
     }
 
     // MARK: Private
@@ -178,10 +224,22 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
     }
 
     private static func files(in messages: [Message]) -> [RecentFile] {
-        messages.compactMap { message in
-            guard case .messageDocument(let value) = message.content else { return nil }
-            return RecentFile(date: message.date, document: value.document)
+        messages.compactMap(RecentFile.init)
+    }
+
+    func configureAttachmentPanel(_ panel: AttachmentPanelView) {
+        guard send != nil else { return }
+        attachmentPanel = panel
+        panel.configureCommentInput(comment, client: client) { [weak self] in self?.comment = $0 }
+        panel.onBeginCommentEditing = { [weak self] in
+            guard let sheet = self?.navigationController?.sheetPresentationController else { return }
+            sheet.animateChanges { sheet.selectedDetentIdentifier = .large }
         }
+        panel.onSend = { [weak self] in self?.sendSelected() }
+        panel.onSendOptions = { [weak self] source, gesture in
+            self?.showSendOptions(from: source, tracking: gesture)
+        }
+        updateSelection()
     }
 
     // MARK: Table
@@ -198,6 +256,10 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: Self.cellIdentifier, for: indexPath)
+        (cell as? FileAttachmentCell)?.setSelection(number: nil, visible: false)
+        cell.accessibilityLabel = nil
+        cell.accessibilityValue = nil
+        cell.accessibilityCustomActions = nil
         if isSearching {
             if let file = shownFoundFiles[safe: indexPath.row] {
                 configureFileCell(cell, file: file)
@@ -256,13 +318,14 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
+        guard !isSending else { return }
         if isSearching {
             guard let file = shownFoundFiles[safe: indexPath.row] else {
                 expandsFoundFiles = true
                 tableView.reloadData()
                 return
             }
-            onPick?(file.document)
+            pick(file)
             return
         }
         guard indexPath.section != 0 else {
@@ -273,7 +336,7 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
             return
         }
         guard let file = recentFiles?[safe: indexPath.row] else { return }
-        onPick?(file.document)
+        pick(file)
     }
 
     // MARK: Search
@@ -291,6 +354,13 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
         setPanelHidden(!trimmed.isEmpty)
         tableView.reloadData()
         guard !trimmed.isEmpty else { return }
+        #if DEBUG
+            if let probeFiles {
+                foundFiles = probeFiles.filter { $0.document.fileName.localizedCaseInsensitiveContains(trimmed) }
+                tableView.reloadData()
+                return
+            }
+        #endif
         let client = client
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: Self.searchDelay)
@@ -305,6 +375,122 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
         }
     }
 
+    private func file(at indexPath: IndexPath) -> RecentFile? {
+        if isSearching { return shownFoundFiles[safe: indexPath.row] }
+        return indexPath.section == 1 ? recentFiles?[safe: indexPath.row] : nil
+    }
+
+    private func pick(_ file: RecentFile) {
+        if selected != nil { select(file) }
+        else if send != nil { sendFiles([file], caption: AttributedString(), options: nil) }
+        else { onPick?(file.document) }
+    }
+
+    private func select(_ file: RecentFile) {
+        guard !isSending else { return }
+        if selected == nil { selected = [] }
+        if let index = selected?.firstIndex(where: { $0.id == file.id }) { selected?.remove(at: index) }
+        else { selected?.append(file) }
+        if isSearching || search.isActive {
+            search.endTelegramNavigationSearch()
+            updateSearchResults(for: search)
+        }
+        updateSelection()
+    }
+
+    private func updateSelection() {
+        tableView.reloadData()
+        attachmentPanel?.update(selectionCount: selected?.count ?? 0, caption: "")
+        (navigationController as? TelegramNavigationController)?.refreshChrome(of: self)
+    }
+
+    @objc private func fileLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
+        guard gesture.state == .began, send != nil, !isSending,
+              let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+              let file = file(at: path), let cell = tableView.cellForRow(at: path) else { return }
+        presentTelegramContextMenu(sourceView: cell, actions: [TelegramContextMenuAction(
+            title: L10n.telegram("Common.Select"), image: UIImage(systemName: "checkmark.circle"),
+        ) { [weak self] in self?.select(file) }], tracking: gesture, presentationStyle: .menuOnly)
+    }
+
+    private func showSendOptions(from source: UIView, tracking gesture: UIGestureRecognizer) {
+        guard !isSending, canRetry, selected?.isEmpty == false, let sendCapabilities else { return }
+        let actions = sendCapabilities.menuActions { [weak self] timing in
+            guard let self, !isSending else { return }
+            switch timing {
+            case .now: sendSelected()
+            case .silently: sendSelected(options: ChatVM.sendOptions(silent: true))
+            case .whenOnline:
+                sendSelected(options: ChatVM.sendOptions(schedulingState: .messageSchedulingStateSendWhenOnline))
+            case .schedule:
+                ScheduleMessagePickerViewController.present(
+                    from: self, isReminder: sendCapabilities.isReminders,
+                    showsSendWhenOnline: !sendCapabilities.isReminders && sendCapabilities.canSendWhenOnline,
+                ) { [weak self] in self?.sendSelected(options: ChatVM.sendOptions(schedulingState: $0)) }
+            }
+        }
+        guard !actions.isEmpty else { return }
+        presentTelegramContextMenu(
+            sourceView: source, actions: actions, tracking: gesture, presentationStyle: .sourceMorph,
+        )
+    }
+
+    private func sendSelected(options: TDNativeMessageSendOptions? = nil) {
+        guard let selected, !selected.isEmpty else { return }
+        if let text = attachmentPanel?.finishCommentEditing() { comment = text }
+        sendFiles(selected, caption: comment, options: options ?? retryOptions)
+    }
+
+    private func sendFiles(_ files: [RecentFile], caption: AttributedString, options: TDNativeMessageSendOptions?) {
+        guard !isSending, canRetry, let send else { return }
+        let request = AttachmentFileSendRequest(files: files, caption: caption, options: options)
+        setSending(true)
+        Task { [weak self] in
+            let result = await send(request)
+            guard let self else { return }
+            setSending(false)
+            canRetry = result.canRetry
+            attachmentPanel?.isUserInteractionEnabled = canRetry
+            if result.error == nil, result.acceptedIDs == Set(files.map(\.id)) {
+                setSending(true)
+                let onDismiss = onDismiss
+                dismiss(animated: true) { onDismiss?() }
+            } else {
+                retryOptions = options
+                selected = files.filter { !result.acceptedIDs.contains($0.id) }
+                // The caption belongs to the last item, which need not be the last receipt in a partial album.
+                comment =
+                    if let last = files.last, result.acceptedIDs.contains(last.id) {
+                        AttributedString()
+                    } else {
+                        caption
+                    }
+                attachmentPanel?.setCommentText(comment)
+                updateSelection()
+                let alert = UIAlertController(
+                    title: nil, message: result.error ?? L10n.telegram("Login.UnknownError"), preferredStyle: .alert,
+                )
+                alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+                present(alert, animated: true)
+            }
+        }
+    }
+
+    private func setSending(_ sending: Bool) {
+        isSending = sending
+        view.isUserInteractionEnabled = !sending
+        navigationItem.leftBarButtonItem?.isEnabled = !sending
+        navigationController?.isModalInPresentation = sending
+        if sending {
+            let progress = UIActivityIndicatorView(style: .medium)
+            progress.startAnimating()
+            navigationItem.rightBarButtonItem = UIBarButtonItem(customView: progress)
+        } else {
+            navigationItem.rightBarButtonItem = nil
+        }
+        (navigationController as? TelegramNavigationController)?.refreshChrome(of: self)
+    }
+
     private func configureFileCell(_ cell: UITableViewCell, file: RecentFile) {
         var content = UIListContentConfiguration.subtitleCell()
         content.text = file.document.fileName.isEmpty ? L10n.telegram("Message.File") : file.document.fileName
@@ -313,8 +499,20 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
         content.secondaryTextProperties.color = .secondaryLabel
         content.image = UIImage(systemName: "doc.fill")
         content.imageProperties.tintColor = .tintColor
+        if selected != nil { content.directionalLayoutMargins.leading = 54 }
         cell.contentConfiguration = content
-        cell.accessibilityTraits = .button
+        let number = selected?.firstIndex(where: { $0.id == file.id }).map { $0 + 1 }
+        (cell as? FileAttachmentCell)?.setSelection(number: number, visible: selected != nil)
+        cell.accessibilityLabel = content.text
+        cell.accessibilityTraits = number == nil ? .button : [.button, .selected]
+        cell.accessibilityValue = number.map(String.init)
+        if send != nil, selected == nil {
+            cell.accessibilityCustomActions = [UIAccessibilityCustomAction(name: L10n.telegram("Common.Select")) {
+                [weak self] _ in
+                self?.select(file)
+                return true
+            }]
+        }
     }
 
     /// AttachmentFileController hides the attachment panel while it searches.
@@ -325,6 +523,13 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
     }
 
     private func loadRecentFiles() {
+        #if DEBUG
+            if let probeFiles {
+                recentFiles = probeFiles
+                tableView.reloadData()
+                return
+            }
+        #endif
         let client = client
         Task { [weak self] in
             let found = try? await client.send(TDNativeRequests.searchOutgoingDocumentMessages(
@@ -339,7 +544,50 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider {
     }
 
     @objc private func cancelPressed() {
+        guard !isSending else { return }
         let onDismiss = onDismiss
         dismiss(animated: true) { onDismiss?() }
+    }
+}
+
+// MARK: - FileAttachmentCell
+
+/// ListMessageFileItem's numbered selection lives before the file icon and leaves the label's width available.
+private final class FileAttachmentCell: UITableViewCell {
+    private let selectionBadge = UILabel()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionBadge.translatesAutoresizingMaskIntoConstraints = false
+        selectionBadge.font = .systemFont(ofSize: 14, weight: .semibold)
+        selectionBadge.textAlignment = .center
+        selectionBadge.layer.cornerRadius = 12
+        selectionBadge.layer.borderWidth = 1.5
+        selectionBadge.clipsToBounds = true
+        selectionBadge.isAccessibilityElement = false
+        addSubview(selectionBadge)
+        NSLayoutConstraint.activate([
+            selectionBadge.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            selectionBadge.centerYAnchor.constraint(equalTo: centerYAnchor),
+            selectionBadge.widthAnchor.constraint(equalToConstant: 24),
+            selectionBadge.heightAnchor.constraint(equalToConstant: 24),
+        ])
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // UIKit replaces the cell's content view when applying a list content configuration.
+        bringSubviewToFront(selectionBadge)
+    }
+
+    func setSelection(number: Int?, visible: Bool) {
+        selectionBadge.isHidden = !visible
+        selectionBadge.text = number.map(String.init)
+        selectionBadge.backgroundColor = number == nil ? .clear : .tintColor
+        selectionBadge.textColor = .white
+        selectionBadge.layer.borderColor = (number == nil ? UIColor.separator : tintColor).cgColor
+        bringSubviewToFront(selectionBadge)
     }
 }

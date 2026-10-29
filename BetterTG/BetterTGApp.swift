@@ -208,6 +208,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             NetworkUsageProbe.runIfRequested(in: window)
             ContactSelectionPanelProbe.runIfRequested(in: window)
             GalleryCaptionProbe.runIfRequested(in: window)
+            FileAttachmentProbe.runIfRequested(in: window)
             SecretMediaPreviewProbe.runIfRequested(in: window)
             MusicPlayerProbe.runIfRequested(in: window)
             LocationViewerProbe.runIfRequested(in: window)

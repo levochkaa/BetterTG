@@ -4534,6 +4534,118 @@ import UIKit
         }
     }
 
+    /// Recent File attachments own their caption and selection. Capture the destination and reply before waiting
+    /// for another send, then refresh the source messages as AttachmentFileController does before enqueueing.
+    func sendRecentAttachmentFiles(
+        _ request: AttachmentFileSendRequest,
+        session: AttachmentFileSendSession,
+    ) async -> AttachmentFileSendResult {
+        var result = AttachmentFileSendResult()
+        guard !request.files.isEmpty else { return result }
+        var capturedReply: CustomMessage?
+        var context: ResolvedSendContext?
+        var ownsSend = false
+        defer { if ownsSend { sendingComposerMessage = false } }
+        do {
+            let snapshot = try session.capture {
+                try AttachmentFileSendSession.Snapshot(
+                    context: resolveSendContext(
+                        for: .document,
+                        replyingTo: replyMessage,
+                        useCurrentReplyOverride: true,
+                    ),
+                    reply: replyMessage.map { ChatComposerRestorationState.MessageValue($0).makeMessage() },
+                    defaultOptions: defaultSendOptions,
+                )
+            }
+            let captured = snapshot.context
+            let reply = snapshot.reply
+            capturedReply = reply
+            let options = request.options ?? snapshot.defaultOptions
+            context = captured
+            await waitForComposerSend()
+            guard !sendingComposerMessage else {
+                return AttachmentFileSendResult(error: L10n.telegram("Login.UnknownError"))
+            }
+            sendingComposerMessage = true
+            ownsSend = true
+            if options?.schedulingState == nil, let wait = slowModeWaitMessage() {
+                return AttachmentFileSendResult(error: wait)
+            }
+            func validateDestination() throws {
+                guard !Task.isCancelled else { throw ChatSendContextError.accountUnavailable }
+                let current = try resolveSendContext(for: .document, replyingTo: reply)
+                guard current.accountID == captured.accountID, current.clientID == captured.clientID,
+                      current.chatID == captured.chatID, current.destinationTopic == captured.destinationTopic
+                else { throw ChatSendContextError.unexpectedDestination }
+            }
+            try validateDestination()
+            let caption = try await composerCaption(request.caption)
+            var files = [AttachmentRecentFile]()
+            for file in request.files {
+                try validateDestination()
+                let message = try await client.getMessage(chatId: file.id.chatID, messageId: file.id.messageID)
+                guard let refreshed = AttachmentRecentFile(message), refreshed.id == file.id else {
+                    throw ChatSendContextError.chatPermissionDenied
+                }
+                files.append(refreshed)
+            }
+            let contents = AttachmentFileSendRequest.contents(files: files, caption: caption)
+            var start = 0
+            while start < contents.count {
+                try validateDestination()
+                let end = min(start + 10, contents.count)
+                let group = Array(contents[start..<end])
+                let messages: [Message]
+                if group.count == 1, let content = group.first {
+                    messages = try await [client.sendMessage(
+                        chatId: captured.chatID, inputMessageContent: content, options: options,
+                        replyMarkup: nil, replyTo: captured.replyTo, topicId: captured.destinationTopic,
+                    )]
+                } else {
+                    let hold = beginOutgoingAlbum(count: group.count)
+                    defer { endOutgoingAlbum(hold) }
+                    messages = try await client.sendMessageAlbum(
+                        chatId: captured.chatID, inputMessageContents: group, options: options,
+                        replyTo: captured.replyTo, topicId: captured.destinationTopic,
+                    )
+                    .messages
+                }
+                guard let accepted = AttachmentFileSendRequest.acceptedIDs(
+                    files: Array(files[start..<end]), contents: group, messages: messages,
+                ) else {
+                    result.canRetry = false
+                    result.error = L10n.telegram("Login.UnknownError")
+                    break
+                }
+                // Account retirement after a response must not make already accepted files eligible for a retry.
+                result.acceptedIDs.formUnion(accepted)
+                guard messages.allSatisfy({ captured.matches(message: $0) }) else {
+                    throw ChatSendContextError.unexpectedDestination
+                }
+                guard messages.count == group.count else {
+                    throw ChatSendContextError.partialAlbum(sent: result.acceptedIDs.count, expected: files.count)
+                }
+                start = end
+            }
+        } catch {
+            result.error = error.localizedDescription
+        }
+        if !result.acceptedIDs.isEmpty, let context, locationContextIsCurrent,
+           replyMessage?.id == capturedReply?.id, getMessageReplyTo(from: replyMessage) == context.replyTo
+        {
+            cancelReply(markDirty: false)
+            do {
+                try await updateDraft(in: context, replyTo: nil)
+                draftErrorMessage = nil
+            } catch {
+                composerIsDirty = true
+                scheduleDraftUpdateRetry(context, replyTo: nil)
+            }
+        }
+        return result
+    }
+
     func sendAnimation(_ animation: Animation) async {
         let client = client
         await sendPanelAnimation { context in
