@@ -1375,10 +1375,11 @@ final class ChatComposerView: UIView {
     // MARK: Multiline text
 
     /// The field lies over its slot in the button row, or over the multiline slot above it; one set of constraints
-    /// is active at a time, so a switch animates the field's frame with the panel.
+    /// is active at a time, so a switch animates the field's frame with the panel. The field lies in the glass with
+    /// the row, as the glass swells only under a touch that lands inside it.
     private func configureMultilineText() {
         textView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(textView)
+        glassView.contentView.addSubview(textView)
         textSlot.translatesAutoresizingMaskIntoConstraints = false
         textSlot.isUserInteractionEnabled = false
         multilineTextSlot.translatesAutoresizingMaskIntoConstraints = false
