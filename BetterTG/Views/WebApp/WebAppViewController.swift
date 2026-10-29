@@ -140,10 +140,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     private let actions: Actions
     private let proxy = ScriptMessageProxy()
     private let touchRecorder = TouchRecorder()
-    private let headerView = UIView()
-    private let leftButton = UIButton(type: .system)
-    private let titleLabel = UILabel()
-    private let moreButton = UIButton(type: .system)
+    private let headerView = WebAppHeaderView()
     private let bottomPanel = UIView()
     private let buttonStack = UIStackView()
     private let mainButton = UIButton(type: .system)
@@ -252,6 +249,9 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         webView.isOpaque = false
         webView.backgroundColor = .systemBackground
         webView.scrollView.contentInsetAdjustmentBehavior = .never
+        // Keep Telegram's page viewport below the header, while scrolled content draws behind its light backdrop.
+        webView.clipsToBounds = false
+        webView.scrollView.clipsToBounds = false
         webView.alpha = 0
         touchRecorder.cancelsTouchesInView = false
         touchRecorder.delaysTouchesBegan = false
@@ -263,6 +263,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
         loadingIndicator.startAnimating()
 
         contentView.frame = view.bounds
+        contentView.clipsToBounds = true
         contentView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(contentView)
         for subview in [webView!, headerView, bottomPanel, loadingIndicator] as [UIView] {
@@ -275,7 +276,7 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
             headerView.topAnchor.constraint(equalTo: contentView.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 56),
+            headerView.heightAnchor.constraint(equalToConstant: WebAppHeaderView.contentHeight),
             webViewTop,
             webView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
@@ -478,33 +479,9 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     }
 
     private func configureHeader() {
-        leftButton.addAction(UIAction { [weak self] _ in self?.leftButtonTapped() }, for: .touchUpInside)
-        titleLabel.text = launch.botName
-        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
-        titleLabel.textAlignment = .center
-        moreButton.setImage(UIImage(systemName: "ellipsis.circle"), for: .normal)
-        moreButton.accessibilityLabel = L10n.telegram("Common.More")
-        moreButton.showsMenuAsPrimaryAction = true
-        moreButton.menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] completion in
-            completion(self?.menuActions() ?? [])
-        }])
-        for subview in [leftButton, titleLabel, moreButton] as [UIView] {
-            subview.translatesAutoresizingMaskIntoConstraints = false
-            headerView.addSubview(subview)
-        }
-        NSLayoutConstraint.activate([
-            leftButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 8),
-            leftButton.topAnchor.constraint(equalTo: headerView.topAnchor, constant: 10),
-            leftButton.heightAnchor.constraint(equalToConstant: 44),
-            moreButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -8),
-            moreButton.centerYAnchor.constraint(equalTo: leftButton.centerYAnchor),
-            moreButton.widthAnchor.constraint(equalToConstant: 44),
-            moreButton.heightAnchor.constraint(equalToConstant: 44),
-            titleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
-            titleLabel.centerYAnchor.constraint(equalTo: leftButton.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leftButton.trailingAnchor, constant: 8),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: moreButton.leadingAnchor, constant: -8),
-        ])
+        headerView.title = launch.botName
+        headerView.onBack = { [weak self] in self?.leftButtonTapped() }
+        headerView.menu = { [weak self] in self?.menuActions() ?? [] }
     }
 
     private func configureBottomPanel() {
@@ -581,28 +558,18 @@ UISheetPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate 
     }
 
     private func updateHeaderButtons() {
-        let symbol = hasBackButton ? "chevron.backward" : "xmark"
-        var configuration = UIButton.Configuration.plain()
-        configuration.image = UIImage(
-            systemName: symbol,
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold),
-        )
-        configuration.title = hasBackButton ? L10n.telegram("Common.Back") : nil
-        configuration.imagePadding = 4
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8)
-        leftButton.configuration = configuration
-        leftButton.accessibilityLabel = hasBackButton ? L10n.telegram("Common.Back") : L10n.telegram("Common.Close")
+        headerView.setBackVisible(hasBackButton)
         fullscreen.hasBack = hasBackButton
     }
 
     private func updateColors() {
         let traits = traitCollection
         let header = resolvedHeaderColor().resolvedColor(with: traits)
-        headerView.backgroundColor = header
-        let foreground: UIColor = header.isLight ? .black : .white
-        titleLabel.textColor = foreground
-        leftButton.tintColor = foreground
-        moreButton.tintColor = foreground
+        headerView.setColors(
+            header: header,
+            isCustom: headerColor != nil || headerColorKey != nil,
+            usesDarkContent: header.isLight,
+        )
         fullscreen.usesDarkContent = header.isLight
         let background = (backgroundColor ?? .systemBackground).resolvedColor(with: traits)
         view.backgroundColor = background

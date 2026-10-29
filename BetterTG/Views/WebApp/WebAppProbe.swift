@@ -14,7 +14,8 @@
         static let page = """
         <!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
-        body { font: 15px -apple-system; margin: 12px; background: var(--bg, #fff); color: var(--fg, #000); }
+        body { font: 15px -apple-system; margin: 12px; background: var(--bg, #fff); color: var(--fg, #000);
+          padding-top: calc(var(--safe-top, 0px) + var(--content-top, 0px)); }
         button { font: 15px -apple-system; margin: 3px; padding: 8px 10px; border-radius: 8px; border: 0;
           background: #3478f6; color: #fff; }
         #log { font: 12px ui-monospace; white-space: pre-wrap; margin-top: 8px; }
@@ -25,6 +26,12 @@
         <button onclick="post('web_app_setup_secondary_button', {is_visible: true, text: 'Second', position: 'left'})">second</button>
         <button onclick="post('web_app_setup_main_button', {is_visible: true, text: 'Probe Main', is_progress_visible: true})">progress</button>
         <button onclick="post('web_app_setup_back_button', {is_visible: true})">back</button>
+        <button onclick="post('web_app_setup_back_button', {is_visible: false})">no back</button>
+        <button onclick="post('web_app_set_header_color', {color: '#ffffff'})">light header</button>
+        <button onclick="post('web_app_set_header_color', {color_key: 'bg_color'})">reset header</button>
+        <button onclick="post('web_app_setup_settings_button', {is_visible: true})">settings button</button>
+        <button onclick="post('web_app_request_fullscreen'); setTimeout(() => post('web_app_exit_fullscreen'), 40); setTimeout(() => post('web_app_request_fullscreen'), 80)">interrupt fullscreen</button>
+
         <button onclick="post('web_app_expand')">expand</button>
         <button onclick="post('web_app_set_header_color', {color: '#cc3333'})">header</button>
         <button onclick="post('web_app_open_popup', {title: 'Probe', message: 'Pick one', buttons: [{id: 'alpha', type: 'default', text: 'Alpha'}, {id: 'gone', type: 'destructive', text: 'Remove'}, {id: 'cancel', type: 'cancel'}]})">popup</button>
@@ -97,6 +104,9 @@
             line('< theme_changed bg=' + data.theme_params.bg_color + ' button=' + data.theme_params.button_color);
           } else if (name === 'viewport_changed') {
             line('< viewport_changed h=' + Math.round(data.height) + ' expanded=' + data.is_expanded);
+          } else if (name === 'safe_area_changed' || name === 'content_safe_area_changed') {
+            document.body.style.setProperty(name === 'safe_area_changed' ? '--safe-top' : '--content-top', data.top + 'px');
+            line('< ' + name + ' ' + JSON.stringify(data));
           } else if (/^(accelerometer|gyroscope|device_orientation)_changed$/.test(name)) {
             sensor(name, data);
           } else {
