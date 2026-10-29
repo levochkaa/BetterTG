@@ -8,7 +8,13 @@ import UIKit
 /// Seed values retain geometry, never fresh media or action authority.
 @MainActor final class PeerProfileSharedMessageRefresh {
     enum State { case loading, retry, ready }
-    enum Change { case quarantine(Set<Int64>), message(Message), remove(Int64), retry(Int64) }
+    enum Change {
+        case quarantine(Set<Int64>)
+        case message(Message)
+        case remove(Int64)
+        case retry(Int64)
+    }
+
     struct PageAdmission {
         let accepted: [Message]
         let quarantined: [Message]

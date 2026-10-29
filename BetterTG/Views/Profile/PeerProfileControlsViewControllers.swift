@@ -12,7 +12,10 @@ import UIKit
         case basicGroup(chatID: Int64, id: Int64)
         case supergroup(chatID: Int64, id: Int64)
 
-        enum Group: Equatable { case basic(Int64), supergroup(Int64) }
+        enum Group: Equatable {
+            case basic(Int64)
+            case supergroup(Int64)
+        }
 
         var chatID: Int64 {
             switch self {

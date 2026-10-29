@@ -41,6 +41,7 @@
 --header "// {file}"
 --hex-grouping 4,8
 --hex-literal-case uppercase
+--hoist-imports hoist
 --ifdef preserve
 --import-grouping alpha
 --indent 4
@@ -120,6 +121,7 @@
 --wrap-enum-cases with-values
 --wrap-parameters before-first
 --wrap-return-type preserve
+--wrap-single-line-enum-cases true
 --wrap-string-interpolation default
 --wrap-ternary before-operators
 --wrap-type-aliases preserve

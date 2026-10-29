@@ -10,7 +10,13 @@ import UIKit
         let isVisible: Bool
     }
 
-    enum Resolution { case deferred, missing, cancelled, ready(Target) }
+    enum Resolution {
+        case deferred
+        case missing
+        case cancelled
+        case ready(Target)
+    }
+
     enum Outcome: Equatable { case settled, missing, failed, cancelled }
 
     /// Estimated neighboring cells may require more than two layout passes.
