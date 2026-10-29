@@ -272,6 +272,11 @@ import TDLibKit
         return peerType(for: record) != nil
     }
 
+    /// The peer of a chat TDLib has sent, whichever lists hold it.
+    func peerType(chatID: Int64) -> CustomChat.CustomChatType? {
+        records[chatID].flatMap(peerType(for:))
+    }
+
     private func peerType(for record: ChatListRecord) -> CustomChat.CustomChatType? {
         switch record.type {
         case .chatTypePrivate(let peer):

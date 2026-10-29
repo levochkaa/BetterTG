@@ -256,6 +256,12 @@ extension RootVM {
                 folder.isLoading = false
             }
             folders = loadedFolders
+            if store.accountID == accountID {
+                FolderTabAppearance.shared.keepStyles(
+                    of: Set(configuration.chatFolders.map { Int($0.id) }),
+                    accountID: accountID,
+                )
+            }
             synchronizeChatLists()
             if currentFolder == nil || !folders.contains(where: { $0.id == self.currentFolder }) {
                 currentFolder = folders.first?.id

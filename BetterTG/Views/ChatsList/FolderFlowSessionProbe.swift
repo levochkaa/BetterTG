@@ -53,6 +53,7 @@
                         writes.append((source, mutation))
                         await gate?.wait()
                         if fail { throw Failure(description: "injected write error") }
+                        return nil
                     }
                 },
             )

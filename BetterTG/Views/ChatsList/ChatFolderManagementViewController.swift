@@ -105,7 +105,7 @@ final class ChatFoldersViewController: UITableViewController {
                 ? L10n.telegramPlural("GlobalAutodeleteSettings.ApplyChatsSubject", count: entry.chats)
                 : nil
         }
-        configuration.image = UIImage(systemName: "folder.fill")
+        configuration.image = folder.icon?.image
         configuration.imageProperties.tintColor = .systemBlue
         cell.contentConfiguration = configuration
         cell.accessoryType = .disclosureIndicator
@@ -305,7 +305,7 @@ final class ChatFolderOrderViewController: UITableViewController {
         let folder = folders[indexPath.row]
         var configuration = cell.defaultContentConfiguration()
         configuration.text = folder.name
-        configuration.image = UIImage(systemName: folder.id == 0 ? "tray.full.fill" : "folder.fill")
+        configuration.image = folder.icon?.image
         configuration.imageProperties.tintColor = .systemBlue
         cell.contentConfiguration = configuration
         cell.showsReorderControl = true
@@ -368,6 +368,8 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
     private let folderInfo: ChatFolderInfo?
     private let originalName: ChatFolderName?
     private var draft: ChatFolder
+    /// What the folder's tab shows, saved on this device with the folder.
+    private var tabStyle: FolderTabStyle
     /// The name this new folder was last given automatically; the user's own text in the field stops the naming.
     private var automaticName = ""
     /// The folder's invite links (`getChatFolderInviteLinks`), newest first.
@@ -396,6 +398,15 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         !inviteLinks.isEmpty || folderInfo?.hasMyInviteLinks == true
     }
 
+    /// Automatic or the chosen icon's name; the tab's style when it leaves out the icon or the name.
+    private var iconSummary: String {
+        switch tabStyle {
+        case .iconAndName: draft.chosenIcon?.title ?? L10n.betterTG("Folders.Icon.Automatic")
+        case .iconOnly,
+             .nameOnly: tabStyle.title
+        }
+    }
+
     convenience init(rootVM: RootVM, folder: CustomFolder? = nil, actionAuthority: ChatListActionAuthority? = nil) {
         self.init(session: .live(rootVM: rootVM, authority: actionAuthority), folder: folder)
     }
@@ -406,10 +417,12 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
             self.folderInfo = info
             self.originalName = definition.name
             self.draft = definition
+            self.tabStyle = folder.tabStyle
         } else {
             self.folderInfo = nil
             self.originalName = nil
             self.draft = ChatFolder.empty
+            self.tabStyle = .iconAndName
         }
         super.init(style: .insetGrouped)
     }
@@ -480,6 +493,14 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         case .name:
             cell.accessoryView = nameField
             cell.selectionStyle = .none
+        case .icon:
+            var icon = UIListContentConfiguration.valueCell()
+            icon.text = row.title
+            icon.secondaryText = iconSummary
+            icon.image = tabStyle == .nameOnly ? nil : (draft.chosenIcon ?? draft.automaticIcon).image
+            icon.imageProperties.tintColor = .label
+            cell.contentConfiguration = icon
+            cell.accessoryType = .disclosureIndicator
         case .excludedChats,
              .includedChats:
             cell.accessoryType = .disclosureIndicator
@@ -519,14 +540,18 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         switch editorRow(at: indexPath) {
         case .name:
             nameField.becomeFirstResponder()
+        case .icon:
+            openIconSettings()
         case .include(let type):
             draft = draft.replacing(type, included: !draft.includes(type))
             tableView.reloadRows(at: [indexPath], with: .none)
             updateAutomaticName()
+            reloadIconRow()
         case .exclude(let type):
             draft = draft.replacing(type, excluded: !draft.excludes(type))
             tableView.reloadRows(at: [indexPath], with: .none)
             updateAutomaticName()
+            reloadIconRow()
         case .includedChats:
             selectChats(excluded: false)
         case .excludedChats:
@@ -564,9 +589,9 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
               case .folder(_, let current) = session.folders.first(where: { $0.id == Int(folderInfo.id) })?.type
         else { return true }
         let name = nameField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !draft.replacingName(name, preserving: originalName).hasSameEditableContent(as: current) else {
-            return true
-        }
+        guard !draft.replacingName(name, preserving: originalName).hasSameEditableContent(as: current)
+            || tabStyle != FolderTabAppearance.shared.style(of: folderInfo.id, accountID: session.accountID)
+        else { return true }
         guard presentedViewController == nil else { return false }
         nameField.resignFirstResponder()
         let alert = UIAlertController(
@@ -606,6 +631,33 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         guard folderInfo == nil, (nameField.text ?? "") == automaticName else { return }
         automaticName = draft.automaticName ?? ""
         nameField.text = automaticName
+    }
+
+    private func reloadIconRow() {
+        guard let section = sections.firstIndex(of: .name),
+              let row = rows(in: .name).firstIndex(where: {
+                  if case .icon = $0 {
+                      true
+                  } else {
+                      false
+                  }
+              })
+        else { return }
+        tableView.reloadRows(at: [IndexPath(row: row, section: section)], with: .none)
+    }
+
+    private func openIconSettings() {
+        let controller = ChatFolderIconViewController(
+            choice: .init(icon: draft.chosenIcon, style: tabStyle),
+            automaticIcon: draft.automaticIcon,
+            footer: L10n.betterTG("Folders.Icon.Footer"),
+        ) { [weak self] choice in
+            guard let self else { return }
+            draft = draft.replacingIcon(choice.icon)
+            tabStyle = choice.style
+            reloadIconRow()
+        }
+        navigationController?.pushViewController(controller, animated: true)
     }
 
     private func loadInviteLinks() {
@@ -855,6 +907,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
             if let section = sections.firstIndex(of: .chats) {
                 tableView.reloadSections(IndexSet(integer: section), with: .none)
             }
+            reloadIconRow()
             return true
         }
         activeSelection = controller
@@ -879,7 +932,12 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
         let updated = draft.replacingName(name, preserving: originalName)
         let folderID = folderInfo?.id
         let mutation: FolderFlowSession.Mutation = folderID.map { .edit($0, updated) } ?? .create(updated)
+        let tabStyle = tabStyle
+        let accountID = session.accountID
         session.mutate(mutation, owner: self) { [weak self] result in
+            if case .success(let createdID) = result, let id = folderID ?? createdID {
+                FolderTabAppearance.shared.setStyle(tabStyle, of: id, accountID: accountID)
+            }
             guard let self else { return }
             switch result {
             case .success:
@@ -1283,7 +1341,7 @@ extension ChatFolder {
     /// attemptNavigation compares includePeers.peers.
     func hasSameEditableContent(as other: ChatFolder) -> Bool {
         name.text == other.name.text && name.animateCustomEmoji == other.name.animateCustomEmoji
-            && hasSameRules(as: other)
+            && icon?.name == other.icon?.name && hasSameRules(as: other)
     }
 
     /// The folder's chat rules without its name, as Telegram compares ChatListFilterData. Chats compare as sets:
@@ -1494,7 +1552,7 @@ private extension ChatFolderEditorViewController {
         /// The rows of every section but the invite links, whose rows follow the loaded links.
         func rows(shareable: Bool) -> [Row] {
             switch self {
-            case .name: [.name]
+            case .name: [.name, .icon]
             case .includedTypes: ChatFolderInclusion.allCases.map(Row.include)
             case .chats: shareable ? [.includedChats] : [.includedChats, .excludedChats]
             case .excludedTypes: ChatFolderExclusion.allCases.map(Row.exclude)
@@ -1505,6 +1563,7 @@ private extension ChatFolderEditorViewController {
 
     enum Row {
         case name
+        case icon
         case include(ChatFolderInclusion)
         case includedChats
         case excludedChats
@@ -1519,6 +1578,7 @@ private extension ChatFolderEditorViewController {
         var title: String {
             switch self {
             case .name: L10n.telegram("ChatListFolder.NameSectionHeader")
+            case .icon: L10n.betterTG("Folders.Icon")
             case .include(let type): type.title
             case .includedChats: L10n.betterTG("Folders.AlwaysInclude")
             case .excludedChats: L10n.betterTG("Folders.NeverInclude")

@@ -153,6 +153,17 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 DispatchQueue.main.async { self?.reloadFolderUnreadStates() }
             }
             .store(in: &cancellables)
+        FolderTabAppearance.shared
+            .changes
+            .sink { [weak self] in
+                guard let self, actionAuthority.isCurrent else { return }
+                folderPicker.configure(
+                    folders: rootVM.folders,
+                    selectedID: rootVM.currentFolder,
+                    unreadStates: folderUnreadStates,
+                )
+            }
+            .store(in: &cancellables)
         folderUnreadStates = FolderUnreadStore.shared.states(for: actionAuthority.client.id)
         reloadFromState()
         updateHeaderPanels(animated: false)
@@ -1156,6 +1167,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             pushFolderController(ChatFoldersViewController(rootVM: rootVM, actionAuthority: actionAuthority))
         case .reorderTabs:
             pushFolderController(ChatFolderOrderViewController(rootVM: rootVM, actionAuthority: actionAuthority))
+        case .editIcon:
+            editMainIcon()
         case .editFolder:
             guard case .folder = folder.type else { return }
             pushFolderController(ChatFolderEditorViewController(
@@ -1170,6 +1183,23 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         case .remove:
             confirmFolderRemoval(folder)
         }
+    }
+
+    /// All Chats has no TDLib folder to keep an icon, so its choice stays on this device.
+    private func editMainIcon() {
+        let appearance = FolderTabAppearance.shared
+        let accountID = rootVM.activeAccountID
+        pushFolderController(ChatFolderIconViewController(
+            choice: .init(
+                icon: appearance.mainIcon(accountID: accountID),
+                style: appearance.style(of: 0, accountID: accountID),
+            ),
+            automaticIcon: .all,
+            footer: L10n.betterTG("Folders.Icon.MainFooter"),
+        ) { choice in
+            appearance.setMainIcon(choice.icon, accountID: accountID)
+            appearance.setStyle(choice.style, of: 0, accountID: accountID)
+        })
     }
 
     private func pushFolderController(_ controller: UIViewController) {
@@ -1308,6 +1338,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 enum FolderMenuAction {
     case editFolders
     case reorderTabs
+    case editIcon
     case editFolder
     case addChats
     case readAll
@@ -1326,6 +1357,9 @@ final class FolderPickerView: UIView {
     struct Item: Equatable {
         let id: Int
         let title: String
+        /// The icon before the title; a tab that doesn't show its title shows only the icon.
+        var icon: FolderIcon?
+        var showsTitle = true
     }
 
     /// The strip's height above the bottom inset: the blur above the capsule, the capsule and the same gap under it.
@@ -1458,7 +1492,15 @@ final class FolderPickerView: UIView {
         }
         self.folders = folders
         applyItems(
-            folders.map { Item(id: $0.id, title: $0.name) },
+            folders.map { folder in
+                let style = folder.tabStyle
+                return Item(
+                    id: folder.id,
+                    title: folder.name,
+                    icon: style == .nameOnly ? nil : folder.icon,
+                    showsTitle: style != .iconOnly,
+                )
+            },
             selectedID: selectedID,
             unreadStates: displayedUnreadStates,
         )
@@ -1635,7 +1677,7 @@ final class FolderPickerView: UIView {
         for (index, folder) in items.enumerated() {
             let button = FolderButton(type: .system)
             button.tag = index
-            button.configure(title: folder.title, unreadState: unreadStates[index], animated: false)
+            button.configure(item: folder, unreadState: unreadStates[index], animated: false)
             button.addTarget(self, action: #selector(folderPressed(_:)), for: .touchUpInside)
             let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(folderLongPressed(_:)))
             // A text-only segment has no shape of its own to cast the platter shadow.
@@ -1650,7 +1692,7 @@ final class FolderPickerView: UIView {
             guard lens != nil else { continue }
             let selectedButton = FolderButton(type: .system)
             selectedButton.isUserInteractionEnabled = false
-            selectedButton.configure(title: folder.title, unreadState: unreadStates[index], animated: false)
+            selectedButton.configure(item: folder, unreadState: unreadStates[index], animated: false)
             selectedButtonStack.addArrangedSubview(selectedButton)
             let selectedWidth = selectedButton.widthAnchor.constraint(equalToConstant: naturalSegmentWidths[index])
             selectedWidth.isActive = true
@@ -1668,11 +1710,7 @@ final class FolderPickerView: UIView {
         guard items.count == buttons.count, unreadStates.count == buttons.count else { return }
         for copies in [buttons, selectedButtons] where copies.count == items.count {
             for index in copies.indices {
-                copies[index].configure(
-                    title: items[index].title,
-                    unreadState: unreadStates[index],
-                    animated: animated,
-                )
+                copies[index].configure(item: items[index], unreadState: unreadStates[index], animated: animated)
             }
         }
         naturalSegmentWidths = items.indices.map { index in
@@ -1682,8 +1720,10 @@ final class FolderPickerView: UIView {
         layoutSelection(animated: animated)
     }
 
+    /// A tab showing only its icon may be narrower than a titled one.
     private func naturalSegmentWidth(for folder: Item, unreadState: FolderUnreadState) -> CGFloat {
-        max(60, ceil(FolderButton.contentWidth(title: folder.title, unreadCount: unreadState.count)) + 32)
+        let contentWidth = ceil(FolderButton.contentWidth(item: folder, unreadCount: unreadState.count)) + 32
+        return folder.showsTitle ? max(60, contentWidth) : contentWidth
     }
 
     private func scrollSelectedSegmentIntoView(animated: Bool) {
@@ -1737,7 +1777,7 @@ final class FolderPickerView: UIView {
     /// when even that doesn't fit, the compact widths scroll.
     private func compressedSegmentWidths(availableWidth: CGFloat) -> [CGFloat] {
         let compact = items.indices.map { index in
-            ceil(FolderButton.contentWidth(title: items[index].title, unreadCount: unreadStates[index].count)) + 16
+            ceil(FolderButton.contentWidth(item: items[index], unreadCount: unreadStates[index].count)) + 16
         }
         let compactTotal = compact.reduce(0, +)
         let naturalTotal = naturalSegmentWidths.reduce(0, +)
@@ -1980,6 +2020,10 @@ final class FolderPickerView: UIView {
                     title: L10n.telegram("ChatList.EditFolders"),
                     image: UIImage(systemName: "square.and.pencil"),
                 ) { [weak self] in self?.onAction?(.editFolders, folder) },
+                TelegramContextMenuAction(
+                    title: L10n.betterTG("Folders.Icon.Change"),
+                    image: UIImage(systemName: "square.grid.2x2"),
+                ) { [weak self] in self?.onAction?(.editIcon, folder) },
             ]
             if folders.count > 1 {
                 actions.append(TelegramContextMenuAction(
@@ -2063,7 +2107,10 @@ private final class FolderButton: UIButton {
         traits.userInterfaceStyle == .dark ? .black : .white
     }
 
+    private static let iconSpacing: CGFloat = 5
+
     private let contentStack = UIStackView()
+    private let iconView = UIImageView()
     private let folderTitleLabel = UILabel()
     private let unreadBadgeView = FolderUnreadBadgeView()
     private var unreadHasUnmuted = false
@@ -2078,16 +2125,24 @@ private final class FolderButton: UIButton {
         fatalError("init(coder:) has not been implemented")
     }
 
-    static func contentWidth(title: String, unreadCount: Int) -> CGFloat {
-        let titleWidth = (title as NSString).size(withAttributes: [.font: titleFont]).width
-        guard unreadCount > 0 else { return titleWidth }
+    static func contentWidth(item: FolderPickerView.Item, unreadCount: Int) -> CGFloat {
+        var width = item.showsTitle
+            ? (item.title as NSString).size(withAttributes: [.font: titleFont]).width
+            : 0
+        if item.icon != nil {
+            width += FolderIcon.side + (item.showsTitle ? iconSpacing : 0)
+        }
+        guard unreadCount > 0 else { return width }
         let badgeTextWidth = ("\(unreadCount)" as NSString).size(withAttributes: [.font: badgeFont]).width
-        return titleWidth + 4 + max(18, badgeTextWidth + 8)
+        return width + 4 + max(18, badgeTextWidth + 8)
     }
 
-    func configure(title: String, unreadState: FolderUnreadState, animated: Bool) {
-        folderTitleLabel.text = title
-        accessibilityLabel = title
+    func configure(item: FolderPickerView.Item, unreadState: FolderUnreadState, animated: Bool) {
+        folderTitleLabel.text = item.title
+        folderTitleLabel.isHidden = !item.showsTitle
+        iconView.image = item.icon?.image
+        iconView.isHidden = item.icon == nil
+        accessibilityLabel = item.title
         accessibilityValue = unreadState.count > 0
             ? L10n.telegramPlural("VoiceOver.Chat.UnreadMessages", count: unreadState.count)
             : nil
@@ -2131,6 +2186,7 @@ private final class FolderButton: UIButton {
     func updateAppearance(titleColor: UIColor) {
         resolvedTitleColor = titleColor
         folderTitleLabel.textColor = titleColor
+        iconView.tintColor = titleColor
         if unreadHasUnmuted {
             unreadBadgeView.backgroundColor = .label
             unreadBadgeView.textColor = Self.activeBadgeTextColor
@@ -2147,6 +2203,12 @@ private final class FolderButton: UIButton {
         contentStack.spacing = 4
         contentStack.isUserInteractionEnabled = false
 
+        iconView.contentMode = .center
+        iconView.isHidden = true
+        NSLayoutConstraint.activate([
+            iconView.widthAnchor.constraint(equalToConstant: FolderIcon.side),
+            iconView.heightAnchor.constraint(equalToConstant: FolderIcon.side),
+        ])
         folderTitleLabel.font = Self.titleFont
         folderTitleLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         unreadBadgeView.font = Self.badgeFont
@@ -2155,8 +2217,10 @@ private final class FolderButton: UIButton {
         // The button's accessibility value reads the count.
         unreadBadgeView.accessibilityElementsHidden = true
 
+        contentStack.addArrangedSubview(iconView)
         contentStack.addArrangedSubview(folderTitleLabel)
         contentStack.addArrangedSubview(unreadBadgeView)
+        contentStack.setCustomSpacing(Self.iconSpacing, after: iconView)
         addSubview(contentStack)
         NSLayoutConstraint.activate([
             contentStack.centerXAnchor.constraint(equalTo: centerXAnchor),

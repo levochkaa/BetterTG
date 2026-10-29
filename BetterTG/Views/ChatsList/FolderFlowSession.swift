@@ -18,7 +18,8 @@ import UIKit
 
     struct Endpoint {
         let source: TdUpdateSource
-        let write: (Mutation) async throws -> Void
+        /// Writes the mutation and returns the ID of a folder it created.
+        let write: (Mutation) async throws -> Int?
     }
 
     /// TDLib reads the folder screens make beyond the loaded chat lists. Callers check that the session is still
@@ -43,7 +44,8 @@ import UIKit
     private(set) var state = State.waiting
     let reader: Reader?
 
-    private let accountID: UUID?
+    let accountID: UUID?
+
     private let currentSource: () -> TdUpdateSource?
     private let ownerAccount: () -> UUID?
     private let resolve: (TdUpdateSource) -> Endpoint?
@@ -115,17 +117,16 @@ import UIKit
                 return Endpoint(source: source) { mutation in
                     switch mutation {
                     case .create(let folder):
-                        _ = try await client.createChatFolder(folder: folder)
-                        return
+                        return try await client.createChatFolder(folder: folder).id
                     case .edit(let id, let folder):
                         _ = try await client.editChatFolder(chatFolderId: id, folder: folder)
-                        return
+                        return nil
                     case .reorder(let ids, let mainPosition):
                         _ = try await client.reorderChatFolders(chatFolderIds: ids, mainChatListPosition: mainPosition)
-                        return
+                        return nil
                     case .delete(let id, let leaveChatIDs):
                         _ = try await client.deleteChatFolder(chatFolderId: id, leaveChatIds: leaveChatIDs)
-                        return
+                        return nil
                     }
                 }
             },
@@ -220,10 +221,11 @@ import UIKit
         }
     }
 
+    /// Writes the mutation; a successful creation completes with the new folder's ID.
     func mutate(
         _ mutation: Mutation,
         owner: UIViewController,
-        completion: @escaping (Result<Void, any Swift.Error>) -> Void,
+        completion: @escaping (Result<Int?, any Swift.Error>) -> Void,
     ) {
         let scope = scope(owner: owner)
         guard scope.isCurrent, let endpoint, pending == nil else { return }
@@ -248,10 +250,9 @@ import UIKit
                 return
             }
             pending = (id, true)
-            let result: Result<Void, any Swift.Error>
+            let result: Result<Int?, any Swift.Error>
             do {
-                try await endpoint.write(mutation)
-                result = .success(())
+                result = try await .success(endpoint.write(mutation))
             } catch {
                 result = .failure(error)
             }
