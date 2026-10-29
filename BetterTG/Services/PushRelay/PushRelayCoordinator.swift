@@ -201,15 +201,15 @@ import UserNotifications
                 userInfo: notification.request.content.userInfo,
             ),
                   stateRoute.refersToSameConversation(as: messageRoute),
-                  let messageId = messageRoute.serverMessageId
+                  let messageID = messageRoute.serverMessageID
             else { return nil }
 
             switch stateRoute.event {
             case "READ_HISTORY":
-                guard let maxId = stateRoute.maxId, messageId <= maxId else { return nil }
+                guard let maxID = stateRoute.maxID, messageID <= maxID else { return nil }
             case "MESSAGE_DELETED",
                  "READ_REACTION":
-                guard stateRoute.deletedMessageIds.contains(messageId) else { return nil }
+                guard stateRoute.deletedMessageIDs.contains(messageID) else { return nil }
             default:
                 return nil
             }
@@ -507,7 +507,7 @@ import UserNotifications
     /// account's client is ready; a later tap replaces a route still waiting. The switch waits for a ready client as
     /// well, so it never runs while the notification service owns TDLib (L-8).
     private func openWhenReady(_ route: PushNotificationRoute) {
-        let targetAccountID = route.accountId.flatMap { userID in
+        let targetAccountID = route.accountID.flatMap { userID in
             TDLib.shared.accounts.first { $0.userID == userID }?.id
         }
         var switchedAccount = false
@@ -658,7 +658,7 @@ import UserNotifications
             guard TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }
-            guard let routeAccountID = route.accountId,
+            guard let routeAccountID = route.accountID,
                   routeAccountID == currentUser.id
             else {
                 log("Unable to send quick reply: notification account couldn't be verified")
@@ -685,7 +685,7 @@ import UserNotifications
                       TDLib.shared.activeClient.id == client.id
                 else { return }
                 if supergroup.isForum {
-                    guard let notificationMessageID = route.tdlibMessageId,
+                    guard let notificationMessageID = route.tdlibMessageID,
                           let targetMessage = try? await client.getMessage(
                               chatId: chat.id,
                               messageId: notificationMessageID,
@@ -732,7 +732,7 @@ import UserNotifications
                 return
             }
 
-            let replyTo = (verifiedReplyMessageID ?? route.tdlibTopMessageId).map {
+            let replyTo = (verifiedReplyMessageID ?? route.tdlibTopMessageID).map {
                 InputMessageReplyTo.inputMessageReplyToMessage(
                     InputMessageReplyToMessage(
                         checklistTaskId: 0,
@@ -765,7 +765,7 @@ import UserNotifications
             guard TDLib.shared.activeAccountID == accountID,
                   TDLib.shared.activeClient.id == client.id
             else { return }
-            if let messageId = route.tdlibMessageId {
+            if let messageID = route.tdlibMessageID {
                 // A forum reply reads only its topic; reading the whole forum would mark other topics' older
                 // unread messages as read.
                 let isForumTopic =
@@ -777,7 +777,7 @@ import UserNotifications
                 _ = try? await client.viewMessages(
                     chatId: chat.id,
                     forceRead: true,
-                    messageIds: [messageId],
+                    messageIds: [messageID],
                     source: isForumTopic ? .messageSourceForumTopicHistory : nil,
                 )
             }
@@ -803,11 +803,11 @@ import UserNotifications
     private func chat(for route: PushNotificationRoute, using client: TDLibClient) async throws -> Chat {
         switch route.peerType {
         case .privateChat:
-            try await client.createPrivateChat(force: false, userId: route.peerId)
+            try await client.createPrivateChat(force: false, userId: route.peerID)
         case .basicGroup:
-            try await client.createBasicGroupChat(basicGroupId: route.peerId, force: false)
+            try await client.createBasicGroupChat(basicGroupId: route.peerID, force: false)
         case .supergroup:
-            try await client.createSupergroupChat(force: false, supergroupId: route.peerId)
+            try await client.createSupergroupChat(force: false, supergroupId: route.peerID)
         }
     }
 
@@ -828,7 +828,7 @@ import UserNotifications
                 let currentUser = try await client.getMe()
                 guard TDLib.shared.activeAccountID == accountID,
                       TDLib.shared.activeClient.id == client.id,
-                      route.accountId == nil || route.accountId == currentUser.id else { return }
+                      route.accountID == nil || route.accountID == currentUser.id else { return }
                 let chat = try await chat(for: route, using: client)
                 guard TDLib.shared.activeAccountID == accountID,
                       TDLib.shared.activeClient.id == client.id,
@@ -848,7 +848,7 @@ import UserNotifications
                             clientID: client.id,
                             topic: nil,
                         ),
-                        targetMessageID: route.tdlibMessageId,
+                        targetMessageID: route.tdlibMessageID,
                     ),
                 )
             } catch {

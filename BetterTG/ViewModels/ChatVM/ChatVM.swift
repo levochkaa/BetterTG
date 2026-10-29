@@ -275,7 +275,7 @@ import UIKit
     @Published private(set) var replyQuote: InputTextQuote?
     @Published private(set) var replyInputOverride: InputMessageReplyTo?
     @Published private(set) var replyFallbackPresentation: MessageReplyPresentation?
-    @Published var highlightedMessageId: Int64?
+    @Published var highlightedMessageID: Int64?
     @Published var displayedImages = [SelectedImage]()
     @Published var displayedDocuments = [SelectedDocument]()
     /// MediaPickerScreen's Move Caption Up for the composer's photos and videos (`showCaptionAboveMedia`).

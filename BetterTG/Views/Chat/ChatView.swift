@@ -5206,7 +5206,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     continue
                 }
                 let inputs = ChatTimelineMessageRow.Inputs(
-                    highlightedMessageID: canonical.sourceMessages.first { $0.id == chatVM.highlightedMessageId }?.id,
+                    highlightedMessageID: canonical.sourceMessages.first { $0.id == chatVM.highlightedMessageID }?.id,
                     selectionActive: isSelectingMessages && canSelectMessage(canonical),
                     selected: selectedDisplayedMessageIDs.contains(id),
                     showsProfileImage: chatVM.customChat.shouldShowProfileImage,
@@ -6197,9 +6197,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func updateHighlightState() {
         // Any ChatVM publish lands here; only a highlight change reconfigures rows and retires viewport restoration.
-        guard lastHighlightedMessageID != chatVM.highlightedMessageId else { return }
-        let changed = Set([lastHighlightedMessageID, chatVM.highlightedMessageId].compactMap(\.self))
-        lastHighlightedMessageID = chatVM.highlightedMessageId
+        guard lastHighlightedMessageID != chatVM.highlightedMessageID else { return }
+        let changed = Set([lastHighlightedMessageID, chatVM.highlightedMessageID].compactMap(\.self))
+        lastHighlightedMessageID = chatVM.highlightedMessageID
         guard !changed.isEmpty else { return }
         let identifiers = Set(changed.compactMap { chatVM.displayedMessageID(containing: $0) })
         guard !identifiers.isEmpty else { return }
@@ -6593,12 +6593,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
               let indexPath = dataSource.indexPath(for: .message(displayedID)),
               message(for: displayedID)?.sourceMessages.contains(where: { $0.id == id }) == true else { return }
         messageHighlightTask?.cancel()
-        chatVM.highlightedMessageId = id
+        chatVM.highlightedMessageID = id
         updateHighlightState()
         messageHighlightTask = Task { [weak self, weak chatVM] in
             try? await Task<Never, Never>.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
-            chatVM?.highlightedMessageId = nil
+            chatVM?.highlightedMessageID = nil
             self?.updateHighlightState()
             self?.messageHighlightTask = nil
         }
@@ -6623,12 +6623,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private func highlightMessage(id: Int64) {
         messageHighlightTask?.cancel()
-        chatVM.highlightedMessageId = id
+        chatVM.highlightedMessageID = id
         updateHighlightState()
         messageHighlightTask = Task { [weak self, weak chatVM] in
             try? await Task<Never, Never>.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
-            chatVM?.highlightedMessageId = nil
+            chatVM?.highlightedMessageID = nil
             self?.updateHighlightState()
             self?.messageHighlightTask = nil
         }

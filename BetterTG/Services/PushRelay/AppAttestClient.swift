@@ -30,15 +30,15 @@ actor AppAttestClient {
         }
 
         log("Generating App Attest assertion for installation request")
-        let keyId = try await attestedKeyId(api: api, service: service)
+        let keyID = try await attestedKeyID(api: api, service: service)
         let challenge = try await api.challenge().challenge
         let body = try encodeInstallation(apnsToken: apnsToken, challenge: challenge)
         let clientDataHash = Data(SHA256.hash(data: body))
-        let assertion = try await service.generateAssertion(keyId, clientDataHash: clientDataHash)
+        let assertion = try await service.generateAssertion(keyID, clientDataHash: clientDataHash)
         return RelaySignedRequest(
             body: body,
             headers: [
-                "X-App-Attest-Key-Id": keyId,
+                "X-App-Attest-Key-Id": keyID,
                 "X-App-Attest-Assertion": assertion.base64EncodedString(),
             ],
         )
@@ -48,30 +48,30 @@ actor AppAttestClient {
         try await stateStore.update { $0.appAttestKeyId = nil }
     }
 
-    private func attestedKeyId(
+    private func attestedKeyID(
         api: PushRelayAPIClient,
         service: DCAppAttestService,
     ) async throws -> String {
-        if let keyId = try await stateStore.load().appAttestKeyId {
+        if let keyID = try await stateStore.load().appAttestKeyId {
             log("Using existing App Attest key")
-            return keyId
+            return keyID
         }
 
         log("Creating and attesting a new App Attest key")
         let challenge = try await api.challenge().challenge
-        let keyId = try await service.generateKey()
+        let keyID = try await service.generateKey()
         let clientDataHash = Data(SHA256.hash(data: Data(challenge.utf8)))
-        let attestation = try await service.attestKey(keyId, clientDataHash: clientDataHash)
+        let attestation = try await service.attestKey(keyID, clientDataHash: clientDataHash)
         try await api.submitAttestation(
             RelayAttestationRequest(
-                keyId: keyId,
+                keyId: keyID,
                 challenge: challenge,
                 attestation: attestation.base64EncodedString(),
             ),
         )
-        try await stateStore.update { $0.appAttestKeyId = keyId }
+        try await stateStore.update { $0.appAttestKeyId = keyID }
         log("App Attest key registered with push relay")
-        return keyId
+        return keyID
     }
 
     private func encodeInstallation(apnsToken: String, challenge: String?) throws -> Data {

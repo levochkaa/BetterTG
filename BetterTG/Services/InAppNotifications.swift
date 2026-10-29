@@ -124,24 +124,24 @@ enum InAppNotificationSettings {
 
     /// A chat screen for the message's chat anywhere in the stack, in its thread when the message has one.
     private static func isChatVisible(_ route: PushNotificationRoute) -> Bool {
-        if let accountID = route.accountId,
+        if let accountID = route.accountID,
            TDLib.shared.accounts.first(where: { $0.id == TDLib.shared.activeAccountID })?.userID != accountID
         {
             return false
         }
         let chatID =
             switch route.peerType {
-            case .privateChat: route.peerId
-            case .basicGroup: -route.peerId
-            case .supergroup: -1_000_000_000_000 - route.peerId
+            case .privateChat: route.peerID
+            case .basicGroup: -route.peerID
+            case .supergroup: -1_000_000_000_000 - route.peerID
             }
         return NavigationStorage.shared.viewControllers.contains { controller in
             guard let location = (controller as? ChatViewController)?.location, location.chatID == chatID else {
                 return false
             }
-            guard let topServerMessageID = route.topServerMessageId else { return true }
+            guard let topServerMessageID = route.topServerMessageID else { return true }
             return location.forumTopicID == Int(topServerMessageID)
-                || location.messageThreadID == route.tdlibTopMessageId
+                || location.messageThreadID == route.tdlibTopMessageID
         }
     }
 }
