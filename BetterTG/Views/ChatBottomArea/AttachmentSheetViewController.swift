@@ -1549,6 +1549,13 @@ enum MediaPickerQualityIcon {
     }
 }
 
+// MARK: - AttachmentPanelContent
+
+/// A tab whose selection drives the sheet's shared panel, as AttachmentMediaPickerContext does in Telegram.
+@MainActor protocol AttachmentPanelContent: AnyObject {
+    func configureAttachmentPanel(_ panel: AttachmentPanelView)
+}
+
 // MARK: - AttachmentPanelView
 
 /// AttachmentPanel: the buttons for the chat's attachments with the shown one current. With items picked the send
@@ -1675,6 +1682,8 @@ enum MediaPickerQualityIcon {
             panel.bottomAnchor.constraint(equalTo: controller.view.bottomAnchor),
             panel.topAnchor.constraint(equalTo: controller.view.safeAreaLayoutGuide.bottomAnchor),
         ])
+        let content = (controller as? AttachmentSheetTabContainer)?.content ?? controller
+        (content as? AttachmentPanelContent)?.configureAttachmentPanel(panel)
         return panel
     }
 
@@ -1687,6 +1696,10 @@ enum MediaPickerQualityIcon {
         captionLabel.text = caption
         sendButton.accessibilityValue = String(selectionCount)
         let selecting = selectionCount > 0
+        sendRow.isUserInteractionEnabled = selecting
+        sendRow.accessibilityElementsHidden = !selecting
+        tabsScroll.isUserInteractionEnabled = !selecting
+        tabsScroll.accessibilityElementsHidden = selecting
         guard selecting != isSelecting else { return }
         isSelecting = selecting
         tabsScroll.isHidden = false
@@ -1707,11 +1720,12 @@ enum MediaPickerQualityIcon {
     }
 
     @objc private func sendPressed() {
+        guard isSelecting else { return }
         onSend?()
     }
 
     @objc private func sendLongPressed(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began else { return }
+        guard isSelecting, gesture.state == .began else { return }
         onSendOptions?(sendButton, gesture)
     }
 }
@@ -1824,6 +1838,8 @@ private final class AttachmentTabStrip: UIView, UIGestureRecognizerDelegate {
     private var lens: LiquidLens?
     private var tabs = [AttachmentSheetTab]()
     private var currentIndex = 0
+    private var needsSelectionReveal = true
+    private var lastViewportWidth: CGFloat = 0
     private var tabWidth: CGFloat = 0
     private var isSelecting = false
     private var heldIndex: Int?
@@ -1903,6 +1919,18 @@ private final class AttachmentTabStrip: UIView, UIGestureRecognizerDelegate {
             if buttonsView.subviews.indices.contains(index) { buttonsView.subviews[index].frame = frame }
         }
         tabWidth = width
+        // Each replacement owns a fresh strip. Reveal its selected tab after real geometry is available, as
+        // AttachmentPanel scrolls the chosen button into view with 35 pt of context. Ordinary scrolls stay put.
+        if scroll.bounds.width > 0, tabs.indices.contains(currentIndex),
+           needsSelectionReveal || lastViewportWidth != scroll.bounds.width
+        {
+            needsSelectionReveal = false
+            lastViewportWidth = scroll.bounds.width
+            scroll.scrollRectToVisible(
+                tabFrame(at: currentIndex, width: width).insetBy(dx: -35, dy: 0),
+                animated: false,
+            )
+        }
         restingTintView.frame = selectedTabsView.bounds
         placeSelection(at: currentIndex, isLifted: false, animated: false)
     }
@@ -1918,6 +1946,7 @@ private final class AttachmentTabStrip: UIView, UIGestureRecognizerDelegate {
     func configure(tabs: [AttachmentSheetTab], current: AttachmentSheetTab) {
         self.tabs = tabs
         currentIndex = tabs.firstIndex(of: current) ?? 0
+        needsSelectionReveal = true
         for view in selectedTabsView.subviews + tabsView.subviews + buttonsView.subviews
             where view !== restingTintView
         {

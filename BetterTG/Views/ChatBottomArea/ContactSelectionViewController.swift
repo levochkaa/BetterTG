@@ -10,11 +10,11 @@ import UIKit
 /// `multipleSelection: .always` and `requirePhoneNumbers`): the account's contacts that show a phone number, by name
 /// under letters and with their presence, then the phonebook's other people with a number; ContactListNode's
 /// permission rows while the phonebook is closed; ContactsSearchContainerNode's search over both; and checkmarks with
-/// ContactSelectionCountPanelNode's Send and count. Send goes out as Telegram's attachment menu sends contacts: several
+/// the shared attachment panel's Send and count. Send goes out as Telegram's attachment menu sends contacts: several
 /// without vCards, one card that is only a name and a number at once, any other card through
 /// DeviceContactInfoController's field selection.
 final class ContactSelectionViewController: UIViewController, TelegramNavigationSearchProvider,
-UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
+UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentPanelContent {
     // MARK: Private
 
     private enum Pick {
@@ -62,7 +62,7 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
     private let accountID: UUID?
     private let send: ([InputMessageContent]) -> Void
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
-    private let countPanel = ContactSelectionCountPanel()
+    private weak var attachmentPanel: AttachmentPanelView?
     private var authorization = CNContactStore.authorizationStatus(for: .contacts)
     private var contacts = [ComposeContact]()
     private var contactSections = [ComposeContactSection]()
@@ -78,11 +78,23 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
     /// The checked people, in the order they were checked.
     private var selected = [Pick]()
     private var sections = [Section]()
-    private var countPanelShown = false
     private var didFinish = false
     private var loadTask: Task<Void, Never>?
     private var phonebookTask: Task<Void, Never>?
     private var searchTask: Task<Void, Never>?
+
+    #if DEBUG
+        private var isProbe = false
+
+        convenience init(probeContacts: [ComposeContact], send: @escaping ([InputMessageContent]) -> Void) {
+            self.init(client: TDLib.shared.activeClient, accountID: nil, send: send)
+            self.isProbe = true
+            self.authorization = .restricted
+            self.isLoading = false
+            self.contacts = probeContacts
+            self.contactSections = ComposeContactSection.sections(probeContacts, sort: .name)
+        }
+    #endif
 
     private var trimmedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -131,14 +143,13 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: Self.cellIdentifier)
         tableView.register(SettingsPeerCell.self, forCellReuseIdentifier: SettingsPeerCell.reuseIdentifier)
         view.addSubview(tableView)
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
         NSLayoutConstraint.activate([
             tableView.topAnchor.constraint(equalTo: view.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
         ])
-        countPanel.onSend = { [weak self] in self?.sendPressed() }
-        view.addSubview(countPanel)
         // Telegram follows the contacts permission; it can change in Settings while the picker is open.
         NotificationCenter.default.addObserver(
             self,
@@ -149,11 +160,6 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
         reload()
         load()
         if phonebookIsOpen { loadPhonebook() }
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        layoutCountPanel()
     }
 
     /// One of several: a Telegram contact with its number and user ID, a phonebook person with the first number.
@@ -322,6 +328,12 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
         }
         isSearching = true
         reload()
+        #if DEBUG
+            if isProbe {
+                showSearchResults(contacts.filter { $0.title.localizedCaseInsensitiveContains(trimmed) }, for: trimmed)
+                return
+            }
+        #endif
         let client = client
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: Self.searchDelay)
@@ -332,6 +344,16 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
             guard let self, !Task.isCancelled, trimmedQuery == trimmed else { return }
             showSearchResults(found, for: trimmed)
         }
+    }
+
+    // MARK: Attachment panel
+
+    /// ContactsPickerContext publishes selection to AttachmentController's one panel. Selecting replaces its tabs
+    /// with Send; deselecting restores them, without a second bar or a changing safe-area inset.
+    func configureAttachmentPanel(_ panel: AttachmentPanelView) {
+        attachmentPanel = panel
+        panel.onSend = { [weak self] in self?.sendPressed() }
+        updateAttachmentPanel()
     }
 
     /// ContactsSearchContainerNode with `.cloudContacts` and `.deviceContacts`: the matching contacts with a number,
@@ -432,6 +454,9 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
 
     /// getContacts with ContactListFilter's `excludeSelf` and `excludeWithoutPhoneNumbers`.
     private func load() {
+        #if DEBUG
+            if isProbe { return }
+        #endif
         let client = client
         loadTask = Task { [weak self] in
             let loaded = await ComposeContacts.load(client: client)
@@ -467,7 +492,7 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
             guard case .device(let entry) = pick else { return false }
             return !shown.contains(entry.identifier)
         }
-        if selected.count != previousCount { updateCountPanel(animated: true) }
+        if selected.count != previousCount { updateAttachmentPanel() }
     }
 
     /// ContactListNode's authorize: Allow Access asks for the phonebook, Allow in Settings opens Settings.
@@ -491,6 +516,9 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
     }
 
     @objc private func authorizationChanged() {
+        #if DEBUG
+            if isProbe { return }
+        #endif
         let status = CNContactStore.authorizationStatus(for: .contacts)
         guard status != authorization else { return }
         authorization = status
@@ -525,45 +553,11 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate {
             updateSearchResults(for: telegramNavigationSearch)
         }
         reload()
-        updateCountPanel(animated: true)
+        updateAttachmentPanel()
     }
 
-    // MARK: Count panel
-
-    private func updateCountPanel(animated: Bool) {
-        // ContactSelectionCountPanelNode keeps its last number while it slides away.
-        if !selected.isEmpty { countPanel.number = selected.count }
-        let shown = !selected.isEmpty
-        guard shown != countPanelShown else { return }
-        countPanelShown = shown
-        guard animated, isViewLoaded, view.window != nil else {
-            if isViewLoaded { view.setNeedsLayout() }
-            return
-        }
-        UIView.animate(
-            withDuration: 0.3,
-            delay: 0,
-            usingSpringWithDamping: 1,
-            initialSpringVelocity: 0,
-            options: [.allowUserInteraction, .beginFromCurrentState],
-        ) {
-            self.layoutCountPanel()
-        }
-    }
-
-    private func layoutCountPanel() {
-        let bottomInset = view.safeAreaInsets.bottom
-        let height = ContactSelectionCountPanel.height(bottomInset: bottomInset)
-        countPanel.frame = CGRect(
-            x: 0,
-            y: view.bounds.height - (countPanelShown ? height : 0),
-            width: view.bounds.width,
-            height: height,
-        )
-        let inset = countPanelShown ? height - bottomInset : 0
-        guard tableView.contentInset.bottom != inset else { return }
-        tableView.contentInset.bottom = inset
-        tableView.verticalScrollIndicatorInsets.bottom = inset
+    private func updateAttachmentPanel() {
+        attachmentPanel?.update(selectionCount: selected.count, caption: "")
     }
 
     // MARK: Sending
@@ -679,105 +673,5 @@ extension SettingsPeer {
                 isDeleted: false,
             ),
         )
-    }
-}
-
-// MARK: - ContactSelectionCountPanel
-
-/// ContactSelectionCountPanelNode: Send with the number of checked people in an accent badge after it, on the bar
-/// material under a separator.
-private final class ContactSelectionCountPanel: UIView {
-    private final class Button: UIButton {
-        override var isHighlighted: Bool {
-            didSet { onHighlight?(isHighlighted) }
-        }
-
-        var onHighlight: ((Bool) -> Void)?
-    }
-
-    private static let buttonHeight: CGFloat = 44
-    private static let badgeHeight: CGFloat = 22
-
-    var onSend: (() -> Void)?
-
-    var number = 0 {
-        didSet {
-            guard number != oldValue else { return }
-            badgeLabel.text = String(number)
-            button.accessibilityValue = String(number)
-            setNeedsLayout()
-        }
-    }
-
-    private let background = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    private let separator = UIView()
-    private let button = Button(type: .system)
-    private let badgeLabel = UILabel()
-    private let titleFont = UIFont.systemFont(ofSize: 17, weight: .medium)
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        addSubview(background)
-        separator.backgroundColor = .separator
-        addSubview(separator)
-        button.setTitle(L10n.telegram("ShareMenu.Send"), for: .normal)
-        button.titleLabel?.font = titleFont
-        button.accessibilityLabel = L10n.telegram("ShareMenu.Send")
-        button.addTarget(self, action: #selector(sendPressed), for: .touchUpInside)
-        button.onHighlight = { [weak self] highlighted in
-            self?.badgeLabel.alpha = highlighted ? 0.4 : 1
-        }
-        addSubview(button)
-        badgeLabel.font = .systemFont(ofSize: 14)
-        badgeLabel.textColor = .white
-        badgeLabel.textAlignment = .center
-        badgeLabel.backgroundColor = tintColor
-        badgeLabel.layer.cornerRadius = Self.badgeHeight / 2
-        badgeLabel.clipsToBounds = true
-        badgeLabel.isUserInteractionEnabled = false
-        badgeLabel.isAccessibilityElement = false
-        addSubview(badgeLabel)
-    }
-
-    @available(*, unavailable) required init?(coder _: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        background.frame = bounds
-        let pixel = 1 / traitCollection.displayScale
-        separator.frame = CGRect(x: 0, y: 0, width: bounds.width, height: pixel)
-        let buttonFrame = CGRect(
-            x: safeAreaInsets.left,
-            y: 0,
-            width: max(0, bounds.width - safeAreaInsets.left - safeAreaInsets.right),
-            height: Self.buttonHeight,
-        )
-        button.frame = buttonFrame
-        let title = (button.title(for: .normal) ?? "") as NSString
-        let titleWidth = ceil(title.size(withAttributes: [.font: titleFont]).width)
-        let textWidth = ceil(badgeLabel.sizeThatFits(CGSize(width: 100, height: Self.badgeHeight)).width)
-        badgeLabel.frame = CGRect(
-            x: buttonFrame.midX + titleWidth / 2 + 6,
-            y: buttonFrame.maxY - 33,
-            width: max(Self.badgeHeight, textWidth + 11),
-            height: Self.badgeHeight,
-        )
-    }
-
-    override func tintColorDidChange() {
-        super.tintColorDidChange()
-        badgeLabel.backgroundColor = tintColor
-    }
-
-    /// ContactSelectionCountPanelNode's height: the button, then 9 pt below it, 4 of them inside the home indicator's
-    /// inset.
-    static func height(bottomInset: CGFloat) -> CGFloat {
-        buttonHeight + bottomInset + (bottomInset > 0 ? 5 : 9)
-    }
-
-    @objc private func sendPressed() {
-        onSend?()
     }
 }
