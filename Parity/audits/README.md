@@ -4,6 +4,7 @@ Read-only audits and probe sweeps of the merged `codex/parity` code, by area, wi
 
 ## Contents
 
+- [Invite preview chrome — 2026-10-30](2026-10-30-invite-preview.md)
 - [Login keyboard layout — 2026-10-30](2026-10-30-login-keyboard.md)
 - [Login bar — 2026-10-30](2026-10-30-login-bar.md)
 - [Web App header — 2026-10-30](2026-10-30-web-app-header.md)

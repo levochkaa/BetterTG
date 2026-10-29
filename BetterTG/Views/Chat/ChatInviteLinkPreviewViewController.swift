@@ -8,7 +8,57 @@ import UIKit
 /// Telegram's JoinLinkPreviewController for a `t.me/+hash` or `joinchat` link the user can't open yet: the chat's
 /// photo, title, member count, a few members and its description, with Join or Request to Join. Nothing is joined
 /// until the user taps the button. Requests run on the client that checked the link and stop once it isn't current.
-final class ChatInviteLinkPreviewViewController: UIViewController {
+final class ChatInviteLinkPreviewViewController: UIViewController, UIViewControllerTransitioningDelegate {
+    /// One transition owns the dimmer and slide, instead of sliding after a modal crossfade has completed.
+    private final class SheetAnimation: NSObject, UIViewControllerAnimatedTransitioning {
+        let presenting: Bool
+
+        init(presenting: Bool) { self.presenting = presenting }
+
+        func transitionDuration(using _: UIViewControllerContextTransitioning?) -> TimeInterval { 0.3 }
+        func animateTransition(using context: UIViewControllerContextTransitioning) {
+            guard let controller = context.viewController(forKey: presenting ? .to : .from)
+                as? ChatInviteLinkPreviewViewController
+            else {
+                context.completeTransition(false)
+                return
+            }
+            if presenting {
+                controller.view.frame = context.finalFrame(for: controller)
+                context.containerView.addSubview(controller.view)
+                controller.view.layoutIfNeeded()
+                controller.dimmer.alpha = 0
+                controller.sheet.transform = CGAffineTransform(translationX: 0, y: controller.sheet.bounds.height)
+            }
+            let changes = {
+                controller.dimmer.alpha = self.presenting ? 1 : 0
+                controller.sheet.transform = self.presenting
+                    ? .identity
+                    : CGAffineTransform(translationX: 0, y: controller.sheet.bounds.height)
+            }
+            let completion: (Bool) -> Void = { _ in context.completeTransition(!context.transitionWasCancelled) }
+            if presenting {
+                UIView.animate(
+                    withDuration: 0.3,
+                    delay: 0,
+                    usingSpringWithDamping: 0.85,
+                    initialSpringVelocity: 0,
+                    options: [.beginFromCurrentState],
+                    animations: changes,
+                    completion: completion,
+                )
+            } else {
+                UIView.animate(
+                    withDuration: 0.3,
+                    delay: 0,
+                    options: [.beginFromCurrentState, .curveEaseInOut],
+                    animations: changes,
+                    completion: completion,
+                )
+            }
+        }
+    }
+
     /// Called after the dismissal with the joined chat, as Telegram's navigateToPeer.
     var onJoined: ((Int64) -> Void)?
 
@@ -18,7 +68,9 @@ final class ChatInviteLinkPreviewViewController: UIViewController {
     private let info: TDNativeChatInviteLinkInfo
     private let authority = ChatListActionAuthority()
     private let dimmer = UIControl()
-    private let sheetStack = UIStackView()
+    private let sheet = UIVisualEffectView()
+    private let sheetTint = UIView()
+    private let scroll = UIScrollView()
     private let contentStack = UIStackView()
     private let avatarView = ProfileAvatarView()
     private let titleLabel = UILabel()
@@ -27,12 +79,11 @@ final class ChatInviteLinkPreviewViewController: UIViewController {
     private let membersStack = UIStackView()
     private let aboutLabel = UILabel()
     private let requestLabel = UILabel()
-    private let spinner = UIActivityIndicatorView(style: .medium)
-    private let joinButton = TelegramSheetActionButton()
-    private let cancelButton = TelegramSheetActionButton()
+    private let joinButton = UIButton(type: .system)
+    private let cancelButton = UIButton(type: .custom)
     private var contentHeight: NSLayoutConstraint!
     private var sheetWidth: NSLayoutConstraint!
-    private var didAnimateIn = false
+    private var contentBottom: NSLayoutConstraint!
     private var isJoining = false
 
     private var isChannel: Bool {
@@ -45,7 +96,7 @@ final class ChatInviteLinkPreviewViewController: UIViewController {
         self.info = info
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .overFullScreen
-        modalTransitionStyle = .crossDissolve
+        transitioningDelegate = self
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -57,106 +108,163 @@ final class ChatInviteLinkPreviewViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
+        view.accessibilityViewIsModal = true
         dimmer.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         dimmer.translatesAutoresizingMaskIntoConstraints = false
         dimmer.addTarget(self, action: #selector(cancel), for: .touchUpInside)
         view.addSubview(dimmer)
-        sheetStack.translatesAutoresizingMaskIntoConstraints = false
-        sheetStack.axis = .vertical
-        sheetStack.spacing = 8
-        view.addSubview(sheetStack)
-        sheetWidth = sheetStack.widthAnchor.constraint(equalToConstant: 382)
+        sheet.translatesAutoresizingMaskIntoConstraints = false
+        sheet.layer.cornerRadius = 16
+        sheet.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        sheet.clipsToBounds = true
+        view.addSubview(sheet)
+        sheetTint.translatesAutoresizingMaskIntoConstraints = false
+        sheet.contentView.addSubview(sheetTint)
+        sheetWidth = sheet.widthAnchor.constraint(equalToConstant: 402)
+        contentHeight = sheet.heightAnchor.constraint(equalToConstant: 360)
         NSLayoutConstraint.activate([
             dimmer.topAnchor.constraint(equalTo: view.topAnchor),
             dimmer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             dimmer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             dimmer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            sheetStack.centerXAnchor.constraint(equalTo: view.centerXAnchor), sheetWidth,
-            sheetStack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -10),
+            sheet.centerXAnchor.constraint(equalTo: view.centerXAnchor), sheetWidth, contentHeight,
+            sheet.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            sheetTint.topAnchor.constraint(equalTo: sheet.contentView.topAnchor),
+            sheetTint.leadingAnchor.constraint(equalTo: sheet.contentView.leadingAnchor),
+            sheetTint.trailingAnchor.constraint(equalTo: sheet.contentView.trailingAnchor),
+            sheetTint.bottomAnchor.constraint(equalTo: sheet.contentView.bottomAnchor),
         ])
 
-        let card = UIView()
-        card.backgroundColor = .secondarySystemBackground
-        card.layer.cornerRadius = 16
-        card.clipsToBounds = true
-        sheetStack.addArrangedSubview(card)
-        sheetStack.addArrangedSubview(cancelButton)
-        cancelButton.layer.cornerRadius = 16
-        cancelButton.clipsToBounds = true
-        cancelButton.setTitle(L10n.telegram("Common.Cancel"), for: .normal)
+        cancelButton.accessibilityLabel = L10n.telegram("Common.Close")
+        cancelButton.accessibilityIdentifier = "chat-invite-close"
         cancelButton.addTarget(self, action: #selector(cancel), for: .touchUpInside)
-        joinButton.setTitle(joinTitle(), for: .normal)
         joinButton.accessibilityIdentifier = "chat-invite-join"
-        joinButton.addTarget(self, action: #selector(join), for: .touchUpInside)
-        for button in [joinButton, cancelButton] {
-            button.heightAnchor.constraint(equalToConstant: 57).isActive = true
+        joinButton.accessibilityLabel = joinTitle()
+        var configuration = UIButton.Configuration.filled()
+        configuration.title = joinTitle()
+        configuration.baseBackgroundColor = .systemBlue
+        configuration.baseForegroundColor = .white
+        configuration.background.cornerRadius = 11
+        configuration.cornerStyle = .fixed
+        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = .systemFont(ofSize: 17, weight: .semibold)
+            return outgoing
         }
+        joinButton.configuration = configuration
+        joinButton.addTarget(self, action: #selector(join), for: .touchUpInside)
+        joinButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 52).isActive = true
 
         configureContent()
-        let scroll = UIScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.contentInsetAdjustmentBehavior = .never
         scroll.alwaysBounceVertical = false
-        card.addSubview(scroll)
+        sheet.contentView.addSubview(scroll)
         scroll.addSubview(contentStack)
-        joinButton.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(joinButton)
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        spinner.hidesWhenStopped = true
-        joinButton.addSubview(spinner)
-        let separator = UIView()
-        separator.backgroundColor = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(separator)
-        contentHeight = scroll.heightAnchor.constraint(equalToConstant: 280)
+        cancelButton.translatesAutoresizingMaskIntoConstraints = false
+        sheet.contentView.addSubview(cancelButton)
+        contentBottom = contentStack.bottomAnchor.constraint(
+            equalTo: scroll.contentLayoutGuide.bottomAnchor,
+            constant: -44,
+        )
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: card.topAnchor),
-            scroll.leadingAnchor.constraint(equalTo: card.leadingAnchor),
-            scroll.trailingAnchor.constraint(equalTo: card.trailingAnchor), contentHeight,
-            contentStack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 24),
+            scroll.topAnchor.constraint(equalTo: sheet.contentView.topAnchor),
+            scroll.leadingAnchor.constraint(equalTo: sheet.contentView.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: sheet.contentView.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: sheet.contentView.bottomAnchor),
+            contentStack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 32),
             contentStack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 16),
             contentStack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -16),
-            contentStack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -18),
+            contentBottom,
             contentStack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -32),
-            joinButton.topAnchor.constraint(equalTo: scroll.bottomAnchor),
-            joinButton.leadingAnchor.constraint(equalTo: card.leadingAnchor),
-            joinButton.trailingAnchor.constraint(equalTo: card.trailingAnchor),
-            joinButton.bottomAnchor.constraint(equalTo: card.bottomAnchor),
-            spinner.centerYAnchor.constraint(equalTo: joinButton.centerYAnchor),
-            spinner.trailingAnchor.constraint(equalTo: joinButton.trailingAnchor, constant: -20),
-            separator.topAnchor.constraint(equalTo: joinButton.topAnchor),
-            separator.leadingAnchor.constraint(equalTo: card.leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: card.trailingAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
+            cancelButton.topAnchor.constraint(equalTo: sheet.contentView.topAnchor, constant: 6),
+            cancelButton.trailingAnchor.constraint(equalTo: sheet.contentView.trailingAnchor, constant: -3),
+            cancelButton.widthAnchor.constraint(equalToConstant: 44),
+            cancelButton.heightAnchor.constraint(equalToConstant: 44),
         ])
+        updateBackdrop()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (
+            self: ChatInviteLinkPreviewViewController,
+            _: UITraitCollection,
+        ) in
+            self.updateBackdrop()
+        }
         loadMembers()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        let width = min(view.bounds.width, view.bounds.height) - 20
+        // JoinLinkPreview's horizontalContainerFillingSizeForLayout and 10 pt bottom clearance.
+        let width = min(view.bounds.width, traitCollection.horizontalSizeClass == .regular ? 414 : 440)
         if abs(sheetWidth.constant - width) > 0.5 { sheetWidth.constant = width }
+        let bottom = view.safeAreaInsets.bottom + 10
+        contentBottom.constant = -bottom
         let fitting = contentStack.systemLayoutSizeFitting(
             CGSize(width: max(1, width - 32), height: 0),
             withHorizontalFittingPriority: .required,
             verticalFittingPriority: .fittingSizeLevel,
         )
-        let available = max(120, view.bounds.height - view.safeAreaInsets.top - view.safeAreaInsets.bottom - 142)
-        let height = min(available, ceil(fitting.height + 42))
+        let available = max(120, view.bounds.height - view.safeAreaInsets.top - 10)
+        let height = min(available, ceil(fitting.height + 32 + bottom))
         if abs(contentHeight.constant - height) > 0.5 { contentHeight.constant = height }
+        scroll.verticalScrollIndicatorInsets.top = 50
+        scroll.verticalScrollIndicatorInsets.bottom = bottom
     }
 
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        guard !didAnimateIn else { return }
-        didAnimateIn = true
-        sheetStack.transform = CGAffineTransform(translationX: 0, y: sheetStack.bounds.height + 40)
-        UIView.animate(
-            withDuration: 0.3,
-            delay: 0,
-            usingSpringWithDamping: 0.85,
-            initialSpringVelocity: 0,
-            options: [.allowUserInteraction],
-        ) { self.sheetStack.transform = .identity }
+    override func accessibilityPerformEscape() -> Bool {
+        guard !isJoining else { return false }
+        cancel()
+        return true
+    }
+
+    // MARK: Transition
+
+    func animationController(
+        forPresented _: UIViewController,
+        presenting _: UIViewController,
+        source _: UIViewController,
+    ) -> UIViewControllerAnimatedTransitioning? {
+        SheetAnimation(presenting: true)
+    }
+
+    func animationController(forDismissed _: UIViewController) -> UIViewControllerAnimatedTransitioning? {
+        SheetAnimation(presenting: false)
+    }
+
+    #if DEBUG
+        /// The UI fixture exercises the real busy state while preventing any join request.
+        func useLocalJoinForProbe() {
+            precondition(ProcessInfo.processInfo.arguments.contains("-ui-probe-invite-preview"))
+            loadViewIfNeeded()
+            joinButton.removeTarget(nil, action: nil, for: .allEvents)
+            joinButton.addAction(UIAction { [weak self] _ in
+                self?.setJoining(true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.setJoining(false) }
+            }, for: .touchUpInside)
+        }
+    #endif
+
+    private func updateBackdrop() {
+        let dark = traitCollection.userInterfaceStyle == .dark
+        sheet.effect = UIBlurEffect(style: dark ? .dark : .light)
+        sheetTint.backgroundColor = dark
+            ? UIColor(red: 28 / 255, green: 28 / 255, blue: 29 / 255, alpha: 0.8)
+            : UIColor(white: 1, alpha: 0.8)
+        // JoinLinkPreviewControllerNode.closeButtonImage: 30 pt circle inside a 44 pt target.
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 30, height: 30)).image { context in
+            let cg = context.cgContext
+            cg.setFillColor(UIColor(white: 128 / 255, alpha: 0.1).cgColor)
+            cg.fillEllipse(in: CGRect(x: 0, y: 0, width: 30, height: 30))
+            cg.setStrokeColor(UIColor.secondaryLabel.resolvedColor(with: traitCollection).cgColor)
+            cg.setLineWidth(2)
+            cg.setLineCap(.round)
+            cg.move(to: CGPoint(x: 10, y: 10))
+            cg.addLine(to: CGPoint(x: 20, y: 20))
+            cg.move(to: CGPoint(x: 20, y: 10))
+            cg.addLine(to: CGPoint(x: 10, y: 20))
+            cg.strokePath()
+        }
+        cancelButton.setImage(image.withRenderingMode(.alwaysOriginal), for: .normal)
     }
 
     // MARK: Content
@@ -197,7 +305,7 @@ final class ChatInviteLinkPreviewViewController: UIViewController {
             avatarView.heightAnchor.constraint(equalToConstant: 100),
         ])
         contentStack.addArrangedSubview(avatarContainer)
-        contentStack.setCustomSpacing(15, after: avatarContainer)
+        contentStack.setCustomSpacing(10, after: avatarContainer)
 
         titleLabel.text = title
         titleLabel.font = .systemFont(ofSize: 24, weight: .semibold)
@@ -258,7 +366,10 @@ final class ChatInviteLinkPreviewViewController: UIViewController {
         aboutLabel.numberOfLines = 0
         aboutLabel.isHidden = about.isEmpty
         contentStack.addArrangedSubview(aboutLabel)
-        contentStack.setCustomSpacing(12, after: membersScroll)
+        contentStack.setCustomSpacing(20, after: membersScroll)
+        contentStack.setCustomSpacing(20, after: aboutLabel)
+        contentStack.addArrangedSubview(joinButton)
+        contentStack.setCustomSpacing(20, after: joinButton)
 
         requestLabel.text = L10n.telegram(isChannel
             ? "MemberRequests.RequestToJoinDescriptionChannel"
@@ -269,7 +380,6 @@ final class ChatInviteLinkPreviewViewController: UIViewController {
         requestLabel.numberOfLines = 0
         requestLabel.isHidden = !info.createsJoinRequest
         contentStack.addArrangedSubview(requestLabel)
-        contentStack.setCustomSpacing(12, after: aboutLabel)
     }
 
     private func joinTitle() -> String {
@@ -405,7 +515,10 @@ final class ChatInviteLinkPreviewViewController: UIViewController {
         isJoining = joining
         joinButton.isEnabled = !joining
         cancelButton.isEnabled = !joining
-        if joining { spinner.startAnimating() } else { spinner.stopAnimating() }
+        var configuration = joinButton.configuration
+        configuration?.title = joining ? nil : joinTitle()
+        configuration?.showsActivityIndicator = joining
+        joinButton.configuration = configuration
     }
 
     private func finishWithRequestSent() {

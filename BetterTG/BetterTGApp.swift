@@ -203,6 +203,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             VoicePlaybackHeaderProbe.runIfRequested(in: window)
             HeaderPanelsProbe.runIfRequested(in: window)
             LoginChromeProbe.runIfRequested(in: window)
+            ChatInviteLinkPreviewProbe.runIfRequested(in: window)
             SecretMediaPreviewProbe.runIfRequested(in: window)
             MusicPlayerProbe.runIfRequested(in: window)
             LocationViewerProbe.runIfRequested(in: window)
