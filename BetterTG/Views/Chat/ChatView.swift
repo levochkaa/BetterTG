@@ -5588,7 +5588,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func riseInsertedLatestRows(after previous: Set<ChatTimelineItemID>, ids: [ChatTimelineItemID]) {
         // The ad after the newest message stays below what arrives above it.
         let ids = Array(ids.drop { item in
-            if case .sponsored = item { previous.contains(item) } else { false }
+            if case .sponsored = item {
+                previous.contains(item)
+            } else {
+                false
+            }
         })
         let inserted = ids.prefix { !previous.contains($0) }
         guard !inserted.isEmpty, inserted.count < ids.count,
@@ -8375,7 +8379,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     ) -> [TelegramContextMenuAction] {
         let id = message.id
         let toast: (String) -> Void = { [weak self, weak sheet] text in
-            if let sheet { sheet.showToast(text) } else { self?.showChatToast(text) }
+            if let sheet {
+                sheet.showToast(text)
+            } else {
+                self?.showChatToast(text)
+            }
         }
         var actions = [TelegramContextMenuAction]()
         let info = [message.sponsorInfo, message.additionalInfo].compactMap(\.self)

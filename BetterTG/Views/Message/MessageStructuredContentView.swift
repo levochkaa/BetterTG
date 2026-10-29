@@ -2084,7 +2084,11 @@ private final class PollMessageContentView: UIView, MessageSupplementView {
         let onAction = onAction
         let open: (TDNativePollMedia) -> Void = { [weak self] media in self?.openMedia(media) }
         let mapAction: (MessageContentAction) -> Void = { action in
-            if case .openLocation = action { open(media) } else { onAction(action) }
+            if case .openLocation = action {
+                open(media)
+            } else {
+                onAction(action)
+            }
         }
         switch media {
         case .pollMediaDocument(let value):

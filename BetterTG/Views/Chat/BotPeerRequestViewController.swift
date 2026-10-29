@@ -157,7 +157,11 @@ final class BotPeerRequestViewController: SettingsListViewController, UISearchRe
         let mainChats = RootVM.shared
             .folders
             .first { folder in
-                if case .main = folder.type { true } else { false }
+                if case .main = folder.type {
+                    true
+                } else {
+                    false
+                }
             }?.chats ?? []
         Task { [weak self] in
             var found = [Candidate]()

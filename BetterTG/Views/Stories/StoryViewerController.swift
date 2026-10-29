@@ -2150,9 +2150,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         } else if abs(velocity) >= StoryCubeGeometry.commitVelocity {
             if velocity < 0 {
                 if hasNext { forward = true } else { mayDismiss = true }
-            } else {
-                if hasPrevious { forward = false } else { mayDismiss = true }
-            }
+            } else if hasPrevious { forward = false } else { mayDismiss = true }
         }
         if let forward, case .poster = state.movePoster(forward: forward) {
             turnCube(forward: forward)

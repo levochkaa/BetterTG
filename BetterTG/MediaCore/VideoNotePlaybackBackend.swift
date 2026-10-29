@@ -50,8 +50,11 @@ import UIKit
         center.publisher(for: name.name)
             .compactMap { TdScopedUpdate<T>(notification: $0) }
             .sink { event in
-                if Thread.isMainThread { MainActor.assumeIsolated { perform(event) } }
-                else { Task { @MainActor in perform(event) } }
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated { perform(event) }
+                } else {
+                    Task { @MainActor in perform(event) }
+                }
             }
             .store(in: &bindings)
     }

@@ -66,7 +66,7 @@ struct TelegramPushText: Equatable {
         self.init(
             title: key.hasPrefix("CHAT_") && arguments.count > 2 ? arguments[1] : author,
             body: Self.format(plural.template(count: count), arguments: [String(count)])
-                .replacingOccurrences(of: "{author}", with: author),
+                .replacing("{author}", with: author),
         )
     }
 

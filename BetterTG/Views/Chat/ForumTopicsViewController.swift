@@ -1070,7 +1070,11 @@ import UIKit
         updateNavigationBar()
         updateTopicSelection()
         let shownMessages = Set(dataSource.snapshot().itemIdentifiers.compactMap { item -> Int64? in
-            if case .message(let id) = item { id } else { nil }
+            if case .message(let id) = item {
+                id
+            } else {
+                nil
+            }
         })
         messageRows = messageRows.filter { shownMessages.contains($0.key) }
         if owns(model, binding: binding) {

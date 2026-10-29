@@ -91,7 +91,11 @@ final class SettingsPeerPickerViewController: SettingsListViewController, UISear
         let mainChats = RootVM.shared
             .folders
             .first { folder in
-                if case .main = folder.type { true } else { false }
+                if case .main = folder.type {
+                    true
+                } else {
+                    false
+                }
             }?.chats ?? []
         Task { [weak self] in
             var items = [Item]()
@@ -144,12 +148,10 @@ final class SettingsPeerPickerViewController: SettingsListViewController, UISear
             } else {
                 selectedUserIDs.append(id)
             }
+        } else if let index = selectedChatIDs.firstIndex(of: id) {
+            selectedChatIDs.remove(at: index)
         } else {
-            if let index = selectedChatIDs.firstIndex(of: id) {
-                selectedChatIDs.remove(at: index)
-            } else {
-                selectedChatIDs.append(id)
-            }
+            selectedChatIDs.append(id)
         }
         navigationItem.rightBarButtonItem?.isEnabled = !selectedUserIDs.isEmpty || !selectedChatIDs.isEmpty
         reload()

@@ -1098,7 +1098,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             title: L10n.telegram("Settings.AddAccount"),
             image: UIImage(systemName: "plus"),
         ) { [weak self] in
-            do { try tdlib.addAccount() } catch { self?.showAccountError(error) }
+            do {
+                try tdlib.addAccount()
+            } catch {
+                self?.showAccountError(error)
+            }
         }]
         if let current = tdlib.accounts.first(where: { $0.id == tdlib.activeAccountID }) {
             actions.append(TelegramContextMenuAction(
@@ -1112,7 +1116,11 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 image: UIImage(systemName: "person.crop.circle"),
                 startsNewSection: index == 0,
             ) { [weak self] in
-                do { try tdlib.switchToAccount(account.id) } catch { self?.showAccountError(error) }
+                do {
+                    try tdlib.switchToAccount(account.id)
+                } catch {
+                    self?.showAccountError(error)
+                }
             })
         }
         presentTelegramContextMenu(

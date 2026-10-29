@@ -302,7 +302,11 @@ enum ServiceMessageText {
         case .messageManagedBotCreated(let value): [value.botUserId]
         case .messageProximityAlertTriggered(let value):
             [value.travelerId, value.watcherId].compactMap { sender in
-                if case .messageSenderUser(let user) = sender { user.userId } else { nil }
+                if case .messageSenderUser(let user) = sender {
+                    user.userId
+                } else {
+                    nil
+                }
             }
         default: []
         }

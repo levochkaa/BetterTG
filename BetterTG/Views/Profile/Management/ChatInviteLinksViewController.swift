@@ -508,7 +508,11 @@ final class ChatInviteLinkViewController: SettingsListViewController {
             title: L10n.telegram(isRevoked ? "InviteLink.ContextDelete" : "GroupInfo.InviteLink.RevokeLink"),
             style: .action(destructive: true),
         ) { [weak self] in
-            if isRevoked { self?.delete() } else { self?.revoke() }
+            if isRevoked {
+                self?.delete()
+            } else {
+                self?.revoke()
+            }
         }]))
         return sections
     }
