@@ -152,11 +152,6 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
             searchController: (controller as? TelegramNavigationSearchProvider)?.telegramNavigationSearch
                 ?? (controller as? TelegramConditionalNavigationSearchProvider)?.shownTelegramNavigationSearch,
         )
-        let height = bar.contentHeight + sheetTopInset
-        if reservedHeight != height {
-            controller.additionalSafeAreaInsets.top += height - reservedHeight
-            reservedHeight = height
-        }
         if navigation.isViewLoaded { layout() }
     }
 
@@ -168,6 +163,14 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
 
     func layout() {
         guard let controller, let navigation, controller.isViewLoaded, navigation.isViewLoaded else { return }
+        // A retained screen can acquire its chrome before its new sheet is presented. Reserve the current
+        // sheet padding during layout too, when presentation and safe-area changes first become visible.
+        let height = bar.contentHeight + sheetTopInset
+        if reservedHeight != height {
+            let difference = height - reservedHeight
+            reservedHeight = height
+            controller.additionalSafeAreaInsets.top += difference
+        }
         let host = controller.view!
         // UITableView inserts section headers after this overlay while scrolling. zPosition keeps the bar
         // visible, but hit testing follows the UIView order and would otherwise reach a header behind it.

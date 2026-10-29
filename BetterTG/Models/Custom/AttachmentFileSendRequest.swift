@@ -95,6 +95,27 @@ struct AttachmentFileSendResult {
 
     private var snapshot: Snapshot?
 
+    /// Only the client changes. An All Messages reply may target a forum topic different from the route's nil topic.
+    func replacingClient(from old: ChatLocation, with new: ChatLocation) -> AttachmentFileSendSession? {
+        guard old.accountID != nil, old.accountID == new.accountID, old.chatID == new.chatID,
+              old.topic == new.topic, old.clientID != new.clientID else { return nil }
+        let replacement = AttachmentFileSendSession()
+        if let snapshot {
+            let context = snapshot.context
+            guard context.accountID == old.accountID, context.clientID == old.clientID,
+                  context.chatID == old.chatID, context.draftTopic == old.topic else { return nil }
+            replacement.snapshot = Snapshot(
+                context: ResolvedSendContext(
+                    accountID: context.accountID, chatID: context.chatID, clientID: new.clientID,
+                    destinationTopic: context.destinationTopic, draftTopic: context.draftTopic,
+                    replyTo: context.replyTo, allowsSavedMessagesTopic: context.allowsSavedMessagesTopic,
+                ),
+                reply: snapshot.reply, defaultOptions: snapshot.defaultOptions,
+            )
+        }
+        return replacement
+    }
+
     func capture(_ make: () throws -> Snapshot) rethrows -> Snapshot {
         if let snapshot { return snapshot }
         let value = try make()

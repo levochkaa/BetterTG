@@ -54,18 +54,26 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
     var onSelectFromGallery: (() -> Void)?
     var onSelectFromFiles: (() -> Void)?
     var onPick: ((Document) -> Void)?
+    var onBecomeVisible: (() -> Void)?
     /// Called once the sheet has gone after Cancel.
     var onDismiss: (() -> Void)?
 
-    private let client: TDLibClient
+    private(set) var replacementMessage: String?
+
+    private var client: TDLibClient
     private let subtitle: String?
-    private let sendCapabilities: AttachmentSendCapabilities?
-    private let send: ((AttachmentFileSendRequest) async -> AttachmentFileSendResult)?
+    private var sendCapabilities: AttachmentSendCapabilities?
+    private var send: ((AttachmentFileSendRequest) async -> AttachmentFileSendResult)?
     private weak var attachmentPanel: AttachmentPanelView?
     /// nil is immediate single pick; an empty array is selection mode with no checked files.
     private var selected: [RecentFile]?
     private var comment = AttributedString()
     private var isSending = false
+    private var isAwaitingClientReplacement = false
+    private var replacementReady: (() -> Void)?
+    private var clientGeneration = UUID()
+    private var loadTask: Task<Void, Never>?
+
     private var canRetry = true
     private var retryOptions: TDNativeMessageSendOptions?
     #if DEBUG
@@ -90,9 +98,10 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
     private var expandsFoundFiles = false
 
     var shownTelegramNavigationSearch: UISearchController? {
-        !isSending && selected == nil && (recentFiles?.count ?? 0) > Self.searchThreshold ? search : nil
+        !isBusy && selected == nil && (recentFiles?.count ?? 0) > Self.searchThreshold ? search : nil
     }
 
+    private var isBusy: Bool { isSending || isAwaitingClientReplacement }
     private var showsRecentFiles: Bool {
         recentFiles?.isEmpty == false
     }
@@ -148,7 +157,7 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
         view.keyboardLayoutGuide.usesBottomSafeArea = false
         let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(fileLongPressed(_:)))
         press.pressedViewProvider = { [weak self] gesture in
-            guard let self, send != nil, !isSending,
+            guard let self, send != nil, !isBusy,
                   let path = tableView.indexPathForRow(at: gesture.location(in: tableView)), file(at: path) != nil
             else { return nil }
             return tableView.cellForRow(at: path)
@@ -165,6 +174,11 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
         search.searchResultsUpdater = self
         search.searchBar.placeholder = L10n.telegram("Attachment.FilesSearchPlaceholder")
         loadRecentFiles()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        onBecomeVisible?()
     }
 
     override func viewDidLayoutSubviews() {
@@ -225,6 +239,47 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
 
     private static func files(in messages: [Message]) -> [RecentFile] {
         messages.compactMap(RecentFile.init)
+    }
+
+    /// Wait for the old receipt before moving the picker. No new send may begin once replacement is requested.
+    func prepareForClientReplacement(whenReady: @escaping () -> Void) {
+        guard !isAwaitingClientReplacement else { return }
+        isAwaitingClientReplacement = true
+        replacementReady = whenReady
+        if let text = attachmentPanel?.finishCommentEditing() { comment = text }
+        updateBusyAppearance()
+        finishClientReplacementPreparation()
+    }
+
+    func cancelClientReplacement() {
+        isAwaitingClientReplacement = false
+        replacementReady = nil
+        updateBusyAppearance()
+    }
+
+    /// Rebind only after the old send and presentation have finished; stale search responses cannot repaint this UI.
+    func resumeAfterClientReplacement(
+        client: TDLibClient, capabilities: AttachmentSendCapabilities,
+        onSelectTab: @escaping (AttachmentSheetTab) -> Void,
+        send: @escaping (AttachmentFileSendRequest) async -> AttachmentFileSendResult,
+    ) {
+        precondition(!isSending && isAwaitingClientReplacement)
+        clientGeneration = UUID()
+        loadTask?.cancel()
+        searchTask?.cancel()
+        self.client = client
+        sendCapabilities = capabilities
+        self.send = send
+        attachmentPanel?.updateCommentClient(client)
+        attachmentPanel?.onSelectTab = onSelectTab
+        isAwaitingClientReplacement = false
+        replacementReady = nil
+        updateBusyAppearance()
+        loadRecentFiles()
+        if !query.isEmpty {
+            query = ""
+            updateSearchResults(for: search)
+        }
     }
 
     func configureAttachmentPanel(_ panel: AttachmentPanelView) {
@@ -318,7 +373,7 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard !isSending else { return }
+        guard !isBusy else { return }
         if isSearching {
             guard let file = shownFoundFiles[safe: indexPath.row] else {
                 expandsFoundFiles = true
@@ -362,6 +417,7 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
             }
         #endif
         let client = client
+        let generation = clientGeneration
         searchTask = Task { [weak self] in
             try? await Task.sleep(for: Self.searchDelay)
             guard !Task.isCancelled else { return }
@@ -369,10 +425,19 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
                 query: trimmed,
                 limit: Self.recentLimit,
             ))
-            guard let self, !Task.isCancelled, trimmedQuery == trimmed else { return }
+            guard let self, !Task.isCancelled, clientGeneration == generation, trimmedQuery == trimmed else { return }
             foundFiles = Self.files(in: found?.messages ?? [])
             tableView.reloadData()
         }
+    }
+
+    private func finishClientReplacementPreparation() {
+        guard isAwaitingClientReplacement, !isSending, !isPresentingTelegramContextMenu,
+              let ready = replacementReady else { return }
+        replacementReady = nil
+        searchTask?.cancel()
+        loadTask?.cancel()
+        ready()
     }
 
     private func file(at indexPath: IndexPath) -> RecentFile? {
@@ -387,7 +452,7 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
     }
 
     private func select(_ file: RecentFile) {
-        guard !isSending else { return }
+        guard !isBusy else { return }
         if selected == nil { selected = [] }
         if let index = selected?.firstIndex(where: { $0.id == file.id }) { selected?.remove(at: index) }
         else { selected?.append(file) }
@@ -405,18 +470,25 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
     }
 
     @objc private func fileLongPressed(_ gesture: ContextMenuPressGestureRecognizer) {
-        guard gesture.state == .began, send != nil, !isSending,
+        guard gesture.state == .began, send != nil, !isBusy,
               let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
               let file = file(at: path), let cell = tableView.cellForRow(at: path) else { return }
-        presentTelegramContextMenu(sourceView: cell, actions: [TelegramContextMenuAction(
-            title: L10n.telegram("Common.Select"), image: UIImage(systemName: "checkmark.circle"),
-        ) { [weak self] in self?.select(file) }], tracking: gesture, presentationStyle: .menuOnly)
+        presentTelegramContextMenu(
+            sourceView: cell,
+            actions: [TelegramContextMenuAction(
+                title: L10n.telegram("Common.Select"), image: UIImage(systemName: "checkmark.circle"),
+            ) { [weak self] in self?.select(file) }],
+            tracking: gesture,
+            presentationStyle: .menuOnly,
+            onDismiss: { [weak self] in self?.finishClientReplacementPreparation() },
+        )
     }
 
     private func showSendOptions(from source: UIView, tracking gesture: UIGestureRecognizer) {
-        guard !isSending, canRetry, selected?.isEmpty == false, let sendCapabilities else { return }
+        guard !isBusy, canRetry, selected?.isEmpty == false, let sendCapabilities else { return }
+        let generation = clientGeneration
         let actions = sendCapabilities.menuActions { [weak self] timing in
-            guard let self, !isSending else { return }
+            guard let self, !isBusy, clientGeneration == generation else { return }
             switch timing {
             case .now: sendSelected()
             case .silently: sendSelected(options: ChatVM.sendOptions(silent: true))
@@ -426,23 +498,27 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
                 ScheduleMessagePickerViewController.present(
                     from: self, isReminder: sendCapabilities.isReminders,
                     showsSendWhenOnline: !sendCapabilities.isReminders && sendCapabilities.canSendWhenOnline,
-                ) { [weak self] in self?.sendSelected(options: ChatVM.sendOptions(schedulingState: $0)) }
+                ) { [weak self] state in
+                    guard let self, clientGeneration == generation else { return }
+                    sendSelected(options: ChatVM.sendOptions(schedulingState: state))
+                }
             }
         }
         guard !actions.isEmpty else { return }
         presentTelegramContextMenu(
             sourceView: source, actions: actions, tracking: gesture, presentationStyle: .sourceMorph,
+            onDismiss: { [weak self] in self?.finishClientReplacementPreparation() },
         )
     }
 
     private func sendSelected(options: TDNativeMessageSendOptions? = nil) {
-        guard let selected, !selected.isEmpty else { return }
+        guard !isBusy, let selected, !selected.isEmpty else { return }
         if let text = attachmentPanel?.finishCommentEditing() { comment = text }
         sendFiles(selected, caption: comment, options: options ?? retryOptions)
     }
 
     private func sendFiles(_ files: [RecentFile], caption: AttributedString, options: TDNativeMessageSendOptions?) {
-        guard !isSending, canRetry, let send else { return }
+        guard !isBusy, canRetry, let send else { return }
         let request = AttachmentFileSendRequest(files: files, caption: caption, options: options)
         setSending(true)
         Task { [weak self] in
@@ -467,6 +543,15 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
                     }
                 attachmentPanel?.setCommentText(comment)
                 updateSelection()
+                replacementMessage = result.acceptedIDs.isEmpty
+                    ? nil
+                    : ChatSendContextError.partialAlbum(sent: result.acceptedIDs.count, expected: files.count)
+                        .localizedDescription
+                if !result.canRetry { replacementMessage = result.error }
+                if isAwaitingClientReplacement {
+                    finishClientReplacementPreparation()
+                    return
+                }
                 let alert = UIAlertController(
                     title: nil, message: result.error ?? L10n.telegram("Login.UnknownError"), preferredStyle: .alert,
                 )
@@ -478,10 +563,14 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
 
     private func setSending(_ sending: Bool) {
         isSending = sending
-        view.isUserInteractionEnabled = !sending
-        navigationItem.leftBarButtonItem?.isEnabled = !sending
-        navigationController?.isModalInPresentation = sending
-        if sending {
+        updateBusyAppearance()
+    }
+
+    private func updateBusyAppearance() {
+        view.isUserInteractionEnabled = !isBusy
+        navigationItem.leftBarButtonItem?.isEnabled = !isBusy
+        navigationController?.isModalInPresentation = isBusy
+        if isBusy {
             let progress = UIActivityIndicatorView(style: .medium)
             progress.startAnimating()
             navigationItem.rightBarButtonItem = UIBarButtonItem(customView: progress)
@@ -530,13 +619,15 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
                 return
             }
         #endif
+        loadTask?.cancel()
         let client = client
-        Task { [weak self] in
+        let generation = clientGeneration
+        loadTask = Task { [weak self] in
             let found = try? await client.send(TDNativeRequests.searchOutgoingDocumentMessages(
                 query: "",
                 limit: Self.recentLimit,
             ))
-            guard let self else { return }
+            guard let self, !Task.isCancelled, clientGeneration == generation else { return }
             recentFiles = Self.files(in: found?.messages ?? [])
             tableView.reloadData()
             (navigationController as? TelegramNavigationController)?.refreshChrome(of: self)
@@ -544,7 +635,7 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
     }
 
     @objc private func cancelPressed() {
-        guard !isSending else { return }
+        guard !isBusy else { return }
         let onDismiss = onDismiss
         dismiss(animated: true) { onDismiss?() }
     }

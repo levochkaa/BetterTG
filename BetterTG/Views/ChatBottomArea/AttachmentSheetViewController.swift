@@ -519,6 +519,13 @@ struct AttachmentMediaSendRequest {
         panel.updateCommentClient(client)
     }
 
+    /// A retained attachment tab must leave its old container's chrome and outside-tap recognizer behind.
+    func releaseDismissedPresentation(from navigation: TelegramNavigationController?) {
+        navigation?.releaseChrome(of: self)
+        if let outsideTap { outsideTap.view?.removeGestureRecognizer(outsideTap) }
+        outsideTap = nil
+    }
+
     // MARK: Views
 
     private func configureTitle() {
@@ -1290,9 +1297,7 @@ struct AttachmentMediaSendRequest {
         let presented: UIViewController = navigationController ?? self
         presented.isModalInPresentation = false
         presented.dismiss(animated: true) { [self] in
-            (presented as? TelegramNavigationController)?.releaseChrome(of: self)
-            if let outsideTap { outsideTap.view?.removeGestureRecognizer(outsideTap) }
-            outsideTap = nil
+            releaseDismissedPresentation(from: presented as? TelegramNavigationController)
             onDismiss?()
             completion?()
         }

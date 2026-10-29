@@ -125,6 +125,14 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         var end: CFTimeInterval { start + animation.duration }
     }
 
+    private struct FileAttachmentRecovery {
+        let gallery: AttachmentSheetViewController
+        let files: PollFileAttachmentViewController
+        let session: AttachmentFileSendSession
+        let initialText: AttributedString
+        let initialRevision: UInt64?
+    }
+
     /// ApplicationSpecificNotice's chatTextSelectionTips: how many times a menu has shown the text selection tip.
     private static let textSelectionTipCountKey = "chatTextSelectionTips"
 
@@ -388,6 +396,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     /// The attachment sheet's gallery while the sheet is up, kept while another tab shows in its place.
     private var attachmentGallery: AttachmentSheetViewController?
     private var attachmentFiles: PollFileAttachmentViewController?
+    private var attachmentFileSendSession: AttachmentFileSendSession?
+    private var attachmentGalleryDraft: (text: AttributedString, revision: UInt64?)?
+    private var pendingFileAttachmentRecovery: FileAttachmentRecovery?
+    private var fileRecoveryDismissalInProgress = false
     private weak var attachmentNavigation: TelegramNavigationController?
     private var attachmentTabs = [AttachmentSheetTab]()
     private var pendingAttachmentRecovery: (
@@ -1756,6 +1768,12 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let destination = ChatLocation(
             accountID: source.accountID, chatID: location.chatID, clientID: source.clientID, topic: location.topic,
         )
+        let fileSession: AttachmentFileSendSession?
+        if let recovery = pendingFileAttachmentRecovery {
+            guard let transferred = recovery.session.replacingClient(from: location, with: destination)
+            else { return nil }
+            fileSession = transferred
+        } else { fileSession = nil }
         return PreparedClientNavigationReplacement(
             preflight: { [weak self] in self?.canRestoreClient(source) == true },
             commit: { [self] in
@@ -1799,6 +1817,21 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     )
                     replacement.configureAttachmentGalleryCallbacks(
                         recovery.sheet, initialText: recovery.initialText, initialRevision: revision,
+                    )
+                }
+                if let recovery = pendingFileAttachmentRecovery, let fileSession {
+                    pendingFileAttachmentRecovery = nil
+                    let revision = AttachmentMediaSendState.transferredDraftRevision(
+                        initialText: recovery.initialText, initialRevision: recovery.initialRevision,
+                        currentText: transfer.snapshot.text, currentRevision: transfer.snapshot.revision,
+                        replacementRevision: replacementVM.composerDraftRevision,
+                    )
+                    replacement.pendingFileAttachmentRecovery = FileAttachmentRecovery(
+                        gallery: recovery.gallery, files: recovery.files, session: fileSession,
+                        initialText: recovery.initialText, initialRevision: revision,
+                    )
+                    replacement.configureAttachmentGalleryCallbacks(
+                        recovery.gallery, initialText: recovery.initialText, initialRevision: revision,
                     )
                 }
                 return replacement
@@ -2458,7 +2491,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         guard presentationMode == .full, routeIsRetained, source == tdlib.activeUpdateSource,
               source.accountID == location.accountID, source.clientID != location.clientID,
               RootVM.shared.activeAccountID == source.accountID, importBarrier.isQuiescent,
-              !isTerminatingNavigation, presentedViewController == nil, transitionCoordinator == nil,
+              !isTerminatingNavigation, !fileRecoveryDismissalInProgress,
+              presentedViewController == nil, transitionCoordinator == nil,
               !isPresentingTelegramContextMenu, !keyboardIsChanging, videoNoteRecorder == nil,
               !voiceGestureDefersSystemGestures, !isSelectingMessages, !messageSearchActive,
               messageNavigationTask == nil, metadataNavigationTask == nil,
@@ -2497,6 +2531,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func retryClientRestoration() {
         guard !clientOwnerRetired, !clientRetryScheduled,
               tdlib.activeAccountID == location.accountID, tdlib.activeClient.id != location.clientID else { return }
+        if prepareAttachmentFilesForClientRestoration() { return }
         cancelMessageNavigation()
         clientRetryScheduled = true
         DispatchQueue.main.async { [weak self] in
@@ -9331,6 +9366,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func configureAttachmentGalleryCallbacks(
         _ sheet: AttachmentSheetViewController, initialText: AttributedString, initialRevision: UInt64?,
     ) {
+        attachmentGalleryDraft = (initialText, initialRevision)
         sheet.updateCaptionClient(chatVM.client)
         sheet.switchesTabsInPlace = true
         sheet.onSelectTab = { [weak self] tab in self?.openAttachmentTab(tab) }
@@ -9344,11 +9380,18 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     /// Telegram's paperclip grows into the attachment sheet and the sheet shrinks back into it (AttachmentController's
     /// glass morph); UIKit's zoom transition morphs a sheet out of its source on iOS 26.
-    private func presentAttachmentSheet(_ sheet: AttachmentSheetViewController, completion: (() -> Void)? = nil) {
+    private func presentAttachmentSheet(
+        _ sheet: AttachmentSheetViewController, initialContent: UIViewController? = nil,
+        completion: (() -> Void)? = nil,
+    ) {
         let navigation = sheet.makeNavigationController()
+        if let initialContent { navigation.setViewControllers([initialContent], animated: false) }
         navigation.preferredTransition = .zoom { [weak self] _ in self?.composerView.attachmentSourceView }
         attachmentNavigation = navigation
-        present(navigation, animated: true, completion: completion)
+        present(navigation, animated: true) { [weak self] in
+            completion?()
+            self?.retryClientRestoration()
+        }
     }
 
     /// ChatControllerOpenAttachmentMenu's `.edit` subject: the gallery for one photo or video and Files, as the edited
@@ -9466,6 +9509,8 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private func attachmentSessionDidEnd() {
         attachmentGallery = nil
         attachmentFiles = nil
+        attachmentFileSendSession = nil
+        attachmentGalleryDraft = nil
         attachmentTabs = []
         attachmentSheetDidDismiss()
     }
@@ -9495,12 +9540,68 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             return await chatVM.sendRecentAttachmentFiles(request, session: session)
         }
         attachmentFiles = list
+        attachmentFileSendSession = session
+        configureAttachmentFileCallbacks(list, session: session)
+        showInAttachmentSheet(list, tab: .file)
+    }
+
+    private func configureAttachmentFileCallbacks(
+        _ list: PollFileAttachmentViewController, session: AttachmentFileSendSession, replacingClient: Bool = false,
+    ) {
+        if replacingClient {
+            list.resumeAfterClientReplacement(
+                client: chatVM.client,
+                capabilities: AttachmentSendCapabilities(
+                    isReminders: chatVM.customChat.isSavedMessages,
+                    canSchedule: chatVM.canScheduleMessages, canSendWhenOnline: chatVM.canSendWhenOnline,
+                ),
+                onSelectTab: { [weak self] tab in self?.openAttachmentTab(tab) },
+            ) { [weak chatVM] request in
+                guard let chatVM else {
+                    return AttachmentFileSendResult(error: ChatSendContextError.accountUnavailable.localizedDescription)
+                }
+                return await chatVM.sendRecentAttachmentFiles(request, session: session)
+            }
+        }
         list.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
+        list.onBecomeVisible = { [weak self] in self?.retryClientRestoration() }
         list.onSelectFromGallery = { [weak self] in self?.openAttachmentTab(.gallery) }
         list.onSelectFromFiles = { [weak self] in
             self?.closeAttachmentSheet { [weak self] in self?.showDocumentPicker() }
         }
-        showInAttachmentSheet(list, tab: .file)
+    }
+
+    /// Let the old request finish before dismissing: an accepted receipt must never become a fresh selection.
+    private func prepareAttachmentFilesForClientRestoration() -> Bool {
+        guard routeIsRetained, let files = attachmentFiles, let session = attachmentFileSendSession,
+              let gallery = attachmentGallery, let draft = attachmentGalleryDraft,
+              let navigation = attachmentNavigation, navigation.topViewController === files,
+              navigation.presentingViewController != nil, !navigation.isBeingPresented else { return false }
+        files.prepareForClientReplacement { [weak self, weak navigation, weak files] in
+            guard let self, let navigation, let files else { return }
+            guard routeIsRetained, tdlib.activeAccountID == location.accountID,
+                  tdlib.activeClient.id != location.clientID, attachmentFiles === files,
+                  !navigation.isBeingDismissed
+            else {
+                files.cancelClientReplacement()
+                return
+            }
+            pendingFileAttachmentRecovery = FileAttachmentRecovery(
+                gallery: gallery, files: files, session: session, initialText: draft.text,
+                initialRevision: draft.revision,
+            )
+            fileRecoveryDismissalInProgress = true
+            navigation.isModalInPresentation = false
+            navigation.dismiss(animated: true) { [weak self] in
+                navigation.releaseChrome(of: files)
+                gallery.releaseDismissedPresentation(from: navigation)
+                navigation.setViewControllers([], animated: false)
+                guard let self else { return }
+                fileRecoveryDismissalInProgress = false
+                attachmentSessionDidEnd()
+            }
+        }
+        return true
     }
 
     /// ChatControllerOpenAttachmentMenu's `.app` buttons: the account's attachment menu bots whose peer types meet
@@ -9791,6 +9892,26 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     }
 
     private func presentAttachmentRecoveryIfNeeded() {
+        if let recovery = pendingFileAttachmentRecovery, presentedViewController == nil,
+           !fileRecoveryDismissalInProgress, viewIfLoaded?.window != nil, routeIsRetained,
+           chatVM.locationContextIsCurrent, !isTerminatingNavigation
+        {
+            pendingFileAttachmentRecovery = nil
+            configureAttachmentFileCallbacks(recovery.files, session: recovery.session, replacingClient: true)
+            attachmentGallery = recovery.gallery
+            attachmentFiles = recovery.files
+            attachmentFileSendSession = recovery.session
+            attachmentGalleryDraft = (recovery.initialText, recovery.initialRevision)
+            attachmentTabs = recovery.gallery.attachmentTabs
+            presentAttachmentSheet(recovery.gallery, initialContent: recovery.files) { [weak files = recovery.files] in
+                guard let files, let message = files.replacementMessage,
+                      files.viewIfLoaded?.window != nil else { return }
+                let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+                files.present(alert, animated: true)
+            }
+            return
+        }
         guard let recovery = pendingAttachmentRecovery, presentedViewController == nil,
               viewIfLoaded?.window != nil, routeIsRetained, chatVM.locationContextIsCurrent,
               !isTerminatingNavigation else { return }
