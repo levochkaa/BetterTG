@@ -5,10 +5,26 @@ import UIKit
 
 // MARK: - NetworkUsageViewController
 
-/// Telegram's NetworkUsageStatsController: bytes sent and received over cellular or Wi-Fi for messages, photos,
+/// Telegram's DataUsageScreen modes over BetterTG's grouped rows: all, mobile or Wi-Fi bytes for messages, photos,
 /// videos, audio, documents and calls, the totals, and Reset Statistics (resetNetworkStatistics) after Telegram's
 /// confirmation.
 final class NetworkUsageViewController: SettingsListViewController {
+    private enum Network: Int {
+        case all
+        case mobile
+        case wifi
+
+        var sinceKey: String {
+            switch self {
+            case .all: "DataUsage.InfoTotalUsageSinceTime"
+            case .mobile: "DataUsage.InfoMobileUsageSinceTime"
+            case .wifi: "DataUsage.InfoWifiUsageSinceTime"
+            }
+        }
+
+        func includes(wifi: Bool) -> Bool { self == .all || (self == .wifi) == wifi }
+    }
+
     private enum Category: CaseIterable {
         case messages
         case photos
@@ -30,17 +46,31 @@ final class NetworkUsageViewController: SettingsListViewController {
     }
 
     private var statistics: TDNativeNetworkStatistics?
-    private var showsWifi = false
-    private let segmentedControl = UISegmentedControl(items: [
-        L10n.telegram("NetworkUsageSettings.Cellular"),
-        L10n.telegram("NetworkUsageSettings.Wifi"),
+    private var network = Network.all
+    private let segmentedControl = TelegramSegmentedControl(items: [
+        L10n.telegram("DataUsage.TopSectionAll"),
+        L10n.telegram("DataUsage.TopSectionMobile"),
+        L10n.telegram("DataUsage.TopSectionWifi"),
     ])
+
+    #if DEBUG
+        private var isProbe = false
+
+        convenience init(probeStatistics: TDNativeNetworkStatistics) {
+            self.init()
+            self.statistics = probeStatistics
+            self.isProbe = true
+        }
+    #endif
 
     override func viewDidLoad() {
         super.viewDidLoad()
         title = L10n.telegram("NetworkUsageSettings.Title")
-        segmentedControl.selectedSegmentIndex = 0
-        segmentedControl.addTarget(self, action: #selector(segmentChanged), for: .valueChanged)
+        segmentedControl.onSelection = { [weak self] index in
+            guard let self, let network = Network(rawValue: index) else { return }
+            self.network = network
+            reload()
+        }
         navigationItem.titleView = segmentedControl
         load()
     }
@@ -57,7 +87,7 @@ final class NetworkUsageViewController: SettingsListViewController {
         var received = [Category: Int64]()
         for entry in statistics.entries {
             let usage = NetworkUsageEntry(entry)
-            guard let isWifi = usage.isWifi, isWifi == showsWifi else { continue }
+            guard let isWifi = usage.isWifi, network.includes(wifi: isWifi) else { continue }
             let category = Self.category(usage)
             sent[category, default: 0] += usage.sent
             received[category, default: 0] += usage.received
@@ -75,7 +105,7 @@ final class NetworkUsageViewController: SettingsListViewController {
             .formatted(date: .abbreviated, time: .shortened)
         sections.append(SettingsSection(
             footer: L10n.telegram(
-                showsWifi ? "NetworkUsageSettings.WifiUsageSince" : "NetworkUsageSettings.CellularUsageSince",
+                network.sinceKey,
                 since,
             ),
             rows: [SettingsRow(
@@ -137,6 +167,9 @@ final class NetworkUsageViewController: SettingsListViewController {
     }
 
     private func load() {
+        #if DEBUG
+            if isProbe { return }
+        #endif
         guard contextIsCurrent else { return }
         let client = client
         Task { [weak self] in
@@ -147,16 +180,14 @@ final class NetworkUsageViewController: SettingsListViewController {
         }
     }
 
-    @objc private func segmentChanged() {
-        showsWifi = segmentedControl.selectedSegmentIndex == 1
-        reload()
-    }
-
     private func confirmReset() {
         confirm(
             message: L10n.telegram("NetworkUsageSettings.ResetStatsConfirmation"),
             actionTitle: L10n.telegram("NetworkUsageSettings.ResetStats"),
         ) { [weak self] in
+            #if DEBUG
+                if self?.isProbe == true { return }
+            #endif
             self?.perform { client in
                 _ = try await client.send(TDNativeRequests.resetNetworkStatistics())
             } completion: { [weak self] in

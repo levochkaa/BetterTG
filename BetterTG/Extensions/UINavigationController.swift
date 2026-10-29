@@ -165,10 +165,12 @@ UINavigationControllerDelegate {
     }
 
     func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        // A trim/scrub drag belongs to its editor even when it moves toward Back.
+        // A trim/scrub or segment-selection drag belongs to its control even when it moves toward Back.
         var touchedView = touch.view
         while let candidate = touchedView, candidate !== view {
-            if candidate is VoiceRecordingTrimView || candidate is UISlider { return false }
+            if candidate is VoiceRecordingTrimView || candidate is UISlider || candidate is UISegmentedControl {
+                return false
+            }
             touchedView = candidate.superview
         }
         return true

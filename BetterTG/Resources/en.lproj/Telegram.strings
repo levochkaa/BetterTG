@@ -1264,6 +1264,12 @@
 "NetworkUsageSettings.CallDataSection" = "CALLS";
 "NetworkUsageSettings.Cellular" = "Cellular";
 "NetworkUsageSettings.CellularUsageSince" = "Cellular usage since %@";
+"DataUsage.TopSectionAll" = "All";
+"DataUsage.TopSectionMobile" = "Mobile";
+"DataUsage.TopSectionWifi" = "Wifi";
+"DataUsage.InfoTotalUsageSinceTime" = "Your data usage since %@";
+"DataUsage.InfoMobileUsageSinceTime" = "Your mobile data usage since %@";
+"DataUsage.InfoWifiUsageSinceTime" = "Your Wi-Fi data usage since %@";
 "NetworkUsageSettings.GeneralDataSection" = "MESSAGES";
 "NetworkUsageSettings.MediaAudioDataSection" = "AUDIO";
 "NetworkUsageSettings.MediaDocumentDataSection" = "DOCUMENTS";

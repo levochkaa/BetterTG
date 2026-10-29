@@ -169,6 +169,9 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     func layout() {
         guard let controller, let navigation, controller.isViewLoaded, navigation.isViewLoaded else { return }
         let host = controller.view!
+        // UITableView inserts section headers after this overlay while scrolling. zPosition keeps the bar
+        // visible, but hit testing follows the UIView order and would otherwise reach a header behind it.
+        host.bringSubviewToFront(bar)
         bar.topInset = navigation.view.safeAreaInsets.top + sheetTopInset
         bar.frame = CGRect(
             origin: host.bounds.origin,
