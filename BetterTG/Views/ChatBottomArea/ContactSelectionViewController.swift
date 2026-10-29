@@ -60,7 +60,8 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
 
     private let client: TDLibClient
     private let accountID: UUID?
-    private let send: ([InputMessageContent]) -> Void
+    private let sendCapabilities: AttachmentSendCapabilities
+    private let send: ([InputMessageContent], TDNativeMessageSendOptions?) -> Void
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private weak var attachmentPanel: AttachmentPanelView?
     private var authorization = CNContactStore.authorizationStatus(for: .contacts)
@@ -85,13 +86,20 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
 
     #if DEBUG
         private var isProbe = false
+        private var probeContactCards = [Int64: CNContact]()
 
-        convenience init(probeContacts: [ComposeContact], send: @escaping ([InputMessageContent]) -> Void) {
-            self.init(client: TDLib.shared.activeClient, accountID: nil, send: send)
+        convenience init(
+            probeContacts: [ComposeContact],
+            probeContactCards: [Int64: CNContact] = [:],
+            sendCapabilities: AttachmentSendCapabilities,
+            send: @escaping ([InputMessageContent], TDNativeMessageSendOptions?) -> Void,
+        ) {
+            self.init(client: TDLib.shared.activeClient, accountID: nil, sendCapabilities: sendCapabilities, send: send)
             self.isProbe = true
             self.authorization = .restricted
             self.isLoading = false
             self.contacts = probeContacts
+            self.probeContactCards = probeContactCards
             self.contactSections = ComposeContactSection.sections(probeContacts, sort: .name)
         }
     #endif
@@ -104,9 +112,15 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
         authorization == .authorized || authorization == .limited
     }
 
-    init(client: TDLibClient, accountID: UUID?, send: @escaping ([InputMessageContent]) -> Void) {
+    init(
+        client: TDLibClient,
+        accountID: UUID?,
+        sendCapabilities: AttachmentSendCapabilities,
+        send: @escaping ([InputMessageContent], TDNativeMessageSendOptions?) -> Void,
+    ) {
         self.client = client
         self.accountID = accountID
+        self.sendCapabilities = sendCapabilities
         self.send = send
         super.init(nibName: nil, bundle: nil)
     }
@@ -353,6 +367,9 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
     func configureAttachmentPanel(_ panel: AttachmentPanelView) {
         attachmentPanel = panel
         panel.onSend = { [weak self] in self?.sendPressed() }
+        panel.onSendOptions = { [weak self] source, gesture in
+            self?.showSendOptions(from: source, tracking: gesture)
+        }
         updateAttachmentPanel()
     }
 
@@ -562,21 +579,46 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
 
     // MARK: Sending
 
+    private func showSendOptions(from source: UIView, tracking gesture: UIGestureRecognizer) {
+        guard !didFinish, !selected.isEmpty else { return }
+        let actions = sendCapabilities.menuActions { [weak self] timing in
+            guard let self, !didFinish else { return }
+            switch timing {
+            case .now: sendPressed()
+            case .silently: sendPressed(options: ChatVM.sendOptions(silent: true))
+            case .whenOnline:
+                sendPressed(options: ChatVM.sendOptions(schedulingState: .messageSchedulingStateSendWhenOnline))
+            case .schedule:
+                ScheduleMessagePickerViewController.present(
+                    from: self,
+                    isReminder: sendCapabilities.isReminders,
+                    showsSendWhenOnline: !sendCapabilities.isReminders && sendCapabilities.canSendWhenOnline,
+                ) { [weak self] state in
+                    self?.sendPressed(options: ChatVM.sendOptions(schedulingState: state))
+                }
+            }
+        }
+        guard !actions.isEmpty else { return }
+        presentTelegramContextMenu(
+            sourceView: source, actions: actions, tracking: gesture, presentationStyle: .sourceMorph,
+        )
+    }
+
     /// ChatControllerOpenAttachmentMenu's contact result: several people go out without vCards, one goes through its
     /// card.
-    private func sendPressed() {
+    private func sendPressed(options: TDNativeMessageSendOptions? = nil) {
         guard !didFinish, let first = selected.first else { return }
         guard selected.count == 1 else {
-            finish(sending: selected.compactMap { Self.plainContent(for: $0) })
+            finish(sending: selected.compactMap { Self.plainContent(for: $0) }, options: options)
             return
         }
-        sendSingle(first)
+        sendSingle(first, options: options)
     }
 
     /// A Telegram contact takes the phonebook card with its number, else its name and number labelled mobile. A card
     /// that is only a name and a number goes out at once; any other card opens its field selection in place of the
     /// picker, as Telegram pushes DeviceContactInfoController once the attachment menu has closed.
-    private func sendSingle(_ pick: Pick) {
+    private func sendSingle(_ pick: Pick, options: TDNativeMessageSendOptions?) {
         let card: CNContact?
         var avatarID = ""
         var userID: Int64 = 0
@@ -585,6 +627,12 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
         case .user(let user):
             userID = user.userID
             peer = user.peer
+            #if DEBUG
+                if let fixture = probeContactCards[userID] {
+                    card = fixture
+                    break
+                }
+            #endif
             let number = DeviceContactMessage.normalizedPhoneNumber(user.phoneNumber)
             let match = number.isEmpty
                 ? nil
@@ -603,12 +651,12 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
             card = DeviceContactMessage.extendedContact(identifier: entry.identifier)
         }
         guard let contact = card, !contact.phoneNumbers.isEmpty else {
-            finish(sending: [])
+            finish(sending: [], options: options)
             return
         }
         guard !DeviceContactMessage.isPrimitive(contact) else {
             let content = DeviceContactMessage.content(for: contact, userID: userID, includesVCard: false)
-            finish(sending: content.map { [$0] } ?? [])
+            finish(sending: content.map { [$0] } ?? [], options: options)
             return
         }
         guard let navigationController else { return }
@@ -620,13 +668,13 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
             peer: peer,
             userID: userID,
         ) { content in
-            send([content])
+            send([content], options)
         }
         fields.onDismiss = onDismiss
         navigationController.setViewControllers([fields], animated: true)
     }
 
-    private func finish(sending contents: [InputMessageContent]) {
+    private func finish(sending contents: [InputMessageContent], options: TDNativeMessageSendOptions?) {
         guard !didFinish else { return }
         didFinish = true
         let send = send
@@ -634,7 +682,7 @@ UISearchResultsUpdating, UITableViewDataSource, UITableViewDelegate, AttachmentP
         dismiss(animated: true) {
             onDismiss?()
             guard !contents.isEmpty else { return }
-            send(contents)
+            send(contents, options)
         }
     }
 

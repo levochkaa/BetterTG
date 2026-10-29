@@ -1,6 +1,7 @@
 // ContactSelectionPanelProbe.swift
 
 #if DEBUG
+import Contacts
 import TDLibKit
 import UIKit
 
@@ -13,6 +14,17 @@ import UIKit
         private var dismissals = 0
         private var sentNames = [String]()
         private var layoutRecords = [String]()
+        private var destination = 0
+        private var sentOptions = "none"
+        private var sentVCards = 0
+
+        private var sendCapabilities: AttachmentSendCapabilities {
+            AttachmentSendCapabilities(
+                isReminders: destination == 1,
+                canSchedule: destination != 2,
+                canSendWhenOnline: destination == 0,
+            )
+        }
 
         override func viewDidLoad() {
             super.viewDidLoad()
@@ -22,13 +34,16 @@ import UIKit
             stack.axis = .vertical
             stack.spacing = 18
             stack.translatesAutoresizingMaskIntoConstraints = false
-            for title in ["Open picker", "Appearance"] {
+            for title in ["Open picker", "Appearance", "Destination"] {
                 let button = UIButton(type: .system)
                 button.setTitle(title, for: .normal)
                 button.addAction(UIAction { [weak self] _ in
                     guard let self else { return }
                     if title == "Open picker" { openPicker() }
-                    else {
+                    else if title == "Destination" {
+                        destination = (destination + 1) % 3
+                        report()
+                    } else {
                         overrideUserInterfaceStyle = traitCollection.userInterfaceStyle == .dark ? .light : .dark
                     }
                 }, for: .touchUpInside)
@@ -71,13 +86,27 @@ import UIKit
         }
 
         private func makePicker(navigation: TelegramNavigationController) -> UIViewController {
-            let picker = ContactSelectionViewController(probeContacts: contacts) { [weak self] contents in
+            let picker = ContactSelectionViewController(
+                probeContacts: contacts, probeContactCards: contactCards, sendCapabilities: sendCapabilities,
+            ) { [weak self] contents, options in
                 guard let self else { return }
                 sends += 1
+                var timing = "now"
+                switch options?.schedulingState {
+                case .messageSchedulingStateSendWhenOnline: timing = "online"
+                case .messageSchedulingStateSendAtDate(let value): timing = "date:\(value.sendDate)"
+                case .messageSchedulingStateSendWhenVideoProcessed: timing = "videoProcessed"
+                case nil: break
+                }
+                sentOptions = "\(timing),silent:\(options?.disableNotification ?? false),id:\(options?.sendingId ?? 0)"
                 sentNames = contents.compactMap {
                     guard case .inputMessageContact(let input) = $0 else { return nil }
                     return input.contact.firstName
                 }
+                sentVCards = contents.count(where: {
+                    guard case .inputMessageContact(let input) = $0 else { return false }
+                    return !input.contact.vcard.isEmpty
+                })
                 report()
             }
             picker.onDismiss = { [weak self] in
@@ -138,7 +167,8 @@ import UIKit
         }
 
         private func report() {
-            let result = "Contact panel fixture: sends=\(sends); dismissals=\(dismissals); names=\(sentNames.joined(separator: ","))"
+            let mode = ["regular", "reminders", "no-schedule"][destination]
+            let result = "Contact panel fixture: sends=\(sends); dismissals=\(dismissals); names=\(sentNames.joined(separator: ",")); vcards=\(sentVCards); options=\(sentOptions); mode=\(mode)"
             status.text = result
             log(result)
             if let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -147,6 +177,18 @@ import UIKit
                 )
             }
         }
+    }
+
+    private static var contactCards: [Int64: CNContact] {
+        let card = CNMutableContact()
+        card.givenName = "Cora 08"
+        card.familyName = "Fixture"
+        card.phoneNumbers = [CNLabeledValue(
+            label: CNLabelPhoneNumberMobile,
+            value: CNPhoneNumber(stringValue: "155501023"),
+        )]
+        card.emailAddresses = [CNLabeledValue(label: CNLabelWork, value: "fixture@example.invalid" as NSString)]
+        return [9_000_023: card]
     }
 
     private static var contacts: [ComposeContact] {

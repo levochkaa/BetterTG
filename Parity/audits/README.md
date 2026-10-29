@@ -4,6 +4,7 @@ Read-only audits and probe sweeps of the merged `codex/parity` code, by area, wi
 
 ## Contents
 
+- [Contact send options — 2026-10-30](2026-10-30-contact-send-options.md)
 - [Sticker-settings selection toolbar — 2026-10-30](2026-10-30-sticker-toolbar.md)
 - [Contact selection and the shared attachment panel — 2026-10-30](2026-10-30-contact-panel.md)
 - [Network-usage segments and navigation hit testing — 2026-10-30](2026-10-30-network-usage.md)

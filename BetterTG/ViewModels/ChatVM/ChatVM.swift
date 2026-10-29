@@ -4459,7 +4459,11 @@ import UIKit
     /// Sends a location, venue, contact or poll from the attachment menu. Each message replies to the composer's
     /// reply, which is then cleared, as Telegram's attachment sends do (`withUpdatedReplyMessageSubject(nil)` in
     /// ChatControllerOpenAttachmentMenu). Several contacts go out as separate messages.
-    func sendAttachmentContents(_ contents: [InputMessageContent], kind: ChatSendContentKind) async {
+    func sendAttachmentContents(
+        _ contents: [InputMessageContent],
+        kind: ChatSendContentKind,
+        options: TDNativeMessageSendOptions? = nil,
+    ) async {
         guard !contents.isEmpty else { return }
         await waitForComposerSend()
         guard !sendingComposerMessage else { return }
@@ -4476,11 +4480,12 @@ import UIKit
                 replyingTo: replyMessage,
                 useCurrentReplyOverride: true,
             )
+            let options = options ?? defaultSendOptions
             for content in contents {
                 let message = try await client.sendMessage(
                     chatId: context.chatID,
                     inputMessageContent: content,
-                    options: defaultSendOptions,
+                    options: options,
                     replyMarkup: nil,
                     replyTo: context.replyTo,
                     topicId: context.destinationTopic,

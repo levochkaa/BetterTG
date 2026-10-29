@@ -9723,8 +9723,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let picker = ContactSelectionViewController(
             client: chatVM.client,
             accountID: chatVM.accountID,
-        ) { [weak chatVM] contents in
-            Task { await chatVM?.sendAttachmentContents(contents, kind: .text) }
+            sendCapabilities: AttachmentSendCapabilities(
+                isReminders: chatVM.customChat.isSavedMessages,
+                canSchedule: chatVM.canScheduleMessages,
+                canSendWhenOnline: chatVM.canSendWhenOnline,
+            ),
+        ) { [weak chatVM] contents, options in
+            Task { await chatVM?.sendAttachmentContents(contents, kind: .text, options: options) }
         }
         picker.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
         showInAttachmentSheet(picker, tab: .contact)

@@ -100,13 +100,6 @@ struct AttachmentSheetConfiguration {
 
 /// The picked items and how the sheet asked to send them.
 struct AttachmentMediaSendRequest {
-    enum Timing {
-        case now
-        case silently
-        case whenOnline
-        case schedule
-    }
-
     let assets: [PHAsset]
     /// TGMediaEditingContext's crops of the picked photos, by asset.
     var cropAdjustments = [String: PhotoCropAdjustments]()
@@ -115,7 +108,7 @@ struct AttachmentMediaSendRequest {
     /// The picked Live Photos that go live (`TGMediaAssetsResolvedLivePhotoMode`'s Live); the others go as stills.
     var livePhotoAssetIDs = Set<String>()
     let mode: ComposerMediaSendMode
-    let timing: Timing
+    let timing: AttachmentSendTiming
     let highQualityPhotos: Bool
     let spoilerAssetIDs: Set<String>
     let selfDestructTimer: MediaSelfDestructTimer?
@@ -1057,35 +1050,15 @@ struct AttachmentMediaSendRequest {
         if !configuration.caption.isEmpty {
             actions.append(captionPositionAction())
         }
-        let canSchedule = configuration.canSchedule && selfDestructTimer == nil
-        if !configuration.isReminders {
-            actions.append(TelegramContextMenuAction(
-                title: L10n.telegram("Conversation.SendMessage.SendSilently"),
-                image: UIImage(systemName: "bell.slash"),
-                startsNewSection: !actions.isEmpty,
-            ) { [weak self] in
-                self?.send(timing: .silently)
-            })
-            if configuration.canSendWhenOnline, canSchedule {
-                actions.append(TelegramContextMenuAction(
-                    title: L10n.telegram("Conversation.SendMessage.SendWhenOnline"),
-                    image: UIImage(systemName: "person.crop.circle.badge.clock"),
-                ) { [weak self] in
-                    self?.send(timing: .whenOnline)
-                })
-            }
+        var timingActions = AttachmentSendCapabilities(
+            isReminders: configuration.isReminders,
+            canSchedule: configuration.canSchedule && selfDestructTimer == nil,
+            canSendWhenOnline: configuration.canSendWhenOnline,
+        ).menuActions { [weak self] timing in self?.send(timing: timing) }
+        if !actions.isEmpty, !timingActions.isEmpty {
+            timingActions[0].startsNewSection = true
         }
-        if canSchedule {
-            actions.append(TelegramContextMenuAction(
-                title: L10n.telegram(configuration.isReminders
-                    ? "Conversation.SendMessage.SetReminder"
-                    : "Conversation.SendMessage.ScheduleMessage"),
-                image: UIImage(systemName: "calendar.badge.clock"),
-                startsNewSection: configuration.isReminders && !actions.isEmpty,
-            ) { [weak self] in
-                self?.send(timing: .schedule)
-            })
-        }
+        actions += timingActions
         presentTelegramContextMenu(
             sourceView: source,
             actions: actions,
@@ -1215,7 +1188,7 @@ struct AttachmentMediaSendRequest {
 
     private func send(
         mode: ComposerMediaSendMode = .grouped,
-        timing: AttachmentMediaSendRequest.Timing = .now,
+        timing: AttachmentSendTiming = .now,
     ) {
         guard !selection.isEmpty, !isClosing else { return }
         let request = AttachmentMediaSendRequest(
