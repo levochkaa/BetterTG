@@ -32,15 +32,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private let folderPicker = FolderPickerView()
     /// Telegram's media header panel (ChatListControllerNode, MediaPlaybackHeaderPanelComponent) under the navigation
     /// bar while a voice note keeps playing after its chat closed.
-    private let voicePlaybackPanel = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    private let voicePlaybackHeader = VoicePlaybackHeaderView()
-    private var voicePlaybackPanelHeightConstraint: NSLayoutConstraint?
+    private let headerPanels = TelegramHeaderPanelsView()
+    private let navigationBackground = TelegramBarBackgroundView(edge: .top)
+    private var headerPanelsHeightConstraint: NSLayoutConstraint?
     private var voicePlaybackOpenTask: Task<Void, Never>?
-    /// Telegram's live location panel (LiveLocationHeaderPanelComponent in the chat list) under the media header
-    /// while the account shares a live location.
-    private let liveLocationContainer = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
-    private let liveLocationPanel = LiveLocationPanelView()
-    private var liveLocationPanelHeightConstraint: NSLayoutConstraint?
     /// This client's shared live locations, newest first.
     private var liveLocationBroadcasts = [LiveLocationBroadcast]()
     private var liveLocationChatTitles = [Int64: String]()
@@ -85,7 +80,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var restoresSearchFocus = false
     private var isRestoringSearchFocus = false
     private var restorationViewports = [Int: ChatListViewportSnapshot]()
-
     /// While a list selects chats, Telegram's toolbar takes the folder tabs' place and the pages stay put.
     private var isSelectingChats = false
 
@@ -93,16 +87,13 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         actionAuthority.scope(owner: self).source
     }
 
+    private var voicePlaybackHeader: VoicePlaybackHeaderView { headerPanels.voiceHeader }
+    /// Telegram's live location panel (LiveLocationHeaderPanelComponent in the chat list) under the media header
+    /// while the account shares a live location.
+    private var liveLocationPanel: LiveLocationPanelView { headerPanels.liveLocationPanel }
+
     private var currentFolderController: FolderViewController? {
         pageController.viewControllers?.first as? FolderViewController
-    }
-
-    private var voicePlaybackInset: CGFloat {
-        voicePlaybackPanelHeightConstraint?.constant ?? 0
-    }
-
-    private var liveLocationInset: CGFloat {
-        liveLocationPanelHeightConstraint?.constant ?? 0
     }
 
     /// The chats seeing the live location, newest message first.
@@ -133,6 +124,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         configureNavigationBar()
         configureFolderPicker()
         configureSearchResults()
+        configureHeaderPanels()
         configureVoicePlaybackHeader()
         configureLiveLocationPanel()
 
@@ -700,25 +692,27 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         searchResultsController.topBarHeight = view.safeAreaInsets.top + contentHeight
     }
 
-    private func configureVoicePlaybackHeader() {
-        voicePlaybackPanel.translatesAutoresizingMaskIntoConstraints = false
-        voicePlaybackPanel.clipsToBounds = true
-        voicePlaybackPanel.isHidden = true
-        view.insertSubview(voicePlaybackPanel, belowSubview: customNavigationBar)
-        voicePlaybackHeader.translatesAutoresizingMaskIntoConstraints = false
-        voicePlaybackPanel.contentView.addSubview(voicePlaybackHeader)
-        let heightConstraint = voicePlaybackPanel.heightAnchor.constraint(equalToConstant: 0)
-        voicePlaybackPanelHeightConstraint = heightConstraint
+    private func configureHeaderPanels() {
+        customNavigationBar.useSharedBackground()
+        navigationBackground.translatesAutoresizingMaskIntoConstraints = false
+        headerPanels.translatesAutoresizingMaskIntoConstraints = false
+        view.insertSubview(navigationBackground, belowSubview: customNavigationBar)
+        view.insertSubview(headerPanels, belowSubview: customNavigationBar)
+        let height = headerPanels.heightAnchor.constraint(equalToConstant: 0)
+        headerPanelsHeightConstraint = height
         NSLayoutConstraint.activate([
-            voicePlaybackPanel.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
-            voicePlaybackPanel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            voicePlaybackPanel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            heightConstraint,
-            voicePlaybackHeader.topAnchor.constraint(equalTo: voicePlaybackPanel.contentView.topAnchor),
-            voicePlaybackHeader.leadingAnchor.constraint(equalTo: voicePlaybackPanel.contentView.leadingAnchor),
-            voicePlaybackHeader.trailingAnchor.constraint(equalTo: voicePlaybackPanel.contentView.trailingAnchor),
-            voicePlaybackHeader.bottomAnchor.constraint(equalTo: voicePlaybackPanel.contentView.bottomAnchor),
+            headerPanels.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+            headerPanels.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            headerPanels.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            height,
+            navigationBackground.topAnchor.constraint(equalTo: view.topAnchor),
+            navigationBackground.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            navigationBackground.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            navigationBackground.bottomAnchor.constraint(equalTo: headerPanels.bottomAnchor),
         ])
+    }
+
+    private func configureVoicePlaybackHeader() {
         voicePlaybackHeader.onTogglePlayback = { Media.shared.togglePlayback() }
         voicePlaybackHeader.onCycleRate = { Media.shared.cyclePlaybackRate() }
         voicePlaybackHeader.onClose = { Media.shared.close() }
@@ -738,24 +732,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     }
 
     private func configureLiveLocationPanel() {
-        liveLocationContainer.translatesAutoresizingMaskIntoConstraints = false
-        liveLocationContainer.clipsToBounds = true
-        liveLocationContainer.isHidden = true
-        view.insertSubview(liveLocationContainer, belowSubview: customNavigationBar)
-        liveLocationPanel.translatesAutoresizingMaskIntoConstraints = false
-        liveLocationContainer.contentView.addSubview(liveLocationPanel)
-        let heightConstraint = liveLocationContainer.heightAnchor.constraint(equalToConstant: 0)
-        liveLocationPanelHeightConstraint = heightConstraint
-        NSLayoutConstraint.activate([
-            liveLocationContainer.topAnchor.constraint(equalTo: voicePlaybackPanel.bottomAnchor),
-            liveLocationContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            liveLocationContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            heightConstraint,
-            liveLocationPanel.topAnchor.constraint(equalTo: liveLocationContainer.contentView.topAnchor),
-            liveLocationPanel.leadingAnchor.constraint(equalTo: liveLocationContainer.contentView.leadingAnchor),
-            liveLocationPanel.trailingAnchor.constraint(equalTo: liveLocationContainer.contentView.trailingAnchor),
-            liveLocationPanel.bottomAnchor.constraint(equalTo: liveLocationContainer.contentView.bottomAnchor),
-        ])
         liveLocationPanel.onOpen = { [weak self] in self?.openLiveLocation() }
         liveLocationPanel.onClose = { [weak self] in self?.closeLiveLocation() }
         LiveLocationManager.shared
@@ -775,8 +751,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     /// The media header and the live location panel. The note's chat named it while it was open; Telegram hides the
     /// header panels while search is shown.
     private func updateHeaderPanels(animated: Bool, searchActive: Bool? = nil) {
-        guard let heightConstraint = voicePlaybackPanelHeightConstraint,
-              let liveHeightConstraint = liveLocationPanelHeightConstraint else { return }
+        guard let heightConstraint = headerPanelsHeightConstraint else { return }
         let media = Media.shared
         let display = media.nowPlayingDisplay.flatMap { display in
             display.item == media.nowPlaying && display.item.accountID == navigationClientSource?.accountID
@@ -797,25 +772,17 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
         let searching = searchActive ?? customNavigationBar.isSearchActive
         let shows = display != nil && !searching && !isShowingSearchResults
-        let height = shows ? VoicePlaybackHeaderView.contentHeight : 0
         let showsLiveLocation = updateLiveLocationPanelContent() && !searching && !isShowingSearchResults
-        let liveHeight = showsLiveLocation ? LiveLocationPanelView.contentHeight : 0
-        guard abs(heightConstraint.constant - height) > 0.5 || abs(liveHeightConstraint.constant - liveHeight) > 0.5
-        else { return }
-        if shows { voicePlaybackPanel.isHidden = false }
-        if showsLiveLocation { liveLocationContainer.isHidden = false }
-        heightConstraint.constant = height
-        liveHeightConstraint.constant = liveHeight
+        guard headerPanels.setVisiblePanels(voice: shows, liveLocation: showsLiveLocation) else { return }
+        heightConstraint.constant = headerPanels.contentHeight
         let changes = {
             for folderController in self.folderControllers {
-                folderController.setAccessoryTopInset(height + liveHeight)
+                folderController.setAccessoryTopInset(self.headerPanels.contentHeight)
             }
             self.view.layoutIfNeeded()
         }
         guard animated, view.window != nil, !UIAccessibility.isReduceMotionEnabled else {
             changes()
-            voicePlaybackPanel.isHidden = !shows
-            liveLocationContainer.isHidden = !showsLiveLocation
             return
         }
         UIView.animate(
@@ -823,11 +790,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             delay: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
             animations: changes,
-        ) { [weak self] _ in
-            guard let self else { return }
-            voicePlaybackPanel.isHidden = voicePlaybackInset == 0
-            liveLocationContainer.isHidden = liveLocationInset == 0
-        }
+        )
     }
 
     /// LocationBroadcastNavigationAccessoryPanel's summary: "sharing with" the chat, or how many chats see the
@@ -1030,7 +993,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 restorationViewport: restorationViewports.removeValue(forKey: folder.id),
             )
             controller.setSearchActive(customNavigationBar.isSearchActive, animated: false, preservingViewport: true)
-            controller.setAccessoryTopInset(voicePlaybackInset + liveLocationInset)
+            controller.setAccessoryTopInset(headerPanels.contentHeight)
             controller.isSearchActive = { [weak self] in self?.customNavigationBar.isSearchActive == true }
             controller.onSelectionEditingChange = { [weak self] title, done in
                 self?.setChatSelectionEditing(title: title, done: done)

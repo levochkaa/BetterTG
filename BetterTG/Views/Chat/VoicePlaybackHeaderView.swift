@@ -20,7 +20,7 @@ final class VoicePlaybackHeaderView: UIView {
         var isMusic = false
     }
 
-    static let contentHeight = CGFloat(37)
+    static let contentHeight = CGFloat(40)
 
     var onTogglePlayback: (() -> Void)?
     var onCycleRate: (() -> Void)?
@@ -32,6 +32,10 @@ final class VoicePlaybackHeaderView: UIView {
     var onPlayNext: (() -> Void)?
     var onPlayPrevious: (() -> Void)?
 
+    var showsSeparator = true {
+        didSet { separator.isHidden = !showsSeparator }
+    }
+
     private let playButton = UIButton(type: .system)
     private let openControl = UIControl()
     private let titleLabel = UILabel()
@@ -39,9 +43,13 @@ final class VoicePlaybackHeaderView: UIView {
     private let rateButton = UIButton(type: .system)
     private let closeButton = UIButton(type: .system)
     private let progressView = UIView()
+
     private let separator = UIView()
     private var progress = CGFloat(0)
     private var content: Content?
+    private var titleWidthConstraint: NSLayoutConstraint!
+    private var subtitleWidthConstraint: NSLayoutConstraint!
+    private var openTrailingConstraint: NSLayoutConstraint!
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -67,11 +75,14 @@ final class VoicePlaybackHeaderView: UIView {
             openControl.addGestureRecognizer(swipe)
         }
 
-        for (label, color) in [(titleLabel, UIColor.label), (subtitleLabel, UIColor.secondaryLabel)] {
+        for (label, color, size) in [
+            (titleLabel, UIColor.label, CGFloat(12)),
+            (subtitleLabel, UIColor.secondaryLabel, CGFloat(10)),
+        ] {
             label.translatesAutoresizingMaskIntoConstraints = false
             label.font = UIFontMetrics(forTextStyle: .caption1).scaledFont(
-                for: .systemFont(ofSize: 12, weight: .regular),
-                maximumPointSize: 14,
+                for: .systemFont(ofSize: size, weight: .regular),
+                maximumPointSize: size + 2,
             )
             label.adjustsFontForContentSizeCategory = true
             label.textColor = color
@@ -111,12 +122,21 @@ final class VoicePlaybackHeaderView: UIView {
         progressView.backgroundColor = .systemBlue
         addSubview(progressView)
 
+        self.titleWidthConstraint = titleLabel.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -154)
+        self.subtitleWidthConstraint = subtitleLabel.widthAnchor.constraint(
+            lessThanOrEqualTo: widthAnchor,
+            constant: -154,
+        )
+        self.openTrailingConstraint = openControl.trailingAnchor.constraint(
+            equalTo: closeButton.leadingAnchor,
+            constant: -42,
+        )
         NSLayoutConstraint.activate([
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
             separator.bottomAnchor.constraint(equalTo: bottomAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1 / max(traitCollection.displayScale, 1)),
-            playButton.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 4),
+            playButton.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
             playButton.topAnchor.constraint(equalTo: topAnchor),
             playButton.widthAnchor.constraint(equalToConstant: 40),
             playButton.heightAnchor.constraint(equalToConstant: Self.contentHeight),
@@ -129,15 +149,15 @@ final class VoicePlaybackHeaderView: UIView {
             rateButton.heightAnchor.constraint(equalToConstant: 18),
             rateButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 30),
             openControl.leadingAnchor.constraint(equalTo: playButton.trailingAnchor, constant: 4),
-            openControl.trailingAnchor.constraint(equalTo: rateButton.leadingAnchor, constant: -8),
+            openTrailingConstraint,
             openControl.topAnchor.constraint(equalTo: topAnchor),
             openControl.heightAnchor.constraint(equalToConstant: Self.contentHeight),
-            titleLabel.leadingAnchor.constraint(equalTo: openControl.leadingAnchor),
-            titleLabel.trailingAnchor.constraint(equalTo: openControl.trailingAnchor),
+            titleLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            titleWidthConstraint,
             titleLabel.bottomAnchor.constraint(equalTo: openControl.centerYAnchor, constant: 1),
-            subtitleLabel.leadingAnchor.constraint(equalTo: openControl.leadingAnchor),
-            subtitleLabel.trailingAnchor.constraint(equalTo: openControl.trailingAnchor),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor),
+            subtitleLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            subtitleWidthConstraint,
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 1),
         ])
         accessibilityElements = [playButton, openControl, rateButton, closeButton]
         // A CGColor border doesn't follow appearance changes on its own.
@@ -180,6 +200,13 @@ final class VoicePlaybackHeaderView: UIView {
         rateButton.setTitle(rateTitle, for: .normal)
         rateButton.accessibilityValue = rateTitle
         rateButton.isHidden = !content.showsRate
+        accessibilityElements = content.showsRate
+            ? [playButton, openControl, rateButton, closeButton]
+            : [playButton, openControl, closeButton]
+        // MediaNavigationAccessoryHeaderNode reserves the rate icon symmetrically, so the title stays centred.
+        titleWidthConstraint.constant = content.showsRate ? -154 : -102
+        subtitleWidthConstraint.constant = titleWidthConstraint.constant
+        openTrailingConstraint.constant = content.showsRate ? -42 : 0
         progress = max(0, min(1, content.progress))
         setNeedsLayout()
     }

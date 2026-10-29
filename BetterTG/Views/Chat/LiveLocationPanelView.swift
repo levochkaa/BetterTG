@@ -8,16 +8,21 @@ import UIKit
 /// under the navigation bar while the account shares its live location. Tapping it opens the shared location, and
 /// close asks before stopping.
 final class LiveLocationPanelView: UIView {
-    static let contentHeight = CGFloat(37)
+    static let contentHeight = CGFloat(40)
 
     var onOpen: (() -> Void)?
     var onClose: (() -> Void)?
+
+    var showsSeparator = true {
+        didSet { separator.isHidden = !showsSeparator }
+    }
 
     private let iconView = UIImageView()
     private let openControl = UIControl()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let closeButton = UIButton(type: .system)
+
     private let separator = UIView()
 
     override init(frame: CGRect) {

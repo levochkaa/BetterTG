@@ -161,6 +161,11 @@ final class TelegramListNavigationBar: UIView {
         expandedContentHeight - clipped
     }
 
+    /// The owner extends one backdrop behind this bar and its accessory panels.
+    func useSharedBackground() {
+        blurView.isHidden = true
+    }
+
     /// `offset` is the list's distance from its top; a negative one pulls the list past it. ChatListNavigationBar
     /// leaves that pull unclipped: the bar grows with it and the search field rides down above the first row.
     func applyScroll(offset: CGFloat, animated: Bool = false) {

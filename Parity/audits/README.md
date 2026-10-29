@@ -4,6 +4,7 @@ Read-only audits and probe sweeps of the merged `codex/parity` code, by area, wi
 
 ## Contents
 
+- [Chat-list header panels — 2026-10-29](2026-10-29-header-panels.md)
 - [Continuous menu touch — 2026-10-29](2026-10-29-continuous-menu-touch.md)
 - [Post-merge audit — 2026-10-14](2026-10-14-post-merge.md)
 - [Post-merge audit, second pass — 2026-10-15](2026-10-15-post-merge-second-pass.md)

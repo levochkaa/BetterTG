@@ -201,6 +201,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             TemplateEmojiProbe.runIfRequested(in: window)
             ServiceMessageTextProbe.runIfRequested()
             VoicePlaybackHeaderProbe.runIfRequested(in: window)
+            HeaderPanelsProbe.runIfRequested(in: window)
             SecretMediaPreviewProbe.runIfRequested(in: window)
             MusicPlayerProbe.runIfRequested(in: window)
             LocationViewerProbe.runIfRequested(in: window)
