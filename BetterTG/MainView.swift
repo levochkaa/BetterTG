@@ -1090,27 +1090,31 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         NavigationStorage.shared.push(.archive(archive))
     }
 
-    /// Swiftgram's account switcher on a long press of Settings, morphing out of its glass circle: every account, the
-    /// current one ticked, then Add Account.
+    /// Swiftgram's account switcher on a long press of Settings, morphing out of its glass circle: Add Account and
+    /// the current account, then the other accounts in a section of their own.
     private func showAccountSwitcher(from source: UIView, tracking gesture: UIGestureRecognizer) {
         let tdlib = TDLib.shared
-        var actions = tdlib.accounts.map { account in
-            let isCurrent = account.id == tdlib.activeAccountID
-            return TelegramContextMenuAction(
-                title: account.localizedTitle,
-                image: UIImage(systemName: isCurrent ? "checkmark.circle.fill" : "person.crop.circle"),
-            ) { [weak self] in
-                guard !isCurrent else { return }
-                do { try tdlib.switchToAccount(account.id) } catch { self?.showAccountError(error) }
-            }
-        }
-        actions.append(TelegramContextMenuAction(
+        var actions = [TelegramContextMenuAction(
             title: L10n.telegram("Settings.AddAccount"),
             image: UIImage(systemName: "plus"),
-            startsNewSection: true,
         ) { [weak self] in
             do { try tdlib.addAccount() } catch { self?.showAccountError(error) }
-        })
+        }]
+        if let current = tdlib.accounts.first(where: { $0.id == tdlib.activeAccountID }) {
+            actions.append(TelegramContextMenuAction(
+                title: current.localizedTitle,
+                image: UIImage(systemName: "person.crop.circle"),
+            ))
+        }
+        for (index, account) in tdlib.accounts.filter({ $0.id != tdlib.activeAccountID }).enumerated() {
+            actions.append(TelegramContextMenuAction(
+                title: account.localizedTitle,
+                image: UIImage(systemName: "person.crop.circle"),
+                startsNewSection: index == 0,
+            ) { [weak self] in
+                do { try tdlib.switchToAccount(account.id) } catch { self?.showAccountError(error) }
+            })
+        }
         presentTelegramContextMenu(
             sourceView: source,
             actions: actions,
