@@ -100,6 +100,7 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
     private var needsReload = false
     /// The section of Suggest Stickers by Emoji, where its menu opens.
     private var suggestionSection: Int?
+    private var selectionToolbar: StickerSelectionToolbar?
 
     /// My Stickers, which follows the other sections.
     private var packsSection: Int? {
@@ -164,6 +165,15 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if tableView.isEditing { setEditingSets(false) }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        layoutSelectionToolbar()
+    }
+
+    override func scrollViewDidScroll(_: UIScrollView) {
+        layoutSelectionToolbar()
     }
 
     override func makeSections() -> [SettingsSection] {
@@ -521,15 +531,35 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
         setEditingSets(false)
     }
 
-    /// StickersToolbarItem under the list while editing: Delete, Archive and Share for the chosen sets.
+    /// StickersToolbarItem's GlassControlPanel under the list while editing.
     private func setEditingSets(_ editing: Bool) {
         tableView.setEditing(editing, animated: true)
         rebuildSections()
         updateNavigationItems()
         if editing {
+            if selectionToolbar == nil {
+                let toolbar = StickerSelectionToolbar()
+                toolbar.deleteButton.addTarget(self, action: #selector(deleteSelected), for: .touchUpInside)
+                toolbar.archiveButton.addTarget(self, action: #selector(archiveSelected), for: .touchUpInside)
+                toolbar.shareButton.addTarget(self, action: #selector(shareSelected), for: .touchUpInside)
+                toolbar.layer.zPosition = 999
+                tableView.addSubview(toolbar)
+                selectionToolbar = toolbar
+                additionalSafeAreaInsets.bottom += StickerSelectionToolbar.contentHeight
+                layoutSelectionToolbar()
+                toolbar.alpha = 0
+                UIView.animate(withDuration: 0.2) { toolbar.alpha = 1 }
+            }
             updateToolbar()
+        } else if let toolbar = selectionToolbar {
+            selectionToolbar = nil
+            additionalSafeAreaInsets.bottom -= StickerSelectionToolbar.contentHeight
+            toolbar.isUserInteractionEnabled = false
+            toolbar.accessibilityElementsHidden = true
+            UIView.animate(withDuration: 0.2, animations: { toolbar.alpha = 0 }) { _ in
+                toolbar.removeFromSuperview()
+            }
         }
-        navigationController?.setToolbarHidden(!editing, animated: true)
         if !editing, needsReload {
             needsReload = false
             load()
@@ -537,29 +567,20 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
     }
 
     private func updateToolbar() {
-        let hasSelection = !selectedSets.isEmpty
-        let delete = UIBarButtonItem(
-            title: L10n.telegram("StickerPacks.ActionDelete"),
-            style: .plain,
-            target: self,
-            action: #selector(deleteSelected),
+        selectionToolbar?.update(hasSelection: !selectedSets.isEmpty)
+    }
+
+    private func layoutSelectionToolbar() {
+        guard let toolbar = selectionToolbar else { return }
+        // The controller's root is a scrolling table. Keep the bar at the viewport edge, above headers inserted
+        // during scrolling, and reserve only its content height; UIKit already accounts for the home indicator.
+        let bottom = max(0, tableView.safeAreaInsets.bottom - additionalSafeAreaInsets.bottom)
+        let height = StickerSelectionToolbar.contentHeight + bottom
+        toolbar.frame = CGRect(
+            x: tableView.bounds.minX, y: tableView.bounds.maxY - height,
+            width: tableView.bounds.width, height: height,
         )
-        let archive = UIBarButtonItem(
-            title: L10n.telegram("StickerPacks.ActionArchive"),
-            style: .plain,
-            target: self,
-            action: #selector(archiveSelected),
-        )
-        let share = UIBarButtonItem(
-            title: L10n.telegram("StickerPacks.ActionShare"),
-            style: .plain,
-            target: self,
-            action: #selector(shareSelected),
-        )
-        for item in [delete, archive, share] {
-            item.isEnabled = hasSelection
-        }
-        toolbarItems = [delete, .flexibleSpace(), archive, .flexibleSpace(), share]
+        tableView.bringSubviewToFront(toolbar)
     }
 
     @objc private func deleteSelected() {
@@ -571,34 +592,42 @@ final class InstalledStickerSetsViewController: SettingsListViewController, UITe
                 : "StickerPacks.DeleteEmojiPacksConfirmation",
             count: chosen.count,
         )
-        confirmBulk(title: title) { [weak self] in self?.removeSets(chosen, archive: false) }
+        confirmBulk(title: title, source: selectionToolbar?.deleteButton) {
+            [weak self] in self?.removeSets(chosen, archive: false)
+        }
     }
 
     @objc private func archiveSelected() {
         let chosen = selectedSets
         guard !chosen.isEmpty else { return }
         let title = L10n.telegramPlural("StickerPacks.ArchiveStickerPacksConfirmation", count: chosen.count)
-        confirmBulk(title: title) { [weak self] in self?.removeSets(chosen, archive: true) }
+        confirmBulk(title: title, source: selectionToolbar?.archiveButton) {
+            [weak self] in self?.removeSets(chosen, archive: true)
+        }
     }
 
     /// Share: the chosen sets' t.me/addstickers links, one a line.
     @objc private func shareSelected() {
         let links = selectedSets.map { "https://t.me/addstickers/\($0.name)" }
         guard !links.isEmpty else { return }
+        let source = selectionToolbar?.shareButton
+        let sourceRect = source.map { $0.convert($0.bounds, to: view) } ?? view.bounds
         setEditingSets(false)
         let activity = UIActivityViewController(
             activityItems: [links.joined(separator: "\n")],
             applicationActivities: nil,
         )
-        activity.popoverPresentationController?.barButtonItem = navigationItem.rightBarButtonItem
+        activity.popoverPresentationController?.sourceView = view
+        activity.popoverPresentationController?.sourceRect = sourceRect
         present(activity, animated: true)
     }
 
-    private func confirmBulk(title: String, perform action: @escaping () -> Void) {
+    private func confirmBulk(title: String, source: UIView?, perform action: @escaping () -> Void) {
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
         sheet.addAction(UIAlertAction(title: title, style: .destructive) { _ in action() })
         sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
-        sheet.popoverPresentationController?.barButtonItem = toolbarItems?.first
+        sheet.popoverPresentationController?.sourceView = source ?? view
+        sheet.popoverPresentationController?.sourceRect = source?.bounds ?? view.bounds
         present(sheet, animated: true)
     }
 
