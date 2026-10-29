@@ -34,6 +34,19 @@ import UIKit
     init(textView: UITextView) { self.textView = textView }
     deinit { task?.cancel() }
 
+    /// Preserve exactly the emoji frames the editor shows, with their text-colour masks. A new decoder could
+    /// finish after the 0.1 s send fade, briefly exposing the Unicode placeholder instead of the custom emoji.
+    func copyVisibleFrames(to destination: UITextView) {
+        var hidden = [NSRange]()
+        for item in placements where item.ready {
+            guard let view = item.view.makeSendTransitionView() else { continue }
+            view.frame = item.view.frame
+            destination.addSubview(view)
+            hidden.append(item.range)
+        }
+        (destination.layoutManager as? ComposerEmojiLayoutManager)?.hiddenCharacterRanges = hidden
+    }
+
     func update() {
         guard let textView else { return }
         let requests = TelegramCustomEmojiRun.extract(from: textView.textStorage).map { ($0.id, $0.range) }

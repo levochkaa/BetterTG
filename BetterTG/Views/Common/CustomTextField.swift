@@ -295,6 +295,42 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         invalidateIntrinsicContentSize()
     }
 
+    /// A send owns the text as it was when requested. Keep it in TextKit, without the caret or selection, while
+    /// the original editor keeps focus, undo and any edits made before TDLib accepts the message.
+    func makeSendTransitionView() -> ComposerSendTextView {
+        let storage = NSTextStorage()
+        let manager = ComposerEmojiLayoutManager()
+        storage.addLayoutManager(manager)
+        let container = NSTextContainer(size: .zero)
+        manager.addTextContainer(container)
+        let copy = UITextView(frame: .zero, textContainer: container)
+        copy.frame = CGRect(origin: .zero, size: bounds.size)
+        copy.font = font
+        copy.textColor = textColor
+        copy.backgroundColor = .clear
+        copy.textAlignment = textAlignment
+        copy.semanticContentAttribute = semanticContentAttribute
+        copy.textContainerInset = textContainerInset
+        copy.textContainer.lineFragmentPadding = textContainer.lineFragmentPadding
+        copy.textContainer.lineBreakMode = textContainer.lineBreakMode
+        copy.textContainer.maximumNumberOfLines = textContainer.maximumNumberOfLines
+        copy.contentInset = contentInset
+        copy.contentInsetAdjustmentBehavior = .never
+        copy.isScrollEnabled = isScrollEnabled
+        copy.isEditable = false
+        copy.isSelectable = false
+        copy.isUserInteractionEnabled = false
+        copy.accessibilityElementsHidden = true
+        copy.tintColor = tintColor
+        copy.linkTextAttributes = linkTextAttributes
+        copy.attributedText = NSAttributedString(attributedString: attributedText)
+        copy.layoutManager.ensureLayout(for: copy.textContainer)
+        copy.layoutIfNeeded()
+        copy.contentOffset = contentOffset
+        emojiRenderer.copyVisibleFrames(to: copy)
+        return ComposerSendTextView(textView: copy)
+    }
+
     func setPlaceholder(_ value: String) {
         guard placeholder != value else { return }
         placeholder = value
@@ -629,6 +665,41 @@ final class FormattedTextView: UITextView, UITextViewDelegate {
         ))
         contextPlaceholderLabel.attributedText = value
         contextPlaceholderLabel.isHidden = false
+    }
+}
+
+// MARK: - ComposerSendTextView
+
+/// The sent viewport stays laid out at its original width. A caption flying into a smaller media bubble scales
+/// the live view instead of rewrapping its lines as the transition's frame shrinks.
+final class ComposerSendTextView: UIView {
+    let textView: UITextView
+
+    private let viewportSize: CGSize
+    private let viewportOffset: CGPoint
+
+    init(textView: UITextView) {
+        self.textView = textView
+        self.viewportSize = textView.bounds.size
+        self.viewportOffset = textView.contentOffset
+        super.init(frame: CGRect(origin: .zero, size: viewportSize))
+        isUserInteractionEnabled = false
+        accessibilityElementsHidden = true
+        clipsToBounds = true
+        addSubview(textView)
+    }
+
+    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        guard viewportSize.width > 0, viewportSize.height > 0 else { return }
+        textView.transform = CGAffineTransform(
+            scaleX: bounds.width / viewportSize.width, y: bounds.height / viewportSize.height,
+        )
+        textView.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        textView.layoutIfNeeded()
+        textView.contentOffset = viewportOffset
     }
 }
 

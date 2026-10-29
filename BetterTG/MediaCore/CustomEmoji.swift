@@ -140,6 +140,35 @@ final class CustomEmojiInlineView: UIView {
         contentView?.setPlaybackVisible(isVisible)
     }
 
+    /// Reuses the decoded frame in a live view for a send's short fade. No UIKit snapshot, second download or
+    /// decoder: the input may clear immediately, and the transition must already have the exact visible emoji.
+    func makeSendTransitionView() -> UIView? {
+        guard let contentView else { return nil }
+        let result = UIView(frame: bounds)
+        result.isUserInteractionEnabled = false
+        for child in contentView.subviews where !child.isHidden && child.alpha > 0 {
+            let copied: UIView
+            if let frame = child as? AnimationFrameView, let image = frame.frameImage {
+                let view = AnimationFrameView()
+                view.templateColor = frame.templateColor
+                view.show(image)
+                copied = view
+            } else if let frame = child as? TemplatableImageView, let image = frame.image {
+                let view = TemplatableImageView()
+                view.templateColor = frame.templateColor
+                view.contentMode = frame.contentMode
+                view.image = image
+                copied = view
+            } else {
+                continue
+            }
+            copied.frame = child.convert(child.bounds, to: self)
+            copied.alpha = child.alpha
+            result.addSubview(copied)
+        }
+        return result.subviews.isEmpty ? nil : result
+    }
+
     private func install(_ view: UIView & AnimatedFileView, file: File, thumbnail: Thumbnail?, client: TDLibClient) {
         let firstFrameReady = onFirstFrameReady
         prepareForReuse()

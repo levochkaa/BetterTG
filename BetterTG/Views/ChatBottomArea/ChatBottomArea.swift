@@ -455,18 +455,25 @@ final class ChatComposerView: UIView {
             }
         }
         return sources.compactMap { source in
-            guard source.window != nil,
-                  !source.bounds.isEmpty,
-                  let snapshot = source.snapshotView(afterScreenUpdates: false)
-            else { return nil }
-            snapshot.isUserInteractionEnabled = false
+            guard source.window != nil, !source.bounds.isEmpty else { return nil }
             let isText = source === textView
+            let snapshot: UIView
+            if isText {
+                snapshot = textView.makeSendTransitionView()
+            } else {
+                guard let captured = source.snapshotView(afterScreenUpdates: false) else { return nil }
+                snapshot = captured
+            }
+            snapshot.isUserInteractionEnabled = false
             return ComposerSendTransitionSnapshot(
                 sourceFrame: source.convert(source.bounds, to: container),
                 view: snapshot,
                 isText: isText,
                 textInset: isText
-                    ? CGPoint(x: textView.textContainerInset.left, y: textView.textContainerInset.top)
+                    ? CGPoint(
+                        x: textView.textContainerInset.left - textView.contentOffset.x,
+                        y: textView.textContainerInset.top - textView.contentOffset.y,
+                    )
                     : .zero,
             )
         }
