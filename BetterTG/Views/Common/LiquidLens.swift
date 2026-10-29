@@ -215,3 +215,52 @@ import UIKit
         lens.step()
     }
 }
+
+// MARK: - LiquidLensTabRecognizer
+
+/// Telegram's TabSelectionRecognizer: begins as soon as a finger touches a lens's tabs, so the lens lifts and comes
+/// to the finger before it moves, where a long press would wait out its duration and a pan would wait for movement.
+/// Beginning, it cancels the tabs' own touches, so a tap selects through it too.
+final class LiquidLensTabRecognizer: UIGestureRecognizer {
+    /// Where the finger touched down, in the window.
+    private var initialLocation: CGPoint?
+
+    /// How far the finger has moved since it touched down.
+    var translation: CGPoint {
+        guard let initialLocation else { return .zero }
+        let location = location(in: nil)
+        return CGPoint(x: location.x - initialLocation.x, y: location.y - initialLocation.y)
+    }
+
+    override init(target: Any?, action: Selector?) {
+        super.init(target: target, action: action)
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+    }
+
+    override func reset() {
+        super.reset()
+        initialLocation = nil
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        if initialLocation == nil { initialLocation = touches.first?.location(in: nil) }
+        state = state == .possible ? .began : .changed
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesMoved(touches, with: event)
+        state = .changed
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesEnded(touches, with: event)
+        state = .ended
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesCancelled(touches, with: event)
+        state = .cancelled
+    }
+}

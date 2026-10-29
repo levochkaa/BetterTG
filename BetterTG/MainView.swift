@@ -1330,8 +1330,6 @@ final class FolderPickerView: UIView {
     /// folder tabs do.
     private static let liftDuration: TimeInterval = 0.3
     private static let restingTintFadeDuration: TimeInterval = 0.2
-    /// How long a finger rests on the strip before the lens lifts under it.
-    private static let holdDuration: TimeInterval = 0.2
     private static let selectionTint = UIColor.label.withAlphaComponent(0.08)
     /// The blur above the folder strip.
     private static let controlTopInset: CGFloat = 8
@@ -1356,11 +1354,14 @@ final class FolderPickerView: UIView {
         }
     }
 
-    /// Whether a hold lifts the lens under the finger and carries it along, choosing the segment it is let go over,
-    /// as UIKit's tab bar does. The composer's media tabs fit without scrolling; the chat list's folders scroll and
-    /// keep holding for their menus.
-    var selectsByHold = false {
-        didSet { holdGesture.isEnabled = selectsByHold }
+    /// Whether a touch lifts the lens onto the touched segment, the lens follows the finger and letting go selects
+    /// the segment under it, as Telegram's keyboard tabs (EntityKeyboardBottomPanelComponent) do; such a strip does
+    /// not scroll. The composer's media tabs fit; the chat list's folders scroll and keep holding for their menus.
+    var dragsSelection = false {
+        didSet {
+            tabGesture.isEnabled = dragsSelection
+            controlContainer.isScrollEnabled = !dragsSelection
+        }
     }
 
     // MARK: Private
@@ -1407,16 +1408,17 @@ final class FolderPickerView: UIView {
     private var selectedButtons = [FolderButton]()
     private var unreadStates = [FolderUnreadState]()
     private var interactiveSelection: (fromID: Int, toID: Int, fraction: CGFloat)?
-    private lazy var holdGesture: UILongPressGestureRecognizer = {
-        let gesture = UILongPressGestureRecognizer(target: self, action: #selector(stripHeld(_:)))
-        gesture.minimumPressDuration = Self.holdDuration
-        gesture.allowableMovement = 12
+    private lazy var tabGesture: LiquidLensTabRecognizer = {
+        let gesture = LiquidLensTabRecognizer(target: self, action: #selector(stripTouched(_:)))
         gesture.isEnabled = false
         return gesture
     }()
 
-    /// The lens's frame while a hold carries it, centred under the finger.
+    /// The touched segment's frame and when the touch began, while a finger carries the lens.
+    private var drag: (frame: CGRect, time: CFTimeInterval)?
+    /// The lens's frame while a finger carries it.
     private var heldFrame: CGRect?
+    /// The segment under the carried lens.
     private var heldIndex: Int?
 
     override init(frame: CGRect) {
@@ -1547,7 +1549,7 @@ final class FolderPickerView: UIView {
                 stack.bottomAnchor.constraint(equalTo: layer.bottomAnchor),
             ])
         }
-        controlContainer.addGestureRecognizer(holdGesture)
+        controlContainer.addGestureRecognizer(tabGesture)
         controlContainer.onViewportWidthChange = { [weak self] in
             self?.updateResolvedWidths()
             self?.layoutSelection(animated: false)
@@ -1868,25 +1870,38 @@ final class FolderPickerView: UIView {
         }
     }
 
-    /// The lens lifts where the finger rests, follows it, and lands on the segment it is let go over.
-    @objc private func stripHeld(_ gesture: UILongPressGestureRecognizer) {
+    /// The lens lifts onto the touched segment and follows the finger by as much as it moves; letting go selects the
+    /// segment under the lens, or scrolls the selected one's page to the top. A quick tap still carries the lens
+    /// lifted for `liftDuration`, as a tap on a folder does.
+    @objc private func stripTouched(_ gesture: LiquidLensTabRecognizer) {
         guard !resolvedSegmentWidths.isEmpty, resolvedSegmentWidths.count == items.count else { return }
-        let x = gesture.location(in: stripView).x
         switch gesture.state {
-        case .began,
-             .changed:
-            let index = segmentIndex(at: x)
+        case .began:
+            let index = segmentIndex(at: gesture.location(in: stripView).x)
+            let frame = segmentFrame(at: index)
+            drag = (frame, CACurrentMediaTime())
+            heldFrame = frame
+            heldIndex = index
+            lift()
+            layoutSelection(animated: true)
+        case .changed:
+            guard let drag else { return }
+            let maxX = max(0, stripView.bounds.width - drag.frame.width)
+            let frame = drag.frame.offsetBy(
+                dx: min(max(drag.frame.minX + gesture.translation.x, 0), maxX) - drag.frame.minX,
+                dy: 0,
+            )
+            heldFrame = frame
+            let index = segmentIndex(at: frame.midX)
             if index != heldIndex {
                 UISelectionFeedbackGenerator().selectionChanged()
                 heldIndex = index
             }
-            let width = resolvedSegmentWidths[index]
-            let centerX = min(max(x, width / 2), max(width / 2, stripView.bounds.width - width / 2))
-            heldFrame = CGRect(x: centerX - width / 2, y: 0, width: width, height: controlContainer.bounds.height)
-            if gesture.state == .began { lift() }
-            layoutSelection(animated: gesture.state == .began)
+            layoutSelection(animated: false)
         case .ended:
+            guard let drag else { return }
             let index = heldIndex
+            self.drag = nil
             heldFrame = nil
             heldIndex = nil
             if let index, items.indices.contains(index), items[index].id != selectedID {
@@ -1894,9 +1909,11 @@ final class FolderPickerView: UIView {
                 onSelection?(items[index].id)
             } else {
                 layoutSelection(animated: true)
+                if let index, items.indices.contains(index) { onReselection?(items[index].id) }
             }
-            lower(after: 0)
+            lower(after: max(0, Self.liftDuration - (CACurrentMediaTime() - drag.time)))
         default:
+            drag = nil
             heldFrame = nil
             heldIndex = nil
             layoutSelection(animated: true)

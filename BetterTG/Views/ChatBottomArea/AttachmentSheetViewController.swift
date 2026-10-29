@@ -1812,7 +1812,7 @@ private final class AttachmentTabContentView: UIView {
 /// lens (`LiquidLens`), as the folder strip draws it. A tap lifts the lens and carries it to the tapped tab, which
 /// then opens; a hold lifts it under the finger, which carries it and opens the tab it is let go over, as UIKit's tab
 /// bar does. Tabs past the capsule's width scroll.
-private final class AttachmentTabStrip: UIView {
+private final class AttachmentTabStrip: UIView, UIGestureRecognizerDelegate {
     // MARK: Private
 
     private static let capsuleHeight: CGFloat = 58
@@ -1821,8 +1821,10 @@ private final class AttachmentTabStrip: UIView {
     private static let minimumTabWidth: CGFloat = 60
     private static let selectionTint = UIColor.label.withAlphaComponent(0.08)
     private static let springDuration: TimeInterval = 0.4
-    /// How long a finger rests on the bar before the lens lifts under it.
-    private static let holdDuration: TimeInterval = 0.2
+    /// The least time the lens stays lifted after a tap, so that it crosses the bar as a lens.
+    private static let liftDuration: TimeInterval = 0.3
+    /// How far a finger on a scrolling bar moves before its touch is a scroll rather than a tap.
+    private static let tapSlop: CGFloat = 10
 
     // MARK: Internal
 
@@ -1845,10 +1847,12 @@ private final class AttachmentTabStrip: UIView {
     private var tabWidth: CGFloat = 0
     private var isSelecting = false
     private var heldIndex: Int?
-    private lazy var holdGesture: UILongPressGestureRecognizer = {
-        let gesture = UILongPressGestureRecognizer(target: self, action: #selector(stripHeld(_:)))
-        gesture.minimumPressDuration = Self.holdDuration
-        gesture.allowableMovement = 12
+    /// The touched tab's frame, whether the lens lifted to follow the finger, and when the touch began. On a bar
+    /// that scrolls, the finger scrolls it and a tap selects, as in Telegram's AttachmentPanel.
+    private var drag: (frame: CGRect, isLifted: Bool, time: CFTimeInterval)?
+    private lazy var tabGesture: LiquidLensTabRecognizer = {
+        let gesture = LiquidLensTabRecognizer(target: self, action: #selector(stripTouched(_:)))
+        gesture.delegate = self
         return gesture
     }()
 
@@ -1865,7 +1869,7 @@ private final class AttachmentTabStrip: UIView {
         scroll.scrollsToTop = false
         scroll.delaysContentTouches = false
         scroll.alwaysBounceHorizontal = false
-        scroll.addGestureRecognizer(holdGesture)
+        scroll.addGestureRecognizer(tabGesture)
         capsule.contentView.addSubview(scroll)
         scroll.addSubview(stripView)
         for layer in [selectedTabsView, tabsView, buttonsView] {
@@ -1905,6 +1909,7 @@ private final class AttachmentTabStrip: UIView {
         let width = tabs.isEmpty ? 0 : max(Self.minimumTabWidth, available / CGFloat(tabs.count))
         let stripWidth = width * CGFloat(tabs.count) + Self.endInset * 2
         scroll.contentSize = CGSize(width: stripWidth, height: scroll.bounds.height)
+        scroll.isScrollEnabled = stripWidth - scroll.bounds.width > 1
         stripView.frame = CGRect(x: 0, y: 0, width: stripWidth, height: scroll.bounds.height)
         for layer in [selectedTabsView, tabsView, buttonsView] {
             layer.frame = stripView.bounds
@@ -1926,7 +1931,7 @@ private final class AttachmentTabStrip: UIView {
     /// current tab again.
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        guard window != nil, !isSelecting, heldIndex == nil else { return }
+        guard window != nil, !isSelecting, drag == nil else { return }
         placeSelection(at: currentIndex, isLifted: false, animated: false)
     }
 
@@ -1950,6 +1955,14 @@ private final class AttachmentTabStrip: UIView {
             buttonsView.addSubview(button)
         }
         setNeedsLayout()
+    }
+
+    /// The touch leaves the bar's scrolling running.
+    func gestureRecognizer(
+        _ recognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith _: UIGestureRecognizer,
+    ) -> Bool {
+        recognizer === tabGesture
     }
 
     private func tabFrame(at index: Int, width: CGFloat) -> CGRect {
@@ -1979,32 +1992,51 @@ private final class AttachmentTabStrip: UIView {
         }
     }
 
-    /// The lens lifts where the finger rests and follows it, scrolling the bar to keep it in view, and lands on the
-    /// tab it is let go over, which opens.
-    @objc private func stripHeld(_ gesture: UILongPressGestureRecognizer) {
+    /// Telegram's AttachmentPanel: where the bar fits, a touch lifts the lens onto the touched tab, the lens follows
+    /// the finger, and the tab under it opens as it lands when the finger lets go. Where the bar scrolls, the lens
+    /// stays and a tap carries it to the tapped tab.
+    @objc private func stripTouched(_ gesture: LiquidLensTabRecognizer) {
         guard tabWidth > 0, !tabs.isEmpty, !isSelecting else { return }
-        let x = gesture.location(in: stripView).x
         switch gesture.state {
-        case .began,
-             .changed:
-            if gesture.state == .began { scroll.isScrollEnabled = false }
+        case .began:
+            let x = gesture.location(in: stripView).x
             let index = min(max(0, Int((x - Self.endInset) / tabWidth)), tabs.count - 1)
+            let frame = tabFrame(at: index, width: tabWidth)
+            let isLifted = !scroll.isScrollEnabled
+            drag = (frame, isLifted, CACurrentMediaTime())
+            heldIndex = index
+            if isLifted { placeLens(frame, isLifted: true, animated: true) }
+        case .changed:
+            guard let drag else { return }
+            guard drag.isLifted else {
+                if abs(gesture.translation.x) > Self.tapSlop || abs(gesture.translation.y) > Self.tapSlop {
+                    self.drag = nil
+                    heldIndex = nil
+                }
+                return
+            }
+            let maxX = max(Self.endInset, stripView.bounds.width - Self.endInset - tabWidth)
+            let x = min(max(drag.frame.minX + gesture.translation.x, Self.endInset), maxX)
+            let frame = drag.frame.offsetBy(dx: x - drag.frame.minX, dy: 0)
+            let index = min(max(0, Int((frame.midX - Self.endInset) / tabWidth)), tabs.count - 1)
             if index != heldIndex {
                 UISelectionFeedbackGenerator().selectionChanged()
                 heldIndex = index
             }
-            let minX = Self.endInset + tabWidth / 2
-            let maxX = max(minX, stripView.bounds.width - Self.endInset - tabWidth / 2)
-            let centerX = min(max(x, minX), maxX)
-            let frame = tabFrame(at: 0, width: tabWidth).offsetBy(dx: centerX - minX, dy: 0)
-            scroll.scrollRectToVisible(frame.insetBy(dx: -Self.endInset, dy: 0), animated: false)
-            placeLens(frame, isLifted: true, animated: gesture.state == .began)
+            placeLens(frame, isLifted: true, animated: false)
         case .ended:
-            scroll.isScrollEnabled = true
-            let index = heldIndex ?? currentIndex
+            guard let drag, let index = heldIndex else { return }
+            self.drag = nil
             heldIndex = nil
+            // A tap, also one that lifted the lens, opens the tab as a tap on it does; a held lens lands where it is.
+            let isTap = !drag.isLifted || CACurrentMediaTime() - drag.time < Self.liftDuration
             guard index != currentIndex else {
-                placeSelection(at: currentIndex, isLifted: false, animated: true)
+                if drag.isLifted { placeSelection(at: currentIndex, isLifted: false, animated: true) }
+                if isTap { onSelect?(tabs[index]) }
+                return
+            }
+            guard !isTap else {
+                select(index)
                 return
             }
             isSelecting = true
@@ -2015,9 +2047,10 @@ private final class AttachmentTabStrip: UIView {
                 onSelect?(tabs[index])
             }
         default:
-            scroll.isScrollEnabled = true
+            let wasLifted = drag?.isLifted == true
+            drag = nil
             heldIndex = nil
-            placeSelection(at: currentIndex, isLifted: false, animated: true)
+            if wasLifted { placeSelection(at: currentIndex, isLifted: false, animated: true) }
         }
     }
 
@@ -2032,7 +2065,7 @@ private final class AttachmentTabStrip: UIView {
         UISelectionFeedbackGenerator().selectionChanged()
         scroll.scrollRectToVisible(tabFrame(at: index, width: tabWidth), animated: true)
         placeSelection(at: index, isLifted: true, animated: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.liftDuration) { [weak self] in
             guard let self else { return }
             placeSelection(at: index, isLifted: false, animated: true)
             isSelecting = false
