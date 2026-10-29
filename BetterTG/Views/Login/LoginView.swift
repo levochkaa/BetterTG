@@ -39,6 +39,13 @@ final class LoginViewController: UIViewController {
     private var optionAction: LoginStageContent.Action?
     private var secondaryOptionAction: LoginStageContent.Action?
 
+    private let formScrollView = UIScrollView()
+    private let formContainer = UIView()
+    private let formViewport = UILayoutGuide()
+    private let continueStack = UIStackView()
+    private var formTopInset: NSLayoutConstraint!
+    private var lastFormViewportSize = CGSize.zero
+    private var needsFieldReveal = false
     private let contentStack = UIStackView()
     private let titleLabel = UILabel()
     private let descriptionLabel = UILabel()
@@ -146,6 +153,19 @@ final class LoginViewController: UIViewController {
             height: navigationBar.topInset + navigationBar.contentHeight,
         )
         navigationBar.setNeedsLayout()
+        let topInset = view.safeAreaInsets.top + (navigationBar.isHidden ? 0 : navigationBar.contentHeight)
+        formScrollView.verticalScrollIndicatorInsets.top = topInset
+        if formTopInset.constant != topInset {
+            formTopInset.constant = topInset
+            needsFieldReveal = true
+            view.setNeedsLayout()
+            return
+        }
+        if lastFormViewportSize != formScrollView.bounds.size || needsFieldReveal {
+            lastFormViewportSize = formScrollView.bounds.size
+            needsFieldReveal = false
+            revealFocusedField()
+        }
     }
 
     private static func qrCodeImage(for link: String, side: CGFloat, scale: CGFloat) -> UIImage? {
@@ -206,12 +226,44 @@ final class LoginViewController: UIViewController {
         button.isEnabled = enabled && option?.action != nil
     }
 
+    private func revealFocusedField() {
+        guard let field = [inputField, secondaryField].first(where: \.isFirstResponder) else { return }
+        let rect = field.convert(field.bounds, to: formScrollView).insetBy(dx: 0, dy: -12)
+        let current = formScrollView.contentOffset.y
+        var offset = current
+        if rect.maxY > current + formScrollView.bounds.height {
+            offset = rect.maxY - formScrollView.bounds.height
+        }
+        // The scroll view extends under the bar; its visible editing area starts below the bar.
+        if rect.minY < offset + formTopInset.constant {
+            offset = rect.minY - formTopInset.constant
+        }
+        let maximum = max(0, formScrollView.contentSize.height - formScrollView.bounds.height)
+        formScrollView.setContentOffset(CGPoint(x: 0, y: min(maximum, max(0, offset))), animated: false)
+    }
+
+    @objc private func fieldBeganEditing() {
+        needsFieldReveal = true
+        view.setNeedsLayout()
+    }
+
     private func configureViews() {
+        formScrollView.translatesAutoresizingMaskIntoConstraints = false
+        formScrollView.contentInsetAdjustmentBehavior = .never
+        formScrollView.keyboardDismissMode = .interactive
+        formScrollView.alwaysBounceVertical = false
+        view.addSubview(formScrollView)
+        formContainer.translatesAutoresizingMaskIntoConstraints = false
+        formScrollView.addSubview(formContainer)
+        formContainer.addLayoutGuide(formViewport)
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         contentStack.axis = .vertical
         contentStack.spacing = 16
         contentStack.alignment = .fill
-        view.addSubview(contentStack)
+        formContainer.addSubview(contentStack)
+        continueStack.axis = .vertical
+        continueStack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(continueStack)
 
         accountsButton.setTitle(L10n.betterTG("Accounts.Section"), for: .normal)
         accountsButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
@@ -280,11 +332,13 @@ final class LoginViewController: UIViewController {
         prefixLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         Self.styleField(inputField)
+        inputField.addTarget(self, action: #selector(fieldBeganEditing), for: .editingDidBegin)
         Self.styleRow(inputRow)
         inputRow.addArrangedSubview(prefixLabel)
         inputRow.addArrangedSubview(inputField)
 
         Self.styleField(secondaryField)
+        secondaryField.addTarget(self, action: #selector(fieldBeganEditing), for: .editingDidBegin)
         Self.styleRow(secondaryRow)
         secondaryRow.addArrangedSubview(secondaryField)
 
@@ -293,7 +347,9 @@ final class LoginViewController: UIViewController {
         continueConfiguration.cornerStyle = .medium
         continueButton.configuration = continueConfiguration
         continueButton.addTarget(self, action: #selector(continueLogin), for: .touchUpInside)
-        continueButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
+        let continueHeight = continueButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 48)
+        continueHeight.priority = .defaultHigh
+        continueHeight.isActive = true
 
         var optionConfiguration = UIButton.Configuration.plain()
         optionConfiguration.titleAlignment = .center
@@ -315,7 +371,7 @@ final class LoginViewController: UIViewController {
         contentStack.addArrangedSubview(countryButton)
         contentStack.addArrangedSubview(inputRow)
         contentStack.addArrangedSubview(secondaryRow)
-        contentStack.addArrangedSubview(continueButton)
+        continueStack.addArrangedSubview(continueButton)
         contentStack.addArrangedSubview(noteLabel)
         contentStack.addArrangedSubview(optionButton)
         contentStack.addArrangedSubview(secondaryOptionButton)
@@ -323,10 +379,50 @@ final class LoginViewController: UIViewController {
     }
 
     private func configureConstraints() {
+        formTopInset = formViewport.topAnchor.constraint(equalTo: formContainer.topAnchor)
+        let fitViewport = formContainer.heightAnchor.constraint(equalTo: formScrollView.frameLayoutGuide.heightAnchor)
+        fitViewport.priority = .defaultLow
+        let formWidth = contentStack.widthAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.widthAnchor,
+            constant: -48,
+        )
+        formWidth.priority = .defaultHigh
+        let buttonWidth = continueStack.widthAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.widthAnchor,
+            constant: -48,
+        )
+        buttonWidth.priority = .defaultHigh
         NSLayoutConstraint.activate([
-            contentStack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
-            contentStack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
-            contentStack.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
+            // Telegram anchors Continue 24 pt above the larger of the keyboard and bottom safe area.
+            continueStack.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -24),
+            continueStack.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            continueStack.widthAnchor.constraint(
+                lessThanOrEqualTo: view.safeAreaLayoutGuide.widthAnchor,
+                constant: -48,
+            ),
+            continueStack.widthAnchor.constraint(lessThanOrEqualToConstant: 382),
+            buttonWidth,
+            formScrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            formScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            formScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            formScrollView.bottomAnchor.constraint(equalTo: continueStack.topAnchor),
+            formContainer.topAnchor.constraint(equalTo: formScrollView.contentLayoutGuide.topAnchor),
+            formContainer.bottomAnchor.constraint(equalTo: formScrollView.contentLayoutGuide.bottomAnchor),
+            formContainer.leadingAnchor.constraint(equalTo: formScrollView.contentLayoutGuide.leadingAnchor),
+            formContainer.trailingAnchor.constraint(equalTo: formScrollView.contentLayoutGuide.trailingAnchor),
+            formContainer.widthAnchor.constraint(equalTo: formScrollView.frameLayoutGuide.widthAnchor),
+            formContainer.heightAnchor.constraint(greaterThanOrEqualTo: formScrollView.frameLayoutGuide.heightAnchor),
+            fitViewport,
+            formTopInset,
+            formViewport.bottomAnchor.constraint(equalTo: formContainer.bottomAnchor),
+            contentStack.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            contentStack.widthAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.widthAnchor, constant: -48),
+            contentStack.widthAnchor.constraint(lessThanOrEqualToConstant: 430),
+            formWidth,
+            // Centre when there is room; overflow scrolls without compressing fields or hiding secondary actions.
+            contentStack.topAnchor.constraint(greaterThanOrEqualTo: formViewport.topAnchor, constant: 24),
+            contentStack.bottomAnchor.constraint(lessThanOrEqualTo: formViewport.bottomAnchor, constant: -24),
+            contentStack.centerYAnchor.constraint(equalTo: formViewport.centerYAnchor),
         ])
     }
 
@@ -339,6 +435,8 @@ final class LoginViewController: UIViewController {
                 secondaryField.text = nil
                 // All presented sheets/callbacks belong to the old auth stage.
                 presentedViewController?.dismiss(animated: false)
+                formScrollView.setContentOffset(.zero, animated: false)
+                needsFieldReveal = true
             }
             render()
             if clearCredentials, let stage = authorization.stage, stage != .qrCode, view.window != nil {

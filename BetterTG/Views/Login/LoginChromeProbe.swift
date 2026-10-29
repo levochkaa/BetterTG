@@ -15,6 +15,13 @@ import UIKit
         private let status = UILabel()
         private let controls = UIStackView()
 
+        private var formStage: String? {
+            let arguments = ProcessInfo.processInfo.arguments
+            guard let index = arguments.firstIndex(of: "-login-probe-form"),
+                  index + 1 < arguments.count else { return nil }
+            return arguments[index + 1]
+        }
+
         override func viewDidLoad() {
             super.viewDidLoad()
             view.backgroundColor = .systemBackground
@@ -88,7 +95,36 @@ import UIKit
             status.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
             status.numberOfLines = 0
             view.addSubview(status)
-            showCode()
+            controls.isHidden = formStage != nil
+            status.isHidden = formStage != nil
+            if ProcessInfo.processInfo.arguments.contains("-login-probe-large-text") {
+                traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
+            }
+            switch formStage {
+            case "phone": show(.authorizationStateWaitPhoneNumber)
+            case "password":
+                show(.authorizationStateWaitPassword(.init(
+                    passwordHint: "Fixture hint",
+                    hasRecoveryEmailAddress: false,
+                    hasPassportData: false,
+                    recoveryEmailAddressPattern: "",
+                )))
+            case "registration":
+                show(.authorizationStateWaitRegistration(.init(termsOfService: .init(
+                    text: .init(entities: [], text: "Fixture terms"),
+                    minUserAge: 0,
+                    showPopup: false,
+                ))))
+            case "qr": show(.authorizationStateWaitOtherDeviceConfirmation(.init(link: "tg://isolated")))
+            default: showCode()
+            }
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            guard formStage != nil, formStage != "qr" else { return }
+            func descendants(_ root: UIView) -> [UIView] { [root] + root.subviews.flatMap(descendants) }
+            descendants(login.view).compactMap { $0 as? UITextField }.first?.becomeFirstResponder()
         }
 
         override func viewDidLayoutSubviews() {

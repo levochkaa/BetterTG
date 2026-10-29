@@ -62,6 +62,15 @@
             await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
         }
 
+        /// A main-queue hop does not order Swift Tasks. Positive async checks wait for the event they assert.
+        private static func waitFor(_ message: String, until condition: () -> Bool) async throws {
+            for _ in 0..<100 {
+                if condition() { return }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            try require(condition(), message)
+        }
+
         private static func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
 
         private static func verify() async throws {
@@ -279,10 +288,9 @@
             session.leaveLocalStage()
             try require(session.stage == .code, "back from phone entry lost the code step")
             session.perform(.resendCode)
-            await drain()
-            try require(requests.calls.last?.1 == .resendCode, "resend not dispatched after the timeout")
+            try await waitFor("resend not dispatched after the timeout") { requests.calls.last?.1 == .resendCode }
             requests.complete(0)
-            await drain()
+            try await waitFor("resend completion missing") { !session.isBusy }
 
             func password(pattern: String) -> AuthorizationState {
                 .authorizationStateWaitPassword(.init(
@@ -294,24 +302,19 @@
             }
             relay.update(password(pattern: ""), source: source)
             session.perform(.passwordRecovery)
-            await drain()
+            try await waitFor("password recovery not dispatched") { requests.calls.last?.1 == .passwordRecovery }
             relay.update(password(pattern: "isolated@pattern"), source: source)
             try require(session.isBusy, "restated step cancelled its request")
             requests.complete(1)
-            await drain()
-            try require(session.stage == .passwordRecovery, "recovery code screen missing")
+            try await waitFor("recovery code screen missing") { session.stage == .passwordRecovery && !session.isBusy }
             session.submit("123456", prefix: "")
-            await drain()
-            try require(requests.calls.last?.1 == .recoveryCode("123456"), "recovery code not checked")
+            try await waitFor("recovery code not checked") { requests.calls.last?.1 == .recoveryCode("123456") }
             requests.complete(2)
-            await drain()
-            try require(session.stage == .newPassword, "new password screen missing")
+            try await waitFor("new password screen missing") { session.stage == .newPassword && !session.isBusy }
             session.submit("new-secret", secondary: "hint", prefix: "")
-            await drain()
-            try require(
-                requests.calls.last?.1 == .recoverPassword(code: "123456", password: "new-secret", hint: "hint"),
-                "new password lost its recovery code",
-            )
+            try await waitFor("new password lost its recovery code") {
+                requests.calls.last?.1 == .recoverPassword(code: "123456", password: "new-secret", hint: "hint")
+            }
         }
 
         private static func verifyTransport(source: TdUpdateSource, state: AuthorizationState) throws {
