@@ -483,7 +483,6 @@ import UIKit
     private var draftClearGeneration = UInt64.zero
     private var draftClearTask: Task<Void, Never>?
     private let previewing: Bool
-
     private var pendingVoiceNote: VoiceNoteSendDraft? {
         didSet { queueForumTopicDemandRefresh() }
     }
@@ -534,6 +533,8 @@ import UIKit
     private var mentionQuery: (query: String, includesInlineBots: Bool)?
     private var contextQueryTask: Task<Void, Never>?
     private var contextQuery: ChatInputContextQuery?
+
+    var composerDraftRevision: UInt64 { composerRevision }
 
     /// Discrete changes (start, stop, restored drafts) publish like the other state; the tick writes the storage.
     var timerCount: Double {
@@ -4044,7 +4045,11 @@ import UIKit
     func sendMessage(
         options: TDNativeMessageSendOptions? = nil,
         mediaMode: ComposerMediaSendMode = .grouped,
+        attachment: AttachmentMediaSendState? = nil,
+        completion: ((Bool) -> Void)? = nil,
     ) async {
+        var succeeded = false
+        defer { completion?(succeeded) }
         guard !sendingComposerMessage else { return }
         sendingComposerMessage = true
         composerSendOptions = options ?? defaultSendOptions
@@ -4055,56 +4060,63 @@ import UIKit
             composerSendOptions = nil
             composerMediaSendMode = .grouped
         }
-        switch composerEditState.prepare(message: editCustomMessage?.message, text: editMessageText) {
-        case .ordinary:
-            break
-        case .invalidEdit:
-            // An invalid edit is never an intent to send the preserved compose draft.
-            return
-        case .edit(let attempt):
-            let linkPreviewOptions = currentEditLinkPreviewOptions
-            let completion = await composerEditState.perform(attempt) { [self] attempt in
-                try await editMessage(attempt, linkPreviewOptions: linkPreviewOptions)
-            }
-            guard locationContextIsCurrent, composerEditState.isCurrent(attempt), !Task.isCancelled else { return }
-            switch completion {
-            case .obsolete:
+        if attachment == nil {
+            switch composerEditState.prepare(message: editCustomMessage?.message, text: editMessageText) {
+            case .ordinary:
                 break
-            case .succeeded:
-                cancelMessageEditing()
-                sendErrorMessage = nil
-            case .failed(let error):
-                sendErrorMessage = error.localizedDescription
+            case .invalidEdit:
+                // An invalid edit is never an intent to send the preserved compose draft.
+                return
+            case .edit(let attempt):
+                let linkPreviewOptions = currentEditLinkPreviewOptions
+                let completion = await composerEditState.perform(attempt) { [self] attempt in
+                    try await editMessage(attempt, linkPreviewOptions: linkPreviewOptions)
+                }
+                guard locationContextIsCurrent, composerEditState.isCurrent(attempt), !Task.isCancelled else { return }
+                switch completion {
+                case .obsolete:
+                    break
+                case .succeeded:
+                    cancelMessageEditing()
+                    sendErrorMessage = nil
+                case .failed(let error):
+                    sendErrorMessage = error.localizedDescription
+                }
+                return
             }
-            return
         }
         if let wait = slowModeWaitMessage() {
             sendErrorMessage = wait
             return
         }
-        let forward = pendingForward
-        if let forward, text.characters.isEmpty, displayedImages.isEmpty, displayedDocuments.isEmpty {
+        let forward = attachment == nil ? pendingForward : attachment?.forward
+        if attachment == nil, let forward, text.characters.isEmpty, displayedImages.isEmpty,
+           displayedDocuments.isEmpty
+        {
             await sendPendingForward(forward)
             return
         }
-        let sentText = text
-        let sentImageIDs = Set(displayedImages.map(\.id))
-        let sentDocumentIDs = Set(displayedDocuments.map(\.id))
-        let sentReplyID = replyMessage?.id
+        let sentText = attachment?.initialText ?? text
+        let sentImageIDs = Set((attachment?.images ?? displayedImages).map(\.id))
+        let sentDocumentIDs = attachment == nil ? Set(displayedDocuments.map(\.id)) : []
+        let sentReplyID = attachment == nil ? replyMessage?.id : attachment?.reply?.id
         let transitionID = UUID()
         let isScheduled = options?.schedulingState != nil
-        let transitionKind: ComposerSendTransitionKind = displayedImages.isEmpty && displayedDocuments.isEmpty
+        let transitionKind: ComposerSendTransitionKind = attachment == nil && displayedImages
+            .isEmpty && displayedDocuments.isEmpty
             ? .text
             : .media
         let holdsMedia = transitionKind == .media && !isScheduled
         if holdsMedia { beginComposerSendHold(transitionID) }
         defer { endComposerSendHold(transitionID) }
-        if !isScheduled {
+        if !isScheduled, attachment == nil {
             sendTransitionWillBegin.send(ComposerSendTransitionRequest(id: transitionID, kind: transitionKind))
         }
         do {
             let result: (context: ResolvedSendContext, messages: [Message])
-            if !displayedDocuments.isEmpty {
+            if let attachment {
+                result = try await sendMessageMedia(attachment: attachment)
+            } else if !displayedDocuments.isEmpty {
                 result = try await sendMessageDocuments()
             } else if !displayedImages.isEmpty {
                 result = try await sendMessageMedia()
@@ -4126,10 +4138,12 @@ import UIKit
             displayedImages.removeAll { sentImageIDs.contains($0.id) }
             displayedDocuments.removeAll { sentDocumentIDs.contains($0.id) }
             if displayedImages.isEmpty { mediaCaptionIsAbove = false }
-            if text == sentText {
+            if attachment?.consumesDraft(text, revision: composerRevision) ?? (text == sentText) {
                 text = ""
             }
-            if replyMessage?.id == sentReplyID {
+            if replyMessage?.id == sentReplyID,
+               attachment.map({ $0.context.replyTo == getMessageReplyTo(from: replyMessage) }) ?? true
+            {
                 cancelReply(markDirty: false)
             }
             composerRevision &+= 1
@@ -4167,8 +4181,16 @@ import UIKit
             }
             // A forward waiting under a scheduled message stays for the next send.
             if let forward, !isScheduled { await sendPendingForward(forward) }
+            succeeded = true
         } catch {
             if !isScheduled { sendTransitionCancelled.send(transitionID) }
+            if let attachment, attachment.acceptedCount > 0,
+               attachment.consumesDraft(text, revision: composerRevision), locationContextIsCurrent
+            {
+                markComposerDirty()
+                text = ""
+                await updateDraft()
+            }
             sendErrorMessage = error.localizedDescription
         }
     }
@@ -4964,27 +4986,39 @@ import UIKit
     /// the first item, above the media when it was moved up, marked items are hidden with a spoiler and a View Once
     /// item self-destructs once opened. A muted video goes as a GIF, and then nothing is grouped
     /// (`TGMediaAssetsController`'s `sendAsGif`).
-    func sendMessageMedia() async throws -> (context: ResolvedSendContext, messages: [Message]) {
-        let images = displayedImages
+    func sendMessageMedia(attachment: AttachmentMediaSendState? = nil) async throws
+    -> (context: ResolvedSendContext, messages: [Message]) {
+        let images = attachment?.images ?? displayedImages
         let mode = composerMediaSendMode
+        let reply = attachment == nil ? replyMessage : attachment?.reply
         let sendsVideos = images.contains { $0.video != nil }
         let sendsGIFs = mode != .files && images.contains(where: Self.sendsAsAnimation)
         if mode != .files, sendsVideos, images.contains(where: { $0.video == nil }) {
-            _ = try resolveSendContext(for: .photo, replyingTo: replyMessage, useCurrentReplyOverride: true)
+            _ = try resolveSendContext(for: .photo, replyingTo: reply, useCurrentReplyOverride: attachment == nil)
         }
         if sendsGIFs {
-            _ = try resolveSendContext(for: .animation, replyingTo: replyMessage, useCurrentReplyOverride: true)
+            _ = try resolveSendContext(for: .animation, replyingTo: reply, useCurrentReplyOverride: attachment == nil)
         }
         let kind: ChatSendContentKind = mode == .files ? .document : sendsVideos ? .video : .photo
-        let context = try resolveSendContext(for: kind, replyingTo: replyMessage, useCurrentReplyOverride: true)
+        let validatedContext = try resolveSendContext(
+            for: kind,
+            replyingTo: reply,
+            useCurrentReplyOverride: attachment == nil,
+        )
+        let context = attachment?.context ?? validatedContext
+        guard context.clientID == validatedContext.clientID,
+              context.accountID == validatedContext.accountID,
+              context.chatID == validatedContext.chatID,
+              context.destinationTopic == validatedContext.destinationTopic
+        else { throw ChatSendContextError.unexpectedDestination }
         guard !images.isEmpty else { throw ChatSendContextError.chatPermissionDenied }
         for image in images {
             MediaUploadProgressRegistry.rememberSentPreview(image.image, path: image.url.path(percentEncoded: false))
         }
         // Telegram attaches the input's caption to the first item of a group (`TGMediaAssetsController`).
         let noCaption = FormattedText(entities: [], text: "")
-        let caption = try await composerCaption() ?? noCaption
-        let captionIsAbove = mediaCaptionIsAbove && !caption.text.isEmpty
+        let caption = try await composerCaption(attachment?.caption) ?? noCaption
+        let captionIsAbove = (attachment?.captionIsAbove ?? mediaCaptionIsAbove) && !caption.text.isEmpty
         let action: ChatAction =
             switch mode {
             case .files: .chatActionUploadingDocument(ChatActionUploadingDocument(progress: 0))
@@ -5020,6 +5054,7 @@ import UIKit
             let groupSize = mode == .separately || sendsGIFs ? 1 : 10
             var start = 0
             while start < messageContents.count {
+                guard locationContextIsCurrent, !Task.isCancelled else { throw ChatSendContextError.accountUnavailable }
                 let end = min(start + groupSize, messageContents.count)
                 let group = Array(messageContents[start..<end])
                 let groupMessages: [Message]
@@ -5049,16 +5084,14 @@ import UIKit
                     leasedAs: Array(provisionalMessageIDs[start..<end]),
                     in: context,
                 )
-                guard groupMessages.count == group.count else {
-                    throw ChatSendContextError.partialAlbum(
-                        sent: sentMessages.count + groupMessages.count,
-                        expected: messageContents.count,
-                    )
-                }
                 guard groupMessages.allSatisfy({ context.matches(message: $0) }) else {
                     throw ChatSendContextError.unexpectedDestination
                 }
                 sentMessages += groupMessages
+                attachment?.accepted(groupMessages.count)
+                guard groupMessages.count == group.count else {
+                    throw ChatSendContextError.partialAlbum(sent: sentMessages.count, expected: messageContents.count)
+                }
                 start = end
             }
             for (image, message) in zip(images, sentMessages) {
@@ -5097,11 +5130,17 @@ import UIKit
     /// editMessageMediaWithMessages: the edited message's media becomes the picked item, sent as a file in Send as
     /// File, with the input's text as its caption; the edit ends once TDLib has it. The picked files are leased to
     /// the message as a send's are, so the bubble can still draw them before they go.
-    func replaceEditedMedia(with image: SelectedImage, asFile: Bool) async throws {
+    func replaceEditedMedia(
+        with image: SelectedImage, asFile: Bool, caption: AttributedString? = nil, expectedMessageID: Int64? = nil,
+    ) async throws {
         let options = editMediaOptions
         guard let message = editCustomMessage?.message, asFile ? options.file : options.photoOrVideo else {
             removeTemporaryImages([image])
             return
+        }
+        guard expectedMessageID == nil || message.id == expectedMessageID else {
+            removeTemporaryImages([image])
+            throw ChatSendContextError.unexpectedDestination
         }
         let context: ResolvedSendContext
         do {
@@ -5120,7 +5159,7 @@ import UIKit
         let content = await makeMediaContent(
             for: image,
             asFile: asFile,
-            caption: editedMediaCaption(),
+            caption: editedMediaCaption(caption),
             showsCaptionAbove: Self.showsCaptionAboveMedia(message.content),
         )
         do {
@@ -6329,8 +6368,8 @@ import UIKit
         )
     }
 
-    private func editedMediaCaption() -> FormattedText {
-        let caption = ComposerTextBreaker.trimmed(editMessageText)
+    private func editedMediaCaption(_ snapshot: AttributedString? = nil) -> FormattedText {
+        let caption = ComposerTextBreaker.trimmed(snapshot ?? editMessageText)
         return FormattedText(entities: getEntities(from: caption), text: caption.string)
     }
 
@@ -6970,9 +7009,9 @@ import UIKit
 
     /// The input as a media caption, trimmed as sent text is, or nil when nothing is left. A caption over TDLib's
     /// limit stops the send while the composer still holds it.
-    private func composerCaption() async throws -> FormattedText? {
+    private func composerCaption(_ snapshot: AttributedString? = nil) async throws -> FormattedText? {
         let caption = await ComposerTextBreaker.trimmed(
-            ComposerText.attributed(parsingSendMarkdown(ComposerText.formatted(text))),
+            ComposerText.attributed(parsingSendMarkdown(ComposerText.formatted(snapshot ?? text))),
         )
         guard !caption.characters.isEmpty else { return nil }
         let limit: Int =

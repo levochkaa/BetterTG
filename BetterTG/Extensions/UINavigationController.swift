@@ -85,6 +85,11 @@ UINavigationControllerDelegate {
         chromeStates[ObjectIdentifier(controller)]?.refresh()
     }
 
+    /// A dismissed sheet may retain its screen for retry in another navigation container.
+    func releaseChrome(of controller: UIViewController) {
+        chromeStates.removeValue(forKey: ObjectIdentifier(controller))?.detach()
+    }
+
     /// AttachmentController.animateSwitchTransition's 0.23 s fade, keeping the sheet and its panel still.
     /// UIKit owns both live screens until completion, including their glass content and appearance callbacks.
     func replaceAttachmentSheetContent(with controller: UIViewController) {

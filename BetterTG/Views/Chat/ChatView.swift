@@ -389,6 +389,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var attachmentGallery: AttachmentSheetViewController?
     private weak var attachmentNavigation: TelegramNavigationController?
     private var attachmentTabs = [AttachmentSheetTab]()
+    private var pendingAttachmentRecovery: (
+        sheet: AttachmentSheetViewController, message: String, initialText: AttributedString, initialRevision: UInt64?,
+    )?
     private var clientPreparationTask: Task<Void, Never>?
     private var clientPreparationSource: TdUpdateSource?
     private var preparedClient: (source: TdUpdateSource, client: TDLibClient, chat: CustomChat, topic: ForumTopic?)?
@@ -773,6 +776,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        presentAttachmentRecoveryIfNeeded()
         #if DEBUG
             // `-ui-probe-header-activity` shows Telegram's account typing here, locally, to look at the header's
             // activity indicator without anyone typing.
@@ -1775,10 +1779,28 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                     && pinnedMessageBannerHeightConstraint.constant > 0
                     ? pinnedMessageBanner.snapshotView(afterScreenUpdates: false)
                     : nil
-                return ChatViewController(
+                let replacement = ChatViewController(
                     chatVM: replacementVM, tdlib: tdlib, viewport: viewport, composer: composer, historyCover: cover,
                     pinnedBannerCover: bannerCover,
                 )
+                if let recovery = pendingAttachmentRecovery {
+                    pendingAttachmentRecovery = nil
+                    let revision = AttachmentMediaSendState.transferredDraftRevision(
+                        initialText: recovery.initialText, initialRevision: recovery.initialRevision,
+                        currentText: transfer.snapshot.text, currentRevision: transfer.snapshot.revision,
+                        replacementRevision: replacementVM.composerDraftRevision,
+                    )
+                    replacement.pendingAttachmentRecovery = (
+                        recovery.sheet,
+                        recovery.message,
+                        recovery.initialText,
+                        revision,
+                    )
+                    replacement.configureAttachmentGalleryCallbacks(
+                        recovery.sheet, initialText: recovery.initialText, initialRevision: revision,
+                    )
+                }
+                return replacement
             },
         )
     }
@@ -9284,10 +9306,11 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             isReminders: customChat.isSavedMessages,
             canSchedule: chatVM.canScheduleMessages,
             canSendWhenOnline: chatVM.canSendWhenOnline,
-            caption: String(chatVM.text.characters).trimmingCharacters(in: .whitespacesAndNewlines),
+            caption: chatVM.text,
+            allowsCaptionEditing: true,
             captionIsAbove: chatVM.mediaCaptionIsAbove,
         )
-        let sheet = AttachmentSheetViewController(configuration: configuration)
+        let sheet = AttachmentSheetViewController(configuration: configuration, client: chatVM.client)
         // LegacyAttachmentMenu resets the video quality to the server's upload default as the menu opens.
         if chatVM.canAttachVideos {
             let client = chatVM.client
@@ -9296,23 +9319,35 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 sheet?.setDefaultVideoPreset(preset)
             }
         }
-        sheet.switchesTabsInPlace = true
-        sheet.onSelectTab = { [weak self] tab in self?.openAttachmentTab(tab) }
-        sheet.onCamera = { [weak self] in self?.showCamera() }
-        sheet.onSend = { [weak self] request in self?.sendAttachmentMedia(request) }
-        sheet.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
+        let initialText = chatVM.text
+        let initialRevision = chatVM.composerDraftRevision
+        configureAttachmentGalleryCallbacks(sheet, initialText: initialText, initialRevision: initialRevision)
         attachmentGallery = sheet
         attachmentTabs = tabs
         presentAttachmentSheet(sheet)
     }
 
+    private func configureAttachmentGalleryCallbacks(
+        _ sheet: AttachmentSheetViewController, initialText: AttributedString, initialRevision: UInt64?,
+    ) {
+        sheet.updateCaptionClient(chatVM.client)
+        sheet.switchesTabsInPlace = true
+        sheet.onSelectTab = { [weak self] tab in self?.openAttachmentTab(tab) }
+        sheet.onCamera = { [weak self] in self?.showCamera() }
+        sheet.onSend = { [weak self, weak sheet] request in
+            guard let self, let sheet else { return }
+            sendAttachmentMedia(request, initialText: initialText, initialRevision: initialRevision, source: sheet)
+        }
+        sheet.onDismiss = { [weak self] in self?.attachmentSessionDidEnd() }
+    }
+
     /// Telegram's paperclip grows into the attachment sheet and the sheet shrinks back into it (AttachmentController's
     /// glass morph); UIKit's zoom transition morphs a sheet out of its source on iOS 26.
-    private func presentAttachmentSheet(_ sheet: AttachmentSheetViewController) {
+    private func presentAttachmentSheet(_ sheet: AttachmentSheetViewController, completion: (() -> Void)? = nil) {
         let navigation = sheet.makeNavigationController()
         navigation.preferredTransition = .zoom { [weak self] _ in self?.composerView.attachmentSourceView }
         attachmentNavigation = navigation
-        present(navigation, animated: true)
+        present(navigation, animated: true, completion: completion)
     }
 
     /// ChatControllerOpenAttachmentMenu's `.edit` subject: the gallery for one photo or video and Files, as the edited
@@ -9327,7 +9362,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             allowsVideos: chatVM.canAttachVideos,
             allowsCamera: false,
             tabs: options.file ? [.gallery, .file] : [.gallery],
-            caption: String(chatVM.editMessageText.characters).trimmingCharacters(in: .whitespacesAndNewlines),
+            caption: chatVM.editMessageText,
             selectionLimit: 1,
         )
         let sheet = AttachmentSheetViewController(configuration: configuration)
@@ -9342,7 +9377,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     /// editMessageMediaWithLegacySignals: the picked asset is prepared as a send would, then replaces the media.
     private func replaceEditedMedia(_ request: AttachmentMediaSendRequest) {
-        guard chatVM.editCustomMessage != nil else { return }
+        guard let messageID = chatVM.editCustomMessage?.id else { return }
         PhotoAssetSelectionLoader.load(
             request.assets,
             cropAdjustments: request.cropAdjustments,
@@ -9358,7 +9393,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             let asFile = request.mode == .files
             Task { [weak self] in
                 do {
-                    try await chatVM.replaceEditedMedia(with: image, asFile: asFile)
+                    try await chatVM.replaceEditedMedia(
+                        with: image, asFile: asFile, caption: request.caption, expectedMessageID: messageID,
+                    )
                 } catch {
                     self?.chatVM.sendErrorMessage = error.localizedDescription
                 }
@@ -9635,9 +9672,28 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         return launcher
     }
 
-    /// The sheet's picked items become the composer's media and go out with the sheet's send choice, so they take the
-    /// composer's text as the caption, its reply, and its albums of ten.
-    private func sendAttachmentMedia(_ request: AttachmentMediaSendRequest) {
+    /// Gallery owns its files and caption through import and send. New composer content stays independent.
+    private func sendAttachmentMedia(
+        _ request: AttachmentMediaSendRequest, initialText: AttributedString, initialRevision: UInt64?,
+        source: AttachmentSheetViewController,
+    ) {
+        let context: ResolvedSendContext
+        let reply = chatVM.replyMessage.map { ChatComposerRestorationState.MessageValue($0).makeMessage() }
+        do {
+            let kind: ChatSendContentKind = request.mode == .files
+                ? .document
+                : request.assets.contains(where: { $0.mediaType == .video }) ? .video : .photo
+            context = try chatVM.resolveSendContext(for: kind, replyingTo: reply, useCurrentReplyOverride: true)
+        } catch {
+            recoverAttachment(
+                source,
+                initialText: initialText, initialRevision: initialRevision,
+                assetIDs: Set(request.assets.map(\.localIdentifier)),
+                message: error.localizedDescription,
+            )
+            return
+        }
+        let forward = chatVM.pendingForward
         guard let token = importBarrier.begin() else { return }
         let barrier = importBarrier
         PhotoAssetSelectionLoader.load(
@@ -9650,43 +9706,95 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             selfDestructTimer: request.selfDestructTimer,
             videoPreset: request.videoPreset,
         ) { [self] images in
-            // Telegram's sheet sends at once; a scheduled send waits in the composer for its time.
-            let sendsAtOnce = request.timing != .schedule
-            composerView.hidesSheetMedia = sendsAtOnce
-            guard finishImageImport(images, token: token, barrier: barrier), !images.isEmpty,
-                  chatVM.locationContextIsCurrent
-            else {
-                revealSheetMedia()
+            guard chatVM.locationContextIsCurrent else {
+                recoverAttachment(
+                    source, initialText: initialText, initialRevision: initialRevision,
+                    assetIDs: Set(request.assets.map(\.localIdentifier)),
+                    message: ChatSendContextError.accountUnavailable.localizedDescription,
+                )
+                barrier.finish(token, currentAccountID: tdlib.activeAccountID, routeIsRetained: routeIsRetained) {}
+                let urls = images.flatMap(\.fileURLs)
+                Task.detached { SelectedDocumentFileStore.removeUnleased(urls) }
                 return
             }
-            chatVM.mediaCaptionIsAbove = request.captionIsAbove
-            switch request.timing {
-            case .now:
-                composerView.send(options: nil, mediaMode: request.mode)
-            case .silently:
-                composerView.send(options: ChatVM.sendOptions(silent: true), mediaMode: request.mode)
-            case .whenOnline:
-                composerView.send(
-                    options: ChatVM.sendOptions(schedulingState: .messageSchedulingStateSendWhenOnline),
-                    mediaMode: request.mode,
+            guard images.count == request.assets.count, !chatVM.sendingComposerMessage,
+                  chatVM.sendMessageTask == nil
+            else {
+                recoverAttachment(
+                    source,
+                    initialText: initialText, initialRevision: initialRevision,
+                    assetIDs: Set(request.assets.map(\.localIdentifier)),
+                    message: L10n.telegram("Login.UnknownError"),
                 )
-            case .schedule:
-                presentScheduleMessagePicker(mediaMode: request.mode)
+                barrier.finish(token, currentAccountID: tdlib.activeAccountID, routeIsRetained: routeIsRetained) {}
+                let urls = images.flatMap(\.fileURLs)
+                Task.detached { SelectedDocumentFileStore.removeUnleased(urls) }
+                return
             }
-            guard sendsAtOnce else { return }
-            let send = chatVM.sendMessageTask
-            Task { [weak self] in
-                await send?.value
-                self?.revealSheetMedia()
+            let state = AttachmentMediaSendState(
+                images: images, caption: request.caption, initialText: initialText, initialRevision: initialRevision,
+                captionIsAbove: request.captionIsAbove, context: context, reply: reply, forward: forward,
+            )
+            let options: TDNativeMessageSendOptions? =
+                switch request.timing {
+                case .now: nil
+                case .silently: ChatVM.sendOptions(silent: true)
+                case .whenOnline: ChatVM.sendOptions(schedulingState: .messageSchedulingStateSendWhenOnline)
+                case .schedule: ChatVM.sendOptions(schedulingState: request.schedulingState)
+                }
+            let chatVM = chatVM
+            let accepted = barrier.finish(
+                token,
+                currentAccountID: tdlib.activeAccountID,
+                routeIsRetained: routeIsRetained,
+            ) {
+                chatVM.sendMessageTask = Task { [weak self] in
+                    await chatVM
+                        .sendMessage(options: options, mediaMode: request.mode, attachment: state) { succeeded in
+                            let urls = images.flatMap(\.fileURLs)
+                            Task.detached { SelectedDocumentFileStore.removeUnleased(urls) }
+                            if !succeeded {
+                                let message = chatVM.sendErrorMessage ?? L10n.telegram("Login.UnknownError")
+                                chatVM.sendErrorMessage = nil
+                                self?.recoverAttachment(
+                                    source, initialText: initialText, initialRevision: initialRevision,
+                                    assetIDs: state.remainingAssetIDs, message: message,
+                                    captionWasSent: state.acceptedCount > 0,
+                                )
+                            }
+                        }
+                }
+            }
+            if !accepted {
+                let urls = images.flatMap(\.fileURLs)
+                Task.detached { SelectedDocumentFileStore.removeUnleased(urls) }
             }
         }
     }
 
-    /// What the sheet's send left in the composer, after a failure, shows again.
-    private func revealSheetMedia() {
-        guard composerView.hidesSheetMedia else { return }
-        composerView.hidesSheetMedia = false
-        if !composerAwaitsSentMediaInsertion { composerView.update(from: chatVM) }
+    private func recoverAttachment(
+        _ source: AttachmentSheetViewController, initialText: AttributedString, initialRevision: UInt64?,
+        assetIDs: Set<String>, message: String, captionWasSent: Bool = false,
+    ) {
+        guard routeIsRetained, location.accountID != nil, location.accountID == tdlib.activeAccountID else { return }
+        source.prepareForRetry(assetIDs: assetIDs, captionWasSent: captionWasSent)
+        pendingAttachmentRecovery = (source, message, initialText, initialRevision)
+        presentAttachmentRecoveryIfNeeded()
+    }
+
+    private func presentAttachmentRecoveryIfNeeded() {
+        guard let recovery = pendingAttachmentRecovery, presentedViewController == nil,
+              viewIfLoaded?.window != nil, routeIsRetained, chatVM.locationContextIsCurrent,
+              !isTerminatingNavigation else { return }
+        pendingAttachmentRecovery = nil
+        attachmentGallery = recovery.sheet
+        attachmentTabs = recovery.sheet.attachmentTabs
+        presentAttachmentSheet(recovery.sheet) { [weak sheet = recovery.sheet] in
+            guard let sheet, sheet.viewIfLoaded?.window != nil else { return }
+            let alert = UIAlertController(title: nil, message: recovery.message, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+            sheet.present(alert, animated: true)
+        }
     }
 
     private func showDocumentPicker(replacingEditedMedia: Bool = false) {
@@ -9752,6 +9860,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     /// The same upkeep as a swiped-away sheet once an attachment screen closes itself.
     private func attachmentSheetDidDismiss() {
+        presentAttachmentRecoveryIfNeeded()
         retryClientRestoration()
         acknowledgeCommittedVisibleMessages(requestHistory: true)
     }

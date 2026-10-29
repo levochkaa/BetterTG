@@ -50,6 +50,8 @@ struct SelectedImage: Identifiable, Equatable, @unchecked Sendable {
     let id = UUID()
     let image: UIImage
     let url: URL
+    /// The Gallery selection that owns this imported item; used to restore only unsent assets after a failure.
+    var sourceAssetIdentifier: String?
     var livePhotoVideoURL: URL?
     var isLivePhotoEnabled = true
     /// The still's crop, which the Live Photo's motion is converted with (`livePhotoConversion`).

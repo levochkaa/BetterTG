@@ -83,9 +83,6 @@ final class ChatComposerView: UIView {
     var onViewOnceEnabled: ((String) -> Void)?
     /// A reply keyboard button and the message whose keyboard it belongs to.
     var onReplyKeyboardButton: ((TDNativeKeyboardButton, Int64) -> Void)?
-    /// Media the attachment sheet sends at once stays out of the input panel while it goes out, as Telegram's sheet
-    /// sends without staging it there; a send that fails leaves it in the composer, shown again.
-    var hidesSheetMedia = false
     /// Schedule Message (or Set a Reminder) in the send button's menu: the chat shows the date picker.
     var onScheduleMessage: (() -> Void)?
     /// The input panel's scheduled messages button.
@@ -856,7 +853,7 @@ final class ChatComposerView: UIView {
         updateMediaInputButton()
         let isRecordingVideoNote = videoNoteState.isActive
         let isRecordingMedia = chatVM.recordingVoiceNote || isRecordingVideoNote
-        photosScroll.isHidden = !canWrite || chatVM.displayedImages.isEmpty || hidesSheetMedia
+        photosScroll.isHidden = !canWrite || chatVM.displayedImages.isEmpty
         documentsScroll.isHidden = !canWrite || chatVM.displayedDocuments.isEmpty
         let showsRecording = canWrite && isRecordingMedia
         if showsRecording, !recordingRowHeightConstraint.isActive {
@@ -2128,7 +2125,7 @@ final class ChatComposerView: UIView {
     }
 
     private func updateActionButton() {
-        let hasContent = (!chatVM.displayedImages.isEmpty && !hidesSheetMedia)
+        let hasContent = !chatVM.displayedImages.isEmpty
             || !chatVM.displayedDocuments.isEmpty
             || chatVM.text.characters.contains { !$0.isWhitespace }
             || !chatVM.editMessageText.characters.isEmpty

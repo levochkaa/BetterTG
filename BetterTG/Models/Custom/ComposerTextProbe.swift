@@ -24,6 +24,7 @@
                         + "UITextView-callback/edit-attempt/draft/snapshot=true; overlapping-toggles/range-edits/caret=true; "
                         + "RTF-whitelist/automatic-types/identity-isolation=true; marked-model-feedback=true; "
                         + "UIKit-undo-redo=\(undoVerified); attachment-comments/order/reply/split=true; "
+                        + "gallery-caption/snapshot/retry=true; "
                         + "clipboard/URL/server/account-stores=0; live-IME/keyboard-undo=pending"
                 } catch {
                     result = "Composer entities probe failed: \(error)"
@@ -82,6 +83,54 @@
             try verifyExternalText()
             try verifyMarkedTextFeedback()
             try verifyLongAttachmentComment()
+            try verifyGalleryCaption()
+        }
+
+        private static func verifyGalleryCaption() throws {
+            let initial = AttributedString("Original draft")
+            let formatted = FormattedText(entities: [
+                .init(length: 2, offset: 5, type: .textEntityTypeBold),
+            ], text: "Send 🙂 caption")
+            var caption = ComposerText.attributed(formatted)
+            let images = ["first", "second"].map { (identifier: String) in
+                SelectedImage(
+                    image: UIImage(),
+                    url: URL(fileURLWithPath: "/tmp/gallery-probe-\(identifier).jpg"),
+                    sourceAssetIdentifier: identifier,
+                )
+            }
+            let state = AttachmentMediaSendState(
+                images: images, caption: caption, initialText: initial, initialRevision: 7, captionIsAbove: true,
+                context: ResolvedSendContext(
+                    accountID: UUID(),
+                    chatID: 1,
+                    clientID: 1,
+                    destinationTopic: nil,
+                    draftTopic: nil,
+                    replyTo: nil,
+                ),
+                reply: nil, forward: nil,
+            )
+            caption = AttributedString("Later input")
+            try same(ComposerText.formatted(state.caption), formatted, "gallery caption snapshot")
+            try require(state.consumesDraft(initial, revision: 7), "initial gallery draft not consumed")
+            try require(!state.consumesDraft(caption, revision: 7), "new gallery draft consumed")
+            try require(!state.consumesDraft(initial, revision: 9), "retyped gallery draft consumed")
+            try require(AttachmentMediaSendState.transferredDraftRevision(
+                initialText: initial, initialRevision: 7, currentText: initial,
+                currentRevision: 7, replacementRevision: 1,
+            ) == 1, "gallery draft revision not renewed")
+            for revision: UInt64? in [1, nil] {
+                try require(AttachmentMediaSendState.transferredDraftRevision(
+                    initialText: initial, initialRevision: revision, currentText: initial,
+                    currentRevision: 3, replacementRevision: 1,
+                ) == nil, "renewed gallery consumed retyped draft")
+            }
+            try require(state.remainingAssetIDs == ["first", "second"], "initial gallery selection")
+            state.accepted(1)
+            try require(state.remainingAssetIDs == ["second"], "gallery retry includes accepted prefix")
+            state.accepted(1)
+            try require(state.remainingAssetIDs.isEmpty, "gallery retry includes accepted selection")
         }
 
         private static func verifyAttachmentComment(_ comment: AttributedString, expected: FormattedText) throws {

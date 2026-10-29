@@ -4,6 +4,7 @@ import AVFoundation
 import Lottie
 import Photos
 import PhotosUI
+import TDLibKit
 import UIKit
 
 // MARK: - AttachmentSheetTab
@@ -86,8 +87,9 @@ struct AttachmentSheetConfiguration {
     var isReminders = false
     var canSchedule = false
     var canSendWhenOnline = false
-    /// The composer's text, which goes as the caption.
-    var caption = ""
+    /// Initial input only: Gallery keeps its own attributed caption while other attachment tabs are shown.
+    var caption = AttributedString()
+    var allowsCaptionEditing = false
     var captionIsAbove = false
     /// MediaPickerScreen's selection limit (`enableMultiselection ? 100 : 1`). With one item a tap picks it, as
     /// Done in Telegram's single item preview does.
@@ -114,6 +116,8 @@ struct AttachmentMediaSendRequest {
     let selfDestructTimer: MediaSelfDestructTimer?
     let videoPreset: VideoSendPreset
     let captionIsAbove: Bool
+    let caption: AttributedString
+    var schedulingState: TDNativeMessageSchedulingState?
 }
 
 // MARK: - AttachmentSheetViewController
@@ -147,6 +151,9 @@ struct AttachmentMediaSendRequest {
     var switchesTabsInPlace = false
 
     private let configuration: AttachmentSheetConfiguration
+    private var captionClient: TDLibClient?
+    private var caption: AttributedString
+
     private let imageManager = PHCachingImageManager()
     private let gridLayout = MediaPickerGridLayout()
     private lazy var collectionView = UICollectionView(frame: .zero, collectionViewLayout: gridLayout)
@@ -199,6 +206,10 @@ struct AttachmentMediaSendRequest {
     /// AttachmentController's tap on the dimmed chat above the sheet, which closes it.
     private var outsideTap: UITapGestureRecognizer?
 
+    var attachmentTabs: [AttachmentSheetTab] { configuration.tabs }
+
+    private var hasCaption: Bool { caption.characters.contains { !$0.isWhitespace } }
+
     private var allowsMedia: Bool {
         configuration.allowsPhotos || configuration.allowsVideos
     }
@@ -240,8 +251,10 @@ struct AttachmentMediaSendRequest {
         }
     }
 
-    init(configuration: AttachmentSheetConfiguration) {
+    init(configuration: AttachmentSheetConfiguration, client: TDLibClient? = nil) {
         self.configuration = configuration
+        self.captionClient = client
+        self.caption = configuration.caption
         self.captionIsAbove = configuration.captionIsAbove
         super.init(nibName: nil, bundle: nil)
     }
@@ -297,7 +310,11 @@ struct AttachmentMediaSendRequest {
             bannerHeight = manageBanner.height(forWidth: width)
             manageBanner.frame = CGRect(x: 0, y: -bannerHeight, width: width, height: bannerHeight)
         }
-        let insets = UIEdgeInsets(top: bannerHeight, left: 0, bottom: AttachmentPanelView.barHeight, right: 0)
+        let panelTop = panel.convert(CGPoint.zero, to: view).y
+        let collectionBottom = collectionView.convert(CGPoint(x: 0, y: collectionView.bounds.maxY), to: view).y
+        let automaticBottom = collectionView.adjustedContentInset.bottom - collectionView.contentInset.bottom
+        let panelInset = max(AttachmentPanelView.barHeight, collectionBottom - panelTop - automaticBottom)
+        let insets = UIEdgeInsets(top: bannerHeight, left: 0, bottom: panelInset, right: 0)
         if collectionView.contentInset != insets {
             let wasAtTop = !didSettleInitialOffset
                 || collectionView.contentOffset.y <= -collectionView.adjustedContentInset.top + 1
@@ -305,7 +322,7 @@ struct AttachmentMediaSendRequest {
             collectionView.verticalScrollIndicatorInsets = UIEdgeInsets(
                 top: 0,
                 left: 0,
-                bottom: AttachmentPanelView.barHeight,
+                bottom: panelInset,
                 right: 0,
             )
             if wasAtTop { scrollGridToTop() }
@@ -484,6 +501,24 @@ struct AttachmentMediaSendRequest {
         Task { @MainActor [weak self] in self?.reloadLibrary() }
     }
 
+    /// A local send failure returns the unsent selection to its owner with its caption intact.
+    func prepareForRetry(assetIDs: Set<String>, captionWasSent: Bool) {
+        selection.removeAll { !assetIDs.contains($0.localIdentifier) }
+        if selection.isEmpty { displayMode = .all }
+        if captionWasSent {
+            caption = AttributedString()
+            panel.setCommentText(caption)
+        }
+        isClosing = false
+        reloadGrid()
+        selectionChanged()
+    }
+
+    func updateCaptionClient(_ client: TDLibClient) {
+        captionClient = client
+        panel.updateCommentClient(client)
+    }
+
     // MARK: Views
 
     private func configureTitle() {
@@ -554,15 +589,23 @@ struct AttachmentMediaSendRequest {
         panel.onSendOptions = { [weak self] source, gesture in self?.showSendOptions(from: source, tracking: gesture) }
         panel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(panel)
+        let restingTop = panel.topAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -AttachmentPanelView.barHeight,
+        )
         NSLayoutConstraint.activate([
             panel.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             panel.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            panel.topAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.bottomAnchor,
-                constant: -AttachmentPanelView.barHeight,
-            ),
+            restingTop,
         ])
+        panel.configureKeyboardLayout(in: view, restingTop: restingTop)
+        if configuration.allowsCaptionEditing {
+            panel.configureCommentInput(caption, client: captionClient) { [weak self] in self?.caption = $0 }
+            panel.onBeginCommentEditing = { [weak self] in
+                guard let sheet = self?.navigationController?.sheetPresentationController else { return }
+                sheet.animateChanges { sheet.selectedDetentIdentifier = .large }
+            }
+        }
     }
 
     private func scrollGridToTop() {
@@ -744,7 +787,7 @@ struct AttachmentMediaSendRequest {
         if selection.count != 1 { selfDestructTimer = nil }
         navigationController?.isModalInPresentation = !selection.isEmpty && !isClosing
         updateNavigation()
-        panel.update(selectionCount: selection.count, caption: configuration.caption)
+        panel.update(selectionCount: selection.count, caption: String(caption.characters))
     }
 
     // MARK: Navigation
@@ -1014,7 +1057,7 @@ struct AttachmentMediaSendRequest {
             })
         }
         var options = [TelegramContextMenuAction]()
-        if !configuration.caption.isEmpty {
+        if hasCaption {
             options.append(captionPositionAction())
         }
         if configuration.allowsSpoiler {
@@ -1047,7 +1090,7 @@ struct AttachmentMediaSendRequest {
     private func showSendOptions(from source: UIView, tracking gesture: UIGestureRecognizer) {
         guard !selection.isEmpty, !isClosing else { return }
         var actions = [TelegramContextMenuAction]()
-        if !configuration.caption.isEmpty {
+        if hasCaption {
             actions.append(captionPositionAction())
         }
         var timingActions = AttachmentSendCapabilities(
@@ -1189,8 +1232,17 @@ struct AttachmentMediaSendRequest {
     private func send(
         mode: ComposerMediaSendMode = .grouped,
         timing: AttachmentSendTiming = .now,
+        schedulingState: TDNativeMessageSchedulingState? = nil,
     ) {
         guard !selection.isEmpty, !isClosing else { return }
+        if timing == .schedule, schedulingState == nil {
+            ScheduleMessagePickerViewController.present(
+                from: self, isReminder: configuration.isReminders,
+                showsSendWhenOnline: configuration.canSendWhenOnline,
+            ) { [weak self] state in self?.send(mode: mode, timing: timing, schedulingState: state) }
+            return
+        }
+        if let text = panel.finishCommentEditing() { caption = text }
         let request = AttachmentMediaSendRequest(
             assets: selection,
             cropAdjustments: photoEdits.mapValues(\.adjustments),
@@ -1205,10 +1257,11 @@ struct AttachmentMediaSendRequest {
             spoilerAssetIDs: spoilerAssetIDs,
             selfDestructTimer: selection.count == 1 && mode != .files ? selfDestructTimer : nil,
             videoPreset: videoPreset,
-            captionIsAbove: captionIsAbove && !configuration.caption.isEmpty,
+            captionIsAbove: captionIsAbove && hasCaption,
+            caption: caption,
+            schedulingState: schedulingState,
         )
-        let onSend = onSend
-        close { onSend?(request) }
+        close { [self] in onSend?(request) }
     }
 
     /// MediaPickerScreen's `requestDismiss`: picked items are dropped only after Cancel Selection is confirmed.
@@ -1236,7 +1289,10 @@ struct AttachmentMediaSendRequest {
         let onDismiss = onDismiss
         let presented: UIViewController = navigationController ?? self
         presented.isModalInPresentation = false
-        presented.dismiss(animated: true) {
+        presented.dismiss(animated: true) { [self] in
+            (presented as? TelegramNavigationController)?.releaseChrome(of: self)
+            if let outsideTap { outsideTap.view?.removeGestureRecognizer(outsideTap) }
+            outsideTap = nil
             onDismiss?()
             completion?()
         }
@@ -1552,6 +1608,7 @@ enum MediaPickerQualityIcon {
     private var commentInput: FormattedTextView?
     private var sendRowHeight: NSLayoutConstraint!
     private var restingTop: NSLayoutConstraint?
+    private var restingTopOffset: CGFloat = 0
     private var keyboardTop: NSLayoutConstraint?
     private let sendButton = UIButton(type: .system)
     /// BadgeNode on Send's corner: the picked count, 18 pt high and 8 pt wider than its text.
@@ -1671,10 +1728,7 @@ enum MediaPickerQualityIcon {
         panel.translatesAutoresizingMaskIntoConstraints = false
         controller.view.addSubview(panel)
         let restingTop = panel.topAnchor.constraint(equalTo: controller.view.safeAreaLayoutGuide.bottomAnchor)
-        panel.restingTop = restingTop
-        panel.keyboardTop = panel.topAnchor.constraint(
-            lessThanOrEqualTo: controller.view.keyboardLayoutGuide.topAnchor, constant: -barHeight,
-        )
+        panel.configureKeyboardLayout(in: controller.view, restingTop: restingTop)
         NSLayoutConstraint.activate([
             panel.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor),
             panel.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor),
@@ -1687,9 +1741,18 @@ enum MediaPickerQualityIcon {
     }
 
     /// AttachmentPanel edits the active picker's caption. It does not write into the chat's compose draft.
+    func configureKeyboardLayout(in host: UIView, restingTop: NSLayoutConstraint) {
+        self.restingTop = restingTop
+        restingTopOffset = restingTop.constant
+        host.keyboardLayoutGuide.usesBottomSafeArea = false
+        keyboardTop = topAnchor.constraint(
+            lessThanOrEqualTo: host.keyboardLayoutGuide.topAnchor, constant: -Self.barHeight,
+        )
+    }
+
     func configureCommentInput(
         _ value: AttributedString,
-        client: TDLibClient,
+        client: TDLibClient?,
         onChange: @escaping (AttributedString) -> Void,
     ) {
         guard commentInput == nil else { return }
@@ -1735,6 +1798,15 @@ enum MediaPickerQualityIcon {
         return ComposerText.value(input.attributedText)
     }
 
+    func setCommentText(_ value: AttributedString) {
+        commentInput?.setAttributedText(value)
+        updateContentHeight()
+    }
+
+    func updateCommentClient(_ client: TDLibClient) {
+        commentInput?.customEmojiClient = client
+    }
+
     func update(selectionCount: Int, caption: String) {
         badgeLabel.text = String(selectionCount)
         captionLabel.text = caption
@@ -1766,7 +1838,7 @@ enum MediaPickerQualityIcon {
             : Self.barHeight
         if abs(sendRowHeight.constant - height) > 0.5 {
             sendRowHeight.constant = height
-            restingTop?.constant = -(height - Self.barHeight)
+            restingTop?.constant = restingTopOffset - (height - Self.barHeight)
             keyboardTop?.constant = -height
             superview?.setNeedsLayout()
         }

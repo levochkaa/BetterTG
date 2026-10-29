@@ -139,6 +139,22 @@ import UIKit
         second.replaceAttachmentSheetContent(with: early)
         try await Task.sleep(for: .milliseconds(1000))
         try require(second.topViewController === early && early.appearances == 1, "switch during presentation lost")
+        let retainedInsets = early.additionalSafeAreaInsets
+        await withCheckedContinuation { continuation in
+            presenter.dismiss(animated: false) { continuation.resume() }
+        }
+        second.releaseChrome(of: early)
+        try require(early.additionalSafeAreaInsets.top == 0, "dismissed screen kept old chrome inset")
+        let retry = TelegramNavigationController(rootViewController: early)
+        retry.modalPresentationStyle = .pageSheet
+        await withCheckedContinuation { continuation in
+            presenter.present(retry, animated: false) { continuation.resume() }
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        try require(
+            early.additionalSafeAreaInsets == retainedInsets,
+            "retry accumulated chrome inset: old=\(retainedInsets), new=\(early.additionalSafeAreaInsets)",
+        )
     }
 }
 #endif

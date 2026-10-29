@@ -46,6 +46,7 @@ enum PhotoAssetSelectionLoader {
                     sendsLive: livePhotoAssetIDs.contains(asset.localIdentifier),
                 ) { image in
                     if var image {
+                        image.sourceAssetIdentifier = asset.localIdentifier
                         image.hasSpoiler = hasSpoiler
                         image.selfDestructTimer = selfDestructTimer
                         if let size = image.video?.presentationSize {

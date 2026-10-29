@@ -4,6 +4,7 @@ Read-only audits and probe sweeps of the merged `codex/parity` code, by area, wi
 
 ## Contents
 
+- [Gallery attributed captions — 2026-10-30](2026-10-30-gallery-captions.md)
 - [Rich-text contact comments — 2026-10-30](2026-10-30-contact-comments.md)
 - [Contact send options — 2026-10-30](2026-10-30-contact-send-options.md)
 - [Sticker-settings selection toolbar — 2026-10-30](2026-10-30-sticker-toolbar.md)

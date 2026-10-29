@@ -207,6 +207,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             TelegramLinkResolutionProbe.runIfRequested(in: window)
             NetworkUsageProbe.runIfRequested(in: window)
             ContactSelectionPanelProbe.runIfRequested(in: window)
+            GalleryCaptionProbe.runIfRequested(in: window)
             SecretMediaPreviewProbe.runIfRequested(in: window)
             MusicPlayerProbe.runIfRequested(in: window)
             LocationViewerProbe.runIfRequested(in: window)
