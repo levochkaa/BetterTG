@@ -582,7 +582,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         tableView.keyboardDismissMode = .interactive
         tableView.alwaysBounceVertical = true
         let initialTopInset = searchActive
-            ? ChatListNavigationSearchView.scrollHeight
+            ? ChatListNavigationSearchView.contentHeight
             : TelegramListNavigationBar.expandedContentHeight
         tableView.contentInset.top = initialTopInset + accessoryTopInset
         tableView.contentInset.bottom = showsStandaloneSearch ? 0 : 58
@@ -851,7 +851,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         }
         guard isViewLoaded else { return }
         let targetTopInset = active
-            ? ChatListNavigationSearchView.scrollHeight
+            ? ChatListNavigationSearchView.contentHeight
             : TelegramListNavigationBar.expandedContentHeight
         let changes = {
             self.tableView.contentInset.top = targetTopInset + self.accessoryTopInset
@@ -884,7 +884,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     /// The navigation bar grows with a pull past the top of the list; the scroll indicator starts below it.
     private func updateIndicatorTopInset() {
         let base = (searchActive
-            ? ChatListNavigationSearchView.scrollHeight
+            ? ChatListNavigationSearchView.contentHeight
             : TelegramListNavigationBar.expandedContentHeight) + accessoryTopInset
         let pull = searchActive ? 0 : max(0, -(tableView.contentOffset.y + tableView.adjustedContentInset.top))
         let top = base + pull

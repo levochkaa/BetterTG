@@ -231,7 +231,7 @@ import UIKit
     private func updateTableInsets() {
         let previousTop = tableView.contentInset.top
         let headerHeight = searchActive
-            ? ChatListNavigationSearchView.scrollHeight
+            ? ChatListNavigationSearchView.contentHeight
             : TelegramListNavigationBar.expandedContentHeight
         let insets = UIEdgeInsets(
             top: view.safeAreaInsets.top + headerHeight,

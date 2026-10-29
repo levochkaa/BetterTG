@@ -856,7 +856,7 @@ import UIKit
             guard let self else { return }
             tableView.searchScrollRange = active ? 0 : collapsedTopOffset
             let height = active
-                ? ChatListNavigationSearchView.scrollHeight
+                ? ChatListNavigationSearchView.contentHeight
                 : TelegramListNavigationBar.expandedContentHeight
             tableView.contentInset.top = height
             tableView.verticalScrollIndicatorInsets.top = height

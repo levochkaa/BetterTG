@@ -12,7 +12,12 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
 
     static let fieldHeight: CGFloat = 44
     static let verticalInset: CGFloat = 8
-    static let scrollHeight = fieldHeight + verticalInset * 2
+    /// The search's slot under the bar's row, and the bar's height with the search open.
+    static let contentHeight = fieldHeight + verticalInset * 2
+    /// How far a list scrolls to fold the field away, as Telegram's `ChatListNavigationBar.searchScrollHeight` is
+    /// shorter than the slot: the folded bar keeps UIKit's space under its row of platters, and the list's first row
+    /// stops at that edge.
+    static let scrollHeight = contentHeight - TelegramGlassPlatter.barBottomInset
 
     /// The gap between the field and its close button.
     private static let closeSpacing: CGFloat = 8

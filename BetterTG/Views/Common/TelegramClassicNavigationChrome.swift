@@ -207,9 +207,9 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     private var searchActive = false
 
     var contentHeight: CGFloat {
-        if searchView != nil, searchActive { return promptHeight + ChatListNavigationSearchView.scrollHeight }
+        if searchView != nil, searchActive { return promptHeight + ChatListNavigationSearchView.contentHeight }
         return promptHeight + 44
-            + (searchView != nil ? ChatListNavigationSearchView.scrollHeight : TelegramGlassPlatter.barBottomInset)
+            + (searchView != nil ? ChatListNavigationSearchView.contentHeight : TelegramGlassPlatter.barBottomInset)
     }
 
     /// The bar's glass platters for the push and pop morph, leading first.
@@ -284,7 +284,7 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
             x: 0,
             y: rowY + (searchActive ? 0 : 44),
             width: bounds.width,
-            height: ChatListNavigationSearchView.scrollHeight,
+            height: ChatListNavigationSearchView.contentHeight,
         )
     }
 

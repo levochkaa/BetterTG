@@ -9,7 +9,7 @@ final class TelegramListNavigationBar: UIView {
     // MARK: Internal
 
     static let titleHeight: CGFloat = 44
-    static let expandedContentHeight = titleHeight + ChatListNavigationSearchView.scrollHeight
+    static let expandedContentHeight = titleHeight + ChatListNavigationSearchView.contentHeight
 
     var onSearchActiveChange: ((Bool) -> Void)?
     var onVisibleHeightChange: ((CGFloat) -> Void)?
@@ -155,10 +155,10 @@ final class TelegramListNavigationBar: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// The bar's height with the search field scrolled `clipped` away: it stops shrinking with UIKit's space under
-    /// the row of platters.
+    /// The bar's height with the search field scrolled `clipped` away. It shrinks with the list, so the first row
+    /// stays at its edge, and stops with UIKit's space under the row of platters.
     private static func visibleHeight(clipped: CGFloat) -> CGFloat {
-        titleHeight + max(TelegramGlassPlatter.barBottomInset, ChatListNavigationSearchView.scrollHeight - clipped)
+        expandedContentHeight - clipped
     }
 
     /// `offset` is the list's distance from its top; a negative one pulls the list past it. ChatListNavigationBar
@@ -175,7 +175,7 @@ final class TelegramListNavigationBar: UIView {
         searchTopConstraint.constant = Self.titleHeight + currentOverscroll
         guard !isSearchActive else {
             searchView.applyScroll(offset: clipped, animated: false)
-            onVisibleHeightChange?(ChatListNavigationSearchView.scrollHeight)
+            onVisibleHeightChange?(ChatListNavigationSearchView.contentHeight)
             return
         }
         searchView.applyScroll(offset: clipped, animated: animated)
@@ -420,7 +420,7 @@ final class TelegramListNavigationBar: UIView {
             searchTopConstraint,
             searchView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
             searchView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
-            searchView.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.scrollHeight),
+            searchView.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.contentHeight),
         ])
         refreshPlatters()
     }
@@ -455,7 +455,7 @@ final class TelegramListNavigationBar: UIView {
             searchTopConstraint.constant = Self.titleHeight
         }
         onVisibleHeightChange?(active
-            ? ChatListNavigationSearchView.scrollHeight
+            ? ChatListNavigationSearchView.contentHeight
             : Self.visibleHeight(clipped: currentScrollOffset) + currentOverscroll)
         onSearchActiveChange?(active)
         // The bar clips its collapsing field; an open search's glass swells past the bar's edge under the finger.
@@ -1116,7 +1116,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             searchView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
             searchView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
             searchView.centerYAnchor.constraint(equalTo: leadingPlatter.centerYAnchor),
-            searchView.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.scrollHeight),
+            searchView.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.contentHeight),
         ])
         refreshPlatters()
     }
