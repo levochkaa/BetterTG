@@ -38,9 +38,7 @@ import UIKit
     private var cancellables = Set<AnyCancellable>()
     private var pendingLink: PendingLink?
     private weak var pendingWindow: UIWindow?
-    private var resolveTask: Task<Void, Never>?
-    /// OpenUserGeneratedUrl's loading overlay over the link that is resolving.
-    private var resolveProgress: LinkResolutionProgressView?
+    private let resolution = TelegramLinkResolution()
     /// The `startapp` link's launch, through its terms and `getMainWebApp`.
     private var mainWebAppLauncher: WebAppLauncher?
     /// The `startattach` link's terms and `toggleBotIsAddedToAttachmentMenu` for a bot that isn't added.
@@ -135,9 +133,8 @@ import UIKit
     func openUser(_ userID: Int64, profile: Bool = false, from presenter: UIViewController?) {
         guard TDLib.shared.isActiveAccountReady else { return }
         presenter?.viewIfLoaded?.endEditing(true)
-        resolveTask?.cancel()
         let authority = ChatListActionAuthority()
-        resolveTask = Task { [weak self, weak presenter] in
+        resolution.task = Task { [weak self, weak presenter] in
             await self?.openUser(userID, authority: authority, presenter: presenter, profile: profile)
         }
     }
@@ -146,9 +143,8 @@ import UIKit
     func openChat(_ chatID: Int64, profile: Bool, from presenter: UIViewController?) {
         guard TDLib.shared.isActiveAccountReady else { return }
         presenter?.viewIfLoaded?.endEditing(true)
-        resolveTask?.cancel()
         let authority = ChatListActionAuthority()
-        resolveTask = Task { [weak self, weak presenter] in
+        resolution.task = Task { [weak self, weak presenter] in
             await self?.openChat(chatID, authority: authority, presenter: presenter, profile: profile)
         }
     }
@@ -171,9 +167,8 @@ import UIKit
     /// or chat's profile on the active client, once the story viewer over it closes.
     func openProfile(_ sender: MessageSender, from presenter: UIViewController?) {
         guard TDLib.shared.isActiveAccountReady else { return }
-        resolveTask?.cancel()
         let authority = ChatListActionAuthority()
-        resolveTask = Task { [weak self, weak presenter] in
+        resolution.task = Task { [weak self, weak presenter] in
             switch sender {
             case .messageSenderUser(let user):
                 await self?.openUser(user.userId, authority: authority, presenter: presenter, profile: true)
@@ -187,9 +182,8 @@ import UIKit
     /// chat on the active client, at the message, once the story viewer over it closes.
     func openMessage(chatID: Int64, messageID: Int64, from presenter: UIViewController?) {
         guard TDLib.shared.isActiveAccountReady else { return }
-        resolveTask?.cancel()
         let authority = ChatListActionAuthority()
-        resolveTask = Task { [weak self, weak presenter] in
+        resolution.task = Task { [weak self, weak presenter] in
             await self?.openChat(chatID, authority: authority, presenter: presenter, messageID: messageID)
         }
     }
@@ -201,7 +195,6 @@ import UIKit
     }
 
     private func resolve(_ link: String, url: URL, from presenter: UIViewController?) {
-        resolveTask?.cancel()
         let authority = ChatListActionAuthority()
         let client = authority.client
         let window = presenter?.viewIfLoaded?.window ?? NavigationStorage.shared.navigationController.viewIfLoaded?
@@ -213,6 +206,7 @@ import UIKit
                     try? await Task.sleep(for: .seconds(2))
                 }
             #endif
+            guard !Task.isCancelled else { return }
             let type = try? await client.send(TDNativeRequests.getInternalLinkType(link: link))
             guard let self, !Task.isCancelled, authority.isCurrent else { return }
             guard let type else {
@@ -221,27 +215,8 @@ import UIKit
             }
             await route(type, url: url, authority: authority, presenter: presenter)
         }
-        resolveTask = task
-        showResolveProgress(for: task, in: window)
-    }
-
-    /// OpenUserGeneratedUrl's progress: Telegram's loading overlay appears once a link needs the network, and a tap
-    /// on it cancels the link. TDLib doesn't say when a request leaves its cache, so the overlay appears when the link
-    /// is still resolving after a moment, and leaves when the link has opened what it leads to.
-    private func showResolveProgress(for task: Task<Void, Never>, in window: UIWindow?) {
-        resolveProgress?.finish()
-        guard let window else { return }
-        let progress = LinkResolutionProgressView { task.cancel() }
-        resolveProgress = progress
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak progress, weak window] in
-            guard let progress, let window else { return }
-            progress.show(in: window)
-        }
-        Task { [weak self, weak progress] in
-            await task.value
-            progress?.finish()
-            if self?.resolveProgress === progress { self?.resolveProgress = nil }
-        }
+        resolution.task = task
+        resolution.showProgress(in: window)
     }
 
     /// OpenResolvedUrl's cases BetterTG has screens for. Sign-in links stay out of the browser; the rest of Telegram's
@@ -462,8 +437,7 @@ import UIKit
         let launch: (Bool) -> Void = { [weak self, weak presenter] justInstalled in
             guard let self, authority.isCurrent else { return }
             let start = AttachmentMenuBotStart(bot: bot, url: url, justInstalled: justInstalled)
-            resolveTask?.cancel()
-            resolveTask = Task { [weak self, weak presenter] in
+            resolution.task = Task { [weak self, weak presenter] in
                 await self?.openAttachmentMenuBotTarget(
                     target,
                     start: start,
@@ -582,8 +556,7 @@ import UIKit
         else { return }
         picker.onChosenChat = { [weak self, weak presenter] chat, topic in
             guard let self, authority.isCurrent else { return }
-            resolveTask?.cancel()
-            resolveTask = Task { [weak self, weak presenter] in
+            resolution.task = Task { [weak self, weak presenter] in
                 await self?.openChat(
                     chat.id,
                     authority: authority,
@@ -620,8 +593,7 @@ import UIKit
         else { return }
         picker.onChosenChat = { [weak self] chat, topic in
             guard let self, authority.isCurrent else { return }
-            resolveTask?.cancel()
-            resolveTask = Task { await chosen(chat, topic) }
+            resolution.task = Task { await chosen(chat, topic) }
         }
         let navigation = TelegramNavigationController(rootViewController: picker)
         navigation.modalPresentationStyle = .fullScreen
@@ -682,8 +654,7 @@ import UIKit
         let client = authority.client
         let topicID = topic
             .map { MessageTopic.messageTopicForum(MessageTopicForum(forumTopicId: $0.info.forumTopicId)) }
-        resolveTask?.cancel()
-        resolveTask = Task { [weak self, weak presenter] in
+        resolution.task = Task { [weak self, weak presenter] in
             do {
                 _ = try await client.send(TDNativeRequests.sendMessage(
                     chatId: chat.id,
@@ -880,8 +851,7 @@ import UIKit
     ) {
         guard authority.isCurrent else { return }
         let client = authority.client
-        resolveTask?.cancel()
-        resolveTask = Task { [weak self, weak presenter] in
+        resolution.task = Task { [weak self, weak presenter] in
             do {
                 if payload.isEmpty {
                     _ = try await client.send(TDNativeRequests.addChatMember(
@@ -958,8 +928,7 @@ import UIKit
             let preview = ChatInviteLinkPreviewViewController(inviteLink: inviteLink, info: info)
             preview.onJoined = { [weak self] chatID in
                 guard let self, authority.isCurrent else { return }
-                resolveTask?.cancel()
-                resolveTask = Task { await self.openChat(chatID, authority: authority, presenter: nil) }
+                resolution.task = Task { await self.openChat(chatID, authority: authority, presenter: nil) }
             }
             host.present(preview, animated: true)
         } catch {
@@ -1425,78 +1394,5 @@ final class TelegramSheetActionButton: UIControl {
         backgroundColor = isHighlighted ? .tertiarySystemBackground : .secondarySystemBackground
         label.textColor = isEnabled ? .systemBlue : .tertiaryLabel
         accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
-    }
-}
-
-// MARK: - LinkResolutionProgressView
-
-/// TGProgressWindow, OverlayStatusController's `.loading`: a 100-point blurred square with a spinner in the middle of
-/// the window, which takes every touch while it shows and cancels the link on a tap.
-private final class LinkResolutionProgressView: UIView {
-    private let cancel: () -> Void
-    private let container = UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterial))
-    private let spinner = UIActivityIndicatorView(style: .large)
-    private var isFinished = false
-
-    init(cancel: @escaping () -> Void) {
-        self.cancel = cancel
-        super.init(frame: .zero)
-        backgroundColor = .clear
-        container.layer.cornerRadius = 20
-        container.layer.cornerCurve = .continuous
-        container.clipsToBounds = true
-        container.alpha = 0
-        container.translatesAutoresizingMaskIntoConstraints = false
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        spinner.startAnimating()
-        addSubview(container)
-        container.contentView.addSubview(spinner)
-        NSLayoutConstraint.activate([
-            container.centerXAnchor.constraint(equalTo: centerXAnchor),
-            container.centerYAnchor.constraint(equalTo: centerYAnchor),
-            container.widthAnchor.constraint(equalToConstant: 100),
-            container.heightAnchor.constraint(equalToConstant: 100),
-            spinner.centerXAnchor.constraint(equalTo: container.contentView.centerXAnchor),
-            spinner.centerYAnchor.constraint(equalTo: container.contentView.centerYAnchor),
-        ])
-        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapped)))
-        isAccessibilityElement = true
-        accessibilityLabel = L10n.telegram("Common.Cancel")
-        accessibilityTraits = .button
-    }
-
-    @available(*, unavailable) required init?(coder _: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    /// TGProgressWindow's appearance: the square grows from 0.6 with a spring while it fades in over 0.3 seconds.
-    func show(in window: UIWindow) {
-        guard !isFinished, superview == nil else { return }
-        frame = window.bounds
-        autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        window.addSubview(self)
-        container.transform = CGAffineTransform(scaleX: 0.6, y: 0.6)
-        UIView.animate(springDuration: 0.3, bounce: 0) {
-            self.container.transform = .identity
-        }
-        UIView.animate(withDuration: 0.3) {
-            self.container.alpha = 1
-        }
-    }
-
-    /// TGProgressWindow's dismissal: a 0.3-second fade, or nothing when the link resolved before the overlay showed.
-    func finish() {
-        guard !isFinished else { return }
-        isFinished = true
-        isUserInteractionEnabled = false
-        guard superview != nil else { return }
-        UIView.animate(withDuration: 0.3, delay: 0, options: .beginFromCurrentState) {
-            self.container.alpha = 0
-        } completion: { _ in
-            self.removeFromSuperview()
-        }
-    }
-
-    @objc private func tapped() {
-        cancel()
-        finish()
     }
 }
