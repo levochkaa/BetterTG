@@ -87,9 +87,21 @@ import UIKit
         try await Task.sleep(for: .milliseconds(150))
         let galleryInsets = gallery.additionalSafeAreaInsets
         let panelFrame = gallery.view.subviews.first { $0 is AttachmentPanelView }?.frame
+        let switchStarted = Date.timeIntervalSinceReferenceDate
         navigation.replaceAttachmentSheetContent(with: file)
+        // UIKit can register the coordinator before it installs the destination. Observe the fade after it starts,
+        // not a fixed delay from setViewControllers (a fresh, unauthenticated Simulator can take longer than 70 ms).
+        while file.view.window !== host, Date.timeIntervalSinceReferenceDate - switchStarted < 2 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         try await Task.sleep(for: .milliseconds(70))
-        try require(gallery.view.window === host && file.view.window === host, "live screens missing during fade")
+        try require(
+            gallery.view.window === host && file.view.window === host,
+            "live screens missing during fade; elapsed=\(Date.timeIntervalSinceReferenceDate - switchStarted) "
+                + "gallery=\(gallery.view.window === host) file=\(file.view.window === host) "
+                + "top=\(navigation.topViewController?.title ?? "nil") coordinator=\(navigation.transitionCoordinator != nil) "
+                + "animations=\(UIView.areAnimationsEnabled) scene=\(scene.activationState.rawValue)",
+        )
         try require(
             gallery.view.subviews.contains { $0 is TelegramClassicNavigationChrome && $0.window === host },
             "outgoing chrome detached before fade completes",
