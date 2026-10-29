@@ -54,8 +54,11 @@ final class LoginViewController: UIViewController {
     private let optionButton = UIButton(type: .system)
     private let secondaryOptionButton = UIButton(type: .system)
     private let noteLabel = UILabel()
-    private let backButton = UIButton(type: .system)
+    private let navigationBar = TelegramClassicNavigationChrome()
+    private let backButton = UIButton.telegramGlassIcon(UIImage(systemName: "chevron.backward"))
     private let accountsButton = UIButton(type: .system)
+    private lazy var backItem = UIBarButtonItem(customView: backButton)
+    private lazy var accountsItem = UIBarButtonItem(customView: accountsButton)
     private let serverLabel = UILabel()
     #if DEBUG
         /// AuthorizationSequencePhoneEntryControllerNode's debugTapCounter: the last tap's time and the run of taps.
@@ -133,6 +136,18 @@ final class LoginViewController: UIViewController {
         configurePublishers()
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        navigationBar.topInset = view.safeAreaInsets.top
+        navigationBar.frame = CGRect(
+            x: 0,
+            y: 0,
+            width: view.bounds.width,
+            height: navigationBar.topInset + navigationBar.contentHeight,
+        )
+        navigationBar.setNeedsLayout()
+    }
+
     private static func qrCodeImage(for link: String, side: CGFloat, scale: CGFloat) -> UIImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(link.utf8)
@@ -198,33 +213,23 @@ final class LoginViewController: UIViewController {
         contentStack.alignment = .fill
         view.addSubview(contentStack)
 
-        var accountsConfiguration = UIButton.Configuration.plain()
-        accountsConfiguration.title = L10n.betterTG("Accounts.Section")
-        accountsConfiguration.image = UIImage(systemName: "person.2.fill")
-        accountsConfiguration.imagePadding = 6
-        accountsButton.configuration = accountsConfiguration
-        accountsButton.translatesAutoresizingMaskIntoConstraints = false
+        accountsButton.setTitle(L10n.betterTG("Accounts.Section"), for: .normal)
+        accountsButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .medium)
+        accountsButton.tintColor = .label
         accountsButton.addTarget(self, action: #selector(showAccounts), for: .touchUpInside)
-        view.addSubview(accountsButton)
-
-        var backConfiguration = UIButton.Configuration.plain()
-        backConfiguration.image = UIImage(systemName: "chevron.backward")
-        backConfiguration.title = L10n.telegram("Common.Back")
-        backConfiguration.imagePadding = 4
-        backButton.configuration = backConfiguration
-        backButton.translatesAutoresizingMaskIntoConstraints = false
+        backButton.accessibilityLabel = L10n.telegram("Common.Back")
         backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
-        view.addSubview(backButton)
+        view.addSubview(navigationBar)
 
-        serverLabel.translatesAutoresizingMaskIntoConstraints = false
         serverLabel.text = L10n.betterTG("Accounts.TestServer")
         serverLabel.font = UIFontMetrics(forTextStyle: .footnote).scaledFont(for: .systemFont(
             ofSize: 13,
             weight: .semibold,
         ))
         serverLabel.adjustsFontForContentSizeCategory = true
+        serverLabel.textAlignment = .center
+        serverLabel.lineBreakMode = .byTruncatingTail
         serverLabel.textColor = .systemOrange
-        view.addSubview(serverLabel)
 
         #if DEBUG
             // Telegram's sign-in opens its debug options after ten quick taps; here a tap anywhere off the controls
@@ -322,12 +327,6 @@ final class LoginViewController: UIViewController {
             contentStack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
             contentStack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
             contentStack.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
-            accountsButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            accountsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
-            backButton.centerYAnchor.constraint(equalTo: accountsButton.centerYAnchor),
-            backButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 4),
-            serverLabel.centerYAnchor.constraint(equalTo: accountsButton.centerYAnchor),
-            serverLabel.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
         ])
     }
 
@@ -414,9 +413,15 @@ final class LoginViewController: UIViewController {
 
         backButton.isHidden = !authorization.canGoBack
         backButton.isEnabled = enabled
+        backItem.isEnabled = enabled
         accountsButton.isEnabled = current
+        accountsItem.isEnabled = current
         accountsButton.isHidden = !hasOtherAccounts()
-        serverLabel.isHidden = serverSwitch?.usesTestServer() != true
+        navigationItem.leftBarButtonItem = backButton.isHidden ? nil : backItem
+        navigationItem.rightBarButtonItem = accountsButton.isHidden ? nil : accountsItem
+        navigationItem.titleView = serverSwitch?.usesTestServer() == true ? serverLabel : nil
+        navigationBar.configure(item: navigationItem, fallbackTitle: nil, showsBack: false, searchController: nil)
+        navigationBar.isHidden = backButton.isHidden && accountsButton.isHidden && navigationItem.titleView == nil
         if !current || stage == nil || !content.acceptsInput {
             inputField.resignFirstResponder()
             secondaryField.resignFirstResponder()
