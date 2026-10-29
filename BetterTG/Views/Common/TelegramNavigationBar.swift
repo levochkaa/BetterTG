@@ -30,8 +30,8 @@ final class TelegramListNavigationBar: UIView {
     var onLockTap: (() -> Void)?
 
     /// A long press on the right button, such as Settings opening the account switcher; receives the button's glass
-    /// circle, which the menu morphs out of.
-    var onRightLongPress: ((UIView) -> Void)? {
+    /// circle, which the menu morphs out of, and the press, which goes on to pick an item.
+    var onRightLongPress: ((UIView, UIGestureRecognizer) -> Void)? {
         didSet { rightLongPress.isEnabled = onRightLongPress != nil }
     }
 
@@ -431,7 +431,7 @@ final class TelegramListNavigationBar: UIView {
     @objc private func backLongPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began, !leftButton.isHidden else { return }
         leftButton.cancelTracking(with: nil)
-        presentTelegramBackMenu(from: leadingPlatter)
+        presentTelegramBackMenu(from: leadingPlatter, tracking: gesture)
     }
 
     @objc private func rightPressed() { rightAction?() }
@@ -441,7 +441,7 @@ final class TelegramListNavigationBar: UIView {
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         // The press must not end as a tap that opens Settings too.
         rightButton.cancelTracking(with: nil)
-        onRightLongPress?(trailingPlatter)
+        onRightLongPress?(trailingPlatter, recognizer)
     }
 
     @objc private func secondaryRightPressed() { secondaryRightAction?() }
@@ -1130,7 +1130,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     @objc private func backLongPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began, onBack != nil, !backButton.isHidden else { return }
         backButton.cancelTracking(with: nil)
-        presentTelegramBackMenu(from: leadingPlatter)
+        presentTelegramBackMenu(from: leadingPlatter, tracking: gesture)
     }
 
     @objc private func profilePressed() {

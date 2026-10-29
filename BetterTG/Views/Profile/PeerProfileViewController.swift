@@ -1199,7 +1199,7 @@ ClientRestorableNavigationEntry {
                   let id = dataSource.itemIdentifier(for: path),
                   let actions = membersPane?.menuActions(for: id), !actions.isEmpty,
                   let cell = collectionView.cellForItem(at: path) else { return }
-            presentTelegramContextMenu(sourceView: cell, actions: actions)
+            presentTelegramContextMenu(sourceView: cell, actions: actions, tracking: gesture)
             return
         }
         guard gesture.state == .began, currentSharedTab != .media, contextIsCurrent,
@@ -1215,7 +1215,7 @@ ClientRestorableNavigationEntry {
                 guard let self, contextIsCurrent, sharedMessageRefresh?.allows(id) == true else { return }
                 onOpenMessage?(id)
             },
-        ])
+        ], tracking: gesture)
     }
 
     private func restoreViewportIfNeeded() {

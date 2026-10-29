@@ -566,7 +566,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         customNavigationBar.onVisibleHeightChange = { [weak self] contentHeight in
             self?.updateNavigationBarHeight(contentHeight: contentHeight)
         }
-        customNavigationBar.onRightLongPress = { [weak self] source in self?.showAccountSwitcher(from: source) }
+        customNavigationBar.onRightLongPress = { [weak self] source, gesture in
+            self?.showAccountSwitcher(from: source, tracking: gesture)
+        }
         TDLib.shared
             .chatListNetworkStatus
             .sink { [weak self] status in self?.customNavigationBar.setNetworkStatus(status) }
@@ -1090,7 +1092,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     /// Swiftgram's account switcher on a long press of Settings, morphing out of its glass circle: every account, the
     /// current one ticked, then Add Account.
-    private func showAccountSwitcher(from source: UIView) {
+    private func showAccountSwitcher(from source: UIView, tracking gesture: UIGestureRecognizer) {
         let tdlib = TDLib.shared
         var actions = tdlib.accounts.map { account in
             let isCurrent = account.id == tdlib.activeAccountID
@@ -1109,7 +1111,12 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         ) { [weak self] in
             do { try tdlib.addAccount() } catch { self?.showAccountError(error) }
         })
-        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .sourceMorph)
+        presentTelegramContextMenu(
+            sourceView: source,
+            actions: actions,
+            tracking: gesture,
+            presentationStyle: .sourceMorph,
+        )
     }
 
     private func showAccountError(_ error: Error) {

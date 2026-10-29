@@ -550,7 +550,7 @@ import UIKit
               let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
               let memberID = dataSource.itemIdentifier(for: path), rows[memberID] != nil,
               let cell = tableView.cellForRow(at: path) else { return }
-        presentTelegramContextMenu(sourceView: cell, actions: memberActions(for: memberID))
+        presentTelegramContextMenu(sourceView: cell, actions: memberActions(for: memberID), tracking: gesture)
     }
 
     private func memberActions(for memberID: MemberID) -> [TelegramContextMenuAction] {

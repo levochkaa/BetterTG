@@ -464,6 +464,6 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     @objc private func backLongPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began, !backButton.isHidden else { return }
         backButton.cancelTracking(with: nil)
-        presentTelegramBackMenu(from: leadingPlatter)
+        presentTelegramBackMenu(from: leadingPlatter, tracking: gesture)
     }
 }

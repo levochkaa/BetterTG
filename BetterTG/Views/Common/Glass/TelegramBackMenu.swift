@@ -31,12 +31,22 @@ extension UINavigationController {
         }
     }
 
-    /// Opens the history menu from `controller`'s back button, growing out of its glass `platter`.
-    func presentTelegramBackMenu(from platter: UIView, for controller: UIViewController) {
+    /// Opens the history menu from `controller`'s back button, growing out of its glass `platter`; the finger that
+    /// held Back (`gesture`) slides on to an item and picks it on release, as in UIKit's back button menu.
+    func presentTelegramBackMenu(
+        from platter: UIView,
+        for controller: UIViewController,
+        tracking gesture: UIGestureRecognizer? = nil,
+    ) {
         let actions = telegramBackMenuActions(below: controller)
         guard !actions.isEmpty, transitionCoordinator == nil else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        controller.presentTelegramContextMenu(sourceView: platter, actions: actions, presentationStyle: .sourceMorph)
+        controller.presentTelegramContextMenu(
+            sourceView: platter,
+            actions: actions,
+            tracking: gesture,
+            presentationStyle: .sourceMorph,
+        )
     }
 
     private static func backMenuTitle(of controller: UIViewController) -> String {
@@ -54,13 +64,13 @@ extension UINavigationController {
 
 extension UIView {
     /// Opens the history menu for the screen this bar belongs to, out of its back button's `platter`.
-    func presentTelegramBackMenu(from platter: UIView) {
+    func presentTelegramBackMenu(from platter: UIView, tracking gesture: UIGestureRecognizer? = nil) {
         var controller = nearestViewController
         while let current = controller, !(current.parent is UINavigationController) {
             controller = current.parent
         }
         guard let controller, let navigation = controller.navigationController else { return }
-        navigation.presentTelegramBackMenu(from: platter, for: controller)
+        navigation.presentTelegramBackMenu(from: platter, for: controller, tracking: gesture)
     }
 }
 

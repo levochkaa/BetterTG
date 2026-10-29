@@ -2854,6 +2854,7 @@ final class ChatComposerView: UIView {
         nearestViewController?.presentTelegramContextMenu(
             sourceView: actionButton,
             actions: actions,
+            tracking: gesture,
             presentationStyle: .sourceMorph,
         )
     }

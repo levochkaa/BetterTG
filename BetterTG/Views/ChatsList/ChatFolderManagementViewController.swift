@@ -803,7 +803,7 @@ final class ChatFolderEditorViewController: UITableViewController, UITextFieldDe
                 image: UIImage(systemName: "trash"),
                 isDestructive: true,
             ) { [weak self] in self?.revokeInviteLink(invite) },
-        ])
+        ], tracking: gesture)
     }
 
     /// Telegram revokes and deletes the link; TDLib's deleteChatFolderInviteLink does both.

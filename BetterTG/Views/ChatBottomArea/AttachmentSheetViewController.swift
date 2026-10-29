@@ -558,7 +558,7 @@ struct AttachmentMediaSendRequest {
         panel.isHidden = configuration.tabs.isEmpty && configuration.selectionLimit == 1
         panel.onSelectTab = { [weak self] tab in self?.selectTab(tab) }
         panel.onSend = { [weak self] in self?.send() }
-        panel.onSendOptions = { [weak self] source in self?.showSendOptions(from: source) }
+        panel.onSendOptions = { [weak self] source, gesture in self?.showSendOptions(from: source, tracking: gesture) }
         panel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(panel)
         NSLayoutConstraint.activate([
@@ -1051,7 +1051,7 @@ struct AttachmentMediaSendRequest {
     /// ChatSendMessageContextScreen for the attachment: Move Caption with a caption, Send Without Sound and Send When
     /// Online outside Saved Messages, and Schedule Message or Set a Reminder. A media timer turns off scheduling
     /// (`hasTimers`).
-    private func showSendOptions(from source: UIView) {
+    private func showSendOptions(from source: UIView, tracking gesture: UIGestureRecognizer) {
         guard !selection.isEmpty, !isClosing else { return }
         var actions = [TelegramContextMenuAction]()
         if !configuration.caption.isEmpty {
@@ -1086,7 +1086,12 @@ struct AttachmentMediaSendRequest {
                 self?.send(timing: .schedule)
             })
         }
-        presentTelegramContextMenu(sourceView: source, actions: actions, presentationStyle: .sourceMorph)
+        presentTelegramContextMenu(
+            sourceView: source,
+            actions: actions,
+            tracking: gesture,
+            presentationStyle: .sourceMorph,
+        )
     }
 
     private func captionPositionAction() -> TelegramContextMenuAction {
@@ -1555,7 +1560,7 @@ enum MediaPickerQualityIcon {
 
     var onSelectTab: ((AttachmentSheetTab) -> Void)?
     var onSend: (() -> Void)?
-    var onSendOptions: ((UIView) -> Void)?
+    var onSendOptions: ((UIView, UIGestureRecognizer) -> Void)?
 
     private let background = TelegramBarBackgroundView(edge: .bottom)
     /// AttachmentPanel's buttons in Telegram 13's glass tab bar, scrolling sideways once more than fit.
@@ -1707,7 +1712,7 @@ enum MediaPickerQualityIcon {
 
     @objc private func sendLongPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began else { return }
-        onSendOptions?(sendButton)
+        onSendOptions?(sendButton, gesture)
     }
 }
 
