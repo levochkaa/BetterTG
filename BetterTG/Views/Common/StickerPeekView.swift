@@ -119,10 +119,7 @@ final class StickerPeekView: UIView {
     @discardableResult static func present(_ content: StickerPeekContent) -> StickerPeekView? {
         guard let sourceWindow = content.sourceView.window else { return nil }
         current?.dismiss()
-        let host = TelegramContextMenuKeyboardHost.visibleKeyboardWindow(
-            for: sourceWindow,
-            sourceView: content.sourceView,
-        ) ?? sourceWindow
+        let host = TelegramContextMenuKeyboardHost.visibleKeyboardWindow(for: sourceWindow) ?? sourceWindow
         let style = content.sourceView.traitCollection.userInterfaceStyle
         let peek = StickerPeekView(content: content, isDark: style == .dark)
         peek.overrideUserInterfaceStyle = style

@@ -261,10 +261,15 @@ enum TelegramContextMenuPresentationStyle: Equatable {
 enum TelegramContextMenuKeyboardHost {
     // MARK: Internal
 
-    static func visibleKeyboardWindow(for sourceWindow: UIWindow, sourceView: UIView?) -> UIWindow? {
-        guard let owner = sourceView?.nearestViewController?.viewIfLoaded,
-              owner.keyboardLayoutGuide.layoutFrame.height > owner.safeAreaInsets.bottom + 1
-        else { return nil }
+    static func visibleKeyboardWindow(for sourceWindow: UIWindow) -> UIWindow? {
+        // Search results put the keyboard and filter bar in additionalSafeAreaInsets. Measure in the window's
+        // root view instead, with a zero-height guide when the keyboard is hidden, independent of screen insets.
+        // A guide attached directly to UIWindow has a zero frame even with the keyboard visible on iOS 26.5.
+        guard let rootView = sourceWindow.rootViewController?.viewIfLoaded else { return nil }
+        let keyboardGuide = rootView.keyboardLayoutGuide
+        keyboardGuide.usesBottomSafeArea = false
+        rootView.layoutIfNeeded()
+        guard keyboardGuide.layoutFrame.height > 1 else { return nil }
         if let scene = sourceWindow.windowScene,
            let keyboardWindow = remoteKeyboardWindow(in: scene),
            !keyboardWindow.isHidden
@@ -853,7 +858,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 
     fileprivate func show(in sourceWindow: UIWindow) {
         let hostView = TelegramContextMenuKeyboardHost
-            .visibleKeyboardWindow(for: sourceWindow, sourceView: sourceView) ?? sourceWindow
+            .visibleKeyboardWindow(for: sourceWindow) ?? sourceWindow
         #if DEBUG
         TelegramQuoteSelectionDiagnostics
             .record(
