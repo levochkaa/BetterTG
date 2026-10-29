@@ -2382,6 +2382,13 @@ final class ForumTopicCell: UITableViewCell {
     }
 }
 
+// MARK: TelegramContextExpansionSource
+
+extension ForumTopicCell: TelegramContextExpansionSource {
+    var contextExpansionTitle: UILabel? { titleLabel }
+    var contextExpansionTitleAccessories: [UIView] { [muteView] }
+}
+
 // MARK: - ForumTopicIconView
 
 final class ForumTopicIconView: UIView {
