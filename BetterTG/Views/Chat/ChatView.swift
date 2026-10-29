@@ -387,7 +387,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     private var documentPickerReplacesEditedMedia = false
     /// The attachment sheet's gallery while the sheet is up, kept while another tab shows in its place.
     private var attachmentGallery: AttachmentSheetViewController?
-    private weak var attachmentNavigation: UINavigationController?
+    private weak var attachmentNavigation: TelegramNavigationController?
     private var attachmentTabs = [AttachmentSheetTab]()
     private var clientPreparationTask: Task<Void, Never>?
     private var clientPreparationSource: TdUpdateSource?

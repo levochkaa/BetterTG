@@ -26,6 +26,8 @@ UINavigationControllerDelegate {
     /// A push waiting for its screen's first content, held until then; a later push takes its place, as Telegram's
     /// pending child.
     private var pendingPush: UIViewController?
+    private var attachmentReplacement: UIViewController?
+    private var pendingAttachmentReplacement: UIViewController?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -83,6 +85,42 @@ UINavigationControllerDelegate {
         chromeStates[ObjectIdentifier(controller)]?.refresh()
     }
 
+    /// AttachmentController.animateSwitchTransition's 0.23 s fade, keeping the sheet and its panel still.
+    /// UIKit owns both live screens until completion, including their glass content and appearance callbacks.
+    func replaceAttachmentSheetContent(with controller: UIViewController) {
+        guard !isBeingDismissed else { return }
+        if attachmentReplacement != nil {
+            pendingAttachmentReplacement = controller
+            return
+        }
+        if let coordinator = transitionCoordinator {
+            pendingAttachmentReplacement = controller
+            // A tap can arrive during the sheet's presentation, which has no navigation didShow callback.
+            if !coordinator.animate(alongsideTransition: nil, completion: { [weak self] _ in
+                self?.schedulePendingAttachmentReplacement()
+            }) {
+                schedulePendingAttachmentReplacement()
+            }
+            return
+        }
+        pendingAttachmentReplacement = nil
+        guard topViewController !== controller else { return }
+        pendingPush = nil
+        let animated = isViewLoaded && view.window != nil
+        attachmentReplacement = animated ? controller : nil
+        setViewControllers([controller], animated: animated)
+    }
+
+    func navigationController(
+        _: UINavigationController,
+        animationControllerFor _: UINavigationController.Operation,
+        from _: UIViewController,
+        to controller: UIViewController,
+    ) -> (any UIViewControllerAnimatedTransitioning)? {
+        guard attachmentReplacement === controller else { return nil }
+        return AttachmentSheetContentTransition()
+    }
+
     func navigationController(
         _: UINavigationController, willShow controller: UIViewController, animated: Bool,
     ) {
@@ -94,7 +132,7 @@ UINavigationControllerDelegate {
             state.refresh()
         }
         // The bars' glass platters morph into the incoming screen's, as UIKit's iOS 26 bar does.
-        if animated, let coordinator = transitionCoordinator,
+        if animated, attachmentReplacement !== controller, let coordinator = transitionCoordinator,
            let source = coordinator.viewController(forKey: .from),
            coordinator.viewController(forKey: .to) === controller
         {
@@ -115,6 +153,7 @@ UINavigationControllerDelegate {
         _: UINavigationController, didShow controller: UIViewController, animated _: Bool,
     ) {
         defer { onDidShow?(controller) }
+        attachmentReplacement = nil
         // Headers travel inside the same view as their content, so UIKit also
         // owns their exact push/pop and interactive-cancellation geometry.
         let retained = Set(viewControllers.map(ObjectIdentifier.init))
@@ -122,6 +161,7 @@ UINavigationControllerDelegate {
             state.detach()
         }
         chromeStates = chromeStates.filter { retained.contains($0.key) }
+        schedulePendingAttachmentReplacement()
     }
 
     func gestureRecognizer(_: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
@@ -161,8 +201,48 @@ UINavigationControllerDelegate {
         super.pushViewController(viewController, animated: true)
     }
 
+    private func schedulePendingAttachmentReplacement() {
+        guard pendingAttachmentReplacement != nil else { return }
+        // The coordinator may still be installed during didShow. Take the latest request next turn.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let pending = pendingAttachmentReplacement else { return }
+            pendingAttachmentReplacement = nil
+            guard presentingViewController != nil, !isBeingDismissed else { return }
+            replaceAttachmentSheetContent(with: pending)
+        }
+    }
+
     private func glassPlatters(of controller: UIViewController) -> [TelegramGlassPlatter] {
         if let host = controller as? TelegramGlassPlatterHost { return host.telegramGlassPlatters }
         return chromeStates[ObjectIdentifier(controller)]?.bar.glassPlatters ?? []
+    }
+}
+
+// MARK: - AttachmentSheetContentTransition
+
+/// Fade the old live view over the new one. A snapshot of the sheet loses UIKit's glass content compositing.
+private final class AttachmentSheetContentTransition: NSObject, UIViewControllerAnimatedTransitioning {
+    func transitionDuration(using _: (any UIViewControllerContextTransitioning)?) -> TimeInterval { 0.23 }
+
+    func animateTransition(using context: any UIViewControllerContextTransitioning) {
+        guard let source = context.view(forKey: .from),
+              let destination = context.view(forKey: .to),
+              let controller = context.viewController(forKey: .to)
+        else {
+            context.completeTransition(false)
+            return
+        }
+        let container = context.containerView
+        destination.frame = context.finalFrame(for: controller)
+        container.insertSubview(destination, belowSubview: source)
+        destination.layoutIfNeeded()
+        let sourceAlpha = source.alpha
+        UIView.animate(withDuration: transitionDuration(using: context), animations: {
+            source.alpha = 0
+        }, completion: { _ in
+            let completed = !context.transitionWasCancelled
+            context.completeTransition(completed)
+            source.alpha = sourceAlpha
+        })
     }
 }

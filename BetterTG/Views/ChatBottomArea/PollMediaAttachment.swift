@@ -395,7 +395,7 @@ struct PollDraftMedia {
     /// A pick being read, whose picker has already closed.
     private var isLoading = false
     /// The attachment sheet, whose root is the current tab's controller.
-    private weak var sheet: UINavigationController?
+    private weak var sheet: TelegramNavigationController?
     private var currentTab = AttachmentSheetTab.gallery
 
     /// The subject's buttons; without an account there's no Sticker button.

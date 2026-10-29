@@ -373,7 +373,7 @@ struct AttachmentMediaSendRequest {
         videoPreset = preset
     }
 
-    func makeNavigationController() -> UINavigationController {
+    func makeNavigationController() -> TelegramNavigationController {
         let navigation = TelegramNavigationController(rootViewController: self)
         navigation.modalPresentationStyle = .pageSheet
         if let sheet = navigation.sheetPresentationController {
@@ -1713,26 +1713,6 @@ enum MediaPickerQualityIcon {
     @objc private func sendLongPressed(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began else { return }
         onSendOptions?(sendButton, gesture)
-    }
-}
-
-// MARK: - UINavigationController + attachment tabs
-
-extension UINavigationController {
-    /// AttachmentController.animateSwitchTransition: the old content's snapshot fades out over 0.23 s. Telegram also
-    /// dips its sheet 10 points and springs it back, which here shook the tab bar, so the sheet stays put.
-    func replaceAttachmentSheetContent(with controller: UIViewController) {
-        let snapshot = view.snapshotView(afterScreenUpdates: false)
-        setViewControllers([controller], animated: false)
-        guard let snapshot else { return }
-        snapshot.frame = view.bounds
-        snapshot.isUserInteractionEnabled = false
-        view.addSubview(snapshot)
-        UIView.animate(withDuration: 0.23) {
-            snapshot.alpha = 0
-        } completion: { _ in
-            snapshot.removeFromSuperview()
-        }
     }
 }
 
