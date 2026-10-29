@@ -5,11 +5,11 @@ import UIKit
 
 // MARK: - HashtagSearchViewController
 
-/// Telegram's HashtagSearchController: the hashtag in a search field with Cancel, and the messages that carry it under
+/// Telegram's HashtagSearchController: the hashtag in a glass search field, and the messages that carry it under
 /// This Chat, My Messages and Public Posts tabs (HashtagSearchNavigationContentNode), each a list of found messages as
 /// chat rows (`alwaysShowSearchResultsAsList`). A hashtag naming a chat searches that chat only, without tabs.
 @MainActor final class HashtagSearchViewController: UIViewController, UITableViewDataSource, UITableViewDelegate,
-UITextFieldDelegate, TelegramEmbeddedNavigationChrome {
+TelegramEmbeddedNavigationChrome {
     enum Tab: Int, CaseIterable {
         case thisChat
         case myMessages
@@ -56,8 +56,8 @@ UITextFieldDelegate, TelegramEmbeddedNavigationChrome {
     private var queryTask: Task<Void, Never>?
 
     private let headerView = UIView()
-    private let searchField = UISearchTextField()
-    private let cancelButton = UIButton(type: .system)
+    private let headerBackground = TelegramBarBackgroundView(edge: .top)
+    private let searchView = ChatListNavigationSearchView(placeholder: L10n.telegram("HashtagSearch.SearchPlaceholder"))
     private let tabPicker = FolderPickerView()
     private let tableView = UITableView(frame: .zero, style: .plain)
     private let activityIndicator = UIActivityIndicatorView(style: .medium)
@@ -103,6 +103,17 @@ UITextFieldDelegate, TelegramEmbeddedNavigationChrome {
         navigationController?.setNavigationBarHidden(true, animated: animated)
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let top = headerView.frame.maxY
+        guard tableView.contentInset.top != top else { return }
+        // Keep the same row below the header when its safe area changes. The table extends behind the bar's blur.
+        let offset = tableView.contentOffset.y + tableView.contentInset.top
+        tableView.contentInset.top = top
+        tableView.verticalScrollIndicatorInsets.top = top
+        tableView.contentOffset.y = offset - top
+    }
+
     private nonisolated static func page(
         tab: Tab,
         query: String,
@@ -141,11 +152,6 @@ UITextFieldDelegate, TelegramEmbeddedNavigationChrome {
         }
     }
 
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        textField.resignFirstResponder()
-        return true
-    }
-
     func tableView(_: UITableView, numberOfRowsInSection _: Int) -> Int {
         results[selectedTab]?.rows.count ?? 0
     }
@@ -179,24 +185,18 @@ UITextFieldDelegate, TelegramEmbeddedNavigationChrome {
     private func configureHeader() {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
-        searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.text = query
-        searchField.placeholder = L10n.telegram("HashtagSearch.SearchPlaceholder")
-        searchField.returnKeyType = .search
-        searchField.autocorrectionType = .no
-        searchField.autocapitalizationType = .none
-        searchField.delegate = self
-        searchField.addTarget(self, action: #selector(queryChanged), for: .editingChanged)
-        headerView.addSubview(searchField)
-        cancelButton.translatesAutoresizingMaskIntoConstraints = false
-        cancelButton.setTitle(L10n.telegram("Common.Cancel"), for: .normal)
-        cancelButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
-        cancelButton.setContentHuggingPriority(.required, for: .horizontal)
-        cancelButton.setContentCompressionResistancePriority(.required, for: .horizontal)
-        cancelButton.addAction(UIAction { [weak self] _ in
-            self?.navigationController?.popViewController(animated: true)
-        }, for: .touchUpInside)
-        headerView.addSubview(cancelButton)
+        headerBackground.translatesAutoresizingMaskIntoConstraints = false
+        headerView.addSubview(headerBackground)
+        searchView.translatesAutoresizingMaskIntoConstraints = false
+        searchView.followsFocus = false
+        searchView.restoreQuery(query)
+        searchView.onQueryChange = { [weak self] text in self?.queryChanged(text) }
+        searchView.onClose = { [weak self] in
+            guard let self else { return }
+            view.endEditing(true)
+            navigationController?.popViewController(animated: true)
+        }
+        headerView.addSubview(searchView)
         tabPicker.translatesAutoresizingMaskIntoConstraints = false
         tabPicker.isHidden = tabs.count < 2
         tabPicker.configure(
@@ -210,25 +210,27 @@ UITextFieldDelegate, TelegramEmbeddedNavigationChrome {
         headerView.addSubview(tabPicker)
         let tabsHeight: CGFloat = tabs.count < 2 ? 0 : 58
         NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            headerView.topAnchor.constraint(equalTo: view.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            searchField.topAnchor.constraint(equalTo: headerView.topAnchor, constant: 6),
-            searchField.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
-            searchField.heightAnchor.constraint(equalToConstant: 36),
-            cancelButton.leadingAnchor.constraint(equalTo: searchField.trailingAnchor, constant: 10),
-            cancelButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            cancelButton.centerYAnchor.constraint(equalTo: searchField.centerYAnchor),
-            tabPicker.topAnchor.constraint(equalTo: searchField.bottomAnchor, constant: 4),
+            headerBackground.topAnchor.constraint(equalTo: headerView.topAnchor),
+            headerBackground.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
+            headerBackground.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
+            headerBackground.bottomAnchor.constraint(equalTo: headerView.bottomAnchor),
+            searchView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            searchView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            searchView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            searchView.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.scrollHeight),
+            tabPicker.topAnchor.constraint(equalTo: searchView.bottomAnchor),
             tabPicker.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
             tabPicker.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
             tabPicker.heightAnchor.constraint(equalToConstant: tabsHeight),
             tabPicker.bottomAnchor.constraint(equalTo: headerView.bottomAnchor),
         ])
+        searchView.setPresented(true)
     }
 
-    @objc private func queryChanged() {
-        let text = searchField.text ?? ""
+    private func queryChanged(_ text: String) {
         queryTask?.cancel()
         queryTask = Task { [weak self] in
             try? await Task.sleep(for: Self.queryDelay)
@@ -253,6 +255,7 @@ UITextFieldDelegate, TelegramEmbeddedNavigationChrome {
         tableView.dataSource = self
         tableView.delegate = self
         tableView.rowHeight = Self.rowHeight
+        tableView.contentInsetAdjustmentBehavior = .never
         tableView.keyboardDismissMode = .onDrag
         tableView.register(ChatListCell.self, forCellReuseIdentifier: ChatListCell.reuseIdentifier)
         view.insertSubview(tableView, belowSubview: headerView)
@@ -271,10 +274,10 @@ UITextFieldDelegate, TelegramEmbeddedNavigationChrome {
         emptyStack.isHidden = true
         view.addSubview(emptyStack)
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            tableView.topAnchor.constraint(equalTo: view.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            tableView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
             activityIndicator.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
             activityIndicator.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 40),
             emptyStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),

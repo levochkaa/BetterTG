@@ -13,7 +13,9 @@ import UIKit
             let description: String
         }
 
-        /// `-ui-probe-hashtag-search`: the hashtag search for #telegram from the BetterTG test group, on Public Posts.
+        /// `-ui-probe-hashtag-search`: #telegram from the test group, on Public Posts. Add `-hashtag-chat-only` to
+        /// check
+        /// the single-chat layout without tabs.
         static func openHashtagSearchIfRequested() {
             guard ProcessInfo.processInfo.arguments.contains("-ui-probe-hashtag-search") else { return }
             Task { @MainActor in
@@ -26,7 +28,9 @@ import UIKit
                 else { return log("Hashtag search probe: no test group") }
                 NavigationStorage.shared.navigationController.pushViewController(
                     HashtagSearchViewController(
-                        query: "#telegram", chat: chat, chatOnly: false, startsOnPublicPosts: true, client: client,
+                        query: "#telegram", chat: chat,
+                        chatOnly: ProcessInfo.processInfo.arguments.contains("-hashtag-chat-only"),
+                        startsOnPublicPosts: true, client: client,
                     ),
                     animated: true,
                 )
