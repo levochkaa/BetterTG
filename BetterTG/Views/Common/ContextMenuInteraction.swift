@@ -50,6 +50,22 @@ import UIKit
     @objc(_setBackground:) func setMaterialBackground(_ material: AnyObject?)
 }
 
+// MARK: - ContextMenuFlexInteraction
+
+@objc private protocol ContextMenuFlexInteraction: NSObjectProtocol {
+    @objc(panGesture) var panGesture: UIGestureRecognizer? { get }
+}
+
+// MARK: - ContextMenuTouchContinuation
+
+/// UIKit's touch continuation: `_addTouch:forEvent:` (UIKitCore 23F77 0xc9585c) delivers a running touch to a
+/// recognizer
+/// as a new one.
+@objc private protocol ContextMenuTouchContinuation: NSObjectProtocol {
+    @objc(_activeEvents) var activeEvents: AnyObject? { get }
+    @objc(_addTouch:forEvent:) func addTouch(_ touch: UITouch, forEvent event: UIEvent)
+}
+
 // MARK: - ContextMenuNativeGlass
 
 /// The system menu's glass, ported from CustomContextMenu App/NativeUIKit.swift. The flexible material installs
@@ -99,6 +115,35 @@ import UIKit
         unsafeBitCast(view, to: ContextMenuMaterialHost.self)
             .setMaterialBackground(suppressed ? glass.identityGlass() : glass)
         return true
+    }
+
+    /// The glass's pan starts when a touch begins, and only over the glass (`gestureRecognizerShouldBegin:`, 23F77
+    /// 0x9f020,
+    /// hit-tests the touch's location). A finger that arrives from elsewhere is handed to it here, from `gesture`,
+    /// which keeps following that finger, so the glass stretches from the point where the finger reached it.
+    static func beginStretch(of view: UIView, withTouchOf gesture: UIGestureRecognizer) {
+        guard let flexClass = NSClassFromString("_UIFlexInteraction"),
+              let interaction = view.interactions.first(where: { $0.isKind(of: flexClass) }),
+              interaction.responds(to: NSSelectorFromString("panGesture")),
+              let pan = unsafeBitCast(interaction, to: ContextMenuFlexInteraction.self).panGesture,
+              pan.responds(to: NSSelectorFromString("_addTouch:forEvent:")),
+              gesture.responds(to: NSSelectorFromString("_activeEvents")),
+              let events = unsafeBitCast(gesture, to: ContextMenuTouchContinuation.self).activeEvents as? NSSet,
+              let event = events.lazy.compactMap({ $0 as? UIEvent }).first(where: { $0.type == .touches }),
+              let touch = event.touches(for: gesture)?.first
+        else { return }
+        switch pan.state {
+        case .began,
+             .changed:
+            return
+        case .possible:
+            break
+        default:
+            // A touch that began off the glass failed the pan, which then ignores that touch until it ends.
+            pan.isEnabled = false
+            pan.isEnabled = true
+        }
+        unsafeBitCast(pan, to: ContextMenuTouchContinuation.self).addTouch(touch, forEvent: event)
     }
 }
 

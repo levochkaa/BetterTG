@@ -684,6 +684,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private var motionHold: TGSPlaybackHold?
     private var motionHoldRelease: DispatchWorkItem?
     private var touchSessionIsInitiating = false
+    /// Whether the touch that began off the menu has reached it and stretches its glass.
+    private var touchSessionStretchesGlass = false
     private var touchPoint = CGPoint.zero
     private var panOffset = CGPoint.zero
     private var selectionDelayWork: DispatchWorkItem?
@@ -2417,13 +2419,26 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
              .failed:
             finishTracking()
         default:
+            stretchGlassIfNeeded(at: point)
             updateSelection(at: point, time: time)
         }
+    }
+
+    /// A finger from outside the menu stretches its glass from where it reaches the menu, past the hysteresis that
+    /// lets it choose rows. The glass then follows it until it lifts, also off the menu.
+    private func stretchGlassIfNeeded(at point: CGPoint) {
+        guard let session = touchSession, session.origin != .menu, session.selectsOnRelease,
+              !touchSessionStretchesGlass, menuFrameInView.contains(point),
+              let gesture = touchSessionIsInitiating ? trackingGesture : touchRecognizer
+        else { return }
+        touchSessionStretchesGlass = true
+        ContextMenuNativeGlass.beginStretch(of: menuView, withTouchOf: gesture)
     }
 
     private func finishTracking() {
         touchSession = nil
         touchSessionIsInitiating = false
+        touchSessionStretchesGlass = false
         selectionDelayWork?.cancel()
         selectionDelayWork = nil
         cancelAutoNavigation()
