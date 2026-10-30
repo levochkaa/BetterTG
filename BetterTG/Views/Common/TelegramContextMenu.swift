@@ -760,8 +760,6 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private var motionHold: TGSPlaybackHold?
     private var motionHoldRelease: DispatchWorkItem?
     private var touchSessionIsInitiating = false
-    /// Whether the touch that began off the menu is over its glass and the glass follows it.
-    private var touchSessionStretchesGlass = false
     private var touchPoint = CGPoint.zero
     private var panOffset = CGPoint.zero
     private var selectionDelayWork: DispatchWorkItem?
@@ -2508,7 +2506,6 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         touchSession = ContextMenuTouchSession(origin: .initiatingPreview, start: point, time: CACurrentMediaTime())
         touchSessionIsInitiating = true
         selectionFeedback.prepare()
-        stretchGlassIfNeeded(at: point)
     }
 
     @objc private func trackingGestureChanged(_ gesture: UIGestureRecognizer) {
@@ -2546,8 +2543,9 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         guard touchSession != nil, !isDismissing else { return }
         touchPoint = point
         touchSession?.move(to: point, insidePreview: previewFrame.contains(point))
-        // The preview keeps its last position while the finger is over the menu.
-        if let anchor = touchSession?.panAnchor, !menuHitFrame.contains(point) {
+        // The preview keeps its last position while the finger is over the menu and follows again off it. A touch that
+        // began on the menu flexes the glass, and the preview stays where it is.
+        if touchSession?.origin != .menu, let anchor = touchSession?.panAnchor, !menuHitFrame.contains(point) {
             let offset = ContextMenuMotion.platterOffset(
                 location: point,
                 anchor: anchor,
@@ -2597,27 +2595,13 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
              .failed:
             finishTracking()
         default:
-            stretchGlassIfNeeded(at: point)
             updateSelection(at: point, time: time)
         }
-    }
-
-    /// A finger from outside the menu stretches its glass from where it reaches the menu, or from the start when the
-    /// menu opens under it, as the system's button menus do. The glass then follows it until it lifts, also off the
-    /// menu.
-    private func stretchGlassIfNeeded(at point: CGPoint) {
-        let glassView = submenus.last?.glassView ?? menuView
-        guard let session = touchSession, session.origin != .menu,
-              !touchSessionStretchesGlass, glassView.convert(glassView.bounds, to: view).contains(point),
-              let gesture = touchSessionIsInitiating ? trackingGesture : touchRecognizer
-        else { return }
-        touchSessionStretchesGlass = ContextMenuNativeGlass.beginStretch(of: glassView, withTouchOf: gesture)
     }
 
     private func finishTracking(keepsHighlight: Bool = false) {
         touchSession = nil
         touchSessionIsInitiating = false
-        touchSessionStretchesGlass = false
         selectionDelayWork?.cancel()
         selectionDelayWork = nil
         cancelAutoNavigation()
@@ -2976,10 +2960,6 @@ private final class TelegramContextSubmenuView: UIView {
 
     var buttons: [TelegramContextMenuActionButton] {
         [headerButton] + childButtons
-    }
-
-    var glassView: UIView {
-        backgroundView
     }
 
     /// Open, the menu's radius; closed, the radius of the row highlight.
