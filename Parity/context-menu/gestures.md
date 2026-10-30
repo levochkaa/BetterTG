@@ -44,14 +44,17 @@ Glass flex and system audit, 10-31 (iPhone 17 Pro iOS 26.5 `8108A92F`, UIKitCore
 - BetterTG deliberately goes further, at the user's request: any finger from outside, the opening one included, starts the stretch when it reaches the glass (`13650f39`, `7aff585e`), also where the system stays still. A submenu's glass carries its rows now and swells under a touch as the system's does; before, its glass lay beside the rows and failed the pan's hit test.
 - A drag that begins on the menu no longer scrolls an overflowing message's content (`ed779517`); a drag on the message still does.
 - Checked and already the same: a tap on the background only closes a button menu (Files, nothing passes through); no swipe-down dismissal with actions (`rubberbandingEdges == 15`); no `setShouldDismissMenuOnSceneDeactivation:` call in the menu classes; auto navigation, the selection delay and the highlight springs; iPhone is portrait-only, so rotation does not apply.
-- Found and not ported:
+- Ported the same day, checked on iPhone 18 Pro iOS 27.2 with `-ui-probe-context-menu-screen` (`ContextMenuScreenProbe`, no account needed) and in the UI test chat on iOS 26.5:
+  - Action timing: the handler runs as the close starts (`contextMenuView:didSelectElement:` passes it as `alongsideActions`), 0.25 s before the menu is gone; reply, select and the back menu's pop ran without a jump.
+  - Selection: the chosen row stays highlighted 0.1 s (`autoUnhighlightTimer`).
+  - Titles wrap to 3 lines (`setPreferredNumberOfLinesForTitle: 3`).
+  - Reduce Motion: the menu fades in place, previews use the 0.4 / 1 spring (Research/README.md, iOS 27.0).
+  - Dynamic Type: row text, icons and insets scale through `UIFontMetrics`, up to `accessibilityMedium`, because the menus don't scroll yet.
+  - Hardware keyboard: up and down, Return, the forward arrow into a submenu and the back arrow out of it, type select, also with the composer focused. Pointer: a click selects and hover highlights without the tick, opening a submenu like a resting finger.
+- Not ported, by the user's choice for now:
   - Long menus. `setMenuMaximumHeight: 520` with scrolling, a truncation detent (`closestScrollTruncationDetentToHeight:`), a gradient mask and auto-scroll while scrubbing. BetterTG's menu and submenus do not scroll, so rows past the screen cannot be reached.
   - Order. A menu attached above its source reverses its actions (`_updateActionsViewReversesOrderForAttachment:`), keeping the first one nearest the finger.
-  - Action timing. The handler runs at the start of the close (`contextMenuView:didSelectElement:` passes it as `alongsideActions` with a nil completion). BetterTG runs it when the close ends, 0.24 s, or 0.7 s after a morph.
-  - Selection. The highlight holds 0.1 s after a choice (`autoUnhighlightTimer`); BetterTG starts fading it on release.
-  - Titles wrap to 3 lines (`setPreferredNumberOfLinesForTitle: 3`), BetterTG's to 2.
-  - Reduce Motion uses the 0.4 / 1 spring (Research/README.md, iOS 27.0); BetterTG's open and close do not check it.
-  - Hardware keyboard: arrows, Return and type select; BetterTG has Escape only. Pointer hover highlight and auto-open.
-  - Dynamic Type: the system scales row text, BetterTG's is a fixed 17 pt.
 - Kept on purpose, not counted: the red chevron on destructive rows, Telegram's metrics (radius 30, width 220–240, row 43 pt against the system's 42), the preview, blur and reaction strip, and the liquid morph on buttons only.
-- Not proven: iOS 27 at runtime (the new selectors are checked with `responds(to:)`, so the stretch would just not start), a physical device, haptics.
+- Not proven: keys went through the handler in the probe, since agent-device can't send arrow keys; pointer input was not driven on any runtime; a physical device and haptics.
+- System metrics for reference (UIKitCore 24A434 and live 27.2): width 250, radius 32, row 42, text at 64 from the leading edge, highlight inset 10 with radius 22, no blur behind the menu with a black dim of 0.20 light and 0.48 dark.
+- The opening finger on the system menu, driven by `gesture drag` from a message onto its rows: the glass stays still on 26.5, 27.0 and 27.2 simulators. The user saw it bend on the system menu, so a physical device may differ.
