@@ -453,6 +453,11 @@ class TelegramContextMenuExtractableView: UIView {
 
 // swiftformat:enable preferFinalClasses
 
+/// A route from outside the app, such as a quick action, closes whichever menu is open.
+@MainActor func dismissActiveTelegramContextMenu() {
+    TelegramContextMenuController.activeController?.dismissWithEscape()
+}
+
 extension UIViewController {
     var isPresentingTelegramContextMenu: Bool {
         let controller = TelegramContextMenuController.activeController

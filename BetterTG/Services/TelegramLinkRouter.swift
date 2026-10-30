@@ -188,6 +188,19 @@ import UIKit
         }
     }
 
+    // MARK: Presentation
+
+    /// Pushes go on the app's navigation stack, so whatever is presented over it closes first.
+    func afterDismissingPresentations(_ action: @escaping () -> Void) {
+        guard let root = NavigationStorage.shared.navigationController.viewIfLoaded?.window?.rootViewController,
+              let presented = root.presentedViewController, !presented.isBeingDismissed
+        else {
+            action()
+            return
+        }
+        root.dismiss(animated: true) { action() }
+    }
+
     private func openPendingLink() {
         guard TDLib.shared.isActiveAccountReady, let pending = pendingLink else { return }
         pendingLink = nil
@@ -1107,19 +1120,6 @@ import UIKit
             if let top = navigation.topViewController, type(of: top) == type(of: controller) { return }
             navigation.pushViewController(controller, animated: true)
         }
-    }
-
-    // MARK: Presentation
-
-    /// Pushes go on the app's navigation stack, so whatever is presented over it closes first.
-    private func afterDismissingPresentations(_ action: @escaping () -> Void) {
-        guard let root = NavigationStorage.shared.navigationController.viewIfLoaded?.window?.rootViewController,
-              let presented = root.presentedViewController, !presented.isBeingDismissed
-        else {
-            action()
-            return
-        }
-        root.dismiss(animated: true) { action() }
     }
 
     /// The controller sheets and alerts present from: the top of the link's window, or of the app's window when the

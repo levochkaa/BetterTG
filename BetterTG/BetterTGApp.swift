@@ -31,6 +31,7 @@ import UIKit
             ChatViewportRestorationProbe.runDebugProbeIfRequested()
             MessageTextSpoilerProbe.runDebugProbeIfRequested()
             TelegramLinkRouterProbe.runDebugProbeIfRequested()
+            HomeScreenQuickActions.runDebugProbeIfRequested()
             MessageDeliveryProbe.runIfRequested()
             ChatUpdateDeliveryProbe.runDebugProbeIfRequested()
             ChatListActionAuthorityProbe.runDebugProbeIfRequested()
@@ -249,6 +250,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             }
         }
 
+        if let shortcutItem = connectionOptions.shortcutItem {
+            HomeScreenQuickActions.shared.perform(shortcutItem)
+        }
+
         if let response = connectionOptions.notificationResponse {
             Task {
                 await PushRelayCoordinator.shared.handleNotificationResponse(response)
@@ -266,6 +271,18 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         if let url = userActivity.webpageURL {
             TelegramLinkRouter.shared.handle(url, from: window?.rootViewController)
         }
+    }
+
+    func windowScene(
+        _: UIWindowScene,
+        performActionFor shortcutItem: UIApplicationShortcutItem,
+        completionHandler: @escaping (Bool) -> Void,
+    ) {
+        completionHandler(HomeScreenQuickActions.shared.perform(shortcutItem))
+    }
+
+    func sceneWillResignActive(_: UIScene) {
+        HomeScreenQuickActions.shared.updateItems()
     }
 
     func sceneDidEnterBackground(_: UIScene) {

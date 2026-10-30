@@ -253,6 +253,7 @@
 "Settings.Appearance" = "Appearance";
 "Settings.ChatFolders" = "Chat Folders";
 "Settings.AddAccount" = "Add Account";
+"Shortcut.SwitchAccount" = "Switch Account";
 
 "Appearance.Title" = "Appearance";
 "Appearance.ThemeDay" = "Day";

@@ -273,6 +273,21 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
     }
 
+    func showAccountError(_ error: Error) {
+        let alert = UIAlertController(title: nil, message: error.localizedDescription, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
+        present(alert, animated: true)
+    }
+
+    /// ChatListController.activateSearch for the search quick action, once the list is on screen.
+    func activateSearch() {
+        if viewIfLoaded?.window == nil {
+            restoresSearchFocus = true
+        } else {
+            customNavigationBar.focusSearch()
+        }
+    }
+
     private func canRestoreClient(_ source: TdUpdateSource) -> Bool {
         source == TDLib.shared.activeUpdateSource
             && source.accountID == navigationClientSource?.accountID
@@ -1104,12 +1119,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             tracking: gesture,
             presentationStyle: .sourceMorph,
         )
-    }
-
-    private func showAccountError(_ error: Error) {
-        let alert = UIAlertController(title: nil, message: error.localizedDescription, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: L10n.telegram("Common.OK"), style: .default))
-        present(alert, animated: true)
     }
 
     @objc private func openSettings() {
