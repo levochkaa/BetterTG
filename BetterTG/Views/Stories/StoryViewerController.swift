@@ -99,6 +99,13 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private var viewListDisplay = StoryViewListLayout.Display.hidden
     private var viewListPanel: StoryViewListPanel?
     private var viewListStoryKey: StoryViewerSession.StoryKey?
+    private let viewListCarousel = StoryViewListCarousel()
+    private var viewListPanels = [StoryViewerSession.StoryKey: StoryViewListPanel]()
+    private var viewListPageFraction: CGFloat?
+    private var viewListPageSpacingOffset = CGFloat.zero
+    private var viewListPaging = false
+    private var viewListPageAnimation: UIViewPropertyAnimator?
+    private var viewListExpandFraction = CGFloat.zero
     /// The list's height while a finger moves it; nil at rest.
     private var viewListDragHeight: CGFloat?
     private var viewListDragStartHeight = CGFloat.zero
@@ -327,22 +334,20 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             size = CGSize(width: (availableHeight * 9 / 16).rounded(), height: availableHeight)
         }
         // The viewers list's shrink is a transform over the story's resting frame.
-        contentView.transform = .identity
-        contentView.frame = CGRect(
-            x: ((bounds.width - size.width) / 2).rounded(),
-            y: insets.top,
-            width: size.width,
-            height: size.height,
+        let contentFrame = CGRect(
+            x: ((bounds.width - size.width) / 2).rounded(), y: insets.top,
+            width: size.width, height: size.height,
         )
-        previousFace.layoutContent(frame: contentView.frame)
-        nextFace.layoutContent(frame: contentView.frame)
+        contentView.bounds = CGRect(origin: .zero, size: size)
+        contentView.center = CGPoint(x: contentFrame.midX, y: contentFrame.midY)
+        previousFace.layoutContent(frame: contentFrame)
+        nextFace.layoutContent(frame: contentFrame)
         layoutContent()
         layoutReplyPanel()
-        footerPanel.frame = CGRect(
-            x: 0,
-            y: contentView.frame.maxY + StoryFooterPanelView.topSpacing,
-            width: bounds.width,
-            height: StoryFooterPanelView.height,
+        footerPanel.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: StoryFooterPanelView.height)
+        footerPanel.center = CGPoint(
+            x: bounds.midX,
+            y: contentFrame.maxY + StoryFooterPanelView.topSpacing + StoryFooterPanelView.height / 2,
         )
         layoutCube()
         layoutViewList()
@@ -437,6 +442,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         // The reply panel, the reactions above it, the dimmed story under the keyboard and the footer keep their
         // touches.
         guard let touched = touch.view else { return true }
+        if touched.isDescendant(of: viewListCarousel), gestureRecognizer !== panGesture { return false }
         return ![replyPanel, replyReactions, replyDimView, footerPanel].contains { touched.isDescendant(of: $0) }
     }
 
@@ -676,8 +682,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
     // MARK: Showing stories
 
-    private func showCurrentStory() {
-        resetMedia()
+    private func showCurrentStory(preservingViewList: Bool = false) {
+        resetMedia(preservingViewList: preservingViewList)
         let chatID = state.currentChatID
         if replyPanelKey?.chatID != chatID { applyReplyPanel(nil, key: nil) }
         if chatID != session.accountUserID { applyFooter(nil) }
@@ -723,9 +729,9 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         }
     }
 
-    private func resetMedia() {
+    private func resetMedia(preservingViewList: Bool = false) {
         mediaGeneration = UUID()
-        hideViewListImmediately()
+        if !preservingViewList { hideViewListImmediately() }
         mediaTask?.cancel()
         mediaTask = nil
         areaTooltip?.dismiss()
@@ -840,6 +846,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             applyFooter(StoryFooterPanel.configuration(story: story, isOwn: true))
         }
         renderReplyPanel(story)
+        if viewListDisplay != .hidden { prepareViewListPanel() }
         updateAccessibilityLabel()
         view.setNeedsLayout()
     }
@@ -1050,12 +1057,18 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
     private func bindSession() {
         session.onStoryChanged = { [weak self] story in
-            guard let self, shownKey == .init(chatID: story.posterChatId, storyID: story.id) else { return }
+            guard let self else { return }
+            let key = StoryViewerSession.StoryKey(chatID: story.posterChatId, storyID: story.id)
+            viewListPanels[key]?.updateStory(story)
+            if story.posterChatId == session
+                .accountUserID { viewListCarousel.updateStory(story, client: session.client) }
+            guard shownKey == key else { return }
             shownStory = story
             renderDetails(story)
         }
         session.onStoryDeleted = { [weak self] key in
             guard let self, !isClosing else { return }
+            viewListPanels.removeValue(forKey: key)?.removeFromSuperview()
             apply(state.removeStory(chatID: key.chatID, storyID: key.storyID))
         }
         session.onActiveStoriesChanged = { [weak self] active in
@@ -1095,9 +1108,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private func apply(_ transition: StoryViewerState.Transition) {
         switch transition {
         case .none:
-            break
+            view.setNeedsLayout()
         case .story:
-            showCurrentStory()
+            showCurrentStory(preservingViewList: viewListDisplay != .hidden && state.currentChatID == session
+                .accountUserID)
         case .poster(let forward):
             turnCube(forward: forward)
         case .rewind:
@@ -1122,7 +1136,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
     private func updateChromeAlpha() {
         let alpha = isChromeHidden ? 0 : dragChromeAlpha
-        chromeView.alpha = alpha
+        chromeView.alpha = alpha * (1 - viewListExpandFraction)
         topShade.alpha = alpha
         bottomShade.alpha = alpha
         replyPanel.alpha = alpha
@@ -1712,6 +1726,13 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private func setViewListDisplay(_ display: StoryViewListLayout.Display, animated: Bool = true) {
         guard display == .hidden || showsViewList else { return }
         if display != .hidden { prepareViewListPanel() }
+        if display == .hidden {
+            viewListPageAnimation?.stopAnimation(true)
+            viewListPageAnimation = nil
+            viewListPageFraction = nil
+            viewListPageSpacingOffset = 0
+            viewListCarousel.prepareToClose()
+        }
         viewListDisplay = display
         viewListDragHeight = nil
         setPaused(display != .hidden, for: .viewList)
@@ -1721,6 +1742,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         guard animated else {
             view.setNeedsLayout()
             view.layoutIfNeeded()
+            if display == .hidden { viewListCarousel.stop() }
             return
         }
         UIView.animate(
@@ -1731,6 +1753,9 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             options: [.allowUserInteraction, .beginFromCurrentState],
         ) {
             self.layoutViewList()
+        } completion: { [weak self] _ in
+            guard let self, viewListDisplay == .hidden else { return }
+            viewListCarousel.stop()
         }
         if display == .hidden { UIAccessibility.post(notification: .layoutChanged, argument: footerPanel) }
     }
@@ -1738,6 +1763,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     /// The story that leaves takes its list along at once.
     private func hideViewListImmediately() {
         guard viewListDisplay != .hidden || viewListDragHeight != nil else { return }
+        viewListPageAnimation?.stopAnimation(true)
+        viewListPageAnimation = nil
+        viewListPageFraction = nil
+        viewListPageSpacingOffset = 0
+        viewListCarousel.stop()
         viewListDisplay = .hidden
         viewListDragHeight = nil
         viewListPanel?.endSearch()
@@ -1745,41 +1775,65 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         layoutViewList()
     }
 
-    /// The panel for the shown story, made the first time it opens and loading again for another story.
-    private func prepareViewListPanel() {
-        guard let story = shownStory, let key = shownKey else { return }
-        let panel: StoryViewListPanel
-        if let current = viewListPanel {
-            panel = current
-        } else {
-            panel = StoryViewListPanel()
-            panel.onSelect = { [weak self] item in self?.openViewer(item) }
-            panel.onContextMenu = { [weak self] item, row, gesture in
-                self?.openViewerMenu(item, row: row, gesture: gesture)
-            }
-            panel.onSearchActiveChanged = { [weak self] isActive in
-                if isActive { self?.setViewListDisplay(.full) }
-            }
-            let pan = UIPanGestureRecognizer(target: self, action: #selector(viewListPanned(_:)))
-            pan.delegate = self
-            panel.addGestureRecognizer(pan)
-            viewListPan = pan
-            view.addSubview(panel)
-            viewListPanel = panel
-            UIView.performWithoutAnimation { layoutViewList() }
+    /// Each story retains its own query, rows and scroll position for the lifetime of this viewer.
+    private func viewListPanel(for story: Story, key: StoryViewerSession.StoryKey) -> StoryViewListPanel {
+        if let panel = viewListPanels[key] { return panel }
+        let panel = StoryViewListPanel()
+        panel.onSelect = { [weak self] item in self?.openViewer(item) }
+        panel.onContextMenu = { [weak self] item, row, gesture in
+            self?.openViewerMenu(item, row: row, gesture: gesture)
         }
-        guard viewListStoryKey != key else { return }
-        viewListStoryKey = key
+        panel.onSearchActiveChanged = { [weak self] isActive in
+            if isActive { self?.setViewListDisplay(.full) }
+        }
         let session = session
         panel.configure(StoryViewListPanel.Source(
-            story: story,
-            client: session.client,
-            accountID: TDLib.shared.activeAccountID,
+            story: story, client: session.client, accountID: TDLib.shared.activeAccountID,
             fetch: { query, offset in
                 await session.storyInteractions(storyID: key.storyID, query: query, offset: offset)
             },
             resolvePeer: { [weak self] sender in await self?.viewListPeer(sender) },
         ))
+        view.addSubview(panel)
+        panel.isHidden = true
+        viewListPanels[key] = panel
+        return panel
+    }
+
+    private func prepareViewListPanel() {
+        guard let story = shownStory, let key = shownKey else { return }
+        if viewListCarousel.superview == nil {
+            containerView.addSubview(viewListCarousel)
+            viewListCarousel.onMove = { [weak self] in self?.layoutViewList() }
+            viewListCarousel.onSelect = { [weak self] index in self?.selectViewListStory(at: index) }
+            viewListCarousel.onCloseList = { [weak self] in self?.setViewListDisplay(.hidden) }
+            let session = session
+            viewListCarousel.fetch = { id in
+                guard let chatID = session.accountUserID else { return nil }
+                return await session.story(.init(chatID: chatID, storyID: id))
+            }
+        }
+        let panel = viewListPanel(for: story, key: key)
+        if viewListStoryKey != key {
+            viewListPanel?.endSearch()
+            if let pan = viewListPan { pan.view?.removeGestureRecognizer(pan) }
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(viewListPanned(_:)))
+            pan.delegate = self
+            panel.addGestureRecognizer(pan)
+            viewListPan = pan
+        }
+        viewListPanel = panel
+        viewListStoryKey = key
+        panel.isScrollEnabled = viewListDisplay == .full
+    }
+
+    private func selectViewListStory(at index: Int) {
+        guard !isClosing, viewListDisplay != .hidden, state.currentChatID == session.accountUserID,
+              state.selectStory(at: index) == .story else { return }
+        viewListPanel?.endSearch()
+        showCurrentStory(preservingViewList: true)
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
     }
 
     /// A viewer's name and avatar from TDLib; the UI probe's come from its seeded chats.
@@ -1947,28 +2001,65 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             listHeight: height,
             footerSpacing: StoryFooterPanelView.topSpacing,
         )
-        contentView.transform = layout.contentTransform
+        viewListExpandFraction = layout.expandFraction
+        chromeView.alpha = (isChromeHidden ? 0 : dragChromeAlpha) * (1 - layout.expandFraction)
+        var transform = layout.contentTransform
+        let ids = state.posters[state.posterIndex].storyIDs ?? []
+        if height > 0 || !viewListCarousel.isHidden, state.currentChatID == session.accountUserID, !ids.isEmpty {
+            viewListCarousel.isHidden = false
+            viewListCarousel.isUserInteractionEnabled = viewListPageFraction == nil
+            viewListCarousel.frame = containerView.bounds
+            let half = StoryViewListLayout.layout(
+                bounds: view.bounds.size, safeBottom: view.safeAreaInsets.bottom, contentFrame: restingFrame,
+                listHeight: StoryViewListLayout.halfHeight(screenHeight: screenHeight),
+                footerSpacing: StoryFooterPanelView.topSpacing,
+            )
+            transform = viewListCarousel.update(
+                ids: ids, index: state.storyIndex, content: restingFrame, layout: layout,
+                halfScale: half.contentScale, listFraction: viewListPageFraction,
+                liveStoryID: shownKey?.storyID, client: session.client,
+            )
+        }
+        contentView.transform = transform
+        contentView.isHidden = height > 0 && shownKey?.storyID != state.currentStoryID
         // Telegram keeps the visible corners round while the story shrinks; at rest the opening and closing
         // transitions own the corners.
         if height > 0 || viewListShapesStory {
             viewListShapesStory = height > 0
-            contentView.layer.cornerRadius = Self.contentCornerRadius / max(0.01, layout.contentScale)
+            contentView.layer.cornerRadius = Self.contentCornerRadius / max(0.01, transform.a)
         }
         if !footerPanel.isHidden {
-            footerPanel.frame.origin.y = layout.footerY
+            let footerScale = transform.a / max(0.01, layout.contentScale)
+            footerPanel.center = CGPoint(
+                x: view.bounds.midX + transform.tx,
+                y: layout.footerY + restingFrame.height * (transform.a - layout.contentScale) / 2
+                    + StoryFooterPanelView.height * (2 - footerScale) / 2,
+            )
+            footerPanel.transform = CGAffineTransform(scaleX: footerScale, y: footerScale)
+            footerPanel.accessibilityElementsHidden = height > 0
             footerPanel.expandFraction = layout.expandFraction
         }
         viewListFooterAlpha = layout.footerAlpha
-        footerPanel.alpha = (isChromeHidden ? 0 : dragChromeAlpha) * viewListFooterAlpha
-        if let panel = viewListPanel {
-            // The panel stays as tall as half the screen while it rises, so its rows don't relayout on the way.
-            let panelHeight = max(layout.listFrame.height, StoryViewListLayout.halfHeight(screenHeight: screenHeight))
-            panel.frame = CGRect(
-                x: 0,
-                y: layout.listFrame.minY,
-                width: view.bounds.width,
-                height: panelHeight,
-            )
+        footerPanel.alpha = (isChromeHidden || contentView.isHidden ? 0 : dragChromeAlpha) * viewListFooterAlpha
+        let panelHeight = max(layout.listFrame.height, StoryViewListLayout.halfHeight(screenHeight: screenHeight))
+        if let fraction = viewListPageFraction, fraction != 0 {
+            let adjacent = state.storyIndex + (fraction < 0 ? 1 : -1)
+            if ids.indices.contains(adjacent) {
+                let key = StoryViewerSession.StoryKey(chatID: state.currentChatID, storyID: ids[adjacent])
+                if let story = session.cachedStory(key) { _ = viewListPanel(for: story, key: key) }
+            }
+        }
+        for (key, panel) in viewListPanels {
+            let index = ids.firstIndex(of: key.storyID)
+            let delta = (index ?? -100) - state.storyIndex
+            let visible = key.chatID == state
+                .currentChatID && (delta == 0 || (viewListPageFraction != nil && abs(delta) == 1))
+            panel.isHidden = !visible
+            guard visible else { continue }
+            let x = CGFloat(delta) * (view.bounds.width + 20) + (viewListPageFraction ?? 0) * view.bounds.width
+                + viewListPageSpacingOffset
+            panel.frame = CGRect(x: x, y: layout.listFrame.minY, width: view.bounds.width, height: panelHeight)
+            panel.isUserInteractionEnabled = delta == 0
             panel.layoutIfNeeded()
         }
     }
@@ -2007,28 +2098,74 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     /// The list's own drag: at half it moves the list, fully open it takes over the scrolling at the top as the
     /// finger pulls down.
     private func viewListPanShouldBegin() -> Bool {
-        guard let panel = viewListPanel, let pan = viewListPan, viewListDisplay != .hidden else { return false }
+        guard let panel = viewListPanel, let pan = viewListPan, viewListDisplay != .hidden,
+              viewListPageAnimation == nil else { return false }
         let velocity = pan.velocity(in: view)
+        if abs(velocity.x) > abs(velocity.y) {
+            return state.storyCount > 1 && !isPresentingTelegramContextMenu && viewListPageAnimation == nil
+        }
         guard abs(velocity.y) > abs(velocity.x) else { return false }
         if viewListDisplay == .half { return true }
         return velocity.y > 0 && panel.isAtTop
     }
 
     @objc private func viewListPanned(_ gesture: UIPanGestureRecognizer) {
-        let translation = gesture.translation(in: view).y
+        let translation = gesture.translation(in: view)
+        let velocity = gesture.velocity(in: view)
         switch gesture.state {
         case .began:
-            beginViewListDrag(fromList: true)
+            viewListPaging = abs(velocity.x) > abs(velocity.y)
+            if viewListPaging {
+                viewListPanel?.endSearch()
+                viewListPageFraction = 0
+                viewListPageSpacingOffset = 0
+            } else { beginViewListDrag(fromList: true) }
             viewListPanel?.isScrollEnabled = false
         case .changed:
-            updateViewListDrag(translation)
+            if viewListPaging {
+                viewListPageFraction = max(-1, min(1, translation.x / max(1, view.bounds.width)))
+                layoutViewList()
+            } else { updateViewListDrag(translation.y) }
         case .cancelled,
              .ended,
              .failed:
-            finishViewListDrag(translation: translation, velocity: gesture.velocity(in: view).y)
-        default:
-            break
+            if viewListPaging {
+                finishViewListPage(velocity: velocity.x, cancelled: gesture.state != .ended)
+            } else { finishViewListDrag(translation: translation.y, velocity: velocity.y) }
+            viewListPaging = false
+        default: break
         }
+    }
+
+    private func finishViewListPage(velocity: CGFloat, cancelled: Bool) {
+        let oldIndex = state.storyIndex
+        let fraction = viewListPageFraction ?? 0
+        let target = StoryCarouselLayout.destination(
+            index: oldIndex, count: state.storyCount, fraction: fraction, velocity: velocity, cancelled: cancelled,
+        )
+        // Rebase the cards by one story; the list's extra 20 pt gap has its own offset so neither jumps.
+        viewListPageFraction = fraction + CGFloat(target - oldIndex)
+        viewListPageSpacingOffset = CGFloat(target - oldIndex) * 20
+        if target != oldIndex { selectViewListStory(at: target) }
+        layoutViewList()
+        let animator = UIViewPropertyAnimator(
+            duration: UIAccessibility.isReduceMotionEnabled ? 0.15 : (target == oldIndex ? 0.4 : 0.3),
+            dampingRatio: 0.9,
+        ) {
+            self.viewListPageFraction = 0
+            self.viewListPageSpacingOffset = 0
+            self.layoutViewList()
+        }
+        viewListPageAnimation = animator
+        animator.addCompletion { [weak self] _ in
+            guard let self else { return }
+            viewListPageAnimation = nil
+            viewListPageFraction = nil
+            viewListPageSpacingOffset = 0
+            viewListPanel?.isScrollEnabled = viewListDisplay == .full
+            layoutViewList()
+        }
+        animator.startAnimation()
     }
 
     // MARK: Footer
@@ -2725,10 +2862,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         guard !isClosing else { return }
         isClosing = true
         stopClock()
+        viewListPageAnimation?.stopAnimation(true)
+        viewListPageAnimation = nil
+        viewListCarousel.stop()
         viewListPanel?.endSearch()
-        if let panel = viewListPanel {
-            UIView.animate(withDuration: 0.2) { panel.alpha = 0 }
-        }
+        UIView.animate(withDuration: 0.2) { self.viewListPanels.values.forEach { $0.alpha = 0 } }
         areaTooltip?.dismiss()
         hideReplyReactions()
         if replyPanel.isEditing { replyPanel.endEditing() }
@@ -2776,6 +2914,9 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     }
 
     private func tearDown() {
+        viewListPageAnimation?.stopAnimation(true)
+        viewListPageAnimation = nil
+        viewListCarousel.stop()
         stopClock()
         mediaTask?.cancel()
         preloadTask?.cancel()
@@ -2881,7 +3022,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             client: TDLibClient,
             from presenter: UIViewController,
         ) -> StoryViewerController? {
-            guard let session = StoryViewerSession(client: client) else { return nil }
+            let session = StoryViewerSession(offlineClient: client)
             session.seedOffline(
                 stories: stories,
                 chats: chats,
@@ -2969,6 +3110,16 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
         func probeSetViewListDisplay(_ display: StoryViewListLayout.Display) {
             setViewListDisplay(display)
+        }
+
+        var probeViewListIdentity: ObjectIdentifier? { viewListPanel.map(ObjectIdentifier.init) }
+
+        func probeViewListSearch(_ text: String) { viewListPanel?.probeSearch(text) }
+
+        func probeViewListPage(fraction: CGFloat, velocity: CGFloat, cancelled: Bool = false) {
+            viewListPageFraction = fraction
+            layoutViewList()
+            finishViewListPage(velocity: velocity, cancelled: cancelled)
         }
 
         /// The viewers list as shown: its state, the panel's frame, the story's scale, the footer's expansion and

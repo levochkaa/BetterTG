@@ -13,7 +13,7 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
 
     /// What the panel needs from the viewer: the story, its client, and how to load and name the viewers.
     struct Source {
-        let story: Story
+        var story: Story
         let client: TDLibClient
         let accountID: UUID?
         let fetch: StoryViewListLoader.Fetch
@@ -98,6 +98,11 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
         func probeSelectRow(_ index: Int) {
             guard let loader, loader.items.indices.contains(index) else { return }
             onSelect?(loader.items[index])
+        }
+
+        func probeSearch(_ text: String) {
+            searchField.text = text
+            searchChanged()
         }
     #endif
 
@@ -265,6 +270,13 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
 
     func endSearch() {
         searchField.resignFirstResponder()
+    }
+
+    /// Counts/privacy may change while another story is selected; keep this panel's query and scroll position.
+    func updateStory(_ story: Story) {
+        guard source?.story.id == story.id, source?.story.posterChatId == story.posterChatId else { return }
+        source?.story = story
+        loaderChanged()
     }
 
     /// The viewer's place after a menu choice, so the next menu offers the opposite.

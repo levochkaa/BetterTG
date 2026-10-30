@@ -30,6 +30,7 @@ import UIKit
                 try verifyMenuItems()
                 try verifyOwnStory()
                 try verifyViewList()
+                try verifyCarousel()
                 try verifyChannelFooter()
                 try verifyReplyPanel()
                 result = "Story viewer probe passed: first-unseen-entry/clock-waits-for-media/hold-pause=true; "
@@ -42,7 +43,7 @@ import UIKit
                     + "translate=true; "
                     + "own-menu/expired/live/button/footer/no-views/view-label/count-text=true; "
                     + "view-list-title/tabs-at-20/private-no-tabs/sort-at-10/expired-no-header/empty-texts/"
-                    + "subtitles/page-kinds/layout/drag-outcomes/row-menus=true; "
+                    + "subtitles/page-kinds/layout/drag-outcomes/row-menus=true; carousel=selection/geometry/thresholds/cancel/edges; "
                     + "channel-footer/private-no-share/closed-group/writable-group-none=true; "
                     + "reply-user/private/closed/service/bot/self/group/read-only-group/channel/live/reaction-text=true"
             } catch {
@@ -59,6 +60,60 @@ import UIKit
 
         private static func require(_ condition: Bool, _ message: String) throws {
             guard condition else { throw Failure(description: message) }
+        }
+
+        private static func verifyCarousel() throws {
+            var state = try make(
+                [.init(chatID: 1, storyIDs: [11, 12, 13]), .init(chatID: 2, storyIDs: [21])],
+                initialChatID: 1,
+            )
+            state.setPaused(true, for: .viewList)
+            try require(
+                state.selectStory(at: 2) == .story && state.currentStoryID == 13 && state.elapsed == 0
+                        && state.pauseReasons.contains(.viewList),
+                "carousel selection lost position or pause",
+            )
+            try require(
+                state.selectStory(at: -1) == .none && state.selectStory(at: 3) == .none
+                        && state.currentChatID == 1 && state.selectStory(at: 2) == .none,
+                "carousel crossed its poster",
+            )
+            let content = CGRect(x: 0, y: 62, width: 402, height: 715)
+            let layout = StoryViewListLayout.layout(
+                bounds: CGSize(width: 402, height: 874),
+                safeBottom: 34,
+                contentFrame: content,
+                listHeight: 537,
+                footerSpacing: 10,
+            )
+            let centre = StoryCarouselLayout.transform(content: content, layout: layout, distance: 0)
+            let side = StoryCarouselLayout.transform(content: content, layout: layout, distance: 1)
+            try require(abs(content.width * (centre.a - side.a) - 54) < 0.01, "carousel side width")
+            try require(abs(side.tx - content.width * (centre.a + side.a) / 2 - 12) < 0.01, "carousel gap")
+            let samples: [(CGFloat, CGFloat, Bool, Int)] = [
+                (-0.29, 0, false, 1),
+                (-0.3, 0, false, 2),
+                (-0.05, -200, false, 2),
+                (-0.04, -900, false, 1),
+                (0.3, 0, false, 0),
+                (0.05, 200, false, 0),
+                (-0.7, -900, true, 1),
+            ]
+            for (fraction, velocity, cancelled, expected) in samples {
+                try require(StoryCarouselLayout.destination(
+                    index: 1,
+                    count: 3,
+                    fraction: fraction,
+                    velocity: velocity,
+                    cancelled: cancelled,
+                ) == expected, "carousel threshold/cancellation")
+            }
+            try require(
+                StoryCarouselLayout.destination(index: 0, count: 3, fraction: 1, velocity: 1000, cancelled: false) == 0
+                && StoryCarouselLayout
+                    .destination(index: 2, count: 3, fraction: -1, velocity: -1000, cancelled: false) == 2,
+                "carousel edge escaped",
+            )
         }
 
         private static func make(

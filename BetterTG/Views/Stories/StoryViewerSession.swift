@@ -49,7 +49,7 @@ import TDLibKit
     private var cancellables = Set<AnyCancellable>()
 
     var isCurrent: Bool {
-        !isRetired && TDLib.shared.activeUpdateSource == source
+        !isRetired && (isOffline || TDLib.shared.activeUpdateSource == source)
     }
 
     init?(client: TDLibClient) {
@@ -60,6 +60,88 @@ import TDLibKit
         self.accountUserID = TDLib.shared.activeAccount?.userID
         observeUpdates()
     }
+
+    #if DEBUG
+        /// An isolated fixture has no active-account dependency and never subscribes to real account updates.
+        init(offlineClient client: TDLibClient) {
+            self.client = client
+            self.source = TdUpdateSource(accountID: UUID(), clientID: client.id)
+            self.vodRanges = TDLib.shared.vodRanges
+            self.isOffline = true
+        }
+
+        /// Turns the session into the UI probe's: the viewer shows only these, without TDLib requests. With
+        /// `accountUserID` set, that poster's stories are the account's own.
+        func seedOffline(
+            stories: [Story],
+            chats: [Chat],
+            activeStories: [ChatActiveStories],
+            accountUserID: Int64? = nil,
+        ) {
+            isOffline = true
+            if let accountUserID { self.accountUserID = accountUserID }
+            for story in stories {
+                self.stories[StoryKey(chatID: story.posterChatId, storyID: story.id)] = story
+            }
+            for chat in chats {
+                self.chats[chat.id] = chat
+            }
+            for list in activeStories {
+                offlineActiveStories[list.chatId] = list
+            }
+        }
+
+        /// The probe's viewers of the account's stories; `contactIDs` answers the Contacts tab.
+        func seedOfflineInteractions(_ interactions: [Int: [StoryInteraction]], contactIDs: Set<Int64>) {
+            offlineInteractions = interactions
+            offlineContactIDs = contactIDs
+        }
+
+        /// getStoryInteractions over the seeded list, ten at a time so the probe pages: the search matches the
+        /// seeded chats' titles, and reactions come first in their date order when asked.
+        private func offlineInteractionPage(
+            storyID: Int,
+            query: StoryViewList.Query,
+            offset: String,
+        ) -> StoryViewList.Page {
+            var all = offlineInteractions[storyID] ?? []
+            if query.listMode == .contacts {
+                all = all.filter { offlineContactIDs.contains(Self.actorID($0.actorId)) }
+            }
+            if !query.text.isEmpty {
+                all = all.filter { interaction in
+                    chats[Self.actorID(interaction.actorId)]?.title.localizedCaseInsensitiveContains(query.text) == true
+                }
+            }
+            if query.sortMode == .reactionsFirst {
+                let reacted = all.filter(Self.hasReaction)
+                all = reacted + all.filter { !Self.hasReaction($0) }
+            }
+            let start = Int(offset) ?? 0
+            let end = min(all.count, start + 10)
+            let slice = start < end ? Array(all[start..<end]) : []
+            let reactions = offlineInteractions[storyID]?.count(where: Self.hasReaction) ?? 0
+            return StoryViewList.page(StoryInteractions(
+                totalCount: all.count,
+                totalForwardCount: 0,
+                totalReactionCount: reactions,
+                interactions: slice,
+                nextOffset: end < all.count ? String(end) : "",
+            ))
+        }
+
+        private static func actorID(_ sender: MessageSender) -> Int64 {
+            switch sender {
+            case .messageSenderUser(let user): user.userId
+            case .messageSenderChat(let chat): chat.chatId
+            }
+        }
+
+        private static func hasReaction(_ interaction: StoryInteraction) -> Bool {
+            if case .storyInteractionTypeView(let view) = interaction.type { return view.chosenReactionType != nil }
+            return false
+        }
+    #endif
 
     func cachedStory(_ key: StoryKey) -> Story? {
         stories[key]
@@ -202,80 +284,6 @@ import TDLibKit
         cancellables.removeAll()
         isRetired = true
     }
-
-    #if DEBUG
-        /// Turns the session into the UI probe's: the viewer shows only these, without TDLib requests. With
-        /// `accountUserID` set, that poster's stories are the account's own.
-        func seedOffline(
-            stories: [Story],
-            chats: [Chat],
-            activeStories: [ChatActiveStories],
-            accountUserID: Int64? = nil,
-        ) {
-            isOffline = true
-            if let accountUserID { self.accountUserID = accountUserID }
-            for story in stories {
-                self.stories[StoryKey(chatID: story.posterChatId, storyID: story.id)] = story
-            }
-            for chat in chats {
-                self.chats[chat.id] = chat
-            }
-            for list in activeStories {
-                offlineActiveStories[list.chatId] = list
-            }
-        }
-
-        /// The probe's viewers of the account's stories; `contactIDs` answers the Contacts tab.
-        func seedOfflineInteractions(_ interactions: [Int: [StoryInteraction]], contactIDs: Set<Int64>) {
-            offlineInteractions = interactions
-            offlineContactIDs = contactIDs
-        }
-
-        /// getStoryInteractions over the seeded list, ten at a time so the probe pages: the search matches the
-        /// seeded chats' titles, and reactions come first in their date order when asked.
-        private func offlineInteractionPage(
-            storyID: Int,
-            query: StoryViewList.Query,
-            offset: String,
-        ) -> StoryViewList.Page {
-            var all = offlineInteractions[storyID] ?? []
-            if query.listMode == .contacts {
-                all = all.filter { offlineContactIDs.contains(Self.actorID($0.actorId)) }
-            }
-            if !query.text.isEmpty {
-                all = all.filter { interaction in
-                    chats[Self.actorID(interaction.actorId)]?.title.localizedCaseInsensitiveContains(query.text) == true
-                }
-            }
-            if query.sortMode == .reactionsFirst {
-                let reacted = all.filter(Self.hasReaction)
-                all = reacted + all.filter { !Self.hasReaction($0) }
-            }
-            let start = Int(offset) ?? 0
-            let end = min(all.count, start + 10)
-            let slice = start < end ? Array(all[start..<end]) : []
-            let reactions = offlineInteractions[storyID]?.count(where: Self.hasReaction) ?? 0
-            return StoryViewList.page(StoryInteractions(
-                totalCount: all.count,
-                totalForwardCount: 0,
-                totalReactionCount: reactions,
-                interactions: slice,
-                nextOffset: end < all.count ? String(end) : "",
-            ))
-        }
-
-        private static func actorID(_ sender: MessageSender) -> Int64 {
-            switch sender {
-            case .messageSenderUser(let user): user.userId
-            case .messageSenderChat(let chat): chat.chatId
-            }
-        }
-
-        private static func hasReaction(_ interaction: StoryInteraction) -> Bool {
-            if case .storyInteractionTypeView(let view) = interaction.type { return view.chosenReactionType != nil }
-            return false
-        }
-    #endif
 
     private func enqueueVisibility(_ request: @escaping (TDLibClient) async -> Void) {
         let previous = visibilityRequests

@@ -20,10 +20,11 @@
     ///   the other reactions (like-options), or sends a reply (send);
     /// - `channel` shows Bob as a public channel: the channel footer with the views, like and Share instead of the
     ///   reply panel, and a tap on its like;
-    /// - `own [footer|menu|delete|viewers|viewers-full]` opens the account's own stories instead, before Alice's: the
+    /// - `own [footer|menu|delete|viewers|viewers-full|viewers-menu|carousel]` opens the account's own stories:
     ///   viewers list at half the screen from the footer's counts, with Alice's heart, Bob's view and Carol's
     ///   commented repost, then a tap on Bob (viewers), or the list fully open and closed again (viewers-full), or the
-    ///   rows' menus, hiding the stories from Alice (viewers-menu); the
+    ///   rows' menus, hiding the stories from Alice (viewers-menu); switching lists with query retention,
+    ///   full-height paging and cancellation (carousel); the
     ///   footer with three
     ///   views from Alice, Bob and Carol, two reactions and a repost (footer, by default), the own More menu (menu),
     ///   or Delete's sheet, then the deletion, after which the second story, without views, shows (delete).
@@ -101,22 +102,18 @@
         static func runIfRequested(in window: UIWindow) {
             let arguments = ProcessInfo.processInfo.arguments
             guard let index = arguments.firstIndex(of: flag) else { return }
+            record("Story viewer UI probe running")
             guard let mode = mode(from: arguments, flagIndex: index) else {
                 record("Story viewer UI probe failed: unknown mode \(arguments[safe: index + 1] ?? "")")
                 return
             }
             Task { @MainActor in
-                do {
-                    try await ProbeFixtures.waitForActiveAccount()
-                } catch {
-                    record("Story viewer UI probe failed: \(error)")
-                    return
-                }
                 try? await Task.sleep(for: .seconds(1))
                 var presenter = window.rootViewController
                 while let presented = presenter?.presentedViewController {
                     presenter = presented
                 }
+                presenter?.view.endEditing(true)
                 let fixture: Fixture
                 do {
                     var videoURL: URL?
@@ -276,7 +273,8 @@
                 return .channel
             case "own":
                 let step = value ?? "footer"
-                return ["footer", "menu", "delete", "viewers", "viewers-full", "viewers-menu"].contains(step)
+                return ["footer", "menu", "delete", "viewers", "viewers-full", "viewers-menu", "carousel"]
+                    .contains(step)
                     ? .own(step: step)
                     : nil
             default:
@@ -456,6 +454,34 @@
             var stepPasses = true
             var stepText = ""
             switch step {
+            case "carousel":
+                viewer.probeOpenViewList()
+                try? await Task.sleep(for: .milliseconds(1200))
+                let first = viewer.probeViewListIdentity
+                viewer.probeViewListSearch("Bob")
+                try? await Task.sleep(for: .milliseconds(500))
+                let rows = viewer.probeViewList.rows
+                viewer.probeViewListPage(fraction: -0.4, velocity: 0)
+                try? await Task.sleep(for: .milliseconds(800))
+                let second = viewer.probeShownStory?.id
+                let secondPanel = viewer.probeViewListIdentity
+                let half = viewer.probeViewList
+                viewer.probeSetViewListDisplay(.full)
+                try? await Task.sleep(for: .milliseconds(600))
+                viewer.probeViewListPage(fraction: 0.06, velocity: 250)
+                try? await Task.sleep(for: .milliseconds(800))
+                let full = viewer.probeViewList
+                stepPasses = second == ownStoryIDs[1] && secondPanel != first && half.display == .half && half.isPaused
+                    && viewer.probeShownStory?.id == ownStoryIDs[0] && viewer.probeViewListIdentity == first
+                    && full.rows == rows && rows.count == 1 && rows[0].hasPrefix("Bob|")
+                    && full.display == .full && full.isPaused
+                viewer.probeViewListPage(fraction: -0.7, velocity: -1000, cancelled: true)
+                try? await Task.sleep(for: .milliseconds(600))
+                stepPasses = stepPasses && viewer.probeShownStory?.id == ownStoryIDs[0]
+                viewer.probeSetViewListDisplay(.half)
+                stepText = "second=\(second ?? 0) distinct-panel=\(secondPanel != first) retained=\(viewer.probeViewListIdentity == first) "
+                    + "rows=\(full.rows.count) full-paused=\(full.isPaused) cancelled=\(viewer.probeShownStory?.id == ownStoryIDs[0])"
+                viewer.probeViewListSearch("")
             case "menu":
                 viewer.probeOpenMoreMenu()
                 try? await Task.sleep(for: .milliseconds(800))

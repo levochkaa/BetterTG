@@ -177,6 +177,13 @@ struct StoryViewerState: Equatable {
         elapsed = min(duration, max(0, time))
     }
 
+    /// Selecting a card in the own-story viewers carousel keeps this poster and resets only media timing.
+    mutating func selectStory(at index: Int) -> Transition {
+        guard index >= 0, index < storyCount, index != storyIndex else { return .none }
+        show(storyAt: index)
+        return .story
+    }
+
     mutating func next() -> Transition {
         if storyIndex + 1 < storyCount {
             show(storyAt: storyIndex + 1)
