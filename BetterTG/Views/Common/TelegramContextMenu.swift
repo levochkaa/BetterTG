@@ -8,17 +8,25 @@ import UIKit
 
 @MainActor enum TelegramContextMenuLayout {
     static let actionFontSize = CGFloat(17)
-    static let actionVerticalInset = CGFloat(11)
-    static let contentSideInset = CGFloat(18)
+    /// The system's 42-point row (`itemTopToFirstBaseline` 27 and `itemLastBaselineToBottom` 15, read from a live 27.2
+    /// menu) around the 21-point line.
+    static let actionVerticalInset = CGFloat(10.5)
+    static let contentSideInset = CGFloat(28)
     static let contentVerticalInset = CGFloat(10)
     static let iconSize = CGFloat(24)
     static let iconSlotWidth = CGFloat(32)
-    static let iconSideInset = CGFloat(20)
+    /// The icon's centre is 40 from the edge and the text starts at 64, as in the system's rows.
+    static let iconSideInset = CGFloat(24)
     static let iconSpacing = CGFloat(8)
-    static let minimumMenuWidth = CGFloat(220)
-    static let maximumMenuWidth = CGFloat(240)
-    static let sectionSeparatorHeight = CGFloat(20)
-    static let menuCornerRadius = CGFloat(30)
+    /// `defaultMenuWidth`.
+    static let minimumMenuWidth = CGFloat(250)
+    static let maximumMenuWidth = CGFloat(250)
+    /// `sectionInsets` of 10 around the 1-point separator, which stops 24 from each edge.
+    static let sectionSeparatorHeight = CGFloat(21)
+    static let separatorSideInset = CGFloat(24)
+    static let separatorThickness = CGFloat(1)
+    /// `menuCornerRadius`.
+    static let menuCornerRadius = CGFloat(32)
     /// The shared highlight is inset like the system's largeItemContentShape: 10 pt on each side, with the
     /// menu radius less that inset, capped at half the row height.
     static let highlightInset = CGFloat(10)
@@ -31,7 +39,7 @@ import UIKit
     /// `navigateDownFromNode:` scales the parent menu to 0.97 behind an open submenu.
     static let submenuParentScale = CGFloat(0.97)
     /// The room a row's chevron takes beyond the usual trailing inset.
-    static let submenuIndicatorReserve = CGFloat(26)
+    static let submenuIndicatorReserve = CGFloat(16)
     /// The room a row's avatar set takes: three 24 pt avatars overlapping by 10 pt, 4 pt inside the side inset and
     /// 8 pt clear of the text.
     static let avatarSetReserve: CGFloat = 64
@@ -40,13 +48,27 @@ import UIKit
     static let subtitleFontSize = CGFloat(13)
     static let subtitleSpacing = CGFloat(2)
     static let subtitleVerticalInset = CGFloat(12)
-    /// `setPreferredNumberOfLinesForTitle:` of the system's glass metrics.
-    static let maximumTitleLines = 3
+    /// At the accessibility sizes the menu keeps this gutter to the screen's edges.
+    static let accessibilityMenuMargin = CGFloat(16)
 
     private static let metrics = UIFontMetrics(forTextStyle: .body)
 
     static var actionHeight: CGFloat {
         titleLineHeight + scaled(actionVerticalInset) * 2
+    }
+
+    /// At the accessibility sizes the system's rows drop their icons and the menu takes the screen's width.
+    static var usesAccessibilityLayout: Bool {
+        traits.preferredContentSizeCategory.isAccessibilityCategory
+    }
+
+    /// `itemPrimaryAlpha`, on the row's text and icon.
+    static var primaryColor: UIColor {
+        UIColor.label.withAlphaComponent(0.96)
+    }
+
+    static var separatorColor: UIColor {
+        UIColor.label.withAlphaComponent(0.08)
     }
 
     static var headerHeight: CGFloat {
@@ -65,8 +87,13 @@ import UIKit
         titleLineHeight + scaled(subtitleSpacing) + subtitleLineHeight + scaled(subtitleVerticalInset) * 2
     }
 
-    /// The system scales its rows with Dynamic Type (`UIFontMetrics` over the baselines and the image box). These menus
-    /// don't scroll, so the scale stops at the first accessibility size, where a long menu still fits a phone.
+    /// `setPreferredNumberOfLinesForTitle:` of the system's glass metrics; the accessibility sizes don't limit it.
+    static var maximumTitleLines: Int {
+        usesAccessibilityLayout ? 0 : 3
+    }
+
+    /// The system scales its rows with Dynamic Type (`UIFontMetrics` over the baselines and the image box). The scale
+    /// stops at the first accessibility size, where a long menu still fits a phone.
     private static var traits: UITraitCollection {
         let current = UIApplication.shared.preferredContentSizeCategory
         return UITraitCollection(
@@ -102,7 +129,8 @@ import UIKit
             )
             .height
         guard titleHeight > font.lineHeight * 1.5 else { return actionHeight }
-        let lines = min(maximumTitleLines, Int((titleHeight / font.lineHeight).rounded()))
+        let measuredLines = Int((titleHeight / font.lineHeight).rounded())
+        let lines = maximumTitleLines == 0 ? measuredLines : min(maximumTitleLines, measuredLines)
         return max(actionHeight, ceil(font.lineHeight * CGFloat(lines)) + scaled(actionVerticalInset) * 2)
     }
 
@@ -119,8 +147,12 @@ import UIKit
         font(ofSize: titleFontSize(of: action))
     }
 
+    static func showsLeadingIcon(of action: TelegramContextMenuAction) -> Bool {
+        action.leadingPeer != nil || (action.image != nil && !usesAccessibilityLayout)
+    }
+
     static func titleLeadingInset(of action: TelegramContextMenuAction) -> CGFloat {
-        action.hasLeadingIcon ? iconSideInset + scaled(iconSlotWidth) + iconSpacing : contentSideInset
+        showsLeadingIcon(of: action) ? iconSideInset + scaled(iconSlotWidth) + iconSpacing : contentSideInset
     }
 
     static func titleTrailingInset(of action: TelegramContextMenuAction) -> CGFloat {
@@ -165,11 +197,6 @@ struct TelegramContextMenuAction {
     /// ContextMenuActionItem's `iconSource` with a peer's avatar, such as ChatSendAsPeerListContextItem's senders: the
     /// 30 pt avatar in the icon slot, ringed in the accent colour when chosen.
     var leadingPeer: TelegramContextMenuPeerIcon?
-
-    /// An icon or a peer's avatar takes the leading slot.
-    var hasLeadingIcon: Bool {
-        image != nil || leadingPeer != nil
-    }
 
     init(
         title: String,
@@ -1570,39 +1597,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     }
 
     private func menuWidth(availableWidth: CGFloat) -> CGFloat {
-        /// A submenu opens as wide as the menu, so its actions count too.
-        func withSubmenus(_ actions: [TelegramContextMenuAction]) -> [TelegramContextMenuAction] {
-            actions.flatMap { [$0] + withSubmenus($0.children) }
+        if TelegramContextMenuLayout.usesAccessibilityLayout {
+            min(availableWidth, view.bounds.width - TelegramContextMenuLayout.accessibilityMenuMargin * 2)
+        } else {
+            min(TelegramContextMenuLayout.maximumMenuWidth, availableWidth)
         }
-        let naturalWidth = withSubmenus(actions).reduce(CGFloat.zero) { width, action in
-            let font = TelegramContextMenuLayout.titleFont(of: action)
-            func measure(_ text: String) -> CGFloat {
-                ceil((text as NSString).size(withAttributes: [.font: font]).width)
-            }
-            var titleWidth = measure(action.title)
-                + (action.children.isEmpty
-                    ? 0
-                    : TelegramContextMenuLayout.scaled(TelegramContextMenuLayout.submenuIndicatorReserve))
-            if action.avatarUpdates != nil {
-                // ChatReadReportContextItem's text arrives later: room for "Nobody Viewed" beside the avatars.
-                titleWidth = max(titleWidth, measure(L10n.telegram("Conversation.ContextMenuNoViews")))
-                    + TelegramContextMenuLayout.avatarSetReserve
-            }
-            let contentWidth = titleWidth + TelegramContextMenuLayout.contentSideInset * 2
-            guard action.hasLeadingIcon else { return max(width, contentWidth) }
-            return max(
-                width,
-                titleWidth
-                    + TelegramContextMenuLayout.contentSideInset
-                    + TelegramContextMenuLayout.scaled(TelegramContextMenuLayout.iconSlotWidth)
-                    + TelegramContextMenuLayout.iconSideInset
-                    + TelegramContextMenuLayout.iconSpacing,
-            )
-        }
-        return min(
-            max(naturalWidth, TelegramContextMenuLayout.scaled(TelegramContextMenuLayout.minimumMenuWidth)),
-            min(TelegramContextMenuLayout.scaled(TelegramContextMenuLayout.maximumMenuWidth), availableWidth),
-        )
     }
 
     private func animateIn() {
@@ -2887,19 +2886,19 @@ private final class TelegramContextMenuSectionDivider: UIView {
 
         let line = UIView()
         line.translatesAutoresizingMaskIntoConstraints = false
-        line.backgroundColor = UIColor.separator.withAlphaComponent(0.62)
+        line.backgroundColor = TelegramContextMenuLayout.separatorColor
         addSubview(line)
         NSLayoutConstraint.activate([
             line.leadingAnchor.constraint(
                 equalTo: leadingAnchor,
-                constant: TelegramContextMenuLayout.contentSideInset,
+                constant: TelegramContextMenuLayout.separatorSideInset,
             ),
             line.trailingAnchor.constraint(
                 equalTo: trailingAnchor,
-                constant: -TelegramContextMenuLayout.contentSideInset,
+                constant: -TelegramContextMenuLayout.separatorSideInset,
             ),
             line.centerYAnchor.constraint(equalTo: centerYAnchor),
-            line.heightAnchor.constraint(equalToConstant: 1 / traitCollection.displayScale),
+            line.heightAnchor.constraint(equalToConstant: TelegramContextMenuLayout.separatorThickness),
         ])
     }
 
@@ -3011,7 +3010,7 @@ private final class TelegramContextSubmenuView: UIView {
         highlightView.isUserInteractionEnabled = false
         contentView.addSubview(highlightView)
         contentView.addSubview(rowsView)
-        divider.backgroundColor = UIColor.separator.withAlphaComponent(0.62)
+        divider.backgroundColor = TelegramContextMenuLayout.separatorColor
         rowsView.addSubview(divider)
         buttons.forEach(rowsView.addSubview)
     }
@@ -3221,7 +3220,7 @@ final class TelegramContextMenuActionButton: UIControl {
         self.acceptsSelection = !action.isInformational && !action.isHeader
         super.init(frame: .zero)
 
-        let color: UIColor = action.isDestructive ? .systemRed : .label
+        let color: UIColor = action.isDestructive ? .systemRed : TelegramContextMenuLayout.primaryColor
         titleLabel.text = action.title
         titleLabel.textColor = color
         titleLabel.font = TelegramContextMenuLayout.titleFont(of: action)
@@ -3321,7 +3320,7 @@ final class TelegramContextMenuActionButton: UIControl {
                     weight: .semibold,
                 ),
             )
-            submenuIndicator.tintColor = color
+            submenuIndicator.tintColor = action.isDestructive ? .systemRed : .label
             submenuIndicator.translatesAutoresizingMaskIntoConstraints = false
             addSubview(submenuIndicator)
             constraints.append(contentsOf: [
@@ -3373,7 +3372,7 @@ final class TelegramContextMenuActionButton: UIControl {
                         + TelegramContextMenuLayout.iconSpacing,
                 ),
             ])
-        } else if action.image != nil {
+        } else if TelegramContextMenuLayout.showsLeadingIcon(of: action) {
             addSubview(iconView)
             let iconSlotWidth = TelegramContextMenuLayout.scaled(TelegramContextMenuLayout.iconSlotWidth)
             let iconSize = TelegramContextMenuLayout.scaled(
@@ -3428,7 +3427,7 @@ final class TelegramContextMenuActionButton: UIControl {
                     self.acceptsSelection = selectable
                     accessibilityTraits = selectable ? .button : .staticText
                     if !menuAction.isHeader, !menuAction.isDestructive {
-                        titleLabel.textColor = selectable ? .label : .secondaryLabel
+                        titleLabel.textColor = selectable ? TelegramContextMenuLayout.primaryColor : .secondaryLabel
                     }
                 }
         }

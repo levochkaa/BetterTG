@@ -30,8 +30,8 @@ struct TelegramContextMenuTip: Equatable {
 
 // MARK: - TelegramContextMenuTipView
 
-/// InnerTextSelectionTipContainerNode outside the actions: the menu's glass, as round as 30 pt allows, with 13 pt text
-/// 16 pt from the top and bottom, 18 pt from the left or 60 pt after the lamp, and 8 pt from the right. The text
+/// InnerTextSelectionTipContainerNode outside the actions: the menu's glass, as round as the menu allows, with 13 pt
+/// text 16 pt from the top and bottom, 18 pt from the left or 60 pt after the lamp, and 8 pt from the right. The text
 /// selection tip pretends to select its first word, then more of the text half a second later.
 final class TelegramContextMenuTipView: UIView {
     private static let font = UIFont.systemFont(ofSize: 13)
@@ -87,7 +87,7 @@ final class TelegramContextMenuTipView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let radius = min(30, bounds.height / 2)
+        let radius = min(TelegramContextMenuLayout.menuCornerRadius, bounds.height / 2)
         layer.cornerRadius = radius
         fallbackGlassView.frame = bounds
         fallbackGlassView.layer.cornerRadius = radius
