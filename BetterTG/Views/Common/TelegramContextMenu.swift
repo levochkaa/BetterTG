@@ -6,11 +6,9 @@ import UIKit
 
 // MARK: - TelegramContextMenuLayout
 
-enum TelegramContextMenuLayout {
+@MainActor enum TelegramContextMenuLayout {
     static let actionFontSize = CGFloat(17)
     static let actionVerticalInset = CGFloat(11)
-    static let actionHeight = ceil(UIFont.systemFont(ofSize: actionFontSize).lineHeight)
-        + actionVerticalInset * 2
     static let contentSideInset = CGFloat(18)
     static let contentVerticalInset = CGFloat(10)
     static let iconSize = CGFloat(24)
@@ -27,7 +25,6 @@ enum TelegramContextMenuLayout {
     /// ChatReadReportContextItem in a private chat: 0.8 of the 17-point list font, 7 pt above and below.
     static let headerFontSize = CGFloat(13)
     static let headerVerticalInset = CGFloat(7)
-    static let headerHeight = ceil(UIFont.systemFont(ofSize: headerFontSize).lineHeight) + headerVerticalInset * 2
     static let headerIconSize = CGFloat(20)
     /// The chevron of a row with a submenu is centred this far from the trailing edge, as in the system menu.
     static let submenuIndicatorCenterInset = CGFloat(31)
@@ -43,21 +40,58 @@ enum TelegramContextMenuLayout {
     static let subtitleFontSize = CGFloat(13)
     static let subtitleSpacing = CGFloat(2)
     static let subtitleVerticalInset = CGFloat(12)
-    static let titleLineHeight = ceil(UIFont.systemFont(ofSize: actionFontSize).lineHeight)
-    static let subtitleLineHeight = ceil(UIFont.systemFont(ofSize: subtitleFontSize).lineHeight)
-    static let subtitledActionHeight = titleLineHeight + subtitleSpacing + subtitleLineHeight
-        + subtitleVerticalInset * 2
+    /// `setPreferredNumberOfLinesForTitle:` of the system's glass metrics.
+    static let maximumTitleLines = 3
+
+    private static let metrics = UIFontMetrics(forTextStyle: .body)
+
+    static var actionHeight: CGFloat {
+        titleLineHeight + scaled(actionVerticalInset) * 2
+    }
+
+    static var headerHeight: CGFloat {
+        ceil(font(ofSize: headerFontSize).lineHeight) + scaled(headerVerticalInset) * 2
+    }
+
+    static var titleLineHeight: CGFloat {
+        ceil(font(ofSize: actionFontSize).lineHeight)
+    }
+
+    static var subtitleLineHeight: CGFloat {
+        ceil(font(ofSize: subtitleFontSize).lineHeight)
+    }
+
+    static var subtitledActionHeight: CGFloat {
+        titleLineHeight + scaled(subtitleSpacing) + subtitleLineHeight + scaled(subtitleVerticalInset) * 2
+    }
+
+    /// The system scales its rows with Dynamic Type (`UIFontMetrics` over the baselines and the image box). These menus
+    /// don't scroll, so the scale stops at the first accessibility size, where a long menu still fits a phone.
+    private static var traits: UITraitCollection {
+        let current = UIApplication.shared.preferredContentSizeCategory
+        return UITraitCollection(
+            preferredContentSizeCategory: current > .accessibilityMedium ? .accessibilityMedium : current,
+        )
+    }
+
+    static func scaled(_ value: CGFloat) -> CGFloat {
+        metrics.scaledValue(for: value, compatibleWith: traits)
+    }
+
+    static func font(ofSize size: CGFloat, weight: UIFont.Weight = .regular) -> UIFont {
+        metrics.scaledFont(for: .systemFont(ofSize: size, weight: weight), compatibleWith: traits)
+    }
 
     static func height(of action: TelegramContextMenuAction) -> CGFloat {
         if action.isHeader { return headerHeight }
         return action.subtitleUpdates == nil && action.secondLine == nil ? actionHeight : subtitledActionHeight
     }
 
-    /// Telegram's `.twoLinesMax` action text: a title too long for the menu wraps onto a second line and the row
-    /// grows to hold it. Headers and titles that arrive later keep one line.
+    /// A title too long for the menu wraps, up to `maximumTitleLines`, and the row grows to hold it. Headers and titles
+    /// that arrive later keep one line.
     static func height(of action: TelegramContextMenuAction, menuWidth: CGFloat) -> CGFloat {
         guard wrapsTitle(of: action), menuWidth > 0 else { return height(of: action) }
-        let font = UIFont.systemFont(ofSize: titleFontSize(of: action))
+        let font = titleFont(of: action)
         let textWidth = max(1, menuWidth - titleLeadingInset(of: action) - titleTrailingInset(of: action))
         let titleHeight = (action.title as NSString)
             .boundingRect(
@@ -68,7 +102,8 @@ enum TelegramContextMenuLayout {
             )
             .height
         guard titleHeight > font.lineHeight * 1.5 else { return actionHeight }
-        return max(actionHeight, ceil(font.lineHeight * 2) + actionVerticalInset * 2)
+        let lines = min(maximumTitleLines, Int((titleHeight / font.lineHeight).rounded()))
+        return max(actionHeight, ceil(font.lineHeight * CGFloat(lines)) + scaled(actionVerticalInset) * 2)
     }
 
     static func wrapsTitle(of action: TelegramContextMenuAction) -> Bool {
@@ -80,12 +115,16 @@ enum TelegramContextMenuLayout {
         return action.isInformational || action.usesSmallText ? 14 : actionFontSize
     }
 
+    static func titleFont(of action: TelegramContextMenuAction) -> UIFont {
+        font(ofSize: titleFontSize(of: action))
+    }
+
     static func titleLeadingInset(of action: TelegramContextMenuAction) -> CGFloat {
-        action.hasLeadingIcon ? iconSideInset + iconSlotWidth + iconSpacing : contentSideInset
+        action.hasLeadingIcon ? iconSideInset + scaled(iconSlotWidth) + iconSpacing : contentSideInset
     }
 
     static func titleTrailingInset(of action: TelegramContextMenuAction) -> CGFloat {
-        contentSideInset + (action.children.isEmpty ? 0 : submenuIndicatorReserve)
+        contentSideInset + (action.children.isEmpty ? 0 : scaled(submenuIndicatorReserve))
     }
 }
 
@@ -386,7 +425,8 @@ class TelegramContextMenuExtractableView: UIView {
 
 extension UIViewController {
     var isPresentingTelegramContextMenu: Bool {
-        TelegramContextMenuController.activeController?.owner === self
+        let controller = TelegramContextMenuController.activeController
+        return controller?.owner === self && controller?.isOpen == true
     }
 
     /// A screen losing permission to show its source can close its own menu without affecting another owner.
@@ -484,10 +524,15 @@ private final class TelegramContextMenuRootView: UIView {
     /// Also reached while the quote text inside the menu holds focus.
     override var keyCommands: [UIKeyCommand]? {
         [UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(escapePressed))]
+            + TelegramContextMenuController.navigationKeys.map {
+                UIKeyCommand(input: $0, modifierFlags: [], action: #selector(keyPressed(_:)))
+            }
     }
 
     var onDetached: (() -> Void)?
     var onEscape: (() -> Void)?
+    var onKey: ((String) -> Void)?
+    var onTypeSelect: ((String) -> Void)?
 
     private var wasAttached = false
 
@@ -502,8 +547,23 @@ private final class TelegramContextMenuRootView: UIView {
         return onEscape != nil
     }
 
+    /// UICollectionView's type select in the system's list: letters choose the row that starts with them.
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        guard let key = presses.first?.key, key.modifierFlags.isDisjoint(with: [.command, .control, .alternate]),
+              let character = key.characters.first, character.isLetter || character.isNumber
+        else {
+            super.pressesBegan(presses, with: event)
+            return
+        }
+        onTypeSelect?(String(character))
+    }
+
     @objc private func escapePressed() {
         onEscape?()
+    }
+
+    @objc private func keyPressed(_ command: UIKeyCommand) {
+        onKey?(command.input ?? "")
     }
 }
 
@@ -572,6 +632,10 @@ private extension UIViewController {
     @objc func dismissTelegramContextMenuWithEscape() {
         TelegramContextMenuController.activeController?.dismissWithEscape()
     }
+
+    @objc func telegramContextMenuKeyPressed(_ command: UIKeyCommand) {
+        TelegramContextMenuController.activeController?.handleKey(command.input ?? "")
+    }
 }
 
 // MARK: - TelegramContextMenuController
@@ -580,6 +644,13 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     // MARK: Fileprivate
 
     fileprivate static var activeController: TelegramContextMenuController?
+    fileprivate static let navigationKeys = [
+        UIKeyCommand.inputUpArrow,
+        UIKeyCommand.inputDownArrow,
+        UIKeyCommand.inputLeftArrow,
+        UIKeyCommand.inputRightArrow,
+        "\r",
+    ]
 
     /// Menus replaced by a newer one while they still close; each stays alive until its close completes.
     private static var closingControllers = [TelegramContextMenuController]()
@@ -603,6 +674,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// long on a row with a submenu opens it, and on an open submenu's header closes it, in the stacked hierarchy
     /// (0.1 s in the cascaded one; iOS 26.5).
     private static let autoNavigationDelay: TimeInterval = 0.5
+    /// `_handleSelectionForElement:`'s `autoUnhighlightTimer`.
+    private static let selectionHighlightHold: TimeInterval = 0.1
+    /// `_animateUsingFluidSpringWithType:` under Reduce Motion: the open and close spring without overshoot.
+    private static let reducedMotionDuration: TimeInterval = 0.4
 
     fileprivate weak var owner: UIViewController?
 
@@ -673,6 +748,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// Each action's row height, which grows once the menu's width wraps its title.
     private var actionHeightConstraints = [NSLayoutConstraint]()
     private var hasAnimatedIn = false
+    private let reducesMotion = UIAccessibility.isReduceMotionEnabled
     private var isDismissing = false
     private var isPerformingAction = false
     /// One touch at a time, as in the system menu: the finger that opened the menu or a later touch on it.
@@ -691,6 +767,9 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private var selectionDelayWork: DispatchWorkItem?
     private var highlightedIndex: Int?
     private var autoNavigationWork: DispatchWorkItem?
+    private var highlightFollowsPointer = false
+    private var typeSelectText = ""
+    private var typeSelectReset: DispatchWorkItem?
     /// UIKit's `unselectableIndexPath`: the row an auto navigation just went through in the list now shown (the new
     /// submenu's header, or the closed submenu's row). It stays unhighlighted under the finger, and a release on it
     /// does nothing, until the finger moves off it.
@@ -702,7 +781,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// `navigateDownFromNode:` turns the header over on 1 / 0.2 s and opens on 0.85 / 0.4 s; `navigateUpFromNode:`
     /// fades the submenu's actions and turns the header back on 1 / 0.5 s and closes on 1 / 0.4 s.
     private let submenuHeaderBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.2)
-    private let submenuOpenBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 0.85, response: 0.4)
+    private lazy var submenuOpenBehavior = ContextMenuNativeAnimation.makeBehavior(
+        dampingRatio: reducesMotion ? 1 : 0.85,
+        response: 0.4,
+    )
     private let submenuCloseBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.4)
     private let submenuFadeBehavior = ContextMenuNativeAnimation.makeBehavior(dampingRatio: 1, response: 0.5)
     private weak var escapeCommandOwner: UIViewController?
@@ -710,6 +792,17 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         target: self,
         action: #selector(menuTouchChanged(_:)),
     )
+    /// The keys that move through the menu while the focus stays elsewhere, such as in the composer.
+    private lazy var navigationCommands: [UIKeyCommand] = Self.navigationKeys.map {
+        let command = UIKeyCommand(
+            input: $0,
+            modifierFlags: [],
+            action: #selector(UIViewController.telegramContextMenuKeyPressed(_:)),
+        )
+        command.wantsPriorityOverSystemBehavior = true
+        return command
+    }
+
     private lazy var escapeCommand: UIKeyCommand = {
         let command = UIKeyCommand(
             input: UIKeyCommand.inputEscape,
@@ -733,6 +826,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private var menuVisibilityAssertion: AnyObject?
 
     fileprivate var isOpen: Bool { !isDismissing }
+
+    #if DEBUG
+    fileprivate var debugHighlightedTitle: String? {
+        highlightedIndex.flatMap { activeButtons.indices.contains($0) ? activeButtons[$0].menuAction.title : nil }
+    }
+    #endif
 
     private var showsSourceTabs: Bool { sources.count > 1 }
 
@@ -828,6 +927,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         let root = TelegramContextMenuRootView()
         root.onDetached = { [weak self] in self?.finishDismissal() }
         root.onEscape = { [weak self] in self?.dismissWithEscape() }
+        root.onKey = { [weak self] in self?.handleKey($0) }
+        root.onTypeSelect = { [weak self] in self?.typeSelect($0) }
         root.accessibilityViewIsModal = true
         view = root
     }
@@ -910,6 +1011,39 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 
     fileprivate func dismissWithEscape() {
         dismissMenu(completion: nil)
+    }
+
+    // MARK: Keyboard
+
+    /// `_UIContextMenuView`'s keys: up and down move through the rows as its list's focus does, Return chooses the row,
+    /// the forward arrow opens its submenu (`_handleRightArrowKey:`), and the back arrow closes the open one
+    /// (`_handleLeftArrowKey:`).
+    fileprivate func handleKey(_ input: String) {
+        guard !isDismissing, touchSession == nil else { return }
+        let rightToLeft = view.effectiveUserInterfaceLayoutDirection == .rightToLeft
+        let forward = rightToLeft ? UIKeyCommand.inputLeftArrow : UIKeyCommand.inputRightArrow
+        switch input {
+        case UIKeyCommand.inputUpArrow:
+            moveHighlight(by: -1)
+        case UIKeyCommand.inputDownArrow:
+            moveHighlight(by: 1)
+        case "\r":
+            if let highlightedIndex, activeButtons.indices.contains(highlightedIndex) {
+                perform(activeButtons[highlightedIndex])
+            }
+        case forward:
+            guard let highlightedIndex, activeButtons.indices.contains(highlightedIndex),
+                  !activeButtons[highlightedIndex].menuAction.children.isEmpty,
+                  activeButtons[highlightedIndex] !== submenus.last?.headerButton
+            else { return }
+            perform(activeButtons[highlightedIndex])
+            // `setRetainHighlightOnMenuNavigation:`: the highlight goes with the keyboard into the submenu.
+            moveHighlight(by: 1)
+        default:
+            guard let submenu = submenus.last, let source = submenu.sourceButton else { return }
+            closeSubmenu()
+            setHighlight(activeButtons.firstIndex { $0 === source })
+        }
     }
 
     private func configureViews() {
@@ -1046,6 +1180,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         ])
 
         view.addGestureRecognizer(touchRecognizer)
+        view.addGestureRecognizer(UIHoverGestureRecognizer(target: self, action: #selector(menuHovered(_:))))
 
         rebuildActions()
         configureSourceTabs()
@@ -1442,12 +1577,14 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             actions.flatMap { [$0] + withSubmenus($0.children) }
         }
         let naturalWidth = withSubmenus(actions).reduce(CGFloat.zero) { width, action in
-            let font = UIFont.systemFont(ofSize: TelegramContextMenuLayout.titleFontSize(of: action))
+            let font = TelegramContextMenuLayout.titleFont(of: action)
             func measure(_ text: String) -> CGFloat {
                 ceil((text as NSString).size(withAttributes: [.font: font]).width)
             }
             var titleWidth = measure(action.title)
-                + (action.children.isEmpty ? 0 : TelegramContextMenuLayout.submenuIndicatorReserve)
+                + (action.children.isEmpty
+                    ? 0
+                    : TelegramContextMenuLayout.scaled(TelegramContextMenuLayout.submenuIndicatorReserve))
             if action.avatarUpdates != nil {
                 // ChatReadReportContextItem's text arrives later: room for "Nobody Viewed" beside the avatars.
                 titleWidth = max(titleWidth, measure(L10n.telegram("Conversation.ContextMenuNoViews")))
@@ -1459,14 +1596,14 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                 width,
                 titleWidth
                     + TelegramContextMenuLayout.contentSideInset
-                    + TelegramContextMenuLayout.iconSlotWidth
+                    + TelegramContextMenuLayout.scaled(TelegramContextMenuLayout.iconSlotWidth)
                     + TelegramContextMenuLayout.iconSideInset
                     + TelegramContextMenuLayout.iconSpacing,
             )
         }
         return min(
-            max(naturalWidth, TelegramContextMenuLayout.minimumMenuWidth),
-            min(TelegramContextMenuLayout.maximumMenuWidth, availableWidth),
+            max(naturalWidth, TelegramContextMenuLayout.scaled(TelegramContextMenuLayout.minimumMenuWidth)),
+            min(TelegramContextMenuLayout.scaled(TelegramContextMenuLayout.maximumMenuWidth), availableWidth),
         )
     }
 
@@ -1482,9 +1619,9 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             self.backgroundEffectView.alpha = 1
         }
         UIView.animate(
-            withDuration: 0.34,
+            withDuration: reducesMotion ? Self.reducedMotionDuration : 0.34,
             delay: 0,
-            usingSpringWithDamping: 0.84,
+            usingSpringWithDamping: reducesMotion ? 1 : 0.84,
             initialSpringVelocity: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
         ) {
@@ -1542,6 +1679,25 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// Telegram's actions animation: the menu springs out of its source, starting at its edge next to the
     /// content and travelling with it, and a menu-only source also centres it on the source.
     private func animateMenuIn() {
+        if reducesMotion {
+            // The menu fades in place, with its tip.
+            menuView.alpha = 0
+            tipView?.alpha = 0
+            ContextMenuNativeAnimation.animate(
+                behavior: ContextMenuNativeAnimation.makeBehavior(
+                    dampingRatio: 1,
+                    response: Self.reducedMotionDuration,
+                ),
+                tracking: false,
+                fallbackDampingRatio: 1,
+                fallbackResponse: Self.reducedMotionDuration,
+            ) {
+                self.menuView.alpha = 1
+                self.tipView?.alpha = 1
+            }
+            tipView?.animateSelection()
+            return
+        }
         let contentTravelY = presentationStyle.showsPreview
             ? targetPreviewFrame.midY - (sourceFrame.midY + contentScrollOffset)
             : 0
@@ -1656,7 +1812,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         // Slower than the menu, as the concept's growth, so that the messages are seen travelling in.
         UIView.animate(
             springDuration: Self.growthDuration,
-            bounce: Self.growthBounce,
+            bounce: reducesMotion ? 0 : Self.growthBounce,
             initialSpringVelocity: 0,
             delay: 0,
             options: [.allowUserInteraction, .beginFromCurrentState],
@@ -1789,6 +1945,15 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     }
 
     private func animateMenuOut(returnFrame: CGRect) {
+        if reducesMotion {
+            let cards = submenuViews
+            UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState]) {
+                self.menuView.alpha = 0
+                self.tipView?.alpha = 0
+                cards.forEach { $0.alpha = 0 }
+            }
+            return
+        }
         let contentTravelY = presentationStyle.showsPreview ? targetPreviewFrame.midY - returnFrame.midY : 0
         let offset = menuTransitionOffset(contentTravelY: contentTravelY)
         let layer = menuView.layer
@@ -2107,8 +2272,13 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         }
         isPerformingAction = true
         trackingGesture?.removeTarget(self, action: #selector(trackingGestureChanged(_:)))
-        let handler = button.menuAction.handler
-        dismissMenu(completion: handler)
+        // `contextMenuView:didSelectElement:` runs the action alongside the start of the close, and
+        // `_handleSelectionForElement:` keeps the chosen row highlighted a moment longer.
+        dismissMenu(completion: nil)
+        button.menuAction.handler()
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.selectionHighlightHold) { [weak self] in
+            self?.setHighlight(nil)
+        }
     }
 
     /// Pauses animated emoji until `duration` passes, or until the menu is gone when it is nil. A later motion
@@ -2406,7 +2576,14 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             setHighlight(index)
             let session = touchSession
             let release = session?.release(at: time) ?? .keepOpen
-            finishTracking()
+            // A chosen row stays highlighted while its action starts.
+            if case .select(let index) = release, activeButtons.indices.contains(index),
+               activeButtons[index].menuAction.children.isEmpty
+            {
+                finishTracking(keepsHighlight: true)
+            } else {
+                finishTracking()
+            }
             switch release {
             case .select(let index) where activeButtons.indices.contains(index):
                 perform(activeButtons[index])
@@ -2437,7 +2614,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         touchSessionStretchesGlass = ContextMenuNativeGlass.beginStretch(of: glassView, withTouchOf: gesture)
     }
 
-    private func finishTracking() {
+    private func finishTracking(keepsHighlight: Bool = false) {
         touchSession = nil
         touchSessionIsInitiating = false
         touchSessionStretchesGlass = false
@@ -2447,7 +2624,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         unselectableButton = nil
         // Released, the tracked velocity carries into the 0.85 / 0.5 s spring back.
         if panOffset != .zero { setPan(.zero, tracking: false) }
-        setHighlight(nil)
+        if !keepsHighlight, !isPerformingAction { setHighlight(nil) }
         reactionStrip.updateTracking(at: nil)
     }
 
@@ -2518,7 +2695,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// The system's shared highlight (`highlightItemAtIndexPath:` 0x1c482dba0, `unHighlightItemAtIndexPath:`
     /// 0x1c482d9d8): it slides between actions on a 1 / 0.12 s frame spring and fades on a 1 / 0.3 s spring, and
     /// one that is effectively invisible appears in place.
-    private func setHighlight(_ index: Int?) {
+    private func setHighlight(_ index: Int?, playsFeedback: Bool = true) {
         guard index != highlightedIndex else { return }
         cancelAutoNavigation()
         highlightedIndex = index
@@ -2563,8 +2740,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             fallbackDampingRatio: 1,
             fallbackResponse: 0.3,
         ) { highlight.alpha = 1 }
-        selectionFeedback.selectionChanged()
-        selectionFeedback.prepare()
+        if playsFeedback {
+            selectionFeedback.selectionChanged()
+            selectionFeedback.prepare()
+        }
         scheduleAutoNavigation(through: button, at: index)
     }
 
@@ -2576,11 +2755,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// reopens nor closes it.
     private func scheduleAutoNavigation(through button: TelegramContextMenuActionButton, at index: Int) {
         let closes = button === submenus.last?.headerButton
-        guard touchSession != nil, closes || !button.menuAction.children.isEmpty else { return }
+        guard touchSession != nil || highlightFollowsPointer, closes || !button.menuAction.children.isEmpty
+        else { return }
         let work = DispatchWorkItem { [weak self, weak button] in
             guard let self, let button else { return }
             autoNavigationWork = nil
-            guard touchSession != nil, !isDismissing, highlightedIndex == index,
+            guard touchSession != nil || highlightFollowsPointer, !isDismissing, highlightedIndex == index,
                   activeButtons.indices.contains(index), activeButtons[index] === button
             else { return }
             let closedRow = closes ? submenus.last?.sourceButton : nil
@@ -2599,6 +2779,46 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         autoNavigationWork = nil
     }
 
+    private func moveHighlight(by step: Int) {
+        let selectable = activeButtons.indices.filter { activeButtons[$0].acceptsSelection }
+        guard !selectable.isEmpty else { return }
+        guard let highlightedIndex, let position = selectable.firstIndex(of: highlightedIndex) else {
+            setHighlight(step > 0 ? selectable.first : selectable.last)
+            return
+        }
+        setHighlight(selectable[min(max(0, position + step), selectable.count - 1)])
+    }
+
+    private func typeSelect(_ character: String) {
+        guard !isDismissing, touchSession == nil else { return }
+        typeSelectReset?.cancel()
+        typeSelectText += character.lowercased()
+        let reset = DispatchWorkItem { [weak self] in self?.typeSelectText = "" }
+        typeSelectReset = reset
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: reset)
+        let index = activeButtons.firstIndex {
+            $0.acceptsSelection && $0.menuAction.title.lowercased().hasPrefix(typeSelectText)
+        }
+        if let index { setHighlight(index) }
+    }
+
+    // MARK: Pointer
+
+    /// `_handleHoverGestureRecognizer:`: the highlight follows the pointer without the selection tick, and a row with a
+    /// submenu opens as under a resting finger.
+    @objc private func menuHovered(_ recognizer: UIHoverGestureRecognizer) {
+        guard !isDismissing, touchSession == nil else { return }
+        switch recognizer.state {
+        case .began,
+             .changed:
+            highlightFollowsPointer = true
+            setHighlight(selectableActionIndex(at: recognizer.location(in: view)), playsFeedback: false)
+        default:
+            setHighlight(nil, playsFeedback: false)
+            highlightFollowsPointer = false
+        }
+    }
+
     // MARK: Escape
 
     /// Escape reaches the menu's root view when nothing else holds focus. Otherwise the focused view keeps it,
@@ -2611,6 +2831,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             }
             guard let controller = next as? UIViewController else { return }
             controller.addKeyCommand(escapeCommand)
+            navigationCommands.forEach(controller.addKeyCommand)
             escapeCommandOwner = controller
         } else {
             view.becomeFirstResponder()
@@ -2619,6 +2840,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 
     private func removeEscape() {
         escapeCommandOwner?.removeKeyCommand(escapeCommand)
+        navigationCommands.forEach { escapeCommandOwner?.removeKeyCommand($0) }
         escapeCommandOwner = nil
         if view.isFirstResponder { view.resignFirstResponder() }
     }
@@ -3022,8 +3244,10 @@ final class TelegramContextMenuActionButton: UIControl {
         let color: UIColor = action.isDestructive ? .systemRed : .label
         titleLabel.text = action.title
         titleLabel.textColor = color
-        titleLabel.font = .systemFont(ofSize: TelegramContextMenuLayout.titleFontSize(of: action))
-        titleLabel.numberOfLines = TelegramContextMenuLayout.wrapsTitle(of: action) ? 2 : 1
+        titleLabel.font = TelegramContextMenuLayout.titleFont(of: action)
+        titleLabel.numberOfLines = TelegramContextMenuLayout.wrapsTitle(of: action)
+            ? TelegramContextMenuLayout.maximumTitleLines
+            : 1
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         addSubview(titleLabel)
 
@@ -3064,7 +3288,7 @@ final class TelegramContextMenuActionButton: UIControl {
             timerView.translatesAutoresizingMaskIntoConstraints = false
             addSubview(timerView)
             subtitleLabel.textColor = color
-            subtitleLabel.font = .systemFont(ofSize: TelegramContextMenuLayout.subtitleFontSize)
+            subtitleLabel.font = TelegramContextMenuLayout.font(ofSize: TelegramContextMenuLayout.subtitleFontSize)
             subtitleLabel.adjustsFontSizeToFitWidth = true
             subtitleLabel.minimumScaleFactor = 0.8
             subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -3112,7 +3336,10 @@ final class TelegramContextMenuActionButton: UIControl {
         } else {
             submenuIndicator.image = UIImage(
                 systemName: "chevron.forward",
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold),
+                withConfiguration: UIImage.SymbolConfiguration(
+                    pointSize: TelegramContextMenuLayout.scaled(13),
+                    weight: .semibold,
+                ),
             )
             submenuIndicator.tintColor = color
             submenuIndicator.translatesAutoresizingMaskIntoConstraints = false
@@ -3132,7 +3359,10 @@ final class TelegramContextMenuActionButton: UIControl {
         if role == .submenuHeader {
             expandedTitleLabel.text = action.title
             expandedTitleLabel.textColor = color
-            expandedTitleLabel.font = .systemFont(ofSize: TelegramContextMenuLayout.actionFontSize, weight: .semibold)
+            expandedTitleLabel.font = TelegramContextMenuLayout.font(
+                ofSize: TelegramContextMenuLayout.actionFontSize,
+                weight: .semibold,
+            )
             expandedTitleLabel.numberOfLines = titleLabel.numberOfLines
             expandedTitleLabel.alpha = 0
             expandedTitleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -3150,7 +3380,8 @@ final class TelegramContextMenuActionButton: UIControl {
             constraints.append(contentsOf: [
                 avatar.centerXAnchor.constraint(
                     equalTo: leadingAnchor,
-                    constant: TelegramContextMenuLayout.iconSideInset + TelegramContextMenuLayout.iconSlotWidth / 2,
+                    constant: TelegramContextMenuLayout.iconSideInset
+                        + TelegramContextMenuLayout.scaled(TelegramContextMenuLayout.iconSlotWidth) / 2,
                 ),
                 avatar.centerYAnchor.constraint(equalTo: centerYAnchor),
                 avatar.widthAnchor.constraint(equalToConstant: TelegramContextMenuPeerIconView.side),
@@ -3158,28 +3389,27 @@ final class TelegramContextMenuActionButton: UIControl {
                 titleLabel.leadingAnchor.constraint(
                     equalTo: leadingAnchor,
                     constant: TelegramContextMenuLayout.iconSideInset
-                        + TelegramContextMenuLayout.iconSlotWidth
+                        + TelegramContextMenuLayout.scaled(TelegramContextMenuLayout.iconSlotWidth)
                         + TelegramContextMenuLayout.iconSpacing,
                 ),
             ])
         } else if action.image != nil {
             addSubview(iconView)
-            let iconSize = action.isHeader
-                ? TelegramContextMenuLayout.headerIconSize
-                : TelegramContextMenuLayout.iconSize
+            let iconSlotWidth = TelegramContextMenuLayout.scaled(TelegramContextMenuLayout.iconSlotWidth)
+            let iconSize = TelegramContextMenuLayout.scaled(
+                action.isHeader ? TelegramContextMenuLayout.headerIconSize : TelegramContextMenuLayout.iconSize,
+            )
             constraints.append(contentsOf: [
                 iconView.leadingAnchor.constraint(
                     equalTo: leadingAnchor,
-                    constant: TelegramContextMenuLayout.iconSideInset
-                        + (TelegramContextMenuLayout.iconSlotWidth - iconSize) / 2,
+                    constant: TelegramContextMenuLayout.iconSideInset + (iconSlotWidth - iconSize) / 2,
                 ),
                 iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
                 iconView.widthAnchor.constraint(equalToConstant: iconSize),
                 iconView.heightAnchor.constraint(equalToConstant: iconSize),
                 titleLabel.leadingAnchor.constraint(
                     equalTo: leadingAnchor,
-                    constant: TelegramContextMenuLayout.iconSideInset
-                        + TelegramContextMenuLayout.iconSlotWidth
+                    constant: TelegramContextMenuLayout.iconSideInset + iconSlotWidth
                         + TelegramContextMenuLayout.iconSpacing,
                 ),
             ])
@@ -3274,7 +3504,7 @@ final class TelegramContextMenuActionButton: UIControl {
     /// The second line in the secondary colour, with Telegram's InlineTextRightArrow as a small chevron after it.
     private static func secondLineText(_ text: String, showsArrow: Bool) -> NSAttributedString {
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: TelegramContextMenuLayout.subtitleFontSize),
+            .font: TelegramContextMenuLayout.font(ofSize: TelegramContextMenuLayout.subtitleFontSize),
             .foregroundColor: UIColor.secondaryLabel,
         ]
         let result = NSMutableAttributedString(string: text, attributes: attributes)
@@ -3443,6 +3673,18 @@ extension UIView {
 }
 
 #if DEBUG
+extension UIViewController {
+    /// Hardware keys can't be injected on a Simulator without a keyboard attached, so the probe goes through the
+    /// handler.
+    func debugTelegramContextMenuPressKey(_ input: String) {
+        TelegramContextMenuController.activeController?.handleKey(input)
+    }
+
+    var debugTelegramContextMenuHighlightedTitle: String? {
+        TelegramContextMenuController.activeController?.debugHighlightedTitle
+    }
+}
+
 @MainActor enum TelegramQuoteSelectionDiagnostics {
     private static var events = [String]()
 

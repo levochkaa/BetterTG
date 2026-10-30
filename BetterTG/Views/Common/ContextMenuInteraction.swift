@@ -258,6 +258,7 @@ final class ContextMenuTouchRecognizer: UIGestureRecognizer, UIGestureRecognizer
         allowedTouchTypes = [
             NSNumber(value: UITouch.TouchType.direct.rawValue),
             NSNumber(value: UITouch.TouchType.pencil.rawValue),
+            NSNumber(value: UITouch.TouchType.indirectPointer.rawValue),
         ]
     }
 
