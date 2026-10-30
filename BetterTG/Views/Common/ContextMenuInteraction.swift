@@ -121,7 +121,8 @@ import UIKit
     /// 0x9f020,
     /// hit-tests the touch's location). A finger that arrives from elsewhere is handed to it here, from `gesture`,
     /// which keeps following that finger, so the glass stretches from the point where the finger reached it.
-    static func beginStretch(of view: UIView, withTouchOf gesture: UIGestureRecognizer) {
+    /// Returns whether the glass follows the finger; UIKit delivers the touch later, and until then it has not started.
+    static func beginStretch(of view: UIView, withTouchOf gesture: UIGestureRecognizer) -> Bool {
         guard let flexClass = NSClassFromString("_UIFlexInteraction"),
               let interaction = view.interactions.first(where: { $0.isKind(of: flexClass) }),
               interaction.responds(to: NSSelectorFromString("panGesture")),
@@ -131,11 +132,11 @@ import UIKit
               let events = unsafeBitCast(gesture, to: ContextMenuTouchContinuation.self).activeEvents as? NSSet,
               let event = events.lazy.compactMap({ $0 as? UIEvent }).first(where: { $0.type == .touches }),
               let touch = event.touches(for: gesture)?.first
-        else { return }
+        else { return false }
         switch pan.state {
         case .began,
              .changed:
-            return
+            return true
         case .possible:
             break
         default:
@@ -144,6 +145,7 @@ import UIKit
             pan.isEnabled = true
         }
         unsafeBitCast(pan, to: ContextMenuTouchContinuation.self).addTouch(touch, forEvent: event)
+        return false
     }
 }
 

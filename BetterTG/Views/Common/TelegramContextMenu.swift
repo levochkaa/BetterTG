@@ -684,7 +684,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private var motionHold: TGSPlaybackHold?
     private var motionHoldRelease: DispatchWorkItem?
     private var touchSessionIsInitiating = false
-    /// Whether the touch that began off the menu has reached it and stretches its glass.
+    /// Whether the touch that began off the menu is over its glass and the glass follows it.
     private var touchSessionStretchesGlass = false
     private var touchPoint = CGPoint.zero
     private var panOffset = CGPoint.zero
@@ -2338,6 +2338,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         touchSession = ContextMenuTouchSession(origin: .initiatingPreview, start: point, time: CACurrentMediaTime())
         touchSessionIsInitiating = true
         selectionFeedback.prepare()
+        stretchGlassIfNeeded(at: point)
     }
 
     @objc private func trackingGestureChanged(_ gesture: UIGestureRecognizer) {
@@ -2424,15 +2425,16 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         }
     }
 
-    /// A finger from outside the menu stretches its glass from where it reaches the menu, past the hysteresis that
-    /// lets it choose rows. The glass then follows it until it lifts, also off the menu.
+    /// A finger from outside the menu stretches its glass from where it reaches the menu, or from the start when the
+    /// menu opens under it, as the system's button menus do. The glass then follows it until it lifts, also off the
+    /// menu.
     private func stretchGlassIfNeeded(at point: CGPoint) {
-        guard let session = touchSession, session.origin != .menu, session.selectsOnRelease,
-              !touchSessionStretchesGlass, menuFrameInView.contains(point),
+        let glassView = submenus.last?.glassView ?? menuView
+        guard let session = touchSession, session.origin != .menu,
+              !touchSessionStretchesGlass, glassView.convert(glassView.bounds, to: view).contains(point),
               let gesture = touchSessionIsInitiating ? trackingGesture : touchRecognizer
         else { return }
-        touchSessionStretchesGlass = true
-        ContextMenuNativeGlass.beginStretch(of: menuView, withTouchOf: gesture)
+        touchSessionStretchesGlass = ContextMenuNativeGlass.beginStretch(of: glassView, withTouchOf: gesture)
     }
 
     private func finishTracking() {
@@ -2706,8 +2708,9 @@ private final class TelegramContextMenuSectionDivider: UIView {
 /// card of its own that grows out of the chosen row over the dimmed parent. Its header repeats that row and closes
 /// the card; a divider separates it from the submenu's actions.
 ///
-/// Like `_UIContextMenuListView`, the card carries the glass itself, while its rows sit in a clipping view that is
-/// never smaller than the header with the menu's insets around it. Closed, the card is the row inset like its
+/// Like `_UIContextMenuListView`, the card's glass carries its rows, so they stretch together under a finger; the rows
+/// sit in a clipping view that is never smaller than the header with the menu's insets around it. Closed, the card is
+/// the row inset like its
 /// highlight, and its glass is suppressed to the material's `_identityGlass`, which shows nothing: the glass
 /// materializes on the opening spring (`setSuppressGlassBackground:`) and fades on the closing one.
 private final class TelegramContextSubmenuView: UIView {
@@ -2741,7 +2744,7 @@ private final class TelegramContextSubmenuView: UIView {
     /// header lies exactly on the source row.
     private let rowsView = UIView()
     private let divider = UIView()
-    /// Carries the menu glass, which draws past its bounds while it stretches under a finger.
+    /// Carries the menu glass, which draws past its bounds while it stretches under a finger, and the rows.
     private let backgroundView = UIView()
     /// The card's bounds, which clip the rows while the card opens and closes.
     private let clipView = UIView()
@@ -2752,6 +2755,10 @@ private final class TelegramContextSubmenuView: UIView {
 
     var buttons: [TelegramContextMenuActionButton] {
         [headerButton] + childButtons
+    }
+
+    var glassView: UIView {
+        backgroundView
     }
 
     /// Open, the menu's radius; closed, the radius of the row highlight.
@@ -2792,7 +2799,7 @@ private final class TelegramContextSubmenuView: UIView {
         }
         addSubview(backgroundView)
         clipView.layer.cornerCurve = .continuous
-        addSubview(clipView)
+        backgroundView.addSubview(clipView)
         contentView.clipsToBounds = true
         contentView.layer.cornerRadius = menuCornerRadius
         contentView.layer.cornerCurve = .continuous
@@ -2867,8 +2874,9 @@ private final class TelegramContextSubmenuView: UIView {
 
     /// `navigateUpFromNode:` suppresses the glass again on the closing spring, but UIKit doesn't interpolate a glass
     /// going back to its `_identityGlass`: it stays whole while the card shrinks and vanishes in one frame, in the
-    /// system's menu too. The glass fades by alpha instead.
+    /// system's menu too. The glass fades by alpha instead, without the rows, whose header lands on the source row.
     func setGlassAlpha(_ alpha: CGFloat) {
+        if clipView.superview === backgroundView { addSubview(clipView) }
         backgroundView.alpha = alpha
     }
 }
