@@ -36,4 +36,22 @@ Proofs:
   first rejected by automatic approval review under the old AGENTS.md rule; `27635bdf` allows Xcode MCP, and the next
   section has the multi-touch proofs.
 
-Glass flex, 10-24 (iPhone 17 Pro iOS 26.5 `8108A92F`, headless, agent-device in T3's Device panel, LLDB): before `de791738` the menu's `_UIFlexInteraction` sat on the public fallback `UIVisualEffectView` and a touch on a row dragged out of the menu left the glass still in every frame; after it the interaction sits on the menu view itself and the same drag moves and stretches the glass toward the finger and back, as the system menu and CustomContextMenu's own menu do on iOS 27 (ContextMenuLab on iPhone 18 Pro iOS 27.0, the same drag through idb). As in the system menu (CustomContextMenu trace N1), the finger that opened the menu does not bend it.
+Glass flex, 10-24 (iPhone 17 Pro iOS 26.5 `8108A92F`, headless, agent-device in T3's Device panel, LLDB): before `de791738` the menu's `_UIFlexInteraction` sat on the public fallback `UIVisualEffectView` and a touch on a row dragged out of the menu left the glass still in every frame; after it the interaction sits on the menu view itself and the same drag moves and stretches the glass toward the finger and back, as the system menu and CustomContextMenu's own menu do on iOS 27 (ContextMenuLab on iPhone 18 Pro iOS 27.0, the same drag through idb). The last sentence that stood here, that the finger which opened the menu never bends it, held only when that finger is off the glass at opening; see 10-31 below.
+
+Glass flex and system audit, 10-31 (iPhone 17 Pro iOS 26.5 `8108A92F`, UIKitCore 23F77, agent-device `gesture drag` and `gesture pan`, recordings compared frame by frame):
+
+- How the system does it: the flex pan begins at `touchesBegan` and `gestureRecognizerShouldBegin:` hit-tests the current location, so a touch off the glass fails it for good. Touch continuation (`_addTouch:forEvent:`) delivers the running finger when the menu presents. Files' `•••` menu opens under the finger: the glass follows it for the whole hold. ContextMenuLab's message menu opens below the finger: dragged down onto the rows, the system glass stays still, as trace N1 showed.
+- BetterTG deliberately goes further, at the user's request: any finger from outside, the opening one included, starts the stretch when it reaches the glass (`13650f39`, `7aff585e`), also where the system stays still. A submenu's glass carries its rows now and swells under a touch as the system's does; before, its glass lay beside the rows and failed the pan's hit test.
+- A drag that begins on the menu no longer scrolls an overflowing message's content (`ed779517`); a drag on the message still does.
+- Checked and already the same: a tap on the background only closes a button menu (Files, nothing passes through); no swipe-down dismissal with actions (`rubberbandingEdges == 15`); no `setShouldDismissMenuOnSceneDeactivation:` call in the menu classes; auto navigation, the selection delay and the highlight springs; iPhone is portrait-only, so rotation does not apply.
+- Found and not ported:
+  - Long menus. `setMenuMaximumHeight: 520` with scrolling, a truncation detent (`closestScrollTruncationDetentToHeight:`), a gradient mask and auto-scroll while scrubbing. BetterTG's menu and submenus do not scroll, so rows past the screen cannot be reached.
+  - Order. A menu attached above its source reverses its actions (`_updateActionsViewReversesOrderForAttachment:`), keeping the first one nearest the finger.
+  - Action timing. The handler runs at the start of the close (`contextMenuView:didSelectElement:` passes it as `alongsideActions` with a nil completion). BetterTG runs it when the close ends, 0.24 s, or 0.7 s after a morph.
+  - Selection. The highlight holds 0.1 s after a choice (`autoUnhighlightTimer`); BetterTG starts fading it on release.
+  - Titles wrap to 3 lines (`setPreferredNumberOfLinesForTitle: 3`), BetterTG's to 2.
+  - Reduce Motion uses the 0.4 / 1 spring (Research/README.md, iOS 27.0); BetterTG's open and close do not check it.
+  - Hardware keyboard: arrows, Return and type select; BetterTG has Escape only. Pointer hover highlight and auto-open.
+  - Dynamic Type: the system scales row text, BetterTG's is a fixed 17 pt.
+- Kept on purpose, not counted: the red chevron on destructive rows, Telegram's metrics (radius 30, width 220–240, row 43 pt against the system's 42), the preview, blur and reaction strip, and the liquid morph on buttons only.
+- Not proven: iOS 27 at runtime (the new selectors are checked with `responds(to:)`, so the stretch would just not start), a physical device, haptics.
