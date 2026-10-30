@@ -164,6 +164,9 @@ import UIKit
         let previousTop = tableView.adjustedContentInset.top
         let wasAtTop = tableView.contentOffset.y <= -previousTop + 1
         additionalSafeAreaInsets = insets
+        // Inside this pass the list keeps the previous safe area until another pass reaches it.
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
         // A list resting at its top stays there as the bar above it changes height.
         if wasAtTop, !tableView.isTracking {
             tableView.contentOffset.y = -tableView.adjustedContentInset.top
@@ -210,6 +213,13 @@ import UIKit
     private static func deduplicated(_ ids: [Int64]) -> [Int64] {
         var seen = Set<Int64>()
         return ids.filter { seen.insert($0).inserted }
+    }
+
+    /// Results coming into view start at their top. A hidden list gets no layout, so it can't follow the bar on its
+    /// own.
+    func restAtTop() {
+        view.layoutIfNeeded()
+        tableView.contentOffset.y = -tableView.adjustedContentInset.top
     }
 
     /// Search opened with no query: its People row and recent chats reload, as they may have changed since.

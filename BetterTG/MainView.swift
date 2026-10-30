@@ -660,6 +660,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         if showsResults {
             searchResultsController.refreshEmptyState()
             resultsView.isHidden = false
+            searchResultsController.restAtTop()
             customNavigationBar.applyScroll(offset: 0, animated: animated)
         } else if let currentFolderController {
             applySearchScrollOffset(offset: currentFolderController.searchScrollOffset, animated: animated)
