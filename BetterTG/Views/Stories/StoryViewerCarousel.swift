@@ -65,7 +65,7 @@ final class StoryViewListCarousel: UIView, UIScrollViewDelegate {
 
         @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
 
-        func configure(_ story: Story, client: TDLibClient) {
+        func configure(_ story: Story, isChannel: Bool, client: TDLibClient) {
             let origin = TDImageOrigin.captured(client: client)
             switch story.content {
             case .storyContentPhoto(let value):
@@ -94,7 +94,9 @@ final class StoryViewListCarousel: UIView, UIScrollViewDelegate {
                  .storyContentUnsupported: image.cancel()
             }
             footer.configure(
-                StoryFooterPanel.configuration(story: story, isOwn: true),
+                isChannel
+                    ? StoryFooterPanel.channelConfiguration(story: story, poster: .channel(isPublic: false))
+                    : StoryFooterPanel.configuration(story: story, isOwn: true),
                 avatar: { _ in nil },
                 client: client,
             )
@@ -116,6 +118,7 @@ final class StoryViewListCarousel: UIView, UIScrollViewDelegate {
     private var listTop = CGFloat.zero
     private var position = CGFloat.zero
     private var animatingScroll = false
+    private var isChannel = false
 
     var isMoving: Bool { scroller.isDragging || scroller.isDecelerating || animatingScroll }
 
@@ -149,10 +152,11 @@ final class StoryViewListCarousel: UIView, UIScrollViewDelegate {
 
     func update(
         ids: [Int], index: Int, content: CGRect, layout: StoryViewListLayout.Result,
-        halfScale: CGFloat, listFraction: CGFloat?, liveStoryID: Int?, client: TDLibClient,
+        halfScale: CGFloat, listFraction: CGFloat?, liveStoryID: Int?, isChannel: Bool, client: TDLibClient,
     ) -> CGAffineTransform {
         let oldIDs = self.ids
         self.ids = ids
+        self.isChannel = isChannel
         currentIndex = index
         listTop = layout.listFrame.minY
         let newDistance = StoryCarouselLayout.spacing(width: content.width, scale: halfScale)
@@ -194,7 +198,7 @@ final class StoryViewListCarousel: UIView, UIScrollViewDelegate {
                     let story = await fetch(id)
                     guard !Task.isCancelled, let self, let card, cards[id] === card else { return }
                     tasks[id] = nil
-                    if let story { card.configure(story, client: client) }
+                    if let story { card.configure(story, isChannel: isChannel, client: client) }
                 }
             }
             let transform = StoryCarouselLayout.transform(
@@ -250,7 +254,7 @@ final class StoryViewListCarousel: UIView, UIScrollViewDelegate {
     func updateStory(_ story: Story, client: TDLibClient) {
         tasks.removeValue(forKey: story.id)?.cancel()
         cards[story.id]?.requested = true
-        cards[story.id]?.configure(story, client: client)
+        cards[story.id]?.configure(story, isChannel: isChannel, client: client)
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {

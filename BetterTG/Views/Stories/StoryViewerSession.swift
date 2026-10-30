@@ -24,6 +24,7 @@ import TDLibKit
     var onStoryChanged: ((Story) -> Void)?
     var onStoryDeleted: ((StoryKey) -> Void)?
     var onActiveStoriesChanged: ((ChatActiveStories) -> Void)?
+    var onViewListAccessChanged: ((Int64) -> Void)?
     var onRetired: (() -> Void)?
 
     private(set) var isRetired = false
@@ -34,6 +35,9 @@ import TDLibKit
         /// The probe's interactions with the account's stories, by story, newest first, and its contacts.
         private var offlineInteractions = [Int: [StoryInteraction]]()
         private var offlineContactIDs = Set<Int64>()
+        private var offlineChatAccess = [Int64: Bool]()
+        private var offlineFailedOffsets = Set<String>()
+        private(set) var interactionRequests = [StoryViewList.Request]()
     #else
         let isOffline = false
     #endif
@@ -43,6 +47,9 @@ import TDLibKit
     private var activeStoryRequests = [Int64: Task<ChatActiveStories?, Never>]()
     private var chats = [Int64: Chat]()
     private var chatRequests = [Int64: Task<Chat?, Never>]()
+    private var statisticsAccess = [Int64: Bool]()
+    private var viewListMemberStatuses = [Int64: ChatMemberStatus]()
+    private var viewListAccessGenerations = [Int64: Int]()
     private var openedStory: StoryKey?
     /// openStory and closeStory reach TDLib in the order the viewer shows and leaves stories.
     private var visibilityRequests: Task<Void, Never>?
@@ -97,6 +104,13 @@ import TDLibKit
             offlineContactIDs = contactIDs
         }
 
+        func setOfflineChatAccess(chatID: Int64, allowed: Bool) {
+            offlineChatAccess[chatID] = allowed
+            onViewListAccessChanged?(chatID)
+        }
+
+        func failOfflineInteractionPage(offset: String) { offlineFailedOffsets.insert(offset) }
+
         /// getStoryInteractions over the seeded list, ten at a time so the probe pages: the search matches the
         /// seeded chats' titles, and reactions come first in their date order when asked.
         private func offlineInteractionPage(
@@ -113,7 +127,19 @@ import TDLibKit
                     chats[Self.actorID(interaction.actorId)]?.title.localizedCaseInsensitiveContains(query.text) == true
                 }
             }
-            if query.sortMode == .reactionsFirst {
+            if query.sortMode == .repostsFirst {
+                let shared = all.filter { interaction in
+                    switch interaction.type {
+                    case .storyInteractionTypeForward,
+                         .storyInteractionTypeRepost: true
+                    case .storyInteractionTypeView: false
+                    }
+                }
+                all = shared + all.filter { interaction in
+                    if case .storyInteractionTypeView = interaction.type { return true }
+                    return false
+                }
+            } else if query.sortMode == .reactionsFirst {
                 let reacted = all.filter(Self.hasReaction)
                 all = reacted + all.filter { !Self.hasReaction($0) }
             }
@@ -180,23 +206,63 @@ import TDLibKit
         return isCurrent ? stories : nil
     }
 
-    /// getStoryInteractions for one of the account's stories, a page of `query` from `offset`.
-    func storyInteractions(storyID: Int, query: StoryViewList.Query, offset: String) async -> StoryViewList.Page? {
+    /// Creator/statistics access follows StoryItemSetContainerComponent; own-viewer availability is a separate flag.
+    func viewListScope(for story: Story) async -> StoryViewList.Scope? {
+        guard isCurrent else { return nil }
+        let generation = viewListAccessGenerations[story.posterChatId, default: 0]
+        if case .storyContentLive = story.content { return nil }
+        if story.posterChatId == accountUserID { return .own }
         #if DEBUG
-            if isOffline { return offlineInteractionPage(storyID: storyID, query: query, offset: offset) }
+            if isOffline { return (offlineChatAccess[story.posterChatId] ?? story.canGetStatistics) ? .chat : nil }
         #endif
-        guard isCurrent,
-              let interactions = try? await client.getStoryInteractions(
-                  limit: StoryViewList.pageSize,
-                  offset: offset,
-                  onlyContacts: query.listMode == .contacts,
-                  preferForwards: false,
-                  preferWithReaction: query.sortMode == .reactionsFirst,
-                  query: query.text,
-                  storyId: storyID,
-              ),
-              isCurrent
-        else { return nil }
+        guard let chat = await chat(story.posterChatId), case .chatTypeSupergroup(let info) = chat.type,
+              let group = try? await client.send(TDNativeRequests.getSupergroup(supergroupId: info.supergroupId)),
+              isCurrent, generation == viewListAccessGenerations[story.posterChatId, default: 0] else { return nil }
+        viewListMemberStatuses[info.supergroupId] = group.status
+        if StoryViewList.canReadChat(status: group.status, canViewStatistics: false) { return .chat }
+        guard case .chatMemberStatusAdministrator = group.status,
+              let full = try? await client
+                .send(TDNativeRequests.getSupergroupFullInfo(supergroupId: info.supergroupId)),
+              isCurrent, generation == viewListAccessGenerations[story.posterChatId, default: 0] else { return nil }
+        statisticsAccess[info.supergroupId] = full.canGetStatistics
+        return StoryViewList.canReadChat(status: group.status, canViewStatistics: full.canGetStatistics) ? .chat : nil
+    }
+
+    /// Keep the poster with its story ID, revalidate access, then dispatch to TDLib's matching method.
+    func storyInteractions(
+        key: StoryKey,
+        scope: StoryViewList.Scope,
+        query: StoryViewList.Query,
+        offset: String,
+    ) async -> StoryViewList.Page? {
+        guard isCurrent, let story = stories[key], await viewListScope(for: story) == scope,
+              isCurrent else { return nil }
+        let request = StoryViewList.request(key: key, scope: scope, query: query, offset: offset)
+        let generation = viewListAccessGenerations[key.chatID, default: 0]
+        #if DEBUG
+            interactionRequests.append(request)
+            if isOffline {
+                if offlineFailedOffsets.remove(offset) != nil { return nil }
+                return offlineInteractionPage(storyID: key.storyID, query: query, offset: offset)
+            }
+        #endif
+        let interactions: StoryInteractions? =
+            switch request {
+            case .own(let storyID, let query, let offset):
+                try? await client.getStoryInteractions(
+                    limit: StoryViewList.pageSize, offset: offset, onlyContacts: query.listMode == .contacts,
+                    preferForwards: query.sortMode == .repostsFirst,
+                    preferWithReaction: query.sortMode == .reactionsFirst,
+                    query: query.text, storyId: storyID,
+                )
+            case .chat(let chatID, let storyID, let forwards, let offset):
+                try? await client.send(TDNativeRequests.getChatStoryInteractions(
+                    storyPosterChatId: chatID, storyId: storyID, reactionType: nil, preferForwards: forwards,
+                    offset: offset, limit: StoryViewList.pageSize,
+                ))
+            }
+        guard isCurrent, generation == viewListAccessGenerations[key.chatID, default: 0],
+              stories[key] != nil, let interactions else { return nil }
         return StoryViewList.page(interactions)
     }
 
@@ -295,6 +361,19 @@ import TDLibKit
     }
 
     private func observeUpdates() {
+        nc.scopedPublisher(&cancellables, for: .updateSupergroup) { [weak self] event in
+            guard let self, event.source == source, isCurrent else { return }
+            let group = event.value.supergroup
+            let previous = viewListMemberStatuses.updateValue(group.status, forKey: group.id)
+            if let previous, previous != group.status { viewListAccessChanged(supergroupID: group.id) }
+        }
+        nc.scopedPublisher(&cancellables, for: .updateSupergroupFullInfo) { [weak self] event in
+            guard let self, event.source == source, isCurrent else { return }
+            let id = event.value.supergroupId
+            let allowed = event.value.supergroupFullInfo.canGetStatistics
+            let previous = statisticsAccess.updateValue(allowed, forKey: id)
+            if let previous, previous != allowed { viewListAccessChanged(supergroupID: id) }
+        }
         nc.scopedPublisher(&cancellables, for: .updateStory) { [weak self] event in
             guard let self, event.source == source, isCurrent else { return }
             let story = event.value.story
@@ -324,6 +403,15 @@ import TDLibKit
                 onRetired?()
             }
             .store(in: &cancellables)
+    }
+
+    private func viewListAccessChanged(supergroupID: Int64) {
+        for chat in chats.values {
+            if case .chatTypeSupergroup(let info) = chat.type, info.supergroupId == supergroupID {
+                viewListAccessGenerations[chat.id, default: 0] += 1
+                onViewListAccessChanged?(chat.id)
+            }
+        }
     }
 }
 

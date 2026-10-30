@@ -106,6 +106,9 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private var viewListPaging = false
     private var viewListPageAnimation: UIViewPropertyAnimator?
     private var viewListExpandFraction = CGFloat.zero
+    private var viewListScope: StoryViewList.Scope?
+    private var viewListPosterID: Int64?
+    private var viewListAccessTask: Task<Void, Never>?
     /// The list's height while a finger moves it; nil at rest.
     private var viewListDragHeight: CGFloat?
     private var viewListDragStartHeight = CGFloat.zero
@@ -202,9 +205,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
 
     // MARK: Viewers list
 
-    /// Only the account's own story has viewers to list; its footer shows then.
+    /// Own-story viewers, or a creator/statistics administrator's channel/group interactions.
     private var showsViewList: Bool {
-        !footerPanel.isHidden && footerPanel.configuration?.isChannel == false && shownStory != nil && !isClosing
+        guard viewListScope != nil, viewListPosterID == shownKey?.chatID, let story = shownStory,
+              !isClosing else { return false }
+        if case .storyContentLive = story.content { return false }
+        return true
     }
 
     /// The like button shown: the channel footer's, or the reply panel's.
@@ -732,6 +738,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     private func resetMedia(preservingViewList: Bool = false) {
         mediaGeneration = UUID()
         if !preservingViewList { hideViewListImmediately() }
+        viewListAccessTask?.cancel()
+        if !preservingViewList {
+            viewListScope = nil
+            viewListPosterID = nil
+        }
         mediaTask?.cancel()
         mediaTask = nil
         areaTooltip?.dismiss()
@@ -846,6 +857,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             applyFooter(StoryFooterPanel.configuration(story: story, isOwn: true))
         }
         renderReplyPanel(story)
+        refreshViewListAccess(story)
         if viewListDisplay != .hidden { prepareViewListPanel() }
         updateAccessibilityLabel()
         view.setNeedsLayout()
@@ -1056,12 +1068,15 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     // MARK: TDLib
 
     private func bindSession() {
+        session.onViewListAccessChanged = { [weak self] chatID in
+            guard let self, let story = shownStory, story.posterChatId == chatID else { return }
+            refreshViewListAccess(story)
+        }
         session.onStoryChanged = { [weak self] story in
             guard let self else { return }
             let key = StoryViewerSession.StoryKey(chatID: story.posterChatId, storyID: story.id)
             viewListPanels[key]?.updateStory(story)
-            if story.posterChatId == session
-                .accountUserID { viewListCarousel.updateStory(story, client: session.client) }
+            if story.posterChatId == viewListPosterID { viewListCarousel.updateStory(story, client: session.client) }
             guard shownKey == key else { return }
             shownStory = story
             renderDetails(story)
@@ -1110,8 +1125,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         case .none:
             view.setNeedsLayout()
         case .story:
-            showCurrentStory(preservingViewList: viewListDisplay != .hidden && state.currentChatID == session
-                .accountUserID)
+            showCurrentStory(preservingViewList: viewListDisplay != .hidden && state.currentChatID == viewListPosterID)
         case .poster(let forward):
             turnCube(forward: forward)
         case .rewind:
@@ -1775,8 +1789,43 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         layoutViewList()
     }
 
+    private func refreshViewListAccess(_ story: Story) {
+        viewListAccessTask?.cancel()
+        let key = StoryViewerSession.StoryKey(chatID: story.posterChatId, storyID: story.id)
+        if key.chatID == session.accountUserID {
+            viewListScope = .own
+            viewListPosterID = key.chatID
+            return
+        }
+        viewListAccessTask = Task { [weak self] in
+            guard let self else { return }
+            let scope = await session.viewListScope(for: story)
+            guard !Task.isCancelled, shownKey == key, !isClosing else { return }
+            if scope == nil {
+                if viewListDisplay != .hidden { dismissTelegramContextMenu() }
+                hideViewListImmediately()
+                for key in Array(viewListPanels.keys) where key.chatID == story.posterChatId {
+                    viewListPanels.removeValue(forKey: key)?.removeFromSuperview()
+                }
+                viewListPanel = nil
+                viewListStoryKey = nil
+            }
+            viewListScope = scope
+            viewListPosterID = scope == nil ? nil : key.chatID
+            if let current = shownStory {
+                applyChannelFooter(story: current, poster: replyPosters[key.chatID], key: key)
+            }
+            if viewListDisplay != .hidden { prepareViewListPanel() }
+            view.setNeedsLayout()
+        }
+    }
+
     /// Each story retains its own query, rows and scroll position for the lifetime of this viewer.
-    private func viewListPanel(for story: Story, key: StoryViewerSession.StoryKey) -> StoryViewListPanel {
+    private func viewListPanel(
+        for story: Story,
+        key: StoryViewerSession.StoryKey,
+        scope: StoryViewList.Scope,
+    ) -> StoryViewListPanel {
         if let panel = viewListPanels[key] { return panel }
         let panel = StoryViewListPanel()
         panel.onSelect = { [weak self] item in self?.openViewer(item) }
@@ -1790,9 +1839,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         panel.configure(StoryViewListPanel.Source(
             story: story, client: session.client, accountID: TDLib.shared.activeAccountID,
             fetch: { query, offset in
-                await session.storyInteractions(storyID: key.storyID, query: query, offset: offset)
+                await session.storyInteractions(key: key, scope: scope, query: query, offset: offset)
             },
             resolvePeer: { [weak self] sender in await self?.viewListPeer(sender) },
+            scope: scope,
         ))
         view.addSubview(panel)
         panel.isHidden = true
@@ -1801,19 +1851,18 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     }
 
     private func prepareViewListPanel() {
-        guard let story = shownStory, let key = shownKey else { return }
+        guard let story = shownStory, let key = shownKey, let scope = viewListScope else { return }
         if viewListCarousel.superview == nil {
             containerView.addSubview(viewListCarousel)
             viewListCarousel.onMove = { [weak self] in self?.layoutViewList() }
             viewListCarousel.onSelect = { [weak self] index in self?.selectViewListStory(at: index) }
             viewListCarousel.onCloseList = { [weak self] in self?.setViewListDisplay(.hidden) }
-            let session = session
-            viewListCarousel.fetch = { id in
-                guard let chatID = session.accountUserID else { return nil }
-                return await session.story(.init(chatID: chatID, storyID: id))
+            viewListCarousel.fetch = { [weak self] id in
+                guard let self else { return nil }
+                return await session.story(.init(chatID: state.currentChatID, storyID: id))
             }
         }
-        let panel = viewListPanel(for: story, key: key)
+        let panel = viewListPanel(for: story, key: key, scope: scope)
         if viewListStoryKey != key {
             viewListPanel?.endSearch()
             if let pan = viewListPan { pan.view?.removeGestureRecognizer(pan) }
@@ -1828,7 +1877,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     }
 
     private func selectViewListStory(at index: Int) {
-        guard !isClosing, viewListDisplay != .hidden, state.currentChatID == session.accountUserID,
+        guard !isClosing, viewListDisplay != .hidden, state.currentChatID == viewListPosterID,
               state.selectStory(at: index) == .story else { return }
         viewListPanel?.endSearch()
         showCurrentStory(preservingViewList: true)
@@ -1882,7 +1931,8 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     /// peerContextAction for a person in the list: once TDLib says whether they're a contact, the row lifts with
     /// Show or Hide My Stories, Delete Contact or Block below it. The account itself and chats have no menu.
     private func openViewerMenu(_ item: StoryViewList.Item, row: UIView, gesture: ContextMenuPressGestureRecognizer) {
-        guard case .messageSenderUser(let sender) = item.actor, sender.userId != session.accountUserID,
+        guard viewListScope == .own, case .messageSenderUser(let sender) = item.actor,
+              sender.userId != session.accountUserID,
               !isClosing else { return }
         viewerMenuTask?.cancel()
         viewerMenuTask = Task { [weak self, weak row, weak gesture] in
@@ -2005,7 +2055,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         chromeView.alpha = (isChromeHidden ? 0 : dragChromeAlpha) * (1 - layout.expandFraction)
         var transform = layout.contentTransform
         let ids = state.posters[state.posterIndex].storyIDs ?? []
-        if height > 0 || !viewListCarousel.isHidden, state.currentChatID == session.accountUserID, !ids.isEmpty {
+        if height > 0 || !viewListCarousel.isHidden, state.currentChatID == viewListPosterID, !ids.isEmpty {
             viewListCarousel.isHidden = false
             viewListCarousel.isUserInteractionEnabled = viewListPageFraction == nil
             viewListCarousel.frame = containerView.bounds
@@ -2017,7 +2067,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             transform = viewListCarousel.update(
                 ids: ids, index: state.storyIndex, content: restingFrame, layout: layout,
                 halfScale: half.contentScale, listFraction: viewListPageFraction,
-                liveStoryID: shownKey?.storyID, client: session.client,
+                liveStoryID: shownKey?.storyID, isChannel: viewListScope == .chat, client: session.client,
             )
         }
         contentView.transform = transform
@@ -2046,7 +2096,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             let adjacent = state.storyIndex + (fraction < 0 ? 1 : -1)
             if ids.indices.contains(adjacent) {
                 let key = StoryViewerSession.StoryKey(chatID: state.currentChatID, storyID: ids[adjacent])
-                if let story = session.cachedStory(key) { _ = viewListPanel(for: story, key: key) }
+                if let story = session.cachedStory(key), let scope = viewListScope { _ = viewListPanel(
+                    for: story,
+                    key: key,
+                    scope: scope,
+                ) }
             }
         }
         for (key, panel) in viewListPanels {
@@ -2487,7 +2541,11 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         key: StoryViewerSession.StoryKey,
     ) {
         guard !StoryMoreMenu.isOwn(story, accountUserID: session.accountUserID) else { return }
-        let configuration = poster.flatMap { StoryFooterPanel.channelConfiguration(story: story, poster: $0) }
+        let configuration = poster.flatMap { StoryFooterPanel.channelConfiguration(
+            story: story,
+            poster: $0,
+            canViewList: viewListScope == .chat && viewListPosterID == story.posterChatId,
+        ) }
         let isSameStory = configuration != nil && footerStoryKey == key
         footerStoryKey = configuration == nil ? nil : key
         applyFooter(configuration)
@@ -2914,6 +2972,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     }
 
     private func tearDown() {
+        viewListAccessTask?.cancel()
         viewListPageAnimation?.stopAnimation(true)
         viewListPageAnimation = nil
         viewListCarousel.stop()
@@ -3113,6 +3172,18 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         }
 
         var probeViewListIdentity: ObjectIdentifier? { viewListPanel.map(ObjectIdentifier.init) }
+        var probeViewListHeader: StoryViewList.Header? { viewListPanel?.probeHeader }
+        var probeViewListQuery: StoryViewList.Query? { viewListPanel?.probeQuery }
+        var probeInteractionRequests: [StoryViewList.Request] { session.interactionRequests }
+        var probeViewListHasFailed: Bool { viewListPanel?.probeHasFailed == true }
+        func probeViewListSortMenu() { viewListPanel?.probeOpenSortMenu() }
+        func probeViewListRetry() { viewListPanel?.probeRetry() }
+        func probeFailViewListPage(offset: String) { session.failOfflineInteractionPage(offset: offset) }
+        func probeViewListSort(_ mode: StoryViewList.SortMode) { viewListPanel?.probeSort(mode) }
+        func probeSetChatListAccess(_ allowed: Bool) { session.setOfflineChatAccess(
+            chatID: state.currentChatID,
+            allowed: allowed,
+        ) }
 
         func probeViewListSearch(_ text: String) { viewListPanel?.probeSearch(text) }
 

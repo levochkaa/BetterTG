@@ -18,6 +18,7 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
         let accountID: UUID?
         let fetch: StoryViewListLoader.Fetch
         let resolvePeer: (MessageSender) async -> SettingsPeer?
+        var scope = StoryViewList.Scope.own
     }
 
     static let navigationHeight = CGFloat(56)
@@ -42,6 +43,7 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
     private let emptyView = UIView()
     private let emptyIconView = UIImageView()
     private let emptyLabel = UILabel()
+    private let retryButton = UIButton(type: .system)
 
     private var source: Source?
     private var loader: StoryViewListLoader?
@@ -70,6 +72,12 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
     }
 
     #if DEBUG
+        var probeHeader: StoryViewList.Header { header }
+        var probeQuery: StoryViewList.Query? { loader?.query }
+        func probeSort(_ mode: StoryViewList.SortMode) { selectSort(mode) }
+        var probeHasFailed: Bool { loader?.hasFailed == true }
+        func probeRetry() { loader?.retry() }
+        func probeOpenSortMenu() { openSortMenu() }
         var probeTitle: String? {
             titleLabel.isHidden ? (tabsView.isHidden ? nil : "tabs") : titleLabel.text
         }
@@ -113,7 +121,7 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
     /// Rows shown before the first page arrives: Telegram's placeholders up to the expected count.
     private var placeholderCount: Int {
         guard let loader, !loader.isLoaded else { return 0 }
-        let expected = loader.query == StoryViewList.Query()
+        let expected = loader.query == source?.scope.defaultQuery
             ? source?.story.interactionInfo?.viewCount ?? 0
             : 6
         return min(expected, 20)
@@ -122,6 +130,8 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
     override init(frame: CGRect) {
         super.init(frame: frame)
         overrideUserInterfaceStyle = .dark
+        retryButton.setTitle(L10n.telegram("ChatImportActivity.Retry"), for: .normal)
+        retryButton.addAction(UIAction { [weak self] _ in self?.loader?.retry() }, for: .touchUpInside)
         backgroundColor = UIColor(white: 0.11, alpha: 1)
 
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
@@ -161,7 +171,8 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
         tableView.register(StoryViewListCell.self, forCellReuseIdentifier: StoryViewListCell.reuseIdentifier)
         let press = ContextMenuPressGestureRecognizer(target: self, action: #selector(rowPressed(_:)))
         press.pressedViewProvider = { [weak self] gesture in
-            guard let self, let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
+            guard let self, source?.scope == .own,
+                  let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
                   loader?.items.indices.contains(path.row) == true
             else { return nil }
             return tableView.cellForRow(at: path)?.contentView
@@ -265,7 +276,7 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
         let loader = StoryViewListLoader(fetch: source.fetch)
         loader.onChange = { [weak self] in self?.loaderChanged() }
         self.loader = loader
-        loader.load(StoryViewList.Query())
+        loader.load(source.scope.defaultQuery)
     }
 
     func endSearch() {
@@ -344,8 +355,8 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
         guard let loader, let source else { return }
         let query = loader.query
         // The header follows the full list's count, as Telegram's mainViewListState does.
-        let total = query == StoryViewList.Query() ? loader.totalCount : nil
-        let header = StoryViewList.header(story: source.story, totalCount: total)
+        let total = query.text.isEmpty && query.listMode == .everyone ? loader.totalCount : nil
+        let header = StoryViewList.header(story: source.story, totalCount: total, scope: source.scope)
         if header != self.header {
             self.header = header
             setNeedsLayout()
@@ -368,15 +379,33 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
         searchField.isHidden = !header.showsSearch
         let isEmpty = loader.isLoaded && loader.items.isEmpty
         emptyView.isHidden = !isEmpty
+        emptyView.isUserInteractionEnabled = loader.hasFailed
         if isEmpty {
             emptyIconView.image = UIImage(
-                systemName: query.text.isEmpty ? "eye.slash" : "magnifyingglass",
+                systemName: loader.hasFailed
+                    ? "exclamationmark.triangle"
+                    : (query.text.isEmpty ? "eye.slash" : "magnifyingglass"),
                 withConfiguration: UIImage.SymbolConfiguration(pointSize: 56, weight: .light),
             )
-            emptyLabel.attributedText = Self.emptyText(StoryViewList.emptyText(query: query, story: source.story))
+            emptyLabel.attributedText = Self.emptyText(loader.hasFailed
+                ? L10n.telegram("Login.UnknownError")
+                : StoryViewList.emptyText(
+                    query: query,
+                    story: source.story,
+                    scope: source.scope,
+                ))
             setNeedsLayout()
         }
         requestStickers(loader.items)
+        tableView.tableFooterView = nil
+        retryButton.removeFromSuperview()
+        if loader.hasFailed {
+            if isEmpty { emptyView.addSubview(retryButton) }
+            else {
+                retryButton.frame = CGRect(x: 0, y: 0, width: bounds.width, height: 52)
+                tableView.tableFooterView = retryButton
+            }
+        }
         tableView.reloadData()
     }
 
@@ -384,7 +413,7 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
         let width = bounds.width - 64
         let textSize = emptyLabel.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         let iconSize = CGFloat(72)
-        let height = iconSize + 16 + textSize.height
+        let height = iconSize + 16 + textSize.height + (loader?.hasFailed == true ? 52 : 0)
         let available = bounds.height - navigationHeight - max(safeAreaInsets.bottom, keyboardOverlap)
         let top = navigationHeight + max(16, ((available - height) / 2).rounded(.down))
         emptyView.frame = CGRect(x: 32, y: top, width: width, height: height)
@@ -395,6 +424,9 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
             height: iconSize,
         )
         emptyLabel.frame = CGRect(x: 0, y: iconSize + 16, width: width, height: textSize.height)
+        if retryButton.superview === emptyView {
+            retryButton.frame = CGRect(x: 0, y: emptyLabel.frame.maxY + 8, width: width, height: 44)
+        }
     }
 
     private func selectTab(_ index: Int) {
@@ -418,26 +450,28 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
 
     /// openSortModeMenu for a user's story: Reactions First or Recent First, with the order's explanation below.
     private func openSortMenu() {
-        guard let loader, let controller = nearestViewController else { return }
+        guard let loader, let source, let controller = nearestViewController else { return }
         let current = loader.query.sortMode
         func option(_ mode: StoryViewList.SortMode, title: String) -> TelegramContextMenuAction {
             TelegramContextMenuAction(
                 title: L10n.telegram(title),
                 image: mode == current ? UIImage(systemName: "checkmark") : UIImage(),
             ) { [weak self] in
-                guard let self, var query = self.loader?.query, query.sortMode != mode else { return }
-                query.sortMode = mode
-                self.loader?.load(query)
+                self?.selectSort(mode)
             }
         }
-        var info = TelegramContextMenuAction(title: L10n.telegram("Story.ViewList.ContextSortInfo"))
+        var info = TelegramContextMenuAction(title: L10n.telegram(source.scope == .chat
+                ? "Story.ViewList.ContextSortChannelInfo"
+                : "Story.ViewList.ContextSortInfo"))
         info.isInformational = true
         info.startsNewSection = true
         sortButton.alpha = 0.5
         controller.presentTelegramContextMenu(
             sourceView: sortButton,
             actions: [
-                option(.reactionsFirst, title: "Story.ViewList.ContextSortReactions"),
+                source.scope == .chat
+                    ? option(.repostsFirst, title: "Story.ViewList.ContextSortReposts")
+                    : option(.reactionsFirst, title: "Story.ViewList.ContextSortReactions"),
                 option(.recentFirst, title: "Story.ViewList.ContextSortRecent"),
                 info,
             ],
@@ -449,13 +483,19 @@ final class StoryViewListPanel: UIView, UITableViewDataSource, UITableViewDelega
     }
 
     @objc private func rowPressed(_ gesture: ContextMenuPressGestureRecognizer) {
-        guard gesture.state == .began, let loader,
+        guard source?.scope == .own, gesture.state == .began, let loader,
               let path = tableView.indexPathForRow(at: gesture.location(in: tableView)),
               loader.items.indices.contains(path.row), let cell = tableView.cellForRow(at: path)
         else { return }
         // The row's content lifts without the press's highlight, which lies under it.
         cell.setHighlighted(false, animated: false)
         onContextMenu?(loader.items[path.row], cell.contentView, gesture)
+    }
+
+    private func selectSort(_ mode: StoryViewList.SortMode) {
+        guard var query = loader?.query, query.sortMode != mode else { return }
+        query.sortMode = mode
+        loader?.load(query)
     }
 
     private func resolvePeer(_ item: StoryViewList.Item) {
@@ -561,6 +601,7 @@ private final class StoryViewListSortButton: UIControl {
     private func updateIcon() {
         let symbol =
             switch mode {
+            case .repostsFirst: "arrow.2.squarepath"
             case .reactionsFirst: "heart"
             case .recentFirst: "clock"
             }
@@ -568,9 +609,13 @@ private final class StoryViewListSortButton: UIControl {
             systemName: symbol,
             withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .medium),
         )
-        accessibilityLabel = L10n.telegram(
-            mode == .reactionsFirst ? "Story.ViewList.ContextSortReactions" : "Story.ViewList.ContextSortRecent",
-        )
+        let key =
+            switch mode {
+            case .repostsFirst: "Story.ViewList.ContextSortReposts"
+            case .reactionsFirst: "Story.ViewList.ContextSortReactions"
+            case .recentFirst: "Story.ViewList.ContextSortRecent"
+            }
+        accessibilityLabel = L10n.telegram(key)
     }
 }
 

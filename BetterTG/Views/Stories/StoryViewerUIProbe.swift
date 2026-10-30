@@ -5,8 +5,8 @@
     import UIKit
 
     /// Opens the story viewer on generated stories, so Telegram's cube, the story areas and the More menu can be
-    /// checked on screen without the network. Launch with `-ui-probe-story-viewer-ui MODE [VALUE]`; once an
-    /// account is active the viewer opens at Bob, between Alice and Carol:
+    /// checked on screen without the network or an account. Launch with `-ui-probe-story-viewer-ui MODE [VALUE]`;
+    /// the viewer opens at Bob, between Alice and Carol:
     /// - `cube [fraction]` holds the cube part of a turn towards Carol (0.5 by default; a negative fraction
     ///   turns towards Alice), with the neighbour's face beside Bob's;
     /// - `cube-commit [fraction]` holds it for 1.5 s, then lets go as a drag that stops: past 0.3 the cube
@@ -18,8 +18,10 @@
     /// - `reply [edit|like-options|send]` checks the reply panel under Bob's story and likes it and takes the like
     ///   back, then edits the empty field with the reactions over it (edit, by default), holds the like button for
     ///   the other reactions (like-options), or sends a reply (send);
-    /// - `channel` shows Bob as a public channel: the channel footer with the views, like and Share instead of the
-    ///   reply panel, and a tap on its like;
+    /// - `channel [footer|viewers|empty|denied|revoke|retry|failure]` shows Bob as a public channel: the footer and
+    /// like, or
+    /// the
+    ///   reactions/forwards list, empty state, denied access, or permission loss while the list is open;
     /// - `own [footer|menu|delete|viewers|viewers-full|viewers-menu|carousel]` opens the account's own stories:
     ///   viewers list at half the screen from the footer's counts, with Alice's heart, Bob's view and Carol's
     ///   commented repost, then a tap on Bob (viewers), or the list fully open and closed again (viewers-full), or the
@@ -39,7 +41,7 @@
             case menu(video: Bool)
             case reply(step: String)
             case own(step: String)
-            case channel
+            case channel(step: String)
         }
 
         /// One of the areas on Bob's story, with the sticker its picture shows where the overlay draws nothing, and
@@ -126,7 +128,13 @@
                     }
                     var includesOwn = false
                     if case .own = mode { includesOwn = true }
-                    fixture = try makeFixture(videoURL: videoURL, includesOwn: includesOwn)
+                    let channelStep: String? =
+ if case .channel(let step) = mode {
+                        step
+                    } else {
+                        nil
+                    }
+                    fixture = try makeFixture(videoURL: videoURL, includesOwn: includesOwn, channelStep: channelStep)
                 } catch {
                     record("Story viewer UI probe failed: \(error)")
                     return
@@ -145,7 +153,12 @@
                               return .user(isBot: false, isService: false, isSelf: isOwn)
                           }(),
                           accountUserID: isOwn ? me : nil,
-                          interactions: isOwn ? ownInteractions() : [:],
+                          interactions: {
+                              if case .channel(let step) = mode,
+                                 ["viewers", "revoke", "denied", "retry", "failure"]
+                                 .contains(step) { return channelInteractions() }
+                              return isOwn ? ownInteractions() : [:]
+                          }(),
                           onMenuItem: { record("Story viewer UI probe menu chose \($0)") },
                           client: TDLib.shared.activeClient,
                           from: presenter,
@@ -165,8 +178,12 @@
                     await runMenu(viewer, video: video)
                 case .reply(let step):
                     await runReply(viewer, step: step)
-                case .channel:
-                    await runChannel(viewer)
+                case .channel(let step):
+                    if step == "footer" {
+                        await runChannel(viewer)
+                    } else {
+                        await runChannelViewers(viewer, step: step)
+                    }
                 case .own(let step):
                     await runOwn(viewer, step: step)
                 }
@@ -191,6 +208,8 @@
             caption: String = "",
             own: (isPosted: Bool, interactions: TDNativeStoryInteractionInfo?)? = nil,
             hasExpiredViewers: Bool = false,
+            canGetStatistics: Bool = false,
+            interactions: TDNativeStoryInteractionInfo? = nil,
         ) -> Story {
             let size = PhotoSize(type: "y", photo: file, width: 720, height: 1280, progressiveSizes: [])
             let photo = Photo(hasStickers: false, minithumbnail: nil, sizes: [size])
@@ -213,11 +232,11 @@
                 canBeReplied: canBeReplied && own == nil,
                 canSetPrivacySettings: own != nil,
                 canToggleIsPostedToChatPage: own != nil,
-                canGetStatistics: false,
+                canGetStatistics: canGetStatistics,
                 canGetInteractions: own != nil,
                 hasExpiredViewers: hasExpiredViewers,
                 repostInfo: nil,
-                interactionInfo: own?.interactions,
+                interactionInfo: interactions ?? own?.interactions,
                 chosenReactionType: nil,
                 privacySettings: privacy,
                 content: content,
@@ -270,7 +289,10 @@
                 let step = value ?? "edit"
                 return ["edit", "like-options", "send"].contains(step) ? .reply(step: step) : nil
             case "channel":
-                return .channel
+                let step = value ?? "footer"
+                return ["footer", "viewers", "empty", "denied", "revoke", "retry", "failure"].contains(step)
+                    ? .channel(step: step)
+                    : nil
             case "own":
                 let step = value ?? "footer"
                 return ["footer", "menu", "delete", "viewers", "viewers-full", "viewers-menu", "carousel"]
@@ -562,6 +584,157 @@
             record("Story viewer UI probe own \(step) \(passes ? "passed" : "failed"): \(footerText) \(stepText)")
         }
 
+        private static func runChannelViewers(_ viewer: StoryViewerController, step: String) async {
+            try? await Task.sleep(for: .milliseconds(400))
+            if ["retry", "failure"].contains(step) { viewer.probeFailViewListPage(offset: "") }
+            viewer.probeOpenViewList()
+            try? await Task.sleep(for: .milliseconds(1200))
+            if ["retry", "failure"].contains(step) {
+                var passes = viewer.probeViewListHasFailed
+                    && viewer.probeViewList.rows == ["empty:" + L10n.telegram("Login.UnknownError")]
+                if step == "failure" {
+                    record(
+                        "Story viewer UI probe channel failure \(passes ? "passed" : "failed"): failed=\(viewer.probeViewListHasFailed)",
+                    )
+                    return
+                }
+                viewer.probeFailViewListPage(offset: "10")
+                viewer.probeViewListRetry()
+                viewer.probeViewListRetry()
+                try? await Task.sleep(for: .milliseconds(600))
+                let retained = viewer.probeViewList.rows
+                passes = passes && retained.count == 10 && viewer.probeViewListHasFailed
+                viewer.probeViewListRetry()
+                viewer.probeViewListRetry()
+                try? await Task.sleep(for: .milliseconds(600))
+                let requests = viewer.probeInteractionRequests
+                passes = passes && !viewer.probeViewListHasFailed && viewer.probeViewList.rows.count == 20
+                    && Array(viewer.probeViewList.rows.prefix(10)) == retained
+                    && requests.count(where: {
+                        if case .chat(_, _, _, "") = $0 {
+                            true
+                        } else {
+                            false
+                        }
+                    }) == 2
+                    && requests.count(where: {
+                        if case .chat(_, _, _, "10") = $0 {
+                            true
+                        } else {
+                            false
+                        }
+                    }) == 2
+                record(
+                    "Story viewer UI probe channel retry \(passes ? "passed" : "failed"): retained=\(retained.count) rows=\(viewer.probeViewList.rows.count) requests=\(requests.count) failed=\(viewer.probeViewListHasFailed)",
+                )
+                return
+            }
+            if step == "denied" {
+                let passes = viewer.probeFooterConfiguration?.canOpenViews == false
+                    && viewer.probeViewList.display == .hidden && viewer.probeInteractionRequests.isEmpty
+                record(
+                    "Story viewer UI probe channel denied \(passes ? "passed" : "failed"): closed=\(viewer.probeViewList.display == .hidden) requests=\(viewer.probeInteractionRequests.count)",
+                )
+                return
+            }
+            let header = viewer.probeViewListHeader
+            let firstPanel = viewer.probeViewListIdentity
+            let rows = viewer.probeViewList.rows
+            var passes = viewer.probeFooterConfiguration?.canOpenViews == true
+                && viewer.probeViewList.display == .half && viewer.probeViewList.isPaused
+                && header?.title == L10n.telegram("Story.ViewList.TitleReactions")
+                && header?.showsTabs == false && header?.showsSearch == false
+                && viewer.probeViewListQuery?.sortMode == .repostsFirst
+            if step == "empty" {
+                passes = passes && rows == ["empty:" + L10n.telegram("Story.Views.NoReactions")]
+            } else {
+                passes = passes && header?.showsSort == true && rows.first?.hasSuffix("|forward") == true
+                viewer.probeViewListSort(.recentFirst)
+                try? await Task.sleep(for: .milliseconds(600))
+                passes = passes && viewer.probeViewList.rows.first?.hasSuffix("|❤") == true
+                viewer.probeViewListPage(fraction: -0.4, velocity: 0)
+                try? await Task.sleep(for: .milliseconds(600))
+                passes = passes && viewer.probeShownStory?.id == 203
+                    && viewer.probeViewList.rows == ["empty:" + L10n.telegram("Story.Views.NoReactions")]
+                viewer.probeViewListPage(fraction: 0.4, velocity: 0)
+                try? await Task.sleep(for: .milliseconds(600))
+                passes = passes && viewer.probeShownStory?.id == areaStoryID
+                    && viewer.probeViewListIdentity == firstPanel && viewer.probeViewListQuery?.sortMode == .recentFirst
+            }
+            let requests = viewer.probeInteractionRequests
+            passes = passes && requests.allSatisfy { request in
+                if case .chat(let chatID, _, _, _) = request { return chatID == bob }
+                return false
+            } && requests.contains(.chat(chatID: bob, storyID: areaStoryID, preferForwards: true, offset: ""))
+            if step != "empty" {
+                passes = passes && requests.contains(.chat(
+                    chatID: bob,
+                    storyID: areaStoryID,
+                    preferForwards: false,
+                    offset: "",
+                ))
+                    && requests.contains {
+                        if case .chat(_, _, _, "10") = $0 {
+                            true
+                        } else {
+                            false
+                        }
+                    }
+            }
+            if step == "revoke" {
+                viewer.probeViewListSortMenu()
+                try? await Task.sleep(for: .milliseconds(600))
+                passes = passes && viewer.isPresentingTelegramContextMenu
+                viewer.probeSetChatListAccess(false)
+                try? await Task.sleep(for: .milliseconds(1200))
+                viewer.probeOpenViewList()
+                passes = passes && viewer.probeViewList.display == .hidden
+                    && viewer.probeFooterConfiguration?.canOpenViews == false
+                    && viewer.probeInteractionRequests.count == requests.count
+                    && !viewer.isPresentingTelegramContextMenu
+            }
+            record(
+                "Story viewer UI probe channel \(step) \(passes ? "passed" : "failed"): title=\(header?.title ?? "nil") search=\(header?.showsSearch ?? true) tabs=\(header?.showsTabs ?? true) first=\(rows.first ?? "nil") requests=\(requests.count) retained=\(viewer.probeViewListIdentity == firstPanel) display=\(viewer.probeViewList.display)",
+            )
+        }
+
+        private static func channelInteractions() -> [Int: [StoryInteraction]] {
+            let now = Int(Date().timeIntervalSince1970)
+            return [areaStoryID: (0..<25).map { index in
+                let kind: TDNativeStoryInteractionType
+                let actor: MessageSender
+                if index.isMultiple(of: 2) {
+                    actor = .messageSenderUser(.init(userId: alice))
+                    kind = .storyInteractionTypeView(.init(chosenReactionType: .reactionTypeEmoji(.init(emoji: "❤"))))
+                } else if index % 4 == 1 {
+                    actor = .messageSenderChat(.init(chatId: carol))
+                    let message = RichNotificationMediaPrewarmerProbe.message(
+                        .messageText(.init(
+                            linkPreview: nil, linkPreviewOptions: nil, text: .init(
+                                entities: [],
+                                text: "Public forward",
+                            ),
+                        )),
+                        chatID: carol,
+                        id: Int64(index) << 20,
+                    )
+                    kind = .storyInteractionTypeForward(.init(message: message))
+                } else {
+                    actor = .messageSenderUser(.init(userId: carol))
+                    let story = makeStory(
+                        id: 400 + index,
+                        chatID: carol,
+                        date: now - index * 60,
+                        file: photoFile(id: fileIDBase + index, path: "", uniqueID: "repost-\(index)"),
+                        areas: [],
+                        caption: "Comment",
+                    )
+                    kind = .storyInteractionTypeRepost(.init(story: story))
+                }
+                return StoryInteraction(actorId: actor, interactionDate: now - index * 60, blockList: nil, type: kind)
+            }]
+        }
+
         /// A viewer as TDLib's user, a contact or not.
         private static func viewerUser(_ id: Int64, _ name: String, isContact: Bool) -> User {
             User(
@@ -637,7 +810,11 @@
         /// Alice's two stories, Bob's three with the second, his first unseen, carrying the areas, and Carol's one,
         /// each a generated picture named after its poster and place; with `includesOwn`, the account's two stories
         /// first, the first one viewed by the others and the second saved to the profile.
-        private static func makeFixture(videoURL: URL? = nil, includesOwn: Bool = false) throws -> Fixture {
+        private static func makeFixture(
+            videoURL: URL? = nil,
+            includesOwn: Bool = false,
+            channelStep: String? = nil,
+        ) throws -> Fixture {
             let now = Int(Foundation.Date().timeIntervalSince1970)
             let run = UUID().uuidString
             var posters: [(chatID: Int64, title: String, colors: [UIColor], storyIDs: [Int], maxRead: Int, age: Int)] =
@@ -702,6 +879,16 @@
                         areas: storyAreas.map(\.area),
                         content: content,
                         own: own,
+                        canGetStatistics: poster.chatID == bob && ["viewers", "empty", "revoke", "retry", "failure"]
+                        .contains(channelStep ?? ""),
+                        interactions: poster.chatID == bob && channelStep != nil && channelStep != "footer"
+                            ? TDNativeStoryInteractionInfo(
+                                viewCount: 100,
+                                forwardCount: 12,
+                                reactionCount: 13,
+                                recentViewerUserIds: [],
+                            )
+                            : nil,
                     ))
                     infos.append(TDNativeStoryInfo(
                         storyId: storyID,

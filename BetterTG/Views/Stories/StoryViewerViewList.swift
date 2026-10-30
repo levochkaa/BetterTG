@@ -5,10 +5,21 @@ import TDLibKit
 
 // MARK: - StoryViewList
 
-/// StoryItemSetViewListComponent for the account's own story: who viewed it, reacted to it, forwarded or reposted it
-/// (`getStoryInteractions`), with Telegram's list and sort modes, search, header and empty states. Channel stories,
-/// the reposts-first order and the Premium upgrade are left out.
+/// StoryItemSetViewListComponent: own-story viewers, or a channel/group's reactions and public forwards/reposts.
 enum StoryViewList {
+    enum Scope: Equatable {
+        case own
+        case chat
+
+        var defaultQuery: Query { Query(sortMode: self == .chat ? .repostsFirst : .reactionsFirst) }
+    }
+
+    /// Separate TDLib methods: a channel's story ID alone must never address an own story with the same ID.
+    enum Request: Equatable {
+        case own(storyID: Int, query: Query, offset: String)
+        case chat(chatID: Int64, storyID: Int, preferForwards: Bool, offset: String)
+    }
+
     /// The tabs: everyone, or only contacts (`only_contacts`).
     enum ListMode: Equatable {
         case everyone
@@ -17,6 +28,7 @@ enum StoryViewList {
 
     /// The order a user's story offers: reactions first (`prefer_with_reaction`), Telegram's default, or recent first.
     enum SortMode: Equatable {
+        case repostsFirst
         case reactionsFirst
         case recentFirst
     }
@@ -76,6 +88,27 @@ enum StoryViewList {
 
     /// EngineStoryViewListContext's page size.
     static let pageSize = 50
+
+    static func request(key: StoryViewerSession.StoryKey, scope: Scope, query: Query, offset: String) -> Request {
+        switch scope {
+        case .own: .own(storyID: key.storyID, query: query, offset: offset)
+        case .chat: .chat(
+                chatID: key.chatID,
+                storyID: key.storyID,
+                preferForwards: query.sortMode == .repostsFirst,
+                offset: offset,
+            )
+        }
+    }
+
+    /// Telegram permits the creator or an administrator who can see the chat's statistics.
+    static func canReadChat(status: ChatMemberStatus?, canViewStatistics: Bool) -> Bool {
+        switch status {
+        case .chatMemberStatusCreator: true
+        case .chatMemberStatusAdministrator: canViewStatistics
+        default: false
+        }
+    }
 
     /// peerContextAction: someone kept from the account's stories can see them again, a contact can be kept from
     /// them; a contact can be deleted, anyone else not yet blocked can be blocked.
@@ -138,10 +171,18 @@ enum StoryViewList {
     /// The header's rules: the tabs and search appear from 20 viewers, the tabs only for a story everyone can see,
     /// and the sort button from 10 reactions among 20 viewers. Once the viewers have expired there is no list to
     /// search or sort. The title counts the viewers while some of them didn't react.
-    static func header(story: Story, totalCount: Int?) -> Header {
+    static func header(story: Story, totalCount: Int?, scope: Scope = .own) -> Header {
         let info = story.interactionInfo
         let total = totalCount ?? info?.viewCount ?? 0
         let reactions = info?.reactionCount ?? 0
+        if scope == .chat {
+            return Header(
+                title: L10n.telegram("Story.ViewList.TitleReactions"),
+                showsTabs: false,
+                showsSearch: false,
+                showsSort: total >= 20 && (info?.forwardCount ?? 0) >= 10,
+            )
+        }
         let title =
             if info == nil, totalCount == nil {
                 L10n.telegram("Story.ViewList.TitleEmpty")
@@ -170,7 +211,8 @@ enum StoryViewList {
 
     /// The empty list's text. Telegram offers Premium where an expired story's viewers were recorded; here the story
     /// says that the list became unavailable, as it does where nobody viewed it.
-    static func emptyText(query: Query, story: Story) -> String {
+    static func emptyText(query: Query, story: Story, scope: Scope = .own) -> String {
+        if scope == .chat { return L10n.telegram("Story.Views.NoReactions") }
         if !query.text.isEmpty { return L10n.telegram("Story.ViewList.EmptyTextSearch") }
         if query.listMode == .contacts { return L10n.telegram("Story.ViewList.EmptyTextContacts") }
         if story.hasExpiredViewers { return L10n.telegram("Story.Views.ViewsExpired") }
@@ -213,6 +255,7 @@ enum StoryViewList {
     private(set) var isLoading = false
     /// Whether the first page has arrived, or failed, for the current query.
     private(set) var isLoaded = false
+    private(set) var hasFailed = false
     var onChange: (() -> Void)?
 
     private let fetch: Fetch
@@ -233,6 +276,7 @@ enum StoryViewList {
         hasMore = true
         isLoading = false
         isLoaded = false
+        hasFailed = false
         onChange?()
         loadMore()
     }
@@ -244,7 +288,7 @@ enum StoryViewList {
     }
 
     func loadMore() {
-        guard hasMore, !isLoading else { return }
+        guard hasMore, !isLoading, !hasFailed else { return }
         isLoading = true
         let generation = generation
         let query = query
@@ -255,7 +299,7 @@ enum StoryViewList {
             isLoading = false
             isLoaded = true
             guard let page else {
-                hasMore = false
+                hasFailed = true
                 onChange?()
                 return
             }
@@ -266,6 +310,14 @@ enum StoryViewList {
             hasMore = !page.nextOffset.isEmpty && !page.items.isEmpty
             onChange?()
         }
+    }
+}
+
+extension StoryViewListLoader {
+    func retry() {
+        guard hasFailed else { return }
+        hasFailed = false
+        loadMore()
     }
 }
 

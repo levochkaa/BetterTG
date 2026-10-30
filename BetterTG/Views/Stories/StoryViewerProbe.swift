@@ -32,6 +32,7 @@ import UIKit
                 try verifyViewList()
                 try verifyCarousel()
                 try verifyChannelFooter()
+                try verifyChannelViewList()
                 try verifyReplyPanel()
                 result = "Story viewer probe passed: first-unseen-entry/clock-waits-for-media/hold-pause=true; "
                     + "auto-advance/next-poster/resume/rewind/dismiss=true; single-story=true; "
@@ -44,7 +45,7 @@ import UIKit
                     + "own-menu/expired/live/button/footer/no-views/view-label/count-text=true; "
                     + "view-list-title/tabs-at-20/private-no-tabs/sort-at-10/expired-no-header/empty-texts/"
                     + "subtitles/page-kinds/layout/drag-outcomes/row-menus=true; carousel=selection/geometry/thresholds/cancel/edges; "
-                    + "channel-footer/private-no-share/closed-group/writable-group-none=true; "
+                    + "channel-footer/private-no-share/closed-group/writable-group-none=true; channel-list=rights/header/order/request-scope/empty; "
                     + "reply-user/private/closed/service/bot/self/group/read-only-group/channel/live/reaction-text=true"
             } catch {
                 result = "Story viewer probe failed: \(error)"
@@ -113,6 +114,87 @@ import UIKit
                 && StoryCarouselLayout
                     .destination(index: 2, count: 3, fraction: -1, velocity: -1000, cancelled: false) == 2,
                 "carousel edge escaped",
+            )
+        }
+
+        private static func verifyChannelViewList() throws {
+            let creator = ChatMemberStatus.chatMemberStatusCreator(.init(isAnonymous: false, isMember: true))
+            let admin = ChatMemberStatus.chatMemberStatusAdministrator(.init(canBeEdited: false, rights: .init(
+                canManageChat: false, canChangeInfo: false, canPostMessages: false, canEditMessages: false,
+                canDeleteMessages: false, canInviteUsers: false, canRestrictMembers: false, canPinMessages: false,
+                canManageTopics: false, canPromoteMembers: false, canManageVideoChats: false, canPostStories: false,
+                canEditStories: false, canDeleteStories: false, canManageDirectMessages: false, canManageTags: false,
+                canSendWelcomeMessages: false, isAnonymous: false,
+            )))
+            try require(StoryViewList.canReadChat(status: creator, canViewStatistics: false), "creator lost list")
+            try require(
+                StoryViewList.canReadChat(status: admin, canViewStatistics: true)
+                && !StoryViewList.canReadChat(status: admin, canViewStatistics: false),
+                "administrator statistics gate",
+            )
+            for status: ChatMemberStatus? in [
+                nil,
+                .chatMemberStatusLeft,
+                .chatMemberStatusMember(.init(memberUntilDate: 0)),
+            ] {
+                try require(
+                    !StoryViewList.canReadChat(status: status, canViewStatistics: true),
+                    "non-admin opened list",
+                )
+            }
+            let file = StoryViewerUIProbe.photoFile(id: 1, path: "", uniqueID: "channel")
+            let story = StoryViewerUIProbe.makeStory(
+                id: 1,
+                chatID: -1001,
+                date: 0,
+                file: file,
+                areas: [],
+                canGetStatistics: true,
+                interactions: .init(
+                    viewCount: 100,
+                    forwardCount: 10,
+                    reactionCount: 20,
+                    recentViewerUserIds: [],
+                ),
+            )
+            let header = StoryViewList.header(story: story, totalCount: 20, scope: .chat)
+            try require(
+                header.title == L10n.telegram("Story.ViewList.TitleReactions") && !header.showsTabs
+                && !header.showsSearch && header.showsSort && !story.canGetInteractions,
+                "channel header used own-story rules",
+            )
+            try require(
+                !StoryViewList.header(story: story, totalCount: 19, scope: .chat).showsSort,
+                "channel sort threshold",
+            )
+            let query = StoryViewList.Scope.chat.defaultQuery
+            try require(query.sortMode == .repostsFirst, "channel default sort")
+            try require(
+                StoryViewList.emptyText(query: query, story: story, scope: .chat) == L10n
+                    .telegram("Story.Views.NoReactions"),
+                "channel empty text",
+            )
+            let key = StoryViewerSession.StoryKey(chatID: -1001, storyID: 1)
+            try require(
+                StoryViewList.request(key: key, scope: .chat, query: query, offset: "next")
+                == .chat(chatID: -1001, storyID: 1, preferForwards: true, offset: "next"),
+                "chat request lost poster or pagination",
+            )
+            try require(
+                StoryViewList.request(key: key, scope: .own, query: .init(), offset: "")
+                == .own(storyID: 1, query: .init(), offset: ""),
+                "own request changed",
+            )
+            let footer = StoryFooterPanel.channelConfiguration(
+                story: story,
+                poster: .channel(isPublic: true),
+                canViewList: true,
+            )
+            try require(
+                footer?.canOpenViews == true
+                && StoryFooterPanel.channelConfiguration(story: story, poster: .channel(isPublic: true))?
+                    .canOpenViews == false,
+                "channel footer permission",
             )
         }
 

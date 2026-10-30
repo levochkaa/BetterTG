@@ -389,6 +389,12 @@ extension UIViewController {
         TelegramContextMenuController.activeController?.owner === self
     }
 
+    /// A screen losing permission to show its source can close its own menu without affecting another owner.
+    func dismissTelegramContextMenu() {
+        guard let controller = TelegramContextMenuController.activeController, controller.owner === self else { return }
+        controller.dismissWithEscape()
+    }
+
     /// A `.menuOnly` menu sits `menuSpacing` above `menuAnchorView`, or above the source when there is none.
     /// A `ContextMenuPressGestureRecognizer` passed as `gesture` hands its grown source over to the menu and
     /// keeps driving it: the same finger scrubs the actions and pans the preview.

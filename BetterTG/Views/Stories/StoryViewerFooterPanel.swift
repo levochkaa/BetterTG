@@ -22,6 +22,7 @@ enum StoryFooterPanel {
         var isChannel = false
         /// forwardAction: a public channel's story that may be forwarded.
         var canShare = false
+        var canOpenViews = true
     }
 
     /// The footer for the story, or nil where Telegram shows none: someone else's story and a live stream.
@@ -42,7 +43,11 @@ enum StoryFooterPanel {
     /// The channel footer (isChannel) under a channel's story, or a group's where the account can't write: at least one
     /// view, the reactions, and Share for a public channel's forwardable story. A live
     /// stream has none. Telegram's repost button opens its story editor, which BetterTG doesn't have.
-    static func channelConfiguration(story: Story, poster: StoryReplyPanel.Poster) -> Configuration? {
+    static func channelConfiguration(
+        story: Story,
+        poster: StoryReplyPanel.Poster,
+        canViewList: Bool = false,
+    ) -> Configuration? {
         if case .storyContentLive = story.content { return nil }
         let isPublic: Bool
         switch poster {
@@ -64,6 +69,7 @@ enum StoryFooterPanel {
             canDelete: false,
             isChannel: true,
             canShare: isPublic && story.canBeForwarded,
+            canOpenViews: canViewList,
         )
     }
 
@@ -352,7 +358,7 @@ final class StoryFooterPanelView: UIView {
         }
         likeButton.isHidden = !isChannel
         shareButton.isHidden = !isChannel || !configuration.canShare
-        statsButton.isEnabled = !isChannel
+        statsButton.isEnabled = configuration.canOpenViews
         if viewersChanged { loadAvatars(configuration.recentViewerIDs, avatar: avatar, client: client) }
         // VoiceOver reads the views with their count and the reactions and reposts beside them; they open the list.
         statsButton.accessibilityLabel = [
@@ -442,8 +448,11 @@ final class StoryFooterPanelView: UIView {
     /// count after the 33-point like button, then 14 points to the left the share button.
     private func layoutChannel(_ configuration: StoryFooterPanel.Configuration) {
         let height = bounds.height
+        let fraction = expandFraction
+        let countSize = countLabel.sizeThatFits(bounds.size)
+        let centredX = (bounds.width - Self.iconSize.width - Self.iconSpacing - countSize.width) / 2
         let eye = CGRect(
-            x: 16,
+            x: 16 + (centredX - 16) * fraction,
             y: ((height - Self.iconSize.height) / 2).rounded(.down),
             width: Self.iconSize.width,
             height: Self.iconSize.height,
@@ -451,7 +460,6 @@ final class StoryFooterPanelView: UIView {
         eyeIcon.transform = .identity
         eyeIcon.frame = eye
         eyeIcon.alpha = 1
-        let countSize = countLabel.sizeThatFits(bounds.size)
         countLabel.frame = CGRect(
             x: eye.maxX + Self.iconSpacing,
             y: ((height - countSize.height) / 2).rounded(.down),
@@ -467,7 +475,7 @@ final class StoryFooterPanelView: UIView {
         let likeCountSize = likeCountLabel.sizeThatFits(bounds.size)
         let likeCountWidth = reactions != 0 ? likeCountSize.width + 1 : 0
         right -= likeCountWidth
-        let buttonY = ((height - 33) / 2).rounded(.down)
+        let buttonY = ((height - 33) / 2).rounded(.down) + fraction * 45
         likeButton.frame = CGRect(x: right - 33, y: buttonY, width: 33, height: 33)
         likeCountLabel.frame = CGRect(
             x: 33 + 1,
@@ -477,8 +485,10 @@ final class StoryFooterPanelView: UIView {
         )
         right -= 33 + 14
         shareButton.frame = CGRect(x: right - 33, y: buttonY, width: 33, height: 33)
-        statsButton.frame = .zero
-        isUserInteractionEnabled = true
+        likeButton.alpha = 1 - fraction
+        shareButton.alpha = 1 - fraction
+        statsButton.frame = CGRect(x: 0, y: 0, width: countLabel.frame.maxX + 16, height: height)
+        isUserInteractionEnabled = fraction == 0
     }
 
     /// The frames of the stats from `start` in one of the two arrangements, and where they end.
