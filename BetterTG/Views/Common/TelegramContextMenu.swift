@@ -2710,9 +2710,8 @@ private final class TelegramContextMenuSectionDivider: UIView {
 ///
 /// Like `_UIContextMenuListView`, the card's glass carries its rows, so they stretch together under a finger; the rows
 /// sit in a clipping view that is never smaller than the header with the menu's insets around it. Closed, the card is
-/// the row inset like its
-/// highlight, and its glass is suppressed to the material's `_identityGlass`, which shows nothing: the glass
-/// materializes on the opening spring (`setSuppressGlassBackground:`) and fades on the closing one.
+/// the row inset like its highlight, and its glass is suppressed to the material's `_identityGlass`, which shows
+/// nothing: the glass materializes on the opening spring (`setSuppressGlassBackground:`) and fades on the closing one.
 private final class TelegramContextSubmenuView: UIView {
     // MARK: Internal
 
