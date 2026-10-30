@@ -66,8 +66,6 @@ final class ChatMediaCalendarViewController: UIViewController, UIScrollViewDeleg
         // months add to the far end without moving the visible ones.
         scrollView.transform = CGAffineTransform(rotationAngle: .pi)
         // The bars' edge effects would cover the turned content, as in the chat's inverted history.
-        scrollView.topEdgeEffect.isHidden = true
-        scrollView.bottomEdgeEffect.isHidden = true
         scrollView.contentInsetAdjustmentBehavior = .never
         scrollView.delaysContentTouches = false
         scrollView.scrollsToTop = false

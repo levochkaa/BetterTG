@@ -12,6 +12,7 @@ import UIKit
         _: UIApplication,
         didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil,
     ) -> Bool {
+        UIScrollView.hideSystemEdgeEffects()
         FFmpegCapabilities.assertRequiredCodecsAvailable()
         #if DEBUG
             RichNotificationTargetProbe.runIfRequested()

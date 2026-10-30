@@ -548,8 +548,6 @@ struct AttachmentMediaSendRequest {
         collectionView.contentInsetAdjustmentBehavior = .always
         collectionView.alwaysBounceVertical = true
         // The bar and the panel draw their own blur; the system's edge effects would wash the panel's badge out.
-        collectionView.topEdgeEffect.isHidden = true
-        collectionView.bottomEdgeEffect.isHidden = true
         collectionView.dataSource = self
         collectionView.delegate = self
         collectionView.prefetchDataSource = self

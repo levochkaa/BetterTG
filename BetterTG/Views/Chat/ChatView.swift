@@ -3192,8 +3192,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         collectionView.keyboardDismissMode = presentationMode == .full ? .interactive : .none
         collectionView.contentInsetAdjustmentBehavior = .never
         collectionView.showsVerticalScrollIndicator = false
-        collectionView.topEdgeEffect.isHidden = true
-        collectionView.bottomEdgeEffect.isHidden = true
         collectionView.delegate = self
         collectionView.prefetchDataSource = self
         collectionView.register(MessageCell.self, forCellWithReuseIdentifier: MessageCell.reuseIdentifier)
