@@ -530,6 +530,17 @@ private final class TelegramContextMenuPassthroughView: UIView {
     }
 }
 
+// MARK: - TelegramContextMenuScroller
+
+private final class TelegramContextMenuScroller: UIScrollView {
+    var shouldBeginPan: (() -> Bool)?
+
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === panGestureRecognizer, shouldBeginPan?() == false { return false }
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+}
+
 // MARK: - TelegramContextMenuFirstResponder
 
 @MainActor private enum TelegramContextMenuFirstResponder {
@@ -637,7 +648,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// menu (ContextControllerExtractedPresentationNode's scrollNode).
     private let contentContainer = TelegramContextMenuPassthroughView()
     /// Telegram's hidden scroller: its pan, on the root view, drives `contentContainer`'s bounds.
-    private let scroller = UIScrollView()
+    private let scroller = TelegramContextMenuScroller()
     /// How far the content reaches past the bottom of the screen; zero when it fits and nothing scrolls.
     private var contentOverflow = CGFloat.zero
     private let previewContainer = UIView()
@@ -1046,6 +1057,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         scroller.contentInsetAdjustmentBehavior = .never
         scroller.alwaysBounceVertical = true
         scroller.panGestureRecognizer.isEnabled = false
+        // A touch that begins on the menu scrubs its rows, as in the system menu; only other touches scroll.
+        scroller.shouldBeginPan = { [weak self] in self?.touchSession?.origin != .menu }
         view.addSubview(scroller)
         view.addGestureRecognizer(scroller.panGestureRecognizer)
         reactionStrip.onSelect = { [weak self] reaction in
