@@ -4,6 +4,7 @@ Read-only audits and probe sweeps of the merged `codex/parity` code, by area, wi
 
 ## Contents
 
+- [Story playback speed: source checkpoint — 2026-10-30](2026-10-30-story-speed-checkpoint.md)
 - [Channel story interactions — 2026-10-30](2026-10-30-channel-story-viewers.md)
 - [Own-story viewers carousel — 2026-10-30](2026-10-30-story-viewers-carousel.md)
 - [Recent File client recovery — 2026-10-30](2026-10-30-file-client-recovery.md)
