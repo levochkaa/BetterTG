@@ -2,5 +2,3 @@ target/
 .env
 .data/
 *.log
-dist/
-node_modules/
