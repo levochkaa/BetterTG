@@ -23,7 +23,9 @@ Per-control decisions:
 | Media preview before sending | Not applicable: no button there opens a menu |
 | Record button retry/discard (`actionButton.menu`) | Kept as a system `UIMenu`, which UIKit morphs natively. The same button owns hold-to-record touches |
 | Classic navigation bar items with menus | Kept as system `UIMenu`s, morphed by UIKit. Telegram's morph targets glass header capsules, which BetterTG's classic chrome does not use |
-| Folders, messages, chat rows, avatars | No morph, by scope |
+| Folders, messages, chat rows, avatars and other menus | Since 10-31 (`fa589f68`, the user's decision, reversing 10-24): the glass grows out of a clear 10 × 10 attachment point, as UIKit's menus with `sourcePreviewMorphsToMenu` NO do |
+
+With a preview the morph draws in a host under `previewPanView`, and the preview stays in front while the morph opens and closes, because it may cross the menu on its way to or from its source. The source takes its content back and `onDismiss` fires when the preview lands, about 0.24 s into a close; the overlay stays, without touches, until UIKit's morph completes. Reduce Motion fades the menu. Checked on iPhone 18 Pro iOS 27.2 with `-ui-probe-context-menu-screen` (message, submenu, button, action and reopening during a close) and on iOS 26.5 in UI test and the chat list (message, chat row, folder tab). Avatars, the tip and a menu in the keyboard window were not driven with the morph.
 
 Proofs:
 
