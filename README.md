@@ -10,6 +10,54 @@ BetterTG was created by [Lev Poznyakov](https://github.com/levochkaa). It is in 
 
 Website: [bettertg.su](https://bettertg.su)
 
+## Screenshots
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/chats-dark.png">
+    <img src="docs/screenshots/chats-light.png" alt="Chat list with folders" width="23%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/chat-dark.png">
+    <img src="docs/screenshots/chat-light.png" alt="A chat with a photo, a reply, reactions and a voice message" width="23%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/group-dark.png">
+    <img src="docs/screenshots/group-light.png" alt="A group with a pinned message, a photo and a poll" width="23%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/menu-dark.png">
+    <img src="docs/screenshots/menu-light.png" alt="A message's menu with reactions" width="23%">
+  </picture>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/search-dark.png">
+    <img src="docs/screenshots/search-light.png" alt="Search with people and recent chats" width="23%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/attach-gallery-dark.png">
+    <img src="docs/screenshots/attach-gallery-light.png" alt="The attachment sheet with three photos picked" width="23%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/profile-dark.png">
+    <img src="docs/screenshots/profile-light.png" alt="A profile with shared media" width="23%">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/settings-dark.png">
+    <img src="docs/screenshots/settings-light.png" alt="Settings" width="23%">
+  </picture>
+</p>
+
+On iPhone Duo, the list and the chat sit side by side while it is unfolded:
+
+<p align="center">
+  <img src="docs/screenshots/duo-unfolded-landscape.png" alt="iPhone Duo, unfolded: the chat list beside a chat" width="70%">
+</p>
+
+The people and chats in these screenshots are made up. [docs/screenshots](docs/screenshots) has more of them, such as the channel, the archive and the rest of the attachment sheet.
+
 ## Features
 
 - A chat list with folders, the archive, pinned chats and search across chats, messages and public channels.
@@ -19,6 +67,7 @@ Website: [bettertg.su](https://bettertg.su)
 - Groups with forum topics, channels with comments, stories, bots with keyboards, inline bots and mini apps.
 - Profiles and Telegram's settings: privacy, notifications, data and storage, devices, passcode and proxy.
 - Several accounts on one device.
+- iPhone Duo in every posture, with the list and the chat in two columns while it is unfolded.
 - Rich notifications with avatars, media and quick replies, through the [push relay](#push-notifications).
 
 ## Repository
