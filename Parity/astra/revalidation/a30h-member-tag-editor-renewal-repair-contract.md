@@ -1,6 +1,6 @@
 # A30h member-tag editor renewal: repair contract — 2026-10-03
 
-- Source `b0908e2`, primary and independent review: `PeerProfileControlsViewControllers.swift`314–326 pushes the tag editor
+- Source `bc5f234`, primary and independent review: `PeerProfileControlsViewControllers.swift`314–326 pushes the tag editor
   above Members. `PeerProfileMembersRestoration.swift`145–151 requires Members itself topmost, so Profile's retention gate
   (`PeerProfileViewController.swift`234–242) fails; synchronous client-change handling1017–1021 reaches1095–1123 and drops
   Profile/Members/Tag together. The tag editor1170–1188 captures one immutable old client and has no renewed edit session.

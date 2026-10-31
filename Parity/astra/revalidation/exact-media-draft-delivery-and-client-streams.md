@@ -1,6 +1,6 @@
 # Exact media-draft delivery and client streams — 2026-10-02
 
-- A12 worker `2ccdb9b` integrated as `1f987fe`: `ChatDraftDeliveryKey` freezes account/chat/send topic independently of the
+- A12 worker `2ccdb9b` integrated as `83d0fd4`: `ChatDraftDeliveryKey` freezes account/chat/send topic independently of the
   owning UI route. Stores reject simultaneous enqueue by either route or delivery, require a unique outcome candidate and consume
   early evidence only after exact temporary-ID registration. Registration is persisted before cleanup; arbitrary-ID fallback is
   removed. Legacy account binding preserves the base route. Existing JSON contracts and recording-origin ownership remain intact.
@@ -15,7 +15,7 @@
   early/late success/failure, original route, wrong account/chat/topic/ID, duplicate old manifests, both enqueue gates, exact-ID
   relaunch, unresolved pre-registration crash, legacy base-route migration and unrelated draft/file preservation.
   This uses real store methods and disk manifests in disposable UUID directories with synthetic media bytes; no server sends.
-- A18 worker `b2e33d2` integrated as `fad487a`: every activation owns separate file/delete subjects with immutable account/client
+- A18 worker `b2e33d2` integrated as `92a02d9`: every activation owns separate file/delete subjects with immutable account/client
   provenance. Retained publishers cannot follow later account/client replacement. Bootstrap remains inert; A13 and the active-client
   gate are unchanged. All three deletion consumers were source-checked. The sole cherry-pick conflict retained both DEBUG probe hooks.
 - Reference: pinned current/pre-Liquid `AccountStateManager.swift` (322–324/308) and `ChatListSearchListPaneNode.swift` (4814/4650)

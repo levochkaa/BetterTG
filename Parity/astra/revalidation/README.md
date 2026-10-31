@@ -1,10 +1,10 @@
 # Revalidation before new features — 2026-10-02
 
 The user requested a fresh `gpt-6-astra` review of the accumulated implementation previously developed with `5.6-sol`.
-The initial documentation handoff was `0727fc8`; the goal subsequently started on 2026-10-02 from that clean HEAD, whose last
-production commit was `e88036e0a84f9be7665d5d8904776f7609db64d7`. There is no `GOAL.md` in this checkout. The reusable revised
+The initial documentation handoff was `1eb08ff`; the goal subsequently started on 2026-10-02 from that clean HEAD, whose last
+production commit was `5e6f5a0ba2f03353c4c14eb00c83ee7b8c8106c2`. There is no `GOAL.md` in this checkout. The reusable revised
 objective is `PARITY_PROMPT.md` (now [goal.md](../../goal.md)); the previously started goal points to the user-supplied attachment.
-Editing these documents does not start or resume a goal. The user explicitly resumed continuous work after the `ddb6764`
+Editing these documents does not start or resume a goal. The user explicitly resumed continuous work after the `7f4f26d`
 handoff; the goal is active. The earlier pause no longer applies. This does not mean Telegram parity is complete.
 Re-read HEAD and dirty state on resume.
 

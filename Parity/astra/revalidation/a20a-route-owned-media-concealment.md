@@ -1,6 +1,6 @@
 # A20a route-owned media concealment — 2026-10-02
 
-- `bbdf6dd` (worker `113e443`) introduces route-owned account/client/chat authority and per-member media-revision permits.
+- `929eb94` (worker `113e443`) introduces route-owned account/client/chat authority and per-member media-revision permits.
   Keys include content kind, source file IDs, edit revision and spoiler/secret flags; download progress does not erase a reveal.
   Timeline first tap reveals only the selected spoiler; second tap opens gallery. Gallery grants only its central item and retains
   the issuing session through PiP restoration. Secret photo/video/animation remain concealed and cannot enter ordinary playback.
@@ -14,7 +14,7 @@
   concealment 3094 / 2948–2988; pinned TDLib `MessagePhoto/MessageVideo/MessageAnimation.hasSpoiler/isSecret` contracts.
   This bounded implementation uses an opaque cover; upstream blur/particle polish and full visual parity are not claimed.
 - Eight Swift files formatted together; integration build `build-Debug-20261002-203725-34161-16930.log`: PASS18s, zero warnings.
-  Audit Simulator source `bbdf6dd`, PID `39784`: media-reveal, text-spoiler and viewport probes pass. Native AVAssetWriter fixture,
+  Audit Simulator source `929eb94`, PID `39784`: media-reveal, text-spoiler and viewport probes pass. Native AVAssetWriter fixture,
   actual gallery cell/controller/owner and isolated range backend prove selected-only admission, no pre-reveal downloads,
   revision cancellation, stale snapshots and issuing-session retention. PID `40544`: native inline-animation and gallery-transition
   regressions pass. PID `40966`: gallery-owner native/FFmpeg continuity, finite ranges and teardown pass. PID `42082`:

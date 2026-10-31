@@ -1,6 +1,6 @@
 # Edit-mode safety proof — 2026-10-02
 
-- A24 worker `8aa914f` integrated as `5a621e4`. Primary reviewed the entire policy/probe and all edit-session assignment sites.
+- A24 worker `8aa914f` integrated as `163753e`. Primary reviewed the entire policy/probe and all edit-session assignment sites.
   `ChatVM` dispatches explicitly between ordinary/invalid-edit/edit, captures the message/formatted payload, and checks session,
   text revision, task cancellation and current location after request completion. Closing Edit preserves the ordinary reply;
   newer typing or a reopened same-ID session survives an old success/error. Semantic entity conversion A25 remains unchanged.

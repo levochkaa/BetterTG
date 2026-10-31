@@ -1,8 +1,8 @@
 # Checkpoint
 
 - Active continuation: `codex/parity-continuation` in worktree `31df/BetterTG`. The complete first media/parity
-  history through `5d990c1` and all 44 continuation commits through `e88036e` are retained, including member tags.
-  The integration merges `1d9d80a`, which contains local `main` at `6dd705c` and TDLibKit 2.0.0.
+  history through `37fb759` and all 44 continuation commits through `5e6f5a0` are retained, including member tags.
+  The integration merges `ce5015d`, which contains local `main` at `1476556` and TDLibKit 2.0.0.
 - Native compatibility preserves account/topic-scoped composer and media drafts, profile permissions, gallery actions and
   persistent FFmpeg sessions. Legacy archive adapters preserve formatted text, quotes, replies and all MessageTopic variants;
   native value equality preserves reaction/avatar change detection. Generated aliases exclude application-owned types such as

@@ -1,6 +1,6 @@
 # A38 shared-message revalidation — 2026-10-03
 
-- `aad1ac9` (worker `4116257`) reuses the profile-owned four-read history ledger. Every seed retains only ID/order/viewport;
+- `f7517e8` (worker `4116257`) reuses the profile-owned four-read history ledger. Every seed retains only ID/order/viewport;
   content, AX, file demand, transitions and actions await current-client admission. Scoped content/edit/delete updates revoke
   permits and visible consumers before async reads. Page admission shares revisions/tombstones and preserves unresolved IDs
   as actual loading/Retry rows; raw cursor remains server-page-derived. Exact404 `Not Found` removes; other errors and unknown
@@ -10,21 +10,21 @@
   other callers is unchanged. Independent immutable delta review found no further confirmed blocker. Active AVKit stop/layer
   latency is not proven by a Simulator helper. Six-file format; integration
   `build-Debug-20261003-002923-30429-24207.log`: PASS31s, zero warnings.
-- Source `aad1ac9`, PID `31005`: standalone shared-refresh probe passes actual ledger/adapter, four-read/visible priority,
+- Source `f7517e8`, PID `31005`: standalone shared-refresh probe passes actual ledger/adapter, four-read/visible priority,
   suspended delete/spoiler/page races, exact404/offline/permission/unknown-filter Retry, source/actor/topic/tab/root attachment,
   actual cell geometry/diffable anchor, permit and non-vacuous late transition rejection. Seed raw loads0; accepted loads1;
   new spoiler adds0. Full controller RPC/bootstrap and gallery/PiP teardown are source-reviewed, not injected by this fixture.
 - The next standalone profile-restoration run, PID `31305`, failed `error disappeared or auto-spun`: its new error check
-  resumed a read then assumed delivery after40ms. `6723b65` (worker `054caab`) replaces all such delays with bounded semantic
+  resumed a read then assumed delivery after40ms. `1309955` (worker `054caab`) replaces all such delays with bounded semantic
   state and actual driver completion; one-RPC/state assertions remain. DEBUG-only handle, defer cleanup, independent review.
   Initial failure is preserved in `.build/ui-probe-evidence/astra-a38-primary/profile-restoration-probe.txt`.
   `build-Debug-20261003-003813-36345-3545.log`: PASS11s, zero warnings. A prior attempt stopped in clang metadata output
   (`003415-34099-21928`); a sample showed blocked pipe write. Only that owned build was interrupted; retry needed no cache
-  removal, toolchain or Simulator reset. Source `6723b65`, PID `39878`: complete profile-restoration plus explicit A38 checks pass.
+  removal, toolchain or Simulator reset. Source `1309955`, PID `39878`: complete profile-restoration plus explicit A38 checks pass.
   Fresh result: `.build/ui-probe-evidence/astra-a38-settled-primary/profile-restoration-probe.txt`.
-- Regressions at `aad1ac9`: profile-grid concealment, general media reveal and PiP context pass PID `31707`;
+- Regressions at `f7517e8`: profile-grid concealment, general media reveal and PiP context pass PID `31707`;
   native/FFmpeg gallery-owner, continuity, stop/cancel and sample-buffer PiP factory pass PID `32182` (system PiP unsupported).
-- Actual source `aad1ac9`, PID `32182`: Saved → Profile initially populates Media/Files. Scroll Files, Home→app icon;
+- Actual source `f7517e8`, PID `32182`: Saved → Profile initially populates Media/Files. Scroll Files, Home→app icon;
   ownership released00:35:34, restored00:35:56, profile replacement accepted00:35:56.658. Settled first full row remains
   y151/height52.667 with the same following rows, confirming this scrolled anchor and nondefault tab survive revalidation.
   No file/gallery opened and no message/profile/folder saved. Selecting an older row returns to the fresh Chat but does not

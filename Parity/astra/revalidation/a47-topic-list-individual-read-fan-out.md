@@ -1,6 +1,6 @@
 # A47 topic-list individual read fan-out — 2026-10-03
 
-- Primary and independent source review at `b0ffe7f`: `ForumTopicsVM.swift`339–344/421–429 registers distinct unknown
+- Primary and independent source review at `b884159`: `ForumTopicsVM.swift`339–344/421–429 registers distinct unknown
   same-chat topic updates; 460–501 drains every pending ID and starts individual reads without a shared outstanding limit.
   Reset229–234 cancels then drops task registrations, although a TDLib await need not finish on Swift cancellation. Rapid query
   generations can therefore overlap old and new native work. This is separate from A45's fixed per-ID echo loop.

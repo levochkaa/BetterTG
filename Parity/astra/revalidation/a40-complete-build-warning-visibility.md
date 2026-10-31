@@ -1,6 +1,6 @@
 # A40 complete build-warning visibility — 2026-10-03
 
-- Fix commit: `f08f4e7`.
+- Fix commit: `6e0e890`.
 - Full integration log `014324-25949-6943` line264 reports `Metadata extraction skipped. No AppIntents.framework dependency found`
   for BetterTGNotificationService. `script/build.sh` and its compact formatter hid this category; the formatter also aggregated
   SwiftFormat warning details. Remove these filters so each warning remains visible, and require complete-log checks in both

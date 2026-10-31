@@ -1,6 +1,6 @@
 # A09 inline Apple-container animation — 2026-10-02
 
-- `1fa8595` (worker `fb65e3c`) routes native `messageAnimation` through the existing gallery playback owner. Inline and gallery
+- `2edc1de` (worker `fb65e3c`) routes native `messageAnimation` through the existing gallery playback owner. Inline and gallery
   transfer the same view/layer/AVPlayerItem with attachment tokens. All visible eligible animations loop silently; ordinary videos
   keep largest-visible-area selection. Offscreen loaded media pauses; pending completed-file demand cancels and retries on visibility.
 - Owner construction now requires originating context; file-player configuration requires an explicit range coordinator. Thumbnail
@@ -14,7 +14,7 @@
   `TelegramUniversalVideoContent/Sources/UniversalVideoContentManager.swift` 161–235;
   `GalleryUI/Sources/Items/UniversalVideoGalleryItem.swift` 1575 / 1697. No upstream player infrastructure copied.
 - Five Swift files formatted together; primary `.build/logs/xcodebuild/build-Debug-20261002-194359-83221-25084.log`: PASS15s,
-  zero warnings. Audit Simulator source `1fa8595`, separate launches: inline-animation PID `83851`, gallery-owner PID `84406`,
+  zero warnings. Audit Simulator source `2edc1de`, separate launches: inline-animation PID `83851`, gallery-owner PID `84406`,
   PiP-context PID `84924`. All three pass; files in `.build/ui-probe-evidence/astra-a09-primary`, worker notes/logs separate.
 - New probe creates private native H.264 media and real production owner/MediaGalleryCell/LocalMediaPlayer: two loop boundaries,
   silent same-item/layer handoff, stale tokens, offscreen pause/resume, pending full-download cancellation/retry and context revocation.

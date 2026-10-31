@@ -1,6 +1,6 @@
 # A44a ordinary-chat bubble delivery states — 2026-10-03
 
-- Worker `1458351` integrated as `87ae445`; DEBUG-only geometry correction `c18b52c`. Add derived Equatable status with
+- Worker `33b144c` integrated as `753aad9`; DEBUG-only geometry correction `77a6e09`. Add derived Equatable status with
   raw Failed/Pending precedence before any temporary-ID comparison; final outgoing ordinary messages show single/double checks
   from the current source/route watermark. Unknown receipt never claims Read. Canonical first chronological album member supplies
   status, independent of newest-first display representative; promotion/replacement recomputes it. Incoming/broadcast/forum
@@ -17,7 +17,7 @@
   text/footer/media/VoiceOver, same-cell stable-ID replacement, stale owner rejection and 23 changed wrappers in one native apply.
   Fixed-row adapter offset remains unchanged. It is not whole-ChatVM or self-sizing production-history proof.
 - Preserve fixture failures: PID58294 compound assertion failed; diagnostic PID59352 isolated retained-cell=true, Read=true,
-  stale callbacks=0, but offset `(0,0)→(0,-62)`. UIWindow had not yet applied its initial automatic safe-area inset. `c18b52c`
+  stale callbacks=0, but offset `(0,0)→(0,-62)`. UIWindow had not yet applied its initial automatic safe-area inset. `77a6e09`
   waits for actual window/host/collection layout and settled initial inset before capturing the baseline; no assertion was removed
   and no production anchor code was changed. Native PASS followed on PID62893.
 - Same PID62893 actual production navigation through bot and ordinary personal histories: incoming bot messages had no outgoing
@@ -30,4 +30,4 @@
   live sends and multi-account operation remain unverified. Local artifacts: `.build/ui-probe-evidence/astra-a44-delivery/`.
 - Worker and primary full build logs zero warnings/errors; integration `044543-57615-13161` PASS9s, geometry correction
   `045008-60058-31007` PASS6s, each after one all-changed-Swift formatting invocation. A04 range regression PID58294 also passes
-  with the unique-byte-coverage backend. A04 production/probe repair is committed as `f2effef`.
+  with the unique-byte-coverage backend. A04 production/probe repair is committed as `7c39a37`.

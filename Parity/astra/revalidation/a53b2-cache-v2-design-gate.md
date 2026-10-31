@@ -1,6 +1,6 @@
 # A53b2 cache-v2 design gate — reviewed 2026-10-03, not implemented
 
-- At `51d7174`, prewarmer active leases do not cover completed entries; `RichNotificationCache` persists only JPEG bytes.
+- At `282a12f`, prewarmer active leases do not cover completed entries; `RichNotificationCache` persists only JPEG bytes.
   Replace the media path with one atomic envelope per exact account/raw-chat/ordinary raw-message identity in `media-v2`.
   It must bind schema/policy version, random content revision, resource fingerprint, full-message eligibility, state and
   normalized bytes/digest. Normalize outside the lock. Prepare a revision before download; completion compares against the

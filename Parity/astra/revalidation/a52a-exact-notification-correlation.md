@@ -1,6 +1,6 @@
 # A52a exact notification correlation — 2026-10-03
 
-- `d9e8d40` replaces unrelated-last and shifted-only matching with `RichNotificationTarget`: positive exact account,
+- `6f68229` replaces unrelated-last and shifted-only matching with `RichNotificationTarget`: positive exact account,
   peer kind/ID, ordinary cloud server ID in1...Int32.max, exact TDLib raw ID with zero local/scheduled bits. Invalid metadata
   is rejected before creating a TDLib client. The actual getChat response must match requested chatID and metadata peer;
   newMessage also requires its embedded message.chatId. Every getMessage/history candidate rechecks chat and raw ID.
@@ -8,10 +8,10 @@
   same path1770 resolve media through exact message identity. Pinned TDLibFramework `1.8.66-022d6020`,
   `td/td/telegram/MessageId.h`27–75 defines ordinary serverID<<20 and distinct low-bit local/scheduled variants;
   TDLibKit `1.5.2-tdlib-1.8.66-022d6020` notificationTypeNewMessage/NewPushMessage, getChat/getMessage/getChatHistory.
-- Independent immutable review passes tree `b6f2bce3` on `fea42b4`; four-file format2/4. Wrapper
+- Independent immutable review passes tree `b6f2bce3` on `bd22603`; four-file format2/4. Wrapper
   `175532-86891-9719` PASS9s, full1573-line log zero warnings/errors. Integration with A53a: joint eight-file format0/8,
   `175914-89505-20180` PASS8s, full1573-line log zero warnings/errors.
-- Native at source `f74fa77`, Audit Simulator59EB535C/iOS26.5, PID90125, fresh container
+- Native at source `c60cd43`, Audit Simulator59EB535C/iOS26.5, PID90125, fresh container
   `372A479D-FC6A-4F8B-BFF8-CB41CBC52013`, target report18:00:04+04 PASS. Actual production helper and TDLib model fixtures
   cover nil/wrong account, invalid/maximum cloud ID, low-bit aliases, peer kind/ID, wrong chat response/message group,
   matching-before-unrelated-last and unrelated-only selection. showPreview=false remains identifiable for the next denial

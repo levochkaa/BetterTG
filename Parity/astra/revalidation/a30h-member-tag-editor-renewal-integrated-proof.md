@@ -1,6 +1,6 @@
 # A30h member-tag editor renewal: integrated proof — 2026-10-03
 
-- `a425767` (worker `6364773`, reviewed tree `736de4e`) keeps the existing editor/UITextField behind a separate exact
+- `8141560` (worker `5019adc`, reviewed tree `736de4e`) keeps the existing editor/UITextField behind a separate exact
   Profile→Members→Tag hold. Generic Members parent binding and replacement gates are unchanged; stale parents remain
   quarantined until Back. Modal or navigation-transition presence alone does not veto this non-mutating hold. Save and its
   completion separately require the attached uncovered exact top; retention grants no action or parent-replacement authority.

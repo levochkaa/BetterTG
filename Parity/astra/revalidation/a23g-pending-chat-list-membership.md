@@ -1,6 +1,6 @@
 # A23g pending chat-list membership — 2026-10-02
 
-- `802c207` (worker `551707e`) serializes pending hydration by account/client/chat/semantic list and exact destination folder.
+- `1e339bb` (worker `551707e`) serializes pending hydration by account/client/chat/semantic list and exact destination folder.
   All four membership entry points share the production helper. Zero order and omitted lists in complete last-message/draft
   vectors remove rows and revoke pending insertion. A positive update during hydration coalesces into one follow-up read;
   only the latest intent may append, with its accepted order/pin. Remove→re-add can proceed before the canceled old RPC returns.
@@ -9,7 +9,7 @@
   confirms complete current membership vectors and omitted zero-order lists. Pinned current/pre `ChatListNode.swift`
   3327–3365 / 3477–3515 serializes accepted list transitions. No Postbox/SignalKit infrastructure copied.
 - Five Swift files formatted together; `build-Debug-20261002-221330-92632-19395.log`: PASS16s, zero warnings. Audit Simulator
-  source `802c207`, PID `94658`: actual helper/CustomFolder/RootListAuthority probe passes sixteen suspended hydrations:
+  source `1e339bb`, PID `94658`: actual helper/CustomFolder/RootListAuthority probe passes sixteen suspended hydrations:
   pre-dispatch removal, late success/nil, coalesced order/pin, omission, re-add before old reply, distinct lists/accounts/clients,
   replaced folder/root ticket, rejection and retry. Root/scoped-update/forum-restoration/classic-navigation regressions also pass.
 - Evidence: `.build/ui-probe-evidence/astra-a23g-primary`; worker `.build/root-chat-insertion-proof/README.md` records its

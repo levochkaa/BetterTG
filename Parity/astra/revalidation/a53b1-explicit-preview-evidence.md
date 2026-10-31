@@ -1,6 +1,6 @@
 # A53b1 explicit preview evidence — 2026-10-03
 
-- `2451dd3` (worker `dcf727f`, exact reviewed tree `33dcf2fa`) separates denied/unresolved/allowed media. Every media push
+- `2451dd3` (worker `5a36ba8`, exact reviewed tree `33dcf2fa`) separates denied/unresolved/allowed media. Every media push
   requires the exact full Message, even if it carries a thumbnail. Full envelope self-destruct and media secret/spoiler flags
   are checked; missing evidence stays unresolved. Ordinary full-message families, no-thumbnail caption and chat auto-delete
   remain permitted. Original body is preserved for denied/unresolved decisions; no generated caption can bypass the decision.

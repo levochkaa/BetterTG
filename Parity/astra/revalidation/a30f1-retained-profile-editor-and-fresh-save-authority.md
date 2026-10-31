@@ -1,6 +1,6 @@
 # A30f1 retained profile editor and fresh save authority — 2026-10-02
 
-- `1fbccc4` (worker `ae69e9e`) keeps the exact editor, raw fields, selection and local errors through same-account client
+- `df41469` (worker `ae69e9e`) keeps the exact editor, raw fields, selection and local errors through same-account client
   replacement. A fresh immutable account/actor/client scope is reserved for each explicit Save; stale Ready cannot renew it.
   Account/actor departure permanently revokes the editor, including A→B→A. The actual parent retains only its attached,
   immediate, non-revoked editor; other profile children and full profile restoration remain separate.
@@ -13,7 +13,7 @@
   13225–13230,13329–13334,13415–13423,14617–14627 supplies the existing name/bio/chat-info and authorization contracts.
   No Telegram infrastructure copied. Primary reviewed the session, parent gate, editor and injected endpoint proof.
 - Five Swift files formatted together; `build-Debug-20261002-232350-7050-2496.log`: PASS14s, zero warnings. Native editor
-  probe at `1fbccc4`, PID `9957`, passes production session/retention helper, actual UIKit fields/selection, stale Ready,
+  probe at `df41469`, PID `9957`, passes production session/retention helper, actual UIKit fields/selection, stale Ready,
   immutable payload/client, partial writes, typing revision and detached/account/actor rejection. A27 permission, generic
   navigation and folder-flow regressions pass. Fresh results `23:24:47–23:24:52`; no server mutation.
 - Real Saved → own Profile → Edit: enter agent-only `AstraDraft`, Home → app icon. Same PID `9957`; lifecycle log records
@@ -25,8 +25,8 @@
 - A37 diagnostic follow-up adds opt-in `-ui-diagnose-profile-editor-layout`: at most 32 public bar/safe-area/field-frame samples
   on editor state/layout events, no text/IDs and no forced layout or production behavior change. Two-file format and
   `build-Debug-20261002-234312-52588-868.log`: PASS14s, zero warnings. Runtime geometry classification pending.
-- At `544a2d3`, PID `56662`, both unfocused and focused same-PID foreground runs have clean settled screenshots. Instant
+- At `be30413`, PID `56662`, both unfocused and focused same-PID foreground runs have clean settled screenshots. Instant
   ready-state samples report bar maxY150/safe minY116, but these are transition samples, not proof of persistent geometry.
-  The original `1fbccc4` overlap remains a valid observation; its trigger/root cause is unconfirmed. Add a delayed 0.5s
+  The original `df41469` overlap remains a valid observation; its trigger/root cause is unconfirmed. Add a delayed 0.5s
   `settled-state` sample without forcing layout; one-file format and `build-Debug-20261002-235130-62705-6888.log`: PASS8s,
   zero warnings. Agent-only `AstraLayout` was discarded via Back without Save. Private proof `.build/ui-probe-evidence/astra-a37-primary`.

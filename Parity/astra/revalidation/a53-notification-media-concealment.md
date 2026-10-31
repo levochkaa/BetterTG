@@ -1,6 +1,6 @@
 # A53 notification media concealment — source finding 2026-10-03
 
-- At `89a9dd2`, `RichNotificationCacheCoordinator.cacheMedia` accepts incoming photo/video/animation through its local
+- At `84baa09`, `RichNotificationCacheCoordinator.cacheMedia` accepts incoming photo/video/animation through its local
   `mediaCandidate`, which lacks both `isSecret` and `hasSpoiler` guards. Positive server message IDs in cloud private/group/
   supergroup chats can therefore acquire persisted preview bytes. Secret-chat peer mapping returns nil; do not generalize
   this finding to a demonstrated secret-chat delivery.
@@ -14,7 +14,7 @@
 - Next after A51b: bounded app-side eligibility gate before download/cache, deterministic positive/negative cases. Then
   examine persisted eligibility, content edits and NSE fallback authority; a new admission guard alone does not sanitize
   existing entries or prove delayed/cache-only notification delivery. Keep this separate from avatar-worker proof.
-- Repair plan reviewed at `fea42b4` before implementation: A53a shared full-message eligibility plus source/chat/raw-message
+- Repair plan reviewed at `bd22603` before implementation: A53a shared full-message eligibility plus source/chat/raw-message
   work leases. Reject secret/spoiler/self-destruct media before any getChat/download/write; preserve ordinary supported
   positives. Matching content/delete updates and auth/source revocation retire old jobs immediately; every await must
   recheck the captured lease, and older cleanup must not remove a replacement job. This stage does not close the disk/NSE bypass.
@@ -29,7 +29,7 @@
   edits and actual remote notification delivery remain separate proof limits, not reasons to disable every preview.
 - Planned probes use isolated roots and the actual production policy/lease/attachment-selection seams, with held async
   work and exact receipts. Do not donate synthetic INInteractions or send real notifications for these tests.
-- A53a `f74fa77` (worker `3f77fb1`, reviewed tree `55d6883a`) adds shared full-Message policy: photo/video/animation
+- A53a `c60cd43` (worker `a987bd7`, reviewed tree `55d6883a`) adds shared full-Message policy: photo/video/animation
   require !isSecret&&!hasSpoiler; videoNote !isSecret; selfDestructType/selfDestructIn reject the envelope. Ordinary
   autoDeleteIn does not deny previews. The app preserves photo/video/animation/sticker candidates and placeholder→file.
 - `RichNotificationMediaPrewarmer` owns source/chat/raw-message UUID leases. New-message admission and content/delete
@@ -48,18 +48,18 @@
   notificationTypeNewMessage.showPreview=false is also not yet enforced by the resolver. Versioned evidence plus bytes,
   known-edit/delete invalidation and explicit unresolved/denied/allowed selection depend on A52b session authority.
   App media work remains uncapped and reads/writes on main; this slice revokes leases, not the underlying TDLib download.
-- Follow-up `420ae9f` rejects zero/negative, low-bit local/scheduled and out-of-range raw IDs before app prewarmer getChat/
+- Follow-up `661dabb` rejects zero/negative, low-bit local/scheduled and out-of-range raw IDs before app prewarmer getChat/
   download/read/cache. It derives the persisted server-message key once from the admitted ordinary cloud ID. Pinned
   MessageId.h27–75 supplies the encoding; maximum Int32 server ID remains valid. Independent exact review passes tree
   `c6bf1b7c`; joint two-file format0/2, build `180821-97791-18988` PASS10s/full1454-line log zero warnings/errors.
-- Native follow-up at `420ae9f`, same Audit Simulator/runtime, PID2426, fresh container
+- Native follow-up at `661dabb`, same Audit Simulator/runtime, PID2426, fresh container
   `1EF3238E-91C2-4DD2-94CF-5B75DD6ECD24`, media-admission report18:10:29+04 PASS. Negative IDs cause no injected IO;
   maximum valid ID round-trips the cache key. Saved `media-cloud-id-native.txt` with the other A52/A53 evidence.
 - A53b must also treat pinned `pushMessageContentHidden` (td_api.tl8537–8538) as explicit denial before fetchMessage:
   the current nil-candidate path can fetch full media/body despite a hidden push. Backend
   `apns-payload-mapper.service.ts` forwards loc_key as metadata.event without independent preview permission. This is
   source evidence, not demonstrated push exposure. Content eligibility and notification preview permission are distinct.
-- A53b1 repair boundary reviewed before implementation at `51d7174`: represent unresolved/denied/allowed media explicitly;
+- A53b1 repair boundary reviewed before implementation at `282a12f`: represent unresolved/denied/allowed media explicitly;
   hidden/showPreview=false must withhold body overrides as well as attachments. Scan every exact notification in the batch
   before admitting the sole resolver. Later denial/edit/delete and publication/finish must use one lifetime authority so a
   previously accepted resolver cannot publish after known denial. Require exact full Message admission even with push thumbnails.

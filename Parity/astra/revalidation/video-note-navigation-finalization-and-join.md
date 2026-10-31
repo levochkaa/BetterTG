@@ -1,6 +1,6 @@
 # Video-note navigation finalization and join — 2026-10-02
 
-- A15a worker `64c47dc` integrated as `6432bc8`: navigation registers an exact account/chat/topic barrier synchronously, freezes
+- A15a worker `64c47dc` integrated as `aeb9b4f`: navigation registers an exact account/chat/topic barrier synchronously, freezes
   capture input and joins the sole manual/automatic finish owner. A UI-independent finalizer owns native output → canonical
   recording adopt/append; ChatVM waits before reading drafts. Existing draft/reply/topic/revision survives failed append.
   Explicit Cancel remains destructive; Cancel/state callbacks from a detached preserved recorder cannot reclaim the restored draft.
@@ -14,8 +14,8 @@
   preview for active audio/video. Legacy's separate background observer at 190–198 dismisses. Source does not establish callback
   ordering or universal deletion; on-disk/process-death recovery is a separate BetterTG durability policy.
 - Primary first build `.build/logs/xcodebuild/build-Debug-20261002-174405-45697-8734.log` passed without warnings (25s).
-  Initial runtime failed before its first finish gate: `recordingUnavailable`, then timeout. Diagnostics `8e26bc3`/`b147ef6`
-  bounded the failure and exposed ownership. Fixture correction `901af79` (worker `4a224e7`) loads the real recorder view before
+  Initial runtime failed before its first finish gate: `recordingUnavailable`, then timeout. Diagnostics `beb1b3d`/`3f9e8ea`
+  bounded the failure and exposed ownership. Fixture correction `60a29cb` (worker `4a224e7`) loads the real recorder view before
   installing capture, matching production `beginCapture`; its gate also reports an early terminal result instead of hanging.
   The exact prior cancellation cause is unproved. No production workaround was added to make the fixture pass.
 - Final primary build `.build/logs/xcodebuild/build-Debug-20261002-180134-71658-8387.log` passes without warnings (9s).

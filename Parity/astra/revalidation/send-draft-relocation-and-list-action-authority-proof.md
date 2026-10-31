@@ -1,6 +1,6 @@
 # Send-draft relocation and list-action authority proof — 2026-10-02
 
-- A26 worker `2e28fad` integrated as `dd65700`; five changed Swift files formatted together. Primary wrapper build
+- A26 worker `2e28fad` integrated as `e6efb3f`; five changed Swift files formatted together. Primary wrapper build
   `.build/logs/xcodebuild/build-Debug-20261002-161828-25210-228.log` passed without warnings (12s).
   Both stores persist filename-only references and resolve them against the current store. Legacy rebasing permits only the
   app-container UUID to change; wrong owner/name, external/traversal/symlink paths are rejected. All canonical/list loads use
@@ -14,18 +14,18 @@
   and injected migration-write failure. Result: `.build/ui-probe-evidence/astra-a26-primary/draft-relocation-probe.txt`.
   A14/A24 regressions pass in `astra-a26-voice`/`astra-a26-edit`. A12 initially fails in `astra-a26-drafts`: its DEBUG encoded
   voice fixture had an extensionless input, persisted as `.wav`, unlike production encoded `.ogg`. Worker `9dce6fc`, integrated
-  as `6a3329d`, corrects only fixture filenames and diagnostic stages; production ownership validation is not relaxed.
+  as `f33c30b`, corrects only fixture filenames and diagnostic stages; production ownership validation is not relaxed.
   One Swift file formatted; warning-free build `build-Debug-20261002-162317-68150-27789.log` (8s). PID `71109` repeats A26/A12
   successfully in `astra-a26-final-relocation`/`astra-a26-final-drafts`. Historical failure output is retained.
 - Production recovery uses only own draft `CDD62EC0-0614-4481-B007-119AD74DD113`: restore its backed-up legacy JSON beside
   the still-existing Ogg, then open Saved Messages. Retry appears and canonical loading migrates the reference to a filename.
   All metadata except the intended URL change matches the backup; Ogg SHA256 remains
-  `c05b255f8c03e0983da8cecef40a4777cdc9dbf08b2b29033b8b3d9d69d0ae33`. Another wrapper install (`6a3329d`, PID `71109`)
+  `c05b255f8c03e0983da8cecef40a4777cdc9dbf08b2b29033b8b3d9d69d0ae33`. Another wrapper install (`f33c30b`, PID `71109`)
   preserves identical relative JSON/Ogg and shows Retry. Long-press → **Discard Voice Message**, not Retry, removes this own
   draft through production UI. Send/recording voice stores are then empty and the mic returns. Recoverable backups, migrated
   and reinstalled files/captures: `astra-a26-ui` under `.build/ui-probe-evidence`. No message was sent or user draft removed.
   Real video reinstall remains unverified; the isolated video store probe is not camera/server proof.
-- A29 worker `7513376` integrated as `99b6822`; six Swift files formatted together. Primary warning-free wrapper build
+- A29 worker `7513376` integrated as `114eafc`; six Swift files formatted together. Primary warning-free wrapper build
   `.build/logs/xcodebuild/build-Debug-20261002-162551-79894-26406.log` (15s). Main/folder/editor actions capture one controller
   source/client, gate reads and writes before/after suspension, stop stale bulk loops and fence late UI delivery. Covered
   parent controllers retain legitimate pushed-picker authority; stale chat row navigation remains available for recovery.

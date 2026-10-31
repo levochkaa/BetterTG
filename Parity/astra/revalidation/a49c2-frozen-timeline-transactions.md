@@ -1,6 +1,6 @@
 # A49c2 frozen timeline transactions — 2026-10-03
 
-- P1, `caff71e` (worker `7e16c1c`, reviewed tree `bac0ab6f`): all five production snapshot producers share one active
+- P1, `193f087` (worker `2af7048`, reviewed tree `bac0ab6f`): all five production snapshot producers share one active
   transaction and a coalesced intent buffer. Provider rows retain exact canonical identity, immutable render values, client/source,
   header and selection inputs through exact native completion. Materialization and new inline players remain lazy; live action,
   navigation and prefetch lookup stay separate. Raw album membership must be committed before navigation/send settlement.
@@ -19,20 +19,20 @@
   and mixed-epoch recovery; final worker `151204-36307-16904` PASS9s/fullzero. Primary joint SwiftFormat0/9 and
   `151812-44934-6936` PASS23s/fullzero; exact reviewed tree integrated without other Swift changes.
 - First native scheduler probe, Audit59EB535C/iOS26.5 PID48152/container `3F87B0C4-06F0-4748-A8BF-6D9C6F987646`,
-  report15:19:13+04 FAIL: deleting-cell presentation changed. Diagnostic-only `09af63d` (worker `ee0f2ab`, reviewed tree
+  report15:19:13+04 FAIL: deleting-cell presentation changed. Diagnostic-only `ebc1998` (worker `14d64f7`, reviewed tree
   `d638b735`), format0/9/build `152429-60083-15376` PASS12s/fullzero, preserves the assertion. PID62822/container
   `0539F196-6964-4174-B1C0-9C134447DEB6`, report15:25:35 FAIL confirms exact same cell/binding/lease, reuse0,
   interaction disabled; alpha0.375/translation(8,-3) survive provider return, but UIKit resets cell alpha1/identity by native
   receipt. Production also animates these cell attributes: an inner presentation-layer repair is required, not a weaker oracle.
-- Same `caff71e`: delivery/action regression PID49199/container `D31762BA-315B-4FC8-8946-C4DA59FB09CF`, report15:20:15 PASS.
+- Same `193f087`: delivery/action regression PID49199/container `D31762BA-315B-4FC8-8946-C4DA59FB09CF`, report15:20:15 PASS.
   Standalone viewport-authority PID50146/container `E157EB3B-DCCB-45ED-91FE-D5E081F2B63D`, report15:21:10 FAIL:
-  A39 animated target/quote did not settle after resize. Driver/probe are byte-unchanged from `039df63` and do not instantiate
+  A39 animated target/quote did not settle after resize. Driver/probe are byte-unchanged from `eaf8c3d` and do not instantiate
   ChatView. Historical failure remains unresolved; this repeat disproves any claim that only combined runs can fail.
 - Actual Saved Messages A22 PID51820/container `7E07B2CE-3C0E-483C-9110-AD462FC19784`, report15:23:35 PASS:
   exact native/releases2/2, depth1→0; control offset483.3333→547.3333→483.3333, anchor pixel346.6667→282.6667→346.6667;
   ended synthetic delegate drag retains547.3333/pixel282.6667. One physical scroll entered the exercise; IDs were unchanged.
   Real prepend/media resize/keyboard/physical overlap remain unverified. No sends/deletes/forwards or host focus activation.
-- `6ae99ac` (worker `c1ef72a`, reviewed tree `d0a54bb4`) moves deletion opacity/slide/scale into MessageCell.contentView,
+- `3ef6ed9` (worker `f06ab46`, reviewed tree `d0a54bb4`) moves deletion opacity/slide/scale into MessageCell.contentView,
   composing its permanent timeline flip. Cell/descendant AX and interaction are disabled during deletion; configure/unavailable/
   reuse reset only the owned inner layer, preserving rowStack swipe/selection and externally extracted menu content.
   Worker joint9-file format/build `153256-73686-3111` PASS10s/fullzero; primary format0/9/build `153501-78488-29638`
@@ -42,8 +42,8 @@
   committed raw album members, stale restoration rejection, both same-album deletion/reappearance schedules and AX/reset.
   Late provider/native receipt preserve inner opacity/transform and exact binding without reuse. Actual ChatView producer races,
   physical gestures, live client switch,140ms delete timing and actual timeline media-player ownership remain unverified; RPC/sends0.
-- Same final production `6ae99ac`, PID79903/container `585489CE-C989-4009-8687-A6065E83554B`, report15:36:23 PASS:
-  existing delivery/render/action/poll/touch/source/receipt native regressions. Earlier media-reveal regression at `09af63d`,
+- Same final production `3ef6ed9`, PID79903/container `585489CE-C989-4009-8687-A6065E83554B`, report15:36:23 PASS:
+  existing delivery/render/action/poll/touch/source/receipt native regressions. Earlier media-reveal regression at `ebc1998`,
   PID69532/container `78A0D689-DDC4-4EB4-9F6A-E7C481D2B0A3`, report15:29:29 PASS with isolated native media/backend;
   it does not prove real timeline gestures, TDLib transport or active system PiP.
 - Same final PID79903 actual Saved A22 report15:38:06 PASS: native/releases2/2, depth1→0, stable IDs unchanged.
@@ -60,5 +60,5 @@
   Further A49 coverage: actual queued producer overlap, prepend/keyboard/media resize, committed-read lifecycle and current
   inline-player ownership. Native fixture success is not proof of these whole-controller/server paths.
 - Final checkpoint build `154717-90533-2969` PASS9s, full1385-line log has no warnings/errors; AGENTS/CLAUDE agree,
-  production/dependency VLC and forbidden UI/infrastructure marker scan is empty. Source checkpoint `6ae99ac`; only this
+  production/dependency VLC and forbidden UI/infrastructure marker scan is empty. Source checkpoint `3ef6ed9`; only this
   parity record changed after that build. Simulator remains booted in Saved Messages, selection exited; no host focus activation.

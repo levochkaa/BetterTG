@@ -1,6 +1,6 @@
 # A47 bounded individual reads: integrated proof — 2026-10-03
 
-- `3948379` (worker `a20d9af`, reviewed tree `af57d4c`) separates the UUID-keyed outstanding transport registry from
+- `80da255` (worker `e10bd0f`, reviewed tree `af57d4c`) separates the UUID-keyed outstanding transport registry from
   current-query topicID ownership. Canceled predecessors keep their slots until their exact tasks return. Each terminal
   removes only its UUID; a same-ID successor retains its authority. Current demand is a unique FIFO, duplicate reasons only
   upgrade semantic invalidation, and pages can satisfy only nonsemantic demand. Dispatch rechecks latest hidden/query

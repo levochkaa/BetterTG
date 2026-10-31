@@ -1,6 +1,6 @@
 # A51 rich-notification cache work and account boundary — 2026-10-03
 
-- Baseline `9b9935b`/production `91baad4`; unchanged product from final build `163857-71725-11058`. ETTrace runner/framework
+- Baseline `7002fbd`/production `d38720d`; unchanged product from final build `163857-71725-11058`. ETTrace runner/framework
   are absent, so one bounded native `sample` capture uses the existing binary with no temporary dependency or project patch.
   Audit Simulator59EB535C/iOS26.5, PID74960, launch16:41:43.101; sample starts16:41:43.211 for4s at requested1ms interval.
   Installed/product `BetterTG.debug.dylib` UUID both `C0AB6393-0C4C-3302-822B-E0934568680C`; installed bundle UUID-directory
@@ -34,14 +34,14 @@
   the selected account's MediaBox cache,855–880 selects notification account by payload key,902–934 keeps state on its queue.
   Pre-Liquid `8e7e5fe` same path459–483/785/849–872 retains account cache/queue behavior. Adapt contracts only; no MediaBox,
   Postbox or SignalKit copied. TDLibKit `1.5.2-tdlib-1.8.66-022d6020` models/APIs remain unchanged.
-- A51a fix `89a9dd2` (worker `c8ebee0`, exact reviewed tree `e07df0d`): all avatar/media cache callers now require a positive
+- A51a fix `84baa09` (worker `8922c6d`, exact reviewed tree `e07df0d`): all avatar/media cache callers now require a positive
   Telegram user ID; disk paths use `RichNotifications/accounts/<userID>`, without changing logical peer/message/Intents keys.
   NSE selects only an exact metadata-account match. Five coordinator TD update sinks use scoped publication, capture the
   original client and recheck source/account/client after awaits; completed files are read only when references exist.
   Reference maps reset on client generation change. Invalid scope exits before lazy container resolution. JPEG contracts remain.
 - Worker joint six-file SwiftFormat and build `170232-12469-13006` pass. Primary integration build `170800-18896-18037`
   passes10s; complete log has zero warnings/errors (success at line1560). Independent peer reviews the exact tree; no unrelated files included.
-- Native isolated probe at `89a9dd2`: Audit Simulator59EB535C/iOS26.5, PID19449, fresh container
+- Native isolated probe at `84baa09`: Audit Simulator59EB535C/iOS26.5, PID19449, fresh container
   `2466B327-A10B-4455-814E-5AB9A0A10601`, report17:08:34+04. `-ui-probe-notification-cache-scope` passes actual JPEG/cache IO
   in a UUID temporary root, exact red/blue avatar/media bytes for colliding IDs across accounts, nil/0/negative zero resolver
   calls, no legacy fallback or mutation of130 legacy media entries, queued scoped publication, independent wrong-client/user
@@ -59,7 +59,7 @@
   a separate drain/versioned-publication contract. Media IO, task/RPC lifetime and full NSE correctness are outside this slice.
 - A51a checkpoint build `171052-22021-9011` passes4s, full1385-line log zero warnings/errors. AGENTS/CLAUDE remain identical;
   prohibited production/dependency marker scan is empty. Goal remains active; next implementation is the bounded A51b slice.
-- Pre-A51b paired baseline after the namespace change: source `ecbb0ff`/production `89a9dd2`, same final build above,
+- Pre-A51b paired baseline after the namespace change: source `e87ab66`/production `84baa09`, same final build above,
   same Audit Simulator and only `-ui-probe-viewport-authority`; PID24933. Launch17:12:53.045+04, sample17:12:53.148 for4s/1ms.
   Installed bundle `B0BB3B10-B68A-4673-B618-4B2A7AB72BED` matches the sample path; installed/product debug-dylib UUID both
   `067931AE-7CD7-3FA2-8EC6-92061BAFD04F`. Main-thread observations2288; symbolicated cache stacks remain. Binary-images
@@ -71,7 +71,7 @@
   cache subtrees994/2288=43.44% (user412,chat582). Within994: atomic Data.write352; normalization/ImageIO/JPEG334;
   URL/AppGroup/directory277; source reads21; protection attributes1; other9. Avatar descendants993 and sink totals999 overlap
   this count and must not be added. Whole-main top leaves include mach_msg2_trap448 and __ulock_wait2 387; waiting is included.
-- A51b fix `b804d99` (worker `a98e0f2`, exact independently reviewed tree `8e4a1f17`): one serial utility drain, at most128
+- A51b fix `54872bc` (worker `3226fc7`, exact independently reviewed tree `8e4a1f17`): one serial utility drain, at most128
   pending peer batches with up to3 ranked candidates each, and256 success receipts. Main submits immutable metadata/paths;
   source reads, cache-directory lookup, image decode/JPEG, atomic writes and protection attributes run on utility. Pending
   overflow drops oldest best-effort prewarming. Locks cover metadata only, never IO. Failed high-rank candidates fall back
@@ -83,7 +83,7 @@
 - Worker joint five-file SwiftFormat/build `172444-41649-30775`: PASS8s, full1458-line log zero warnings/errors. The earlier
   `172139-37803-1252` Gate Sendable warning was repaired by auditing all mutable gate state under lock/semaphore; it was
   not suppressed. Primary integration build `172737-45171-21885`: PASS13s, complete log zero warnings/errors, success1572.
-- Native combined cache-scope/worker probe at `b804d99`: PID46367, Audit Simulator59EB535C/iOS26.5, fresh container
+- Native combined cache-scope/worker probe at `54872bc`: PID46367, Audit Simulator59EB535C/iOS26.5, fresh container
   `8E662CBF-C9BE-4180-9EE7-08995B18DB99`, both reports17:28:19+04 PASS. Actual isolated JPEG/filesystem work covers100-offer
   coalescing, one held active job, bounded pending/receipt eviction, quality after receipt eviction, old-photo and source-ABA/
   client-replacement rejection before write, exact fresh bytes, missing-big→small and corrupt-big/missing-small→placeholder,

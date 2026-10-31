@@ -1,6 +1,6 @@
 # Effective group profile permission proof — 2026-10-02
 
-- A27 worker `1a78906` integrated as `68d1c94`; primary reviewed both production controllers, shared policy/authorization and
+- A27 worker `1a78906` integrated as `cab49d9`; primary reviewed both production controllers, shared policy/authorization and
   complete probe. Basic-group admins keep all applicable rights; ordinary members use default `canChangeInfo`; restricted
   supergroup members require membership and both effective/default rights. Supergroup admins retain allowed member rights;
   broadcast channels still require creator/admin authority. Self-profile editing is unchanged; owned-bot editing is not added.

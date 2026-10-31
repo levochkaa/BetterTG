@@ -1,7 +1,7 @@
 # VOD main-track and duration-authority proof — 2026-10-02
 
 - A04 worker chain `23b1e49` → `61bb5e3` → `e87ef9c` was independently reviewed and integrated as
-  `cf01515` → `5ef904f` → `e27d339`. C selects explicit video end before audio, clips the longer audio tail and preserves persistent
+  `5631ccc` → `533d83e` → `8a6011e`. C selects explicit video end before audio, clips the longer audio tail and preserves persistent
   windows/final video frames. Explicit duration travels to Swift separately from container estimates. At real EOF, observed frame
   ends resolve estimates in either direction; initialized seek cursors cannot invent media duration. Verified terminal summaries
   cancel both watchdogs. An unknown end with no observed main frame or explicit metadata fails safely, not with a fabricated EOF.
@@ -13,7 +13,7 @@
   emits no frames but observes true EOF at 12s. Longer-video/shorter-audio, origin, standard and audio-only regressions passed.
   These host runs are not Apple media-clock proof.
 - Worker final warning-free log: `.build/logs/xcodebuild/worker-A04-build-Debug-20261002-152136-73961-20174.log`.
-  Primary one-call SwiftFormat covered four changed Swift files (`0/4` changed); warning-free `./build.sh build` at `e27d339`:
+  Primary one-call SwiftFormat covered four changed Swift files (`0/4` changed); warning-free `./build.sh build` at `8a6011e`:
   `.build/logs/xcodebuild/build-Debug-20261002-153032-2363-12736.log` (18s).
 - Authorized iPhone 17 Pro / iOS 26.5 Simulator `59EB535C-3610-41A2-AB68-53A9467DC24B`, wrapper/idb only:
   PID `2903` with `-media-probe-vod-main-track -media-probe-vod-ffmpeg-decode` passed both. Main-track output is

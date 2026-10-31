@@ -1,13 +1,13 @@
 # Appendix B — parity-continuation ledger
 
-Verbatim ledger of `codex/parity-continuation` at `aec5611` (through 2026-09-06), one file per section.
+Verbatim ledger of `codex/parity-continuation` at `7893aea` (through 2026-09-06), one file per section.
 
 This file is the checkpoint ledger for the UIKit + Combine + TDLibKit implementation. Telegram references use
 `telegram-upstream/master` unless a commit is pinned. The classic pre-Liquid baseline is
 `8e7e5fefb1b0aba8335d8c28b62138183d61dc3d`, the parent of Telegram's first first-parent `Glass` commit.
 
 User-approved visual exception (2026-09-05): preserve BetterTG's existing Liquid Glass folder picker and shared context
-menus, as restored from `64625ed^`. Keep the inset scrolling glass capsule, moving glass selection and full-width background
+menus, as restored from `fdf8b10^`. Keep the inset scrolling glass capsule, moving glass selection and full-width background
 blur, plus the glass menu surface and rounded highlights. Future parity work must retain this presentation while extending
 actions and state handling; the classic baseline does not require replacing these two surfaces.
 
@@ -35,7 +35,7 @@ Telegram infrastructure (Texture, SignalKit, Postbox, Display, ComponentFlow) ar
 | P1 | Multiple accounts | Telegram account manager behavior without copying Postbox | separate TDLib clients and databases, authorization state, `logOut` | **implemented** — isolated TDLib clients/databases/subscriptions and persisted account registry with add/auth/switch/remove/logout. A fresh comprehensive multi-account runtime pass remains pending. |
 | P1 | Chats, folders, archive, search, edit/reorder | pre-Liquid `ChatListItem.swift`, chat list/filter controllers | chat lists/positions/folders, pin/mute/read/delete/clear/draft APIs | **partial** — main/archive/custom-folder lists now consume ordered TDLib updates and page through loadChats to explicit 404 exhaustion; folder tabs retain the approved Liquid Glass capsule over full-width background blur, and chat cells use contiguous Telegram geometry with date, delivery, unread/mute/pin state and account-backed actions. Remaining: edit/reorder/include/exclude completeness, clear history/draft parity, archive reveal gestures, richer delivery/typing states and mutation account fencing. |
 | P1 | Timeline stability and performance | pre-Liquid/current `ChatMessageItemImpl.swift` and `ChatMessageDateHeader.swift` history/header behavior | `getChatHistory`, `updateNewMessage`, `updateDeleteMessages`, file updates | **partial** — stable message/album/topic/date IDs, raw-history pagination cursor, cross-page album merging, message-only prefetch/read/selection and visible `messageId + pixelOffset` restoration cover structural snapshots. Composer/keyboard insets, object-driven and autonomous cell self-sizing, bulk reconfigure, Dynamic Type and rotation now capture the same anchor or latest edge; mutation depth discards stale deferred anchors and never fights active dragging. Every chat emits one stable localized date row per day with exact date→topic ordering. Remaining proof/gaps: a live pagination/album seam, software-keyboard-attached runtime proof and eliminating residual metadata work from the main actor. |
-| P2 | Shell/navigation polish | pre-Liquid navigation and `ChatListItem.swift`; approved BetterTG glass folder/menu baseline `64625ed^` | n/a | **implemented shell/list breadth** — the folder bar keeps edge-to-edge `systemChromeMaterial` through the safe area behind an inset 42pt Liquid Glass capsule and continuously moving glass selection. Shared context menus use `UIGlassEffect` with 30pt menu and 20pt highlight corners. Later folder/menu actions, unread state, localization and gestures remain. Chat-list rows retain contiguous 76pt full-width geometry with 60pt avatars at x=10 and separators from x=80. Warning-free build and real-state idb proofs are recorded below. Remaining P2: audit secondary navigation/search/action surfaces while preserving the explicit glass exception. |
+| P2 | Shell/navigation polish | pre-Liquid navigation and `ChatListItem.swift`; approved BetterTG glass folder/menu baseline `fdf8b10^` | n/a | **implemented shell/list breadth** — the folder bar keeps edge-to-edge `systemChromeMaterial` through the safe area behind an inset 42pt Liquid Glass capsule and continuously moving glass selection. Shared context menus use `UIGlassEffect` with 30pt menu and 20pt highlight corners. Later folder/menu actions, unread state, localization and gestures remain. Chat-list rows retain contiguous 76pt full-width geometry with 60pt avatars at x=10 and separators from x=80. Warning-free build and real-state idb proofs are recorded below. Remaining P2: audit secondary navigation/search/action surfaces while preserving the explicit glass exception. |
 
 ## Contents
 

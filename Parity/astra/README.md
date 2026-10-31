@@ -1,7 +1,7 @@
 # Appendix A — astra revalidation ledger
 
-Verbatim ledger of `codex/a21e-previous-worker` at `0b35e21` (2026-10-02…03), one file per section. File and line
-references point into that branch. Its implementation ledger and historical slices repeat the `e88036e`-era
+Verbatim ledger of `codex/a21e-previous-worker` at `77c8386` (2026-10-02…03), one file per section. File and line
+references point into that branch. Its implementation ledger and historical slices repeat the `5e6f5a0`-era
 ledger; [Appendix B](../continuation/README.md) carries the newer parity-continuation copy of those flows.
 
 This file is the checkpoint ledger for the UIKit + Combine + TDLibKit implementation. Telegram references use

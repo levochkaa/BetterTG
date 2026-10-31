@@ -1,6 +1,6 @@
 # A52b1 session publication and teardown authority — 2026-10-03
 
-- `a4a1e65` (worker `0f1ef47`, reviewed tree `c87a5863`) introduces one locked session lifetime for continuation,
+- `41783d7` (worker `ccfc249`, reviewed tree `c87a5863`) introduces one locked session lifetime for continuation,
   client bootstrap and at most one configure/process/resolve role. Tickets are reserved before spawning and reject a
   task handle arriving after completion or retirement. The target's raw chat prefilter prevents a same-messageID event
   from another chat consuming the sole resolver. Overflow is rejected before client creation; getChat type/peer checks remain.
@@ -16,7 +16,7 @@
 - Worker joint seven-file format3/7; wrapper `181538-16903-22292` PASS10s, complete1585-line log zero warnings/errors.
   Independent immutable peer review passes. Primary joint eleven-file format0/11; integration `182000-23494-22239`
   PASS17s, complete1585-line log zero warnings/errors. Worker is clean; all seven implementation files committed.
-- Native at `a4a1e65`, same Audit Simulator59EB535C/iOS26.5, PID25440, fresh container
+- Native at `41783d7`, same Audit Simulator59EB535C/iOS26.5, PID25440, fresh container
   `90A3B266-C8A0-4C49-BC66-191D96C1C1C1`: lifetime report18:21:15+04 PASS. Production authority fixtures cover cancel
   before begin/create, creation concurrent with retirement/early callback, wrong/duplicate tickets, completion before handle
   registration, three held uncooperative role tasks, result before their release, close claim without joining, positive and
@@ -35,7 +35,7 @@
 - Then A53b: explicit hidden/showPreview denial must revoke even a previously accepted in-flight resolver for that same
   message; the new single resolver does not make its first notification permanently authoritative. Full-message eligibility,
   known content/delete revisions and versioned persisted evidence must govern cache/builder/wait paths together.
-- A52b2 plan reviewed at `7b55953`: a request coordinator owns one UUID, original fallback, handler and task handle.
+- A52b2 plan reviewed at `4d28c0d`: a request coordinator owns one UUID, original fallback, handler and task handle.
   Replacement retires the exact old record; cancel and handler delivery run outside the lock and may reenter begin.
   Every later install/check/finish must therefore validate its ticket, including the ticket returned by an outer begin.
   Finish invokes its synchronous content producer under the same lock as expiry, then retires and delivers its captured

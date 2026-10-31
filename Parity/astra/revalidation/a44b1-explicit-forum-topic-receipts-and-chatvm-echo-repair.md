@@ -1,6 +1,6 @@
 # A44b1 explicit forum-topic receipts and ChatVM echo repair — 2026-10-03
 
-- Worker `88440d4` integrated as `002c137`, independently reviewed. Exact positive `.messageTopicForum` route/account/client
+- Worker `3e5f529` integrated as `8040628`, independently reviewed. Exact positive `.messageTopicForum` route/account/client
   consumes its own updateForumTopic outbox watermark. Canonical raw message topic and chat must match; other topics, numeric
   collisions with saved/direct/thread kinds and missing topic identity cannot borrow it. Pending/Failed precedence stays intact.
   All-messages aggregation remains unimplemented; neither chat-global nor nil-to-General fallback was added.

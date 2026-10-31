@@ -1,6 +1,6 @@
 # A22 delayed viewport authority — 2026-10-02
 
-- `78d9835` binds automatic latest/anchor compensation to a one-shot geometry ticket. Structural snapshot, single/bulk reconfigure,
+- `19dc395` binds automatic latest/anchor compensation to a one-shot geometry ticket. Structural snapshot, single/bulk reconfigure,
   rotation, deferred self-sizing and reply-quote expansion consume only the newest current ticket. Capture and completion both
   reject active tracking/drag/deceleration; gesture invalidation remains effective after scrolling ends. Explicit message/latest
   navigation retires old automatic tickets. Revoked Chat ownership cannot restore an old viewport.
@@ -11,7 +11,7 @@
   `Display/Source/ListView.swift` 297–304 tracking state,2124–2194 deferred geometry,3180 tracking-aware inset repair.
   No upstream UI infrastructure copied; no TDLib schema/API changes. Independent four-file source review found no introduced blocker.
 - All four changed Swift files formatted together; final `build-Debug-20261002-201821-1578-13580.log`: PASS8s, zero warnings.
-  Audit Simulator source `78d9835`, PID `2570`: `-ui-probe-viewport-authority`, Chat state, composer restoration/entities pass.
+  Audit Simulator source `19dc395`, PID `2570`: `-ui-probe-viewport-authority`, Chat state, composer restoration/entities pass.
   Policy probe verifies stale/repeated ticket rejection, current scroll/context gates, 1,000 superseding revisions and fresh work after
   invalidation. It does not exercise UICollectionView diffable completion timing or emulate a real drag.
 - Actual own Saved Messages opens, scrolls to earlier history, stays at that settled position across later observation and returns to
@@ -19,7 +19,7 @@
   The first chat screenshot caught the push transition; use the settled/after-scroll/after-idle/returned-latest captures for UI evidence.
   No messages, drafts, account settings or links were changed. Controlled prepend/resize/rotation/keyboard races, programmatic-scroll
   animation overlap and exact pixel-offset instrumentation remain unverified; this is not complete timeline parity.
-- Additional actual keyboard smoke, 2026-10-03 03:41–03:47: installed code `9101f02` (documentation HEAD `9657951`),
+- Additional actual keyboard smoke, 2026-10-03 03:41–03:47: installed code `ddfa897` (documentation HEAD `3da0f1b`),
   audit Simulator `59EB535C-3610-41A2-AB68-53A9467DC24B`, iPhone 17 Pro/iOS 26.5, same PID `59144`.
   Saved Messages was scrolled away from latest and allowed to settle; tapping the empty composer showed the Russian software
   keyboard, and tapping blank history dismissed it. Two pre-keyboard AX samples and the shown/hidden samples retain the same
@@ -30,7 +30,7 @@
   No typing, sends, links or message actions. Interactive dismissal, simultaneous prepend/resize, rotation, send flights and
   nonempty composer remain unverified. No Swift change was needed for this bounded check.
   Documentation build `build-Debug-20261003-034905-77575-16672.log`: PASS5s, complete log zero warnings/errors.
-- `9e470e4` (worker `87f1ba3`, reviewed tree `44a14cfc`) adds opt-in `-ui-probe-viewport-completion` to an actual already-open
+- `b552043` (worker `152c848`, reviewed tree `44a14cfc`) adds opt-in `-ui-probe-viewport-completion` to an actual already-open
   Saved Messages controller. No mock rows/VM or history writes: unchanged production snapshot, held exact native completion,
   stable original item ID and geometry, matched control and ended delegate-drag cases. Probe motion suppresses its own willDisplay
   read-receipt/history demand; real entry/scroll remains normal UI. Interference is SKIP, invariant failure is FAIL.

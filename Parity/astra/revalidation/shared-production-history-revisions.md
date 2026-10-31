@@ -1,6 +1,6 @@
 # Shared production history revisions — 2026-10-02
 
-- A30b2 phase 1 `fe01cde` (worker `4c9142a`) wires the history ledger into ordinary ChatVM and the optional seeded constructor.
+- A30b2 phase 1 `af70d13` (worker `4c9142a`) wires the history ledger into ordinary ChatVM and the optional seeded constructor.
   Complete accepted messages install their body before metadata awaits; one four-message lane hydrates metadata. Partial updates,
   permanent deletion and source retirement invalidate older reads. Reaction/pin owners retain their wrapper until both settle.
   Normal pagination checks the same token at synchronous merge. Prepared windows carry only fetched values and an unconsumed token;
@@ -12,7 +12,7 @@
   `getMessage/getChatHistory/getMessageThreadHistory` and generated update models. Source review caught prepared-window admission
   before its actual install and sender updates missing a bare message; both were corrected before integration.
 - Four Swift files formatted together; primary build `.build/logs/xcodebuild/build-Debug-20261002-183613-37316-13873.log` passes
-  without warnings (33s). `fe01cde`, PID `41056`, `-ui-probe-chat-restoration-state` passes actual ledger/cursor cases: live body,
+  without warnings (33s). `af70d13`, PID `41056`, `-ui-probe-chat-restoration-state` passes actual ledger/cursor cases: live body,
   partial-before-body/during-hydration, deletion, shared page token, overlapping mutation owners, deferred Ready/error/cancel and
   foreign-topic raw bridge. A23 Chat/Root, A31 poll and animation-authority regressions pass in
   `.build/ui-probe-evidence/astra-a30b2-production-primary`. Worker notes/logs are preserved separately.

@@ -1,9 +1,9 @@
 # Probe sweep — 2026-10-12
 
-Repeat on the merged build `52c8ae5` (localization merge): 86 of 91 probes report a pass; `draft-coding` passes in the app's tmp folder, and the four observation probes need live UI as above.
+Repeat on the merged build `f73679a` (localization merge): 86 of 91 probes report a pass; `draft-coding` passes in the app's tmp folder, and the four observation probes need live UI as above.
 
 All 91 launch-argument probes ran on iPhone 18 Pro (iOS 27.0) against the merged build through `./build.sh run
---skip-build`, one launch per probe. Probe repairs are in `1d29328`: probes that borrow the active client wait for the
+--skip-build`, one launch per probe. Probe repairs are in `aa1ff97`: probes that borrow the active client wait for the
 asynchronous TDLibKit 2 account bootstrap, test entities stay within `Int32`, and probes follow the merged semantic,
 localized and forward-picker APIs. After the repairs and F12/F13 every probe that reports by itself passes, including
 `vod-resource-loader` (progressive playback before completion, controls, offline retry, no full download) and

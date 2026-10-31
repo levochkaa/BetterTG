@@ -1,6 +1,6 @@
 # Accepted TDLib update provenance proof — 2026-10-02
 
-- A13 worker `1eb9d23c75a335defd5a2df2274d9b6dc2504aaa` was independently reviewed and integrated as `7ab5643`.
+- A13 worker `1eb9d23c75a335defd5a2df2274d9b6dc2504aaa` was independently reviewed and integrated as `c3281da`.
   `TDLib.handle` captures account UUID/client ID into immutable notification userInfo; `td.py` generates exactly one post with
   unchanged name/raw object. Opt-in scoped subscribers extract payload/source before scheduler delivery and reject missing source.
   Voice/video durable cleanup and selected-document ownership use event account; ChatVM/forum UI additionally match frozen client.

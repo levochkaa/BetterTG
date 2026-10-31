@@ -1,6 +1,6 @@
 # A06 animated-file demand — 2026-10-02
 
-- `38578b9` replaces per-view transport cancellation with `AnimatedFileDemand`, keyed by originating account UUID, client ID and
+- `cbbfa64` replaces per-view transport cancellation with `AnimatedFileDemand`, keyed by originating account UUID, client ID and
   file ID. TGS/WebP/WebM views and animated prefetch acquire the same whole-file demand. Releasing one view or cancelled prefetch
   cannot cancel another registered consumer. The last release cancels only the pending download through its captured client.
   A replacement starts after the previous cancellation reply; a not-yet-cancelled start can instead be shared. Completed files,
@@ -14,7 +14,7 @@
   prefetch remains at priority 1. VOD range ownership is deliberately separate: different offset/limit would supersede a TD request.
 - Five Swift files formatted together. Final build `.build/logs/xcodebuild/build-Debug-20261002-185806-60504-4167.log` passes in
   6s, zero warnings. Initial DEBUG-only actor-isolation compile failure was corrected before this build. Audit Simulator
-  `59EB535C-3610-41A2-AB68-53A9467DC24B`, iPhone 17 Pro / iOS 26.5, installed source `38578b9`, PID `60930`:
+  `59EB535C-3610-41A2-AB68-53A9467DC24B`, iPhone 17 Pro / iOS 26.5, installed source `cbbfa64`, PID `60930`:
   `-media-probe-animation-demand`, `-media-probe-animation-authority` and `-ui-probe-chat-restoration-state` all pass. Results:
   `.build/ui-probe-evidence/astra-a06-primary`. Parent and independent delta reviews completed, including the terminal-race repair.
 - Demand tests run actual production pool/request code with isolated suspended transport and notifications: duplicate visible

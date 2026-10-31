@@ -1,6 +1,6 @@
 # A42 forum-search snapshot cell ownership — 2026-10-03
 
-- Actual source `f7d7090`/docs`3b7ab09`, audit Simulator PID `42180`: existing real forum → active search → three-character
+- Actual source `3d0873c`/docs`119981a`, audit Simulator PID `42180`: existing real forum → active search → three-character
   Cyrillic query. At02:31:53.810, UIKit throws `NSInternalInconsistencyException`: reconfigure expected the existing `ForumTopicCell`
   but received a new plain `UITableViewCell`. Crash report `BetterTG-2026-10-03-023158.ips`, incident
   `E8889D35-E206-4228-9339-F3C0A2617229`; stack reaches `applySnapshot`341 from queued topics sink307. No Home was sent.

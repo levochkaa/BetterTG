@@ -8,9 +8,9 @@ The dated entries below preserve history; later implementations supersede earlie
   bar on every screen, its buttons in Liquid Glass platters grouped as UIKit groups bar items, the chat's title in a glass
   pill, and the platters morphing between screens on push and pop as Telegram 13's do (user decision 2026-10-28, which
   replaced "no glass button backgrounds").
-- Folder picker at the bottom: Liquid Glass with liquid lens and interactive glass (`24657e8`), blur behind it, unread
-  counts (`75184a2`). Forward to uses the same picker.
-- Context menus: the custom Telegram menu with glass (`TelegramContextMenu`, `24d5b2f`), gestures from
+- Folder picker at the bottom: Liquid Glass with liquid lens and interactive glass (`3df82a3`), blur behind it, unread
+  counts (`208f549`). Forward to uses the same picker.
+- Context menus: the custom Telegram menu with glass (`TelegramContextMenu`, `3656153`), gestures from
   CustomContextMenu.
 - Composer (updated 2026-10-28/29): full width with the safe area on the bar's blur when docked; above the keyboard it
   becomes interactive Liquid Glass with rounded corners and 8 pt side insets, without a layout jump. This includes

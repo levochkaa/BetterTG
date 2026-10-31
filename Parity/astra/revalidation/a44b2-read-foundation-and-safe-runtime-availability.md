@@ -1,6 +1,6 @@
 # A44b2 read foundation and safe runtime availability — 2026-10-03
 
-- Source at `84e2804`: all-messages `refreshForumTopic` starts one task per topic without a concurrency bound, retains its VM
+- Source at `f5b9dfb`: all-messages `refreshForumTopic` starts one task per topic without a concurrency bound, retains its VM
   across await and publishes returned metadata without checking raw chat/topic identity. Adding an independent receipt queue
   would duplicate those reads. First share and bound this metadata path; retain exact timeline/composer demands, protect live
   scalar/info changes, retire on source departure and count canceled-but-unfinished TD calls until their actual completion.
@@ -15,7 +15,7 @@
   read serially. A source-departure token and 15s watchdog revoke late navigation; the watchdog does not cancel TD transport.
   No forced viewAsTopics override, synthetic chat, mode toggle, send or scheme change. Independent source review passed.
 - Native availability result on the logged-in audit Simulator59EB535C-3610-41A2-AB68-53A9467DC24B/iOS26.5, PID5126,
-  source `84e2804` plus this DEBUG delta: fresh06:12:31 (+04) result has `loaded-forums=9, eligible=0`; no route opened.
+  source `f5b9dfb` plus this DEBUG delta: fresh06:12:31 (+04) result has `loaded-forums=9, eligible=0`; no route opened.
   This is a blocker for live all-messages smoke in the loaded safe candidates, not proof of account-wide absence. Before/after
   bounded idb type counts remain22 elements; no personal message text was dumped. Evidence:
   `.build/ui-probe-evidence/astra-a44-all-messages/forum-all-messages-route-probe.txt`. Do not claim reader/receipt success

@@ -1,6 +1,6 @@
 # A43 chat-list read-receipt delivery — 2026-10-03
 
-- Baseline `7d41469`: `ChatListCell.deliveryState` reads the immutable Chat's outgoing read watermark, but generated
+- Baseline `bc7e3f4`: `ChatListCell.deliveryState` reads the immutable Chat's outgoing read watermark, but generated
   `updateChatReadOutbox` has no subscriber. Folder rows already observe `CustomChat.objectWillChange`; missing TDLib feed,
   not missing cell rendering, is the narrow defect. No broad unread-badge or timeline rewrite is included.
 - Add the receipt to Root's existing account/client-scoped observation and active-read projection. Patch only the matching
@@ -15,7 +15,7 @@
   Last-message/position updates are not guaranteed companions. No upstream infrastructure imported.
 - Three Swift files formatted together; `build-Debug-20261003-032256-23469-20517.log`: PASS9s, complete warning/error scan
   empty. Independent source review found no introduced P1/P2. Audit Simulator59EB535C-3610-41A2-AB68-53A9467DC24B/iOS26.5,
-  PID `24065`, source `7d41469` plus this delta: root projection, list authority and insertion probes all pass.
+  PID `24065`, source `bc7e3f4` plus this delta: root projection, list authority and insertion probes all pass.
 - Expanded probe exercises production scoped NotificationCenter delivery, authority and field patch; multiple distinct
   folders/archive instances, shared-instance single publication, duplicate/current/wrong-chat/foreign-source handling,
   old-client queued delivery rejection, stale hydration and newer read/snapshot precedence. Actual `ChatListCell.configure`

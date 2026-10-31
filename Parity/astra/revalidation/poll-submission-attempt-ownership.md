@@ -1,6 +1,6 @@
 # Poll submission attempt ownership — 2026-10-02
 
-- A31 `ea88983` gives each accepted vote attempt an immutable token. The queued RPC checks that token and current route before
+- A31 `a32b870` gives each accepted vote attempt an immutable token. The queued RPC checks that token and current route before
   sending; failure and deadline callbacks may clear only their own attempt. A stale callback neither cancels the replacement
   deadline nor publishes a misleading idle state. Authoritative selection changes invalidate old attempts; retry keeps local choices.
 - Reference: pinned pre-Liquid `submodules/TelegramUI/Sources/ChatController.swift:3422–3430` owns per-message poll requests;

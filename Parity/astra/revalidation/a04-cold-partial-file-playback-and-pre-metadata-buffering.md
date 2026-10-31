@@ -1,6 +1,6 @@
 # A04 cold partial-file playback and pre-metadata buffering — 2026-10-03
 
-- Base `218e863`; reviewed `TDLibVODFFmpegSampleBufferPlayer`, range source/DEBUG transport and new
+- Base `ac53add`; reviewed `TDLibVODFFmpegSampleBufferPlayer`, range source/DEBUG transport and new
   `TDLibVODPartialCoverageProbe`. Existing small-file proofs remain valid within their limits. A new native AVAssetWriter
   fixture contains 24s of actual H.264 video (480×270/15fps), 13,324,774 bytes, not padding around a tiny clip. Generation and
   hashing run off main with one pixel buffer at a time. TDLib availability is injected into the real range source/FFmpeg/player.

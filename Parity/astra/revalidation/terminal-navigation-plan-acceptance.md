@@ -1,6 +1,6 @@
 # Terminal navigation-plan acceptance — 2026-10-02
 
-- A30b2 prerequisite worker `1584f4d` integrated as `3b629b4`. Preparation owns no transferred files; the coordinator rechecks
+- A30b2 prerequisite worker `1584f4d` integrated as `9831ad4`. Preparation owns no transferred files; the coordinator rechecks
   ready/source generation, controller preflight, exact stack and transition/modal barriers before a one-shot synchronous commit.
   An accepted replacement is installed without a later rejection that could strand transferred composer files. Production commit
   constructors must not navigate or replace the client. Main is still the only opted-in production entry; Chat activation remains open.

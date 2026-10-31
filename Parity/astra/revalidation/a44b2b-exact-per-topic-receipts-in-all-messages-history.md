@@ -1,6 +1,6 @@
 # A44b2b exact per-topic receipts in all-messages history — 2026-10-03
 
-- Worker `aa7a807` integrated as `b0908e2`. Each existing reader entry owns `ChatDeliveryReceiptState` for its exact positive
+- Worker `fef1b1f` integrated as `bc5f234`. Each existing reader entry owns `ChatDeliveryReceiptState` for its exact positive
   forum topic. Its receipt ticket starts with the same metadata request and consumes the raw response before metadata admission;
   no second RPC or queue is added. Direct scoped scalar updates change receipts even when metadata is absent or failed.
   Identical receipts advance the revision fence without publishing an unchanged state. Prune/retire revokes both owners before
@@ -13,7 +13,7 @@
   originally derived status before demand sync. Both now synchronize first, as does messages.didSet. A small b2a follow-up moves
   restored video metadata demand after the async reply lookup and current-source guard, immediately before installing its draft;
   the queued reconciliation can no longer prune that still-unassigned context. These ChatVM ordering paths are source-reviewed.
-- Native PID34441 on `b0908e2`, same audit Simulator59EB535C-3610-41A2-AB68-53A9467DC24B/iOS26.5: both reports fresh06:41:21
+- Native PID34441 on `bc5f234`, same audit Simulator59EB535C-3610-41A2-AB68-53A9467DC24B/iOS26.5: both reports fresh06:41:21
   (+04) PASS. Reader probe covers distinct topic watermarks, direct update before/after failed metadata, duplicate update versus
   late baseline, wrong raw scopes while valid control topics remain Read, nil-cache pruning/re-demand and source retirement.
   Existing b2a queue/concurrency/lifetime cases also pass. No live TDLib RPCs or global source mutation were injected.

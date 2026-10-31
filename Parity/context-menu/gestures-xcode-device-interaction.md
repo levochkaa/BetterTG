@@ -1,6 +1,6 @@
 # Context-menu gestures through Xcode device interaction — 2026-10-12
 
-Real multi-touch sequences (`mt`) on iPhone 18 Pro iOS 27.0, build after `5a0e1b3`, in Saved Messages:
+Real multi-touch sequences (`mt`) on iPhone 18 Pro iOS 27.0, build after `3aefbbd`, in Saved Messages:
 hold 1.0 s then scrub to Copy and lift ran Copy (pasteboard changed) and closed the menu; lifting the opening finger
 in place kept the menu open with nothing highlighted; scrubbing past the 10 pt hysteresis and lifting outside the menu
 kept it open and ran nothing; tapping Select entered selection; a chat-row hold scrubbed to Add to Folder opened it;

@@ -1,6 +1,6 @@
 # Animated file transport authority — 2026-10-02
 
-- A05a `b0ed754`: all three TGS/WebP/FFmpeg views use one configured request with captured account/client/file identity.
+- A05a `b1f6884`: all three TGS/WebP/FFmpeg views use one configured request with captured account/client/file identity.
   Scoped notifications check the accepted origin at main delivery; download/cancel closures retain the original client.
   Client replacement retires the request and view. Asset/frame callbacks check request identity, current source and path;
   canceled same-file reuse cannot install an old decode. Thumbnails use the existing explicit-account/client loader.

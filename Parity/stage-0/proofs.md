@@ -1,9 +1,9 @@
 # Stage 0 proofs — 2026-10-12
 
 - Build: `./build.sh build`, Xcode 27.0, full app recompile after M3 (334 Swift files) with 0 warnings
-  (`.build/logs/xcodebuild/build-Debug-20261012-034326-50800-5062.log`); incremental builds after `2d54dc3` with 0
+  (`.build/logs/xcodebuild/build-Debug-20261012-034326-50800-5062.log`); incremental builds after `9a7cccc` with 0
   warnings. M2 built separately on Xcode 26.6 with 0 warnings.
-- Simulator smoke on `92f6bf1` plus F1, iPhone 18 Pro, iOS 27.0 (`46AD65F9-D204-47F1-A765-B74D8322BC28`), real account; test
+- Simulator smoke on `ea64c34` plus F1, iPhone 18 Pro, iOS 27.0 (`46AD65F9-D204-47F1-A765-B74D8322BC28`), real account; test
   writes only in Saved Messages and the private test forum `BetterTG test`:
   chat list and folder switching with unread badges and the lens; open chat; send text; send a photo from the library;
   gallery paging, More menu and swipe dismissal; voice hold-to-send and playback (microphone prompt first rejects a

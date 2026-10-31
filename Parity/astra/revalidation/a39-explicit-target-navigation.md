@@ -1,30 +1,30 @@
 # A39 explicit target navigation — 2026-10-03
 
-- `054d8e0` (worker `7f2d9d9`) retires retained viewport intent when accepting explicit navigation, consults the current
+- `514d3f1` (worker `f09467f`) retires retained viewport intent when accepting explicit navigation, consults the current
   snapshot marker, and holds target/quote until snapshot, layout, window and source are valid. Pending navigation fences
   initial/latest compensation; gestures, supersession, source revocation and failed admission retain their cancellation rules.
   Initial positioning is synchronous; navigation in an initialized Chat remains animated. Existing ChatVM history logic is
   unchanged apart from opt-in content-free phase diagnostics. Three-file format; integration
   `build-Debug-20261003-005409-91096-31077.log`: PASS31s, zero warnings.
-- Independent review found a final-release wakeup missing from rotation and a loaded fast-path bypass. `511c13a` (worker
-  `65341a6`) pairs all nine layout owners through one release helper and retries pending navigation after the last external
+- Independent review found a final-release wakeup missing from rotation and a loaded fast-path bypass. `64de59c` (worker
+  `067d81f`) pairs all nine layout owners through one release helper and retries pending navigation after the last external
   release. Explicit scroll's own release does not recurse into unavailable layout. Delta review is clean; three-file format,
   `build-Debug-20261003-005819-95305-8829.log`: PASS9s, zero warnings.
-- Source `511c13a`, audit Simulator PID `95662`: viewport-authority and complete profile-restoration/A38 probes pass.
+- Source `64de59c`, audit Simulator PID `95662`: viewport-authority and complete profile-restoration/A38 probes pass.
   Navigation fixtures use the actual ticket/viewport/release helpers and real UICollectionView/diffable layout, but a
   value-only consumer, not full ChatView/ChatVM or system rotation. They do not test the production animated-scroll/highlight
   sequence. Reports: `.build/ui-probe-evidence/astra-a39-primary`.
-- Cold control at `6723b65`, PID `39878`, without Home/client rollover already failed to reach the same old Files target
+- Cold control at `1309955`, PID `39878`, without Home/client rollover already failed to reach the same old Files target
   after about70s (`astra-a38-settled-primary/cold-target-settled.png`). The observed failure is not specific to restoration.
-  At `511c13a`, PID `95662`, fresh Saved → Profile → Files → older June document at01:03:16 also returns to latest September/
+  At `64de59c`, PID `95662`, fresh Saved → Profile → Files → older June document at01:03:16 also returns to latest September/
   October messages. Phase reads `applied`, target AX is absent, and settled screenshot confirms the miss. Repeating the same
   already-loaded target at01:05:51 moves only to early September, still without the target. No file opened/downloaded and no
   message/profile/folder saved. Private screenshots and phase remain under the A39 evidence directory.
-- `db29e06` (worker `49fd34a`) adds opt-in numeric geometry to actual ChatView and renames the misleading pre-command phase
+- `a034758` (worker `21b3509`) adds opt-in numeric geometry to actual ChatView and renames the misleading pre-command phase
   to `offset-command`. At most64 samples, reserved settled checks, lazy metric capture, weak exact-request delayed callbacks,
   serial background JSON writes; no IDs/content exported and no scrolling policy changed. Both-file format and independent
   immutable review pass. Integration `build-Debug-20261003-011303-7581-26376.log`: PASS10s, zero warnings.
-- Actual source `db29e06`, PID `8251`, only `-ui-probe-message-navigation`, cold Files target tap01:14:45: window is ready67ms,
+- Actual source `a034758`, PID `8251`, only `-ui-probe-message-navigation`, cold Files target tap01:14:45: window is ready67ms,
   explicit animated command70ms requests5627.833 from-94.333. Two highlight snapshots finish before motion continues through
   -51,78.333,289. Automatic capture at115ms sees pending0; automatic restore153ms calls anchor writer154ms, synchronously emits
   animation-end and rewrites offset to78.333. At10.571s, current target5743.833 remains offscreen, correct mapping/source/window
@@ -38,11 +38,11 @@
 - Repair boundary: hold explicit navigation authority until measured target settlement; gate automatic and inset/anchor
   compensation during flight, remeasure estimated cell geometry, and retire authority on drag/new target/latest/source change.
   Preserve animations, quotes, current source and the existing history/revision contracts. No wholesale timeline or loader rewrite.
-- `0b900ad` (worker `b8caad3`) adds the production native-scroll settlement driver and gates compensation until fresh raw
+- `2f30964` (worker `5ba8db2`) adds the production native-scroll settlement driver and gates compensation until fresh raw
   membership, current source, mounted visible cell and two stable geometry observations agree. Drag/latest/cover/source/new-target
   cancellation retires it; quotes/highlight start only on success. Independent immutable review passes. Four-file format0/4.
   Integration `build-Debug-20261003-014324-25949-6943.log` succeeds13s but has one metadata warning; it is not warning-free (A40).
-- Audit Simulator after user app restart: same audit UDID/runtime, authentication preserved, source `0b900ad`, PID `26494`.
+- Audit Simulator after user app restart: same audit UDID/runtime, authentication preserved, source `2f30964`, PID `26494`.
   Native viewport-authority probe passes actual production driver/native animation/estimated UICollectionView plus cancellation,
   remap, supersession, deferred layout and failure deadline. Full ChatView wiring is checked by the separate real flow below.
   idb hierarchy/input works; screenshot backend fails, so `simctl io screenshot` supplies pixels without activation or data reset.
@@ -54,11 +54,11 @@
   desired6953.167, stable10.501s. AX target y387.667/height118 and settled screenshot agree. Evidence:
   `.build/ui-probe-evidence/astra-a39-settlement/{cold,loaded}`. No send/edit/delete/export/file open; ordinary read-state effects
   are possible. Next repair is progress-bounded convergence under the existing deadline, not a relaxed visibility-only success test.
-- `a8b0988` (worker `94016cd`) permits at most8 final corrections, requires measured residual improvement with only one stalled
+- `91c5fd5` (worker `e1c0f5f`) permits at most8 final corrections, requires measured residual improvement with only one stalled
   pass, and retains the2s failure-only deadline. Nonanimated UIKit offset changes keep geometry checking alive. Exact0.75pt,
   mounted/visible cell and two-frame stability remain mandatory; there is no visibility-only success. Independent review passes.
   Native probe adds successive real estimated neighboring cells plus explicitly injected residuals; stall/oscillation limits pass.
-- Final audit Simulator source `f7d7090` (includes `a8b0988`), PID `30616`: expanded viewport-authority probe passes. Actual cold
+- Final audit Simulator source `3d0873c` (includes `91c5fd5`), PID `30616`: expanded viewport-authority probe passes. Actual cold
   target tap02:02:22 settles572ms after three corrections, offset6808 versus target6808.167. Target AX y387.667/height118 and
   settled screenshot agree; error-0.167pt remains stable25.297s.
 - Same PID: scrolled Files target y188.667/height52.667 before Home02:05:03. Lifecycle logs confirm ownership released02:05:05.027,
@@ -73,7 +73,7 @@
 - References: pinned current/pre `ChatControllerNavigateToMessage.swift`342–422,474–507/333–360 distinguishes loaded target
   navigation from cancellable 50-message initial search and target/missing completion. Pinned TDLibKit `getChatHistory`,
   `getMessage`, captured ChatLocation and current history revision admission remain unchanged. No Telegram infrastructure copied.
-- Follow-up diagnostic `b346b9f` (worker `c662025`, reviewed tree `265e323d`) adds an opt-in192-event DEBUG value trace,
+- Follow-up diagnostic `4172189` (worker `430ef00`, reviewed tree `265e323d`) adds an opt-in192-event DEBUG value trace,
   terminal deadline/budget reasons, geometry before consumer target clear and separate post-result outcome/visibility/quote.
   No extra driver resolve/layout calls;2s watchdog,3s probe wait,0.75pt threshold, correction budget and predicates unchanged.
   Worker format/build `155938-6424-25004` PASS14s/fullzero; primary joint format0/2/build `160215-12692-11186`
@@ -88,7 +88,7 @@
   arrive0.342s and1.299s. First verifier observation0.591s sees offset4626.6667/target4258.5; second2.151s sees4563/4258.5,
   stops checking and clears receivedEnd. Deadline fires2.156s. The second accepted end retained the old first observation.
   End-reset is observed, but that frame was already after the2s budget: this does not prove it caused the timeout.
-- Timing follow-up `a5d721d` (worker `a7fd0db`, exact peer-reviewed tree `b1abbf3a`) adds callback entry/display-link timestamps,
+- Timing follow-up `bfe0199` (worker `7f99707`, exact peer-reviewed tree `b1abbf3a`) adds callback entry/display-link timestamps,
   timing around existing resolve calls and bounded aggregates from existing10ms wait resumptions. No extra timer, task,
   resolver/layout call, deadline extension or predicate change. Joint format0/2; primary build `161829-36511-3066` PASS11s,
   full1482-line log zero warnings/errors; worker `161246-31131-24056` PASS9s/fullzero.
@@ -107,7 +107,7 @@
   exact visible/centered settlement, correction budget and deadline. This is separate from scheduling-delay diagnosis above.
 - Timing checkpoint build `162308-41757-22286` PASS8s; complete1385-line log zero warnings/errors. Production/dependency
   prohibited-marker scan empty; AGENTS/CLAUDE identical; only this checkpoint document remained uncommitted before recording.
-- Controlled latest-end baseline `245e7b8` (worker `c7eaa76`, exact reviewed tree `ea732dcf`) adds a dedicated
+- Controlled latest-end baseline `17e81e9` (worker `2264e1e`, exact reviewed tree `ea732dcf`) adds a dedicated
   `-ui-probe-navigation-end-order` fixture. DEBUG manual verifier delivery retains the actual display link and admits calls
   only while the production checker/current command exists. Native delegates are forwarded; no receivedEnd/sample setters.
   Its accurate48pt estimates isolate ordering; the existing natural fixture retains80pt estimates and automatic frames.
@@ -123,7 +123,7 @@
   link. Require two post-latest-end stable observations before correction/settlement; retain motion/stale-end rejection,
   visibility/centering, request/command identity, cancellation, correction cap and2s deadline. No loader/timeline rewrite.
   The independently measured scheduling-delay timeout remains open and is not explained or repaired by this change.
-- `91baad4` (worker `d2770fa`, reviewed tree `548cf025`) implements exactly those two sample resets plus a comment.
+- `d38720d` (worker `0fbb01e`, reviewed tree `548cf025`) implements exactly those two sample resets plus a comment.
   Accepted-end guard, current link/command, resolver calls and all failure/success predicates are unchanged. Reentrant end
   during resolve invalidates samples before the verifier reads them; movement between new samples still drops stale-end
   authority. Joint format0/3; primary build `163554-69774-7770` PASS8s/full1450-line log zero warnings/errors; worker

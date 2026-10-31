@@ -1,6 +1,6 @@
 # A44b2a bounded all-messages metadata reader — 2026-10-03
 
-- Worker `c61eeda` integrated as `8ac9492`. `ChatForumTopicReads` owns at most two outstanding reads, including canceled
+- Worker `e851373` integrated as `25f6f56`. `ChatForumTopicReads` owns at most two outstanding reads, including canceled
   TD continuations until they actually return. Exact entry/request UUID and raw returned chat/topic guard same-ID re-demand;
   weak captures let the owner deallocate during an uncancelable read. Source/composer-transfer retirement is terminal and
   clears metadata synchronously. Existing controller-pop draft save can retain permission metadata until VM teardown.
@@ -13,7 +13,7 @@
   under unchanged demand; existing user refresh/Ready, explicit composer request or drop/re-add can retry. Failure does not
   starve the queue. No timer retry; scalar payload does not refresh omitted unreadCount/order/lastMessage. Existing consumers
   use topic info for headers/permissions; exact-topic receipt authority is the next b2b slice, not inferred from this cache.
-- Native PID22721 on `8ac9492`, audit Simulator59EB535C-3610-41A2-AB68-53A9467DC24B/iOS26.5: fresh06:28:59 (+04)
+- Native PID22721 on `25f6f56`, audit Simulator59EB535C-3610-41A2-AB68-53A9467DC24B/iOS26.5: fresh06:28:59 (+04)
   `forum-topic-reads-probe.txt` PASS production reader/demand builder under cancellation-insensitive controlled continuations:
   max-two outstanding calls, coalescing, pruning/re-demand, canonical album/exact raw identities, late scalar/info overlay,
   malformed replies, failure hold/progress/explicit retry, retired source ABA and weak owner release. Terminal replies are

@@ -1,6 +1,6 @@
 # A30g member/admin route recovery — 2026-10-03
 
-- Baseline `f7d7090` (documentation HEAD `72c0d29`): profile topmost gate233–239 and removal954–982 discard the
+- Baseline `3d0873c` (documentation HEAD `b5c982a`): profile topmost gate233–239 and removal954–982 discard the
   profile suffix while its Members/Admins child is visible. The child retains an immutable old client and does not participate
   in navigation restoration. This is distinct from the already-supported ordinary profile editor.
 - Actual audit Simulator `59EB535C-3610-41A2-AB68-53A9467DC24B`, iPhone17Pro/iOS26.5, PID `30616`: existing basic group →
@@ -19,26 +19,26 @@
   The implementation and bounded after-fix proof follow; these references do not establish complete member-management parity.
 - Baseline documentation validation `build-Debug-20261003-022901-39675-31468.log`: PASS5s; complete log has zero warnings/errors.
   No Swift change in this checkpoint.
-- `cbf3055` (worker `077d337`) implements exact adjacent Profile/Members retention, same-account/actor restoration,
+- `293c6d0` (worker `ea60670`) implements exact adjacent Profile/Members retention, same-account/actor restoration,
   stable member-ID/pixel geometry and neutral quarantined rows. Current `getBasicGroupFullInfo`, `getChatAdministrators`,
   or one 100-row `getSupergroupMembers` page per demand revalidates rows. Raw offset remains separate from deduplicated IDs
   and the retained extent. Source/generation/attached-owner checks precede dispatch and follow every response; scoped
   member/group/permissions changes invalidate immediately, with semantic full-info dedup preventing self-triggered replay.
 - Independent review found that a replaced Profile can stay unloaded beneath Members across another ownership epoch.
-  `1a33184` (worker `ea3c7b9`) installs ownership/Ready observation at init, keeps UI/media work view-bound and transfers
-  accepted seed state without materializing the covered Profile. `9f4586a` (worker `dd26f98`) adds plain visible Retry for
+  `5e5adef` (worker `b4d3b67`) installs ownership/Ready observation at init, keeps UI/media work view-bound and transfers
+  accepted seed state without materializing the covered Profile. `41aeb0c` (worker `ce408f6`) adds plain visible Retry for
   deep retained-page failures, synchronous neutral error cells, and per-failure UUID/generation/source/top-owner checks.
   Errors do not automatically retry; old buttons cannot consume a newer failure. Both followups passed independent review.
 - Primary integration builds `build-Debug-20261003-025548-60862-15401.log` (10s) and
   `build-Debug-20261003-030933-90779-22519.log` (15s): PASS, full logs contain zero warnings/errors; changed Swift files
   formatted together. Initial PID `62735` Members probe failed an immediate combined UIKit pop/retirement assertion.
   The corrected fixture retains synchronous authority rejection, then boundedly waits for actual lifecycle cancellation;
-  it does not relax production guards. Source `9f4586a`, PID `99916`: Members and existing Profile probes both pass.
+  it does not relax production guards. Source `41aeb0c`, PID `99916`: Members and existing Profile probes both pass.
   Members proof covers production replay/revision/ABA and coordinator helpers, actual unloaded-Profile callbacks, native
   Members table/quarantine/anchor/fresh partial page/pop cancellation, visible Retry, no auto-retry, covered/unready/stale
   generation/old-button rejection and predispatch cancellation. Generic parent navigation entries remain value adapters;
   no TDLib RPC, server permission change or global client swap is injected by the probe.
-- Actual source `1a33184`, PID `62735`, same audit Simulator: Members retains all three baseline row frames through
+- Actual source `5e5adef`, PID `62735`, same audit Simulator: Members retains all three baseline row frames through
   release03:01:08.920 → restore03:02:00.705 and release03:07:27.277 → restore03:08:13.888. The second cycle leaves the newly
   replaced Profile unloaded beneath Members. Profile replacement acceptance logs occur03:02:00.929 and03:08:15.915.
   Back reaches Profile; Admins shows one Owner row at y116/height73.333, then retains it through release03:10:49.847 →

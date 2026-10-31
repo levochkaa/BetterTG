@@ -1,6 +1,6 @@
 # A44 timeline delivery-state audit — 2026-10-03
 
-- Source baseline `9101f02`, independently confirmed: `MessageView.swift`514–551 builds text, standalone and media-overlay
+- Source baseline `ddfa897`, independently confirmed: `MessageView.swift`514–551 builds text, standalone and media-overlay
   timestamps with only `sendFailed`; AX576 reuses that value. `CustomMessage` has no derived read state. A43 updates list
   rows only: bubbles do not consume that watermark. `ChatVM+Publishers.swift`13–16 observes inbox but no outbox;122–129
   refreshes only the explicit route topic and discards direct scalar topic receipt updates in all-messages mode.

@@ -1,6 +1,6 @@
 # Canonical voice finalization and PiP context proof — 2026-10-02
 
-- A14 worker `a8d04c2` integrated as `806b0d2`. Six Swift files formatted together; warning-free primary build
+- A14 worker `a8d04c2` integrated as `878eafb`. Six Swift files formatted together; warning-free primary build
   `.build/logs/xcodebuild/build-Debug-20261002-155910-46801-26110.log` (14s). Worker log is copied with `worker-A14-` prefix;
   design and proof limits: `.build/ui-probe-evidence/astra-a14-worker/README.md`.
 - Voice store claims canonical runtime ownership before encoding, fences stale snapshots/tokens, uses unique attempt outputs and
@@ -13,16 +13,16 @@
   and `astra-a14-draft-regression/draft-outcomes-probe.txt` under `.build/ui-probe-evidence`. Real native Ogg encoding, suspended
   worker/RPC gates, duplicate claim/discard rejection, stale token/adoption, exact-ID outcome, pre-registration retention,
   process-local lease recovery and unrelated-file preservation run against disposable isolated stores. This does not send messages.
-- Production UI on `806b0d2`: empty recording/send stores; own hold→lock→pause yielded a 42.06s preview. The existing DEBUG
+- Production UI on `878eafb`: empty recording/send stores; own hold→lock→pause yielded a 42.06s preview. The existing DEBUG
   `-ui-smoke-voice-preview-send` bypassed the send RPC after real promotion/encoding. Own draft
   `CDD62EC0-0614-4481-B007-119AD74DD113` became `isEncoded=true`, duration 42, no enqueue time/temp ID. Manifest SHA256
   `bbf6973377392f25435894ca0bf6423deb279d1600cb2261b597cca8021b6fe4`; captures and manifest/Ogg backup are in
   `astra-a14-ui`. The no-send alert intercepted Back, so navigation-during-encode is not claimed by this UI sequence.
-- Reinstall to combined `8bdf9dc` changed the container from `CC9310EE…` to `D630B63A…`; the loader deleted this manifest,
+- Reinstall to combined `1fd5c61` changed the container from `CC9310EE…` to `D630B63A…`; the loader deleted this manifest,
   left the Ogg, and restored an empty composer. `before-relaunch`/`after-relaunch` plus `restored.png` reproduce A26. This is a
   pre-existing absolute-URL persistence defect, not passing relaunch proof. Only an agent-created draft was affected; no user draft
   was deleted. Its backup remains available for recovery and the follow-up test. Recording-preview relative storage is separate.
-- A19 worker `1ea2594` integrated as `8bdf9dc`. Five Swift files formatted together; warning-free primary build
+- A19 worker `1ea2594` integrated as `1fd5c61`. Five Swift files formatted together; warning-free primary build
   `.build/logs/xcodebuild/build-Debug-20261002-160148-52841-23853.log` (20s); worker log copied with `worker-A19-` prefix.
   Freeze playback client/location/ranges/deletion stream, preserve route callbacks separately, rebind only the originating profile
   tab, revoke on every client activation, and bound each restoration completion to one terminal callback. Revoked pending/active

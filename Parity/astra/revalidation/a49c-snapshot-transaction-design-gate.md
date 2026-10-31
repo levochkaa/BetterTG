@@ -1,6 +1,6 @@
 # A49c snapshot transaction design gate — 2026-10-03
 
-- Source `aa52123`: all five producers must move together: structural snapshot, single/bulk reconfigure, highlight (including
+- Source `1d67d4d`: all five producers must move together: structural snapshot, single/bulk reconfigure, highlight (including
   DEBUG branch) and quote. Highlight currently has no depth/completion lifecycle. Delete's140ms deadline protects only structural
   applies; no deleting-ID filter prevents a reconfigure from restoring alpha/interaction. This is a confirmed ownership gap,
   not grounds to change TDLib pagination or live action/navigation lookup.
@@ -22,7 +22,7 @@
   client-restoration seeds, provider and all five apply paths remain unchanged in this prerequisite. The following integration
   must switch provider/scheduler together, including old bound-cell fade preservation, deleting-ID tombstones through exact
   removal completion, and committed raw-member checks before send/navigation settlement (an added album member reuses its ID).
-- A49c1 `039df63` (worker `81c24dc`, reviewed tree `6ab765ce`) captures all14 message-render fields as values and lazily creates
+- A49c1 `eaf8c3d` (worker `4609e9f`, reviewed tree `6ab765ce`) captures all14 message-render fields as values and lazily creates
   detached renderer adapters with exact private delivery state, mutation flags, explicit nil reactions and empty unread state.
   Existing action authority now stores this value baseline separately from canonical wrapper identity; current production callers
   keep existing capture timing and admission semantics. Client-restoration seeds and provider/snapshot paths are unchanged.
@@ -32,7 +32,7 @@
   sender/metadata/formatted/properties/reaction/read/mutation changes leave captured values and exact materialization unchanged;
   clone mutations stay isolated; old baseline fails, fresh baseline+canonical passes, clone cannot acquire canonical authority.
   All prior delivery/A49/A44 native cases pass. Source+native prerequisite proof does not establish frozen production rendering.
-- Fresh pre-integration baseline at clean `3b795c0` (production `039df63`, product from `141942-39748-21216`): standalone
+- Fresh pre-integration baseline at clean `564d545` (production `eaf8c3d`, product from `141942-39748-21216`): standalone
   viewport-authority PID67824/container `86434DC1-9554-4BA7-8BBD-768A533512E0`, report14:34:47+04 PASS. Native A39
   animation/estimated-height resize/convergence passes; the earlier combined-run failure remains unexplained, not superseded.
 - Actual Saved Messages baseline, wrapper `-ui-probe-viewport-completion`, Audit59EB535C/iOS26.5 PID77750/container

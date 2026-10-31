@@ -1,6 +1,6 @@
 # Profile shared-history request identity — 2026-10-02
 
-- A28 `32f3715` adds per-request authority independently of the selected filter. Tab change invalidates it before cancellation;
+- A28 `b717304` adds per-request authority independently of the selected filter. Tab change invalidates it before cancellation;
   every success/error/cancellation path consumes only its own ID before touching the task or UI. Existing account/client/tab checks,
   pagination cursor, deduplication, gallery retry and query semantics remain intact. No network cancellation guarantee is assumed.
 - Reference: pinned `PeerInfoVisualMediaPaneNode.swift`, current 1726/1792 and pre-Liquid 1660/1725, scopes and replaces history

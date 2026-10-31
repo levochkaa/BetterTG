@@ -4,7 +4,7 @@
   avoids B01 without modifying the original database. Each run used
   `./build.sh run --skip-build --simulator-id 59EB535C-3610-41A2-AB68-53A9467DC24B -- ARGUMENT` and idb.
   Login screenshots/hierarchies and live processes accompany the probe output; no account login or server mutation occurred.
-- A01/A02 recheck at `ad25f97`, argument `-media-probe-vod-ranges`, PID `78859`: all existing range checks plus
+- A01/A02 recheck at `edf7f3a`, argument `-media-probe-vod-ranges`, PID `78859`: all existing range checks plus
   `deadline-token/rearm=true` and `update-before-wait=true` passed. Evidence:
   `.build/ui-probe-evidence/astra-isolated-vod-range-probe/vod-range-probe.txt` and
   `astra-isolated-vod-login-visible{.png,-hierarchy.json}`. The process remained alive after 89 seconds.
