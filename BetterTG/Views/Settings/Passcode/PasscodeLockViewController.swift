@@ -135,21 +135,23 @@ final class PasscodeLockViewController: UIViewController, UITextFieldDelegate {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         gradient.frame = view.bounds
-        let width = view.bounds.width
+        // The band beside iPhone Duo's strip.
+        let left = view.safeAreaInsets.left
+        let width = view.bounds.width - left - view.safeAreaInsets.right
         let safeTop = view.safeAreaInsets.top
-        lockIcon.frame = CGRect(x: (width - 35) / 2 + 6, y: safeTop + 15, width: 35, height: 37)
+        lockIcon.frame = CGRect(x: left + (width - 35) / 2 + 6, y: safeTop + 15, width: 35, height: 37)
         let compact = view.bounds.height < 800
         let titleY: CGFloat = compact ? 100 : 162
         let fieldY: CGFloat = compact ? 144 : 206
         let keyboardTop: CGFloat = compact ? 221 : 294
-        titleLabel.frame = CGRect(x: 16, y: titleY, width: width - 32, height: 26)
-        dotsView.frame = CGRect(x: 0, y: fieldY, width: width, height: 13)
-        textField.frame = CGRect(x: 50, y: fieldY - 8, width: width - 100, height: 38)
+        titleLabel.frame = CGRect(x: left + 16, y: titleY, width: width - 32, height: 26)
+        dotsView.frame = CGRect(x: left, y: fieldY, width: width, height: 13)
+        textField.frame = CGRect(x: left + 50, y: fieldY - 8, width: width - 100, height: 38)
         let subtitleTop = digitCount == nil ? textField.frame.maxY + 16 : dotsView.frame.maxY + 8
-        subtitleLabel.frame = CGRect(x: 16, y: subtitleTop, width: width - 32, height: 40)
+        subtitleLabel.frame = CGRect(x: left + 16, y: subtitleTop, width: width - 32, height: 40)
         // PasscodeKeyboardLayout for the iPhone X class: 75 pt keys in a 281 pt wide block.
         let size: CGFloat = 75
-        let originX = (width - 281) / 2
+        let originX = left + (width - 281) / 2
         let columns: [CGFloat] = [0, 103, 206]
         let rows: [CGFloat] = [0, 91, 182, 273]
         for (index, key) in keys.enumerated() {
@@ -164,7 +166,7 @@ final class PasscodeLockViewController: UIViewController, UITextFieldDelegate {
             height: deleteSize.height,
         )
         let keyboardBottom = digitCount == nil ? subtitleLabel.frame.maxY : keyboardTop + rows[3] + size
-        biometricButton.frame = CGRect(x: (width - 44) / 2, y: keyboardBottom + 30, width: 44, height: 44)
+        biometricButton.frame = CGRect(x: left + (width - 44) / 2, y: keyboardBottom + 30, width: 44, height: 44)
     }
 
     // MARK: UITextFieldDelegate

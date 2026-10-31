@@ -716,6 +716,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 
     fileprivate weak var owner: UIViewController?
 
+    private var lastLayoutSize: CGSize?
+
     private var onDismiss: (() -> Void)?
     private var dismissCompletion: (() -> Void)?
     private var didFinishDismissal = false
@@ -985,6 +987,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        // A rotation or a fold moves what the menu came out of, and the system closes its menus then.
+        defer { lastLayoutSize = view.bounds.size }
+        if let lastLayoutSize, lastLayoutSize != view.bounds.size, !isDismissing {
+            dismissWithEscape()
+        }
         guard !isDismissing else { return }
         layoutPreviewAndMenu()
     }

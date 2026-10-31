@@ -176,16 +176,7 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         // UITableView inserts section headers after this overlay while scrolling. zPosition keeps the bar
         // visible, but hit testing follows the UIView order and would otherwise reach a header behind it.
         host.bringSubviewToFront(bar)
-        let duoLayout = navigation.view.iPhoneDuoLayout
-        bar.sideColumn = duoLayout?.sideColumn
-        if duoLayout?.sideColumn != nil {
-            if bar.columnView.superview !== host { host.addSubview(bar.columnView) }
-            bar.columnView.frame = CGRect(origin: host.bounds.origin, size: host.bounds.size)
-            host.bringSubviewToFront(bar.columnView)
-        } else {
-            bar.columnView.removeFromSuperview()
-        }
-        bar.trailingButtonsInset = duoLayout?.trailingButtonsInset ?? 0
+        bar.applyIPhoneDuoLayout(navigation.view.iPhoneDuoLayout, host: host)
         bar.topInset = navigation.view.safeAreaInsets.top + sheetTopInset
         bar.frame = CGRect(
             origin: host.bounds.origin,
@@ -383,6 +374,19 @@ final class TelegramSideColumnView: UIView {
         effect.isInteractive = true
         effect.tintColor = tint
         platter.glassView.effect = effect
+    }
+
+    /// Moves back and the icon buttons into iPhone Duo's strip over `host`, and the row clear of the status island.
+    func applyIPhoneDuoLayout(_ layout: IPhoneDuoLayout?, host: UIView) {
+        sideColumn = layout?.sideColumn
+        trailingButtonsInset = layout?.trailingButtonsInset ?? 0
+        if sideColumn != nil {
+            if columnView.superview !== host { host.addSubview(columnView) }
+            columnView.frame = host.bounds
+            host.bringSubviewToFront(columnView)
+        } else {
+            columnView.removeFromSuperview()
+        }
     }
 
     func configure(

@@ -146,6 +146,7 @@ final class LoginViewController: UIViewController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         navigationBar.topInset = view.safeAreaInsets.top
+        navigationBar.applyIPhoneDuoLayout(view.iPhoneDuoLayout, host: view)
         navigationBar.frame = CGRect(
             x: 0,
             y: 0,

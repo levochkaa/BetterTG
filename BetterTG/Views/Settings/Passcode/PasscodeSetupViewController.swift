@@ -114,7 +114,7 @@ final class PasscodeSetupViewController: UIViewController, UITextFieldDelegate {
             subtitleLabel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 28),
             subtitleLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -28),
             optionsButton.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -9),
-            optionsButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            optionsButton.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             optionsButton.heightAnchor.constraint(equalToConstant: 44),
         ])
         applyKind()

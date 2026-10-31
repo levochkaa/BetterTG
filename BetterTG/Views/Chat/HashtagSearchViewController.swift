@@ -280,7 +280,7 @@ TelegramEmbeddedNavigationChrome {
             tableView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
             activityIndicator.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
             activityIndicator.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 40),
-            emptyStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            emptyStack.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             emptyStack.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 80),
             emptyStack.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 32),
         ])

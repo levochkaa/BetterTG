@@ -1206,7 +1206,7 @@ import UIKit
             dimmer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             dimmer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             dimmer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            sheetStack.centerXAnchor.constraint(equalTo: view.centerXAnchor), sheetWidth,
+            sheetStack.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor), sheetWidth,
             sheetStack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -10),
         ])
         let card = UIView()

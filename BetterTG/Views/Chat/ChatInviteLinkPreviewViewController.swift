@@ -127,7 +127,7 @@ final class ChatInviteLinkPreviewViewController: UIViewController, UIViewControl
             dimmer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             dimmer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             dimmer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            sheet.centerXAnchor.constraint(equalTo: view.centerXAnchor), sheetWidth, contentHeight,
+            sheet.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor), sheetWidth, contentHeight,
             sheet.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             sheetTint.topAnchor.constraint(equalTo: sheet.contentView.topAnchor),
             sheetTint.leadingAnchor.constraint(equalTo: sheet.contentView.leadingAnchor),

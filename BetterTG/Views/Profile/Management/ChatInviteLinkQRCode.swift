@@ -287,7 +287,7 @@ final class ChatInviteLinkQRCodeViewController: UIViewController {
             titleLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -60),
 
             codeCard.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 13),
-            codeCard.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            codeCard.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             codeCard.widthAnchor.constraint(equalToConstant: Self.qrSide),
             codeCard.heightAnchor.constraint(equalToConstant: Self.qrSide),
             codeView.centerXAnchor.constraint(equalTo: codeCard.centerXAnchor),

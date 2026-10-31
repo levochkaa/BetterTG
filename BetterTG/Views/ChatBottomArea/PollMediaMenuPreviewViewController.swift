@@ -113,7 +113,7 @@ final class PollMediaMenuPreviewViewController: UIViewController, MKMapViewDeleg
             NSLayoutConstraint.activate([
                 button.widthAnchor.constraint(equalToConstant: 50),
                 button.heightAnchor.constraint(equalToConstant: 50),
-                button.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                button.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
                 button.centerYAnchor.constraint(equalTo: view.centerYAnchor),
                 icon.centerXAnchor.constraint(equalTo: button.centerXAnchor, constant: 2),
                 icon.centerYAnchor.constraint(equalTo: button.centerYAnchor),
@@ -175,7 +175,7 @@ final class PollMediaMenuPreviewViewController: UIViewController, MKMapViewDeleg
             stack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             stack.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
             stack.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24),
-            stack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            stack.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
         ])
     }
 

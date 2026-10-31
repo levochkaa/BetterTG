@@ -320,7 +320,7 @@ final class SecretMediaPreviewViewController: UIViewController, UIScrollViewDele
         footerView.addSubview(footerLabel)
 
         NSLayoutConstraint.activate([
-            spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            spinner.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             topBar.topAnchor.constraint(equalTo: view.topAnchor),
             topBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),

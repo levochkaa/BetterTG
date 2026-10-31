@@ -17,4 +17,7 @@ if [[ -d "$PROJECT_PATH" ]]; then
   chmod -R u+w "$PROJECT_PATH"
 fi
 cd "$ROOT_DIR"
+# Xcode 27.2 expands an asset catalog that holds a membership exception and fails on its Contents.json files; the
+# exclude in project.yml makes one of any Finder file inside it.
+find "$ROOT_DIR/BetterTG/Assets.xcassets" -name .DS_Store -delete
 xcodegen generate --spec "$PROJECT_SPEC"

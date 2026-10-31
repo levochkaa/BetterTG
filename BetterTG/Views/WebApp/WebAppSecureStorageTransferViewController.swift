@@ -143,7 +143,7 @@ UIAdaptivePresentationControllerDelegate {
             close.widthAnchor.constraint(equalToConstant: 44),
             close.heightAnchor.constraint(equalToConstant: 44),
             titleLabel.centerYAnchor.constraint(equalTo: close.centerYAnchor),
-            titleLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            titleLabel.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: close.trailingAnchor, constant: 8),
             content.topAnchor.constraint(equalTo: close.bottomAnchor, constant: 16),
             content.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),

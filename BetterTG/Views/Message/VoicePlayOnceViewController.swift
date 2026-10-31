@@ -157,7 +157,7 @@ final class VoicePlayOnceViewController: UIViewController {
             backgroundView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             backgroundView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            cardView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            cardView.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             cardView.centerYAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerYAnchor),
             cardWidth,
             cardView.widthAnchor.constraint(lessThanOrEqualToConstant: 340),
@@ -179,7 +179,7 @@ final class VoicePlayOnceViewController: UIViewController {
             durationLabel.leadingAnchor.constraint(equalTo: waveformView.leadingAnchor),
             durationLabel.topAnchor.constraint(equalTo: waveformView.bottomAnchor, constant: 1),
 
-            closeButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            closeButton.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             closeButton.topAnchor.constraint(equalTo: cardView.bottomAnchor, constant: 16),
             closeButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
         ])

@@ -146,14 +146,20 @@ final class ChatActionBarView: UIView {
     /// it at their own widths with up to 110 pt between them, centred, and step 16 pt left if they reach the edge.
     private func layoutButtons(width: CGFloat, contentRightInset: CGFloat) {
         guard !buttons.isEmpty else { return }
-        let maxInset = max(contentRightInset, safeAreaInsets.left)
+        // Beside iPhone Duo's strip the sides differ: the buttons centre between them.
+        let leftInset = max(safeAreaInsets.left, contentRightInset - safeAreaInsets.right)
         let height = Self.buttonsHeight
         if buttons.count == 1 {
-            let buttonWidth = floor(width - maxInset * 2 - Self.closeRoom)
-            buttons[0].1.frame = CGRect(x: floor((width - buttonWidth) / 2), y: 0, width: buttonWidth, height: height)
+            let buttonWidth = floor(width - leftInset - contentRightInset - Self.closeRoom)
+            buttons[0].1.frame = CGRect(
+                x: floor(leftInset + Self.closeRoom / 2),
+                y: 0,
+                width: buttonWidth,
+                height: height,
+            )
             return
         }
-        var areaWidth = width - maxInset * 2 - Self.closeRoom
+        var areaWidth = width - leftInset - contentRightInset - Self.closeRoom
         let maxButtonWidth = floor(areaWidth / CGFloat(buttons.count))
         let buttonsWidth = buttons.map {
             min(maxButtonWidth, $0.1.sizeThatFits(CGSize(width: maxButtonWidth, height: 100)).width)
@@ -163,7 +169,7 @@ final class ChatActionBarView: UIView {
         let maxSpacing = floor((areaWidth - buttonsWidth) / CGFloat(buttons.count - 1))
         let spacing = min(maxSpacing, 110)
         let totalWidth = buttonsWidth + CGFloat(buttons.count - 1) * spacing
-        var originX = maxInset + floor((areaWidth - totalWidth) / 2)
+        var originX = leftInset + floor((areaWidth - totalWidth) / 2)
         let buttonWidth = floor(totalWidth / CGFloat(buttons.count))
         var frames = [CGRect]()
         for _ in buttons {

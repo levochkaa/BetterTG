@@ -43,6 +43,16 @@
 - Prefer narrow, codebase-consistent UIKit changes and preserve unrelated local edits.
 - `Parity/` is the Telegram parity ledger, one file per section: start with `Parity/README.md` and `Parity/checkpoint.md`. `Parity/goal.md` is the goal prompt.
 
+## iPhone Duo
+
+- `IPhoneDuoLayout` (`BetterTG/Views/Common/IPhoneDuoLayout.swift`) holds the posture table and the system's vertical bar metrics. Every other device gets nil, so a Duo fix must reduce to the old expression with no side insets.
+- A portrait-only app still gets landscape on the unfolded screen: a plain unfold lands in 951x669, which is regular width, and `requestGeometryUpdate` is refused there. Folded portrait has an 84 pt right inset. Nothing may assume "portrait has no side insets" or read a size once.
+- Bars start 24 pt from the top in every posture. Back and icon buttons go into the strip's column and text buttons stay in the row. A chat keeps its bar in the row, as it would otherwise jump with the keyboard.
+- Content keeps to the band between the side insets. A panel at the bottom edge spans the strip unless a corner block reaches its row (`bottomEdgeRightInset`). A floating composer stays in the band.
+- Beside the unfolded portrait island, trailing buttons and fields that reach its row move left by `trailingButtonsInset`.
+- A self-sizing input view keeps its frame's width: resize it on a size transition. A full-screen modal calls `applyIPhoneDuoTopSafeArea()`, since only the root and its children inherit it.
+- `docs/iphone-duo-layout.md` in Telegram-iOS is the reference for the rules and postures.
+
 ## Git Workflow
 
 - Commit all agent-authored changes before handing the task back to the user, unless the user explicitly asks to leave changes uncommitted.

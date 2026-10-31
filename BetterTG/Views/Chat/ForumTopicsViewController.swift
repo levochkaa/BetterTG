@@ -247,6 +247,8 @@ import UIKit
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
+        // The rows' lines stop at the band beside iPhone Duo's strip.
+        tableView.separatorInset.right = view.safeAreaInsets.right
         // The bar reports its height only when its scroll changes: a list too short to scroll, such as a forum of two
         // topics, kept the height it had before the safe area, which cut off the bar's buttons and title.
         navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + navigationBarVisibleHeight
@@ -1697,7 +1699,7 @@ import UIKit
         button.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(button)
         NSLayoutConstraint.activate([
-            button.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            button.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             button.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
         ])
         reorderDoneButton = button
