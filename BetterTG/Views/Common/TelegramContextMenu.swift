@@ -1270,8 +1270,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         scroller.contentInsetAdjustmentBehavior = .never
         scroller.alwaysBounceVertical = true
         scroller.panGestureRecognizer.isEnabled = false
-        // A touch that begins on the menu scrubs its rows, as in the system menu; only other touches scroll.
-        scroller.shouldBeginPan = { [weak self] in self?.touchSession?.origin != .menu }
+        // A touch that begins on the menu scrubs its rows, as in the system menu; only other touches scroll, and only
+        // what overflows the screen. UIKit enables the pan again as the scroller reaches a window.
+        scroller.shouldBeginPan = { [weak self] in
+            guard let self else { return false }
+            return contentOverflow > 0 && touchSession?.origin != .menu
+        }
         view.addSubview(scroller)
         view.addGestureRecognizer(scroller.panGestureRecognizer)
         reactionStrip.onSelect = { [weak self] reaction in
