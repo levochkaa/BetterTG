@@ -386,13 +386,13 @@ private final class EditProfileHeaderView: UIView {
         setPhotoButton.addTarget(self, action: #selector(setPhotoPressed), for: .touchUpInside)
         NSLayoutConstraint.activate([
             avatarView.topAnchor.constraint(equalTo: topAnchor, constant: 16),
-            avatarView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            avatarView.centerXAnchor.constraint(equalTo: safeAreaLayoutGuide.centerXAnchor),
             avatarView.widthAnchor.constraint(equalToConstant: 100),
             avatarView.heightAnchor.constraint(equalToConstant: 100),
             activityIndicator.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
             activityIndicator.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
             setPhotoButton.topAnchor.constraint(equalTo: avatarView.bottomAnchor, constant: 8),
-            setPhotoButton.centerXAnchor.constraint(equalTo: centerXAnchor),
+            setPhotoButton.centerXAnchor.constraint(equalTo: safeAreaLayoutGuide.centerXAnchor),
         ])
     }
 
