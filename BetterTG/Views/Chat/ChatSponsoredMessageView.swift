@@ -706,6 +706,12 @@ final class ChatSponsoredVideoViewController: UIViewController {
         ])
     }
 
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+
+        applyIPhoneDuoTopSafeArea()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         playerLayer.frame = view.bounds

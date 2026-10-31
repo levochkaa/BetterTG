@@ -1517,11 +1517,10 @@ final class FolderPickerView: UIView {
     }
 
     private func updateControlInsets() {
-        // A panel at the bottom edge spans iPhone Duo's strip.
-        let duoLayout = superview?.iPhoneDuoLayout
-        let right = duoLayout.map { $0.bottomEdgeRightInset - safeAreaInsets.right } ?? 0
+        // A panel at the bottom edge spans iPhone Duo's strip; the composer's media panel stays with the composer.
+        let outset = superview?.iPhoneDuoLayout == nil ? 0 : iPhoneDuoBottomEdgeRightOutset
         controlLeadingConstraint.constant = controlHorizontalInset
-        controlTrailingConstraint.constant = -controlHorizontalInset - right
+        controlTrailingConstraint.constant = -controlHorizontalInset + outset
     }
 
     private func configureViews() {

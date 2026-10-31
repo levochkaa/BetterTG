@@ -102,6 +102,12 @@ import UIKit
         refreshSelection()
     }
 
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+
+        applyIPhoneDuoTopSafeArea()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         // Each page is the screen and the gap, half on either side, so paging stops on whole items.

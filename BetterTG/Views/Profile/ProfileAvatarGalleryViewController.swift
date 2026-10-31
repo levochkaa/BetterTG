@@ -292,6 +292,12 @@ struct ProfileAvatarGalleryItem: Hashable {
         view.addGestureRecognizer(dismissPanGesture)
     }
 
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+
+        applyIPhoneDuoTopSafeArea()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         if let layout = collectionView.collectionViewLayout as? UICollectionViewFlowLayout,

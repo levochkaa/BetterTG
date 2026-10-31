@@ -186,6 +186,12 @@ final class WebEmbedPlayerViewController: UIViewController, WKNavigationDelegate
         load()
     }
 
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+
+        applyIPhoneDuoTopSafeArea()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         layoutWebView()

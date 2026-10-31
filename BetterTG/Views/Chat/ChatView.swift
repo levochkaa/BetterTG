@@ -901,6 +901,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + customNavigationBar.visibleContentHeight
         messageSelectionToolbarHeightConstraint?.constant =
             MessageSelectionToolbar.contentHeight + view.safeAreaInsets.bottom
+        updateComposerSideInsets()
     }
 
     /// Hands a forward draft to its destination. A chat already open for it in the stack takes the draft, as in
@@ -6469,11 +6470,16 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         restoreAutomaticViewport(restoration)
     }
 
+    /// Floating, the capsule keeps to the message list's width beside iPhone Duo's strip.
+    private func updateComposerSideInsets() {
+        composerLeadingConstraint?.constant = composerKeyboardAttached ? 8 + view.safeAreaInsets.left : 0
+        composerTrailingConstraint?.constant = composerKeyboardAttached ? -8 - view.safeAreaInsets.right : 0
+    }
+
     private func updateComposerFloatingState(_ keyboardAttached: Bool) {
         guard composerKeyboardAttached != keyboardAttached else { return }
         composerKeyboardAttached = keyboardAttached
-        composerLeadingConstraint?.constant = keyboardAttached ? 8 : 0
-        composerTrailingConstraint?.constant = keyboardAttached ? -8 : 0
+        updateComposerSideInsets()
         composerBottomConstraint?.constant = keyboardAttached ? -8 : 0
         let animated = view.window != nil
         composerView.setKeyboardAttached(keyboardAttached, animated: animated)

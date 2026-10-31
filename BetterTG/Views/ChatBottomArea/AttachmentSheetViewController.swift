@@ -1610,6 +1610,7 @@ enum MediaPickerQualityIcon {
     private let captionLabel = UILabel()
     private var commentInput: FormattedTextView?
     private var sendRowHeight: NSLayoutConstraint!
+    private var tabsTrailingConstraint: NSLayoutConstraint!
     private var restingTop: NSLayoutConstraint?
     private var restingTopOffset: CGFloat = 0
     private var keyboardTop: NSLayoutConstraint?
@@ -1666,6 +1667,7 @@ enum MediaPickerQualityIcon {
             addSubview(subview)
         }
         self.sendRowHeight = sendRow.heightAnchor.constraint(equalToConstant: Self.barHeight)
+        self.tabsTrailingConstraint = tabsScroll.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor)
         NSLayoutConstraint.activate([
             background.topAnchor.constraint(equalTo: topAnchor),
             background.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1673,7 +1675,7 @@ enum MediaPickerQualityIcon {
             background.bottomAnchor.constraint(equalTo: bottomAnchor),
             tabsScroll.topAnchor.constraint(equalTo: topAnchor),
             tabsScroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
-            tabsScroll.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+            tabsTrailingConstraint,
             tabsScroll.heightAnchor.constraint(equalToConstant: Self.barHeight),
             sendRow.topAnchor.constraint(equalTo: topAnchor),
             sendRow.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
@@ -1710,6 +1712,7 @@ enum MediaPickerQualityIcon {
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
 
     override func layoutSubviews() {
+        tabsTrailingConstraint.constant = iPhoneDuoBottomEdgeRightOutset
         super.layoutSubviews()
         updateContentHeight()
     }

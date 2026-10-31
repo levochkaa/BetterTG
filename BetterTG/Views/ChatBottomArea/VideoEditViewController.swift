@@ -251,6 +251,12 @@ final class VideoEditViewController: UIViewController {
         loadVideo()
     }
 
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+
+        applyIPhoneDuoTopSafeArea()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let bounds = view.bounds

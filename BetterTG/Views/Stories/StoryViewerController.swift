@@ -318,6 +318,12 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         if isBeingDismissed || presentingViewController == nil { tearDown() }
     }
 
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+
+        applyIPhoneDuoTopSafeArea()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let bounds = view.bounds

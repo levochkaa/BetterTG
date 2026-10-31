@@ -131,6 +131,12 @@ final class SecretMediaPreviewViewController: UIViewController, UIScrollViewDele
         preparationTask = Task { [weak self] in await self?.prepareAndShow() }
     }
 
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+
+        applyIPhoneDuoTopSafeArea()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         if scrollView.zoomScale == scrollView.minimumZoomScale { imageView.frame = scrollView.bounds }

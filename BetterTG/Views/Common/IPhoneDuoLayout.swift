@@ -127,6 +127,15 @@ extension UIView {
     }
 }
 
+extension UIView {
+    /// How much of its right safe inset a panel at the bottom edge gives up on iPhone Duo, where it spans the strip,
+    /// a sheet's too.
+    var iPhoneDuoBottomEdgeRightOutset: CGFloat {
+        guard let duoLayout = window?.windowIPhoneDuoLayout, duoLayout.sideColumn != nil else { return 0 }
+        return max(0, safeAreaInsets.right - duoLayout.bottomEdgeRightInset)
+    }
+}
+
 // MARK: - UIViewController + iPhoneDuoLayout
 
 extension UIViewController {
