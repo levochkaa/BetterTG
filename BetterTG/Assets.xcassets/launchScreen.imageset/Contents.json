@@ -6,10 +6,12 @@
       "scale" : "1x"
     },
     {
+      "filename" : "bettertg-launchScreen128@2x.png",
       "idiom" : "universal",
       "scale" : "2x"
     },
     {
+      "filename" : "bettertg-launchScreen128@3x.png",
       "idiom" : "universal",
       "scale" : "3x"
     }
