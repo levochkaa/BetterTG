@@ -915,6 +915,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         contentContainer.subviews.compactMap { $0 as? TelegramContextSubmenuView }
     }
 
+    /// The menu's and preview's side limits: 12 pt from the screen's edges, in the band beside iPhone Duo's strip.
+    private var menuMinX: CGFloat { view.safeAreaInsets.left + 12 }
+    private var menuMaxX: CGFloat { view.bounds.width - view.safeAreaInsets.right - 12 }
+
     init(
         sourceView: UIView,
         actions: [TelegramContextMenuAction],
@@ -1319,7 +1323,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         let fitting = CGSize(width: availableWidth, height: .greatestFiniteMagnitude)
         let tabsSize = sourceTabsView.sizeThatFits(fitting)
         let tabsFrame = CGRect(
-            x: ((view.bounds.width - tabsSize.width) / 2).rounded(.down),
+            x: (menuMinX + (availableWidth - tabsSize.width) / 2).rounded(.down),
             y: bottom - 30 - tabsSize.height,
             width: tabsSize.width,
             height: tabsSize.height,
@@ -1328,7 +1332,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         guard sources[activeSourceIndex].footer != nil else { return tabsFrame.minY - 10 }
         let footerSize = sourceFooterLabel.sizeThatFits(fitting)
         sourceFooterLabel.frame = CGRect(
-            x: ((view.bounds.width - footerSize.width) / 2).rounded(.down),
+            x: (menuMinX + (availableWidth - footerSize.width) / 2).rounded(.down),
             y: tabsFrame.minY - 20 - footerSize.height,
             width: footerSize.width,
             height: footerSize.height,
@@ -1366,9 +1370,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private func layoutPreviewAndMenu() {
         guard let sourceView else { return }
         sourceFrame = view.convert(sourceView.convert(sourceView.bounds, to: nil), from: nil)
-        let horizontalInset: CGFloat = 12
         let verticalInset = max(view.safeAreaInsets.top, CGFloat(12))
-        let availableWidth = view.bounds.width - horizontalInset * 2
+        let availableWidth = menuMaxX - menuMinX
         let separatorHeight = actions.dropFirst().reduce(CGFloat.zero) {
             $0 + ($1.startsNewSection ? TelegramContextMenuLayout.sectionSeparatorHeight : 0)
         }
@@ -1408,7 +1411,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             let alignedMenuX = baseSourceFrame.midX > view.bounds.midX
                 ? targetPreviewFrame.maxX - menuWidth
                 : targetPreviewFrame.minX
-            let menuX = min(max(horizontalInset, alignedMenuX), view.bounds.width - horizontalInset - menuWidth)
+            let menuX = min(max(menuMinX, alignedMenuX), menuMaxX - menuWidth)
             targetMenuFrame = CGRect(
                 x: menuX,
                 y: targetPreviewFrame.maxY + spacing,
@@ -1425,7 +1428,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         case .avatar:
             let spacing: CGFloat = 10
             let squareSize = min(
-                view.bounds.width - 32,
+                availableWidth - 8,
                 maximumBottom - verticalInset - menuHeight - spacing,
             )
             let centeredY = view.bounds.midY - squareSize / 2
@@ -1434,13 +1437,13 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                 maximumBottom - menuHeight - spacing - squareSize,
             )
             targetPreviewFrame = CGRect(
-                x: (view.bounds.width - squareSize) / 2,
+                x: menuMinX + (availableWidth - squareSize) / 2,
                 y: previewY,
                 width: squareSize,
                 height: squareSize,
             )
             targetMenuFrame = CGRect(
-                x: view.bounds.width - horizontalInset - menuWidth,
+                x: menuMaxX - menuWidth,
                 y: targetPreviewFrame.maxY + spacing,
                 width: menuWidth,
                 height: menuHeight,
@@ -1456,7 +1459,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                 let scale = min(availableWidth / contentSize.width, max(44, maximumHeight) / contentSize.height)
                 let fitted = CGSize(width: floor(contentSize.width * scale), height: floor(contentSize.height * scale))
                 targetPreviewFrame = CGRect(
-                    x: (view.bounds.width - fitted.width) / 2,
+                    x: menuMinX + (availableWidth - fitted.width) / 2,
                     y: verticalInset,
                     width: fitted.width,
                     height: fitted.height,
@@ -1464,14 +1467,14 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             } else {
                 let preferredHeight = view.bounds.height * 0.48
                 targetPreviewFrame = CGRect(
-                    x: horizontalInset,
+                    x: menuMinX,
                     y: verticalInset,
                     width: availableWidth,
                     height: max(220, min(preferredHeight, maximumHeight)),
                 )
             }
             targetMenuFrame = CGRect(
-                x: view.bounds.width - horizontalInset - menuWidth,
+                x: menuMaxX - menuWidth,
                 y: targetPreviewFrame.maxY + spacing,
                 width: menuWidth,
                 height: menuHeight,
@@ -1479,8 +1482,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         case .menuOnly:
             targetPreviewFrame = .zero
             let menuX = min(
-                max(horizontalInset, sourceFrame.midX - menuWidth / 2),
-                view.bounds.width - horizontalInset - menuWidth,
+                max(menuMinX, sourceFrame.midX - menuWidth / 2),
+                menuMaxX - menuWidth,
             )
             let anchorFrame = menuAnchorView.map { anchor in
                 view.convert(anchor.convert(anchor.bounds, to: nil), from: nil)
@@ -1511,7 +1514,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                 case (false, false): sourceFrame.minY - menuSpacing - menuHeight
                 }
             targetMenuFrame = CGRect(
-                x: min(max(horizontalInset, alignedX), view.bounds.width - horizontalInset - menuWidth),
+                x: min(max(menuMinX, alignedX), menuMaxX - menuWidth),
                 y: min(max(verticalInset, proposedY), max(verticalInset, maximumBottom - menuHeight)),
                 width: menuWidth,
                 height: menuHeight,
@@ -1593,15 +1596,14 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     /// for it, at the top over the message, until scrolling leaves room above it again.
     private func layoutReactionStrip() {
         guard presentationStyle == .message, !reactionStrip.isHidden else { return }
-        let horizontalInset: CGFloat = 12
-        let availableWidth = view.bounds.width - horizontalInset * 2
+        let availableWidth = menuMaxX - menuMinX
         let width = min(availableWidth, reactionStrip.preferredWidth)
         let proposedX = targetPreviewFrame.midX > view.bounds.midX
             ? targetPreviewFrame.maxX - width
             : targetPreviewFrame.minX
         let pinnedTop = max(view.safeAreaInsets.top, CGFloat(12)) + contentScrollOffset
         reactionStrip.frame = CGRect(
-            x: min(max(horizontalInset, proposedX), view.bounds.width - horizontalInset - width),
+            x: min(max(menuMinX, proposedX), menuMaxX - width),
             y: max(pinnedTop, targetPreviewFrame.minY - 56),
             width: width,
             height: 46,
@@ -1623,7 +1625,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 
     private func menuWidth(availableWidth: CGFloat) -> CGFloat {
         if TelegramContextMenuLayout.usesAccessibilityLayout {
-            min(availableWidth, view.bounds.width - TelegramContextMenuLayout.accessibilityMenuMargin * 2)
+            min(
+                availableWidth,
+                menuMaxX - menuMinX + 24 - TelegramContextMenuLayout.accessibilityMenuMargin * 2,
+            )
         } else {
             min(TelegramContextMenuLayout.maximumMenuWidth, availableWidth)
         }

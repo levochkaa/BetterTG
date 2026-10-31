@@ -4,6 +4,8 @@ import UIKit
 
 enum Utils {
     static var screen: UIScreen!
+    /// The app's window, for code that lays out without a view of its own.
+    weak static var window: UIWindow?
     static let applicationVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     static let modelName: String = {
         var simulator = false
@@ -58,5 +60,11 @@ enum Utils {
         return simulator ? "Simulator \(model)" : model
     }()
 
-    static var maxMessageContentWidth: CGFloat { screen.bounds.width * 0.8 - 32 }
+    /// The width a chat's messages get: the window's, without the side insets of iPhone Duo's strip.
+    static var messageListWidth: CGFloat {
+        guard let window else { return screen.bounds.width }
+        return window.bounds.width - window.safeAreaInsets.left - window.safeAreaInsets.right
+    }
+
+    static var maxMessageContentWidth: CGFloat { messageListWidth * 0.8 - 32 }
 }

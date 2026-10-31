@@ -341,13 +341,15 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
             1,
             bounds.height - insets.top - Self.panelBottomInset(insets) - StoryReplyPanelView.height,
         )
-        var size = CGSize(width: bounds.width, height: (bounds.width * 16 / 9).rounded())
+        // Beside iPhone Duo's strip it keeps to the band.
+        let bandWidth = bounds.width - insets.left - insets.right
+        var size = CGSize(width: bandWidth, height: (bandWidth * 16 / 9).rounded())
         if size.height > availableHeight {
             size = CGSize(width: (availableHeight * 9 / 16).rounded(), height: availableHeight)
         }
         // The viewers list's shrink is a transform over the story's resting frame.
         let contentFrame = CGRect(
-            x: ((bounds.width - size.width) / 2).rounded(), y: insets.top,
+            x: (insets.left + (bandWidth - size.width) / 2).rounded(), y: insets.top,
             width: size.width, height: size.height,
         )
         contentView.bounds = CGRect(origin: .zero, size: size)
@@ -356,9 +358,10 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         nextFace.layoutContent(frame: contentFrame)
         layoutContent()
         layoutReplyPanel()
-        footerPanel.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: StoryFooterPanelView.height)
+        let footerWidth = Self.panelWidth(storyWidth: size.width, screenWidth: bounds.width)
+        footerPanel.bounds = CGRect(x: 0, y: 0, width: footerWidth, height: StoryFooterPanelView.height)
         footerPanel.center = CGPoint(
-            x: bounds.midX,
+            x: contentFrame.midX,
             y: contentFrame.maxY + StoryFooterPanelView.topSpacing + StoryFooterPanelView.height / 2,
         )
         layoutCube()
@@ -445,6 +448,13 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     /// The reply panel's bottom inset: Telegram's safe area plus a point, where the screen has one.
     private static func panelBottomInset(_ insets: UIEdgeInsets) -> CGFloat {
         insets.bottom > 0 ? insets.bottom + 1 : 0
+    }
+
+    /// MessageInputPanelComponent's place: its bottom on the safe area, or on the keyboard while the field edits.
+    /// The reply and footer panels' width. On a screen wider than a phone (iPhone Duo unfolded) they stay with the
+    /// story, a phone's width at least.
+    private static func panelWidth(storyWidth: CGFloat, screenWidth: CGFloat) -> CGFloat {
+        screenWidth > 480 ? min(screenWidth, max(375, storyWidth)) : screenWidth
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
@@ -2485,14 +2495,19 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
         focusedFace.contentHost.addSubview(replyReactions)
     }
 
-    /// MessageInputPanelComponent's place: its bottom on the safe area, or on the keyboard while the field edits.
     private func layoutReplyPanel() {
         let bounds = view.bounds
         replyDimView.frame = bounds
         let height = replyPanel.preferredHeight(width: bounds.width)
         let restingBottom = bounds.height - Self.panelBottomInset(view.safeAreaInsets)
         let bottom = keyboardOverlap > 0 ? min(restingBottom, bounds.height - keyboardOverlap) : restingBottom
-        replyPanel.frame = CGRect(x: 0, y: bottom - height, width: bounds.width, height: height)
+        let width = Self.panelWidth(storyWidth: contentView.bounds.width, screenWidth: bounds.width)
+        replyPanel.frame = CGRect(
+            x: (contentView.center.x - width / 2).rounded(),
+            y: bottom - height,
+            width: width,
+            height: height,
+        )
         replyPanel.layoutIfNeeded()
         layoutReplyReactions()
     }

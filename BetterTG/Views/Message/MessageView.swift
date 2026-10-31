@@ -1802,7 +1802,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
 
     /// The widest bubble, which is also the widest media: Telegram's constrained width for media sizing.
     private func maximumBubbleWidth(for cellWidth: CGFloat) -> CGFloat {
-        let width = cellWidth > 0 ? cellWidth : Utils.screen.bounds.width - 16
+        let width = cellWidth > 0 ? cellWidth : Utils.messageListWidth - 16
         let maximum = floor(width * 0.82)
         // The share button and its spacing come out of the row, beside an avatar too.
         guard shareButtonKind != nil else { return maximum }

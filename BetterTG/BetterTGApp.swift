@@ -185,6 +185,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         Utils.screen = windowScene.screen
 
         let window = UIWindow(windowScene: windowScene)
+        Utils.window = window
         window.overrideUserInterfaceStyle = AppAppearance.current.userInterfaceStyle
         window.semanticContentAttribute = AppLocalization.shared.isRTL ? .forceRightToLeft : .forceLeftToRight
         window.rootViewController = RootViewController(rootVM: .shared)
