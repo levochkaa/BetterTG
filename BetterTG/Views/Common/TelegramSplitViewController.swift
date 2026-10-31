@@ -182,14 +182,19 @@ final class TelegramSplitPlaceholderViewController: UIViewController, TelegramEm
     private func updatePanes() {
         let bounds = view.bounds
         let shouldSplit = Self.splits(bounds.size)
+        var split = isSplit
+        var relocates = false
         if shouldSplit != isSplit {
             if let coordinator = master.transitionCoordinator ?? detail.transitionCoordinator {
                 coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.view.setNeedsLayout() }
             } else {
-                relocateScreens(split: shouldSplit)
+                split = shouldSplit
+                relocates = true
             }
         }
-        let masterWidth = isSplit
+        // The panes take their places first: the screens move as their stacks lay out.
+        defer { if relocates { relocateScreens(split: split) } }
+        let masterWidth = split
             ? Self.masterWidth(containerSize: bounds.size, division: activeDivision)
             : bounds.width
         // The panes follow the hinge; a resize already animates as the system's.
@@ -202,8 +207,8 @@ final class TelegramSplitPlaceholderViewController: UIViewController, TelegramEm
             let pixel = 1 / max(traitCollection.displayScale, 1)
             separator.frame = CGRect(x: masterWidth, y: 0, width: pixel, height: bounds.height)
         }
-        detailPane.isHidden = !isSplit
-        separator.isHidden = !isSplit
+        detailPane.isHidden = !split
+        separator.isHidden = !split
         guard followsHinge else { return apply() }
         UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
             apply()
@@ -212,7 +217,10 @@ final class TelegramSplitPlaceholderViewController: UIViewController, TelegramEm
         }
     }
 
-    /// Hands the screens over as the window splits or joins. Each one is off its old stack before the other adopts it.
+    /// Hands the screens over as the window splits or joins. Each one is off its old stack before the other adopts it:
+    /// UIKit moves a stack's screens as it lays out, and a screen that left its old stack after joining the new one
+    /// would
+    /// be on screen as disappeared, which no longer follows the safe area.
     private func relocateScreens(split: Bool) {
         TelegramNavigationController.isRelocatingScreens = true
         let stack = logicalStack
@@ -223,12 +231,14 @@ final class TelegramSplitPlaceholderViewController: UIViewController, TelegramEm
                 master.releaseChrome(of: controller)
             }
             master.setStackDirectly(parts.master, animated: false)
+            master.view.layoutIfNeeded()
             detail.setStackDirectly([placeholder] + parts.detail, animated: false)
         } else {
             for controller in detail.viewControllers.dropFirst() {
                 detail.releaseChrome(of: controller)
             }
             detail.setStackDirectly([placeholder], animated: false)
+            detail.view.layoutIfNeeded()
             master.setStackDirectly(stack, animated: false)
         }
         setNeedsUpdateOfScreenEdgesDeferringSystemGestures()
