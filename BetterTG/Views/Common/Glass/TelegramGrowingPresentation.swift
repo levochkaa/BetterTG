@@ -3,6 +3,24 @@
 import ObjectiveC
 import UIKit
 
+// MARK: - UIViewController.Transition.ZoomOptions + verticalDismiss
+
+extension UIViewController.Transition.ZoomOptions {
+    /// A zoomed screen closes with a drag up or down only. By default UIKit also takes a drag to the right from
+    /// anywhere,
+    /// as a swipe back, which cuts across whatever scrolls sideways inside the screen, such as a preview's pages or a
+    /// sheet's tabs; Telegram's sheets and viewers have no such gesture.
+    static func verticalDismiss(while allowed: @escaping () -> Bool = { true }) -> UIViewController.Transition
+        .ZoomOptions
+    {
+        let options = UIViewController.Transition.ZoomOptions()
+        options.interactiveDismissShouldBegin = { context in
+            context.willBegin && abs(context.velocity.dy) > abs(context.velocity.dx) && allowed()
+        }
+        return options
+    }
+}
+
 // MARK: - UIViewController + growing presentation
 
 extension UIViewController {
@@ -17,7 +35,9 @@ extension UIViewController {
         completion: (() -> Void)? = nil,
     ) {
         if let source, source.window != nil, source !== view {
-            controller.preferredTransition = .zoom { [weak source] _ in source?.window == nil ? nil : source }
+            controller.preferredTransition = .zoom(options: .verticalDismiss()) { [weak source] _ in
+                source?.window == nil ? nil : source
+            }
             if let popover = controller.popoverPresentationController, popover.sourceView == nil,
                popover.barButtonItem == nil, popover.sourceItem == nil
             {

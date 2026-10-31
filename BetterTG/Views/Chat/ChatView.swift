@@ -9421,7 +9421,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
     ) {
         let navigation = sheet.makeNavigationController()
         if let initialContent { navigation.setViewControllers([initialContent], animated: false) }
-        navigation.preferredTransition = .zoom { [weak self] _ in self?.composerView.attachmentSourceView }
+        navigation.preferredTransition = .zoom(options: .verticalDismiss()) { [weak self] _ in
+            self?.composerView.attachmentSourceView
+        }
         attachmentNavigation = navigation
         present(navigation, animated: true) { [weak self] in
             completion?()

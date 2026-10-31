@@ -988,8 +988,8 @@ struct AttachmentMediaSendRequest {
             send()
         }
         preview.onShow = { [weak self] asset in self?.revealGridItem(of: asset) }
-        let options = UIViewController.Transition.ZoomOptions()
-        options.interactiveDismissShouldBegin = { [weak preview] _ in preview?.allowsInteractiveDismiss ?? true }
+        let options = UIViewController.Transition.ZoomOptions
+            .verticalDismiss { [weak preview] in preview?.allowsInteractiveDismiss ?? true }
         options.alignmentRectProvider = { [weak preview] _ in preview?.currentMediaFrame ?? .zero }
         preview.preferredTransition = .zoom(options: options) { [weak self, weak preview] _ in
             guard let self, !isClosing, let asset = preview?.currentAsset else { return nil }
