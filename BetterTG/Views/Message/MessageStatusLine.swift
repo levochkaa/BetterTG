@@ -9,18 +9,30 @@ import UIKit
 /// `stringForMessageTimestampStatus`): an eye icon with the compact view count, "edited", the author signature, the
 /// time and the delivery checks, as in "1.2K edited Anna, 12:00".
 struct MessageStatusLine: Equatable {
+    /// Telegram's `outgoingCheckColor` on a dark bubble and on a light one with dark text.
+    static let checkColor = UIColor { $0.userInterfaceStyle == .dark ? .white : .systemBlue }
+
     /// The view count after the eye icon (`compactNumericCountString`), or nil when the message has no views.
     let viewCount: String?
-    /// "edited", the signature, the time and the delivery symbol.
+    /// "edited", the signature and the time.
     let text: String
+    /// The checks after the time, or the clock while sending.
+    var delivery = MessageDeliveryState.none
     /// ChatMessageDateAndStatusNode's replies icon with the thread's reply count, first in the line.
     var replyCount: String?
     /// The pin icon there for a pinned message without replies.
     var isPinned = false
 
-    init(viewCount: String? = nil, text: String, replyCount: String? = nil, isPinned: Bool = false) {
+    init(
+        viewCount: String? = nil,
+        text: String,
+        delivery: MessageDeliveryState = .none,
+        replyCount: String? = nil,
+        isPinned: Bool = false,
+    ) {
         self.viewCount = viewCount
         self.text = text
+        self.delivery = delivery
         self.replyCount = replyCount
         self.isPinned = isPinned
     }
@@ -35,7 +47,7 @@ struct MessageStatusLine: Equatable {
         showsThreadInfo: Bool = true,
         isPinned: Bool = false,
         time: String,
-        deliverySymbol: String,
+        delivery: MessageDeliveryState = .none,
     ) -> MessageStatusLine {
         var date = time
         if let signature = authorSignature(of: message, isChannel: isChannel) {
@@ -52,7 +64,8 @@ struct MessageStatusLine: Equatable {
         let replies = isGroup && showsThreadInfo ? message.interactionInfo?.replyInfo?.replyCount ?? 0 : 0
         return MessageStatusLine(
             viewCount: views > 0 ? compactNumericCountString(views) : nil,
-            text: [date, deliverySymbol].filter { !$0.isEmpty }.joined(separator: " "),
+            text: delivery == .failed ? "\(date) !" : date,
+            delivery: delivery,
             replyCount: replies > 0 ? compactNumericCountString(replies) : nil,
             isPinned: replies == 0 && isPinned && showsThreadInfo,
         )
@@ -83,7 +96,8 @@ struct MessageStatusLine: Equatable {
         return signature.isEmpty ? nil : signature
     }
 
-    func attributedText(font: UIFont, color: UIColor) -> NSAttributedString {
+    /// `checkColor` is on a bubble; over media the checks take the status's own colour.
+    func attributedText(font: UIFont, color: UIColor, checkColor: UIColor? = nil) -> NSAttributedString {
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
         let result = NSMutableAttributedString()
         func icon(_ name: String, kern: CGFloat) -> NSAttributedString? {
@@ -138,8 +152,48 @@ struct MessageStatusLine: Equatable {
                 attributes: attributes,
             ))
         }
-        result.append(NSAttributedString(string: text, attributes: attributes))
+        result.append(timeText(attributes: attributes, font: font))
+        if let checks = checksAttachment(font: font, color: checkColor ?? color) { result.append(checks) }
         return result
+    }
+
+    /// The time, with Telegram's point before the checks' image.
+    private func timeText(attributes: [NSAttributedString.Key: Any], font: UIFont) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: text, attributes: attributes)
+        if checkImage(width: floor(font.pointSize)) != nil, result.length > 0 {
+            result.addAttribute(
+                .kern,
+                value: font.pointSize / 11,
+                range: NSRange(location: result.length - 1, length: 1),
+            )
+        }
+        return result
+    }
+
+    private func checkImage(width: CGFloat) -> UIImage? {
+        switch delivery {
+        case .delivered: TelegramDeliveryCheck.bubbleImage(isRead: false, width: width)
+        case .read: TelegramDeliveryCheck.bubbleImage(isRead: true, width: width)
+        case .sending: TelegramDeliveryCheck.bubbleClockImage(width: width)
+        case .failed,
+             .none: nil
+        }
+    }
+
+    /// ChatMessageDateAndStatusNode stands the checks 3 pt below the date's top and the clock's centre 7.5 pt.
+    private func checksAttachment(font: UIFont, color: UIColor) -> NSAttributedString? {
+        guard let image = checkImage(width: floor(font.pointSize)) else { return nil }
+        let scale = font.pointSize / 11
+        let top = delivery == .sending ? 7.5 * scale - image.size.height / 2 : 3 * scale
+        let attachment = NSTextAttachment()
+        attachment.image = image.withTintColor(color, renderingMode: .alwaysOriginal)
+        attachment.bounds = CGRect(
+            x: 0,
+            y: font.ascender - top - image.size.height,
+            width: image.size.width,
+            height: image.size.height,
+        )
+        return NSAttributedString(attachment: attachment)
     }
 }
 

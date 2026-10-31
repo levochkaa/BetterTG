@@ -54,11 +54,11 @@ import UIKit
             )
             let plain = MessageDeliveryProbe.fixture(id: 2, outgoing: false)
             let group = MessageStatusLine.make(
-                withReplies, isChannel: false, isGroup: true, isPinned: true, time: "12:00", deliverySymbol: "",
+                withReplies, isChannel: false, isGroup: true, isPinned: true, time: "12:00",
             )
             try require(group.replyCount == "12" && !group.isPinned, "group \(group)")
             let pinned = MessageStatusLine.make(
-                plain, isChannel: false, isGroup: true, isPinned: true, time: "12:01", deliverySymbol: "",
+                plain, isChannel: false, isGroup: true, isPinned: true, time: "12:01",
             )
             try require(pinned.replyCount == nil && pinned.isPinned, "pinned \(pinned)")
             let thread = MessageStatusLine.make(
@@ -68,11 +68,10 @@ import UIKit
                 showsThreadInfo: false,
                 isPinned: true,
                 time: "12:02",
-                deliverySymbol: "",
             )
             try require(thread.replyCount == nil && !thread.isPinned, "thread \(thread)")
             let channel = MessageStatusLine.make(
-                withReplies, isChannel: true, isGroup: false, isPinned: false, time: "12:03", deliverySymbol: "",
+                withReplies, isChannel: true, isGroup: false, isPinned: false, time: "12:03",
             )
             try require(channel.replyCount == nil, "channel \(channel)")
             let font = UIFont.preferredFont(forTextStyle: .caption2)

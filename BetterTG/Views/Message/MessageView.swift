@@ -1024,7 +1024,7 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             showsThreadInfo: showsThreadStatus,
             isPinned: message.isPinned,
             time: timestamp,
-            deliverySymbol: delivery.symbol,
+            delivery: delivery,
         )
         let timestampColor: UIColor = delivery == .failed ? .systemRed : .secondaryLabel
         if let formatted = displayedFormattedText {
@@ -1102,7 +1102,11 @@ final class MessageCell: UICollectionViewCell, UIGestureRecognizerDelegate {
             commentFooterView.isHidden = true
         }
 
-        timestampLabel.attributedText = statusLine.attributedText(font: Self.statusFont, color: timestampColor)
+        timestampLabel.attributedText = statusLine.attributedText(
+            font: Self.statusFont,
+            color: timestampColor,
+            checkColor: MessageStatusLine.checkColor,
+        )
         mediaTimestampLabel.attributedText = statusLine.attributedText(
             font: Self.statusFont,
             color: delivery == .failed ? .systemRed : .white,

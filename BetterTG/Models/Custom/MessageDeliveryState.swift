@@ -8,16 +8,6 @@ import TDLibKit
 enum MessageDeliveryState: Equatable {
     case none, sending, failed, delivered, read
 
-    var symbol: String {
-        switch self {
-        case .none: ""
-        case .sending: "◷"
-        case .failed: "!"
-        case .delivered: "✓"
-        case .read: "✓✓"
-        }
-    }
-
     var spoken: String? {
         switch self {
         case .none: nil

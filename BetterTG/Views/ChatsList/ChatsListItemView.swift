@@ -246,12 +246,12 @@ final class ChatListCell: UITableViewCell {
         case nil:
             return message.id <= chat.chat.lastReadOutboxMessageId
                 ? (
-                    TelegramDeliveryCheck.image(isRead: true),
+                    TelegramDeliveryCheck.listImage(isRead: true),
                     .systemBlue,
                     L10n.telegram("Conversation.ChecksTooltip.Read"),
                 )
                 : (
-                    TelegramDeliveryCheck.image(isRead: false),
+                    TelegramDeliveryCheck.listImage(isRead: false),
                     .systemBlue,
                     L10n.telegram("Conversation.ChecksTooltip.Delivered"),
                 )
@@ -613,7 +613,10 @@ final class ChatListCell: UITableViewCell {
 
         headerAccessoryRow.axis = .horizontal
         headerAccessoryRow.alignment = .center
-        headerAccessoryRow.spacing = 4
+        // ChatListStatusNode's square ends 24 pt before the date, its checks 4 pt inside it; the image's end is a
+        // stroke
+        // past the checks.
+        headerAccessoryRow.spacing = 3
         headerAccessoryRow.addArrangedSubview(deliveryView)
         headerAccessoryRow.addArrangedSubview(dateLabel)
 

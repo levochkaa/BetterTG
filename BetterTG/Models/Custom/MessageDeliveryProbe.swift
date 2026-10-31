@@ -969,13 +969,18 @@ import UIKit
                 )
                 message.updateDeliveryState(permitsFinalStatus: true, readOutbox: state == .read ? 31 : nil)
                 rows.configure(original, message: message)
-                let labels = allLabels(original).filter { visible($0) && $0.text?.contains(state.symbol) == true }
+                let labels = allLabels(original).filter { label in
+                    guard visible(label), let text = label.attributedText else { return false }
+                    return state == .failed
+                        ? text.string.contains("!")
+                        : text.containsAttachments(in: NSRange(location: 0, length: text.length))
+                }
                 try require(
                     !labels.isEmpty && original.accessibilityLabel?.contains(state.spoken!) == true,
                     "text/footer/media status or spoken state missing",
                 )
                 try require(
-                    original.accessibilityLabel?.contains(state.symbol) != true,
+                    original.accessibilityLabel?.contains("\u{FFFC}") != true,
                     "VoiceOver received glyph instead of spoken status",
                 )
             }

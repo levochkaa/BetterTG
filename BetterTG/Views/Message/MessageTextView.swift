@@ -268,7 +268,11 @@ final class MessageTextContentView: UITextView, UITextViewDelegate, UIEditMenuIn
         self.status = status
         self.statusColor = statusColor
         // The label's font follows its attributed text, so the status keeps its own.
-        statusLabel.attributedText = status.attributedText(font: .caption, color: statusColor)
+        statusLabel.attributedText = status.attributedText(
+            font: .caption,
+            color: statusColor,
+            checkColor: MessageStatusLine.checkColor,
+        )
         statusLabel.sizeToFit()
         renderText()
     }
