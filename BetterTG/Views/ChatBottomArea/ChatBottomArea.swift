@@ -232,6 +232,8 @@ final class ChatComposerView: UIView {
     private let mediaInputIcon = TelegramLottieIconView(side: 32)
     /// ChatTextInputMediaRecordingButton's microphone and camera: `anim_micToVideo` and back, 30 pt.
     private let recordModeIcon = TelegramLottieIconView(side: 30)
+    private var showsRecordModeIcon = false
+    private let sendIcon = ComposerSendIconView()
     private var shownRecordMode: ChatMediaRecordingMode?
     /// The text's slot in the button row: the field lies over it while the text fits beside the buttons, and it
     /// keeps the row's place once the text moves above them.
@@ -1249,7 +1251,13 @@ final class ChatComposerView: UIView {
         recordModeIcon.translatesAutoresizingMaskIntoConstraints = false
         recordModeIcon.isHidden = true
         actionButton.addSubview(recordModeIcon)
+        sendIcon.translatesAutoresizingMaskIntoConstraints = false
+        actionButton.addSubview(sendIcon)
         NSLayoutConstraint.activate([
+            sendIcon.centerXAnchor.constraint(equalTo: actionButton.centerXAnchor),
+            sendIcon.centerYAnchor.constraint(equalTo: actionButton.centerYAnchor),
+            sendIcon.widthAnchor.constraint(equalToConstant: ComposerSendIconView.side),
+            sendIcon.heightAnchor.constraint(equalToConstant: ComposerSendIconView.side),
             mediaInputIcon.centerXAnchor.constraint(equalTo: mediaInputButton.centerXAnchor),
             mediaInputIcon.centerYAnchor.constraint(equalTo: mediaInputButton.centerYAnchor),
             mediaInputIcon.widthAnchor.constraint(equalToConstant: 32),
@@ -1625,6 +1633,12 @@ final class ChatComposerView: UIView {
         sendOptionsGestureRecognizer.minimumPressDuration = 0.4
         sendOptionsGestureRecognizer.isEnabled = false
         actionButton.addGestureRecognizer(sendOptionsGestureRecognizer)
+        actionButton.addAction(UIAction { [weak self] _ in self?.sendIcon.setHighlighted(true) }, for: [
+            .touchDown, .touchDragEnter,
+        ])
+        actionButton.addAction(UIAction { [weak self] _ in self?.sendIcon.setHighlighted(false) }, for: [
+            .touchUpInside, .touchUpOutside, .touchDragExit, .touchCancel,
+        ])
         recordingSendButton.addTarget(self, action: #selector(actionTapped(_:)), for: .touchUpInside)
         recordingViewOnceButton.addTarget(self, action: #selector(toggleViewOnce), for: .touchUpInside)
         addGestureRecognizer(recordingGestureRecognizer)
@@ -2143,6 +2157,28 @@ final class ChatComposerView: UIView {
 
     /// ChatTextInputPanelNode's updateHeight: a line added or removed moves the panel in 0.1 s, picking up from where a
     /// quick run of lines has it instead of stepping there.
+    /// `updateActionButtons`: the microphone fades as the send button comes and goes.
+    private func setRecordModeIconShown(_ shown: Bool, animated: Bool) {
+        guard shown != showsRecordModeIcon else { return }
+        showsRecordModeIcon = shown
+        guard animated else {
+            recordModeIcon.isHidden = !shown
+            recordModeIcon.alpha = 1
+            return
+        }
+        if recordModeIcon.isHidden {
+            recordModeIcon.alpha = 0
+            recordModeIcon.isHidden = false
+        }
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState]) {
+            self.recordModeIcon.alpha = shown ? 1 : 0
+        } completion: { [weak self] _ in
+            guard let self, showsRecordModeIcon == shown else { return }
+            recordModeIcon.isHidden = !shown
+            recordModeIcon.alpha = 1
+        }
+    }
+
     private func animateTextHeightChange() {
         guard window != nil else { return }
         UIView.animate(
@@ -2232,8 +2268,11 @@ final class ChatComposerView: UIView {
             }
         // The microphone and the camera are Telegram's, morphing into each other as the recording mode changes.
         let showsRecordMode = symbol == "mic.fill" || symbol == "video.fill"
-        actionButton.setImage(showsRecordMode ? nil : UIImage(systemName: symbol), for: .normal)
-        recordModeIcon.isHidden = !showsRecordMode
+        let showsSend = symbol == "arrow.up.circle.fill"
+        actionButton.setImage(showsRecordMode || showsSend ? nil : UIImage(systemName: symbol), for: .normal)
+        let animatesIcons = window != nil && !UIAccessibility.isReduceMotionEnabled
+        setRecordModeIconShown(showsRecordMode, animated: animatesIcons)
+        sendIcon.setShown(showsSend, animated: animatesIcons)
         if showsRecordMode, shownRecordMode != selectedMediaRecordingMode {
             let animates = shownRecordMode != nil && window != nil
             shownRecordMode = selectedMediaRecordingMode

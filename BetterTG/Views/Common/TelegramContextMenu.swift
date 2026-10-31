@@ -2892,7 +2892,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 
 // MARK: - Telegram layer animations
 
-private extension CALayer {
+extension CALayer {
     /// Telegram's `animateSpring`: a mass-5, stiffness-900 spring sped up to settle within `duration`.
     func addTelegramSpring(
         keyPath: String,
