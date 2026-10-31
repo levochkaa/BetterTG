@@ -9357,7 +9357,6 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if chatVM.canCreatePoll { tabs.append(.poll) }
         if chatVM.canCreateChecklist { tabs.append(.checklist) }
         if canSendLocationAndContact { tabs.append(.contact) }
-        if chatVM.canWriteBasicMessages || chatVM.canSendStickersAndAnimations { tabs.append(.sticker) }
         tabs.insert(contentsOf: attachmentMenuBotTabs(), at: 1)
         let customChat = chatVM.customChat
         var allowsViewOnce = false
@@ -9493,17 +9492,13 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             guard let gallery = attachmentGallery, let navigation = attachmentNavigation else { return }
             navigation.presentationController?.delegate = gallery
             navigation.replaceAttachmentSheetContent(with: gallery)
-        case .link: break
+        case .link,
+             .sticker: break
         case .file: showAttachmentFileList()
         case .location: showLocationPicker()
         case .poll: showPollCreator()
         case .checklist: showChecklistComposer()
         case .contact: showContactPicker()
-        case .sticker:
-            closeAttachmentSheet { [weak self] in
-                guard let self else { return }
-                if !composerView.showMediaInput(mode: .stickers) { showComposerMediaPicker(mode: .stickers) }
-            }
         case .app(let bot):
             closeAttachmentSheet { [weak self] in self?.openAttachmentMenuBot(bot) }
         }

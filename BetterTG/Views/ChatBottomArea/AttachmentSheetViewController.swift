@@ -10,10 +10,9 @@ import UIKit
 // MARK: - AttachmentSheetTab
 
 /// AttachmentPanel's buttons in ChatControllerOpenAttachmentMenu's order: Gallery, File, Location, Poll, Checklist
-/// and Contact, each where the chat allows it. Sticker (AttachmentButtonType.sticker) opens BetterTG's emoji, sticker
-/// and
-/// GIF picker, which the attach button used to offer. Link (AttachmentButtonType.link) is a poll option's
-/// (presentPollAttachmentScreen). App (AttachmentButtonType.app) is an attachment menu bot, after Gallery.
+/// and Contact, each where the chat allows it. Sticker (AttachmentButtonType.sticker) and Link
+/// (AttachmentButtonType.link) are a poll option's (presentPollAttachmentScreen). App (AttachmentButtonType.app) is an
+/// attachment menu bot, after Gallery.
 enum AttachmentSheetTab: Equatable {
     case gallery
     case file
@@ -1611,7 +1610,6 @@ enum MediaPickerQualityIcon {
     private let captionLabel = UILabel()
     private var commentInput: FormattedTextView?
     private var sendRowHeight: NSLayoutConstraint!
-    private var tabsTrailingConstraint: NSLayoutConstraint!
     private var restingTop: NSLayoutConstraint?
     private var restingTopOffset: CGFloat = 0
     private var keyboardTop: NSLayoutConstraint?
@@ -1668,7 +1666,6 @@ enum MediaPickerQualityIcon {
             addSubview(subview)
         }
         self.sendRowHeight = sendRow.heightAnchor.constraint(equalToConstant: Self.barHeight)
-        self.tabsTrailingConstraint = tabsScroll.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor)
         NSLayoutConstraint.activate([
             background.topAnchor.constraint(equalTo: topAnchor),
             background.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1676,7 +1673,7 @@ enum MediaPickerQualityIcon {
             background.bottomAnchor.constraint(equalTo: bottomAnchor),
             tabsScroll.topAnchor.constraint(equalTo: topAnchor),
             tabsScroll.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
-            tabsTrailingConstraint,
+            tabsScroll.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
             tabsScroll.heightAnchor.constraint(equalToConstant: Self.barHeight),
             sendRow.topAnchor.constraint(equalTo: topAnchor),
             sendRow.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
@@ -1713,7 +1710,6 @@ enum MediaPickerQualityIcon {
     @available(*, unavailable) required init?(coder _: NSCoder) { fatalError() }
 
     override func layoutSubviews() {
-        tabsTrailingConstraint.constant = iPhoneDuoBottomEdgeRightOutset
         super.layoutSubviews()
         updateContentHeight()
     }
@@ -1950,7 +1946,10 @@ private final class AttachmentTabStrip: UIView, UIGestureRecognizerDelegate {
     private static let capsuleHeight: CGFloat = 58
     private static let sideInset: CGFloat = 16
     private static let endInset: CGFloat = 4
-    private static let minimumTabWidth: CGFloat = 60
+    /// As narrow as a tab's 10 pt title allows: tabs that all fit carry the lens under a finger, and only past that
+    /// does
+    /// the bar scroll instead.
+    private static let minimumTabWidth: CGFloat = 46
     private static let selectionTint = UIColor.label.withAlphaComponent(0.08)
     private static let springDuration: TimeInterval = 0.4
     /// The least time the lens stays lifted after a tap, so that it crosses the bar as a lens.
