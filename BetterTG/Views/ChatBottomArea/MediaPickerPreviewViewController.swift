@@ -105,7 +105,7 @@ import UIKit
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
 
-        applyIPhoneDuoTopSafeArea()
+        applyBarTopSafeArea()
     }
 
     override func viewDidLayoutSubviews() {

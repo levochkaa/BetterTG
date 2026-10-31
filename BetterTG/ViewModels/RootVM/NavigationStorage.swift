@@ -65,11 +65,13 @@ import UIKit
     func push(_ route: Route, animated: Bool = true, fromList: Bool = false) {
         if fromList, splitController.isSplit, isShownInDetail(route) { return }
         guard let controller = controller(for: route) else { return }
-        if fromList, splitController.isSplit, !(controller is TelegramMasterPaneScreen) {
+        if controller is TelegramMasterPaneScreen {
+            navigationController.pushViewController(controller, animated: animated)
+        } else if fromList, splitController.isSplit {
             splitController.replaceDetail(with: controller)
-            return
+        } else {
+            activeNavigationController.pushViewController(controller, animated: animated)
         }
-        navigationController.pushViewController(controller, animated: animated)
     }
 
     /// Telegram's compose flow gives way to what it opens (replaceTopController, replaceAllButRootController): the

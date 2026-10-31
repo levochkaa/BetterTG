@@ -166,14 +166,25 @@ extension UIView {
     }
 }
 
-// MARK: - UIViewController + iPhoneDuoLayout
+// MARK: - UIViewController + applyBarTopSafeArea
 
 extension UIViewController {
-    /// Starts the screen's top safe area where the system's bars start on the Duo. Called from
-    /// `viewWillLayoutSubviews` of a screen that fills the window; children inherit it.
-    func applyIPhoneDuoTopSafeArea() {
+    /// Starts the top safe area where the system's bars start: 24 pt from the top in every iPhone Duo posture and on a
+    /// phone in landscape, which has no top inset of its own. Called from `viewWillLayoutSubviews` of a screen that
+    /// fills the window; children inherit it.
+    func applyBarTopSafeArea() {
         guard let window = view.window else { return }
-        let top = view.iPhoneDuoLayout == nil ? 0 : IPhoneDuoLayout.Metrics.barTop - window.safeAreaInsets.top
+        let fillsWindow = abs(view.bounds.width - window.bounds.width) <= 1
+            && abs(view.bounds.height - window.bounds.height) <= 1
+        let isLandscape = window.bounds.width > window.bounds.height
+        let top: CGFloat =
+            if view.iPhoneDuoLayout != nil {
+                IPhoneDuoLayout.Metrics.barTop - window.safeAreaInsets.top
+            } else if fillsWindow, isLandscape, window.safeAreaInsets.top == 0 {
+                IPhoneDuoLayout.Metrics.barTop
+            } else {
+                0
+            }
         if additionalSafeAreaInsets.top != top { additionalSafeAreaInsets.top = top }
     }
 }

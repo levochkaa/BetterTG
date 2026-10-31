@@ -52,7 +52,7 @@ UINavigationControllerDelegate {
     /// once the screen is ready, or after `readinessTimeout`.
     override func pushViewController(_ viewController: UIViewController, animated: Bool) {
         if let splitController, splitController.redirectsPush(of: viewController, on: self) {
-            return splitController.pushDetail(viewController, animated: animated)
+            return splitController.replaceDetail(with: viewController)
         }
         guard animated, let readiness = viewController as? TelegramTransitionReadiness else {
             pendingPush = nil
@@ -91,7 +91,7 @@ UINavigationControllerDelegate {
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
         // The root inherits this from RootViewController; a full-screen modal stands outside it.
-        if presentingViewController != nil { applyIPhoneDuoTopSafeArea() }
+        if presentingViewController != nil { applyBarTopSafeArea() }
         for state in chromeStates.values {
             state.layout()
         }

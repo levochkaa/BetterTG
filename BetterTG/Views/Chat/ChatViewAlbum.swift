@@ -1436,7 +1436,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
 
-        applyIPhoneDuoTopSafeArea()
+        applyBarTopSafeArea()
     }
 
     override func viewDidLayoutSubviews() {

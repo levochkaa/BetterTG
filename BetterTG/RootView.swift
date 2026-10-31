@@ -47,7 +47,7 @@ final class RootViewController: UIViewController {
 
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
-        applyIPhoneDuoTopSafeArea()
+        applyBarTopSafeArea()
     }
 
     private func render(animated: Bool) {

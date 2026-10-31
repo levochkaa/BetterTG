@@ -51,6 +51,8 @@
 - Content keeps to the band between the side insets. A panel at the bottom edge spans the strip unless a corner block reaches its row (`bottomEdgeRightInset`). A floating composer stays in the band.
 - Beside the unfolded portrait island, trailing buttons and fields that reach its row move left by `trailingButtonsInset`.
 - A self-sizing input view keeps its frame's width: resize it on a size transition. A full-screen modal calls `applyIPhoneDuoTopSafeArea()`, since only the root and its children inherit it.
+- `TelegramSplitViewController` shows two columns on a window wider than 690 pt and taller than 650 pt (Telegram's `layoutMetricsForWindowSize`), which on the Duo is unfolded landscape, with the column boundary on an active vertical fold. `NavigationStorage.navigationController` is the list pane's stack; `activeNavigationController` is where new screens go, and `NavigationStorage.shared.viewControllers` lists both panes. A list row opens with `push(_:fromList: true)`, and `TelegramMasterPaneScreen` keeps a list in the list pane.
+- Screens move between the panes as the window folds or rotates. Teardown tied to leaving navigation checks `isLeavingNavigation` or `TelegramNavigationController.isRelocatingScreens`, not `isMovingFromParent` or `parent == nil` alone.
 - `docs/iphone-duo-layout.md` in Telegram-iOS is the reference for the rules and postures.
 
 ## Git Workflow

@@ -257,7 +257,7 @@ final class PhotoCropViewController: UIViewController {
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
 
-        applyIPhoneDuoTopSafeArea()
+        applyBarTopSafeArea()
     }
 
     override func viewDidLayoutSubviews() {

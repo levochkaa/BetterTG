@@ -709,7 +709,7 @@ final class ChatSponsoredVideoViewController: UIViewController {
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
 
-        applyIPhoneDuoTopSafeArea()
+        applyBarTopSafeArea()
     }
 
     override func viewDidLayoutSubviews() {

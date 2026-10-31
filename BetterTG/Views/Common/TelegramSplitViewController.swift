@@ -159,12 +159,8 @@ final class TelegramSplitPlaceholderViewController: UIViewController, TelegramEm
         isSplit && navigation === master && !(controller is TelegramMasterPaneScreen)
     }
 
-    /// A screen pushed from the chat list's pane. The first one shows in place of the placeholder.
-    func pushDetail(_ controller: UIViewController, animated: Bool) {
-        detail.pushViewController(controller, animated: animated && detail.viewControllers.count > 1)
-    }
-
-    /// A list row's chat takes the detail pane's whole stack, as a tablet's list replaces what its details show.
+    /// What the chat list's pane opens takes the detail pane's whole stack, as a tablet's list replaces what its
+    /// details show.
     func replaceDetail(with controller: UIViewController) {
         detail.replaceStackAboveRoot(with: controller)
     }

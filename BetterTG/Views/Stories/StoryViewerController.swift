@@ -321,7 +321,7 @@ final class StoryViewerController: UIViewController, UIGestureRecognizerDelegate
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
 
-        applyIPhoneDuoTopSafeArea()
+        applyBarTopSafeArea()
     }
 
     override func viewDidLayoutSubviews() {
