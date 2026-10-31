@@ -163,6 +163,10 @@ final class ChatListNavigationSearchView: UIView, UITextFieldDelegate {
         searchField.text = query
     }
 
+    func unfocus() {
+        searchField.resignFirstResponder()
+    }
+
     /// Ends the search as the close button does.
     func endSearch() {
         closeSearch()

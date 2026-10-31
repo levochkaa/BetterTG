@@ -10,6 +10,8 @@ final class TelegramListNavigationBar: UIView {
 
     static let titleHeight: CGFloat = 44
     static let expandedContentHeight = titleHeight + ChatListNavigationSearchView.contentHeight
+    /// The bar of a list that opens search from a button: only its row, with UIKit's space under it.
+    static let rowContentHeight = titleHeight + TelegramGlassPlatter.barBottomInset
 
     var onSearchActiveChange: ((Bool) -> Void)?
     var onVisibleHeightChange: ((CGFloat) -> Void)?
@@ -50,6 +52,13 @@ final class TelegramListNavigationBar: UIView {
     private let rightButton = UIButton.telegramGlassIcon(nil)
     /// An optional second button left of the right one, such as the chat list's compose button.
     private let secondaryRightButton = UIButton.telegramGlassIcon(nil)
+    /// Search as a button after the left one, in place of a field under the row. Its glass becomes the field, as a
+    /// chat's title pill does, and the right buttons' becomes the close button.
+    private let searchButton = UIButton.telegramGlassIcon(
+        UIImage(systemName: "magnifyingglass"),
+        accessibilityLabel: L10n.telegram("Common.Search"),
+    )
+    private let searchPlatter = TelegramGlassPlatter(role: .leadingSection(0))
     /// The left button's circle; each right button, Done and a text action in a circle or pill of its own, 12 pt
     /// apart, as Telegram 13's chat list keeps compose and its other buttons apart.
     private let leadingPlatter = TelegramGlassPlatter(role: .leading)
@@ -106,6 +115,12 @@ final class TelegramListNavigationBar: UIView {
     private let rightAction: (() -> Void)?
     private let secondaryRightAction: (() -> Void)?
     private let showsBackButton: Bool
+    private let opensSearchFromButton: Bool
+    /// The search the button opened stays open with the keyboard down, until its close button.
+    private var isButtonSearchOpen = false
+    private var wantsButtonSearchOpen = false
+    private var isSearchMorphRunning = false
+    private var searchPlatterLeadingConstraint: NSLayoutConstraint?
     private var currentScrollOffset = CGFloat.zero
     /// How far the list is pulled past its top.
     private var currentOverscroll = CGFloat.zero
@@ -123,7 +138,9 @@ final class TelegramListNavigationBar: UIView {
         allPlatters.filter { !$0.isHidden }
     }
 
-    var isSearchActive: Bool { searchView.isActive }
+    var isSearchActive: Bool { opensSearchFromButton ? isButtonSearchOpen : searchView.isActive }
+    /// Whether the field has the keyboard, which a search opened from the button can do without.
+    var isSearchFocused: Bool { searchView.isActive }
     var hasMarkedText: Bool { searchView.hasMarkedText }
     #if DEBUG
     var probeSearchField: UISearchTextField { searchView.probeField }
@@ -131,9 +148,14 @@ final class TelegramListNavigationBar: UIView {
 
     private var allPlatters: [TelegramGlassPlatter] {
         [
-            leadingPlatter, trailingPlatter, secondaryTrailingPlatter, proxyPlatter, doneButtonPlatter,
+            leadingPlatter, searchPlatter, trailingPlatter, secondaryTrailingPlatter, proxyPlatter, doneButtonPlatter,
             textActionPlatter,
         ]
+    }
+
+    /// The search's slot above the row's top by the field's inset in it, so that the field stands in the row.
+    private var buttonSearchTop: CGFloat {
+        rowTopOffset - ChatListNavigationSearchView.verticalInset
     }
 
     init(
@@ -149,7 +171,9 @@ final class TelegramListNavigationBar: UIView {
         showsBackButton: Bool = false,
         leftAccessibilityLabel: String? = nil,
         rightAccessibilityLabel: String? = nil,
+        opensSearchFromButton: Bool = false,
     ) {
+        self.opensSearchFromButton = opensSearchFromButton
         self.searchView = ChatListNavigationSearchView(placeholder: placeholder)
         self.leftAction = leftAction
         self.rightAction = rightAction
@@ -195,6 +219,7 @@ final class TelegramListNavigationBar: UIView {
     /// `offset` is the list's distance from its top; a negative one pulls the list past it. ChatListNavigationBar
     /// leaves that pull unclipped: the bar grows with it and the search field rides down above the first row.
     func applyScroll(offset: CGFloat, animated: Bool = false) {
+        guard !opensSearchFromButton else { return }
         let clipped = min(max(0, offset), ChatListNavigationSearchView.scrollHeight)
         let overscroll = isSearchActive ? 0 : max(0, -offset)
         // ChatListNavigationBar's applyScroll returns early too: a list scrolled past the search field changes
@@ -213,17 +238,32 @@ final class TelegramListNavigationBar: UIView {
         onVisibleHeightChange?(Self.visibleHeight(clipped: clipped) + currentOverscroll)
     }
 
-    func focusSearch() {
-        searchView.focus()
+    func focusSearch(animated: Bool = true) {
+        guard opensSearchFromButton, !isButtonSearchOpen else {
+            searchView.focus()
+            return
+        }
+        openButtonSearch(animated: animated)
     }
 
+    /// A search with a query comes back open, without the keyboard unless `focusSearch` asks for it.
     func restoreSearchQuery(_ query: String) {
         searchView.restoreQuery(query)
+        guard opensSearchFromButton, !query.isEmpty, !isButtonSearchOpen else { return }
+        isButtonSearchOpen = true
+        wantsButtonSearchOpen = true
+        searchView.setPresented(true)
+        searchTrailingConstraint.constant = -islandInset
+        setRowGlassHidden(true)
+        titleControl.alpha = 0
+        lockButton.alpha = 0
     }
 
     func setLeftButtonHidden(_ hidden: Bool) {
         leftButton.isHidden = hidden
         leadingPlatter.refresh()
+        // A hidden left button leaves no gap before the search button.
+        searchPlatterLeadingConstraint?.constant = hidden ? 0 : TelegramGlassPlatter.interSectionSpacing
     }
 
     /// A secondary line under the title, as Telegram shows a forum's member status.
@@ -261,6 +301,7 @@ final class TelegramListNavigationBar: UIView {
         doneAction = done
         editingTitle = editing ? title : nil
         rightButton.isHidden = editing
+        searchButton.isHidden = editing
         secondaryRightButton.isHidden = editing || secondaryRightButton.image(for: .normal) == nil
         proxyButton.isHidden = editing || proxyButton.status == nil
         doneButton.isHidden = !editing
@@ -292,6 +333,7 @@ final class TelegramListNavigationBar: UIView {
         for constraint in rowTopConstraints {
             constraint.constant = rowTopOffset
         }
+        if opensSearchFromButton { searchTopConstraint.constant = buttonSearchTop }
         // Beside the island the buttons are so far from even that the title centres between them.
         titleBandCenterConstraint.isActive = false
         titleBetweenButtonsConstraint.isActive = false
@@ -299,7 +341,8 @@ final class TelegramListNavigationBar: UIView {
         guard layout != appliedDuoLayout else { return }
         let hadColumn = appliedDuoLayout?.sideColumn != nil
         appliedDuoLayout = layout
-        let columnPlatters = [leadingPlatter, trailingPlatter, secondaryTrailingPlatter, proxyPlatter]
+        let columnPlatters = (opensSearchFromButton ? [leadingPlatter, searchPlatter] : [leadingPlatter])
+            + [trailingPlatter, secondaryTrailingPlatter, proxyPlatter]
         if let column = layout?.sideColumn {
             if !hadColumn {
                 NSLayoutConstraint.deactivate(leadingRowConstraints)
@@ -331,6 +374,7 @@ final class TelegramListNavigationBar: UIView {
             columnStack.isHidden = true
             titleLeadingColumnConstraint.isActive = false
             addSubview(leadingPlatter)
+            if opensSearchFromButton { addSubview(searchPlatter) }
             activateLeadingRowConstraints()
             for (index, platter) in [proxyPlatter, secondaryTrailingPlatter, trailingPlatter].enumerated() {
                 trailingStack.insertArrangedSubview(platter, at: index)
@@ -370,18 +414,29 @@ final class TelegramListNavigationBar: UIView {
     }
 
     private func activateLeadingRowConstraints() {
+        let leadingEnd = opensSearchFromButton ? searchPlatter : leadingPlatter
         leadingRowConstraints = [
             leadingPlatter.leadingAnchor.constraint(
                 equalTo: safeAreaLayoutGuide.leadingAnchor,
                 constant: TelegramGlassPlatter.edgeInset,
             ),
             leadingPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: rowTopOffset),
-            titleSlotGuide.leadingAnchor.constraint(equalTo: leadingPlatter.trailingAnchor),
+            titleSlotGuide.leadingAnchor.constraint(equalTo: leadingEnd.trailingAnchor),
         ]
-        rowTopConstraints.removeAll { $0.firstItem === leadingPlatter }
+        rowTopConstraints.removeAll { $0.firstItem === leadingPlatter || $0.firstItem === searchPlatter }
         rowTopConstraints.append(leadingRowConstraints[1])
+        if opensSearchFromButton {
+            let leading = searchPlatter.leadingAnchor.constraint(
+                equalTo: leadingPlatter.trailingAnchor,
+                constant: leftButton.isHidden ? 0 : TelegramGlassPlatter.interSectionSpacing,
+            )
+            let top = searchPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: rowTopOffset)
+            searchPlatterLeadingConstraint = leading
+            rowTopConstraints.append(top)
+            leadingRowConstraints += [leading, top]
+        }
         let titleLeading = titleControl.leadingAnchor.constraint(
-            greaterThanOrEqualTo: leadingPlatter.trailingAnchor,
+            greaterThanOrEqualTo: leadingEnd.trailingAnchor,
             constant: 8,
         )
         titleLeadingRowConstraint = titleLeading
@@ -392,7 +447,7 @@ final class TelegramListNavigationBar: UIView {
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
         searchClipView.translatesAutoresizingMaskIntoConstraints = false
-        searchClipView.clipsToBounds = true
+        searchClipView.clipsToBounds = !opensSearchFromButton
         addSubview(searchClipView)
 
         if showsBackButton {
@@ -429,6 +484,12 @@ final class TelegramListNavigationBar: UIView {
         textActionPlatter.setItems([textActionButton])
         leadingPlatter.translatesAutoresizingMaskIntoConstraints = false
         addSubview(leadingPlatter)
+        if opensSearchFromButton {
+            searchButton.addTarget(self, action: #selector(searchPressed), for: .touchUpInside)
+            searchPlatter.setItems([searchButton])
+            searchPlatter.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(searchPlatter)
+        }
         trailingStack.axis = .horizontal
         trailingStack.spacing = TelegramGlassPlatter.interSectionSpacing
         trailingStack.translatesAutoresizingMaskIntoConstraints = false
@@ -493,14 +554,20 @@ final class TelegramListNavigationBar: UIView {
         updateTitleInteraction()
 
         searchView.translatesAutoresizingMaskIntoConstraints = false
-        searchView.onActiveChange = { [weak self] active in
-            self?.setSearchActive(active)
+        if opensSearchFromButton {
+            searchView.followsFocus = false
+            searchView.isHidden = true
+            searchView.onClose = { [weak self] in self?.closeButtonSearch() }
+        } else {
+            searchView.onActiveChange = { [weak self] active in
+                self?.setSearchActive(active)
+            }
         }
         searchClipView.addSubview(searchView)
 
         searchTopConstraint = searchView.topAnchor.constraint(
             equalTo: safeAreaLayoutGuide.topAnchor,
-            constant: Self.titleHeight,
+            constant: opensSearchFromButton ? buttonSearchTop : Self.titleHeight,
         )
         let edge = TelegramGlassPlatter.edgeInset
         trailingEdgeConstraint = trailingStack.trailingAnchor.constraint(
@@ -583,6 +650,157 @@ final class TelegramListNavigationBar: UIView {
 
     @objc private func secondaryRightPressed() { secondaryRightAction?() }
     @objc private func titlePressed() { onTitleTap?() }
+    @objc private func searchPressed() { openButtonSearch(animated: true) }
+
+    private func openButtonSearch(animated: Bool) {
+        wantsButtonSearchOpen = true
+        guard !isSearchMorphRunning, !isButtonSearchOpen else { return }
+        isButtonSearchOpen = true
+        superview?.layoutIfNeeded()
+        let button = rowShape(of: searchPlatter)
+        let leading = rowShape(of: leadingPlatter)
+        let trailing = [trailingPlatter, secondaryTrailingPlatter, proxyPlatter].compactMap(rowShape(of:))
+        searchView.setPresented(true)
+        searchTrailingConstraint.constant = -islandInset
+        onSearchActiveChange?(true)
+        searchView.focus()
+        guard animated, window != nil else {
+            setRowGlassHidden(true)
+            titleControl.alpha = 0
+            lockButton.alpha = 0
+            return
+        }
+        let search = searchView.glassShapes(in: self)
+        var shapes = [TelegramGlassInPlaceMorph.Shape]()
+        if appliedDuoLayout?.sideColumn != nil {
+            // The side column and the row live apart: the column goes and the field and its button come in place.
+            for shape in [leading, button].compactMap(\.self) + trailing {
+                shapes.append(.init(from: shape.frame, fromItems: shape.items))
+            }
+            shapes.append(.init(to: search[0].frame, toItems: search[0].items))
+            shapes.append(.init(to: search[1].frame, toItems: search[1].items))
+        } else {
+            shapes.append(.init(
+                from: button?.frame,
+                fromItems: button?.items,
+                to: search[0].frame,
+                toItems: search[0].items,
+            ))
+            // The right buttons draw together into the close button, whose cross arrives with the outermost.
+            for (index, shape) in trailing.enumerated() {
+                shapes.append(.init(
+                    from: shape.frame,
+                    fromItems: shape.items,
+                    to: search[1].frame,
+                    toItems: index == 0 ? search[1].items : nil,
+                ))
+            }
+            if trailing.isEmpty { shapes.append(.init(to: search[1].frame, toItems: search[1].items)) }
+            if let leading { shapes.append(.init(from: leading.frame, fromItems: leading.items)) }
+        }
+        runSearchMorph(shapes: shapes, titleAlpha: 0, handOver: { [weak self] in
+            self?.setRowGlassHidden(true)
+            self?.searchView.setGlassHidden(true)
+        }, completion: { [weak self] in
+            self?.searchView.setGlassHidden(false)
+        })
+    }
+
+    private func closeButtonSearch() {
+        wantsButtonSearchOpen = false
+        guard !isSearchMorphRunning, isButtonSearchOpen else { return }
+        isButtonSearchOpen = false
+        searchView.restoreQuery("")
+        onQueryChange?("")
+        searchView.unfocus()
+        onSearchActiveChange?(false)
+        superview?.layoutIfNeeded()
+        let search = searchView.glassShapes(in: self)
+        let button = rowShape(of: searchPlatter)
+        let leading = rowShape(of: leadingPlatter)
+        let trailing = [trailingPlatter, secondaryTrailingPlatter, proxyPlatter].compactMap(rowShape(of:))
+        var shapes = [TelegramGlassInPlaceMorph.Shape]()
+        if appliedDuoLayout?.sideColumn != nil {
+            shapes.append(.init(from: search[0].frame, fromItems: search[0].items))
+            shapes.append(.init(from: search[1].frame, fromItems: search[1].items))
+            for shape in [leading, button].compactMap(\.self) + trailing {
+                shapes.append(.init(to: shape.frame, toItems: shape.items))
+            }
+        } else {
+            shapes.append(.init(
+                from: search[0].frame,
+                fromItems: search[0].items,
+                to: button?.frame,
+                toItems: button?.items,
+            ))
+            // The reverse of the opening: the close button parts into the right buttons.
+            for (index, shape) in trailing.enumerated() {
+                shapes.append(.init(
+                    from: search[1].frame,
+                    fromItems: index == 0 ? search[1].items : nil,
+                    to: shape.frame,
+                    toItems: shape.items,
+                ))
+            }
+            if trailing.isEmpty { shapes.append(.init(from: search[1].frame, fromItems: search[1].items)) }
+            if let leading { shapes.append(.init(to: leading.frame, toItems: leading.items)) }
+        }
+        runSearchMorph(shapes: shapes, titleAlpha: 1, handOver: { [weak self] in
+            self?.searchView.setGlassHidden(true)
+        }, completion: { [weak self] in
+            guard let self else { return }
+            searchView.setPresented(false)
+            searchView.setGlassHidden(false)
+            setRowGlassHidden(false)
+        })
+    }
+
+    private func runSearchMorph(
+        shapes: [TelegramGlassInPlaceMorph.Shape],
+        titleAlpha: CGFloat,
+        handOver: @escaping () -> Void,
+        completion: @escaping () -> Void,
+    ) {
+        isSearchMorphRunning = true
+        UIView.animate(withDuration: 0.22, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+            self.titleControl.alpha = titleAlpha
+            self.lockButton.alpha = titleAlpha
+        }
+        TelegramGlassInPlaceMorph.run(
+            in: self,
+            shapes: shapes,
+            spacing: TelegramGlassPlatter.interSectionSpacing,
+            handOver: handOver,
+        ) { [weak self] in
+            guard let self else { return }
+            completion()
+            isSearchMorphRunning = false
+            // A tap during the morph takes its turn now.
+            if wantsButtonSearchOpen != isButtonSearchOpen {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    if wantsButtonSearchOpen { openButtonSearch(animated: true) } else { closeButtonSearch() }
+                }
+            }
+        }
+    }
+
+    /// A platter that shows, in the bar's coordinates, with its items for the search morph to borrow.
+    private func rowShape(of platter: TelegramGlassPlatter) -> (frame: CGRect, items: TelegramGlassLoan)? {
+        guard !platter.isHidden, platter.hasVisibleItems else { return nil }
+        return (platter.convert(platter.bounds, to: self), TelegramGlassLoan(platter: platter))
+    }
+
+    /// The row's glass gives its place to the search's; hiding, not fading, as a glass view's opacity must not change.
+    private func setRowGlassHidden(_ hidden: Bool) {
+        for platter in [leadingPlatter, searchPlatter, trailingPlatter, secondaryTrailingPlatter, proxyPlatter] {
+            platter.glassView.isHidden = hidden
+            platter.isUserInteractionEnabled = !hidden
+        }
+        // The stacks stand over the field and would take its touches themselves.
+        trailingStack.isUserInteractionEnabled = !hidden
+        columnStack.isUserInteractionEnabled = !hidden
+    }
 
     private func setSearchActive(_ active: Bool) {
         let parentView = superview

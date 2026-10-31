@@ -56,9 +56,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         secondaryRightAccessibilityLabel: L10n.telegram("Compose.NewMessage"),
         leftAccessibilityLabel: L10n.telegram("ChatList.ArchivedChatsTitle"),
         rightAccessibilityLabel: L10n.telegram("Settings.Title"),
+        opensSearchFromButton: true,
     )
     private var navigationBarHeightConstraint: NSLayoutConstraint!
-    private var currentNavigationContentHeight = TelegramListNavigationBar.expandedContentHeight
+    private let currentNavigationContentHeight = TelegramListNavigationBar.rowContentHeight
     private var folderControllers = [FolderViewController]()
     private var cancellables = Set<AnyCancellable>()
     private var searchQuery = ""
@@ -71,12 +72,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     private var isShowingSearchResults = false
     private var pageScrollObservation: NSKeyValueObservation?
     private let pagingEdgeGate = FolderPagingEdgeGate()
-    private var interactiveFolderTransition: (
-        fromID: Int,
-        toID: Int,
-        fromSearchOffset: CGFloat,
-        toSearchOffset: CGFloat,
-    )?
+    private var interactiveFolderTransition: (fromID: Int, toID: Int)?
     private var folderUnreadStates = [ChatList: FolderUnreadState]()
     private let isClientRestoration: Bool
     private var restoresSearchFocus = false
@@ -177,7 +173,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         if actionAuthority.isCurrent, restoresSearchFocus {
             restoresSearchFocus = false
             isRestoringSearchFocus = true
-            customNavigationBar.focusSearch()
+            customNavigationBar.focusSearch(animated: false)
             isRestoringSearchFocus = false
         }
         // A modal or interactive navigation transition can defer epoch recovery.
@@ -186,7 +182,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
-        updateNavigationBarHeight(contentHeight: currentNavigationContentHeight)
+        updateNavigationBarHeight()
     }
 
     /// Telegram's compactDisplayTitle of a private chat's user, for the live location description; nil elsewhere.
@@ -203,7 +199,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         guard canRestoreClient(source) else { return nil }
         let state = ClientRestorationState(
             searchQuery: searchQuery,
-            searchWasFocused: isViewLoaded ? customNavigationBar.isSearchActive : restoresSearchFocus,
+            searchWasFocused: isViewLoaded ? customNavigationBar.isSearchFocused : restoresSearchFocus,
             folderViewports: restorationViewports.merging(
                 Dictionary(uniqueKeysWithValues: folderControllers.map {
                     ($0.folder.id, $0.clientRestorationViewport())
@@ -245,8 +241,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         interactiveFolderTransition = (
             fromID: currentFolderController.folder.id,
             toID: targetController.folder.id,
-            fromSearchOffset: currentFolderController.searchScrollOffset,
-            toSearchOffset: targetController.searchScrollOffset,
         )
     }
 
@@ -263,19 +257,10 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         guard completed, let folder = (pageController.viewControllers?.first as? FolderViewController)?.folder else {
             let previousID = (previousViewControllers.first as? FolderViewController)?.folder.id
             folderPicker.select(id: previousID, animated: true)
-            if let interactiveFolderTransition {
-                applySearchScrollOffset(
-                    offset: interactiveFolderTransition.fromSearchOffset,
-                    animated: true,
-                )
-            }
             return
         }
         rootVM.currentFolder = folder.id
         folderPicker.select(id: folder.id, animated: true)
-        if let currentFolderController {
-            applySearchScrollOffset(offset: currentFolderController.searchScrollOffset, animated: true)
-        }
     }
 
     func showAccountError(_ error: Error) {
@@ -579,15 +564,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 )
             }
             updateSearchResults(animated: !isRestoringSearchFocus, searchActive: active)
-            if active {
-                customNavigationBar.applyScroll(offset: 0, animated: true)
-            } else if isShowingSearchResults {
-                // The query stays on screen above its results; folder pages restored their own offsets.
-                customNavigationBar.applyScroll(offset: 0, animated: true)
-            }
-        }
-        customNavigationBar.onVisibleHeightChange = { [weak self] contentHeight in
-            self?.updateNavigationBarHeight(contentHeight: contentHeight)
         }
         customNavigationBar.onRightLongPress = { [weak self] source, gesture in
             self?.showAccountSwitcher(from: source, tracking: gesture)
@@ -681,9 +657,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             searchResultsController.refreshEmptyState()
             resultsView.isHidden = false
             searchResultsController.restAtTop()
-            customNavigationBar.applyScroll(offset: 0, animated: animated)
-        } else if let currentFolderController {
-            applySearchScrollOffset(offset: currentFolderController.searchScrollOffset, animated: animated)
         }
         // Telegram hides the folder tabs while search results are shown.
         folderPicker.isUserInteractionEnabled = !showsResults
@@ -707,10 +680,9 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
     }
 
-    private func updateNavigationBarHeight(contentHeight: CGFloat) {
-        currentNavigationContentHeight = contentHeight
-        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + contentHeight
-        searchResultsController.topBarHeight = view.safeAreaInsets.top + contentHeight
+    private func updateNavigationBarHeight() {
+        navigationBarHeightConstraint?.constant = view.safeAreaInsets.top + currentNavigationContentHeight
+        searchResultsController.topBarHeight = view.safeAreaInsets.top + currentNavigationContentHeight
     }
 
     private func configureHeaderPanels() {
@@ -962,26 +934,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         }
     }
 
-    private func applySearchScrollOffset(offset: CGFloat, animated: Bool) {
-        // Search results keep the query field revealed; the folder page under them does not move it.
-        guard !isShowingSearchResults else { return }
-        guard animated else {
-            customNavigationBar.applyScroll(offset: offset)
-            return
-        }
-        view.layoutIfNeeded()
-        UIView.animate(
-            withDuration: 0.28,
-            delay: 0,
-            usingSpringWithDamping: 0.9,
-            initialSpringVelocity: 0,
-            options: [.allowUserInteraction, .beginFromCurrentState],
-        ) {
-            self.customNavigationBar.applyScroll(offset: offset)
-            self.view.layoutIfNeeded()
-        }
-    }
-
     private func reloadFromState() {
         guard actionAuthority.isCurrent else { return }
         let currentIDs = folderControllers.map(\.folder.id)
@@ -1023,10 +975,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 guard let self else { return false }
                 return folderControllers.count <= 1 || pagingEdgeGate.touchStartedAtEdge
             }
-            controller.onSearchScrollOffsetChange = { [weak self, weak controller] offset in
-                guard let self, currentFolderController === controller, !isShowingSearchResults else { return }
-                customNavigationBar.applyScroll(offset: offset)
-            }
             return controller
         }
         folderPicker.configure(
@@ -1056,7 +1004,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
         let direction: UIPageViewController.NavigationDirection = targetIndex >= previousIndex ? .forward : .reverse
         rootVM.currentFolder = id
         folderPicker.select(id: id, animated: animated)
-        applySearchScrollOffset(offset: folderControllers[targetIndex].searchScrollOffset, animated: animated)
         guard currentFolderController !== folderControllers[targetIndex] else { return }
         pageController.setViewControllers([folderControllers[targetIndex]], direction: direction, animated: animated)
     }
@@ -1067,12 +1014,6 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
               scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating
         else { return }
         let fraction = min(1, abs(scrollView.contentOffset.x - scrollView.bounds.width) / scrollView.bounds.width)
-        let searchScrollOffsetDelta = transition.toSearchOffset - transition.fromSearchOffset
-        if abs(searchScrollOffsetDelta) >= 1 {
-            customNavigationBar.applyScroll(
-                offset: transition.fromSearchOffset + searchScrollOffsetDelta * fraction,
-            )
-        }
         folderPicker.updateSelectionTransition(
             fromID: transition.fromID,
             toID: transition.toID,
