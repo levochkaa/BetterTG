@@ -1495,7 +1495,9 @@ ClientRestorableNavigationEntry {
     }
 
     private func updateProfileHeaderLayout() {
-        let width = collectionView.bounds.width
+        // Between the side insets, as the sections under it keep to the safe area.
+        let sideInsets = collectionView.safeAreaInsets
+        let width = collectionView.bounds.width - sideInsets.left - sideInsets.right
         guard width > 0 else { return }
         let oldInset = collectionView.contentInset.top
         let distanceFromTop = collectionView.contentOffset.y + oldInset
@@ -1511,7 +1513,7 @@ ClientRestorableNavigationEntry {
         )
         let height = ceil(size.height)
         guard height > 0 else { return }
-        profileHeaderView.frame = CGRect(x: 0, y: -height, width: width, height: height)
+        profileHeaderView.frame = CGRect(x: sideInsets.left, y: -height, width: width, height: height)
         #if DEBUG
             ProfileHeaderLayoutProbe.recordIfRequested(
                 header: profileHeaderView, avatar: avatarView,
