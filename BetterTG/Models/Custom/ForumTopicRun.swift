@@ -57,17 +57,19 @@ enum ChatTimelineItemID: Hashable {
     ) -> [ChatTimelineItemID] {
         var result = [ChatTimelineItemID]()
         result.reserveCapacity(messages.count * (includesTopicHeaders ? 3 : 2))
+        // ChatHistoryEntriesForView's UnreadEntry goes in once, at the read state the chat opened with: above the
+        // oldest message past it, if an older one is loaded. Ids don't always follow dates, as a service chat's local
+        // messages show, so several messages past it can have a read neighbour.
+        let oldestUnreadIndex = unreadAfterMessageID.flatMap { lastRead in
+            messages.lastIndex { $0.newestSourceMessage.id > lastRead }
+        }
         for index in messages.indices {
             let message = messages[index]
             // Rows run newest first: the notice goes just before the root, so it shows under it, as Telegram puts the
             // ReplyCountEntry right after the thread head (ChatHistoryEntriesForView).
             if message.displayedID == threadHeadID { result.append(.threadStart) }
             result.append(.message(message.displayedID))
-            // ChatHistoryEntriesForView's UnreadEntry at the read state the chat opened with: above the oldest
-            // message past it, whose older neighbour (if loaded) was read.
-            if let lastRead = unreadAfterMessageID, message.newestSourceMessage.id > lastRead,
-               messages.indices.contains(index + 1), messages[index + 1].newestSourceMessage.id <= lastRead
-            {
+            if index == oldestUnreadIndex, messages.indices.contains(index + 1) {
                 result.append(.unreadDivider)
             }
             if includesTopicHeaders, let topicID = message.forumTopicID {
