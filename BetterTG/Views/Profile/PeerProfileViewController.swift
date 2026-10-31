@@ -1546,8 +1546,11 @@ ClientRestorableNavigationEntry {
                 return section
             }
             // SparseItemGrid: square tiles a point apart across the full width, the zoom level's count to a row.
-            let columns = self?.currentSharedTab == .media ? self?.mediaColumns ?? 3 : 3
             let width = environment.container.effectiveContentSize.width
+            let columns = telegramGridColumns(
+                phoneColumns: self?.currentSharedTab == .media ? self?.mediaColumns ?? 3 : 3,
+                width: width,
+            )
             let side = floor((width - CGFloat(columns - 1)) / CGFloat(columns))
             let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(
                 widthDimension: .absolute(side),

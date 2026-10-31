@@ -751,8 +751,11 @@ UISearchBarDelegate {
     }
 
     private func makeLayout() -> UICollectionViewLayout {
-        UICollectionViewCompositionalLayout { [weak self] sectionIndex, _ in
-            let columns = self?.mode == .emoji ? 8 : 4
+        UICollectionViewCompositionalLayout { [weak self] sectionIndex, environment in
+            let columns = telegramGridColumns(
+                phoneColumns: self?.mode == .emoji ? 8 : 4,
+                width: environment.container.effectiveContentSize.width,
+            )
             let itemSize = NSCollectionLayoutSize(
                 widthDimension: .fractionalWidth(1 / CGFloat(columns)),
                 heightDimension: .fractionalHeight(1),

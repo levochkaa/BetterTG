@@ -2,6 +2,15 @@
 
 import UIKit
 
+// MARK: - Wide grids
+
+/// A grid's columns: a phone's up to a phone's width, then as many as keep the tiles a phone's size, on a screen as
+/// wide as iPhone Duo's unfolded one.
+func telegramGridColumns(phoneColumns: Int, width: CGFloat) -> Int {
+    guard width > 480 else { return phoneColumns }
+    return max(phoneColumns, Int(width / (440 / CGFloat(phoneColumns))))
+}
+
 // MARK: - IPhoneDuoLayout
 
 /// iPhone Duo's layout for a window that fills one of its screens, nil everywhere else, so every other device keeps

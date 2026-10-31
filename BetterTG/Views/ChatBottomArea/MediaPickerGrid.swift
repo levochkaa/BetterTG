@@ -44,7 +44,10 @@ final class MediaPickerGridLayout: UICollectionViewLayout {
         guard let collectionView else { return }
         let insets = collectionView.adjustedContentInset
         contentWidth = max(0, collectionView.bounds.width - insets.left - insets.right)
-        columns = collectionView.traitCollection.verticalSizeClass == .compact ? 5 : 3
+        columns = telegramGridColumns(
+            phoneColumns: collectionView.traitCollection.verticalSizeClass == .compact ? 5 : 3,
+            width: contentWidth,
+        )
         let scale = max(1, collectionView.traitCollection.displayScale)
         let width = (contentWidth - Self.spacing * CGFloat(columns - 1)) / CGFloat(columns)
         itemWidth = max(0, floor(width * scale) / scale)

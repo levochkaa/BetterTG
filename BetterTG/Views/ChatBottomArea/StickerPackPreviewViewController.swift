@@ -139,23 +139,28 @@ UICollectionViewDelegate {
     }
 
     private func makeLayout() -> UICollectionViewLayout {
-        let columns = 5
-        let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(
-            widthDimension: .fractionalWidth(1 / CGFloat(columns)),
-            heightDimension: .fractionalHeight(1),
-        ))
-        item.contentInsets = NSDirectionalEdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3)
-        let group = NSCollectionLayoutGroup.horizontal(
-            layoutSize: NSCollectionLayoutSize(
-                widthDimension: .fractionalWidth(1),
-                heightDimension: .fractionalWidth(1 / CGFloat(columns)),
-            ),
-            repeatingSubitem: item,
-            count: columns,
-        )
-        let section = NSCollectionLayoutSection(group: group)
-        section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
-        return UICollectionViewCompositionalLayout(section: section)
+        UICollectionViewCompositionalLayout { _, environment in
+            let columns = telegramGridColumns(
+                phoneColumns: 5,
+                width: environment.container.effectiveContentSize.width,
+            )
+            let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(
+                widthDimension: .fractionalWidth(1 / CGFloat(columns)),
+                heightDimension: .fractionalHeight(1),
+            ))
+            item.contentInsets = NSDirectionalEdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3)
+            let group = NSCollectionLayoutGroup.horizontal(
+                layoutSize: NSCollectionLayoutSize(
+                    widthDimension: .fractionalWidth(1),
+                    heightDimension: .fractionalWidth(1 / CGFloat(columns)),
+                ),
+                repeatingSubitem: item,
+                count: columns,
+            )
+            let section = NSCollectionLayoutSection(group: group)
+            section.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
+            return section
+        }
     }
 
     private func load() {

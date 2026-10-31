@@ -422,6 +422,26 @@ final class ChatComposerView: UIView {
         return mediaInputResponder.becomeFirstResponder()
     }
 
+    /// The panels in place of the keyboard follow a rotation or a fold, which the system leaves to a self-sizing input
+    /// view.
+    func inputPanelsWillResize(to size: CGSize) {
+        let bottomInset = window?.safeAreaInsets.bottom ?? 0
+        if let controller = mediaInputResponder.keyboardInputViewController as? ComposerMediaInputViewController {
+            controller.setPanelWidth(size.width)
+            controller.setPanelHeight(ReplyKeyboardInputView.standardHeight(
+                containerSize: size,
+                bottomInset: bottomInset,
+            ))
+        }
+        replyKeyboardInputView.frame.size.width = size.width
+        guard let keyboard = chatVM.replyKeyboard.offeredKeyboard else { return }
+        let messageID = keyboard.messageID
+        replyKeyboardInputView.configure(keyboard: keyboard, containerSize: size, bottomInset: bottomInset) {
+            [weak self] button in
+            self?.onReplyKeyboardButton?(button, messageID)
+        }
+    }
+
     func makeSendTransitionSnapshots(
         kind: ComposerSendTransitionKind,
         in container: UIView,

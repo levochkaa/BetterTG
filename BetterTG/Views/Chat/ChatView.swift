@@ -885,6 +885,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let restoration = captureAutomaticViewportRestoration(allowInitial: false)
         timelineLayoutMutationDepth += 1
         super.viewWillTransition(to: size, with: coordinator)
+        if composerBottomConstraint != nil { composerView.inputPanelsWillResize(to: size) }
         coordinator.animate(alongsideTransition: { [weak self] _ in
             self?.collectionView.collectionViewLayout.invalidateLayout()
         }) { [weak self] _ in

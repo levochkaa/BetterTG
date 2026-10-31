@@ -42,6 +42,11 @@ final class ComposerMediaInputViewController: UIInputViewController {
         picker.didMove(toParent: self)
     }
 
+    /// The panel's width through a rotation or a fold, which the system leaves to a self-sizing input view.
+    func setPanelWidth(_ width: CGFloat) {
+        panelView.frame.size.width = width
+    }
+
     /// Follows the system keyboard's height for the current width; true when it changed.
     @discardableResult func setPanelHeight(_ height: CGFloat) -> Bool {
         guard abs(height - panelView.panelHeight) > 0.5 else { return false }
