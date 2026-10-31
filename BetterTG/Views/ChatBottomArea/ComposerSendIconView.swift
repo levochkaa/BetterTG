@@ -22,6 +22,7 @@ import UIKit
     private static let blurDuration: CFTimeInterval = 0.18
     private static let highlightedOpacity: Float = 0.4
 
+    private let circle = CALayer()
     private let arrow = UIImageView(image: UIImage(
         systemName: "arrow.up",
         withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .bold),
@@ -33,9 +34,16 @@ import UIKit
         super.init(frame: frame)
         isUserInteractionEnabled = false
         isHidden = true
-        layer.cornerRadius = Self.side / 2
-        layer.cornerCurve = .circular
-        backgroundColor = tintColor
+        // A layer of its own: glass moves a view's background and corner radius out to an effect layer of its own,
+        // which
+        // doesn't follow what is animated on the view's layer.
+        circle.cornerRadius = Self.side / 2
+        circle.cornerCurve = .circular
+        circle.backgroundColor = tintColor.cgColor
+        layer.addSublayer(circle)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
+            self.circle.backgroundColor = self.tintColor.resolvedColor(with: self.traitCollection).cgColor
+        }
         arrow.tintColor = .white
         arrow.translatesAutoresizingMaskIntoConstraints = false
         addSubview(arrow)
@@ -49,9 +57,17 @@ import UIKit
         fatalError("init(coder:) has not been implemented")
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        circle.frame = bounds
+        CATransaction.commit()
+    }
+
     override func tintColorDidChange() {
         super.tintColorDidChange()
-        backgroundColor = tintColor
+        circle.backgroundColor = tintColor.resolvedColor(with: traitCollection).cgColor
     }
 
     private static func makeBlurFilter() -> NSObject? {
