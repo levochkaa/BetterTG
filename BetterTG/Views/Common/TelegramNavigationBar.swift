@@ -169,7 +169,8 @@ final class TelegramListNavigationBar: UIView {
     }
 
     override func layoutSubviews() {
-        applyIPhoneDuoLayout()
+        // Off screen there's no window to read; the navigation controller gives an incoming screen its layout.
+        if window != nil { applyIPhoneDuoLayout(superview?.iPhoneDuoLayout) }
         super.layoutSubviews()
     }
 
@@ -269,41 +270,13 @@ final class TelegramListNavigationBar: UIView {
         refreshPlatters()
     }
 
-    private func refreshPlatters() {
-        for platter in allPlatters {
-            platter.refresh()
-        }
-    }
-
-    private func updateTitle() {
-        titleLabel.text = networkStatus ?? editingTitle ?? title
-        subtitleLabel.isHidden = subtitleLabel.text?.isEmpty != false || editingTitle != nil
-        let showsActivity = networkStatus != nil
-        networkActivityContainer.isHidden = !showsActivity
-        if showsActivity {
-            networkActivityIndicator.startAnimating()
-        } else {
-            networkActivityIndicator.stopAnimating()
-        }
-        // ChatListTitleView pads the title by the indicator plus 6 and sets the indicator 4 left of the title.
-        titleRow.directionalLayoutMargins.leading = showsActivity ? 2 : 0
-        updateTitleInteraction()
-    }
-
-    private func updateTitleInteraction() {
-        let tappable = onTitleTap != nil && doneAction == nil
-        titleControl.isUserInteractionEnabled = tappable
-        // Without an action the labels stay separate static text, as before.
-        titleControl.isAccessibilityElement = tappable
-        titleControl.accessibilityTraits = tappable ? .button : []
-        let subtitle = subtitleLabel.isHidden ? nil : subtitleLabel.text
-        titleControl.accessibilityLabel = [titleLabel.text, subtitle].compactMap(\.self).joined(separator: ", ")
-    }
-
     /// Moves back and the icon buttons between the row and iPhone Duo's strip, as the system's bar does, and keeps the
     /// row clear of the status island.
-    private func applyIPhoneDuoLayout() {
-        let layout = superview?.iPhoneDuoLayout
+    func applyIPhoneDuoLayout(_ layout: IPhoneDuoLayout?) {
+        let inset = layout?.trailingButtonsInset(rowTop: safeAreaInsets.top) ?? 0
+        // The system's bar keeps a text button against the band beside its vertical bar.
+        trailingEdgeConstraint.constant = layout?.sideColumn == nil ? -TelegramGlassPlatter.edgeInset - inset : 0
+        searchTrailingConstraint.constant = -inset
         guard layout != appliedDuoLayout else { return }
         let hadColumn = appliedDuoLayout?.sideColumn != nil
         appliedDuoLayout = layout
@@ -344,10 +317,37 @@ final class TelegramListNavigationBar: UIView {
                 trailingStack.insertArrangedSubview(platter, at: index)
             }
         }
-        let inset = layout?.trailingButtonsInset ?? 0
-        // The system's bar keeps a text button against the band beside its vertical bar.
-        trailingEdgeConstraint.constant = layout?.sideColumn == nil ? -TelegramGlassPlatter.edgeInset - inset : 0
-        searchTrailingConstraint.constant = -inset
+    }
+
+    private func refreshPlatters() {
+        for platter in allPlatters {
+            platter.refresh()
+        }
+    }
+
+    private func updateTitle() {
+        titleLabel.text = networkStatus ?? editingTitle ?? title
+        subtitleLabel.isHidden = subtitleLabel.text?.isEmpty != false || editingTitle != nil
+        let showsActivity = networkStatus != nil
+        networkActivityContainer.isHidden = !showsActivity
+        if showsActivity {
+            networkActivityIndicator.startAnimating()
+        } else {
+            networkActivityIndicator.stopAnimating()
+        }
+        // ChatListTitleView pads the title by the indicator plus 6 and sets the indicator 4 left of the title.
+        titleRow.directionalLayoutMargins.leading = showsActivity ? 2 : 0
+        updateTitleInteraction()
+    }
+
+    private func updateTitleInteraction() {
+        let tappable = onTitleTap != nil && doneAction == nil
+        titleControl.isUserInteractionEnabled = tappable
+        // Without an action the labels stay separate static text, as before.
+        titleControl.isAccessibilityElement = tappable
+        titleControl.accessibilityTraits = tappable ? .button : []
+        let subtitle = subtitleLabel.isHidden ? nil : subtitleLabel.text
+        titleControl.accessibilityLabel = [titleLabel.text, subtitle].compactMap(\.self).joined(separator: ", ")
     }
 
     private func activateLeadingRowConstraints() {
@@ -513,7 +513,8 @@ final class TelegramListNavigationBar: UIView {
                 lessThanOrEqualTo: trailingStack.leadingAnchor,
                 constant: -8,
             ),
-            titleControl.centerXAnchor.constraint(equalTo: centerXAnchor),
+            // Over the list: beside iPhone Duo's strip that isn't the screen's middle.
+            titleControl.centerXAnchor.constraint(equalTo: safeAreaLayoutGuide.centerXAnchor),
             titleControl.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             titleControl.heightAnchor.constraint(equalToConstant: Self.titleHeight),
             titleStack.leadingAnchor.constraint(equalTo: titleControl.leadingAnchor),
@@ -726,7 +727,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     override func layoutSubviews() {
         // A chat keeps its bar in the row beside iPhone Duo's strip, as the side column would have to leave it as the
         // keyboard rises; the row only keeps clear of the status island.
-        let inset = superview?.iPhoneDuoLayout?.trailingButtonsInset ?? 0
+        let inset = superview?.iPhoneDuoLayout?.trailingButtonsInset(rowTop: safeAreaInsets.top) ?? 0
         trailingEdgeConstraint.constant = -TelegramGlassPlatter.edgeInset - inset
         selectionCancelEdgeConstraint.constant = -TelegramGlassPlatter.edgeInset - inset
         searchTrailingConstraint.constant = -inset
@@ -1196,7 +1197,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
             lessThanOrEqualTo: safeAreaLayoutGuide.trailingAnchor,
             constant: -80,
         )
-        let titleCentre = titlePlatter.centerXAnchor.constraint(equalTo: centerXAnchor)
+        let titleCentre = titlePlatter.centerXAnchor.constraint(equalTo: safeAreaLayoutGuide.centerXAnchor)
         titleCentre.priority = .defaultHigh
         trailingEdgeConstraint = trailingPlatter.trailingAnchor.constraint(
             equalTo: safeAreaLayoutGuide.trailingAnchor,

@@ -14,6 +14,7 @@ final class RootViewController: UIViewController {
     private var displayedController: UIViewController?
     private var displayedLoggedInState: Bool?
     private var displayedAccountID: UUID?
+    private var lastDuoLayout: IPhoneDuoLayout?
     private var cancellables = Set<AnyCancellable>()
 
     init(rootVM: RootVM) {
@@ -48,6 +49,14 @@ final class RootViewController: UIViewController {
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
         applyBarTopSafeArea()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let duoLayout = view.iPhoneDuoLayout
+        guard duoLayout != lastDuoLayout else { return }
+        lastDuoLayout = duoLayout
+        view.window?.setIPhoneDuoBarsNeedLayout()
     }
 
     private func render(animated: Bool) {

@@ -23,6 +23,9 @@ import UIKit
 /// outgoing bar has collapses into it, and UIKit's glass container draws the liquid neck between them. Anything else,
 /// a title pill included, materializes or dematerializes in place. An interactive pop keeps the
 /// outgoing platters still while the finger drags, and runs the springs once the swipe is released.
+///
+/// iPhone Duo's side column and the row live apart: a column's shapes pair only with another column's, by position, and
+/// a button that changes place between two screens leaves in one and arrives in the other.
 @MainActor final class TelegramGlassNavigationMorph {
     // MARK: Private
 
@@ -31,6 +34,8 @@ import UIKit
         case leadingSection(Int)
         case title
         case trailing(Int)
+        /// A shape of iPhone Duo's side column, counted from the top.
+        case column(Int)
     }
 
     /// One shape of the overlay and the real platters it stands in for.
@@ -154,18 +159,22 @@ import UIKit
             platter.hasVisibleItems && !platter.isHidden && !platter.glassView.isHidden
                 && sequence(first: platter, next: \.superview).allSatisfy { $0.alpha > 0.01 && !$0.isHidden }
         }
+        var result = [Key: TelegramGlassPlatter]()
+        for (index, platter) in shown.filter(\.isInSideColumn).enumerated() {
+            result[.column(index)] = platter
+        }
+        let row = shown.filter { !$0.isInSideColumn }
         // The pills that show, counted from the edge: a hidden one leaves no gap.
-        let trailing = shown.compactMap { platter -> (Int, TelegramGlassPlatter)? in
+        let trailing = row.compactMap { platter -> (Int, TelegramGlassPlatter)? in
             guard case .trailing(let index) = platter.role else { return nil }
             return (index, platter)
         }
         .sorted { $0.0 < $1.0 }
         .map(\.1)
-        var result = [Key: TelegramGlassPlatter]()
         for (index, platter) in trailing.enumerated() {
             result[.trailing(index)] = platter
         }
-        for platter in shown {
+        for platter in row {
             switch platter.role {
             case .leading: result[.leading] = platter
             case .leadingSection(let index): result[.leadingSection(index)] = platter

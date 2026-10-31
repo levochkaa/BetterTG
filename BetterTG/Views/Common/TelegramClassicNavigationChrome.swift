@@ -177,8 +177,8 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         // UITableView inserts section headers after this overlay while scrolling. zPosition keeps the bar
         // visible, but hit testing follows the UIView order and would otherwise reach a header behind it.
         host.bringSubviewToFront(bar)
-        bar.applyIPhoneDuoLayout(navigation.view.iPhoneDuoLayout, host: host)
         bar.topInset = navigation.view.safeAreaInsets.top + sheetTopInset
+        bar.applyIPhoneDuoLayout(navigation.view.iPhoneDuoLayout, host: host)
         bar.frame = CGRect(
             origin: host.bounds.origin,
             size: CGSize(width: host.bounds.width, height: bar.topInset + bar.contentHeight),
@@ -313,8 +313,10 @@ final class TelegramSideColumnView: UIView {
             platter.frame = CGRect(x: right, y: rowY, width: width, height: TelegramGlassPlatter.height)
             right -= TelegramGlassPlatter.interSectionSpacing
         }
-        let inset = max(left, bounds.width - right) + 8
-        let titleFrame = CGRect(x: inset, y: rowY, width: max(0, bounds.width - 2 * inset), height: 44)
+        // The title centres on the band, over the list: beside iPhone Duo's strip that isn't the screen's middle.
+        let titleCenter = (safeAreaInsets.left + bounds.width - safeAreaInsets.right) / 2
+        let titleHalfWidth = max(0, min(titleCenter - left, right - titleCenter) - 8)
+        let titleFrame = CGRect(x: titleCenter - titleHalfWidth, y: rowY, width: titleHalfWidth * 2, height: 44)
         if subtitleLabel.isHidden {
             titleLabel.frame = titleFrame
         } else {
@@ -380,7 +382,7 @@ final class TelegramSideColumnView: UIView {
     /// Moves back and the icon buttons into iPhone Duo's strip over `host`, and the row clear of the status island.
     func applyIPhoneDuoLayout(_ layout: IPhoneDuoLayout?, host: UIView) {
         sideColumn = layout?.sideColumn
-        trailingButtonsInset = layout?.trailingButtonsInset ?? 0
+        trailingButtonsInset = layout?.trailingButtonsInset(rowTop: topInset) ?? 0
         if sideColumn != nil {
             if columnView.superview !== host { host.addSubview(columnView) }
             columnView.frame = host.bounds
