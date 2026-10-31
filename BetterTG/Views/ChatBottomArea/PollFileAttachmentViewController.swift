@@ -623,10 +623,18 @@ UISearchResultsUpdating, TelegramConditionalNavigationSearchProvider, Attachment
         let client = client
         let generation = clientGeneration
         loadTask = Task { [weak self] in
-            let found = try? await client.send(TDNativeRequests.searchOutgoingDocumentMessages(
+            var found = try? await client.send(TDNativeRequests.searchOutgoingDocumentMessages(
                 query: "",
                 limit: Self.recentLimit,
             ))
+            #if DEBUG
+            if let demo = TDClientDemoResponses.answer?(
+                "searchOutgoingDocumentMessages",
+                [:],
+            ) as? TDNativeFoundMessages {
+                found = demo
+            }
+            #endif
             guard let self, !Task.isCancelled, clientGeneration == generation else { return }
             recentFiles = Self.files(in: found?.messages ?? [])
             tableView.reloadData()

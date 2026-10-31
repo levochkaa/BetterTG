@@ -78,6 +78,9 @@ private final class ReadmeDemoWorld: @unchecked Sendable {
     private var files = [Int: TDNativeFile]()
     private var nextFileID = 5000
     private var pinned = [Int64: TDNativeMessage]()
+    private var unreadOutgoingChats = Set<Int64>()
+    /// The attachment sheet's recently sent files, newest first.
+    private var recentFiles = [TDNativeMessage]()
     /// A chat's Media tab, newest first.
     private var sharedPhotos = [Int64: [TDNativeMessage]]()
     private let directory: URL
@@ -113,7 +116,7 @@ private final class ReadmeDemoWorld: @unchecked Sendable {
             status: .userStatusOnline(.init(expires: Int(Date.now.timeIntervalSince1970) + 3600)),
             profilePhoto: nil, accentColorId: 1, backgroundCustomEmojiId: 0, upgradedGiftColors: nil,
             profileAccentColorId: -1, profileBackgroundCustomEmojiId: 0, emojiStatus: nil, isContact: false,
-            isMutualContact: false, isCloseFriend: false, verificationStatus: nil, isPremium: false, isSupport: false,
+            isMutualContact: false, isCloseFriend: false, verificationStatus: nil, isPremium: true, isSupport: false,
             restrictionInfo: nil, activeStoryState: nil, restrictsNewChats: false, paidMessageStarCount: 0,
             haveAccess: true, type: .userTypeRegular, languageCode: "en", addedToAttachmentMenu: false,
         )
@@ -226,6 +229,8 @@ private final class ReadmeDemoWorld: @unchecked Sendable {
             else { return TDNativeFoundChatMessages(totalCount: 0, messages: [], nextFromMessageId: 0) }
             let found = sharedPhotos[chatID] ?? []
             return TDNativeFoundChatMessages(totalCount: found.count, messages: found, nextFromMessageId: 0)
+        case "searchOutgoingDocumentMessages":
+            return TDNativeFoundMessages(totalCount: recentFiles.count, messages: recentFiles, nextOffset: "")
         case "getUserProfilePhotos":
             return TDNativeChatPhotos(totalCount: 0, photos: [])
         default:
@@ -383,6 +388,21 @@ private final class ReadmeDemoWorld: @unchecked Sendable {
         buildDigestChannel()
         buildShortChats()
         buildFolders()
+        recentFiles = [
+            ("Ridge Loop.gpx", "application/gpx+xml", 1_240_000, 40),
+            ("Trip budget.xlsx", "application/vnd.ms-excel", 86000, 260),
+            ("Design review.pdf", "application/pdf", 4_300_000, 1500),
+            ("Release notes.md", "text/markdown", 12000, 3100),
+            ("Trail photos.zip", "application/zip", 48_600_000, 6200),
+            ("Packing list.docx", "application/msword", 31000, 9000),
+        ]
+.enumerated()
+.map { index, file in
+            message(
+                Self.messageID(800 + index), ID.liam, from: ID.me, minutesAgo: file.3,
+                document(file.0, size: Int64(file.2), mimeType: file.1),
+            )
+        }
 
         updates.append(.updateConnectionState(.init(state: .connectionStateReady)))
         for user in users.values {
@@ -562,6 +582,7 @@ private final class ReadmeDemoWorld: @unchecked Sendable {
     }
 
     private func buildShortChats() {
+        unreadOutgoingChats.insert(ID.sofia)
         // Saved Messages stands first, as an account's own chat with itself.
         short(
             ID.me,
@@ -608,6 +629,14 @@ private final class ReadmeDemoWorld: @unchecked Sendable {
             order: 60,
             folders: [ID.personalFolder],
         )
+        // One message delivered and one on its way, whose checks the other chats don't show.
+        let sofia = ID.sofia
+        messages[sofia, default: []].append(message(
+            Self.messageID(2), sofia, from: ID.me, minutesAgo: 60, .text("Shall I send you the rest?"),
+        ))
+        messages[sofia, default: []].append(message(
+            Self.messageID(3), sofia, from: ID.me, minutesAgo: 0, .text("On its way"), isSending: true,
+        ))
         short(
             Self.channelChatID(ID.productChannel),
             .chatTypeSupergroup(.init(supergroupId: ID.productChannel, isChannel: true)),
@@ -775,7 +804,8 @@ private final class ReadmeDemoWorld: @unchecked Sendable {
             isMarkedAsUnread: false, viewAsTopics: false, hasScheduledMessages: false, hasWelcomeMessages: false,
             canBeDeletedOnlyForSelf: true, canBeDeletedForAllUsers: true, canBeReported: false,
             defaultDisableNotification: false, unreadCount: unread,
-            lastReadInboxMessageId: Self.messageID(1), lastReadOutboxMessageId: Self.messageID(1000),
+            lastReadInboxMessageId: Self.messageID(1),
+            lastReadOutboxMessageId: unreadOutgoingChats.contains(id) ? 0 : Self.messageID(1000),
             unreadMentionCount: 0, unreadReactionCount: 0, unreadPollVoteCount: 0,
             notificationSettings: .init(
                 useDefaultMuteFor: !muted, muteFor: muted ? 86400 * 365 : 0, useDefaultSound: true, soundId: 0,
@@ -824,7 +854,7 @@ private final class ReadmeDemoWorld: @unchecked Sendable {
     private func message(
         _ id: Int64, _ chatID: Int64, from sender: Int64?, minutesAgo: Int, _ content: TDNativeMessageContent,
         replyTo: Int64? = nil, replyChat: Int64 = 0, pinned: Bool = false,
-        reactions: [(String, Int, Bool)] = [], views: Int = 0, album: Int64 = 0,
+        reactions: [(String, Int, Bool)] = [], views: Int = 0, album: Int64 = 0, isSending: Bool = false,
     ) -> TDNativeMessage {
         let senderID: TDNativeMessageSender = sender.map { .messageSenderUser(.init(userId: $0)) }
             ?? .messageSenderChat(.init(chatId: chatID))
@@ -851,7 +881,8 @@ private final class ReadmeDemoWorld: @unchecked Sendable {
                 ),
             )
         return TDNativeMessage(
-            id: id, senderId: senderID, receiverId: nil, chatId: chatID, sendingState: nil, schedulingState: nil,
+            id: id, senderId: senderID, receiverId: nil, chatId: chatID,
+            sendingState: isSending ? .messageSendingStatePending(.init(sendingId: 1)) : nil, schedulingState: nil,
             isOutgoing: sender == ID.me, isPinned: pinned, isFromOffline: false, canBeSaved: true,
             hasTimestampedMedia: false, isChannelPost: sender == nil, isPaidStarSuggestedPost: false,
             isPaidGramSuggestedPost: false, containsUnreadMention: false, containsUnreadPollVotes: false,
@@ -914,11 +945,13 @@ private final class ReadmeDemoWorld: @unchecked Sendable {
         ))
     }
 
-    private func document(_ name: String, size: Int64) -> TDNativeMessageContent {
+    private func document(
+        _ name: String, size: Int64, mimeType: String = "application/gpx+xml",
+    ) -> TDNativeMessageContent {
         let file = plainFile(name: name, size: size)
         return .messageDocument(.init(
             document: .init(
-                fileName: name, mimeType: "application/gpx+xml", minithumbnail: nil, thumbnail: nil, document: file,
+                fileName: name, mimeType: mimeType, minithumbnail: nil, thumbnail: nil, document: file,
             ),
             caption: Self.text(""),
         ))
