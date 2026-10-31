@@ -591,8 +591,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             : TelegramListNavigationBar.expandedContentHeight
         tableView.contentInset.top = initialTopInset + accessoryTopInset
         tableView.contentInset.bottom = showsStandaloneSearch ? 0 : 58
-        tableView.verticalScrollIndicatorInsets.top = initialTopInset + accessoryTopInset
-        tableView.verticalScrollIndicatorInsets.bottom = showsStandaloneSearch ? 0 : 58
+        tableView.automaticallyAdjustsScrollIndicatorInsets = false
         tableView.prefetchDataSource = self
         tableView.register(ChatListCell.self, forCellReuseIdentifier: ChatListCell.reuseIdentifier)
         let pressGesture = ContextMenuPressGestureRecognizer(target: self, action: #selector(chatLongPressed(_:)))
@@ -637,6 +636,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateIndicatorInsets()
         guard !didSetInitialSearchOffset,
               clientViewportRestoration.snapshotIsApplied,
               tableView.bounds.width > 0, tableView.bounds.height > 0,
@@ -657,7 +657,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === tableView else { return }
         onSearchScrollOffsetChange?(searchScrollOffset)
-        updateIndicatorTopInset()
+        updateIndicatorInsets()
     }
 
     override func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -843,8 +843,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         guard isViewLoaded else { return }
         let offset = tableView.contentOffset.y
         tableView.contentInset.top += delta
-        tableView.verticalScrollIndicatorInsets.top += delta
         tableView.contentOffset.y = offset - delta
+        updateIndicatorInsets()
     }
 
     func setSearchActive(_ active: Bool, animated: Bool, preservingViewport: Bool = false) {
@@ -871,7 +871,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             : TelegramListNavigationBar.expandedContentHeight
         let changes = {
             self.tableView.contentInset.top = targetTopInset + self.accessoryTopInset
-            self.tableView.verticalScrollIndicatorInsets.top = targetTopInset + self.accessoryTopInset
+            self.updateIndicatorInsets()
             self.tableView.layoutIfNeeded()
             if let viewport {
                 viewport.restore(tableView: self.tableView) { self.dataSource.indexPath(for: $0) }
@@ -897,15 +897,24 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         menu(for: chat, inSearch: true)
     }
 
-    /// The navigation bar grows with a pull past the top of the list; the scroll indicator starts below it.
-    private func updateIndicatorTopInset() {
+    /// The scroll indicator runs beside the rows, under the navigation bar, which grows with a pull past the top of
+    /// the list, and above the folder tabs. UIKit's own adjustment would leave it across iPhone Duo's strip, away from
+    /// the rows, so all of it is set here.
+    private func updateIndicatorInsets() {
         let base = (searchActive
             ? ChatListNavigationSearchView.contentHeight
             : TelegramListNavigationBar.expandedContentHeight) + accessoryTopInset
         let pull = searchActive ? 0 : max(0, -(tableView.contentOffset.y + tableView.adjustedContentInset.top))
-        let top = base + pull
-        if abs(tableView.verticalScrollIndicatorInsets.top - top) > 0.5 {
-            tableView.verticalScrollIndicatorInsets.top = top
+        let safeArea = tableView.safeAreaInsets
+        let insets = UIEdgeInsets(
+            top: safeArea.top + base + pull,
+            left: 0,
+            bottom: safeArea.bottom + (showsStandaloneSearch ? 0 : 58),
+            right: safeArea.right,
+        )
+        let current = tableView.verticalScrollIndicatorInsets
+        if abs(current.top - insets.top) > 0.5 || current.bottom != insets.bottom || current.right != insets.right {
+            tableView.verticalScrollIndicatorInsets = insets
         }
     }
 
