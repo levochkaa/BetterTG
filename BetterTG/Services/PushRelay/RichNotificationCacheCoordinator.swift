@@ -91,8 +91,6 @@ struct RichNotificationAvatarReferences {
 // MARK: - RichNotificationCacheCoordinator
 
 @MainActor final class RichNotificationCacheCoordinator {
-    // MARK: Private
-
     private struct Context {
         let source: RichNotificationCacheSource
         let client: TDLibClient
@@ -101,6 +99,10 @@ struct RichNotificationAvatarReferences {
     // MARK: Internal
 
     static let shared = RichNotificationCacheCoordinator()
+
+    // MARK: Private
+
+    private static let mediaCacheQueue = DispatchQueue(label: "BetterTG.rich-notification-media", qos: .utility)
 
     private var started = false
     private var cancellables = Set<AnyCancellable>()
@@ -287,7 +289,12 @@ struct RichNotificationAvatarReferences {
                 )) ?? file
             },
             read: { try? Data(contentsOf: URL(fileURLWithPath: $0)) },
-            cache: { RichNotificationCache.cacheMedia($0, for: $1, accountID: $2) },
+            // Decoding and encoding a photo stays off the main thread; the queue keeps a placeholder before its photo.
+            cache: { data, reference, accountID in
+                Self.mediaCacheQueue.async {
+                    RichNotificationCache.cacheMedia(data, for: reference, accountID: accountID)
+                }
+            },
         ))
     }
 
