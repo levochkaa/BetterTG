@@ -209,6 +209,9 @@ final class TelegramSideColumnView: UIView {
     /// iPhone Duo's status island beside the row.
     var trailingButtonsInset: CGFloat = 0
 
+    /// How far the row stands from the top safe area beside the island, where the search under it starts below it.
+    private var rowTopOffset: CGFloat = 0
+
     private let background = TelegramBarBackgroundView(edge: .top)
     /// `UINavigationItem.prompt` (Reconnecting…, Saving…): a line above the title row, 30 pt like the system bar's.
     private let promptLabel = UILabel()
@@ -274,10 +277,12 @@ final class TelegramSideColumnView: UIView {
         super.layoutSubviews()
         background.frame = bounds
         promptLabel.frame = CGRect(x: 16, y: topInset, width: max(0, bounds.width - 32), height: promptHeight)
-        let rowY = topInset + promptHeight
+        let contentY = topInset + promptHeight
+        let rowY = contentY + rowTopOffset
         let edge = TelegramGlassPlatter.edgeInset
-        // The system's bar keeps a text button against the band beside its vertical bar.
-        let rightEdge = sideColumn == nil ? edge + trailingButtonsInset : 0
+        // The system's bar keeps a text button against the band beside its vertical bar, and its buttons against the
+        // status island.
+        let rightEdge = sideColumn != nil ? 0 : trailingButtonsInset > 0 ? trailingButtonsInset : edge
         var columnY = sideColumn?.minY ?? 0
         // Puts the platter in the side column if it goes there.
         func placeInColumn(_ platter: TelegramGlassPlatter) -> Bool {
@@ -314,7 +319,11 @@ final class TelegramSideColumnView: UIView {
             right -= TelegramGlassPlatter.interSectionSpacing
         }
         // The title centres on the band, over the list: beside iPhone Duo's strip that isn't the screen's middle.
-        let titleCenter = (safeAreaInsets.left + bounds.width - safeAreaInsets.right) / 2
+        // Beside
+        // the island the buttons are so far from even that it centres between them.
+        let titleCenter = trailingButtonsInset > 0
+            ? (left + right) / 2
+            : (safeAreaInsets.left + bounds.width - safeAreaInsets.right) / 2
         let titleHalfWidth = max(0, min(titleCenter - left, right - titleCenter) - 8)
         let titleFrame = CGRect(x: titleCenter - titleHalfWidth, y: rowY, width: titleHalfWidth * 2, height: 44)
         if subtitleLabel.isHidden {
@@ -329,11 +338,15 @@ final class TelegramSideColumnView: UIView {
                 ? 0
                 : 1
         }
-        // The search keeps to the band, and clear of the status island beside it.
-        let searchInsets = (left: safeAreaInsets.left, right: safeAreaInsets.right + trailingButtonsInset)
+        // The search keeps to the band. Under the row it starts below the status island and takes the band's whole
+        // width; open, it takes the row, clear of the island.
+        let searchInsets = (
+            left: safeAreaInsets.left,
+            right: safeAreaInsets.right + (searchActive ? trailingButtonsInset : 0),
+        )
         searchView?.frame = CGRect(
             x: searchInsets.left,
-            y: rowY + (searchActive ? 0 : 44),
+            y: searchActive ? rowY : contentY + 44,
             width: bounds.width - searchInsets.left - searchInsets.right,
             height: ChatListNavigationSearchView.contentHeight,
         )
@@ -383,6 +396,7 @@ final class TelegramSideColumnView: UIView {
     func applyIPhoneDuoLayout(_ layout: IPhoneDuoLayout?, host: UIView) {
         sideColumn = layout?.sideColumn
         trailingButtonsInset = layout?.trailingButtonsInset(rowTop: topInset) ?? 0
+        rowTopOffset = layout?.rowTopOffset(safeTop: topInset) ?? 0
         if sideColumn != nil {
             if columnView.superview !== host { host.addSubview(columnView) }
             columnView.frame = host.bounds

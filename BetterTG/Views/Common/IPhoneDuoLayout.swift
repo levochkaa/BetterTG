@@ -18,8 +18,9 @@ func telegramGridColumns(phoneColumns: Int, width: CGFloat) -> Int {
 ///
 /// Most of what the system reserves on the Duo is not an edge but a block in one corner, the status corner: clock,
 /// connectivity, camera. UIKit widens that block into a full-edge safe inset. Beside it content keeps to the band
-/// between the side insets, and the rest of the inset is a strip for the system's vertical bar, which this layout
-/// describes for our own bars. In unfolded portrait the block is an island beside a horizontal bar.
+/// between the side insets. In unfolded landscape the rest of the inset is a strip for the vertical bar, which this
+/// layout describes for our own bars; folded, our bars keep their buttons in the row. In unfolded portrait the block is
+/// an island beside a horizontal bar.
 ///
 /// | posture | window | safe insets (t, l, b, r) | block |
 /// |---|---|---|---|
@@ -48,8 +49,8 @@ struct IPhoneDuoLayout: Equatable {
         static let columnOuterMargin: CGFloat = 24
         static let columnItemPitch: CGFloat = 52
         static let columnSpacing: CGFloat = 12
-        /// Where a horizontal bar starts in every posture: the top inset is 0 beside a side strip and 82 beside the
-        /// island, and the system's bar stays at 24 in all of them.
+        /// Where a horizontal bar's row starts in every posture: the top inset is 0 beside a side strip and 82 beside
+        /// the island, and the system's bar stays at 24 in all of them.
         static let barTop: CGFloat = 24
 
         /// A capsule of `count` items.
@@ -60,7 +61,7 @@ struct IPhoneDuoLayout: Equatable {
 
     /// Nil without a side strip: back and the icon buttons stay in the bar's row.
     private(set) var sideColumn: SideColumn?
-    /// How much further than the safe area a bar's trailing buttons stay from the trailing edge, clear of the island.
+    /// How far from the trailing edge a bar's trailing buttons stop beside the island: right at it, as the system's do.
     private(set) var trailingButtonsInset: CGFloat
     /// How far down the island reaches, 0 without one.
     private(set) var islandHeight: CGFloat
@@ -70,6 +71,12 @@ struct IPhoneDuoLayout: Equatable {
     private(set) var bottomEdgeRightInset: CGFloat
 
     private let windowWidth: CGFloat
+
+    /// The top safe area of a screen under the root beside the island: the search field under a bar's row then starts
+    /// below it, and takes the whole width.
+    var islandSafeTop: CGFloat {
+        max(Metrics.barTop, islandHeight - TelegramGlassPlatter.height - ChatListNavigationSearchView.verticalInset)
+    }
 
     /// Nil for a window that doesn't fill one of the Duo's screens.
     init?(windowSize: CGSize, safeInsets: UIEdgeInsets, reportedBlocks: () -> [CGRect]) {
@@ -82,45 +89,34 @@ struct IPhoneDuoLayout: Equatable {
         func matches(_ size: CGSize) -> Bool {
             abs(portrait.width - size.width) <= 1 && abs(portrait.height - size.height) <= 1
         }
-        func column(left: Bool, minY: CGFloat) -> SideColumn {
-            let x = left
-                ? Metrics.columnOuterMargin
-                : windowSize.width - Metrics.columnOuterMargin - Metrics.columnWidth
-            return SideColumn(x: x, minY: minY)
-        }
-        // The blocks in a top corner. A frame counts only when it touches the corner and stays under half the window:
-        // a report after a rotation or fold can be another posture's shape.
-        func topBlocks(left: Bool) -> [CGRect] {
+        // The blocks in the top right corner. A frame counts only when it touches the corner and stays under half the
+        // window: a report after a rotation or fold can be another posture's shape.
+        func topRightBlocks() -> [CGRect] {
             reportedBlocks().filter {
-                $0.minY <= 0.5 && (left ? $0.minX <= 0.5 : $0.maxX >= windowSize.width - 0.5)
+                $0.minY <= 0.5 && $0.maxX >= windowSize.width - 0.5
                     && $0.height < windowSize.height / 2 && $0.width < windowSize.width / 2
             }
         }
-        // The height of a top block at least `height` tall and as wide as the strip.
-        func stripBlockHeight(_ height: CGFloat, left: Bool = false) -> CGFloat {
-            topBlocks(left: left)
-                .filter { abs($0.width - (left ? safeInsets.left : safeInsets.right)) <= 2 }
-                .reduce(height) { max($0, $1.height) }
-        }
         self.islandHeight = 0
         if matches(CGSize(width: 466, height: 678)) {
-            if !isLandscape {
-                self.sideColumn = column(left: false, minY: stripBlockHeight(174))
-            } else if safeInsets.left > 0 {
-                self.sideColumn = column(left: true, minY: stripBlockHeight(84, left: true))
-            } else {
-                self.sideColumn = column(left: false, minY: Metrics.barTop)
-            }
+            self.sideColumn = nil
             self.trailingButtonsInset = 0
             self.bottomEdgeRightInset = isLandscape && safeInsets.left == 0 ? safeInsets.right : 0
         } else if matches(CGSize(width: 669, height: 951)) {
             self.bottomEdgeRightInset = 0
             if isLandscape {
-                self.sideColumn = column(left: false, minY: stripBlockHeight(124))
+                // The height of a block at least 124 pt tall and as wide as the strip.
+                let minY = topRightBlocks()
+                    .filter { abs($0.width - safeInsets.right) <= 2 }
+                    .reduce(CGFloat(124)) { max($0, $1.height) }
+                self.sideColumn = SideColumn(
+                    x: windowSize.width - Metrics.columnOuterMargin - Metrics.columnWidth,
+                    minY: minY,
+                )
                 self.trailingButtonsInset = 0
             } else {
                 self.sideColumn = nil
-                let island = topBlocks(left: false).reduce(CGSize(width: 144, height: 82)) {
+                let island = topRightBlocks().reduce(CGSize(width: 144, height: 82)) {
                     CGSize(width: max($0.width, $1.width), height: max($0.height, $1.height))
                 }
                 self.trailingButtonsInset = island.width
@@ -129,6 +125,11 @@ struct IPhoneDuoLayout: Equatable {
         } else {
             return nil
         }
+    }
+
+    /// How far a bar's row moves from a top safe area `safeTop` to stand on the system's line beside the island.
+    func rowTopOffset(safeTop: CGFloat) -> CGFloat {
+        islandHeight > 0 && safeTop > Metrics.barTop && safeTop < islandHeight ? Metrics.barTop - safeTop : 0
     }
 
     /// `trailingButtonsInset` for a row that starts `rowTop` down: none once it stands below the island.
@@ -184,7 +185,7 @@ extension UIView {
     /// How much of its right safe inset a panel at the bottom edge gives up on iPhone Duo, where it spans the strip,
     /// a sheet's too.
     var iPhoneDuoBottomEdgeRightOutset: CGFloat {
-        guard let duoLayout = window?.windowIPhoneDuoLayout, duoLayout.sideColumn != nil else { return 0 }
+        guard let duoLayout = window?.windowIPhoneDuoLayout else { return 0 }
         return max(0, safeAreaInsets.right - duoLayout.bottomEdgeRightInset)
     }
 }
@@ -217,9 +218,11 @@ extension UIViewController {
         let top: CGFloat =
             if let layout = view.iPhoneDuoLayout {
                 // A full-screen modal's controls don't all know the island: it stays under it.
-                presentingViewController != nil && layout.islandHeight > 0
-                    ? 0
-                    : IPhoneDuoLayout.Metrics.barTop - window.safeAreaInsets.top
+                if layout.islandHeight > 0 {
+                    presentingViewController != nil ? 0 : layout.islandSafeTop - window.safeAreaInsets.top
+                } else {
+                    IPhoneDuoLayout.Metrics.barTop - window.safeAreaInsets.top
+                }
             } else if fillsWindow, isLandscape, window.safeAreaInsets.top == 0 {
                 IPhoneDuoLayout.Metrics.barTop
             } else {

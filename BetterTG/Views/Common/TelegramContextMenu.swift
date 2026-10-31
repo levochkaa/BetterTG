@@ -1520,8 +1520,12 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                 case (false, true): sourceFrame.maxY + menuSpacing
                 case (false, false): sourceFrame.minY - menuSpacing - menuHeight
                 }
+            // A button in iPhone Duo's strip opens its menu in its own place, over the strip, as the system's vertical
+            // bar does: never pushed back into the list.
+            let minX = min(menuMinX, sourceFrame.minX)
+            let maxX = max(menuMaxX, sourceFrame.maxX)
             targetMenuFrame = CGRect(
-                x: min(max(menuMinX, alignedX), menuMaxX - menuWidth),
+                x: min(max(minX, alignedX), maxX - menuWidth),
                 y: min(max(verticalInset, proposedY), max(verticalInset, maximumBottom - menuHeight)),
                 width: menuWidth,
                 height: menuHeight,
