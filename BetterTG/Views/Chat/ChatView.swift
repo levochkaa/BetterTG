@@ -255,6 +255,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
 
     private let messageSelectionToolbar = MessageSelectionToolbar()
     private var messageSelectionToolbarHeightConstraint: NSLayoutConstraint!
+    private var didLogRepeatedTimelineItems = false
     private let scrollToLatestButton = UIButton(type: .system)
     private let unreadBadgeLabel = TelegramUnreadBadgeLabel(minimumDiameter: 20, horizontalPadding: 11)
     private var scrollToLatestButtonVisible = false
@@ -5199,6 +5200,28 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         if !changed.isEmpty { mediaRevealSession.reconcile(changed) }
     }
 
+    /// A diffable snapshot aborts the app on a repeated identifier, which a whole chat shouldn't pay for one wrong row:
+    /// the first of them stays, and the log says what repeated and what the rows were made from.
+    private func uniqueTimelineItems(_ ids: [ChatTimelineItemID]) -> [ChatTimelineItemID] {
+        var seen = Set<ChatTimelineItemID>(minimumCapacity: ids.count)
+        var repeated = [ChatTimelineItemID]()
+        let unique = ids.filter { id in
+            let isNew = seen.insert(id).inserted
+            if !isNew { repeated.append(id) }
+            return isNew
+        }
+        if !repeated.isEmpty, !didLogRepeatedTimelineItems {
+            didLogRepeatedTimelineItems = true
+            let messages = chatVM.messages.prefix(100).map { "\($0.id):\($0.message.mediaAlbumId):\($0.message.date)" }
+            let unreadAfter = chatVM.unreadDividerAfterMessageID.map(String.init) ?? "none"
+            log(
+                "Timeline of chat \(chatVM.chatID) repeats \(repeated), unread after \(unreadAfter), "
+                    + "id:album:date \(messages.joined(separator: " "))",
+            )
+        }
+        return unique
+    }
+
     private func makeTimelineContent(_ demand: ChatTimelineSnapshotState.Demand) -> ChatTimelineSnapshotState.Content {
         reconcileChangedRevealRows()
         let wasSelectingMessages = isSelectingMessages
@@ -5214,7 +5237,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         }
         let threadHead = chatVM.messageThreadHeadDisplay
         let itemIDs = demand.structural
-            ? insertingSponsoredItems(into: ChatTimelineProjection.items(
+            ? uniqueTimelineItems(insertingSponsoredItems(into: ChatTimelineProjection.items(
                 messages: chatVM.messages.filter {
                     !timelineSnapshots.deleting.contains($0.displayedID) && !chatVM.holdsIncompleteOutgoingAlbum($0)
                         && !chatVM.holdsComposerSendMessage($0) && !Self.isUpgradeNotice($0.message.content)
@@ -5223,7 +5246,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
                 threadHeadID: threadHead?.id,
                 includesBotInfo: showsBotInfoRow,
                 unreadAfterMessageID: chatVM.unreadDividerAfterMessageID,
-            ))
+            )))
             : timelineSnapshots.committed.ids
         let models = Dictionary(chatVM.messages.map { ($0.displayedID, $0) }, uniquingKeysWith: { _, latest in latest })
         let messageRuns = chatVM.customChat.shouldShowProfileImage
