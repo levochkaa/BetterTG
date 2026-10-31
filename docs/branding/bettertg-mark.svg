@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">BetterTG mark</title>
+  <desc id="desc">A symmetric white paper plane on a transparent background.</desc>
+  <path id="plane" fill="#fff" d="
+    M 193.2150 192.2514
+    A 24 24 0 0 1 225.8104 161.4257
+    L 892.3063 483.1823
+    A 32 32 0 0 1 892.3063 540.8177
+    L 225.8104 862.5743
+    A 24 24 0 0 1 193.2150 831.7486
+    L 304.3225 564.4690
+    A 32 32 0 0 1 331.9657 544.8091
+    L 731.3854 520.9840
+    A 9 9 0 0 0 731.3854 503.0160
+    L 331.9657 479.1909
+    A 32 32 0 0 1 304.3225 459.5310
+    Z"/>
+</svg>
