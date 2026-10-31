@@ -24,6 +24,11 @@ import TDLibKit
 
     static let shared = TelegramChatListStore()
 
+    /// The shortest time between two `.chats` changes. A new client replays its whole state one update at a time, some
+    /// 7000 of them on every open, and each change costs the lists a pass over their rows. Telegram sees such a burst
+    /// as one Postbox transaction, so its lists get one change; here the changes of 100 ms make one.
+    private static let chatChangesInterval: TimeInterval = 0.1
+
     let changes = PassthroughSubject<Change, Never>()
     /// A chat's online member count changed (`updateChatOnlineMemberCount`, sent while the chat is open).
     let onlineMemberCountChanges = PassthroughSubject<Int64, Never>()
@@ -32,6 +37,12 @@ import TDLibKit
     private(set) var folderConfiguration: UpdateChatFolders?
 
     private var records = [Int64: ChatListRecord]()
+    /// `ChatListRecord.snapshot` builds a native object with a copy of the chat's last message, and every list holding
+    /// the chat asks for it.
+    private var chatSnapshots = [Int64: Chat]()
+    private var pendingChangedChatIDs = Set<Int64>()
+    private var isChatChangeScheduled = false
+    private var lastChatChange = DispatchTime.now()
     /// The chats of each peer, so a peer update finds them without going through every chat. A chat's type never
     /// changes, so the index is set once per chat.
     private var chatIDsByPeer = [PeerKey: Set<Int64>]()
@@ -62,6 +73,8 @@ import TDLibKit
             self.accountID = accountID
             self.clientID = clientID
             records = [:]
+            chatSnapshots = [:]
+            pendingChangedChatIDs = []
             chatIDsByPeer = [:]
             users = [:]
             groups = [:]
@@ -78,8 +91,9 @@ import TDLibKit
         case .updateNewChat(let value):
             let record = ChatListRecord(value.chat)
             records[value.chat.id] = record
+            chatSnapshots[value.chat.id] = nil
             if let key = Self.peerKey(of: record) { chatIDsByPeer[key, default: []].insert(value.chat.id) }
-            changes.send(.chats([value.chat.id]))
+            chatsChanged([value.chat.id])
         case .updateUser(let value):
             users[value.user.id] = value.user
             ChatListSenderNames.shared.receive(value.user, clientID: clientID)
@@ -242,8 +256,10 @@ import TDLibKit
               let position = record.positions.first(where: { $0.list == list && $0.order != 0 }),
               let type = peerType(for: record)
         else { return nil }
+        let snapshot = chatSnapshots[id] ?? record.snapshot
+        chatSnapshots[id] = snapshot
         return CustomChat(
-            chat: record.snapshot,
+            chat: snapshot,
             position: position,
             unreadCount: record.unreadCount,
             type: type,
@@ -297,12 +313,29 @@ import TDLibKit
         guard var record = records[id] else { return }
         body(&record)
         records[id] = record
-        changes.send(.chats([id]))
+        chatSnapshots[id] = nil
+        chatsChanged([id])
     }
 
     private func changedPeers(_ key: PeerKey) {
         guard let ids = chatIDsByPeer[key], !ids.isEmpty else { return }
-        changes.send(.chats(ids))
+        chatsChanged(ids)
+    }
+
+    /// A change after a quiet moment goes out at once; a burst's changes go out together.
+    private func chatsChanged(_ ids: Set<Int64>) {
+        pendingChangedChatIDs.formUnion(ids)
+        guard !isChatChangeScheduled else { return }
+        isChatChangeScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: lastChatChange + Self.chatChangesInterval) { [weak self] in
+            guard let self else { return }
+            isChatChangeScheduled = false
+            lastChatChange = .now()
+            guard !pendingChangedChatIDs.isEmpty else { return }
+            let ids = pendingChangedChatIDs
+            pendingChangedChatIDs = []
+            changes.send(.chats(ids))
+        }
     }
 }
 

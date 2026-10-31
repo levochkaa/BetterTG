@@ -23,7 +23,8 @@ import TDLibKit
     /// list loads none of them until the renewed client supplies the chat again.
     var isHeldThroughClientRenewal = false
 
-    var id: Int64 { chat.id }
+    /// Read for every row on every pass over a list; `chat.id` goes through `@Published` and the native object.
+    let id: Int64
 
     var displayTitle: String {
         if isSavedMessages { return L10n.telegram("Conversation.SavedMessages") }
@@ -142,6 +143,7 @@ import TDLibKit
         lastMessage: Message? = nil,
         draftMessage: DraftMessage? = nil,
     ) {
+        self.id = chat.id
         self.chat = chat
         self.position = position
         self.unreadCount = unreadCount

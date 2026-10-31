@@ -473,6 +473,8 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     private var chatsByID = [Int64: CustomChat]()
     private var pendingChangedChatIDs = Set<Int64>()
     private var chatUpdateScheduled = false
+    private var indexedChatsGeneration: Int?
+    private var didApplyFirstSnapshot = false
     private var isApplyingSnapshot = false
     private var snapshotNeedsApply = false
     private var pendingSnapshotAnimated = false
@@ -513,8 +515,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     }
 
     private var orderedChats: [CustomChat] {
-        folder.chats
-            .sorted { $0.position.order == $1.position.order ? $0.id > $1.id : $0.position.order > $1.position.order }
+        folder.chats.sortedByListOrder()
     }
 
     private var isArchivePage: Bool {
@@ -629,6 +630,13 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         #endif
     }
 
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        // What changed while the page was off screen is simply there when it shows.
+        pendingSnapshotAnimated = false
+        applyPendingSnapshot()
+    }
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         endPinnedReorder()
@@ -637,6 +645,9 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateIndicatorInsets()
+        if snapshotNeedsApply, !isApplyingSnapshot, !isReorderingPinnedChats, view.window != nil {
+            DispatchQueue.main.async { [weak self] in self?.applyPendingSnapshot() }
+        }
         guard !didSetInitialSearchOffset,
               clientViewportRestoration.snapshotIsApplied,
               tableView.bounds.width > 0, tableView.bounds.height > 0,
@@ -1011,29 +1022,27 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             guard let self else { return }
             updateSnapshot(animated: false, changedIDs: Set(folder.chats.map(\.id)))
         }
-        folder.chatDidChange
+        folder.chatsDidChange
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] chatID in
-                self?.scheduleChatUpdate(id: chatID)
+            .sink { [weak self] chatIDs in
+                self?.scheduleChatUpdate(ids: chatIDs)
             }
             .store(in: &cancellables)
     }
 
     private func rebuildChatIndex() {
+        guard indexedChatsGeneration != folder.chatsGeneration else { return }
+        indexedChatsGeneration = folder.chatsGeneration
         // Retain rows from the previous snapshot until its animations finish.
-        chatsByID.merge(
-            Dictionary(uniqueKeysWithValues: folder.chats.map { ($0.id, $0) }),
-            uniquingKeysWith: { _, latest in latest },
-        )
-        let currentIDs = Set(folder.chats.map(\.id))
-        for id in Array(prefetchTasks.keys) where !currentIDs.contains(id) {
+        chatsByID.merge(folder.chatsByID, uniquingKeysWith: { _, latest in latest })
+        for id in Array(prefetchTasks.keys) where folder.chatsByID[id] == nil {
             prefetchTasks[id]?.cancel()
             prefetchTasks[id] = nil
         }
     }
 
-    private func scheduleChatUpdate(id: Int64) {
-        pendingChangedChatIDs.insert(id)
+    private func scheduleChatUpdate(ids: Set<Int64>) {
+        pendingChangedChatIDs.formUnion(ids)
         guard !chatUpdateScheduled else { return }
         chatUpdateScheduled = true
         DispatchQueue.main.async { [weak self] in
@@ -1055,6 +1064,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     private func applyPendingSnapshot() {
         guard snapshotNeedsApply, !isApplyingSnapshot, !isReorderingPinnedChats else { return }
+        // A page off screen, behind a chat or another folder, catches up as it appears. Telegram keeps only the
+        // pages around the current one live.
+        guard viewIfLoaded?.window != nil || !didApplyFirstSnapshot else { return }
+        didApplyFirstSnapshot = true
         snapshotNeedsApply = false
         let animated = pendingSnapshotAnimated
         let changedIDs = pendingSnapshotChangedIDs
@@ -1129,8 +1142,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             }
             clientViewportRestoration.completeApply(applyToken)
             if !didSetInitialSearchOffset { view.setNeedsLayout() }
-            let retainedIDs = Set(dataSource.snapshot().itemIdentifiers).union(folder.chats.map(\.id))
-            chatsByID = chatsByID.filter { retainedIDs.contains($0.key) }
+            if chatsByID.count > folder.chatsByID.count {
+                let retainedIDs = Set(dataSource.snapshot().itemIdentifiers).union(folder.chatsByID.keys)
+                chatsByID = chatsByID.filter { retainedIDs.contains($0.key) }
+            }
             loadMoreChatsIfNeeded()
             DispatchQueue.main.async { [weak self] in self?.applyPendingSnapshot() }
         }

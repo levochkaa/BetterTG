@@ -282,6 +282,7 @@ extension RootVM {
             let ids = changedIDs ?? Set(store.chatIDs(in: folder.chatList)).union(folder.chats.map(\.id))
             var updated = folder.chats
             var membershipChanged = false
+            var changedRows = Set<Int64>()
             for id in ids {
                 guard let latest = store.customChat(id: id, in: folder.chatList) else {
                     // A renewing client has not listed this chat yet.
@@ -309,17 +310,14 @@ extension RootVM {
                     existing.draftMessage = latest.draftMessage
                     existing.type = latest.type
                     existing.isHeldThroughClientRenewal = false
-                    folder.chatDidChange.send(id)
+                    changedRows.insert(id)
                 } else {
                     updated.append(latest)
                     membershipChanged = true
                 }
             }
-            if membershipChanged {
-                folder.chats = updated.sorted {
-                    $0.position.order == $1.position.order ? $0.id > $1.id : $0.position.order > $1.position.order
-                }
-            }
+            if !changedRows.isEmpty { folder.chatsDidChange.send(changedRows) }
+            if membershipChanged { folder.chats = updated.sortedByListOrder() }
         }
     }
 

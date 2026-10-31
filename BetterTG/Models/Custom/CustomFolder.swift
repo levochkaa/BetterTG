@@ -3,6 +3,8 @@
 import Combine
 import TDLibKit
 
+// MARK: - CustomFolder
+
 @MainActor final class CustomFolder: ObservableObject {
     // MARK: Internal
 
@@ -13,15 +15,20 @@ import TDLibKit
     }
 
     @Published var chats: [CustomChat] {
-        didSet { chatsByID = Self.index(chats) }
+        didSet {
+            chatsByID = Self.index(chats)
+            chatsGeneration += 1
+        }
     }
 
     /// The folder's chats by ID, so a chat update finds its row without walking the list.
     private(set) var chatsByID: [Int64: CustomChat]
+    /// Grows whenever `chats` is set, so a page rebuilds what it derives from the membership only when it changed.
+    private(set) var chatsGeneration = 0
     @Published var isLoading = false
     @Published var loadError: String?
     var hasMoreChats = true
-    let chatDidChange = PassthroughSubject<Int64, Never>()
+    let chatsDidChange = PassthroughSubject<Set<Int64>, Never>()
     /// A folder's definition can change (name, included chats); the object, its page and its rows stay.
     private(set) var type: CustomFolderType
 
@@ -64,5 +71,15 @@ import TDLibKit
         guard case .folder(let current, _) = type, current.id == info.id else { return }
         type = .folder(info, definition)
         objectWillChange.send()
+    }
+}
+
+@MainActor extension [CustomChat] {
+    /// TDLib's list order. A row's order goes through `@Published` and the native object, so it's read once per row.
+    func sortedByListOrder() -> [CustomChat] {
+        let rows: [(chat: CustomChat, order: Int64)] = map { ($0, $0.position.order) }
+        return rows
+            .sorted { $0.order == $1.order ? $0.chat.id > $1.chat.id : $0.order > $1.order }
+            .map(\.chat)
     }
 }
