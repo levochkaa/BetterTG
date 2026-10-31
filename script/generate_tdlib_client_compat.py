@@ -17,6 +17,14 @@ REQUEST = re.compile(
     r"^    public static func ([A-Za-z][A-Za-z0-9]*)\((.*)\) -> TDRequest<([^>]+)> \{$",
     re.MULTILINE,
 )
+# What ReadmeDemo answers itself, through TDClientDemoResponses, in Debug builds.
+DEMO_REQUESTS = {
+    "closeChat", "createPrivateChat", "downloadFile", "getBasicGroup", "getBasicGroupFullInfo", "getChat",
+    "getChatHistory", "getChatMessageCount", "getChatPinnedMessage", "getChats", "getFile", "getMe", "getMessage",
+    "getMessageAvailableReactions", "getMessageProperties", "getMessages", "getRepliedMessage", "getSupergroup", "getSupergroupFullInfo",
+    "getTopChats", "getUser", "getUserFullInfo", "getUserProfilePhotos", "openChat", "searchChatMessages",
+    "searchChats", "searchRecentlyFoundChats", "viewMessages",
+}
 CLIENT_CALL = re.compile(
     r"\b(?:td|client|callbackClient)\.([a-z][A-Za-z0-9]*)\s*\("
 )
@@ -137,13 +145,22 @@ def main() -> None:
         arguments = ", ".join(argument(item) for item in canonical)
         for order in sorted(orders):
             ordered_parameters = ", ".join(parameters_by_name[label] for label in order)
-            lines.extend(
-                [
-                    f"    func {name}({ordered_parameters}) async throws -> {response} {{\n",
-                    f"        try await send(TDNativeRequests.{name}({arguments}))\n",
-                    "    }\n\n",
-                ]
-            )
+            lines.append(f"    func {name}({ordered_parameters}) async throws -> {response} {{\n")
+            if name in DEMO_REQUESTS:
+                demo_arguments = ", ".join(f'"{label}": {label} as Any' for label in canonical_names) or ":"
+                lines.extend(
+                    [
+                        "        #if DEBUG\n",
+                        f'        if let demo = TDClientDemoResponses.answer?("{name}", [{demo_arguments}]) as? {response} {{\n',
+                        "            return demo\n",
+                        "        }\n",
+                        "        #endif\n",
+                        f"        return try await send(TDNativeRequests.{name}({arguments}))\n",
+                    ]
+                )
+            else:
+                lines.append(f"        try await send(TDNativeRequests.{name}({arguments}))\n")
+            lines.append("    }\n\n")
     lines.append("}\n")
     output = "".join(lines)
     if not OUTPUT.exists() or OUTPUT.read_text() != output:

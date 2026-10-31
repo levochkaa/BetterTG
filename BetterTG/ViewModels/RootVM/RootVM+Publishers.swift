@@ -322,6 +322,12 @@ extension RootVM {
     }
 
     func loadMoreChats(in folder: CustomFolder) {
+        #if DEBUG
+        if ReadmeDemo.isActive {
+            folder.hasMoreChats = false
+            return
+        }
+        #endif
         // The shell of a starting account loads nothing before its client is ready; the ready notification loads.
         guard loggedIn, TDLib.shared.isActiveAccountReady, allFolders.contains(where: { $0 === folder }),
               !folder.isLoading, folder.hasMoreChats else { return }

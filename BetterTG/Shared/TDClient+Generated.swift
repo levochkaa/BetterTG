@@ -85,7 +85,12 @@ extension TDClient {
     }
 
     func closeChat(chatId: Int64) async throws -> TDNativeOk {
-        try await send(TDNativeRequests.closeChat(chatId: chatId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?("closeChat", ["chatId": chatId as Any]) as? TDNativeOk {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.closeChat(chatId: chatId))
     }
 
     func closeStory(storyId: Int, storyPosterChatId: Int64) async throws -> TDNativeOk {
@@ -105,7 +110,15 @@ extension TDClient {
     }
 
     func createPrivateChat(force: Bool, userId: Int64) async throws -> TDNativeChat {
-        try await send(TDNativeRequests.createPrivateChat(userId: userId, force: force))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "createPrivateChat",
+            ["userId": userId as Any, "force": force as Any],
+        ) as? TDNativeChat {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.createPrivateChat(userId: userId, force: force))
     }
 
     func createSupergroupChat(force: Bool, supergroupId: Int64) async throws -> TDNativeChat {
@@ -143,7 +156,21 @@ extension TDClient {
         priority: Int,
         synchronous: Bool,
     ) async throws -> TDNativeFile {
-        try await send(TDNativeRequests.downloadFile(
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "downloadFile",
+            [
+                "fileId": fileId as Any,
+                "priority": priority as Any,
+                "offset": offset as Any,
+                "limit": limit as Any,
+                "synchronous": synchronous as Any,
+            ],
+        ) as? TDNativeFile {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.downloadFile(
             fileId: fileId,
             priority: priority,
             offset: offset,
@@ -159,7 +186,21 @@ extension TDClient {
         limit: Int64,
         synchronous: Bool,
     ) async throws -> TDNativeFile {
-        try await send(TDNativeRequests.downloadFile(
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "downloadFile",
+            [
+                "fileId": fileId as Any,
+                "priority": priority as Any,
+                "offset": offset as Any,
+                "limit": limit as Any,
+                "synchronous": synchronous as Any,
+            ],
+        ) as? TDNativeFile {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.downloadFile(
             fileId: fileId,
             priority: priority,
             offset: offset,
@@ -245,11 +286,27 @@ extension TDClient {
     }
 
     func getBasicGroup(basicGroupId: Int64) async throws -> TDNativeBasicGroup {
-        try await send(TDNativeRequests.getBasicGroup(basicGroupId: basicGroupId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getBasicGroup",
+            ["basicGroupId": basicGroupId as Any],
+        ) as? TDNativeBasicGroup {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getBasicGroup(basicGroupId: basicGroupId))
     }
 
     func getBasicGroupFullInfo(basicGroupId: Int64) async throws -> TDNativeBasicGroupFullInfo {
-        try await send(TDNativeRequests.getBasicGroupFullInfo(basicGroupId: basicGroupId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getBasicGroupFullInfo",
+            ["basicGroupId": basicGroupId as Any],
+        ) as? TDNativeBasicGroupFullInfo {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getBasicGroupFullInfo(basicGroupId: basicGroupId))
     }
 
     func getCallbackQueryAnswer(
@@ -261,7 +318,12 @@ extension TDClient {
     }
 
     func getChat(chatId: Int64) async throws -> TDNativeChat {
-        try await send(TDNativeRequests.getChat(chatId: chatId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?("getChat", ["chatId": chatId as Any]) as? TDNativeChat {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getChat(chatId: chatId))
     }
 
     func getChatActiveStories(chatId: Int64) async throws -> TDNativeChatActiveStories {
@@ -287,7 +349,21 @@ extension TDClient {
         offset: Int,
         onlyLocal: Bool,
     ) async throws -> TDNativeMessages {
-        try await send(TDNativeRequests.getChatHistory(
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getChatHistory",
+            [
+                "chatId": chatId as Any,
+                "fromMessageId": fromMessageId as Any,
+                "offset": offset as Any,
+                "limit": limit as Any,
+                "onlyLocal": onlyLocal as Any,
+            ],
+        ) as? TDNativeMessages {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getChatHistory(
             chatId: chatId,
             fromMessageId: fromMessageId,
             offset: offset,
@@ -303,7 +379,21 @@ extension TDClient {
         limit: Int,
         onlyLocal: Bool,
     ) async throws -> TDNativeMessages {
-        try await send(TDNativeRequests.getChatHistory(
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getChatHistory",
+            [
+                "chatId": chatId as Any,
+                "fromMessageId": fromMessageId as Any,
+                "offset": offset as Any,
+                "limit": limit as Any,
+                "onlyLocal": onlyLocal as Any,
+            ],
+        ) as? TDNativeMessages {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getChatHistory(
             chatId: chatId,
             fromMessageId: fromMessageId,
             offset: offset,
@@ -322,7 +412,20 @@ extension TDClient {
         returnLocal: Bool,
         topicId: TDNativeMessageTopic?,
     ) async throws -> TDNativeCount {
-        try await send(TDNativeRequests.getChatMessageCount(
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getChatMessageCount",
+            [
+                "chatId": chatId as Any,
+                "topicId": topicId as Any,
+                "filter": filter as Any,
+                "returnLocal": returnLocal as Any,
+            ],
+        ) as? TDNativeCount {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getChatMessageCount(
             chatId: chatId,
             topicId: topicId,
             filter: filter,
@@ -336,7 +439,20 @@ extension TDClient {
         filter: TDNativeSearchMessagesFilter,
         returnLocal: Bool,
     ) async throws -> TDNativeCount {
-        try await send(TDNativeRequests.getChatMessageCount(
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getChatMessageCount",
+            [
+                "chatId": chatId as Any,
+                "topicId": topicId as Any,
+                "filter": filter as Any,
+                "returnLocal": returnLocal as Any,
+            ],
+        ) as? TDNativeCount {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getChatMessageCount(
             chatId: chatId,
             topicId: topicId,
             filter: filter,
@@ -359,7 +475,15 @@ extension TDClient {
     }
 
     func getChatPinnedMessage(chatId: Int64) async throws -> TDNativeMessage {
-        try await send(TDNativeRequests.getChatPinnedMessage(chatId: chatId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getChatPinnedMessage",
+            ["chatId": chatId as Any],
+        ) as? TDNativeMessage {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getChatPinnedMessage(chatId: chatId))
     }
 
     func getChatSparseMessagePositions(
@@ -379,7 +503,15 @@ extension TDClient {
     }
 
     func getChats(chatList: TDNativeChatList?, limit: Int) async throws -> TDNativeChats {
-        try await send(TDNativeRequests.getChats(chatList: chatList, limit: limit))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getChats",
+            ["chatList": chatList as Any, "limit": limit as Any],
+        ) as? TDNativeChats {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getChats(chatList: chatList, limit: limit))
     }
 
     func getCountries() async throws -> TDNativeCountries {
@@ -411,7 +543,12 @@ extension TDClient {
     }
 
     func getFile(fileId: Int) async throws -> TDNativeFile {
-        try await send(TDNativeRequests.getFile(fileId: fileId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?("getFile", ["fileId": fileId as Any]) as? TDNativeFile {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getFile(fileId: fileId))
     }
 
     func getFileDownloadedPrefixSize(fileId: Int, offset: Int64) async throws -> TDNativeFileDownloadedPrefixSize {
@@ -495,11 +632,24 @@ extension TDClient {
     }
 
     func getMe() async throws -> TDNativeUser {
-        try await send(TDNativeRequests.getMe())
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?("getMe", [:]) as? TDNativeUser {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getMe())
     }
 
     func getMessage(chatId: Int64, messageId: Int64) async throws -> TDNativeMessage {
-        try await send(TDNativeRequests.getMessage(chatId: chatId, messageId: messageId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getMessage",
+            ["chatId": chatId as Any, "messageId": messageId as Any],
+        ) as? TDNativeMessage {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getMessage(chatId: chatId, messageId: messageId))
     }
 
     func getMessageAvailableReactions(
@@ -507,7 +657,15 @@ extension TDClient {
         messageId: Int64,
         rowSize: Int,
     ) async throws -> TDNativeAvailableReactions {
-        try await send(TDNativeRequests.getMessageAvailableReactions(
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getMessageAvailableReactions",
+            ["chatId": chatId as Any, "messageId": messageId as Any, "rowSize": rowSize as Any],
+        ) as? TDNativeAvailableReactions {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getMessageAvailableReactions(
             chatId: chatId,
             messageId: messageId,
             rowSize: rowSize,
@@ -519,7 +677,15 @@ extension TDClient {
     }
 
     func getMessageProperties(chatId: Int64, messageId: Int64) async throws -> TDNativeMessageProperties {
-        try await send(TDNativeRequests.getMessageProperties(chatId: chatId, messageId: messageId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getMessageProperties",
+            ["chatId": chatId as Any, "messageId": messageId as Any],
+        ) as? TDNativeMessageProperties {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getMessageProperties(chatId: chatId, messageId: messageId))
     }
 
     func getMessageThread(chatId: Int64, messageId: Int64) async throws -> TDNativeMessageThreadInfo {
@@ -543,7 +709,15 @@ extension TDClient {
     }
 
     func getMessages(chatId: Int64, messageIds: [Int64]) async throws -> TDNativeMessages {
-        try await send(TDNativeRequests.getMessages(chatId: chatId, messageIds: messageIds))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getMessages",
+            ["chatId": chatId as Any, "messageIds": messageIds as Any],
+        ) as? TDNativeMessages {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getMessages(chatId: chatId, messageIds: messageIds))
     }
 
     func getOption(name: String) async throws -> TDNativeOptionValue {
@@ -577,7 +751,15 @@ extension TDClient {
     }
 
     func getRepliedMessage(chatId: Int64, messageId: Int64) async throws -> TDNativeMessage {
-        try await send(TDNativeRequests.getRepliedMessage(chatId: chatId, messageId: messageId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getRepliedMessage",
+            ["chatId": chatId as Any, "messageId": messageId as Any],
+        ) as? TDNativeMessage {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getRepliedMessage(chatId: chatId, messageId: messageId))
     }
 
     func getSavedAnimations() async throws -> TDNativeAnimations {
@@ -646,11 +828,27 @@ extension TDClient {
     }
 
     func getSupergroup(supergroupId: Int64) async throws -> TDNativeSupergroup {
-        try await send(TDNativeRequests.getSupergroup(supergroupId: supergroupId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getSupergroup",
+            ["supergroupId": supergroupId as Any],
+        ) as? TDNativeSupergroup {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getSupergroup(supergroupId: supergroupId))
     }
 
     func getSupergroupFullInfo(supergroupId: Int64) async throws -> TDNativeSupergroupFullInfo {
-        try await send(TDNativeRequests.getSupergroupFullInfo(supergroupId: supergroupId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getSupergroupFullInfo",
+            ["supergroupId": supergroupId as Any],
+        ) as? TDNativeSupergroupFullInfo {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getSupergroupFullInfo(supergroupId: supergroupId))
     }
 
     func getSupergroupMembers(
@@ -672,19 +870,48 @@ extension TDClient {
     }
 
     func getTopChats(category: TDNativeTopChatCategory, limit: Int) async throws -> TDNativeChats {
-        try await send(TDNativeRequests.getTopChats(category: category, limit: limit))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getTopChats",
+            ["category": category as Any, "limit": limit as Any],
+        ) as? TDNativeChats {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getTopChats(category: category, limit: limit))
     }
 
     func getUser(userId: Int64) async throws -> TDNativeUser {
-        try await send(TDNativeRequests.getUser(userId: userId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?("getUser", ["userId": userId as Any]) as? TDNativeUser {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getUser(userId: userId))
     }
 
     func getUserFullInfo(userId: Int64) async throws -> TDNativeUserFullInfo {
-        try await send(TDNativeRequests.getUserFullInfo(userId: userId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getUserFullInfo",
+            ["userId": userId as Any],
+        ) as? TDNativeUserFullInfo {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getUserFullInfo(userId: userId))
     }
 
     func getUserProfilePhotos(limit: Int, offset: Int, userId: Int64) async throws -> TDNativeChatPhotos {
-        try await send(TDNativeRequests.getUserProfilePhotos(userId: userId, offset: offset, limit: limit))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "getUserProfilePhotos",
+            ["userId": userId as Any, "offset": offset as Any, "limit": limit as Any],
+        ) as? TDNativeChatPhotos {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.getUserProfilePhotos(userId: userId, offset: offset, limit: limit))
     }
 
     func getWebAppUrl(
@@ -718,7 +945,12 @@ extension TDClient {
     }
 
     func openChat(chatId: Int64) async throws -> TDNativeOk {
-        try await send(TDNativeRequests.openChat(chatId: chatId))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?("openChat", ["chatId": chatId as Any]) as? TDNativeOk {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.openChat(chatId: chatId))
     }
 
     func openMessageContent(chatId: Int64, messageId: Int64) async throws -> TDNativeOk {
@@ -875,7 +1107,24 @@ extension TDClient {
         senderId: TDNativeMessageSender?,
         topicId: TDNativeMessageTopic?,
     ) async throws -> TDNativeFoundChatMessages {
-        try await send(TDNativeRequests.searchChatMessages(
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "searchChatMessages",
+            [
+                "chatId": chatId as Any,
+                "topicId": topicId as Any,
+                "query": query as Any,
+                "senderId": senderId as Any,
+                "fromMessageId": fromMessageId as Any,
+                "offset": offset as Any,
+                "limit": limit as Any,
+                "filter": filter as Any,
+            ],
+        ) as? TDNativeFoundChatMessages {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.searchChatMessages(
             chatId: chatId,
             topicId: topicId,
             query: query,
@@ -896,7 +1145,15 @@ extension TDClient {
         query: String,
         typeFilter: TDNativeSearchChatTypeFilter?,
     ) async throws -> TDNativeChats {
-        try await send(TDNativeRequests.searchChats(query: query, typeFilter: typeFilter, limit: limit))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "searchChats",
+            ["query": query as Any, "typeFilter": typeFilter as Any, "limit": limit as Any],
+        ) as? TDNativeChats {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.searchChats(query: query, typeFilter: typeFilter, limit: limit))
     }
 
     func searchChatsOnServer(
@@ -942,7 +1199,19 @@ extension TDClient {
         typeFilter: TDNativeSearchChatTypeFilter?,
         limit: Int,
     ) async throws -> TDNativeChats {
-        try await send(TDNativeRequests.searchRecentlyFoundChats(query: query, typeFilter: typeFilter, limit: limit))
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "searchRecentlyFoundChats",
+            ["query": query as Any, "typeFilter": typeFilter as Any, "limit": limit as Any],
+        ) as? TDNativeChats {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.searchRecentlyFoundChats(
+            query: query,
+            typeFilter: typeFilter,
+            limit: limit,
+        ))
     }
 
     func sendChatAction(
@@ -1125,7 +1394,20 @@ extension TDClient {
         messageIds: [Int64],
         source: TDNativeMessageSource?,
     ) async throws -> TDNativeOk {
-        try await send(TDNativeRequests.viewMessages(
+        #if DEBUG
+        if let demo = TDClientDemoResponses.answer?(
+            "viewMessages",
+            [
+                "chatId": chatId as Any,
+                "messageIds": messageIds as Any,
+                "source": source as Any,
+                "forceRead": forceRead as Any,
+            ],
+        ) as? TDNativeOk {
+            return demo
+        }
+        #endif
+        return try await send(TDNativeRequests.viewMessages(
             chatId: chatId,
             messageIds: messageIds,
             source: source,

@@ -52,6 +52,9 @@ import UserNotifications
     }
 
     func start() {
+        #if DEBUG
+        guard !ReadmeDemo.isActive else { return }
+        #endif
         guard !started else { return }
         started = true
 

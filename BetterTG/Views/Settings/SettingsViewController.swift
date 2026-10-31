@@ -236,6 +236,7 @@ final class SettingsViewController: UITableViewController {
             let accountRows: [Row] = TDLib.shared.sortedAccounts.map { .account($0.id) }
             #if DEBUG
                 // Telegram's debug accounts screen logs in on Production or Test.
+                if ReadmeDemo.isActive { return accountRows + [.addAccount] }
                 return accountRows + [.addAccount, .addTestServerAccount]
             #else
                 return accountRows + [.addAccount]

@@ -367,6 +367,22 @@ final class TDLib: @unchecked Sendable {
         retire(previous, accountID: discarded.id, endingSession: false, removeDirectory: true)
     }
 
+    #if DEBUG
+    /// `ReadmeDemo`: the client stays signed out, and these updates stand in for its own.
+    @MainActor func startReadmeDemo(me: User, updates: [Update]) {
+        guard let source = activeUpdateSource else { return }
+        storeAccountMetadata(me, accountID: source.accountID)
+        for incoming in updates {
+            if case .updateConnectionState(let update) = incoming { connectionStateSubject.send(update.state) }
+            TelegramChatListStore.shared.consume(incoming, accountID: source.accountID, clientID: source.clientID)
+            mediaUpdates.publish(incoming, source: source)
+            update(incoming, source: source)
+        }
+        publishAuthorizationState(.authorizationStateReady, source: source)
+        clientReadiness.update(ready: true, source: source)
+    }
+    #endif
+
     private func publishAuthorizationState(_ authorizationState: AuthorizationState, source: TdUpdateSource) {
         log("TDLib authorization state received: \(authorizationState.diagnosticName)")
         isActiveAccountReady = authorizationState == .authorizationStateReady
@@ -450,6 +466,9 @@ final class TDLib: @unchecked Sendable {
                 updates: mediaUpdates.fileUpdates,
             )
             activeClientChangesSubject.send(source)
+            #if DEBUG
+            ReadmeDemo.clientDidActivate()
+            #endif
 
             if notify {
                 nc.post(name: .activeTelegramAccountChanged, object: account.id)
@@ -473,6 +492,9 @@ final class TDLib: @unchecked Sendable {
                 retiringClientIDs.remove(client.id)
             }
 
+            #if DEBUG
+            guard !ReadmeDemo.isActive else { return }
+            #endif
             guard isActive(client: client, accountID: accountID) else { return }
             if lifecycleSuspended {
                 switch state {
@@ -506,6 +528,9 @@ final class TDLib: @unchecked Sendable {
             return
         }
 
+        #if DEBUG
+        guard !ReadmeDemo.isActive else { return }
+        #endif
         guard isActive(client: client, accountID: accountID) else { return }
         if case .updateConnectionState(let update) = incomingUpdate {
             connectionStateSubject.send(update.state)
