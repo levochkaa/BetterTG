@@ -924,6 +924,7 @@ struct AttachmentMediaSendRequest {
             }
             let isSelected = item.isRecents ? selectedID == nil : item.collection.localIdentifier == selectedID
             action.secondLine = (isSelected ? "✓ \(item.count)" : "\(item.count)", false)
+            action.isChosen = isSelected
             return action
         }
         presentTelegramContextMenu(sourceView: titleButton, actions: actions, presentationStyle: .sourceMorph)

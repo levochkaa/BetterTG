@@ -27,6 +27,11 @@ import UIKit
     static let separatorThickness = CGFloat(1)
     /// `menuCornerRadius`.
     static let menuCornerRadius = CGFloat(32)
+    /// How tall `_UIContextMenuListView` lets a menu be, measured on iOS 27.2 in every posture of iPhone Duo and on an
+    /// iPhone 18 Pro. Its rows scroll beyond that, or beyond what the screen leaves.
+    static let maximumMenuHeight = CGFloat(520)
+    /// The list's `verticalScrollIndicatorInsets`, which keep the indicator off the menu's corners.
+    static let scrollIndicatorVerticalInset = CGFloat(30)
     /// The shared highlight is inset like the system's largeItemContentShape: 10 pt on each side, with the
     /// menu radius less that inset, capped at half the row height.
     static let highlightInset = CGFloat(10)
@@ -194,6 +199,8 @@ struct TelegramContextMenuAction {
     /// ContextMenuActionItem's `.secondLineWithAttributedValue`: a fixed line under the title in the secondary colour,
     /// such as a peer row's "View Profile" with its arrow.
     var secondLine: (text: String, showsArrow: Bool)?
+    /// The row a too-tall menu opens scrolled to, as the list scrolls to its selected action.
+    var isChosen = false
     /// ContextMenuActionItem's `iconSource` with a peer's avatar, such as ChatSendAsPeerListContextItem's senders: the
     /// 30 pt avatar in the icon slot, ringed in the accent colour when chosen.
     var leadingPeer: TelegramContextMenuPeerIcon?
@@ -714,6 +721,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
 
     /// End of the visible close motion of a liquid morph, recorded at about 0.7 s (Telegram 7c2cfd6a1f).
     private static let liquidMorphCloseMotionDuration: TimeInterval = 0.7
+    /// `flashScrollIndicators` as the menu settles.
+    private static let scrollIndicatorFlashDelay: TimeInterval = 0.25
+    /// What a too-tall menu leaves a preview, spacing included.
+    private static let minimumPreviewHeight: CGFloat = 130
+    private static let minimumChatPreviewHeight: CGFloat = 230
 
     // MARK: Motion hold
 
@@ -792,6 +804,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
     private let menuContentView = UIView()
     /// Interactive public glass where the private material is unavailable.
     private let fallbackGlassView = UIVisualEffectView(effect: nil)
+    /// `_UIContextMenuListView`'s collection view: the rows and their highlight, clipped by the menu's glass.
+    private let menuScrollView = UIScrollView()
     private let menuStack = UIStackView()
     private let selectionHighlightView = UIView()
     private var previewView: UIView?
@@ -1023,9 +1037,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         layoutReactionStrip()
     }
 
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+    func scrollViewWillBeginDragging(_: UIScrollView) {
         // Scrolling takes the touch: no row stays highlighted and the preview stops following it.
-        guard scrollView === scroller else { return }
         finishTracking()
     }
 
@@ -1233,7 +1246,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         selectionHighlightView.layer.cornerCurve = .continuous
         selectionHighlightView.alpha = 0
         selectionHighlightView.isUserInteractionEnabled = false
-        menuContentView.addSubview(selectionHighlightView)
+        menuScrollView.frame = menuContentView.bounds
+        menuScrollView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        menuScrollView.configureAsContextMenuList(delegate: self)
+        menuContentView.addSubview(menuScrollView)
+        menuScrollView.addSubview(selectionHighlightView)
 
         menuStack.axis = .vertical
         menuStack.alignment = .fill
@@ -1247,12 +1264,13 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
             trailing: 0,
         )
         menuStack.translatesAutoresizingMaskIntoConstraints = false
-        menuContentView.addSubview(menuStack)
+        menuScrollView.addSubview(menuStack)
         NSLayoutConstraint.activate([
-            menuStack.topAnchor.constraint(equalTo: menuContentView.topAnchor),
-            menuStack.leadingAnchor.constraint(equalTo: menuContentView.leadingAnchor),
-            menuStack.trailingAnchor.constraint(equalTo: menuContentView.trailingAnchor),
-            menuStack.bottomAnchor.constraint(equalTo: menuContentView.bottomAnchor),
+            menuStack.topAnchor.constraint(equalTo: menuScrollView.contentLayoutGuide.topAnchor),
+            menuStack.leadingAnchor.constraint(equalTo: menuScrollView.contentLayoutGuide.leadingAnchor),
+            menuStack.trailingAnchor.constraint(equalTo: menuScrollView.contentLayoutGuide.trailingAnchor),
+            menuStack.bottomAnchor.constraint(equalTo: menuScrollView.contentLayoutGuide.bottomAnchor),
+            menuStack.widthAnchor.constraint(equalTo: menuScrollView.frameLayoutGuide.widthAnchor),
         ])
 
         view.addGestureRecognizer(touchRecognizer)
@@ -1405,13 +1423,27 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         for (button, constraint) in zip(actionButtons, actionHeightConstraints) {
             constraint.constant = TelegramContextMenuLayout.height(of: button.menuAction, menuWidth: menuWidth)
         }
-        let menuHeight = TelegramContextMenuLayout.contentVerticalInset * 2
+        let contentHeight = TelegramContextMenuLayout.contentVerticalInset * 2
             + actions.reduce(CGFloat.zero) { $0 + TelegramContextMenuLayout.height(of: $1, menuWidth: menuWidth) }
             + separatorHeight
         let bottomInset = max(view.safeAreaInsets.bottom, CGFloat(12))
         let maximumBottom = layoutSourceTabs(bottom: view.bounds.height - bottomInset, availableWidth: availableWidth)
         menuTopLimit = verticalInset
         menuBottomLimit = maximumBottom
+        // A menu beside a message keeps its full height: they scroll together, and the rows have no scroll of their
+        // own.
+        let room: CGFloat =
+            switch presentationStyle {
+            case .message: contentHeight
+            case .sourceMorph: maximumBottom - min(verticalInset, sourceFrame.minY)
+            case .menuOnly: maximumBottom - verticalInset
+            case .avatar: maximumBottom - verticalInset - Self.minimumPreviewHeight
+            case .chatPreview: maximumBottom - verticalInset - Self.minimumChatPreviewHeight
+            }
+        let menuHeight = presentationStyle == .message
+            ? contentHeight
+            : min(contentHeight, TelegramContextMenuLayout.maximumMenuHeight, max(room, 0))
+        menuScrollView.isScrollEnabled = menuHeight < contentHeight
 
         switch presentationStyle {
         case .message:
@@ -1674,7 +1706,13 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         previewContainer.isHidden = false
         if previewController != nil { sourceView?.alpha = 0 }
         holdAnimatedEmoji(for: Self.motionHoldDuration)
+        scrollToChosenRow()
         if !startLiquidMorphIn() { animateMenuIn() }
+        if menuScrollView.isScrollEnabled {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.scrollIndicatorFlashDelay) { [weak self] in
+                self?.menuScrollView.flashScrollIndicators()
+            }
+        }
         UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
             self.backgroundEffectView.alpha = 1
         }
@@ -1734,6 +1772,16 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
                 self.sourceFooterLabel.alpha = self.sources[self.activeSourceIndex].footer == nil ? 0 : 1
             }
         }
+    }
+
+    /// `_shouldScrollToSelectedAction`: a menu too tall for its place opens with its chosen row in view.
+    private func scrollToChosenRow() {
+        guard menuScrollView.isScrollEnabled,
+              let button = actionButtons.first(where: \.menuAction.isChosen) else { return }
+        menuView.layoutIfNeeded()
+        let row = button.convert(button.bounds, to: menuScrollView)
+        let maximumOffset = max(0, menuScrollView.contentSize.height - menuScrollView.bounds.height)
+        menuScrollView.contentOffset.y = min(max(0, row.midY - menuScrollView.bounds.height / 2), maximumOffset)
     }
 
     /// Telegram's actions animation: the menu springs out of its source, starting at its edge next to the
@@ -2378,7 +2426,11 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         let parentView: UIView = submenus.last ?? menuView
         let submenu = TelegramContextSubmenuView(action: button.menuAction)
         submenu.sourceButton = button
-        submenu.setExpandedWidth(parentView.bounds.width)
+        submenu.setExpandedSize(
+            width: parentView.bounds.width,
+            maximumHeight: min(TelegramContextMenuLayout.maximumMenuHeight, menuBottomLimit - menuTopLimit),
+            delegate: self,
+        )
         for child in submenu.buttons {
             child.onActivate = { [weak self, weak child] in
                 guard let self, let child else { return }
@@ -2748,7 +2800,7 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         cancelAutoNavigation()
         highlightedIndex = index
         let highlight = submenus.last?.highlightView ?? selectionHighlightView
-        let host = submenus.last?.contentView ?? menuContentView
+        let host = submenus.last?.contentView ?? menuScrollView
         let buttons = activeButtons
         guard let index, buttons.indices.contains(index) else {
             ContextMenuNativeAnimation.animate(
@@ -2832,9 +2884,22 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         guard !selectable.isEmpty else { return }
         guard let highlightedIndex, let position = selectable.firstIndex(of: highlightedIndex) else {
             setHighlight(step > 0 ? selectable.first : selectable.last)
+            revealHighlightedRow()
             return
         }
         setHighlight(selectable[min(max(0, position + step), selectable.count - 1)])
+        revealHighlightedRow()
+    }
+
+    /// Keys can reach a row outside a scrolling menu's view. A finger only reaches what it sees.
+    private func revealHighlightedRow() {
+        guard submenus.isEmpty, let highlightedIndex, actionButtons.indices.contains(highlightedIndex) else { return }
+        let button = actionButtons[highlightedIndex]
+        menuScrollView.scrollRectToVisible(
+            button.convert(button.bounds, to: menuScrollView)
+                .insetBy(dx: 0, dy: -TelegramContextMenuLayout.contentVerticalInset),
+            animated: true,
+        )
     }
 
     private func typeSelect(_ character: String) {
@@ -2847,7 +2912,10 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         let index = activeButtons.firstIndex {
             $0.acceptsSelection && $0.menuAction.title.lowercased().hasPrefix(typeSelectText)
         }
-        if let index { setHighlight(index) }
+        if let index {
+            setHighlight(index)
+            revealHighlightedRow()
+        }
     }
 
     // MARK: Pointer
@@ -2972,6 +3040,26 @@ private final class TelegramContextMenuSectionDivider: UIView {
     }
 }
 
+// MARK: - UIScrollView + configureAsContextMenuList
+
+private extension UIScrollView {
+    /// `_UIContextMenuListView`'s collection view, as measured on iOS 27.2: the safe area is the menu's business, the
+    /// indicator keeps off the corners, and without an overflow a new touch scrubs the rows instead.
+    func configureAsContextMenuList(delegate: UIScrollViewDelegate) {
+        self.delegate = delegate
+        contentInsetAdjustmentBehavior = .never
+        automaticallyAdjustsScrollIndicatorInsets = false
+        showsHorizontalScrollIndicator = false
+        verticalScrollIndicatorInsets = UIEdgeInsets(
+            top: TelegramContextMenuLayout.scrollIndicatorVerticalInset,
+            left: 0,
+            bottom: TelegramContextMenuLayout.scrollIndicatorVerticalInset,
+            right: 0,
+        )
+        isScrollEnabled = false
+    }
+}
+
 // MARK: - TelegramContextSubmenuView
 
 /// The system submenu (`_UIContextMenuStackedHierarchyLayout navigateDownFromNode:`, iOS 26.5 and 27.2): a glass
@@ -3012,6 +3100,8 @@ private final class TelegramContextSubmenuView: UIView {
     /// The rows where they sit in the open card; while closed they move up and left by the card's insets, so the
     /// header lies exactly on the source row.
     private let rowsView = UIView()
+    /// The actions under the header, which scroll in a card too tall for its place.
+    private let childrenScrollView = UIScrollView()
     private let divider = UIView()
     /// Carries the menu glass, which draws past its bounds while it stretches under a finger, and the rows.
     private let backgroundView = UIView()
@@ -3077,7 +3167,9 @@ private final class TelegramContextSubmenuView: UIView {
         contentView.addSubview(rowsView)
         divider.backgroundColor = TelegramContextMenuLayout.separatorColor
         rowsView.addSubview(divider)
-        buttons.forEach(rowsView.addSubview)
+        rowsView.addSubview(headerButton)
+        rowsView.addSubview(childrenScrollView)
+        childButtons.forEach(childrenScrollView.addSubview)
     }
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
@@ -3095,10 +3187,11 @@ private final class TelegramContextSubmenuView: UIView {
         rowsView.frame = CGRect(x: 0, y: 0, width: expandedWidth, height: expandedHeight)
     }
 
-    /// Lays the rows out for an open card as wide as the parent menu.
-    func setExpandedWidth(_ width: CGFloat) {
+    /// Lays the rows out for an open card as wide as the parent menu and no taller than `maximumHeight`.
+    func setExpandedSize(width: CGFloat, maximumHeight: CGFloat, delegate: UIScrollViewDelegate) {
         guard width != expandedWidth else { return }
         expandedWidth = width
+        childrenScrollView.configureAsContextMenuList(delegate: delegate)
         var originY = TelegramContextMenuLayout.contentVerticalInset
         let headerHeight = TelegramContextMenuLayout.height(of: headerButton.menuAction, menuWidth: width)
         headerButton.frame = CGRect(x: 0, y: originY, width: width, height: headerHeight)
@@ -3111,12 +3204,17 @@ private final class TelegramContextSubmenuView: UIView {
             height: lineHeight,
         )
         originY += TelegramContextMenuLayout.sectionSeparatorHeight
+        var childY = CGFloat.zero
         for button in childButtons {
             let height = TelegramContextMenuLayout.height(of: button.menuAction, menuWidth: width)
-            button.frame = CGRect(x: 0, y: originY, width: width, height: height)
-            originY += height
+            button.frame = CGRect(x: 0, y: childY, width: width, height: height)
+            childY += height
         }
-        expandedHeight = originY + TelegramContextMenuLayout.contentVerticalInset
+        let contentHeight = childY + TelegramContextMenuLayout.contentVerticalInset
+        expandedHeight = min(originY + contentHeight, maximumHeight)
+        childrenScrollView.frame = CGRect(x: 0, y: originY, width: width, height: expandedHeight - originY)
+        childrenScrollView.contentSize = CGSize(width: width, height: contentHeight)
+        childrenScrollView.isScrollEnabled = contentHeight > childrenScrollView.frame.height
         setNeedsLayout()
     }
 
