@@ -64,6 +64,7 @@ import UIKit
     private let filterPicker = FolderPickerView()
     /// The filter strip's place without the keyboard, above the screen's own bottom inset.
     private var filterRestingTopConstraint: NSLayoutConstraint?
+    private var isApplyingSafeArea = false
     private let filterResults = ChatListSearchFilterResultsView()
     private let downloadsView = ChatListDownloadsView()
     /// Whether TDLib's download list has files, which adds the Downloads tab (`hasDownloads`).
@@ -140,15 +141,18 @@ import UIKit
     }
 
     /// The lists start below the bar and end above the filter strip, and the keyboard under it, through the safe
-    /// area, which their scroll views inset by.
+    /// area, which their scroll views inset by. Hidden results follow nothing: `restAtTop` lays them out as they come
+    /// into view.
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        let outer = UIEdgeInsets(
-            top: view.safeAreaInsets.top - additionalSafeAreaInsets.top,
-            left: 0,
-            bottom: view.safeAreaInsets.bottom - additionalSafeAreaInsets.bottom,
-            right: 0,
-        )
+        // The pass this one starts below only carries the new safe area down to the lists.
+        guard !isApplyingSafeArea, !view.isHidden else { return }
+        isApplyingSafeArea = true
+        defer { isApplyingSafeArea = false }
+        // The screen's safe area, as the results fill it. Taking this view's own less its additions would feed the
+        // result back: UIKit keeps its safe area through a change of a rounding error, so on a fractional inset that
+        // difference drifts on every pass and never settles.
+        let outer = parent?.view.safeAreaInsets ?? .zero
         let restingTop = -FolderPickerView.barHeight - outer.bottom
         if filterRestingTopConstraint?.constant != restingTop {
             filterRestingTopConstraint?.constant = restingTop
@@ -215,9 +219,9 @@ import UIKit
         return ids.filter { seen.insert($0).inserted }
     }
 
-    /// Results coming into view start at their top. A hidden list gets no layout, so it can't follow the bar on its
-    /// own.
+    /// Results coming into view start at their top, under the bar as it is now: hidden, they didn't follow it.
     func restAtTop() {
+        view.setNeedsLayout()
         view.layoutIfNeeded()
         tableView.contentOffset.y = -tableView.adjustedContentInset.top
     }
