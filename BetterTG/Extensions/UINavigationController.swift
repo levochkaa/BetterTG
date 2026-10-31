@@ -16,11 +16,15 @@ import UIKit
 
 final class TelegramNavigationController: UINavigationController, UIGestureRecognizerDelegate,
 UINavigationControllerDelegate {
+    /// True while the split hands screens from one pane to the other: they aren't leaving navigation.
+    static var isRelocatingScreens = false
+
     /// The longest a push waits: a screen whose content takes longer, such as one still downloading, shows as it is.
     private static let readinessTimeout: TimeInterval = 0.5
 
     /// Called after every completed push, pop or replacement, once classic chrome is settled.
     var onDidShow: ((UIViewController) -> Void)?
+    weak var splitController: TelegramSplitViewController?
 
     private var chromeStates = [ObjectIdentifier: TelegramNavigationChromeState]()
     /// A push waiting for its screen's first content, held until then; a later push takes its place, as Telegram's
@@ -47,6 +51,9 @@ UINavigationControllerDelegate {
     /// An animated push of a screen that reports its readiness loads the screen at its size and starts the push
     /// once the screen is ready, or after `readinessTimeout`.
     override func pushViewController(_ viewController: UIViewController, animated: Bool) {
+        if let splitController, splitController.redirectsPush(of: viewController, on: self) {
+            return splitController.pushDetail(viewController, animated: animated)
+        }
         guard animated, let readiness = viewController as? TelegramTransitionReadiness else {
             pendingPush = nil
             super.pushViewController(viewController, animated: animated)
@@ -67,6 +74,14 @@ UINavigationControllerDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.readinessTimeout, execute: push)
     }
 
+    /// In a split window the one stack spreads over both panes.
+    override func setViewControllers(_ viewControllers: [UIViewController], animated: Bool) {
+        if let splitController, splitController.isSplit, splitController.master === self {
+            return splitController.setLogicalStack(viewControllers, animated: animated)
+        }
+        super.setViewControllers(viewControllers, animated: animated)
+    }
+
     override func setNavigationBarHidden(_: Bool, animated _: Bool) {
         // Native iOS 26 navigation stays out of every transition, including its
         // first frame. Each screen either owns chrome or uses the 44pt host below.
@@ -80,6 +95,36 @@ UINavigationControllerDelegate {
         for state in chromeStates.values {
             state.layout()
         }
+    }
+
+    /// Sets this navigation controller's own screens; the split uses it to place them.
+    func setStackDirectly(_ viewControllers: [UIViewController], animated: Bool) {
+        super.setViewControllers(viewControllers, animated: animated)
+    }
+
+    /// Shows `controller` directly above the root, once it is ready as a push waits, without a slide: the split's
+    /// detail pane changes chats in place.
+    func replaceStackAboveRoot(with controller: UIViewController) {
+        guard let root = viewControllers.first else { return }
+        pendingPush = controller
+        controller.loadViewIfNeeded()
+        controller.view.frame = view.bounds
+        controller.view.layoutIfNeeded()
+        var isShown = false
+        let show = { [weak self, weak controller] in
+            guard !isShown, let self, let controller, pendingPush === controller else { return }
+            isShown = true
+            pendingPush = nil
+            setStackDirectly([root, controller], animated: false)
+        }
+        guard let readiness = controller as? TelegramTransitionReadiness else { return show() }
+        readiness.whenReadyForTransition(show)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.readinessTimeout, execute: show)
+    }
+
+    /// The first real screen of the split's detail pane has nothing to go back to.
+    func isDetailPaneRoot(_ controller: UIViewController) -> Bool {
+        splitController?.detail === self && viewControllers.dropFirst().first === controller
     }
 
     /// Re-reads a screen's navigation item and search for a change KVO doesn't report, such as a conditional search.

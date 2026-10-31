@@ -365,12 +365,13 @@ import UIKit
 
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
-        if parent == nil { retireReads() }
+        if parent == nil, !TelegramNavigationController.isRelocatingScreens { retireReads() }
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        if navigationController?.viewControllers.contains(where: { $0 === self }) != true { retireReads() }
+        if navigationController?.viewControllers.contains(where: { $0 === self }) != true,
+           !TelegramNavigationController.isRelocatingScreens { retireReads() }
     }
 
     override func scrollViewWillBeginDragging(_: UIScrollView) { pendingAnchor = nil }

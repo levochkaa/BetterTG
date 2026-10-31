@@ -612,7 +612,7 @@ ClientRestorableNavigationEntry {
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        guard isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
+        guard isLeavingNavigation || navigationController?.isBeingDismissed == true else { return }
         sharedMessageRefresh?.stop()
         cancelSharedItemDownload(cancelInTDLib: true)
         metadataPreparation.cancel()

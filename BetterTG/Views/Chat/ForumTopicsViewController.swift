@@ -263,7 +263,7 @@ import UIKit
 
     override func didMove(toParent parent: UIViewController?) {
         super.didMove(toParent: parent)
-        guard parent == nil else { return }
+        guard parent == nil, !TelegramNavigationController.isRelocatingScreens else { return }
         retired = true
         retireModel()
         cancelPreparation()
@@ -1193,7 +1193,7 @@ import UIKit
             forumTopic: topic,
             targetMessageID: targetMessageID,
             targetQuote: quote,
-        ))
+        ), fromList: true)
         return true
     }
 
@@ -1209,7 +1209,7 @@ import UIKit
             forumTopic: result.topic,
             targetMessageID: result.message.id,
             targetQuote: nil,
-        ))
+        ), fromList: true)
     }
 
     /// Telegram's forum title opens the group's info (ChatListController.updateForum, tapped).

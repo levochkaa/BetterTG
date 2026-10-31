@@ -17,7 +17,8 @@ extension UINavigationController {
     /// title; choosing one pops back to it, as Back would, past a screen that holds Back for unsaved changes.
     func telegramBackMenuActions(below controller: UIViewController) -> [TelegramContextMenuAction] {
         guard let index = viewControllers.firstIndex(of: controller), index > 0 else { return [] }
-        return viewControllers[..<index].reversed().map { target in
+        let targets = viewControllers[..<index].reversed().filter { !($0 is TelegramSplitPlaceholderViewController) }
+        return targets.map { target in
             TelegramContextMenuAction(title: Self.backMenuTitle(of: target)) { [
                 weak self,
                 weak target,

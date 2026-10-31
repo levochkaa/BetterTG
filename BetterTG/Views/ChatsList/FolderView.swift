@@ -575,6 +575,11 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        NavigationStorage.shared
+            .splitSelectedChatID
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateSplitSelection() }
+            .store(in: &cancellables)
         view.backgroundColor = .systemGroupedBackground
         tableView.backgroundColor = .systemGroupedBackground
         tableView.separatorStyle = .none
@@ -691,9 +696,10 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             updateChatSelection()
             return
         }
-        tableView.deselectRow(at: indexPath, animated: true)
+        // The split's list keeps the row of the chat it shows selected.
+        if !NavigationStorage.shared.splitController.isSplit { tableView.deselectRow(at: indexPath, animated: true) }
         guard let chatID = dataSource.itemIdentifier(for: indexPath), let chat = chat(for: chatID) else { return }
-        NavigationStorage.shared.push(.customChat(chat))
+        NavigationStorage.shared.push(.customChat(chat), fromList: true)
     }
 
     override func tableView(_: UITableView, didDeselectRowAt indexPath: IndexPath) {
@@ -1091,6 +1097,7 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
             isApplyingSnapshot = false
             // Reloaded rows lose their checks; the selection puts them back and drops chats that left the list.
             updateChatSelection()
+            updateSplitSelection()
             // UIKit can re-anchor the previous first row during the update animation; bring the top back.
             if let restingTopOffset, !isInteractingWithList, !tableView.isTracking {
                 let target = restingTopOffset - tableView.adjustedContentInset.top
@@ -1674,6 +1681,20 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
     /// Keeps the checks, the title and the toolbar in step with the selection (chatListSelectionOptions): Read needs
     /// an unread chat, or Read All an unread chat in the list; Archive leaves out Saved Messages and service
     /// notifications.
+    /// The row of the chat the split's detail pane shows stays highlighted, as ChatListController's
+    /// `updateNavigationCustomData` does.
+    private func updateSplitSelection() {
+        guard selectedChatIDs == nil, isViewLoaded else { return }
+        let chatID = NavigationStorage.shared.splitSelectedChatID.value
+        for indexPath in tableView.indexPathsForSelectedRows ?? []
+            where dataSource.itemIdentifier(for: indexPath) != chatID
+        {
+            tableView.deselectRow(at: indexPath, animated: false)
+        }
+        guard let chatID, let indexPath = dataSource.indexPath(for: chatID) else { return }
+        tableView.selectRow(at: indexPath, animated: false, scrollPosition: .none)
+    }
+
     private func updateChatSelection() {
         guard var selected = selectedChatIDs, isViewLoaded else { return }
         let displayed = Set(dataSource.snapshot().itemIdentifiers)

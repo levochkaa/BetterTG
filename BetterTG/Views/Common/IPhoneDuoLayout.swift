@@ -58,16 +58,19 @@ struct IPhoneDuoLayout: Equatable {
     }
 
     /// Nil without a side strip: back and the icon buttons stay in the bar's row.
-    let sideColumn: SideColumn?
+    private(set) var sideColumn: SideColumn?
     /// How much further than the safe area a bar's trailing buttons stay from the trailing edge, clear of the island.
-    let trailingButtonsInset: CGFloat
+    private(set) var trailingButtonsInset: CGFloat
     /// The right inset of a panel at the bottom edge, which spans the strip and keeps clear only of a block that
     /// reaches
     /// its row.
-    let bottomEdgeRightInset: CGFloat
+    private(set) var bottomEdgeRightInset: CGFloat
+
+    private let windowWidth: CGFloat
 
     /// Nil for a window that doesn't fill one of the Duo's screens.
     init?(windowSize: CGSize, safeInsets: UIEdgeInsets, reportedBlocks: () -> [CGRect]) {
+        self.windowWidth = windowSize.width
         let isLandscape = windowSize.width > windowSize.height
         let portrait = CGSize(
             width: min(windowSize.width, windowSize.height),
@@ -109,6 +112,21 @@ struct IPhoneDuoLayout: Equatable {
             return nil
         }
     }
+
+    /// This layout for a column between `minX` and `maxX` of the window, in the column's coordinates. Only a column
+    /// that
+    /// reaches the strip has it, and a column that reaches the island keeps clear of it.
+    func forPane(minX: CGFloat, maxX: CGFloat) -> IPhoneDuoLayout {
+        var layout = self
+        let reachesRight = maxX >= windowWidth - 1
+        layout.sideColumn = sideColumn.flatMap { column in
+            let inPane = column.x >= minX && column.x + Metrics.columnWidth <= maxX
+            return inPane ? SideColumn(x: column.x - minX, minY: column.minY) : nil
+        }
+        layout.trailingButtonsInset = reachesRight ? trailingButtonsInset : 0
+        layout.bottomEdgeRightInset = reachesRight ? bottomEdgeRightInset : 0
+        return layout
+    }
 }
 
 // MARK: - UIWindow + windowIPhoneDuoLayout
@@ -129,10 +147,13 @@ extension UIView {
     var iPhoneDuoLayout: IPhoneDuoLayout? {
         guard let window else { return nil }
         let frame = convert(bounds, to: window)
-        guard abs(frame.width - window.bounds.width) <= 1, abs(frame.height - window.bounds.height) <= 1,
+        // A screen in a column of the split is measured against the column. It may be sliding in from the side.
+        let pane = sequence(first: self as UIView, next: \.superview).first { $0 is TelegramSplitPaneView }
+        let paneFrame = pane?.convert(pane?.bounds ?? .zero, to: window) ?? window.bounds
+        guard abs(frame.width - paneFrame.width) <= 1, abs(frame.height - window.bounds.height) <= 1,
               abs(frame.minY) <= 1
         else { return nil }
-        return window.windowIPhoneDuoLayout
+        return window.windowIPhoneDuoLayout?.forPane(minX: paneFrame.minX, maxX: paneFrame.maxX)
     }
 }
 

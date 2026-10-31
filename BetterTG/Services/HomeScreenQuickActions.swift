@@ -104,8 +104,8 @@ import UIKit
         else { return }
         pendingAction = nil
         dismissActiveTelegramContextMenu()
-        let navigation = NavigationStorage.shared.navigationController
-        let main = navigation.viewControllers.first as? MainViewController
+        let navigation = NavigationStorage.shared.activeNavigationController
+        let main = NavigationStorage.shared.viewControllers.first as? MainViewController
         switch action {
         case .search:
             // TelegramRootController.openChatsController(activateSearch: true)

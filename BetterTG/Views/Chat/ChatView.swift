@@ -757,7 +757,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             pauseInlineVideoPlayback(excluding: nil)
         }
         guard presentationMode == .full,
-              isMovingFromParent || navigationController?.isBeingDismissed == true else { return }
+              isLeavingNavigation || navigationController?.isBeingDismissed == true else { return }
         endMessageSelection()
         isTerminatingNavigation = true
         videoNoteRecorder?.teardownForNavigation()
@@ -782,6 +782,9 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         super.viewWillAppear(animated)
         isTerminatingNavigation = false
         if presentationMode == .full {
+            customNavigationBar.setBackButtonHidden(
+                (navigationController as? TelegramNavigationController)?.isDetailPaneRoot(self) == true,
+            )
             chatVM.resumeVoiceRecordingInteraction()
             navigationController?.setNavigationBarHidden(true, animated: animated)
         }

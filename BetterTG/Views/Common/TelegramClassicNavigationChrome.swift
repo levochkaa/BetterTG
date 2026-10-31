@@ -148,7 +148,8 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         bar.configure(
             item: item,
             fallbackTitle: controller.title,
-            showsBack: navigation.viewControllers.first !== controller,
+            showsBack: navigation.viewControllers.first !== controller
+                && (navigation as? TelegramNavigationController)?.isDetailPaneRoot(controller) != true,
             searchController: (controller as? TelegramNavigationSearchProvider)?.telegramNavigationSearch
                 ?? (controller as? TelegramConditionalNavigationSearchProvider)?.shownTelegramNavigationSearch,
         )

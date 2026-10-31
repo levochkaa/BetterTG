@@ -1,5 +1,6 @@
 // NavigationStorage.swift
 
+import Combine
 import TDLibKit
 import UIKit
 
@@ -9,11 +10,19 @@ import UIKit
     static let shared = NavigationStorage()
 
     let navigationController = TelegramNavigationController()
+    private(set) lazy var splitController = TelegramSplitViewController(master: navigationController)
+    /// The chat the detail pane shows while the window is split, for the lists to highlight.
+    let splitSelectedChatID = CurrentValueSubject<Int64?, Never>(nil)
 
     private var clientRestoration: NavigationClientRestoration?
 
     var viewControllers: [UIViewController] {
-        navigationController.viewControllers
+        splitController.logicalStack
+    }
+
+    /// The stack new screens go on: the detail pane's while the window is split.
+    var activeNavigationController: TelegramNavigationController {
+        splitController.activeNavigation
     }
 
     override private init() {
@@ -29,28 +38,37 @@ import UIKit
             currentSource: { TDLib.shared.activeUpdateSource },
             stack: { [weak self] in self?.viewControllers ?? [] },
             canReplace: { [weak self] in
-                guard let navigation = self?.navigationController else { return false }
-                return navigation.transitionCoordinator == nil
-                    && navigation.presentedViewController == nil
-                    && !navigation.viewControllers.contains { $0.presentedViewController != nil }
+                guard let self else { return false }
+                let split = splitController
+                return [split.master, split.detail].allSatisfy { $0.transitionCoordinator == nil }
+                    && navigationController.presentedViewController == nil
+                    && !viewControllers.contains { $0.presentedViewController != nil }
             },
             replace: { [weak self] controllers in
-                self?.navigationController.setViewControllers(controllers, animated: false)
+                self?.splitController.setLogicalStack(controllers, animated: false)
             },
         )
+        splitController.onDetailChange = { [weak self] in self?.updateSplitSelection() }
     }
 
     func retryClientRestoration() {
         clientRestoration?.retry()
     }
 
-    @discardableResult func setRoot(_ controller: UIViewController) -> UINavigationController {
+    @discardableResult func setRoot(_ controller: UIViewController) -> UIViewController {
         navigationController.setViewControllers([controller], animated: false)
-        return navigationController
+        return splitController
     }
 
-    func push(_ route: Route, animated: Bool = true) {
+    /// `fromList`: a list row opens the route. In a split window it takes the detail pane instead of stacking there,
+    /// and the chat already shown stays.
+    func push(_ route: Route, animated: Bool = true, fromList: Bool = false) {
+        if fromList, splitController.isSplit, isShownInDetail(route) { return }
         guard let controller = controller(for: route) else { return }
+        if fromList, splitController.isSplit, !(controller is TelegramMasterPaneScreen) {
+            splitController.replaceDetail(with: controller)
+            return
+        }
         navigationController.pushViewController(controller, animated: animated)
     }
 
@@ -62,16 +80,34 @@ import UIKit
     }
 
     func replaceComposeFlow(with controller: UIViewController) {
-        let kept = navigationController.viewControllers.prefix { !($0 is ComposeFlowScreen) }
-        navigationController.setViewControllers(Array(kept) + [controller], animated: true)
+        let navigation = activeNavigationController
+        let kept = navigation.viewControllers.prefix { !($0 is ComposeFlowScreen) }
+        navigation.setViewControllers(Array(kept) + [controller], animated: true)
     }
 
     func pop(animated: Bool = true) {
-        navigationController.popViewController(animated: animated)
+        activeNavigationController.popViewController(animated: animated)
     }
 
     func popToRoot(animated: Bool = true) {
-        navigationController.popToRootViewController(animated: animated)
+        splitController.popToRoots(animated: animated)
+    }
+
+    private func updateSplitSelection() {
+        let split = splitController
+        let chat = split.isSplit ? split.detail.viewControllers.dropFirst().first as? ChatViewController : nil
+        let chatID = chat?.location.chatID
+        if splitSelectedChatID.value != chatID { splitSelectedChatID.send(chatID) }
+    }
+
+    /// Whether the detail pane's top already shows the route's chat as it is, with no message to go to.
+    private func isShownInDetail(_ route: Route) -> Bool {
+        guard case .customChat(let customChat, _, let forumTopic, let targetMessageID, _, let messageThread) = route,
+              forumTopic == nil, targetMessageID == nil, messageThread == nil,
+              let shown = splitController.detail.viewControllers.last as? ChatViewController
+        else { return false }
+        return splitController.detail.viewControllers.count == 2 && shown.location.chatID == customChat.id
+            && shown.location.topic == nil
     }
 
     private func controller(for route: Route) -> UIViewController? {

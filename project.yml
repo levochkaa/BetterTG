@@ -2,7 +2,7 @@ name: BetterTG
 options:
   bundleIdPrefix: com.levochkaaa
   minimumXcodeGenVersion: 2.45.4
-  xcodeVersion: 27.1
+  xcodeVersion: 27.2
   projectFormat: xcode16_3
   indentWidth: 4
   tabWidth: 4
@@ -92,7 +92,7 @@ targets:
         INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
         INFOPLIST_KEY_UIStatusBarHidden: YES
         INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleDefault
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
         IPHONEOS_DEPLOYMENT_TARGET: 26.0
         SWIFT_OBJC_BRIDGING_HEADER: BetterTG/BetterTG-Bridging-Header.h

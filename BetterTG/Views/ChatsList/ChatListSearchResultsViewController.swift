@@ -260,7 +260,7 @@ import UIKit
             openFoundChat(chat)
         case .message(let key):
             guard let chat = chatsByID[key.chatID] else { return }
-            NavigationStorage.shared.push(.customChat(chat, targetMessageID: key.messageID))
+            NavigationStorage.shared.push(.customChat(chat, targetMessageID: key.messageID), fromList: true)
         case .messagesLoading:
             return
         }
@@ -417,7 +417,7 @@ import UIKit
             guard let self,
                   let chat = await rootVM.getCustomChatForNavigation(from: message.chatId, client: client),
                   scope.isCurrent, chat.id == message.chatId else { return }
-            NavigationStorage.shared.push(.customChat(chat, targetMessageID: message.id))
+            NavigationStorage.shared.push(.customChat(chat, targetMessageID: message.id), fromList: true)
         }
     }
 
@@ -1050,7 +1050,7 @@ import UIKit
         let client = actionAuthority.client
         let chatID = chat.id
         Task { _ = try? await client.addRecentlyFoundChat(chatId: chatID) }
-        NavigationStorage.shared.push(.customChat(chat))
+        NavigationStorage.shared.push(.customChat(chat), fromList: true)
     }
 
     /// ChatListSearchContainerNode.clearRecentSearch: a menu from Clear asks before clearing the list.

@@ -3573,7 +3573,7 @@ final class MediaGalleryViewController: UIViewController, UICollectionViewDelega
                         in: chat,
                         topic: topic,
                         destination: destination,
-                        navigationController: NavigationStorage.shared.navigationController,
+                        navigationController: NavigationStorage.shared.activeNavigationController,
                     )
                 }
             }

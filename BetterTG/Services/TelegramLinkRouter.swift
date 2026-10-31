@@ -806,7 +806,7 @@ import UIKit
         )
         afterDismissingPresentations { [weak self] in
             guard authority.isCurrent else { return }
-            let navigation = NavigationStorage.shared.navigationController
+            let navigation = NavigationStorage.shared.activeNavigationController
             let editor = ChatAdminRightsViewController(
                 target: target,
                 member: member,
@@ -1034,7 +1034,7 @@ import UIKit
             }
         afterDismissingPresentations {
             guard authority.isCurrent else { return }
-            let navigation = NavigationStorage.shared.navigationController
+            let navigation = NavigationStorage.shared.activeNavigationController
             if profile {
                 let controller = PeerProfileViewController(
                     customChat: customChat,
@@ -1115,7 +1115,7 @@ import UIKit
         afterDismissingPresentations {
             guard authority.isCurrent else { return }
             let controller = make()
-            let navigation = NavigationStorage.shared.navigationController
+            let navigation = NavigationStorage.shared.activeNavigationController
             // Telegram replaces a copy of the screen already on top instead of stacking another.
             if let top = navigation.topViewController, type(of: top) == type(of: controller) { return }
             navigation.pushViewController(controller, animated: true)

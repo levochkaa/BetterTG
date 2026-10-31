@@ -14,7 +14,7 @@ require_relative "identity"
 
 REPO_ROOT = File.expand_path("..", __dir__)
 DISTRIBUTION_DIR = File.join(REPO_ROOT, ".build", "distribution")
-XCODE_PATH = ENV.fetch("BETTERTG_XCODE", "/Applications/Xcode-27.1.0.app")
+XCODE_PATH = ENV.fetch("BETTERTG_XCODE", "/Applications/Xcode-27.2.0.app")
 # Xcode's ipatool, which the export runs, is a /usr/bin/ruby script: Bundler's and this Ruby's variables would make
 # it load gems built for another Ruby.
 EXPORT_UNSET_ENV = %w[RUBYLIB RUBYOPT BUNDLE_BIN_PATH _ORIGINAL_GEM_PATH BUNDLE_GEMFILE GEM_HOME GEM_PATH].freeze

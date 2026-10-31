@@ -6,6 +6,8 @@ enum Utils {
     static var screen: UIScreen!
     /// The app's window, for code that lays out without a view of its own.
     weak static var window: UIWindow?
+    /// The split's detail pane without its side strip, while the window is split.
+    static var splitDetailWidth: CGFloat?
     static let applicationVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     static let modelName: String = {
         var simulator = false
@@ -62,6 +64,7 @@ enum Utils {
 
     /// The width a chat's messages get: the window's, without the side insets of iPhone Duo's strip.
     static var messageListWidth: CGFloat {
+        if let splitDetailWidth { return splitDetailWidth }
         guard let window else { return screen.bounds.width }
         return window.bounds.width - window.safeAreaInsets.left - window.safeAreaInsets.right
     }
