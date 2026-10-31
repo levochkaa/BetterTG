@@ -311,6 +311,7 @@ final class ChatComposerView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        updateTextHeightLimit()
         updateRecordingGesturePresentation()
         if abs(lastMultilineMeasureWidth - bounds.width) > 0.5 {
             lastMultilineMeasureWidth = bounds.width
@@ -1520,15 +1521,29 @@ final class ChatComposerView: UIView {
             expanded ? "Accessibility.CollapseInput" : "Accessibility.ExpandInput",
         )
         if expanded, let window {
-            let bottom = convert(bounds, to: window).maxY
-            let chrome = bounds.height - textView.bounds.height
-            let height = max(240, bottom - window.safeAreaInsets.top - 44 - 24 - chrome)
+            let height = max(Self.singleLineTextHeight, availableTextHeight(in: window))
             textView.maximumHeight = height
             textView.minimumHeight = height
         } else {
             textView.minimumHeight = Self.singleLineTextHeight
             textView.maximumHeight = 240
+            updateTextHeightLimit()
         }
+    }
+
+    /// The room for the text between the navigation bar and the keyboard.
+    private func availableTextHeight(in window: UIWindow) -> CGFloat {
+        let bottom = convert(bounds, to: window).maxY
+        let chrome = bounds.height - textView.bounds.height
+        return bottom - window.safeAreaInsets.top - 44 - 24 - chrome
+    }
+
+    /// ChatTextInputPanelNode's textFieldMaxHeight: the input stops growing at 240 pt, or sooner where the bar and the
+    /// keyboard leave less, as they do in landscape and on iPhone Duo's cover screen.
+    private func updateTextHeightLimit() {
+        guard let window, !isInputExpanded else { return }
+        let limit = min(240, max(Self.singleLineTextHeight, availableTextHeight(in: window)))
+        if textView.maximumHeight != limit { textView.maximumHeight = limit }
     }
 
     private func configureActions() {
@@ -2104,6 +2119,19 @@ final class ChatComposerView: UIView {
         superview?.setNeedsLayout()
     }
 
+    /// ChatTextInputPanelNode's updateHeight: a line added or removed moves the panel in 0.1 s, picking up from where a
+    /// quick run of lines has it instead of stepping there.
+    private func animateTextHeightChange() {
+        guard window != nil else { return }
+        UIView.animate(
+            withDuration: 0.1,
+            delay: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseInOut],
+        ) {
+            self.superview?.layoutIfNeeded()
+        }
+    }
+
     private func textChanged(_ text: AttributedString) {
         guard !isApplyingState else { return }
         if chatVM.editCustomMessage == nil {
@@ -2116,6 +2144,7 @@ final class ChatComposerView: UIView {
         updateReplyKeyboardButton()
         updateMediaInputButton()
         updateMultilineText(animated: true)
+        animateTextHeightChange()
         draftTask?.cancel()
         draftTask = Task { [weak chatVM] in
             try? await Task<Never, Never>.sleep(for: .milliseconds(500))
