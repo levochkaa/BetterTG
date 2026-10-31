@@ -3911,7 +3911,10 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
         let scrollToLatestBottom = scrollToLatestButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12)
         scrollToLatestBottomConstraint = scrollToLatestBottom
         NSLayoutConstraint.activate([
-            scrollToLatestButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
+            scrollToLatestButton.trailingAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+                constant: -14,
+            ),
             scrollToLatestBottom,
             scrollToLatestButton.widthAnchor.constraint(equalToConstant: ChatHistoryNavigationButton.side),
             scrollToLatestButton.heightAnchor.constraint(equalToConstant: ChatHistoryNavigationButton.side),

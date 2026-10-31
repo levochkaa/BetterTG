@@ -75,6 +75,8 @@ UINavigationControllerDelegate {
 
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
+        // The root inherits this from RootViewController; a full-screen modal stands outside it.
+        if presentingViewController != nil { applyIPhoneDuoTopSafeArea() }
         for state in chromeStates.values {
             state.layout()
         }

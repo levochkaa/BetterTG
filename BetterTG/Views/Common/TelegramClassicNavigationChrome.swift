@@ -159,6 +159,7 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         controller?.additionalSafeAreaInsets.top -= reservedHeight
         reservedHeight = 0
         bar.removeFromSuperview()
+        bar.columnView.removeFromSuperview()
     }
 
     func layout() {
@@ -175,6 +176,16 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         // UITableView inserts section headers after this overlay while scrolling. zPosition keeps the bar
         // visible, but hit testing follows the UIView order and would otherwise reach a header behind it.
         host.bringSubviewToFront(bar)
+        let duoLayout = navigation.view.iPhoneDuoLayout
+        bar.sideColumn = duoLayout?.sideColumn
+        if duoLayout?.sideColumn != nil {
+            if bar.columnView.superview !== host { host.addSubview(bar.columnView) }
+            bar.columnView.frame = CGRect(origin: host.bounds.origin, size: host.bounds.size)
+            host.bringSubviewToFront(bar.columnView)
+        } else {
+            bar.columnView.removeFromSuperview()
+        }
+        bar.trailingButtonsInset = duoLayout?.trailingButtonsInset ?? 0
         bar.topInset = navigation.view.safeAreaInsets.top + sheetTopInset
         bar.frame = CGRect(
             origin: host.bounds.origin,
@@ -184,12 +195,27 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
     }
 }
 
+// MARK: - TelegramSideColumnView
+
+/// Takes touches only on the shapes of iPhone Duo's side column.
+final class TelegramSideColumnView: UIView {
+    override func point(inside point: CGPoint, with _: UIEvent?) -> Bool {
+        subviews.contains { !$0.isHidden && $0.frame.contains(point) }
+    }
+}
+
 // MARK: - TelegramClassicNavigationChrome
 
 @MainActor final class TelegramClassicNavigationChrome: UIView {
     var onBack: (() -> Void)?
     var onHeightChange: (() -> Void)?
     var topInset: CGFloat = 0
+    /// iPhone Duo's strip, where back and the icon buttons go instead of the row.
+    var sideColumn: IPhoneDuoLayout.SideColumn?
+    /// Holds the column's shapes over the screen, as the bar is only as tall as its row.
+    let columnView = TelegramSideColumnView()
+    /// iPhone Duo's status island beside the row.
+    var trailingButtonsInset: CGFloat = 0
 
     private let background = TelegramBarBackgroundView(edge: .top)
     /// `UINavigationItem.prompt` (Reconnecting…, Saving…): a line above the title row, 30 pt like the system bar's.
@@ -258,15 +284,38 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
         promptLabel.frame = CGRect(x: 16, y: topInset, width: max(0, bounds.width - 32), height: promptHeight)
         let rowY = topInset + promptHeight
         let edge = TelegramGlassPlatter.edgeInset
+        // The system's bar keeps a text button against the band beside its vertical bar.
+        let rightEdge = sideColumn == nil ? edge + trailingButtonsInset : 0
+        var columnY = sideColumn?.minY ?? 0
+        // Puts the platter in the side column if it goes there.
+        func placeInColumn(_ platter: TelegramGlassPlatter) -> Bool {
+            guard let sideColumn, platter.fitsSideColumn else {
+                platter.isInSideColumn = false
+                if platter.superview !== self { addSubview(platter) }
+                return false
+            }
+            platter.isInSideColumn = true
+            if platter.superview !== columnView { columnView.addSubview(platter) }
+            platter.frame = CGRect(
+                x: sideColumn.x,
+                y: columnY,
+                width: IPhoneDuoLayout.Metrics.columnWidth,
+                height: platter.columnLength,
+            )
+            columnY += platter.columnLength + IPhoneDuoLayout.Metrics.columnSpacing
+            return true
+        }
         var left = safeAreaInsets.left + edge
         for platter in [leadingPlatter] + leadingSectionPlatters where platter.hasVisibleItems {
+            if placeInColumn(platter) { continue }
             if left > safeAreaInsets.left + edge { left += TelegramGlassPlatter.interSectionSpacing }
             let width = platter.preferredWidth
             platter.frame = CGRect(x: left, y: rowY, width: width, height: TelegramGlassPlatter.height)
             left += width
         }
-        var right = bounds.width - safeAreaInsets.right - edge
+        var right = bounds.width - safeAreaInsets.right - rightEdge
         for platter in trailingPlatters where platter.hasVisibleItems {
+            if placeInColumn(platter) { continue }
             let width = platter.preferredWidth
             right -= width
             platter.frame = CGRect(x: right, y: rowY, width: width, height: TelegramGlassPlatter.height)
@@ -286,10 +335,12 @@ extension LoginViewController: TelegramEmbeddedNavigationChrome {}
                 ? 0
                 : 1
         }
+        // The search keeps to the band, and clear of the status island beside it.
+        let searchInsets = (left: safeAreaInsets.left, right: safeAreaInsets.right + trailingButtonsInset)
         searchView?.frame = CGRect(
-            x: 0,
+            x: searchInsets.left,
             y: rowY + (searchActive ? 0 : 44),
-            width: bounds.width,
+            width: bounds.width - searchInsets.left - searchInsets.right,
             height: ChatListNavigationSearchView.contentHeight,
         )
     }

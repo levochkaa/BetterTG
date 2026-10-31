@@ -45,6 +45,11 @@ final class RootViewController: UIViewController {
         render(animated: false)
     }
 
+    override func viewWillLayoutSubviews() {
+        super.viewWillLayoutSubviews()
+        applyIPhoneDuoTopSafeArea()
+    }
+
     private func render(animated: Bool) {
         guard displayedLoggedInState != rootVM.loggedIn || displayedAccountID != rootVM.activeAccountID
             || (displayedController as? LoginViewController)?.isRevoked == true else { return }

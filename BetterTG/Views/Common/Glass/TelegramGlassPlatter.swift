@@ -38,11 +38,21 @@ final class TelegramGlassPlatter: UIView {
     static let titleInset: CGFloat = 14
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: customContent == nil ? preferredWidth : UIView.noIntrinsicMetric, height: Self.height)
+        if isInSideColumn { return CGSize(width: IPhoneDuoLayout.Metrics.columnWidth, height: columnLength) }
+        return CGSize(width: customContent == nil ? preferredWidth : UIView.noIntrinsicMetric, height: Self.height)
     }
 
     let role: Role
     let glassView = UIVisualEffectView()
+
+    /// Lays the items out top to bottom, as a shape of iPhone Duo's vertical bar, outermost first.
+    var isInSideColumn = false {
+        didSet {
+            guard isInSideColumn != oldValue else { return }
+            invalidateIntrinsicContentSize()
+            setNeedsLayout()
+        }
+    }
 
     /// A view the owner lays out inside the glass itself, such as a chat header's title, in place of items. Its own
     /// constraints size the platter.
@@ -65,6 +75,20 @@ final class TelegramGlassPlatter: UIView {
 
     /// Whether any item shows; the platter hides itself otherwise.
     var hasVisibleItems: Bool { !visibleItems.isEmpty }
+
+    /// Whether the side column can hold this pill: icons and small custom views, which the system's vertical bar takes.
+    /// A text button stays in the bar's row.
+    var fitsSideColumn: Bool {
+        customContent == nil && visibleItems.allSatisfy {
+            ($0 as? UIButton)?.title(for: .normal)?.isEmpty != false
+                && Self.width(of: $0) <= IPhoneDuoLayout.Metrics.columnWidth
+        }
+    }
+
+    /// The pill's length in the side column.
+    var columnLength: CGFloat {
+        IPhoneDuoLayout.Metrics.columnLength(count: visibleItems.count)
+    }
 
     /// The pill's width for its visible items: an icon's 44 pt, a text's own width, a custom view's fitting width,
     /// and the ends.
@@ -97,6 +121,20 @@ final class TelegramGlassPlatter: UIView {
         super.layoutSubviews()
         guard customContent == nil else { return }
         let visible = visibleItems
+        if isInSideColumn {
+            // A right pill lists its items leading to trailing for the row; the column runs from the outermost.
+            let pitch = IPhoneDuoLayout.Metrics.columnItemPitch
+            let ordered =
+                if case .trailing = role {
+                    Array(visible.reversed())
+                } else {
+                    visible
+                }
+            for (index, item) in ordered.enumerated() {
+                item.frame = CGRect(x: 0, y: CGFloat(index) * pitch - 2, width: bounds.width, height: pitch)
+            }
+            return
+        }
         var x = endInset(for: visible)
         for item in visible {
             let width = Self.width(of: item)

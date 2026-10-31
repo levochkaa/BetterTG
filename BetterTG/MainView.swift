@@ -1354,10 +1354,7 @@ final class FolderPickerView: UIView {
     var onAction: ((FolderMenuAction, CustomFolder) -> Void)?
     /// The capsule's distance from the safe area's sides; the composer's media panel keeps its keys beside it.
     var controlHorizontalInset: CGFloat = 16 {
-        didSet {
-            controlLeadingConstraint.constant = controlHorizontalInset
-            controlTrailingConstraint.constant = -controlHorizontalInset
-        }
+        didSet { updateControlInsets() }
     }
 
     /// Whether segments give up their padding to fit the capsule before it scrolls. The composer's media tabs fit
@@ -1446,6 +1443,7 @@ final class FolderPickerView: UIView {
     }
 
     override func layoutSubviews() {
+        updateControlInsets()
         super.layoutSubviews()
         updateResolvedWidths()
         layoutSelection(animated: false)
@@ -1516,6 +1514,14 @@ final class FolderPickerView: UIView {
         }
         self.selectedID = resolvedSelectedID
         rebuildControl()
+    }
+
+    private func updateControlInsets() {
+        // A panel at the bottom edge spans iPhone Duo's strip.
+        let duoLayout = superview?.iPhoneDuoLayout
+        let right = duoLayout.map { $0.bottomEdgeRightInset - safeAreaInsets.right } ?? 0
+        controlLeadingConstraint.constant = controlHorizontalInset
+        controlTrailingConstraint.constant = -controlHorizontalInset - right
     }
 
     private func configureViews() {

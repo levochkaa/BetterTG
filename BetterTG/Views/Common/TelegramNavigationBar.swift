@@ -66,6 +66,19 @@ final class TelegramListNavigationBar: UIView {
     }()
 
     private let trailingStack = UIStackView()
+    /// iPhone Duo's strip, which holds the left and the icon buttons in place of the row. It stands beside the bar,
+    /// which is only as tall as its row.
+    private let columnStack = UIStackView()
+    /// Clips the search field as it collapses with the list.
+    private let searchClipView = UIView()
+    private var leadingRowConstraints = [NSLayoutConstraint]()
+    private var titleLeadingRowConstraint: NSLayoutConstraint?
+    private var titleLeadingColumnConstraint: NSLayoutConstraint!
+    private var columnXConstraint: NSLayoutConstraint?
+    private var columnYConstraint: NSLayoutConstraint?
+    private var trailingEdgeConstraint: NSLayoutConstraint!
+    private var searchTrailingConstraint: NSLayoutConstraint!
+    private var appliedDuoLayout: IPhoneDuoLayout?
     /// ChatListController's proxyButton, left of the right buttons while a proxy is saved.
     private let proxyButton = ChatListProxyButton()
     /// ChatListTitleLockView: the open padlock after the title while a passcode is set.
@@ -153,6 +166,11 @@ final class TelegramListNavigationBar: UIView {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        applyIPhoneDuoLayout()
+        super.layoutSubviews()
     }
 
     /// The bar's height with the search field scrolled `clipped` away. It shrinks with the list, so the first row
@@ -282,10 +300,78 @@ final class TelegramListNavigationBar: UIView {
         titleControl.accessibilityLabel = [titleLabel.text, subtitle].compactMap(\.self).joined(separator: ", ")
     }
 
+    /// Moves back and the icon buttons between the row and iPhone Duo's strip, as the system's bar does, and keeps the
+    /// row clear of the status island.
+    private func applyIPhoneDuoLayout() {
+        let layout = superview?.iPhoneDuoLayout
+        guard layout != appliedDuoLayout else { return }
+        let hadColumn = appliedDuoLayout?.sideColumn != nil
+        appliedDuoLayout = layout
+        let columnPlatters = [leadingPlatter, trailingPlatter, secondaryTrailingPlatter, proxyPlatter]
+        if let column = layout?.sideColumn {
+            if !hadColumn {
+                NSLayoutConstraint.deactivate(leadingRowConstraints)
+                titleLeadingRowConstraint?.isActive = false
+                for platter in columnPlatters {
+                    platter.isInSideColumn = true
+                    columnStack.addArrangedSubview(platter)
+                }
+                columnStack.isHidden = false
+                titleLeadingColumnConstraint.isActive = true
+            }
+            if let superview, columnStack.superview !== superview {
+                superview.insertSubview(columnStack, aboveSubview: self)
+                let x = columnStack.leadingAnchor.constraint(equalTo: superview.leadingAnchor)
+                let y = columnStack.topAnchor.constraint(equalTo: superview.topAnchor)
+                NSLayoutConstraint.activate([
+                    x, y,
+                    columnStack.widthAnchor.constraint(equalToConstant: IPhoneDuoLayout.Metrics.columnWidth),
+                ])
+                columnXConstraint = x
+                columnYConstraint = y
+            }
+            columnXConstraint?.constant = column.x
+            columnYConstraint?.constant = column.minY
+        } else if hadColumn {
+            for platter in columnPlatters {
+                platter.isInSideColumn = false
+            }
+            columnStack.isHidden = true
+            titleLeadingColumnConstraint.isActive = false
+            addSubview(leadingPlatter)
+            activateLeadingRowConstraints()
+            for (index, platter) in [proxyPlatter, secondaryTrailingPlatter, trailingPlatter].enumerated() {
+                trailingStack.insertArrangedSubview(platter, at: index)
+            }
+        }
+        let inset = layout?.trailingButtonsInset ?? 0
+        // The system's bar keeps a text button against the band beside its vertical bar.
+        trailingEdgeConstraint.constant = layout?.sideColumn == nil ? -TelegramGlassPlatter.edgeInset - inset : 0
+        searchTrailingConstraint.constant = -inset
+    }
+
+    private func activateLeadingRowConstraints() {
+        leadingRowConstraints = [
+            leadingPlatter.leadingAnchor.constraint(
+                equalTo: safeAreaLayoutGuide.leadingAnchor,
+                constant: TelegramGlassPlatter.edgeInset,
+            ),
+            leadingPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+        ]
+        let titleLeading = titleControl.leadingAnchor.constraint(
+            greaterThanOrEqualTo: leadingPlatter.trailingAnchor,
+            constant: 8,
+        )
+        titleLeadingRowConstraint = titleLeading
+        NSLayoutConstraint.activate(leadingRowConstraints + [titleLeading])
+    }
+
     private func configureViews() {
-        clipsToBounds = true
         blurView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(blurView)
+        searchClipView.translatesAutoresizingMaskIntoConstraints = false
+        searchClipView.clipsToBounds = true
+        addSubview(searchClipView)
 
         if showsBackButton {
             leftButton.accessibilityLabel = L10n.telegram("Common.Back")
@@ -328,6 +414,11 @@ final class TelegramListNavigationBar: UIView {
             trailingStack.addArrangedSubview(platter)
         }
         addSubview(trailingStack)
+        columnStack.axis = .vertical
+        columnStack.spacing = IPhoneDuoLayout.Metrics.columnSpacing
+        columnStack.alignment = .fill
+        columnStack.translatesAutoresizingMaskIntoConstraints = false
+        columnStack.isHidden = true
 
         titleLabel.textColor = .label
         titleLabel.font = .preferredFont(forTextStyle: .headline)
@@ -383,22 +474,34 @@ final class TelegramListNavigationBar: UIView {
         searchView.onActiveChange = { [weak self] active in
             self?.setSearchActive(active)
         }
-        addSubview(searchView)
+        searchClipView.addSubview(searchView)
 
         searchTopConstraint = searchView.topAnchor.constraint(
             equalTo: safeAreaLayoutGuide.topAnchor,
             constant: Self.titleHeight,
         )
         let edge = TelegramGlassPlatter.edgeInset
+        trailingEdgeConstraint = trailingStack.trailingAnchor.constraint(
+            equalTo: safeAreaLayoutGuide.trailingAnchor,
+            constant: -edge,
+        )
+        searchTrailingConstraint = searchView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor)
+        titleLeadingColumnConstraint = titleControl.leadingAnchor.constraint(
+            greaterThanOrEqualTo: safeAreaLayoutGuide.leadingAnchor,
+            constant: edge,
+        )
+        activateLeadingRowConstraints()
         NSLayoutConstraint.activate([
             blurView.topAnchor.constraint(equalTo: topAnchor),
             blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
             blurView.trailingAnchor.constraint(equalTo: trailingAnchor),
             blurView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            searchClipView.topAnchor.constraint(equalTo: topAnchor),
+            searchClipView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            searchClipView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            searchClipView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            leadingPlatter.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: edge),
-            leadingPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            trailingStack.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -edge),
+            trailingEdgeConstraint,
             trailingStack.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
             // Centered 12 pt before the title's text.
             lockButton.centerXAnchor.constraint(equalTo: titleLabel.leadingAnchor, constant: -12),
@@ -406,14 +509,13 @@ final class TelegramListNavigationBar: UIView {
             lockButton.widthAnchor.constraint(equalToConstant: 28),
             lockButton.heightAnchor.constraint(equalToConstant: 32),
 
-            titleControl.leadingAnchor.constraint(greaterThanOrEqualTo: leadingPlatter.trailingAnchor, constant: 8),
             titleControl.trailingAnchor.constraint(
                 lessThanOrEqualTo: trailingStack.leadingAnchor,
                 constant: -8,
             ),
             titleControl.centerXAnchor.constraint(equalTo: centerXAnchor),
-            titleControl.topAnchor.constraint(equalTo: leadingPlatter.topAnchor),
-            titleControl.bottomAnchor.constraint(equalTo: leadingPlatter.bottomAnchor),
+            titleControl.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
+            titleControl.heightAnchor.constraint(equalToConstant: Self.titleHeight),
             titleStack.leadingAnchor.constraint(equalTo: titleControl.leadingAnchor),
             titleStack.trailingAnchor.constraint(equalTo: titleControl.trailingAnchor),
             titleStack.centerYAnchor.constraint(equalTo: titleControl.centerYAnchor),
@@ -424,7 +526,7 @@ final class TelegramListNavigationBar: UIView {
 
             searchTopConstraint,
             searchView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
-            searchView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+            searchTrailingConstraint,
             searchView.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.contentHeight),
         ])
         refreshPlatters()
@@ -464,7 +566,7 @@ final class TelegramListNavigationBar: UIView {
             : Self.visibleHeight(clipped: currentScrollOffset) + currentOverscroll)
         onSearchActiveChange?(active)
         // The bar clips its collapsing field; an open search's glass swells past the bar's edge under the finger.
-        if active { clipsToBounds = false }
+        if active { searchClipView.clipsToBounds = false }
 
         UIView.animate(
             withDuration: 0.22,
@@ -475,12 +577,13 @@ final class TelegramListNavigationBar: UIView {
             self.lockButton.alpha = active ? 0 : 1
             self.leadingPlatter.alpha = active ? 0 : 1
             self.trailingStack.alpha = active ? 0 : 1
+            self.columnStack.alpha = active ? 0 : 1
             self.searchView.transform = active
                 ? CGAffineTransform(translationX: 0, y: -Self.titleHeight)
                 : .identity
             parentView?.layoutIfNeeded()
         } completion: { _ in
-            if !self.isSearchActive { self.clipsToBounds = true }
+            if !self.isSearchActive { self.searchClipView.clipsToBounds = true }
         }
     }
 }
@@ -593,6 +696,9 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
     private var regularTitleTrailingConstraint: NSLayoutConstraint!
     private var selectionTitleLeadingConstraint: NSLayoutConstraint!
     private var selectionTitleTrailingConstraint: NSLayoutConstraint!
+    private var trailingEdgeConstraint: NSLayoutConstraint!
+    private var selectionCancelEdgeConstraint: NSLayoutConstraint!
+    private var searchTrailingConstraint: NSLayoutConstraint!
     private var configuredTitle = ""
     private var configuredStatus = ""
     private var configuredStatusColor = UIColor.secondaryLabel
@@ -615,6 +721,16 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
     @available(*, unavailable) required init?(coder _: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        // A chat keeps its bar in the row beside iPhone Duo's strip, as the side column would have to leave it as the
+        // keyboard rises; the row only keeps clear of the status island.
+        let inset = superview?.iPhoneDuoLayout?.trailingButtonsInset ?? 0
+        trailingEdgeConstraint.constant = -TelegramGlassPlatter.edgeInset - inset
+        selectionCancelEdgeConstraint.constant = -TelegramGlassPlatter.edgeInset - inset
+        searchTrailingConstraint.constant = -inset
+        super.layoutSubviews()
     }
 
     /// The title with the lock 6 pt before it.
@@ -1082,6 +1198,15 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
         )
         let titleCentre = titlePlatter.centerXAnchor.constraint(equalTo: centerXAnchor)
         titleCentre.priority = .defaultHigh
+        trailingEdgeConstraint = trailingPlatter.trailingAnchor.constraint(
+            equalTo: safeAreaLayoutGuide.trailingAnchor,
+            constant: -TelegramGlassPlatter.edgeInset,
+        )
+        selectionCancelEdgeConstraint = selectionCancelPlatter.trailingAnchor.constraint(
+            equalTo: safeAreaLayoutGuide.trailingAnchor,
+            constant: -TelegramGlassPlatter.edgeInset,
+        )
+        searchTrailingConstraint = searchView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor)
         NSLayoutConstraint.activate([
             blurView.topAnchor.constraint(equalTo: topAnchor),
             blurView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -1093,15 +1218,9 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
                 constant: TelegramGlassPlatter.edgeInset,
             ),
             leadingPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            trailingPlatter.trailingAnchor.constraint(
-                equalTo: safeAreaLayoutGuide.trailingAnchor,
-                constant: -TelegramGlassPlatter.edgeInset,
-            ),
+            trailingEdgeConstraint,
             trailingPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
-            selectionCancelPlatter.trailingAnchor.constraint(
-                equalTo: safeAreaLayoutGuide.trailingAnchor,
-                constant: -TelegramGlassPlatter.edgeInset,
-            ),
+            selectionCancelEdgeConstraint,
             selectionCancelPlatter.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor),
 
             regularTitleLeadingConstraint,
@@ -1119,7 +1238,7 @@ final class TelegramChatNavigationBar: UIView, UITextFieldDelegate {
 
             // The field and its close button on the row the buttons leave.
             searchView.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor),
-            searchView.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor),
+            searchTrailingConstraint,
             searchView.centerYAnchor.constraint(equalTo: leadingPlatter.centerYAnchor),
             searchView.heightAnchor.constraint(equalToConstant: ChatListNavigationSearchView.contentHeight),
         ])
