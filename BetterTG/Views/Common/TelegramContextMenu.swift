@@ -221,6 +221,8 @@ struct TelegramContextMenuPeerIcon {
     let peer: SettingsPeer
     let client: TDLibClient
     let isSelected: Bool
+    /// The photo itself, for a peer of an account with no running client to load it through.
+    var cachedPhoto: UIImage?
 }
 
 // MARK: - TelegramContextMenuPeerIconView
@@ -230,6 +232,7 @@ final class TelegramContextMenuPeerIconView: UIView {
     static let side: CGFloat = 35
 
     private let avatarView = ProfileAvatarView()
+    private let cachedPhotoView = UIImageView()
     private let ring = CAShapeLayer()
 
     init(icon: TelegramContextMenuPeerIcon) {
@@ -247,6 +250,12 @@ final class TelegramContextMenuPeerIconView: UIView {
             client: icon.client,
         )
         addSubview(avatarView)
+        if let photo = icon.cachedPhoto {
+            cachedPhotoView.image = photo
+            cachedPhotoView.contentMode = .scaleAspectFill
+            cachedPhotoView.clipsToBounds = true
+            addSubview(cachedPhotoView)
+        }
         ring.fillColor = nil
         ring.strokeColor = UIColor.tintColor.cgColor
         ring.isHidden = !icon.isSelected
@@ -260,6 +269,8 @@ final class TelegramContextMenuPeerIconView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         avatarView.frame = bounds.insetBy(dx: (bounds.width - 30) / 2, dy: (bounds.height - 30) / 2)
+        cachedPhotoView.frame = avatarView.frame
+        cachedPhotoView.layer.cornerRadius = avatarView.frame.width / 2
         let lineWidth = 1 + 1 / max(1, traitCollection.displayScale)
         ring.lineWidth = lineWidth
         ring.frame = bounds
@@ -1227,6 +1238,8 @@ private final class TelegramContextMenuController: UIViewController, UIScrollVie
         menuStack.axis = .vertical
         menuStack.alignment = .fill
         menuStack.isLayoutMarginsRelativeArrangement = true
+        // A menu can stand in the safe area, beside iPhone Duo's island or over its strip, and keeps its rows' margins.
+        menuStack.insetsLayoutMarginsFromSafeArea = false
         menuStack.directionalLayoutMargins = NSDirectionalEdgeInsets(
             top: TelegramContextMenuLayout.contentVerticalInset,
             leading: 0,

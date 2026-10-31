@@ -1,6 +1,7 @@
 // TelegramAccount.swift
 
 import Foundation
+import UIKit
 
 // MARK: - TelegramAccount
 
@@ -36,6 +37,33 @@ extension TelegramAccount {
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
         self.lastActiveAt = try container.decode(Date.self, forKey: .lastActiveAt)
         self.usesTestServer = try container.decodeIfPresent(Bool.self, forKey: .usesTestServer) ?? false
+    }
+}
+
+// MARK: - TelegramAccountAvatarCache
+
+/// An account's small photo on disk: only the active account has a client to load one through, and the account
+/// switcher shows them all.
+enum TelegramAccountAvatarCache {
+    static func photo(for accountID: UUID) -> UIImage? {
+        url(for: accountID).flatMap { UIImage(contentsOfFile: $0.path) }
+    }
+
+    /// `path` is the photo's local file, nil when the account has no photo.
+    static func store(photoAt path: String?, for accountID: UUID) {
+        guard let url = url(for: accountID) else { return }
+        let manager = FileManager.default
+        try? manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? manager.removeItem(at: url)
+        if let path { try? manager.copyItem(atPath: path, toPath: url.path) }
+    }
+
+    private static func url(for accountID: UUID) -> URL? {
+        FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("AccountAvatars", isDirectory: true)
+            .appendingPathComponent(accountID.uuidString)
     }
 }
 
@@ -121,6 +149,7 @@ struct TelegramAccountRegistry {
     }
 
     func removeDatabaseDirectory(for accountID: UUID) {
+        TelegramAccountAvatarCache.store(photoAt: nil, for: accountID)
         try? fileManager.removeItem(at: baseDirectory.appendingPathComponent(accountID.uuidString, isDirectory: true))
     }
 

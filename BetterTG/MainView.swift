@@ -25,6 +25,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     private let rootVM: RootVM
     private let actionAuthority = ChatListActionAuthority()
+    private var accountPeer: SettingsPeer?
+    private var isLoadingAccountPeer = false
     private let pageController = UIPageViewController(
         transitionStyle: .scroll,
         navigationOrientation: .horizontal,
@@ -134,6 +136,8 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     reloadFromState()
+                    // The account may not have been ready when this screen appeared.
+                    if accountPeer == nil { loadAccountPeer() }
                     NavigationStorage.shared.retryClientRestoration()
                 }
             }
@@ -169,6 +173,7 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        loadAccountPeer()
         if actionAuthority.isCurrent, restoresSearchFocus {
             restoresSearchFocus = false
             isRestoringSearchFocus = true
@@ -1095,13 +1100,17 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             }
         }]
         if let current = tdlib.accounts.first(where: { $0.id == tdlib.activeAccountID }) {
-            actions.append(TelegramContextMenuAction(
+            var action = TelegramContextMenuAction(
                 title: current.localizedTitle,
                 image: UIImage(systemName: "person.crop.circle"),
-            ))
+            )
+            action.leadingPeer = accountPeer.map {
+                TelegramContextMenuPeerIcon(peer: $0, client: actionAuthority.client, isSelected: false)
+            }
+            actions.append(action)
         }
         for (index, account) in tdlib.accounts.filter({ $0.id != tdlib.activeAccountID }).enumerated() {
-            actions.append(TelegramContextMenuAction(
+            var action = TelegramContextMenuAction(
                 title: account.localizedTitle,
                 image: UIImage(systemName: "person.crop.circle"),
                 startsNewSection: index == 0,
@@ -1111,7 +1120,27 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
                 } catch {
                     self?.showAccountError(error)
                 }
-            })
+            }
+            // The account's color and first letter until it has shared its photo.
+            action.leadingPeer = TelegramContextMenuPeerIcon(
+                peer: SettingsPeer(
+                    id: account.userID ?? 0,
+                    title: account.localizedTitle,
+                    file: nil,
+                    minithumbnail: nil,
+                    placeholder: TelegramAvatarPlaceholder(
+                        peerID: account.userID ?? 0,
+                        accentColorID: Int((account.userID ?? 0) % 7),
+                        upgradedGiftColors: nil,
+                        letters: account.localizedTitle.telegramAvatarFirstLetter.map { [$0] } ?? [],
+                        isDeleted: false,
+                    ),
+                ),
+                client: actionAuthority.client,
+                isSelected: false,
+                cachedPhoto: TelegramAccountAvatarCache.photo(for: account.id),
+            )
+            actions.append(action)
         }
         presentTelegramContextMenu(
             sourceView: source,
@@ -1119,6 +1148,36 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
             tracking: gesture,
             presentationStyle: .sourceMorph,
         )
+    }
+
+    /// The account's row in the switcher, and its photo for the switcher of whichever account is active later.
+    private func loadAccountPeer() {
+        guard !isLoadingAccountPeer, TDLib.shared.isActiveAccountReady else { return }
+        isLoadingAccountPeer = true
+        let client = actionAuthority.client
+        let accountID = TDLib.shared.activeAccountID
+        Task { [weak self] in
+            let peer: SettingsPeer? =
+                if let me = try? await client.getMe() {
+                    await SettingsPeer.user(me.id, client: client)
+                } else {
+                    nil
+                }
+            guard let self else { return }
+            isLoadingAccountPeer = false
+            guard let peer, actionAuthority.isCurrent else { return }
+            accountPeer = peer
+            guard let accountID else { return }
+            var photoPath: String?
+            if let file = peer.file {
+                let photo = try? await client.downloadFile(
+                    fileId: file.id, limit: 0, offset: 0, priority: 1, synchronous: true,
+                )
+                guard let photo else { return }
+                photoPath = photo.local.path
+            }
+            TelegramAccountAvatarCache.store(photoAt: photoPath, for: accountID)
+        }
     }
 
     @objc private func openSettings() {
