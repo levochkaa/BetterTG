@@ -98,6 +98,15 @@ final class ChatComposerView: UIView {
     /// The chat's Send Silently and Schedule Message at the top of a sticker's peek menu in the media panel.
     var stickerPeekSendActions: ((Sticker) -> [TelegramContextMenuAction])?
 
+    /// Where the chat's bar and banners end, for the input to stop under them.
+    var topContentLimit: CGFloat = 0 {
+        didSet {
+            if topContentLimit != oldValue { setNeedsLayout() }
+        }
+    }
+
+    private var lastLacksRoomForMultilineText = false
+
     private let chatVM: ChatVM
     /// Above the keyboard the composer is a pill of interactive Liquid Glass; docked at the bottom it has no glass
     /// and stands on the bars' light blur instead.
@@ -278,6 +287,12 @@ final class ChatComposerView: UIView {
              .preview:
             false
         }
+    }
+
+    /// In landscape over the keyboard there's room for the text only beside the buttons, not above them.
+    private var lacksRoomForMultilineText: Bool {
+        guard let window else { return false }
+        return convert(bounds, to: window).maxY - topContentLimit < 130
     }
 
     init(chatVM: ChatVM) {
@@ -1467,7 +1482,8 @@ final class ChatComposerView: UIView {
             } else {
                 isMultilineText
             }
-        let multiline = !inputRow.isHidden && (isEmptyMultilineInput || isInputExpanded || wraps)
+        let multiline = !inputRow.isHidden && !lacksRoomForMultilineText
+            && (isEmptyMultilineInput || isInputExpanded || wraps)
         let hasText = chatVM.text.characters.contains { !$0.isWhitespace }
             || chatVM.editMessageText.characters.contains { !$0.isWhitespace }
         // The expand button joins the row once the text is a few lines tall (Swiftgram: 70 pt), or while expanded.
@@ -1542,8 +1558,14 @@ final class ChatComposerView: UIView {
     /// keyboard leave less, as they do in landscape and on iPhone Duo's cover screen.
     private func updateTextHeightLimit() {
         guard let window, !isInputExpanded else { return }
-        let limit = min(240, max(Self.singleLineTextHeight, availableTextHeight(in: window)))
+        // The chat's banners take room under the bar too.
+        let bannersHeight = max(0, topContentLimit - window.safeAreaInsets.top - 44 - 24)
+        let limit = min(240, max(Self.singleLineTextHeight, availableTextHeight(in: window) - bannersHeight))
         if textView.maximumHeight != limit { textView.maximumHeight = limit }
+        if lacksRoomForMultilineText != lastLacksRoomForMultilineText {
+            lastLacksRoomForMultilineText = lacksRoomForMultilineText
+            DispatchQueue.main.async { [weak self] in self?.updateMultilineText(animated: false) }
+        }
     }
 
     private func configureActions() {

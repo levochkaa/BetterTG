@@ -6371,6 +6371,7 @@ final class ChatViewController: UIViewController, UICollectionViewDelegate, UICo
             || (chatActionBarHeightConstraint?.constant ?? 0) > 0
             ? chatActionBarView.frame.maxY + 8
             : customNavigationBar.frame.maxY + 8
+        if composerBottomConstraint != nil { composerView.topContentLimit = visualTopInset }
         let updatedInsets = UIEdgeInsets(top: visualBottomInset, left: 0, bottom: visualTopInset, right: 0)
         guard abs(collectionView.contentInset.top - updatedInsets.top) > 0.5
             || abs(collectionView.contentInset.bottom - updatedInsets.bottom) > 0.5
