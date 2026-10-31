@@ -708,7 +708,17 @@ final class FolderViewController: UITableViewController, UITableViewDataSourcePr
         updateChatSelection()
     }
 
-    override func tableView(_ tableView: UITableView, willDisplay _: UITableViewCell, forRowAt indexPath: IndexPath) {
+    override func tableView(
+        _ tableView: UITableView,
+        willDisplay cell: UITableViewCell,
+        forRowAt indexPath: IndexPath,
+    ) {
+        // A row that scrolls in doesn't show the selection the split gave it while it was off screen.
+        if selectedChatIDs == nil, let chatID = NavigationStorage.shared.splitSelectedChatID.value,
+           dataSource.itemIdentifier(for: indexPath) == chatID
+        {
+            cell.setSelected(true, animated: false)
+        }
         if indexPath.row >= tableView.numberOfRows(inSection: indexPath.section) - 12 {
             loadMoreChatsIfNeeded()
         }
