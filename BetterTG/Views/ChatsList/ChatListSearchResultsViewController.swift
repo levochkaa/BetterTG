@@ -303,8 +303,12 @@ import UIKit
         dataSource.itemIdentifier(for: indexPath) != .messagesLoading
     }
 
-    func tableView(_: UITableView, heightForHeaderInSection _: Int) -> CGFloat {
-        ChatListSearchSectionHeaderView.height
+    func tableView(_: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        if dataSource.sectionIdentifier(for: section) == .recent {
+            ChatListSearchSectionHeaderView.heightWithGlassAction
+        } else {
+            ChatListSearchSectionHeaderView.height
+        }
     }
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
@@ -1179,8 +1183,11 @@ class TelegramListTableView: UITableView {
 final class ChatListSearchSectionHeaderView: UITableViewHeaderFooterView {
     static let reuseIdentifier = "ChatListSearchSectionHeaderView"
     static let height: CGFloat = 28
+    /// The capsule is nearly as tall as the plain header, so it gets this much clear of what is above it.
+    static let heightWithGlassAction: CGFloat = height + glassActionTopGap
 
     private static let glassActionHeight: CGFloat = 24
+    private static let glassActionTopGap: CGFloat = 8
 
     private let titleLabel = UILabel()
     private let actionButton = UIButton(type: .system)
@@ -1194,6 +1201,8 @@ final class ChatListSearchSectionHeaderView: UITableViewHeaderFooterView {
 
     private let glassActionLabel = UILabel()
     private var action: ((UIView) -> Void)?
+    private var titleCenterConstraint: NSLayoutConstraint?
+    private var actionCenterConstraint: NSLayoutConstraint?
 
     override init(reuseIdentifier: String?) {
         super.init(reuseIdentifier: reuseIdentifier)
@@ -1230,6 +1239,9 @@ final class ChatListSearchSectionHeaderView: UITableViewHeaderFooterView {
         glassActionLabel.text = actionTitle
         glassAction.isHidden = actionTitle == nil || !actionInGlass
         glassAction.accessibilityLabel = actionTitle
+        let contentCenterOffset = actionInGlass ? Self.glassActionTopGap / 2 : 0
+        titleCenterConstraint?.constant = contentCenterOffset
+        actionCenterConstraint?.constant = contentCenterOffset
         self.action = actionTitle == nil ? nil : action
     }
 
@@ -1262,12 +1274,16 @@ final class ChatListSearchSectionHeaderView: UITableViewHeaderFooterView {
         glassAction.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         let inset: CGFloat = 16
+        let titleCenter = titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+        let actionCenter = glassAction.centerYAnchor.constraint(equalTo: contentView.centerYAnchor)
+        titleCenterConstraint = titleCenter
+        actionCenterConstraint = actionCenter
         NSLayoutConstraint.activate([
             titleLabel.leadingAnchor.constraint(
                 equalTo: contentView.safeAreaLayoutGuide.leadingAnchor,
                 constant: inset,
             ),
-            titleLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            titleCenter,
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: actionButton.leadingAnchor, constant: -8),
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: glassAction.leadingAnchor, constant: -8),
             actionButton.trailingAnchor.constraint(
@@ -1280,7 +1296,7 @@ final class ChatListSearchSectionHeaderView: UITableViewHeaderFooterView {
                 equalTo: contentView.safeAreaLayoutGuide.trailingAnchor,
                 constant: -TelegramGlassPlatter.edgeInset,
             ),
-            glassAction.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            actionCenter,
             glassAction.heightAnchor.constraint(equalToConstant: Self.glassActionHeight),
             glassActionLabel.leadingAnchor.constraint(equalTo: glassAction.contentView.leadingAnchor, constant: 10),
             glassActionLabel.trailingAnchor.constraint(equalTo: glassAction.contentView.trailingAnchor, constant: -10),
