@@ -559,7 +559,17 @@ ClientRestorableNavigationEntry {
 
     /// The folder tab shows over Posts once the profile has albums.
     private var showsAlbumTabs: Bool {
-        currentSharedTab == .posts && !storyAlbums.isEmpty
+        currentSharedTab == .posts && (!storyAlbums.isEmpty || managesStories)
+    }
+
+    /// PeerInfoStoryPaneNode.canManageStories, as BetterTG reads it: the account's own profile.
+    private var managesStories: Bool {
+        isMyProfile
+    }
+
+    private var albumTabsView: StoryAlbumTabsView? {
+        collectionView.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader)
+            .first as? StoryAlbumTabsView
     }
 
     init(
@@ -1052,6 +1062,192 @@ ClientRestorableNavigationEntry {
         opensChatItself = true
         onOpenMessage = { [weak self] messageID in self?.openChat(targetMessageID: messageID) }
         onSearch = { [weak self] in self?.openChatSearch() }
+    }
+
+    /// The folder tab's view with its handlers.
+    private func configureAlbumTabs(_ view: StoryAlbumTabsView?) {
+        view?.configure(
+            albums: storyAlbums,
+            selectedID: selectedAlbumID,
+            onSelect: { [weak self] id in self?.selectAlbum(id) },
+            onAdd: managesStories ? { [weak self] in self?.presentCreateAlbum(adding: []) } : nil,
+            onMenu: managesStories
+                ? { [weak self] id, source, gesture in
+                    self?.openAlbumMenu(id, source: source, gesture: gesture)
+                }
+                : nil,
+        )
+    }
+
+    /// presentAddStoryFolder: a name of at most 20 characters, then the album, opened, with any stories it adds.
+    private func presentCreateAlbum(adding storyIDs: [Int]) {
+        presentAlbumNamePrompt(
+            title: L10n.telegram("Stories.CreateAlbum.Title"),
+            text: L10n.telegram("Stories.CreateAlbum.Text"),
+            name: "",
+        ) { [weak self] name in
+            guard let self else { return }
+            let client = client
+            let chatID = customChat.id
+            Task { [weak self] in
+                do {
+                    let album = try await client.send(TDNativeRequests.createStoryAlbum(
+                        storyPosterChatId: chatID, name: name, storyIds: storyIDs,
+                    ))
+                    guard let self, contextIsCurrent else { return }
+                    storyAlbums.append((id: album.id, name: album.name))
+                    selectAlbum(album.id)
+                    collectionView.collectionViewLayout.invalidateLayout()
+                } catch {
+                    self?.presentChatListActionFailure()
+                }
+            }
+        }
+    }
+
+    /// The album tab's context menu: Rename Album and Delete Album.
+    private func openAlbumMenu(_ id: Int, source: UIView, gesture: UIGestureRecognizer) {
+        guard let album = storyAlbums.first(where: { $0.id == id }) else { return }
+        presentTelegramContextMenu(sourceView: source, actions: [
+            TelegramContextMenuAction(
+                title: L10n.telegram("Stories.MenuRenameAlbum"),
+                image: UIImage(systemName: "pencil"),
+            ) { [weak self] in self?.presentRenameAlbum(id: id, name: album.name) },
+            TelegramContextMenuAction(
+                title: L10n.telegram("Stories.MenuDeleteAlbum"),
+                image: UIImage(systemName: "trash"),
+                isDestructive: true,
+            ) { [weak self] in self?.confirmDeleteAlbum(id: id, name: album.name) },
+        ], tracking: gesture, presentationStyle: .menuOnly)
+    }
+
+    private func presentRenameAlbum(id: Int, name: String) {
+        presentAlbumNamePrompt(
+            title: L10n.telegram("Stories.EditAlbum.Title"),
+            text: L10n.telegram("Stories.EditAlbum.Text"),
+            name: name,
+        ) { [weak self] newName in
+            guard let self else { return }
+            let client = client
+            let chatID = customChat.id
+            Task { [weak self] in
+                do {
+                    let album = try await client.send(TDNativeRequests.setStoryAlbumName(
+                        chatId: chatID, storyAlbumId: id, name: newName,
+                    ))
+                    guard let self, contextIsCurrent,
+                          let index = storyAlbums.firstIndex(where: { $0.id == id }) else { return }
+                    storyAlbums[index].name = album.name
+                    configureAlbumTabs(albumTabsView)
+                } catch {
+                    self?.presentChatListActionFailure()
+                }
+            }
+        }
+    }
+
+    /// presentDeleteStoryFolder: an action sheet naming the album.
+    private func confirmDeleteAlbum(id: Int, name: String) {
+        let sheet = UIAlertController(
+            title: L10n.telegram("Stories.DeleteAlbum.Confirmation", name),
+            message: nil,
+            preferredStyle: .actionSheet,
+        )
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Stories.MenuDeleteAlbum"), style: .destructive) {
+            [weak self] _ in
+            guard let self else { return }
+            let client = client
+            let chatID = customChat.id
+            Task { [weak self] in
+                do {
+                    _ = try await client.send(TDNativeRequests.deleteStoryAlbum(chatId: chatID, storyAlbumId: id))
+                    guard let self, contextIsCurrent else { return }
+                    storyAlbums.removeAll { $0.id == id }
+                    if selectedAlbumID == id { selectAlbum(nil) }
+                    configureAlbumTabs(albumTabsView)
+                    collectionView.collectionViewLayout.invalidateLayout()
+                } catch {
+                    self?.presentChatListActionFailure()
+                }
+            }
+        })
+        sheet.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        present(sheet, animated: true)
+    }
+
+    /// promptController with a title, a text and a field of at most 20 characters.
+    private func presentAlbumNamePrompt(
+        title: String,
+        text: String,
+        name: String,
+        apply: @escaping (String) -> Void,
+    ) {
+        let alert = UIAlertController(title: title, message: text, preferredStyle: .alert)
+        alert.addTextField { field in
+            field.text = name
+            field.placeholder = L10n.telegram("Stories.CreateAlbum.Placeholder")
+            field.autocapitalizationType = .sentences
+        }
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Cancel"), style: .cancel))
+        alert.addAction(UIAlertAction(title: L10n.telegram("Common.Done"), style: .default) { [weak alert] _ in
+            let value = String((alert?.textFields?.first?.text ?? "").trimmingCharacters(in: .whitespaces).prefix(20))
+            guard !value.isEmpty else { return }
+            apply(value)
+        })
+        present(alert, animated: true)
+    }
+
+    /// Stories.MenuAddToAlbum's list: the albums the story isn't in, then New Album.
+    private func addToAlbumAction(_ story: Story) -> TelegramContextMenuAction {
+        var children = storyAlbums.filter { $0.id != selectedAlbumID }.map { album in
+            TelegramContextMenuAction(title: album.name, image: UIImage(systemName: "folder")) { [weak self] in
+                self?.addPosts([story.id], toAlbum: album.id)
+            }
+        }
+        children.append(TelegramContextMenuAction(
+            title: L10n.telegram("Stories.MenuNewAlbum"),
+            image: UIImage(systemName: "folder.badge.plus"),
+        ) { [weak self] in self?.presentCreateAlbum(adding: [story.id]) })
+        return TelegramContextMenuAction(
+            title: L10n.telegram("Stories.MenuAddToAlbum"),
+            image: UIImage(systemName: "folder.badge.plus"),
+            children: children,
+        )
+    }
+
+    private func addPosts(_ storyIDs: [Int], toAlbum albumID: Int) {
+        let client = client
+        let chatID = customChat.id
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.addStoryAlbumStories(
+                    chatId: chatID, storyAlbumId: albumID, storyIds: storyIDs,
+                ))
+                self?.showInfoToast(L10n.telegramPlural(
+                    "Stories.ToastAddedToFolder",
+                    count: storyIDs.count,
+                    formattedCount: "\(storyIDs.count)",
+                ))
+            } catch {
+                self?.presentChatListActionFailure()
+            }
+        }
+    }
+
+    private func removePostFromAlbum(_ storyID: Int, albumID: Int) {
+        let client = client
+        let chatID = customChat.id
+        Task { [weak self] in
+            do {
+                _ = try await client.send(TDNativeRequests.removeStoryAlbumStories(
+                    chatId: chatID, storyAlbumId: albumID, storyIds: [storyID],
+                ))
+                guard let self, contextIsCurrent, selectedAlbumID == albumID else { return }
+                removePost(storyID)
+            } catch {
+                self?.presentChatListActionFailure()
+            }
+        }
     }
 
     /// Opens a Files, Audio or Links row's content; false when it has none and the message opens in the chat.
@@ -1840,11 +2036,7 @@ ClientRestorableNavigationEntry {
             let view = collectionView.dequeueReusableSupplementaryView(
                 ofKind: kind, withReuseIdentifier: StoryAlbumTabsView.reuseIdentifier, for: indexPath,
             ) as? StoryAlbumTabsView
-            if let self {
-                view?.configure(albums: storyAlbums, selectedID: selectedAlbumID) { [weak self] id in
-                    self?.selectAlbum(id)
-                }
-            }
+            self?.configureAlbumTabs(view)
             return view
         }
     }
@@ -3459,6 +3651,16 @@ ClientRestorableNavigationEntry {
                 isDestructive: true,
             ) { [weak self] in self?.confirmDeletePost(story) })
         }
+        if managesStories, currentSharedTab == .posts {
+            // PeerInfoStoryPaneNode puts Add to Album first and Remove from Album with the rest.
+            actions.insert(addToAlbumAction(story), at: 0)
+            if let albumID = selectedAlbumID {
+                actions.append(TelegramContextMenuAction(
+                    title: L10n.telegram("Stories.MenuRemoveFromAlbum"),
+                    image: UIImage(systemName: "folder.badge.minus"),
+                ) { [weak self] in self?.removePostFromAlbum(story.id, albumID: albumID) })
+            }
+        }
         if story.canToggleIsPostedToChatPage || story.canBeDeleted {
             var select = TelegramContextMenuAction(
                 title: L10n.telegram("Conversation.ContextMenuSelect"),
@@ -3740,11 +3942,7 @@ ClientRestorableNavigationEntry {
         postsHasMore = true
         applySnapshot(animated: false)
         // The tabs redraw with the new choice.
-        if let header = collectionView.visibleSupplementaryViews(ofKind: UICollectionView.elementKindSectionHeader)
-            .first as? StoryAlbumTabsView
-        {
-            header.configure(albums: storyAlbums, selectedID: id) { [weak self] id in self?.selectAlbum(id) }
-        }
+        configureAlbumTabs(albumTabsView)
         loadMorePosts()
     }
 

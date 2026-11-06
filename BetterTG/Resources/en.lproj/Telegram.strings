@@ -3392,3 +3392,17 @@
 "StoryList.ActionPanel.Unarchive" = "Unarchive";
 "StoryList.ActionPanel.Delete" = "Delete";
 "Stories.AlbumAll" = "All Stories";
+"Stories.AlbumAdd" = "+ Add Album";
+"Stories.MenuDeleteAlbum" = "Delete Album";
+"Stories.MenuAddToAlbum" = "Add to Album";
+"Stories.MenuNewAlbum" = "New Album";
+"Stories.MenuRenameAlbum" = "Rename Album";
+"Stories.MenuRemoveFromAlbum" = "Remove from Album";
+"Stories.CreateAlbum.Title" = "Create a New Album";
+"Stories.CreateAlbum.Text" = "Choose a name for your album and start adding your stories there.";
+"Stories.CreateAlbum.Placeholder" = "Title";
+"Stories.EditAlbum.Title" = "Edit Album Name";
+"Stories.EditAlbum.Text" = "Choose a new name for your album.";
+"Stories.DeleteAlbum.Confirmation" = "Delete %@?";
+"Stories.ToastAddedToFolder_1" = "Story added to folder.";
+"Stories.ToastAddedToFolder_any" = "%@ stories added to folder.";
