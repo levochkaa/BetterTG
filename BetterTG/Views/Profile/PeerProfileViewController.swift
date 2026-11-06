@@ -897,6 +897,51 @@ ClientRestorableNavigationEntry {
         ))
     }
 
+    /// The file a shared message carries and the name it is shared under.
+    private static func shareableFile(of message: Message) -> (File, String)? {
+        func named(_ name: String, fallback: String) -> String {
+            let last = URL(filePath: name).lastPathComponent
+            return last.isEmpty ? fallback : last
+        }
+        let id = message.id
+        switch message.content {
+        case .messagePhoto(let content):
+            guard let size = content.photo.sizes.max(by: { $0.width * $0.height < $1.width * $1.height }) else {
+                return nil
+            }
+            return (size.photo, "photo-\(id).jpg")
+        case .messageVideo(let content):
+            return (content.video.video, named(content.video.fileName, fallback: "video-\(id).mp4"))
+        case .messageAnimation(let content):
+            return (content.animation.animation, named(content.animation.fileName, fallback: "animation-\(id).mp4"))
+        case .messageDocument(let content):
+            return (content.document.document, named(content.document.fileName, fallback: "file-\(id)"))
+        case .messageAudio(let content):
+            return (content.audio.audio, named(content.audio.fileName, fallback: "audio-\(id).mp3"))
+        case .messageVoiceNote(let content):
+            return (content.voiceNote.voice, "voice-\(id).ogg")
+        case .messageVideoNote(let content):
+            return (content.videoNote.video, "video-note-\(id).mp4")
+        default:
+            return nil
+        }
+    }
+
+    /// The addresses a link pane's message carries: its preview's, or the URLs in its text.
+    private static func linkAddresses(in message: Message) -> [URL] {
+        guard case .messageText(let content) = message.content else { return [] }
+        if let preview = content.linkPreview, let url = URL(string: preview.url) { return [url] }
+        let text = content.text.text as NSString
+        return content.text.entities.compactMap { entity -> URL? in
+            switch entity.type {
+            case .textEntityTypeTextUrl(let link): URL(string: link.url)
+            case .textEntityTypeUrl:
+                URL(string: text.substring(with: NSRange(location: entity.offset, length: entity.length)))
+            default: nil
+            }
+        }
+    }
+
     func scrollViewWillBeginDragging(_: UIScrollView) {
         sharedViewportGeneration &+= 1
         let hadPendingViewport = restoredViewport != nil
@@ -1646,9 +1691,13 @@ ClientRestorableNavigationEntry {
         if ids != nil, messageSelectionToolbar == nil {
             let toolbar = StickerSelectionToolbar(titles: [
                 L10n.telegram("Conversation.ContextMenuForward"),
-                "",
+                L10n.telegram("Conversation.ContextMenuShare"),
                 L10n.telegram("Conversation.ContextMenuDelete"),
             ])
+            toolbar.archiveButton.addAction(UIAction { [weak self, weak toolbar] _ in
+                guard let self, let ids = selectedMessageIDs, let source = toolbar?.archiveButton else { return }
+                shareSharedMessages(sortedIDs(ids), from: source)
+            }, for: .touchUpInside)
             toolbar.deleteButton.addAction(UIAction { [weak self] _ in
                 guard let self, let ids = selectedMessageIDs else { return }
                 forwardSharedMessages(sortedIDs(ids))
@@ -1695,6 +1744,59 @@ ClientRestorableNavigationEntry {
                 isSelected: selectedMessageIDs?.contains(id) == true,
                 isGrid: currentSharedTab.isGrid,
             )
+        }
+    }
+
+    /// PeerInfoSelectionPanelNode's Share: the picked messages' files, downloaded as needed and copied under their
+    /// names, or a link pane's addresses, in the system share sheet. Messages whose content may not be saved are
+    /// left out.
+    private func shareSharedMessages(_ ids: [Int64], from source: UIView) {
+        let client = client
+        let chatID = customChat.id
+        let isLinks = currentSharedTab == .links
+        let messages = ids.compactMap { messagesByID[$0] }
+        Task { [weak self] in
+            var items = [Any]()
+            let directory = FileManager.default
+                .temporaryDirectory
+                .appendingPathComponent("bettertg-share-\(UUID().uuidString)", isDirectory: true)
+            for message in messages {
+                if isLinks {
+                    items.append(contentsOf: Self.linkAddresses(in: message))
+                    continue
+                }
+                let properties = try? await client.getMessageProperties(chatId: chatID, messageId: message.id)
+                guard properties?.canBeSaved == true, properties?.hasProtectedContentByOtherUser != true,
+                      let (file, name) = Self.shareableFile(of: message) else { continue }
+                let downloaded = file.local.isDownloadingCompleted
+                    ? file
+                    : try? await client.downloadFile(
+                        fileId: file.id,
+                        limit: 0,
+                        offset: 0,
+                        priority: 16,
+                        synchronous: true,
+                    )
+                guard let path = downloaded?.local.path, !path.isEmpty else { continue }
+                try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let destination = directory.appendingPathComponent(name)
+                try? FileManager.default.removeItem(at: destination)
+                if (try? FileManager.default.copyItem(at: URL(filePath: path), to: destination)) != nil {
+                    items.append(destination)
+                }
+            }
+            guard let self, contextIsCurrent, !items.isEmpty, presentedViewController == nil else {
+                try? FileManager.default.removeItem(at: directory)
+                return
+            }
+            let activity = UIActivityViewController(activityItems: items, applicationActivities: nil)
+            activity.popoverPresentationController?.sourceView = source
+            activity.popoverPresentationController?.sourceRect = source.bounds
+            activity.completionWithItemsHandler = { [weak self] _, completed, _, _ in
+                try? FileManager.default.removeItem(at: directory)
+                if completed { DispatchQueue.main.async { self?.setMessageSelection(nil) } }
+            }
+            present(activity, animated: true)
         }
     }
 
