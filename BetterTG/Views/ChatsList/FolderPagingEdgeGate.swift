@@ -8,6 +8,8 @@ import UIKit.UIGestureRecognizerSubclass
 /// Telegram's folder pan (ChatListControllerNode, `InteractiveTransitionGestureRecognizer` with
 /// `[.leftCenter, .rightCenter]` and an edge width of a sixth of the width within 22...80 pt) fails for a pan that
 /// starts in a side edge zone; the row's reveal options then take it. A pan from the middle switches folders.
+/// The zones lie at the edges of the band the rows keep to, so beside iPhone Duo's strip the right one stays on the
+/// rows rather than under the strip.
 final class FolderPagingEdgeGate: UIGestureRecognizer {
     // MARK: Internal
 
@@ -24,8 +26,14 @@ final class FolderPagingEdgeGate: UIGestureRecognizer {
 
     override func touchesBegan(_ touches: Set<UITouch>, with _: UIEvent) {
         if let view, let point = touches.first?.location(in: view) {
-            let edge = Self.edgeWidth(for: view.bounds.width)
-            touchStartedAtEdge = point.x < edge || point.x > view.bounds.width - edge
+            let band = view.bounds.inset(by: UIEdgeInsets(
+                top: 0,
+                left: view.safeAreaInsets.left,
+                bottom: 0,
+                right: view.safeAreaInsets.right,
+            ))
+            let edge = Self.edgeWidth(for: band.width)
+            touchStartedAtEdge = point.x < band.minX + edge || point.x > band.maxX - edge
             onTouchBegan?(touchStartedAtEdge)
         }
         state = .failed
