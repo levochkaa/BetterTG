@@ -255,7 +255,9 @@ final class ArchiveViewController: UIViewController, ClientRestorableNavigationE
     private func installFolderController() {
         folderController.isSearchActive = { [weak self] in self?.navigationBarView.isSearchActive == true }
         folderController.onSelectionEditingChange = { [weak self] title, done in
-            self?.navigationBarView.setEditing(title: title, done: done)
+            self?.navigationBarView.animateGlassChange {
+                self?.navigationBarView.setEditing(title: title, done: done)
+            }
             self?.onTabBarHiddenChange?(done != nil)
         }
         folderController.selectionToolbarTakesTabBarPlace = isTabRoot

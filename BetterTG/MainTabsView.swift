@@ -193,12 +193,9 @@ TelegramEmbeddedNavigationChrome {
     private func show(_ tab: MainTab, force: Bool = false) {
         guard force || tab != selectedTab, let next = controller(for: tab) else { return }
         let previous = force ? nil : selectedController
+        // The outgoing tab's glass, measured while its bar is still on screen.
+        let outgoingPlatters = previous == nil ? [] : telegramGlassPlatters
         selectedTab = tab
-        if let previous, previous !== next {
-            previous.willMove(toParent: nil)
-            previous.view.removeFromSuperview()
-            previous.removeFromParent()
-        }
         if next.parent !== self {
             addChild(next)
             next.view.frame = view.bounds
@@ -213,6 +210,20 @@ TelegramEmbeddedNavigationChrome {
         tabBar.select(tabs.firstIndex(of: tab) ?? 0, animated: true)
         layoutTabBar()
         setNeedsStatusBarAppearanceUpdate()
+        guard let previous, previous !== next else { return }
+        // The bars' glass morphs from the outgoing tab's to the incoming one's while both are still in place, as
+        // UIKit's
+        // tab bar controller morphs its children's bars.
+        next.view.layoutIfNeeded()
+        TelegramGlassNavigationMorph.runInPlace(
+            in: view,
+            from: outgoingPlatters,
+            to: telegramGlassPlatters,
+            destinationView: next.view,
+        )
+        previous.willMove(toParent: nil)
+        previous.view.removeFromSuperview()
+        previous.removeFromParent()
     }
 
     private func setTabBarHidden(_ hidden: Bool) {

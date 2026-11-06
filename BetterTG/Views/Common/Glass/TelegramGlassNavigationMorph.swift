@@ -159,6 +159,31 @@ import UIKit
         }
     }
 
+    /// A change of screens in place, such as a tab switch: the bars' glass morphs as in a push, on the same springs,
+    /// as UIKit's tab bar controller morphs its children's bars. `destinationView` holds the incoming bar, laid out.
+    static func runInPlace(
+        in view: UIView,
+        from source: [TelegramGlassPlatter],
+        to destination: [TelegramGlassPlatter],
+        destinationView: UIView,
+    ) {
+        guard !source.isEmpty || !destination.isEmpty, view.window != nil else { return }
+        for morph in active where morph.navigationView === view {
+            morph.finish()
+        }
+        let morph = TelegramGlassNavigationMorph(navigationView: view)
+        morph.begin(source: source, destination: destination)
+        guard !morph.pieces.isEmpty else {
+            morph.finish()
+            return
+        }
+        active.append(morph)
+        morph.transitionEnded = true
+        UIView.performWithoutAnimation { morph.resolveDestination(in: destinationView) }
+        // No transition's curve to keep out of here: the springs start at once.
+        morph.animate()
+    }
+
     private static func keys(of platters: [TelegramGlassPlatter]) -> [Key: TelegramGlassPlatter] {
         let shown = platters.filter { platter in
             // A platter whose glass gives way to something else, such as a chat's row to its search, is not there.

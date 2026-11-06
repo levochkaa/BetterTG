@@ -631,15 +631,19 @@ final class MainViewController: UIViewController, UIPageViewControllerDataSource
     /// toolbar, the pages stay put and the folder tabs shake and can be dragged; Done saves their new order.
     private func setChatSelectionEditing(title: String?, done: (() -> Void)?) {
         let wasSelecting = isSelectingChats
-        customNavigationBar.setEditing(title: title, done: done, showsDone: false)
         isSelectingChats = done != nil
         editingDone = done
-        UIView.performWithoutAnimation {
+        let change = { [self] in
+            customNavigationBar.setEditing(title: title, done: done, showsDone: false)
             customNavigationBar.setLeftTitle(
                 L10n.telegram(isSelectingChats ? "Common.Done" : "Common.Edit"),
                 isProminent: isSelectingChats,
             )
-            customNavigationBar.layoutIfNeeded()
+        }
+        if wasSelecting != isSelectingChats {
+            customNavigationBar.animateGlassChange(change)
+        } else {
+            change()
         }
         onTabBarHiddenChange?(isSelectingChats)
         if let scrollView = pageController.view.subviews.compactMap({ $0 as? UIScrollView }).first {

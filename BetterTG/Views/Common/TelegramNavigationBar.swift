@@ -314,6 +314,46 @@ final class TelegramListNavigationBar: UIView {
 
     /// "2 Topics Selected" replaces the title and status (ChatTitleComponent's custom content). A nil title shows the
     /// regular one; a nil action ends editing.
+    /// A change of the bar's buttons in place, such as Edit turning into Done and the right buttons leaving: platters
+    /// that go dematerialize where they are, ones that come materialize, and the rest spring to their new frames, on
+    /// the push morph's spring, as UIKit's bar changes its items.
+    func animateGlassChange(_ change: () -> Void) {
+        guard window != nil, !UIAccessibility.isReduceMotionEnabled else { return change() }
+        let shown = allPlatters.filter { !$0.isHidden }
+        change()
+        let leaving = shown.filter(\.isHidden)
+        let arriving = allPlatters.filter { !$0.isHidden && !shown.contains($0) }
+        for platter in leaving {
+            platter.isHidden = false
+        }
+        for platter in arriving {
+            platter.setGlassMaterialized(false)
+            platter.glassView.contentView.alpha = 0
+            platter.transform = CGAffineTransform(scaleX: 1.2, y: 1.2)
+        }
+        UIView.animate(springDuration: 0.416, bounce: 0.25, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            for platter in leaving {
+                platter.setGlassMaterialized(false)
+                platter.glassView.contentView.alpha = 0
+                platter.transform = CGAffineTransform(scaleX: 1.2, y: 1.2)
+            }
+            for platter in arriving {
+                platter.setGlassMaterialized(true)
+                platter.glassView.contentView.alpha = 1
+                platter.transform = .identity
+            }
+            self.superview?.layoutIfNeeded()
+        } completion: { _ in
+            for platter in leaving {
+                platter.transform = .identity
+                platter.glassView.contentView.alpha = 1
+                platter.setGlassMaterialized(true)
+                // A later change may have brought it back meanwhile.
+                platter.isHidden = !platter.hasVisibleItems
+            }
+        }
+    }
+
     /// `showsDone` false leaves Done to the caller, as the chat list's Edit turns into it.
     func setEditing(title: String?, done: (() -> Void)?, showsDone: Bool = true) {
         let editing = done != nil
